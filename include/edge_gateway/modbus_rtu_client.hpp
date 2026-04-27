@@ -1,0 +1,61 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+#include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/serial_port.hpp"
+
+namespace edge_gateway {
+
+class ModbusRtuClient : public IModbusClient {
+public:
+    ModbusRtuClient(std::shared_ptr<ISerialPort> serialPort, SerialPortOptions options);
+
+    std::vector<std::uint16_t> readHoldingRegisters(int slave, int start, int count) override;
+    std::vector<std::uint16_t> readInputRegisters(int slave, int start, int count) override;
+
+    void writeSingleRegister(int slave, int address, std::uint16_t value) override;
+    void writeMultipleRegisters(
+        int slave,
+        int address,
+        const std::vector<std::uint16_t>& values
+    ) override;
+
+private:
+    std::vector<std::uint8_t> transact(
+        int slave,
+        std::uint8_t function,
+        const std::vector<std::uint8_t>& pdu,
+        std::size_t minResponseSize
+    );
+
+    std::vector<std::uint16_t> executeRegisterRead(
+        int slave,
+        std::uint8_t function,
+        int start,
+        int count
+    );
+
+    void ensurePortOpen();
+    static std::uint16_t crc16(const std::vector<std::uint8_t>& bytes);
+    static void appendCrc(std::vector<std::uint8_t>& frame);
+    static void validateCrc(const std::vector<std::uint8_t>& frame);
+    static std::vector<std::uint16_t> decodeRegistersFromReadResponse(
+        const std::vector<std::uint8_t>& response,
+        std::uint8_t function,
+        int expectedCount
+    );
+    static void validateWriteEcho(
+        const std::vector<std::uint8_t>& response,
+        std::uint8_t function,
+        int address,
+        int countOrValue
+    );
+
+    std::shared_ptr<ISerialPort> serialPort_;
+    SerialPortOptions options_;
+};
+
+}  // namespace edge_gateway

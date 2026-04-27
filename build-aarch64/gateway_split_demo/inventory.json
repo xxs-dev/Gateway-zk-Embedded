@@ -1,0 +1,52 @@
+{
+  "gatewayModel": {
+    "machineCodePrefix": "GW",
+    "rs485PortsPerGateway": 8
+  },
+  "limits": {
+    "maxPointsPerGateway": 12000,
+    "maxSegmentsPerGateway": 320,
+    "maxDevicesPerGateway": 200,
+    "maxPointsPerPort": 2000,
+    "maxSegmentsPerPort": 64,
+    "maxDevicesPerPort": 32
+  },
+  "devices": [
+    {
+      "meterCode": "TTYSP1_SLAVE0001",
+      "protocol": "modbus_rtu",
+      "transport": "rs485",
+      "pointCount": 10,
+      "segmentCount": 1,
+      "sourceDeviceConfig": "config\\runtime\\devices\\device_slave_ttySP1.json",
+      "sourceMachineCode": "GW0001"
+    },
+    {
+      "meterCode": "TTYSP1_SLAVE0002",
+      "protocol": "modbus_rtu",
+      "transport": "rs485",
+      "pointCount": 10,
+      "segmentCount": 1,
+      "sourceDeviceConfig": "config\\runtime\\devices\\device_slave_ttySP1.json",
+      "sourceMachineCode": "GW0001"
+    },
+    {
+      "meterCode": "TTYSP2_SLAVE0001",
+      "protocol": "modbus_rtu",
+      "transport": "rs485",
+      "pointCount": 10,
+      "segmentCount": 1,
+      "sourceDeviceConfig": "config\\runtime\\devices\\device_slave_ttySP2.json",
+      "sourceMachineCode": "GW0001"
+    },
+    {
+      "meterCode": "TTYSP2_SLAVE0002",
+      "protocol": "modbus_rtu",
+      "transport": "rs485",
+      "pointCount": 10,
+      "segmentCount": 1,
+      "sourceDeviceConfig": "config\\runtime\\devices\\device_slave_ttySP2.json",
+      "sourceMachineCode": "GW0001"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "deviceConfigFiles": [
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_1_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_2_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_3_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_4_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_5_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_6_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_7_modbus.json",
+    "/tmp/gateway-stress-8rs485/device_stress_rs485_8_dlt645.json"
+  ],
+  "mqtt": {
+    "enabled": false,
+    "protocolVersion": "mqtt5",
+    "broker": "tcp://127.0.0.1:1883",
+    "clientId": "stress",
+    "telemetryTopic": "edge/telemetry",
+    "changeEventTopic": "edge/event/change",
+    "commandRequestTopic": "edge/command/request",
+    "commandReplyTopic": "edge/command/reply",
+    "otaRequestTopic": "edge/ota/request",
+    "otaReplyTopic": "edge/ota/reply",
+    "otaStatusTopic": "edge/ota/status",
+    "alarmTopic": "edge/alarm",
+    "statusTopic": "edge/status",
+    "qos": 0,
+    "maxPayloadBytes": 49152
+  },
+  "mqttDriver": {
+    "enabled": true,
+    "sharedMemoryName": "gateway_stress_rs485_1",
+    "sharedMemoryNames": [
+      "gateway_stress_rs485_1",
+      "gateway_stress_rs485_2",
+      "gateway_stress_rs485_3",
+      "gateway_stress_rs485_4",
+      "gateway_stress_rs485_5",
+      "gateway_stress_rs485_6",
+      "gateway_stress_rs485_7",
+      "gateway_stress_rs485_8"
+    ],
+    "scanIntervalMs": 1000,
+    "fullUploadIntervalMs": 1000,
+    "publishFullOnStart": true,
+    "publishAllOnFull": true,
+    "fullUploadIndexes": []
+  },
+  "alarmStore": {
+    "enabled": false,
+    "sqlitePath": "/tmp/gateway-stress-alarm.db",
+    "sqliteLibraryPath": ""
+  },
+  "ota": {
+    "enabled": false
+  }
+}

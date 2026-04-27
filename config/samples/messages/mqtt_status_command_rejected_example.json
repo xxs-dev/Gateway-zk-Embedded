@@ -1,0 +1,8 @@
+{
+  "service": "mqtt-driver",
+  "event": "command-rejected",
+  "ts": 1776156245000,
+  "cmdId": "CMD2026041519300002",
+  "index": 11099,
+  "message": "command index not found"
+}

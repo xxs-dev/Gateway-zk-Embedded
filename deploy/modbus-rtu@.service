@@ -1,0 +1,15 @@
+[Unit]
+Description=Modbus Driver Instance %i
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/modbus-gateway
+ExecStart=/opt/modbus-gateway/bin/ModbusRtu --config /opt/modbus-gateway/config/runtime/devices/%i.json
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

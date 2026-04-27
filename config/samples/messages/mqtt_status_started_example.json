@@ -1,0 +1,7 @@
+{
+  "service": "mqtt-driver",
+  "event": "started",
+  "scanIntervalMs": 1000,
+  "fullUploadIntervalMs": 60000,
+  "ts": 1776156000000
+}

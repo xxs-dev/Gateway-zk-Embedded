@@ -1,0 +1,8 @@
+{
+  "service": "modbus-daemon",
+  "event": "writeback-succeeded",
+  "ts": 1776157800000,
+  "meterCode": "SLAVE0001",
+  "index": 11001,
+  "cmdId": "CMD2026041520200001"
+}

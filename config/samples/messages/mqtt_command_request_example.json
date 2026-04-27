@@ -1,0 +1,10 @@
+{
+  "cmdId": "CMD2026041415300001",
+  "machineCode": "GW0001",
+  "meterCode": "SLAVE0001",
+  "index": 11001,
+  "pointCode": "reg_1",
+  "value": 1,
+  "source": "mqtt",
+  "ts": 1776155909818
+}

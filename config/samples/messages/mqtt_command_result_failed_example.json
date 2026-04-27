@@ -1,0 +1,13 @@
+{
+  "cmdId": "CMD2026041520000002",
+  "machineCode": "GW0001",
+  "meterCode": "SLAVE0001",
+  "pointCode": "reg_1",
+  "success": false,
+  "message": "verify failed",
+  "ts": 1776157205000,
+  "index": 11001,
+  "requestedValue": 2,
+  "verifyAttempted": true,
+  "verifyPassed": false
+}

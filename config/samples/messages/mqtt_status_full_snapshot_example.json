@@ -1,0 +1,6 @@
+{
+  "service": "mqtt-driver",
+  "event": "full-snapshot",
+  "valueCount": 20,
+  "ts": 1776156060000
+}

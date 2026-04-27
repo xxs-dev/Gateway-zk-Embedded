@@ -1,0 +1,44 @@
+{
+  "gatewayModel": {
+    "machineCodePrefix": "GW",
+    "rs485PortsPerGateway": 8
+  },
+  "limits": {
+    "maxPointsPerGateway": 12000,
+    "maxSegmentsPerGateway": 320,
+    "maxDevicesPerGateway": 200,
+    "maxPointsPerPort": 2000,
+    "maxSegmentsPerPort": 64,
+    "maxDevicesPerPort": 32
+  },
+  "summary": {
+    "gatewayCount": 1,
+    "rejectedCount": 0,
+    "gateways": [
+      {
+        "machineCode": "GW0001",
+        "deviceCount": 4,
+        "pointCount": 40,
+        "segmentCount": 4,
+        "portCount": 1,
+        "ports": [
+          {
+            "portCode": "RS485_1",
+            "protocol": "modbus_rtu",
+            "transport": "rs485",
+            "deviceCount": 4,
+            "pointCount": 40,
+            "segmentCount": 4,
+            "meterCodes": [
+              "TTYSP1_SLAVE0001",
+              "TTYSP1_SLAVE0002",
+              "TTYSP2_SLAVE0001",
+              "TTYSP2_SLAVE0002"
+            ]
+          }
+        ]
+      }
+    ],
+    "rejected": []
+  }
+}

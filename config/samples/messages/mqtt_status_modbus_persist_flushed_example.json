@@ -1,0 +1,6 @@
+{
+  "service": "modbus-daemon",
+  "event": "persist-flushed",
+  "ts": 1776156620000,
+  "count": 32
+}

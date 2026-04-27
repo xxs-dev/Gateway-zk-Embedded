@@ -1,0 +1,15 @@
+[Unit]
+Description=Gateway Event Engine Instance %i
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/modbus-gateway
+ExecStart=/opt/modbus-gateway/bin/EventEngine --app-config /opt/modbus-gateway/config/runtime/apps/%i.json
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

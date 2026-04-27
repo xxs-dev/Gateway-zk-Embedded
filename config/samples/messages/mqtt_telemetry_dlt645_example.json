@@ -1,0 +1,46 @@
+{
+  "type": "telemetry",
+  "machineCode": "GW0001",
+  "meters": [
+    {
+      "meterCode": "METER0001",
+      "values": [
+        {
+          "index": 200000,
+          "pointCode": "forward_active_energy_total",
+          "pointName": "正向有功总电能",
+          "value": 12345.67,
+          "quality": 1,
+          "ts": 1776666600000,
+          "expireAt": 1776667200000,
+          "stale": false
+        },
+        {
+          "index": 200009,
+          "pointCode": "forward_active_energy_tariff_1",
+          "pointName": "尖时正向有功电能",
+          "value": 2345.67,
+          "quality": 1,
+          "ts": 1776666600000,
+          "expireAt": 1776667200000,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "meterCode": "METER0002",
+      "values": [
+        {
+          "index": 210000,
+          "pointCode": "forward_active_energy_total",
+          "pointName": "正向有功总电能",
+          "value": 22345.67,
+          "quality": 1,
+          "ts": 1776666600000,
+          "expireAt": 1776667200000,
+          "stale": false
+        }
+      ]
+    }
+  ]
+}

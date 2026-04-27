@@ -1,0 +1,1 @@
+1776157300000,result=failure,jobId=OTA2026041520100001,stage=applying,toVersion=1.2.3,rollbackAttempted=true,rollbackSucceeded=true,message=ota apply script failed

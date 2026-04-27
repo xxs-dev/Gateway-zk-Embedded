@@ -1,0 +1,11 @@
+{
+  "gateways": [
+    {
+      "machineCode": "GW0001",
+      "deviceConfigFiles": [
+        "build-aarch64\\gateway_split_demo\\generated\\GW0001\\runtime\\devices\\device_slave_gw0001_rs485_1.json"
+      ],
+      "appConfigFile": "build-aarch64\\gateway_split_demo\\generated\\GW0001\\runtime\\apps\\mqtt-service.json"
+    }
+  ]
+}

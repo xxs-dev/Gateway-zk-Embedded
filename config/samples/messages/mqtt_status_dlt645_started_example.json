@@ -1,0 +1,7 @@
+{
+  "service": "dlt645-daemon",
+  "event": "started",
+  "ts": 1776666600000,
+  "sharedMemory": "gateway_point_store",
+  "mode": "dlt645_2007"
+}

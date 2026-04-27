@@ -1,0 +1,7 @@
+{
+  "service": "mqtt-driver",
+  "event": "ota-rejected",
+  "ts": 1776156250000,
+  "jobId": "OTA2026041519300001",
+  "message": "machineCode mismatch"
+}

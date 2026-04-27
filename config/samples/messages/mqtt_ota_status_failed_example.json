@@ -1,0 +1,8 @@
+{
+  "jobId": "OTA2026041520300001",
+  "machineCode": "GW0001",
+  "stage": "failed",
+  "progress": 0,
+  "message": "ota apply script failed",
+  "ts": 1776157810000
+}

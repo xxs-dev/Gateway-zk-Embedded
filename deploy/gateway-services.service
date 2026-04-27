@@ -1,0 +1,15 @@
+[Unit]
+Description=Gateway Driver Services Auto Launcher
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/modbus-gateway
+ExecStart=/opt/modbus-gateway/bin/gateway-services.sh apply
+ExecReload=/opt/modbus-gateway/bin/gateway-services.sh apply
+ExecStop=/opt/modbus-gateway/bin/gateway-services.sh stop
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

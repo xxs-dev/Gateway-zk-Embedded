@@ -1,0 +1,9 @@
+{
+  "index": 11001,
+  "alarmType": "high",
+  "active": true,
+  "value": 2400,
+  "quality": 1,
+  "ts": 1776156180000,
+  "stale": false
+}

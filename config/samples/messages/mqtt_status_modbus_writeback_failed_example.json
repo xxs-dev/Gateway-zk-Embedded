@@ -1,0 +1,8 @@
+{
+  "service": "modbus-daemon",
+  "event": "writeback-failed",
+  "ts": 1776156610000,
+  "meterCode": "SLAVE0001",
+  "index": 11001,
+  "message": "verify failed"
+}

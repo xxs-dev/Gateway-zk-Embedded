@@ -1,0 +1,24 @@
+{
+  "type": "snapshot",
+  "machineCode": "GW0001",
+  "chunked": true,
+  "chunkId": "1776906000000-1",
+  "chunkIndex": 1,
+  "chunkCount": 3,
+  "meters": [
+    {
+      "meterCode": "TTYSP1_SLAVE0001",
+      "values": [
+        {
+          "index": 31101,
+          "pointCode": "reg_1",
+          "value": 123,
+          "quality": 1,
+          "ts": 1776906000000,
+          "expireAt": 1776906600000,
+          "stale": false
+        }
+      ]
+    }
+  ]
+}

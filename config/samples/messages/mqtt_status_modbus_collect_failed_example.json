@@ -1,0 +1,8 @@
+{
+  "service": "modbus-daemon",
+  "event": "collect-failed",
+  "ts": 1776156600000,
+  "meterCode": "SLAVE0001",
+  "slave": 1,
+  "message": "modbus response too short"
+}

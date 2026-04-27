@@ -1,0 +1,7 @@
+{
+  "service": "modbus-daemon",
+  "event": "writeback-skipped",
+  "ts": 1776157805000,
+  "index": 99999,
+  "reason": "unknown-index"
+}

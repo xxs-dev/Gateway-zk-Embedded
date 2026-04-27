@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.0.0",
+  "machineCode": "GW0001",
+  "protocol": {
+    "type": "dlt645_2007",
+    "slave": 1,
+    "transport": {
+      "serialPort": "/dev/ttyS1",
+      "baudRate": 2400,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "E",
+      "timeoutMs": 1000
+    },
+    "tcp": {
+      "host": "127.0.0.1",
+      "port": 502,
+      "connectTimeoutMs": 1000,
+      "timeoutMs": 1000
+    },
+    "standardPointsFile": "config/templates/dlt645_2007_standard_points.json",
+    "standardPointsVersion": "1.1.0"
+  },
+  "dlt645": {
+    "standardPointsFile": "config/templates/dlt645_2007_standard_points.json",
+    "standardPointsVersion": "1.1.0"
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_dlt645_1",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "METER0001",
+      "deviceName": "DLT645 Meter 1",
+      "slave": 1,
+      "address": "000000000001",
+      "points": []
+    },
+    {
+      "meterCode": "METER0002",
+      "deviceName": "DLT645 Meter 2",
+      "slave": 2,
+      "address": "000000000002",
+      "points": []
+    }
+  ]
+}

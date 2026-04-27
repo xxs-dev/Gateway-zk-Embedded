@@ -1,0 +1,8 @@
+{
+  "service": "dlt645-daemon",
+  "event": "collect-failed",
+  "ts": 1776666660000,
+  "meterCode": "METER0001",
+  "slave": 1,
+  "message": "DLT645 response timeout"
+}
