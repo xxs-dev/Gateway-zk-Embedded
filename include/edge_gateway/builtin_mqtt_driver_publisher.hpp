@@ -67,6 +67,8 @@ public:
     std::vector<MqttIncomingMessage> pollIncoming(int timeoutMs) override;
 
 private:
+    struct MqttConnectionHandle;
+
     void publishJson(const std::string& topic, const std::string& payload);
     void publishRealtimeJson(const std::string& topic, const std::string& payload);
     void publishEventJson(const std::string& eventType, const std::string& topic, const std::string& payload, std::int64_t eventTs);
@@ -83,7 +85,7 @@ private:
     };
 
     MqttConfig config_;
-    std::intptr_t subscriberSocket_ = 0;
+    std::unique_ptr<MqttConnectionHandle> subscriberConnection_;
     bool subscriberConnected_ = false;
     std::uint16_t nextPacketId_ = 1;
     std::int64_t lastSubscriberActivityMs_ = 0;

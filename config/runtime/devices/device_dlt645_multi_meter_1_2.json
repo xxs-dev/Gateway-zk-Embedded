@@ -1,6 +1,5 @@
 {
   "schemaVersion": "1.0.0",
-  "machineCode": "GW0001",
   "protocol": {
     "type": "dlt645_2007",
     "slave": 1,
@@ -40,7 +39,7 @@
       "meterCode",
       "pointCode"
     ],
-    "sharedMemoryName": "gateway_point_store_dlt645_1",
+    "sharedMemoryName": "gateway_point_store",
     "maxLatestPoints": 100000,
     "maxPendingWrites": 4096,
     "maxPersistentSamples": 20000,

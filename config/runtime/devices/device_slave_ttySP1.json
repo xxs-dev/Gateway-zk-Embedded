@@ -1,6 +1,5 @@
 {
   "schemaVersion": "1.0.0",
-  "machineCode": "GW0001",
   "protocol": {
     "type": "modbus_rtu",
     "slave": 1,
@@ -28,7 +27,7 @@
       "meterCode",
       "pointCode"
     ],
-    "sharedMemoryName": "gateway_point_store_ttySP1",
+    "sharedMemoryName": "gateway_point_store",
     "maxLatestPoints": 100000,
     "maxPendingWrites": 4096,
     "maxPersistentSamples": 20000,
@@ -56,10 +55,9 @@
           "reportOnChange": true,
           "persistIntervalSec": 60,
           "tags": [
-            "modbus",
-            "serial1",
             "status",
-            "online"
+            "online",
+            "change"
           ],
           "read": {
             "enable": true,
@@ -97,8 +95,8 @@
           "reportOnChange": true,
           "persistIntervalSec": 60,
           "tags": [
-            "modbus",
-            "serial1"
+            "change",
+            "writable"
           ],
           "read": {
             "enable": true,
@@ -146,10 +144,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -184,10 +178,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -222,10 +212,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -260,10 +246,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -298,10 +280,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -336,10 +314,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -374,10 +348,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -412,10 +382,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -459,10 +425,9 @@
           "reportOnChange": true,
           "persistIntervalSec": 60,
           "tags": [
-            "modbus",
-            "serial1",
             "status",
-            "online"
+            "online",
+            "change"
           ],
           "read": {
             "enable": true,
@@ -500,8 +465,8 @@
           "reportOnChange": true,
           "persistIntervalSec": 60,
           "tags": [
-            "modbus",
-            "serial1"
+            "change",
+            "writable"
           ],
           "read": {
             "enable": true,
@@ -549,10 +514,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -587,10 +548,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -625,10 +582,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -663,10 +616,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -701,10 +650,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -739,10 +684,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -777,10 +718,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,
@@ -815,10 +752,6 @@
           "enabled": true,
           "isStore": false,
           "persistIntervalSec": 60,
-          "tags": [
-            "modbus",
-            "serial1"
-          ],
           "read": {
             "enable": true,
             "function": 3,

@@ -31,6 +31,8 @@ using sqlite3_bind_int_fn = int (*)(sqlite3_stmt*, int, int);
 using sqlite3_bind_int64_fn = int (*)(sqlite3_stmt*, int, long long);
 using sqlite3_bind_text_fn = int (*)(sqlite3_stmt*, int, const char*, int, void (*)(void*));
 using sqlite3_step_fn = int (*)(sqlite3_stmt*);
+using sqlite3_reset_fn = int (*)(sqlite3_stmt*);
+using sqlite3_clear_bindings_fn = int (*)(sqlite3_stmt*);
 using sqlite3_finalize_fn = int (*)(sqlite3_stmt*);
 using sqlite3_errmsg_fn = const char* (*)(sqlite3*);
 using sqlite3_free_fn = void (*)(void*);
@@ -56,6 +58,8 @@ sqlite3_bind_int_fn g_bind_int = nullptr;
 sqlite3_bind_int64_fn g_bind_int64 = nullptr;
 sqlite3_bind_text_fn g_bind_text = nullptr;
 sqlite3_step_fn g_step = nullptr;
+sqlite3_reset_fn g_reset = nullptr;
+sqlite3_clear_bindings_fn g_clear_bindings = nullptr;
 sqlite3_finalize_fn g_finalize = nullptr;
 sqlite3_errmsg_fn g_errmsg = nullptr;
 sqlite3_free_fn g_free = nullptr;
@@ -165,28 +169,74 @@ std::int64_t MqttEventOutbox::enqueue(
     const std::string& payload,
     std::int64_t eventTs
 ) {
+    std::vector<EventMessage> events;
+    EventMessage event;
+    event.eventType = eventType;
+    event.topic = topic;
+    event.payload = payload;
+    event.eventTs = eventTs;
+    events.push_back(event);
+    const auto ids = enqueueBatch(events);
+    return ids.empty() ? 0 : ids.front();
+}
+
+std::vector<std::int64_t> MqttEventOutbox::enqueueBatch(const std::vector<EventMessage>& events) {
+    std::vector<std::int64_t> ids;
+    if (events.empty()) {
+        return ids;
+    }
+
     auto* db = static_cast<sqlite3*>(databaseHandle_);
     sqlite3_stmt* stmt = nullptr;
     const char* sql =
         "INSERT INTO mqtt_event_outbox(event_type, topic, payload, event_ts, event_month, created_at, sent) "
         "VALUES(?, ?, ?, ?, ?, ?, 0);";
-    if (prepareWithRetry(db, sql, &stmt) != kSqliteOk) {
-        throw std::runtime_error(sqliteError(db));
-    }
-    const auto ts = eventTs > 0 ? eventTs : currentTimeMs();
-    const auto month = eventMonth(ts);
-    if (g_bind_text(stmt, 1, eventType.c_str(), -1, nullptr) != kSqliteOk ||
-        g_bind_text(stmt, 2, topic.c_str(), -1, nullptr) != kSqliteOk ||
-        g_bind_text(stmt, 3, payload.c_str(), -1, nullptr) != kSqliteOk ||
-        g_bind_int64(stmt, 4, static_cast<long long>(ts)) != kSqliteOk ||
-        g_bind_text(stmt, 5, month.c_str(), -1, nullptr) != kSqliteOk ||
-        g_bind_int64(stmt, 6, static_cast<long long>(currentTimeMs())) != kSqliteOk ||
-        stepWithRetry(stmt) != kSqliteDone) {
+
+    ids.reserve(events.size());
+    try {
+        execOrThrow(db, "BEGIN IMMEDIATE;");
+        if (prepareWithRetry(db, sql, &stmt) != kSqliteOk) {
+            throw std::runtime_error(sqliteError(db));
+        }
+
+        const auto createdAt = currentTimeMs();
+        for (const auto& event : events) {
+            if (event.topic.empty()) {
+                continue;
+            }
+
+            const auto ts = event.eventTs > 0 ? event.eventTs : createdAt;
+            const auto month = eventMonth(ts);
+            if (g_bind_text(stmt, 1, event.eventType.c_str(), -1, nullptr) != kSqliteOk ||
+                g_bind_text(stmt, 2, event.topic.c_str(), -1, nullptr) != kSqliteOk ||
+                g_bind_text(stmt, 3, event.payload.c_str(), -1, nullptr) != kSqliteOk ||
+                g_bind_int64(stmt, 4, static_cast<long long>(ts)) != kSqliteOk ||
+                g_bind_text(stmt, 5, month.c_str(), -1, nullptr) != kSqliteOk ||
+                g_bind_int64(stmt, 6, static_cast<long long>(createdAt)) != kSqliteOk ||
+                stepWithRetry(stmt) != kSqliteDone) {
+                throw std::runtime_error(sqliteError(db));
+            }
+
+            ids.push_back(static_cast<std::int64_t>(g_last_insert_rowid(db)));
+            if (g_reset(stmt) != kSqliteOk || g_clear_bindings(stmt) != kSqliteOk) {
+                throw std::runtime_error(sqliteError(db));
+            }
+        }
+
         g_finalize(stmt);
-        throw std::runtime_error(sqliteError(db));
+        stmt = nullptr;
+        execOrThrow(db, "COMMIT;");
+    } catch (...) {
+        if (stmt != nullptr) {
+            g_finalize(stmt);
+        }
+        try {
+            execOrThrow(db, "ROLLBACK;");
+        } catch (...) {
+        }
+        throw;
     }
-    g_finalize(stmt);
-    return static_cast<std::int64_t>(g_last_insert_rowid(db));
+    return ids;
 }
 
 void MqttEventOutbox::markSent(std::int64_t id, std::int64_t sentAt) {
@@ -373,6 +423,8 @@ void MqttEventOutbox::loadLibrary() {
     g_bind_int64 = reinterpret_cast<sqlite3_bind_int64_fn>(loadSymbol(libraryHandle_, "sqlite3_bind_int64"));
     g_bind_text = reinterpret_cast<sqlite3_bind_text_fn>(loadSymbol(libraryHandle_, "sqlite3_bind_text"));
     g_step = reinterpret_cast<sqlite3_step_fn>(loadSymbol(libraryHandle_, "sqlite3_step"));
+    g_reset = reinterpret_cast<sqlite3_reset_fn>(loadSymbol(libraryHandle_, "sqlite3_reset"));
+    g_clear_bindings = reinterpret_cast<sqlite3_clear_bindings_fn>(loadSymbol(libraryHandle_, "sqlite3_clear_bindings"));
     g_finalize = reinterpret_cast<sqlite3_finalize_fn>(loadSymbol(libraryHandle_, "sqlite3_finalize"));
     g_errmsg = reinterpret_cast<sqlite3_errmsg_fn>(loadSymbol(libraryHandle_, "sqlite3_errmsg"));
     g_free = reinterpret_cast<sqlite3_free_fn>(loadSymbol(libraryHandle_, "sqlite3_free"));

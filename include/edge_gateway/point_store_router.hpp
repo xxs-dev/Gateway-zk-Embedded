@@ -61,6 +61,7 @@ public:
 
     CommandSubmitResult submitWriteCommand(const PendingWriteCommand& command);
     std::vector<PendingWriteCommand> peekPendingWrites(std::size_t limit = 0) const;
+    std::vector<MemoryStoreStats> getStoreStats() const;
 
 private:
     void addRoute(const PointStoreRoute& route);

@@ -195,6 +195,9 @@ CMakeFiles/stress_runner.dir/tools/stress_runner.cpp.o: /mnt/hgfs/Embedded/Gatew
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/experimental/bits/lfts_config.h \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/shared_mutex \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/condition_variable \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/event_engine_service.hpp \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/alarm_service.hpp \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/interfaces.hpp \
   /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/memory_point_store.hpp \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/deque \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_deque.h \
@@ -202,24 +205,24 @@ CMakeFiles/stress_runner.dir/tools/stress_runner.cpp.o: /mnt/hgfs/Embedded/Gatew
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/set \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_set.h \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_multiset.h \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_event_outbox.hpp \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/point_store_router.hpp \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/sqlite_alarm_writer.hpp \
   /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_driver_service.hpp \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/unordered_set \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/unordered_set.h \
-  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/interfaces.hpp \
-  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_event_outbox.hpp \
-  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp \
-  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/point_store_router.hpp
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp
 
 
 /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp:
 
-/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_event_outbox.hpp:
-
-/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/interfaces.hpp:
-
 /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/unordered_set.h:
 
 /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_driver_service.hpp:
+
+/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/sqlite_alarm_writer.hpp:
+
+/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_event_outbox.hpp:
 
 /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_set.h:
 
@@ -232,6 +235,12 @@ CMakeFiles/stress_runner.dir/tools/stress_runner.cpp.o: /mnt/hgfs/Embedded/Gatew
 /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/deque:
 
 /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/memory_point_store.hpp:
+
+/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/interfaces.hpp:
+
+/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/alarm_service.hpp:
+
+/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/event_engine_service.hpp:
 
 /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_multiset.h:
 

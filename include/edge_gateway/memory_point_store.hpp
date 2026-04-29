@@ -59,6 +59,7 @@ public:
     void submitWriteCommand(const PendingWriteCommand& command);
     std::vector<PendingWriteCommand> drainPendingWriteCommands(std::size_t limit = 0);
     std::vector<PendingWriteCommand> peekPendingWriteCommands(std::size_t limit = 0) const;
+    MemoryStoreStats getStats() const;
 
     std::vector<PersistentPointSample> drainPersistentSamples();
     std::vector<PointUpdateRecord> drainPointUpdates(std::size_t limit = 0);
@@ -79,6 +80,7 @@ private:
     mutable SharedMutex mutex_;
     std::unordered_map<std::string, std::uint32_t> keyToIndex_;
     std::unordered_map<std::uint32_t, PointBinding> bindings_;
+    std::unordered_map<std::uint32_t, std::size_t> latestSlotByIndex_;
     std::unordered_map<std::uint32_t, std::int64_t> lastPersistentSampleTs_;
     std::set<std::uint32_t> registeredIndexes_;
     std::size_t maxLatestPoints_ = 100000;

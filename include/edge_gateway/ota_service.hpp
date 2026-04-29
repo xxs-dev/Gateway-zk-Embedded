@@ -56,11 +56,45 @@ private:
         std::int64_t ts,
         const std::function<void(const OtaStatus&)>& publishStatus
     ) const;
-    void downloadArtifact(const OtaRequest& request, const std::string& targetPath) const;
+    void reportDownloadProgress(
+        OtaStatus* status,
+        std::uint64_t downloadedBytes,
+        std::uint64_t totalBytes,
+        const std::string& message,
+        const std::function<void(const OtaStatus&)>& publishStatus
+    ) const;
+    void downloadArtifact(
+        const OtaRequest& request,
+        const std::string& targetPath,
+        OtaStatus* status,
+        const std::function<void(const OtaStatus&)>& publishStatus
+    ) const;
+    void downloadHttpArtifact(
+        const OtaRequest& request,
+        const std::string& source,
+        const std::string& targetPath,
+        OtaStatus* status,
+        const std::function<void(const OtaStatus&)>& publishStatus
+    ) const;
+    void downloadExternalArtifact(
+        const OtaRequest& request,
+        const std::string& source,
+        const std::string& targetPath,
+        OtaStatus* status,
+        const std::function<void(const OtaStatus&)>& publishStatus
+    ) const;
+    void copyArtifactWithProgress(
+        const OtaRequest& request,
+        const std::string& source,
+        const std::string& targetPath,
+        OtaStatus* status,
+        const std::function<void(const OtaStatus&)>& publishStatus
+    ) const;
     void verifyChecksum(const OtaRequest& request, const std::string& artifactPath) const;
     void runScript(const std::string& scriptPath, const OtaRequest& request, const std::string& artifactPath) const;
     std::string buildScriptCommand(const std::string& scriptPath, const OtaRequest& request, const std::string& artifactPath) const;
     bool isHttpUrl(const std::string& value) const;
+    bool isHttpsUrl(const std::string& value) const;
 
     OtaConfig config_;
 };

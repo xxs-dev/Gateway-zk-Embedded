@@ -105,11 +105,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const auto config = ConfigLoader::loadFromFile(configPath);
+    const auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    DeviceIdentity identity;
+    if (!appConfig.identityConfigFile.empty()) {
+        identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
+    }
+    const auto config = ConfigLoader::loadFromFile(configPath, identity);
     if (config.protocol.type != "dlt645_2007") {
         throw std::invalid_argument("Dlt645Driver requires protocol.type=dlt645_2007");
     }
-    const auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
 
     auto processToken = basenameOf(config.protocol.transport.serialPort);
     if (processToken.empty()) {

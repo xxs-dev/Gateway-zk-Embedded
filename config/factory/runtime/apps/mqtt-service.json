@@ -1,0 +1,152 @@
+{
+  "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
+  "deviceConfigFiles": [
+    "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP1.json",
+    "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP2.json"
+  ],
+  "mqtt": {
+    "enabled": true,
+    "protocolVersion": "mqtt5",
+    "broker": "tcp://192.168.22.102:1883",
+    "clientId": "GW_FACTORY_001",
+    "username": "",
+    "password": "",
+    "telemetryTopic": "edge/telemetry",
+    "changeEventTopic": "edge/event/change",
+    "commandRequestTopic": "edge/command/request",
+    "commandReplyTopic": "edge/command/reply",
+    "otaRequestTopic": "edge/ota/request",
+    "otaReplyTopic": "edge/ota/reply",
+    "otaStatusTopic": "edge/ota/status",
+    "systemMonitorRequestTopic": "edge/system/monitor/request",
+    "systemMonitorReplyTopic": "edge/system/monitor/reply",
+    "systemMonitorTelemetryTopic": "edge/system/monitor/telemetry",
+    "systemMonitorAlertTopic": "edge/system/monitor/alert",
+    "systemMonitorPointTopic": "edge/system/monitor/points",
+    "diagRequestTopic": "edge/system/diag/request",
+    "diagReplyTopic": "edge/system/diag/reply",
+    "configPullRequestTopic": "edge/config/pull/request",
+    "configPullReplyTopic": "edge/config/pull/reply",
+    "qos": 1,
+    "maxPayloadBytes": 49152,
+    "cleanSession": true,
+    "keepAliveSec": 60,
+    "sessionExpirySec": 0,
+    "tls": {
+      "enabled": false,
+      "caFile": "",
+      "certFile": "",
+      "keyFile": "",
+      "insecureSkipVerify": false
+    },
+    "offlineBuffer": {
+      "enabled": true,
+      "mode": "ring",
+      "dir": "/opt/modbus-gateway/data/mqtt-spool",
+      "realtimeFile": "/opt/modbus-gateway/data/mqtt-spool/realtime_ring.dat",
+      "realtimeFileSizeBytes": 1073741824,
+      "maxRealtimeMessageBytes": 4194304,
+      "maxMemoryMessages": 200,
+      "flushBatchSize": 10,
+      "flushIntervalMs": 5000,
+      "replayBatchSize": 20,
+      "maxDiskBytes": 1073741824,
+      "eventOutbox": {
+        "sqlitePath": "/opt/modbus-gateway/data/mqtt_event_outbox.db",
+        "sqliteLibraryPath": "",
+        "retentionMonths": 12,
+        "cleanupIntervalHours": 24,
+        "replayBatchSize": 100
+      }
+    },
+    "alarmTopic": "edge/alarm",
+    "statusTopic": "edge/status"
+  },
+  "mqttDriver": {
+    "enabled": true,
+    "sharedMemoryName": "gateway_point_store",
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ],
+    "scanIntervalMs": 500,
+    "fullUploadIntervalMs": 5000,
+    "snapshotBacklogThreshold": 2000,
+    "snapshotBackoffIntervalMs": 5000,
+    "eventReplayMaxBytes": 262144,
+    "publishFullOnStart": true,
+    "publishAllOnFull": false,
+    "fullUploadIndexes": []
+  },
+  "alarmStore": {
+    "enabled": true,
+    "sqlitePath": "/opt/modbus-gateway/data/alarm_events.db",
+    "sqliteLibraryPath": ""
+  },
+  "eventEngine": {
+    "enabled": true,
+    "scanIntervalMs": 100,
+    "scanFallbackIntervalMs": 5000,
+    "updateDrainBatchSize": 4096,
+    "publishMode": "mqtt_driver_outbox",
+    "mqttClientIdSuffix": "event_engine"
+  },
+  "realtime": {
+    "enabled": true,
+    "telemetryTopic": "edge/telemetry",
+    "alarmTopic": "edge/alarm",
+    "statusTopic": "edge/status",
+    "maxLatestPoints": 100000,
+    "trendBufferSize": 300,
+    "pushThrottleMs": 200
+  },
+  "systemMonitor": {
+    "enabled": false,
+    "defaultIntervalMs": 5000,
+    "minIntervalMs": 1000,
+    "subscriptionTtlSec": 30,
+    "cpuAlertThreshold": 90,
+    "memAlertThreshold": 90,
+    "diskAlertThreshold": 90,
+    "alertRepeatIntervalSec": 60,
+    "diagEnabled": true,
+    "allowedCommands": [
+      "uptime",
+      "free_m",
+      "df_root",
+      "top_once",
+      "ps_gateway",
+      "journal_tail",
+      "systemctl_status"
+    ]
+  },
+  "ota": {
+    "enabled": true,
+    "currentVersion": "1.0.0",
+    "artifactBaseUrl": "",
+    "downloadDir": "/opt/modbus-gateway/ota/downloads",
+    "stagingDir": "/opt/modbus-gateway/ota/staging",
+    "backupDir": "/opt/modbus-gateway/ota/backup",
+    "packageType": "tar.gz",
+    "applyScript": "/opt/modbus-gateway/bin/ota-apply.sh",
+    "rollbackScript": "/opt/modbus-gateway/bin/ota-rollback.sh",
+    "checksumRequired": true,
+    "autoReboot": false,
+    "retentionCount": 3,
+    "statusReportIntervalSec": 5,
+    "upgradeTimeoutSec": 900,
+    "downloadRetryCount": 3,
+    "downloadRetryBackoffMs": 1000,
+    "storage": {
+      "provider": "local",
+      "presignExpireMinutes": 60,
+      "minio": {
+        "endpoint": "http://127.0.0.1:9000",
+        "accessKey": "minioadmin",
+        "secretKey": "minioadmin",
+        "bucket": "edge-ota",
+        "basePath": "packages",
+        "publicBaseUrl": ""
+      }
+    }
+  }
+}

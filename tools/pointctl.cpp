@@ -25,6 +25,7 @@ void printUsage() {
         << "  pointctl write --index <index> --value <value> [--cmd <cmdId>] [--source <source>] [--shm <name>|--app-config <path>]\n"
         << "  pointctl get --index <index> [--shm <name>|--app-config <path>]\n"
         << "  pointctl dump [--limit <n>] [--owners] [--shm <name>|--app-config <path>]\n"
+        << "  pointctl stats [--shm <name>|--app-config <path>]\n"
         << "  pointctl pending [--limit <n>] [--shm <name>]\n"
         << "  pointctl pending-peek [--limit <n>] [--shm <name>|--app-config <path>]\n";
 }
@@ -51,6 +52,21 @@ bool hasOption(const std::vector<std::string>& args, const std::string& name) {
     return false;
 }
 
+void printStats(const edge_gateway::MemoryStoreStats& stats) {
+    std::cout << "shm=" << stats.sharedMemoryName
+              << " latest=" << stats.latestCount << "/" << stats.latestConfiguredLimit
+              << " latestCapacity=" << stats.latestCapacity
+              << " pendingWrites=" << stats.pendingWriteCount << "/" << stats.pendingWriteConfiguredLimit
+              << " pendingCapacity=" << stats.pendingWriteCapacity
+              << " persistent=" << stats.persistentCount << "/" << stats.persistentConfiguredLimit
+              << " persistentCapacity=" << stats.persistentCapacity
+              << " pointUpdates=" << stats.pointUpdateCount << "/" << stats.pointUpdateCapacity
+              << " writeSeq=" << stats.writeSequence
+              << " persistentSeq=" << stats.persistentSequence
+              << " pointUpdateSeq=" << stats.pointUpdateSequence
+              << std::endl;
+}
+
 struct RouterContext {
     edge_gateway::AppConfig appConfig;
     std::vector<edge_gateway::DeviceConfig> deviceConfigs;
@@ -62,7 +78,11 @@ std::unique_ptr<RouterContext> createRouterContext(const std::string& appConfigP
     using namespace edge_gateway;
     std::unique_ptr<RouterContext> context(new RouterContext());
     context->appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
-    context->deviceConfigs = ConfigLoader::loadMany(context->appConfig.deviceConfigFiles);
+    DeviceIdentity identity;
+    if (!context->appConfig.identityConfigFile.empty()) {
+        identity = ConfigLoader::loadDeviceIdentityFromFile(context->appConfig.identityConfigFile);
+    }
+    context->deviceConfigs = ConfigLoader::loadMany(context->appConfig.deviceConfigFiles, identity);
 
     std::vector<std::string> sharedMemoryNames = context->appConfig.mqttDriver.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
@@ -214,6 +234,13 @@ int main(int argc, char* argv[]) {
                 return 0;
             }
 
+            if (command == "stats") {
+                for (const auto& stats : context->router.getStoreStats()) {
+                    printStats(stats);
+                }
+                return 0;
+            }
+
             printUsage();
             return 1;
         }
@@ -338,6 +365,11 @@ int main(int argc, char* argv[]) {
                 ++count;
             }
             std::cout << "latest_count=" << values.size() << std::endl;
+            return 0;
+        }
+
+        if (command == "stats") {
+            printStats(store.getStats());
             return 0;
         }
 

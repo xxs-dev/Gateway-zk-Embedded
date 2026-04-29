@@ -30,6 +30,17 @@ def load_json(path: Path) -> Dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def find_identity_for_config(path: Path) -> Dict[str, object]:
+    candidates = [
+        path.parent / "device_identity.json",
+        path.parent.parent / "device_identity.json",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return load_json(candidate)
+    return {}
+
+
 def normalize_interval(point: Dict[str, object], collect_default: int) -> int:
     read = point.get("read", {})
     if isinstance(read, dict):
@@ -115,7 +126,8 @@ def build_device_entry(config_path: Path, config: Dict[str, object]) -> List[Dic
         if isinstance(value, int) and value > 0:
             collect_default = value
 
-    machine_code = str(config.get("machineCode", ""))
+    identity = find_identity_for_config(config_path)
+    machine_code = str(config.get("machineCode") or identity.get("machineCode") or "")
     devices: List[Dict[str, object]] = []
     for meter in config.get("meters", []) if isinstance(config.get("meters"), list) else []:
         if not isinstance(meter, dict):

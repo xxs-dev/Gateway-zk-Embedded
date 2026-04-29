@@ -1,7 +1,9 @@
 #include "edge_gateway/sqlite_alarm_writer.hpp"
 
+#include <chrono>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -25,11 +27,16 @@ using sqlite3_bind_int64_fn = int (*)(sqlite3_stmt*, int, long long);
 using sqlite3_bind_double_fn = int (*)(sqlite3_stmt*, int, double);
 using sqlite3_bind_text_fn = int (*)(sqlite3_stmt*, int, const char*, int, void (*)(void*));
 using sqlite3_step_fn = int (*)(sqlite3_stmt*);
+using sqlite3_reset_fn = int (*)(sqlite3_stmt*);
+using sqlite3_clear_bindings_fn = int (*)(sqlite3_stmt*);
 using sqlite3_finalize_fn = int (*)(sqlite3_stmt*);
 using sqlite3_errmsg_fn = const char* (*)(sqlite3*);
 using sqlite3_free_fn = void (*)(void*);
+using sqlite3_busy_timeout_fn = int (*)(sqlite3*, int);
 
 constexpr int kSqliteOk = 0;
+constexpr int kSqliteBusy = 5;
+constexpr int kSqliteLocked = 6;
 constexpr int kSqliteDone = 101;
 constexpr int kSqliteOpenReadWrite = 0x00000002;
 constexpr int kSqliteOpenCreate = 0x00000004;
@@ -43,9 +50,12 @@ sqlite3_bind_int64_fn g_sqlite3_bind_int64 = nullptr;
 sqlite3_bind_double_fn g_sqlite3_bind_double = nullptr;
 sqlite3_bind_text_fn g_sqlite3_bind_text = nullptr;
 sqlite3_step_fn g_sqlite3_step = nullptr;
+sqlite3_reset_fn g_sqlite3_reset = nullptr;
+sqlite3_clear_bindings_fn g_sqlite3_clear_bindings = nullptr;
 sqlite3_finalize_fn g_sqlite3_finalize = nullptr;
 sqlite3_errmsg_fn g_sqlite3_errmsg = nullptr;
 sqlite3_free_fn g_sqlite3_free = nullptr;
+sqlite3_busy_timeout_fn g_sqlite3_busy_timeout = nullptr;
 
 void* loadSymbol(void* handle, const char* name) {
 #ifdef _WIN32
@@ -67,14 +77,38 @@ std::string sqliteError(sqlite3* db) {
 }
 
 void execOrThrow(sqlite3* db, const char* sql) {
-    char* errorMessage = nullptr;
-    const auto rc = g_sqlite3_exec(db, sql, nullptr, nullptr, &errorMessage);
-    if (rc != kSqliteOk) {
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        char* errorMessage = nullptr;
+        const auto rc = g_sqlite3_exec(db, sql, nullptr, nullptr, &errorMessage);
+        if (rc == kSqliteOk) {
+            if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
+                g_sqlite3_free(errorMessage);
+            }
+            return;
+        }
         std::string message = errorMessage != nullptr ? errorMessage : sqliteError(db);
         if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
             g_sqlite3_free(errorMessage);
         }
+        if ((rc == kSqliteBusy || rc == kSqliteLocked) && attempt + 1 < 5) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50 * (attempt + 1)));
+            continue;
+        }
         throw std::runtime_error(message);
+    }
+}
+
+void stepDoneOrThrow(sqlite3* db, sqlite3_stmt* stmt) {
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        const auto rc = g_sqlite3_step(stmt);
+        if (rc == kSqliteDone) {
+            return;
+        }
+        if ((rc == kSqliteBusy || rc == kSqliteLocked) && attempt + 1 < 5) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50 * (attempt + 1)));
+            continue;
+        }
+        throw std::runtime_error(sqliteError(db));
     }
 }
 
@@ -125,12 +159,8 @@ void SqliteAlarmWriter::writeEvents(const std::vector<AlarmEvent>& events) {
                 g_sqlite3_bind_text(stmt, 12, event.pointCode.c_str(), -1, nullptr) != kSqliteOk) {
                 throw std::runtime_error(sqliteError(db));
             }
-            if (g_sqlite3_step(stmt) != kSqliteDone) {
-                throw std::runtime_error(sqliteError(db));
-            }
-            g_sqlite3_finalize(stmt);
-            stmt = nullptr;
-            if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
+            stepDoneOrThrow(db, stmt);
+            if (g_sqlite3_reset(stmt) != kSqliteOk || g_sqlite3_clear_bindings(stmt) != kSqliteOk) {
                 throw std::runtime_error(sqliteError(db));
             }
         }
@@ -181,9 +211,12 @@ void SqliteAlarmWriter::loadLibrary() {
     g_sqlite3_bind_double = reinterpret_cast<sqlite3_bind_double_fn>(loadSymbol(libraryHandle_, "sqlite3_bind_double"));
     g_sqlite3_bind_text = reinterpret_cast<sqlite3_bind_text_fn>(loadSymbol(libraryHandle_, "sqlite3_bind_text"));
     g_sqlite3_step = reinterpret_cast<sqlite3_step_fn>(loadSymbol(libraryHandle_, "sqlite3_step"));
+    g_sqlite3_reset = reinterpret_cast<sqlite3_reset_fn>(loadSymbol(libraryHandle_, "sqlite3_reset"));
+    g_sqlite3_clear_bindings = reinterpret_cast<sqlite3_clear_bindings_fn>(loadSymbol(libraryHandle_, "sqlite3_clear_bindings"));
     g_sqlite3_finalize = reinterpret_cast<sqlite3_finalize_fn>(loadSymbol(libraryHandle_, "sqlite3_finalize"));
     g_sqlite3_errmsg = reinterpret_cast<sqlite3_errmsg_fn>(loadSymbol(libraryHandle_, "sqlite3_errmsg"));
     g_sqlite3_free = reinterpret_cast<sqlite3_free_fn>(loadSymbol(libraryHandle_, "sqlite3_free"));
+    g_sqlite3_busy_timeout = reinterpret_cast<sqlite3_busy_timeout_fn>(loadSymbol(libraryHandle_, "sqlite3_busy_timeout"));
 }
 
 void SqliteAlarmWriter::openDatabase() {
@@ -196,6 +229,9 @@ void SqliteAlarmWriter::openDatabase() {
     );
     if (rc != kSqliteOk) {
         throw std::runtime_error("failed to open sqlite database");
+    }
+    if (g_sqlite3_busy_timeout != nullptr) {
+        g_sqlite3_busy_timeout(db, 5000);
     }
     databaseHandle_ = db;
 }

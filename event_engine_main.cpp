@@ -150,7 +150,26 @@ int main(int argc, char* argv[]) {
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     setProcessName("modbus-event-" + sanitizeProcessToken(basenameOf(appConfigPath)));
 
-    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles);
+    DeviceIdentity identity;
+    if (!appConfig.identityConfigFile.empty()) {
+        identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
+    }
+    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
+    std::string topicMachineCode = identity.machineCode;
+    for (const auto& config : deviceConfigs) {
+        if (config.machineCode.empty()) {
+            continue;
+        }
+        if (topicMachineCode.empty()) {
+            topicMachineCode = config.machineCode;
+        } else if (topicMachineCode != config.machineCode) {
+            throw std::invalid_argument("event engine requires a single machineCode across device configs");
+        }
+    }
+    appConfig.mqtt.topicMachineCode = topicMachineCode;
+    if (!topicMachineCode.empty()) {
+        appConfig.mqtt.clientId = topicMachineCode;
+    }
     std::vector<std::string> sharedMemoryNames = appConfig.mqttDriver.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);

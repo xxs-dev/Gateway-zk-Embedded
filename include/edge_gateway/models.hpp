@@ -203,6 +203,8 @@ struct OtaStatus {
     std::string machineCode;
     std::string stage;
     int progress = 0;
+    std::uint64_t downloadedBytes = 0;
+    std::uint64_t totalBytes = 0;
     std::string message;
     std::int64_t ts = 0;
 };
@@ -284,11 +286,37 @@ struct MemoryStoreConfig {
     std::size_t writebackBatchSize = 100;
 };
 
+struct MemoryStoreStats {
+    std::string sharedMemoryName;
+    std::size_t latestCount = 0;
+    std::size_t latestCapacity = 0;
+    std::size_t latestConfiguredLimit = 0;
+    std::size_t pendingWriteCount = 0;
+    std::size_t pendingWriteCapacity = 0;
+    std::size_t pendingWriteConfiguredLimit = 0;
+    std::size_t persistentCount = 0;
+    std::size_t persistentCapacity = 0;
+    std::size_t persistentConfiguredLimit = 0;
+    std::size_t pointUpdateCount = 0;
+    std::size_t pointUpdateCapacity = 0;
+    std::uint64_t writeSequence = 0;
+    std::uint64_t persistentSequence = 0;
+    std::uint64_t pointUpdateSequence = 0;
+};
+
+struct MqttTlsConfig {
+    bool enabled = false;
+    std::string caFile;
+    std::string certFile;
+    std::string keyFile;
+    bool insecureSkipVerify = false;
+};
+
 struct MqttConfig {
     bool enabled = false;
     std::string protocolVersion = "mqtt3";
     std::string broker = "tcp://127.0.0.1:1883";
-    std::string clientId = "modbus-gateway";
+    std::string clientId = "GW0001";
     std::string topicMachineCode;
     std::string username;
     std::string password;
@@ -314,6 +342,7 @@ struct MqttConfig {
     bool cleanSession = true;
     int keepAliveSec = 60;
     int sessionExpirySec = 0;
+    MqttTlsConfig tls;
     bool offlineBufferEnabled = true;
     std::string offlineBufferMode = "ring";
     std::string offlineBufferDir = "/opt/modbus-gateway/data/mqtt-spool";
@@ -400,6 +429,8 @@ struct OtaConfig {
     int retentionCount = 3;
     int statusReportIntervalSec = 5;
     int upgradeTimeoutSec = 900;
+    int downloadRetryCount = 3;
+    int downloadRetryBackoffMs = 1000;
     OtaStorageConfig storage;
 };
 
@@ -434,7 +465,18 @@ struct SystemMonitorConfig {
     };
 };
 
+struct DeviceIdentity {
+    std::string schemaVersion = "1.0.0";
+    std::string machineCode;
+    std::string imei;
+    std::string serialNumber;
+    std::string model;
+    std::string hardwareVersion;
+    std::string firmwareVersion;
+};
+
 struct AppConfig {
+    std::string identityConfigFile;
     std::vector<std::string> deviceConfigFiles;
     MqttConfig mqtt;
     MqttDriverConfig mqttDriver;

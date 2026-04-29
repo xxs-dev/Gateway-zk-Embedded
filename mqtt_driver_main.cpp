@@ -41,6 +41,18 @@ std::string sanitizeProcessToken(std::string value) {
     return value;
 }
 
+std::string scopedTopic(const std::string& topic, const std::string& machineCode) {
+    if (topic.empty() || machineCode.empty()) {
+        return topic;
+    }
+    const std::string suffix = "/" + machineCode;
+    if (topic.size() >= suffix.size() &&
+        topic.compare(topic.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        return topic;
+    }
+    return topic + suffix;
+}
+
 void setProcessName(const std::string& name) {
 #ifndef _WIN32
     prctl(PR_SET_NAME, name.substr(0, 15).c_str(), 0, 0, 0);
@@ -84,7 +96,7 @@ public:
         const std::vector<edge_gateway::StoredPointValue>& values
     ) override {
         std::cout << "mqtt full version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " count=" << values.size()
                   << std::endl;
     }
@@ -97,7 +109,7 @@ public:
         bool active
     ) override {
         std::cout << "mqtt alarm version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " index=" << index
                   << " type=" << alarmType
                   << " active=" << active
@@ -110,7 +122,7 @@ public:
         const std::vector<edge_gateway::StoredPointValue>& values
     ) override {
         std::cout << "mqtt demand version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " count=" << values.size()
                   << std::endl;
     }
@@ -120,7 +132,7 @@ public:
         const edge_gateway::StoredPointValue& value
     ) override {
         std::cout << "mqtt change version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " index=" << value.index
                   << " value=" << value.value
                   << " quality=" << value.quality
@@ -132,7 +144,7 @@ public:
         const edge_gateway::MqttCommandReply& reply
     ) override {
         std::cout << "mqtt command-reply version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " cmdId=" << reply.cmdId
                   << " success=" << reply.success
                   << " message=" << reply.message
@@ -144,7 +156,7 @@ public:
         const edge_gateway::OtaReply& reply
     ) override {
         std::cout << "mqtt ota-reply version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " jobId=" << reply.jobId
                   << " accepted=" << reply.accepted
                   << " message=" << reply.message
@@ -156,7 +168,7 @@ public:
         const edge_gateway::OtaStatus& status
     ) override {
         std::cout << "mqtt ota-status version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " jobId=" << status.jobId
                   << " stage=" << status.stage
                   << " progress=" << status.progress
@@ -169,7 +181,7 @@ public:
         const std::string& payload
     ) override {
         std::cout << "mqtt json version=" << config_.protocolVersion
-                  << " topic=" << topic
+                  << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " payload=" << payload
                   << std::endl;
     }
@@ -213,8 +225,12 @@ int main(int argc, char* argv[]) {
     if (appConfig.mqtt.protocolVersion != "mqtt3" && appConfig.mqtt.protocolVersion != "mqtt5") {
         throw std::invalid_argument("mqtt.protocolVersion must be mqtt3 or mqtt5");
     }
-    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles);
-    std::string topicMachineCode;
+    DeviceIdentity identity;
+    if (!appConfig.identityConfigFile.empty()) {
+        identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
+    }
+    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
+    std::string topicMachineCode = identity.machineCode;
     for (const auto& config : deviceConfigs) {
         if (config.machineCode.empty()) {
             continue;
@@ -226,6 +242,9 @@ int main(int argc, char* argv[]) {
         }
     }
     appConfig.mqtt.topicMachineCode = topicMachineCode;
+    if (!topicMachineCode.empty()) {
+        appConfig.mqtt.clientId = topicMachineCode;
+    }
     std::vector<std::string> sharedMemoryNames = appConfig.mqttDriver.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);

@@ -35,6 +35,15 @@ std::int64_t nowMs() {
     ).count();
 }
 
+void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
+    int remaining = std::max(0, intervalMs);
+    while (running.load() && remaining > 0) {
+        const auto slice = std::min(100, remaining);
+        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
+        remaining -= slice;
+    }
+}
+
 std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
     if (config.meters.empty()) {
         return {config};
@@ -238,7 +247,7 @@ void GatewayDaemon::collectLoop() {
             store_.removeExpired(ts);
         } catch (...) {
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+        sleepInterruptibly(running_, intervalMs);
     }
 }
 
@@ -268,7 +277,7 @@ void GatewayDaemon::persistLoop() {
             store_.removeExpired(ts);
         } catch (...) {
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+        sleepInterruptibly(running_, intervalMs);
     }
 }
 
@@ -281,7 +290,7 @@ void GatewayDaemon::writebackLoop() {
             processWritebackOnce(ts);
         } catch (...) {
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+        sleepInterruptibly(running_, intervalMs);
     }
 }
 

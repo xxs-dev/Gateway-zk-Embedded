@@ -9,6 +9,13 @@ namespace edge_gateway {
 
 class MqttEventOutbox {
 public:
+    struct EventMessage {
+        std::string eventType;
+        std::string topic;
+        std::string payload;
+        std::int64_t eventTs = 0;
+    };
+
     struct ReplayStats {
         std::size_t count = 0;
         std::size_t bytes = 0;
@@ -35,6 +42,7 @@ public:
         const std::string& payload,
         std::int64_t eventTs
     );
+    std::vector<std::int64_t> enqueueBatch(const std::vector<EventMessage>& events);
     void markSent(std::int64_t id, std::int64_t sentAt);
     void markSentBatch(const std::vector<std::int64_t>& ids, std::int64_t sentAt);
     std::size_t pendingCount();

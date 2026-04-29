@@ -228,6 +228,18 @@ std::vector<PendingWriteCommand> PointStoreRouter::peekPendingWrites(std::size_t
     return result;
 }
 
+std::vector<MemoryStoreStats> PointStoreRouter::getStoreStats() const {
+    std::vector<MemoryStoreStats> result;
+    result.reserve(stores_.size());
+    for (const auto& entry : stores_) {
+        result.push_back(entry.second->getStats());
+    }
+    std::sort(result.begin(), result.end(), [](const MemoryStoreStats& lhs, const MemoryStoreStats& rhs) {
+        return lhs.sharedMemoryName < rhs.sharedMemoryName;
+    });
+    return result;
+}
+
 void PointStoreRouter::addRoute(const PointStoreRoute& route) {
     if (route.index == 0) {
         throw std::invalid_argument("route index must be non-zero");

@@ -100,6 +100,15 @@ for rule in manifest.get("cleanBeforeApply", []):
 for item in manifest.get("files", []):
     src = os.path.join(root_dir, item["path"])
     dst = item["target"]
+    if (
+        os.path.abspath(dst) == "/opt/modbus-gateway/config/runtime/device_identity.json"
+        and os.path.exists(dst)
+        and not manifest.get("updateIdentity", False)
+        and not item.get("updateIdentity", False)
+    ):
+        with open(log_file, "a", encoding="utf-8") as log:
+            log.write(f"[manifest-skip-identity] preserve existing {dst}\n")
+        continue
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if os.path.exists(dst):
         backup_path = os.path.join(backup_dir, os.path.relpath(dst, "/"))

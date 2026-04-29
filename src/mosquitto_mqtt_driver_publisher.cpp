@@ -237,6 +237,8 @@ std::string encodeOtaStatusJson(const OtaStatus& status) {
         << ",\"machineCode\":\"" << escapeJson(status.machineCode) << "\""
         << ",\"stage\":\"" << escapeJson(status.stage) << "\""
         << ",\"progress\":" << status.progress
+        << ",\"downloadedBytes\":" << status.downloadedBytes
+        << ",\"totalBytes\":" << status.totalBytes
         << ",\"message\":\"" << escapeJson(status.message) << "\""
         << ",\"ts\":" << status.ts
         << "}";
@@ -310,7 +312,7 @@ struct MosquittoMqttDriverPublisher::Impl {
 MosquittoMqttDriverPublisher::MosquittoMqttDriverPublisher(MqttConfig config)
     : config_(std::move(config)),
       impl_(new Impl()) {
-    impl_->libraryHandle = loadLibraryHandle(config_.libraryPath);
+    impl_->libraryHandle = loadLibraryHandle("");
     if (impl_->libraryHandle == nullptr) {
         throw std::runtime_error("failed to load libmosquitto");
     }
@@ -437,4 +439,53 @@ void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const s
     }
 
     const auto protocol = config_.protocolVersion == "mqtt5" ? kMqttProtocolV5 : kMqttProtocolV311;
-    if (impl_-
+    if (impl_->intOption(client, kMosqOptProtocolVersion, protocol) != 0) {
+        cleanup();
+        throw std::runtime_error("mosquitto protocol option failed");
+    }
+
+    const auto endpoint = parseBroker(config_.broker);
+    int rc = 0;
+    if (protocol == kMqttProtocolV5) {
+        rc = impl_->connectV5(client, endpoint.host.c_str(), endpoint.port, config_.keepAliveSec, nullptr, nullptr);
+    } else {
+        rc = impl_->connectV3(client, endpoint.host.c_str(), endpoint.port, config_.keepAliveSec, nullptr);
+    }
+    if (rc != 0) {
+        cleanup();
+        throw std::runtime_error("mosquitto connect failed");
+    }
+
+    const std::string scoped = scopedTopic(topic, config_.topicMachineCode);
+    if (protocol == kMqttProtocolV5) {
+        rc = impl_->publishV5(
+            client,
+            nullptr,
+            scoped.c_str(),
+            static_cast<int>(payload.size()),
+            payload.data(),
+            config_.qos,
+            false,
+            nullptr
+        );
+    } else {
+        rc = impl_->publishV3(
+            client,
+            nullptr,
+            scoped.c_str(),
+            static_cast<int>(payload.size()),
+            payload.data(),
+            config_.qos,
+            false
+        );
+    }
+    if (rc != 0) {
+        cleanup();
+        throw std::runtime_error("mosquitto publish failed");
+    }
+
+    impl_->loop(client, 1000, 1);
+    cleanup();
+}
+
+}  // namespace edge_gateway

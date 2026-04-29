@@ -92,7 +92,7 @@ def build_device_config(
         _, meter = meter_map[str(meter_code)]
         meters.append(copy.deepcopy(meter))
 
-    template["machineCode"] = machine_code
+    template.pop("machineCode", None)
     template["meters"] = meters
     memory_store = template.get("memoryStore")
     if not isinstance(memory_store, dict):
@@ -106,14 +106,27 @@ def build_device_config(
     return template
 
 
+def build_identity_config(machine_code: str) -> Dict[str, object]:
+    return {
+        "schemaVersion": "1.0.0",
+        "machineCode": machine_code,
+        "imei": "",
+        "serialNumber": "",
+        "model": "EDGE-GW",
+        "hardwareVersion": "1.0",
+        "firmwareVersion": "1.0.0",
+    }
+
+
 def build_app_config(
     machine_code: str,
     app_template: Dict[str, object],
     device_files: List[Tuple[Path, Dict[str, object]]],
 ) -> Dict[str, object]:
     app = copy.deepcopy(app_template)
+    app["identityConfigFile"] = "/opt/modbus-gateway/config/runtime/device_identity.json"
     app["deviceConfigFiles"] = [f"/opt/modbus-gateway/config/runtime/devices/{path.name}" for path, _ in device_files]
-    app["machineCode"] = machine_code
+    app.pop("machineCode", None)
 
     mqtt_driver = app.get("mqttDriver")
     if not isinstance(mqtt_driver, dict):
@@ -182,6 +195,8 @@ def main(argv: List[str]) -> int:
         gateway_dir = output_dir / machine_code
         runtime_devices_dir = gateway_dir / "runtime" / "devices"
         runtime_apps_dir = gateway_dir / "runtime" / "apps"
+        runtime_identity_path = gateway_dir / "runtime" / "device_identity.json"
+        write_json(runtime_identity_path, build_identity_config(machine_code), args.pretty)
 
         device_files: List[Tuple[Path, Dict[str, object]]] = []
         for index, port in enumerate(ports, start=1):
@@ -200,6 +215,7 @@ def main(argv: List[str]) -> int:
         generated["gateways"].append(
             {
                 "machineCode": machine_code,
+                "identityConfigFile": str(runtime_identity_path),
                 "deviceConfigFiles": [str(path) for path, _ in device_files],
                 "appConfigFile": str(app_path),
             }

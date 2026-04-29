@@ -46,6 +46,7 @@ public:
     bool isRunning() const;
 
     void runScanOnce(std::int64_t nowMs);
+    void runEventReplayOnce(std::int64_t nowMs);
     void publishFullSnapshotNow(std::int64_t nowMs);
     void publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs);
 

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -20,6 +21,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
+#include <dlfcn.h>
 #include <netdb.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -58,6 +60,7 @@ std::string scopedTopic(const std::string& topic, const std::string& machineCode
 struct BrokerEndpoint {
     std::string host = "127.0.0.1";
     int port = 1883;
+    bool tls = false;
 };
 
 #ifdef _WIN32
@@ -89,6 +92,8 @@ BrokerEndpoint parseBroker(const std::string& broker) {
     auto address = broker;
     const auto schemePos = address.find("://");
     if (schemePos != std::string::npos) {
+        const auto scheme = address.substr(0, schemePos);
+        endpoint.tls = scheme == "ssl" || scheme == "tls" || scheme == "mqtts";
         address = address.substr(schemePos + 3);
     }
     const auto colonPos = address.rfind(':');
@@ -97,8 +102,13 @@ BrokerEndpoint parseBroker(const std::string& broker) {
         endpoint.port = std::stoi(address.substr(colonPos + 1));
     } else if (!address.empty()) {
         endpoint.host = address;
+        endpoint.port = endpoint.tls ? 8883 : 1883;
     }
     return endpoint;
+}
+
+bool configUsesTls(const MqttConfig& config, const BrokerEndpoint& endpoint) {
+    return config.tls.enabled || endpoint.tls;
 }
 
 void appendString(std::vector<std::uint8_t>& bytes, const std::string& value) {
@@ -561,6 +571,8 @@ std::string encodeOtaStatusJson(const OtaStatus& status) {
         << ",\"machineCode\":\"" << escapeJson(status.machineCode) << "\""
         << ",\"stage\":\"" << escapeJson(status.stage) << "\""
         << ",\"progress\":" << status.progress
+        << ",\"downloadedBytes\":" << status.downloadedBytes
+        << ",\"totalBytes\":" << status.totalBytes
         << ",\"message\":\"" << escapeJson(status.message) << "\""
         << ",\"ts\":" << status.ts
         << "}";
@@ -578,6 +590,173 @@ void closeSocket(SocketHandle sock) {
 #endif
 }
 
+struct SSL;
+struct SSL_CTX;
+struct SSL_METHOD;
+struct X509_VERIFY_PARAM;
+
+struct TlsApi {
+    void* sslLib = nullptr;
+    void* cryptoLib = nullptr;
+
+    using OPENSSL_init_ssl_fn = int (*)(std::uint64_t, const void*);
+    using TLS_client_method_fn = const SSL_METHOD* (*)();
+    using SSL_CTX_new_fn = SSL_CTX* (*)(const SSL_METHOD*);
+    using SSL_CTX_free_fn = void (*)(SSL_CTX*);
+    using SSL_CTX_set_verify_fn = void (*)(SSL_CTX*, int, void*);
+    using SSL_CTX_load_verify_locations_fn = int (*)(SSL_CTX*, const char*, const char*);
+    using SSL_CTX_set_default_verify_paths_fn = int (*)(SSL_CTX*);
+    using SSL_CTX_use_certificate_file_fn = int (*)(SSL_CTX*, const char*, int);
+    using SSL_CTX_use_PrivateKey_file_fn = int (*)(SSL_CTX*, const char*, int);
+    using SSL_CTX_check_private_key_fn = int (*)(const SSL_CTX*);
+    using SSL_new_fn = SSL* (*)(SSL_CTX*);
+    using SSL_free_fn = void (*)(SSL*);
+    using SSL_set_fd_fn = int (*)(SSL*, int);
+    using SSL_set_tlsext_host_name_fn = int (*)(SSL*, const char*);
+    using SSL_get0_param_fn = X509_VERIFY_PARAM* (*)(SSL*);
+    using X509_VERIFY_PARAM_set1_host_fn = int (*)(X509_VERIFY_PARAM*, const char*, std::size_t);
+    using SSL_connect_fn = int (*)(SSL*);
+    using SSL_get_error_fn = int (*)(const SSL*, int);
+    using SSL_write_fn = int (*)(SSL*, const void*, int);
+    using SSL_read_fn = int (*)(SSL*, void*, int);
+    using SSL_shutdown_fn = int (*)(SSL*);
+    using SSL_get_verify_result_fn = long (*)(const SSL*);
+
+    OPENSSL_init_ssl_fn initSsl = nullptr;
+    TLS_client_method_fn clientMethod = nullptr;
+    SSL_CTX_new_fn ctxNew = nullptr;
+    SSL_CTX_free_fn ctxFree = nullptr;
+    SSL_CTX_set_verify_fn ctxSetVerify = nullptr;
+    SSL_CTX_load_verify_locations_fn ctxLoadVerifyLocations = nullptr;
+    SSL_CTX_set_default_verify_paths_fn ctxSetDefaultVerifyPaths = nullptr;
+    SSL_CTX_use_certificate_file_fn ctxUseCertificateFile = nullptr;
+    SSL_CTX_use_PrivateKey_file_fn ctxUsePrivateKeyFile = nullptr;
+    SSL_CTX_check_private_key_fn ctxCheckPrivateKey = nullptr;
+    SSL_new_fn sslNew = nullptr;
+    SSL_free_fn sslFree = nullptr;
+    SSL_set_fd_fn sslSetFd = nullptr;
+    SSL_set_tlsext_host_name_fn sslSetSni = nullptr;
+    SSL_get0_param_fn sslGet0Param = nullptr;
+    X509_VERIFY_PARAM_set1_host_fn verifyParamSetHost = nullptr;
+    SSL_connect_fn sslConnect = nullptr;
+    SSL_get_error_fn sslGetError = nullptr;
+    SSL_write_fn sslWrite = nullptr;
+    SSL_read_fn sslRead = nullptr;
+    SSL_shutdown_fn sslShutdown = nullptr;
+    SSL_get_verify_result_fn sslGetVerifyResult = nullptr;
+};
+
+void* loadDynamicLibrary(const std::vector<std::string>& names) {
+    for (const auto& name : names) {
+#ifdef _WIN32
+        if (auto* handle = LoadLibraryA(name.c_str())) {
+            return handle;
+        }
+#else
+        if (auto* handle = dlopen(name.c_str(), RTLD_NOW | RTLD_LOCAL)) {
+            return handle;
+        }
+#endif
+    }
+    return nullptr;
+}
+
+void* loadDynamicSymbol(void* handle, const char* name) {
+#ifdef _WIN32
+    return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name));
+#else
+    return dlsym(handle, name);
+#endif
+}
+
+TlsApi& tlsApi() {
+    static TlsApi api;
+    static bool loaded = false;
+    if (loaded) {
+        return api;
+    }
+
+    api.sslLib = loadDynamicLibrary({
+        "libssl.so.1.1",
+        "libssl.so.3",
+        "libssl.so",
+        "libssl-1_1-x64.dll",
+        "libssl-3-x64.dll"
+    });
+    api.cryptoLib = loadDynamicLibrary({
+        "libcrypto.so.1.1",
+        "libcrypto.so.3",
+        "libcrypto.so",
+        "libcrypto-1_1-x64.dll",
+        "libcrypto-3-x64.dll"
+    });
+    if (api.sslLib == nullptr) {
+        throw std::runtime_error("mqtt tls requested but libssl is not available");
+    }
+
+    api.initSsl = reinterpret_cast<TlsApi::OPENSSL_init_ssl_fn>(loadDynamicSymbol(api.sslLib, "OPENSSL_init_ssl"));
+    api.clientMethod = reinterpret_cast<TlsApi::TLS_client_method_fn>(loadDynamicSymbol(api.sslLib, "TLS_client_method"));
+    api.ctxNew = reinterpret_cast<TlsApi::SSL_CTX_new_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_new"));
+    api.ctxFree = reinterpret_cast<TlsApi::SSL_CTX_free_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_free"));
+    api.ctxSetVerify = reinterpret_cast<TlsApi::SSL_CTX_set_verify_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_set_verify"));
+    api.ctxLoadVerifyLocations = reinterpret_cast<TlsApi::SSL_CTX_load_verify_locations_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_load_verify_locations"));
+    api.ctxSetDefaultVerifyPaths = reinterpret_cast<TlsApi::SSL_CTX_set_default_verify_paths_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_set_default_verify_paths"));
+    api.ctxUseCertificateFile = reinterpret_cast<TlsApi::SSL_CTX_use_certificate_file_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_use_certificate_file"));
+    api.ctxUsePrivateKeyFile = reinterpret_cast<TlsApi::SSL_CTX_use_PrivateKey_file_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_use_PrivateKey_file"));
+    api.ctxCheckPrivateKey = reinterpret_cast<TlsApi::SSL_CTX_check_private_key_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_check_private_key"));
+    api.sslNew = reinterpret_cast<TlsApi::SSL_new_fn>(loadDynamicSymbol(api.sslLib, "SSL_new"));
+    api.sslFree = reinterpret_cast<TlsApi::SSL_free_fn>(loadDynamicSymbol(api.sslLib, "SSL_free"));
+    api.sslSetFd = reinterpret_cast<TlsApi::SSL_set_fd_fn>(loadDynamicSymbol(api.sslLib, "SSL_set_fd"));
+    api.sslSetSni = reinterpret_cast<TlsApi::SSL_set_tlsext_host_name_fn>(loadDynamicSymbol(api.sslLib, "SSL_set_tlsext_host_name"));
+    api.sslGet0Param = reinterpret_cast<TlsApi::SSL_get0_param_fn>(loadDynamicSymbol(api.sslLib, "SSL_get0_param"));
+    api.verifyParamSetHost = reinterpret_cast<TlsApi::X509_VERIFY_PARAM_set1_host_fn>(loadDynamicSymbol(api.sslLib, "X509_VERIFY_PARAM_set1_host"));
+    if (api.verifyParamSetHost == nullptr && api.cryptoLib != nullptr) {
+        api.verifyParamSetHost = reinterpret_cast<TlsApi::X509_VERIFY_PARAM_set1_host_fn>(loadDynamicSymbol(api.cryptoLib, "X509_VERIFY_PARAM_set1_host"));
+    }
+    api.sslConnect = reinterpret_cast<TlsApi::SSL_connect_fn>(loadDynamicSymbol(api.sslLib, "SSL_connect"));
+    api.sslGetError = reinterpret_cast<TlsApi::SSL_get_error_fn>(loadDynamicSymbol(api.sslLib, "SSL_get_error"));
+    api.sslWrite = reinterpret_cast<TlsApi::SSL_write_fn>(loadDynamicSymbol(api.sslLib, "SSL_write"));
+    api.sslRead = reinterpret_cast<TlsApi::SSL_read_fn>(loadDynamicSymbol(api.sslLib, "SSL_read"));
+    api.sslShutdown = reinterpret_cast<TlsApi::SSL_shutdown_fn>(loadDynamicSymbol(api.sslLib, "SSL_shutdown"));
+    api.sslGetVerifyResult = reinterpret_cast<TlsApi::SSL_get_verify_result_fn>(loadDynamicSymbol(api.sslLib, "SSL_get_verify_result"));
+
+    if (!api.clientMethod || !api.ctxNew || !api.ctxFree || !api.ctxSetVerify ||
+        !api.sslNew || !api.sslFree || !api.sslSetFd || !api.sslConnect ||
+        !api.sslGetError || !api.sslWrite || !api.sslRead || !api.sslShutdown ||
+        !api.sslGetVerifyResult) {
+        throw std::runtime_error("mqtt tls requested but required OpenSSL symbols are missing");
+    }
+    if (api.initSsl) {
+        api.initSsl(0, nullptr);
+    }
+    loaded = true;
+    return api;
+}
+
+struct MqttConnection {
+    SocketHandle sock = kInvalidSocket;
+    SSL_CTX* sslCtx = nullptr;
+    SSL* ssl = nullptr;
+    bool tls = false;
+};
+
+void closeConnection(MqttConnection& connection) {
+    if (connection.ssl != nullptr) {
+        auto& api = tlsApi();
+        api.sslShutdown(connection.ssl);
+        api.sslFree(connection.ssl);
+        connection.ssl = nullptr;
+    }
+    if (connection.sslCtx != nullptr) {
+        auto& api = tlsApi();
+        api.ctxFree(connection.sslCtx);
+        connection.sslCtx = nullptr;
+    }
+    closeSocket(connection.sock);
+    connection.sock = kInvalidSocket;
+    connection.tls = false;
+}
+
 class SocketGuard {
 public:
     explicit SocketGuard(SocketHandle sock) : sock_(sock) {
@@ -587,6 +766,17 @@ public:
     }
 private:
     SocketHandle sock_;
+};
+
+class ConnectionGuard {
+public:
+    explicit ConnectionGuard(MqttConnection& connection) : connection_(connection) {
+    }
+    ~ConnectionGuard() {
+        closeConnection(connection_);
+    }
+private:
+    MqttConnection& connection_;
 };
 
 void ensureSocketRuntime() {
@@ -635,6 +825,97 @@ SocketHandle connectTcp(const BrokerEndpoint& endpoint) {
     return sock;
 }
 
+void enableTlsOnConnection(MqttConnection& connection, const MqttConfig& config, const BrokerEndpoint& endpoint) {
+    auto& api = tlsApi();
+    constexpr int kSslVerifyNone = 0;
+    constexpr int kSslVerifyPeer = 1;
+    constexpr int kSslFiletypePem = 1;
+    constexpr long kX509VerifyOk = 0;
+
+    connection.sslCtx = api.ctxNew(api.clientMethod());
+    if (connection.sslCtx == nullptr) {
+        throw std::runtime_error("mqtt tls context create failed");
+    }
+
+    if (config.tls.insecureSkipVerify) {
+        api.ctxSetVerify(connection.sslCtx, kSslVerifyNone, nullptr);
+    } else {
+        api.ctxSetVerify(connection.sslCtx, kSslVerifyPeer, nullptr);
+        if (!config.tls.caFile.empty()) {
+            if (api.ctxLoadVerifyLocations == nullptr ||
+                api.ctxLoadVerifyLocations(connection.sslCtx, config.tls.caFile.c_str(), nullptr) != 1) {
+                throw std::runtime_error("mqtt tls CA file load failed");
+            }
+        } else if (api.ctxSetDefaultVerifyPaths != nullptr) {
+            api.ctxSetDefaultVerifyPaths(connection.sslCtx);
+        }
+    }
+
+    if (!config.tls.certFile.empty() || !config.tls.keyFile.empty()) {
+        if (config.tls.certFile.empty() || config.tls.keyFile.empty()) {
+            throw std::runtime_error("mqtt tls certFile and keyFile must be configured together");
+        }
+        if (api.ctxUseCertificateFile == nullptr ||
+            api.ctxUsePrivateKeyFile == nullptr ||
+            api.ctxCheckPrivateKey == nullptr) {
+            throw std::runtime_error("mqtt tls client certificate support is not available");
+        }
+        if (api.ctxUseCertificateFile(connection.sslCtx, config.tls.certFile.c_str(), kSslFiletypePem) != 1) {
+            throw std::runtime_error("mqtt tls client certificate load failed");
+        }
+        if (api.ctxUsePrivateKeyFile(connection.sslCtx, config.tls.keyFile.c_str(), kSslFiletypePem) != 1) {
+            throw std::runtime_error("mqtt tls client private key load failed");
+        }
+        if (api.ctxCheckPrivateKey(connection.sslCtx) != 1) {
+            throw std::runtime_error("mqtt tls client certificate and key mismatch");
+        }
+    }
+
+    connection.ssl = api.sslNew(connection.sslCtx);
+    if (connection.ssl == nullptr) {
+        throw std::runtime_error("mqtt tls session create failed");
+    }
+    if (api.sslSetFd(connection.ssl, static_cast<int>(connection.sock)) != 1) {
+        throw std::runtime_error("mqtt tls set socket failed");
+    }
+    if (api.sslSetSni != nullptr && !endpoint.host.empty()) {
+        api.sslSetSni(connection.ssl, endpoint.host.c_str());
+    }
+    if (!config.tls.insecureSkipVerify) {
+        if (api.sslGet0Param == nullptr || api.verifyParamSetHost == nullptr) {
+            throw std::runtime_error("mqtt tls hostname verification is not available");
+        }
+        auto* param = api.sslGet0Param(connection.ssl);
+        if (param == nullptr || api.verifyParamSetHost(param, endpoint.host.c_str(), endpoint.host.size()) != 1) {
+            throw std::runtime_error("mqtt tls hostname verification setup failed");
+        }
+    }
+
+    const auto rc = api.sslConnect(connection.ssl);
+    if (rc != 1) {
+        throw std::runtime_error("mqtt tls handshake failed");
+    }
+    if (!config.tls.insecureSkipVerify && api.sslGetVerifyResult(connection.ssl) != kX509VerifyOk) {
+        throw std::runtime_error("mqtt tls certificate verification failed");
+    }
+    connection.tls = true;
+}
+
+MqttConnection connectMqttTransport(const MqttConfig& config) {
+    const auto endpoint = parseBroker(config.broker);
+    MqttConnection connection;
+    connection.sock = connectTcp(endpoint);
+    try {
+        if (configUsesTls(config, endpoint)) {
+            enableTlsOnConnection(connection, config, endpoint);
+        }
+    } catch (...) {
+        closeConnection(connection);
+        throw;
+    }
+    return connection;
+}
+
 void sendAll(SocketHandle sock, const std::vector<std::uint8_t>& bytes) {
     std::size_t sent = 0;
     while (sent < bytes.size()) {
@@ -645,6 +926,23 @@ void sendAll(SocketHandle sock, const std::vector<std::uint8_t>& bytes) {
 #endif
         if (rc <= 0) {
             throw std::runtime_error("mqtt send failed");
+        }
+        sent += static_cast<std::size_t>(rc);
+    }
+}
+
+void sendAll(MqttConnection& connection, const std::vector<std::uint8_t>& bytes) {
+    if (!connection.tls) {
+        sendAll(connection.sock, bytes);
+        return;
+    }
+    auto& api = tlsApi();
+    std::size_t sent = 0;
+    while (sent < bytes.size()) {
+        const auto chunk = std::min<std::size_t>(bytes.size() - sent, 16384);
+        const auto rc = api.sslWrite(connection.ssl, bytes.data() + sent, static_cast<int>(chunk));
+        if (rc <= 0) {
+            throw std::runtime_error("mqtt tls send failed");
         }
         sent += static_cast<std::size_t>(rc);
     }
@@ -663,6 +961,19 @@ std::uint8_t recvByte(SocketHandle sock) {
     return byte;
 }
 
+std::uint8_t recvByte(MqttConnection& connection) {
+    if (!connection.tls) {
+        return recvByte(connection.sock);
+    }
+    auto& api = tlsApi();
+    std::uint8_t byte = 0;
+    const auto rc = api.sslRead(connection.ssl, &byte, 1);
+    if (rc != 1) {
+        throw std::runtime_error("mqtt tls recv failed");
+    }
+    return byte;
+}
+
 std::vector<std::uint8_t> recvExact(SocketHandle sock, std::size_t len) {
     std::vector<std::uint8_t> bytes(len);
     std::size_t got = 0;
@@ -674,6 +985,24 @@ std::vector<std::uint8_t> recvExact(SocketHandle sock, std::size_t len) {
 #endif
         if (rc <= 0) {
             throw std::runtime_error("mqtt recv payload failed");
+        }
+        got += static_cast<std::size_t>(rc);
+    }
+    return bytes;
+}
+
+std::vector<std::uint8_t> recvExact(MqttConnection& connection, std::size_t len) {
+    if (!connection.tls) {
+        return recvExact(connection.sock, len);
+    }
+    auto& api = tlsApi();
+    std::vector<std::uint8_t> bytes(len);
+    std::size_t got = 0;
+    while (got < len) {
+        const auto chunk = std::min<std::size_t>(len - got, 16384);
+        const auto rc = api.sslRead(connection.ssl, bytes.data() + got, static_cast<int>(chunk));
+        if (rc <= 0) {
+            throw std::runtime_error("mqtt tls recv payload failed");
         }
         got += static_cast<std::size_t>(rc);
     }
@@ -697,6 +1026,23 @@ std::vector<std::uint8_t> readPacket(SocketHandle sock) {
     return packet;
 }
 
+std::vector<std::uint8_t> readPacket(MqttConnection& connection) {
+    std::vector<std::uint8_t> packet;
+    packet.push_back(recvByte(connection));
+    std::size_t multiplier = 1;
+    std::size_t remaining = 0;
+    std::uint8_t encoded = 0;
+    do {
+        encoded = recvByte(connection);
+        packet.push_back(encoded);
+        remaining += (encoded & 0x7F) * multiplier;
+        multiplier *= 128;
+    } while ((encoded & 0x80) != 0);
+    const auto body = recvExact(connection, remaining);
+    packet.insert(packet.end(), body.begin(), body.end());
+    return packet;
+}
+
 bool waitReadable(SocketHandle sock, int timeoutMs) {
     fd_set readSet;
     FD_ZERO(&readSet);
@@ -713,6 +1059,10 @@ bool waitReadable(SocketHandle sock, int timeoutMs) {
         throw std::runtime_error("mqtt select failed");
     }
     return rc > 0;
+}
+
+bool waitReadable(const MqttConnection& connection, int timeoutMs) {
+    return waitReadable(connection.sock, timeoutMs);
 }
 
 void validateConnAck(const MqttConfig& config, const std::vector<std::uint8_t>& packet) {
@@ -740,14 +1090,6 @@ void validateSubAck(const std::vector<std::uint8_t>& packet) {
     if (packet.empty() || (packet[0] & 0xF0) != kPacketSubAck) {
         throw std::runtime_error("mqtt suback missing");
     }
-}
-
-SocketHandle handleFromInt(std::intptr_t value) {
-    return static_cast<SocketHandle>(value);
-}
-
-std::intptr_t handleToInt(SocketHandle sock) {
-    return static_cast<std::intptr_t>(sock);
 }
 
 std::int64_t currentTimeMs() {
@@ -938,6 +1280,18 @@ bool parsePublishPacket(
 
 }  // namespace
 
+struct BuiltinMqttDriverPublisher::MqttConnectionHandle {
+    explicit MqttConnectionHandle(MqttConnection connectionValue)
+        : connection(std::move(connectionValue)) {
+    }
+
+    ~MqttConnectionHandle() {
+        closeConnection(connection);
+    }
+
+    MqttConnection connection;
+};
+
 BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config)
     : config_(std::move(config)) {
     if (config_.offlineBufferEnabled) {
@@ -1045,24 +1399,24 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
 
     try {
         ensureSubscriberConnected();
-        const auto sock = handleFromInt(subscriberSocket_);
+        auto& connection = subscriberConnection_->connection;
 
-        if (!waitReadable(sock, timeoutMs)) {
+        if (!waitReadable(connection, timeoutMs)) {
             const auto now = currentTimeMs();
             if (config_.keepAliveSec > 0 &&
                 now - lastSubscriberActivityMs_ >= static_cast<std::int64_t>(config_.keepAliveSec) * 500) {
-                sendAll(sock, buildPingReqPacket());
+                sendAll(connection, buildPingReqPacket());
                 lastSubscriberActivityMs_ = now;
             }
             return messages;
         }
 
         while (true) {
-            const auto packet = readPacket(sock);
+            const auto packet = readPacket(connection);
             lastSubscriberActivityMs_ = currentTimeMs();
             const auto type = packet[0] & 0xF0;
             if (type == kPacketPingResp) {
-                if (!waitReadable(sock, 0)) {
+                if (!waitReadable(connection, 0)) {
                     break;
                 }
                 continue;
@@ -1073,11 +1427,11 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
             if (parsePublishPacket(config_, packet, &message, &packetId)) {
                 messages.push_back(message);
                 if (packetId != 0) {
-                    sendAll(sock, buildPubAckPacket(packetId, config_.protocolVersion == "mqtt5"));
+                    sendAll(connection, buildPubAckPacket(packetId, config_.protocolVersion == "mqtt5"));
                 }
             }
 
-            if (!waitReadable(sock, 0)) {
+            if (!waitReadable(connection, 0)) {
                 break;
             }
         }
@@ -1183,19 +1537,18 @@ void BuiltinMqttDriverPublisher::publishEventJson(
 }
 
 void BuiltinMqttDriverPublisher::sendJsonNow(const std::string& topic, const std::string& payload) {
-    const auto endpoint = parseBroker(config_.broker);
-    const auto sock = connectTcp(endpoint);
-    SocketGuard guard(sock);
+    auto connection = connectMqttTransport(config_);
+    ConnectionGuard guard(connection);
 
-    sendAll(sock, buildConnectPacket(config_, "-tx"));
-    validateConnAck(config_, readPacket(sock));
+    sendAll(connection, buildConnectPacket(config_, "-tx"));
+    validateConnAck(config_, readPacket(connection));
 
-    sendAll(sock, buildPublishPacket(config_, topic, payload, nextPacketId_++));
+    sendAll(connection, buildPublishPacket(config_, topic, payload, nextPacketId_++));
     if (config_.qos > 0) {
-        validatePubAck(readPacket(sock));
+        validatePubAck(readPacket(connection));
     }
 
-    sendAll(sock, buildDisconnectPacket());
+    sendAll(connection, buildDisconnectPacket());
 }
 
 void BuiltinMqttDriverPublisher::enqueueOffline(const std::string& topic, const std::string& payload) {
@@ -1342,31 +1695,30 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
         return;
     }
 
-    const auto endpoint = parseBroker(config_.broker);
-    const auto sock = connectTcp(endpoint);
+    std::unique_ptr<MqttConnectionHandle> handle(new MqttConnectionHandle(connectMqttTransport(config_)));
+    auto& connection = handle->connection;
     try {
-        sendAll(sock, buildConnectPacket(config_, "-rx"));
-        validateConnAck(config_, readPacket(sock));
+        sendAll(connection, buildConnectPacket(config_, "-rx"));
+        validateConnAck(config_, readPacket(connection));
 
         sendAll(
-            sock,
-                buildSubscribePacket(
-                    config_,
-                    scopedTopic(config_.commandRequestTopic, config_.topicMachineCode),
-                    scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
-                    scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
-                    scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),
-                    scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode),
-                    nextPacketId_++
-                )
-            );
-        validateSubAck(readPacket(sock));
+            connection,
+            buildSubscribePacket(
+                config_,
+                scopedTopic(config_.commandRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode),
+                nextPacketId_++
+            )
+        );
+        validateSubAck(readPacket(connection));
     } catch (...) {
-        closeSocket(sock);
         throw;
     }
 
-    subscriberSocket_ = handleToInt(sock);
+    subscriberConnection_ = std::move(handle);
     subscriberConnected_ = true;
     lastSubscriberActivityMs_ = currentTimeMs();
 }
@@ -1376,13 +1728,13 @@ void BuiltinMqttDriverPublisher::closeSubscriber() {
         return;
     }
 
-    const auto sock = handleFromInt(subscriberSocket_);
     try {
-        sendAll(sock, buildDisconnectPacket());
+        if (subscriberConnection_) {
+            sendAll(subscriberConnection_->connection, buildDisconnectPacket());
+        }
     } catch (...) {
     }
-    closeSocket(sock);
-    subscriberSocket_ = 0;
+    subscriberConnection_.reset();
     subscriberConnected_ = false;
     lastSubscriberActivityMs_ = 0;
 }

@@ -1,4 +1,5 @@
 #include <chrono>
+#include <algorithm>
 #include <csignal>
 #include <iostream>
 #include <memory>
@@ -7,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 #ifndef _WIN32
+#include <dirent.h>
 #include <sys/prctl.h>
 #endif
 
@@ -27,6 +29,42 @@ void handleSignal(int) {
 std::string basenameOf(const std::string& path) {
     const auto pos = path.find_last_of("/\\");
     return pos == std::string::npos ? path : path.substr(pos + 1);
+}
+
+std::string dirnameOf(const std::string& path) {
+    const auto pos = path.find_last_of("/\\");
+    return pos == std::string::npos ? std::string(".") : path.substr(0, pos);
+}
+
+void addUniquePath(std::vector<std::string>& paths, const std::string& path) {
+    if (path.empty()) {
+        return;
+    }
+    if (std::find(paths.begin(), paths.end(), path) == paths.end()) {
+        paths.push_back(path);
+    }
+}
+
+std::vector<std::string> discoverSiblingAppConfigFiles(const std::string& appConfigPath) {
+    std::vector<std::string> files;
+#ifndef _WIN32
+    const auto dir = dirnameOf(appConfigPath);
+    DIR* handle = opendir(dir.c_str());
+    if (handle == nullptr) {
+        return files;
+    }
+    while (dirent* entry = readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name.size() < 6 || name.substr(name.size() - 5) != ".json") {
+            continue;
+        }
+        files.push_back(dir + "/" + name);
+    }
+    closedir(handle);
+#else
+    (void)appConfigPath;
+#endif
+    return files;
 }
 
 std::string sanitizeProcessToken(std::string value) {
@@ -79,13 +117,12 @@ int main(int argc, char* argv[]) {
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     setProcessName("modbus-sysm-" + sanitizeProcessToken(basenameOf(appConfigPath)));
-    if (!appConfig.mqtt.clientId.empty()) {
-        appConfig.mqtt.clientId += "_system_monitor";
-    } else {
-        appConfig.mqtt.clientId = "system-monitor";
-    }
 
-    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles);
+    DeviceIdentity identity;
+    if (!appConfig.identityConfigFile.empty()) {
+        identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
+    }
+    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
     std::vector<std::string> sharedMemoryNames = appConfig.mqttDriver.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);
@@ -106,14 +143,28 @@ int main(int argc, char* argv[]) {
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
 
-    const auto machineCode = deviceConfigs.empty() ? std::string() : deviceConfigs.front().machineCode;
+    const auto machineCode = !identity.machineCode.empty()
+        ? identity.machineCode
+        : (deviceConfigs.empty() ? std::string() : deviceConfigs.front().machineCode);
     if (!machineCode.empty()) {
         appConfig.mqtt.topicMachineCode = machineCode;
+        appConfig.mqtt.clientId = machineCode;
+    }
+    if (!appConfig.mqtt.clientId.empty()) {
+        appConfig.mqtt.clientId += "_system_monitor";
+    } else {
+        appConfig.mqtt.clientId = "system-monitor";
     }
     std::vector<std::string> configFiles;
-    configFiles.push_back(appConfigPath);
+    if (!appConfig.identityConfigFile.empty()) {
+        addUniquePath(configFiles, appConfig.identityConfigFile);
+    }
+    addUniquePath(configFiles, appConfigPath);
+    for (const auto& appFile : discoverSiblingAppConfigFiles(appConfigPath)) {
+        addUniquePath(configFiles, appFile);
+    }
     for (const auto& file : appConfig.deviceConfigFiles) {
-        configFiles.push_back(file);
+        addUniquePath(configFiles, file);
     }
     std::shared_ptr<IMqttDriverPublisher> publisher;
     if (appConfig.mqtt.enabled) {

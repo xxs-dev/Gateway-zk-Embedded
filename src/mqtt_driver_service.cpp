@@ -217,13 +217,21 @@ std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<
     std::vector<std::uint32_t> indexes;
     for (const auto& config : deviceConfigs) {
         if (!config.meters.empty()) {
+            std::size_t meterIndex = 0;
             for (const auto& device : config.meters) {
-                const auto points = effectiveMeterPoints(config, device);
+                auto points = effectiveMeterPoints(config, device);
+                if (config.protocol.type == "dlt645_2007" && device.points.empty()) {
+                    const std::uint32_t indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
+                    for (std::size_t i = 0; i < points.size(); ++i) {
+                        points[i].index = indexBase + static_cast<std::uint32_t>(i);
+                    }
+                }
                 for (const auto& point : points) {
                     if (point.fullUpload) {
                         indexes.push_back(point.index);
                     }
                 }
+                ++meterIndex;
             }
             continue;
         }
@@ -387,6 +395,10 @@ void MqttDriverService::runScanOnce(std::int64_t nowMs) {
         }
         publishFullSnapshotNow(nowMs);
     }
+}
+
+void MqttDriverService::runEventReplayOnce(std::int64_t nowMs) {
+    replayEventOutboxIfNeeded(nowMs);
 }
 
 void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {

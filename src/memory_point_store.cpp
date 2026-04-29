@@ -5,11 +5,13 @@
 #include <chrono>
 #include <cstring>
 #include <cstdint>
+#include <ctime>
 #include <mutex>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -17,6 +19,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -159,10 +162,17 @@ private:
 class SharedLockGuard {
 public:
     explicit SharedLockGuard(pthread_mutex_t* mutex) : mutex_(mutex) {
-        const auto rc = pthread_mutex_lock(mutex_);
+        timespec deadline{};
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += 5;
+
+        const auto rc = pthread_mutex_timedlock(mutex_, &deadline);
         if (rc == EOWNERDEAD) {
             pthread_mutex_consistent(mutex_);
             return;
+        }
+        if (rc == ETIMEDOUT) {
+            throw std::runtime_error("shared memory mutex lock timed out");
         }
         if (rc != 0) {
             throw std::runtime_error("failed to lock shared memory mutex");
@@ -316,16 +326,65 @@ bool hasAnyActiveOwner(const SharedStoreLayout* layout, std::int64_t nowMs) {
     return false;
 }
 
+std::size_t ringCount(std::uint32_t head, std::uint32_t tail, std::size_t capacity) {
+    return (tail + capacity - head) % capacity;
+}
+
+bool isIndexClaimedByOtherActiveOwner(
+    const SharedStoreLayout* layout,
+    std::uint32_t index,
+    std::uint64_t ownerId,
+    std::int64_t nowMs
+) {
+    for (const auto& claim : layout->claims) {
+        if (!claim.occupied || claim.index != index || claim.ownerId == ownerId) {
+            continue;
+        }
+        for (const auto& owner : layout->owners) {
+            if (owner.occupied && owner.ownerId == claim.ownerId && isOwnerAlive(owner, nowMs)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 SharedLatestSlot* allocateLatestSlot(
     SharedStoreLayout* layout,
     std::uint32_t index,
-    std::size_t maxLatestPoints
+    std::size_t maxLatestPoints,
+    std::unordered_map<std::uint32_t, std::size_t>* latestSlotByIndex = nullptr
 ) {
-    if (auto* existing = findLatestSlot(layout, index)) {
-        return existing;
+    if (latestSlotByIndex != nullptr) {
+        const auto cached = latestSlotByIndex->find(index);
+        if (cached != latestSlotByIndex->end() && cached->second < kMaxLatestSlots) {
+            auto* slot = &layout->latest[cached->second];
+            if (slot->occupied && slot->index == index) {
+                return slot;
+            }
+            latestSlotByIndex->erase(cached);
+        }
+    }
+    if (latestSlotByIndex == nullptr) {
+        if (auto* existing = findLatestSlot(layout, index)) {
+            return existing;
+        }
     }
     if (layout->header.latestCount >= maxLatestPoints) {
         throw std::runtime_error("shared latest store reached configured limit");
+    }
+    if (layout->header.latestCount < kMaxLatestSlots) {
+        auto& slot = layout->latest[layout->header.latestCount];
+        if (!slot.occupied) {
+            slot = SharedLatestSlot{};
+            slot.index = index;
+            slot.occupied = 1;
+            if (latestSlotByIndex != nullptr) {
+                (*latestSlotByIndex)[index] = layout->header.latestCount;
+            }
+            ++layout->header.latestCount;
+            return &slot;
+        }
     }
     for (auto& slot : layout->latest) {
         if (!slot.occupied) {
@@ -333,6 +392,9 @@ SharedLatestSlot* allocateLatestSlot(
             slot.index = index;
             slot.occupied = 1;
             ++layout->header.latestCount;
+            if (latestSlotByIndex != nullptr) {
+                (*latestSlotByIndex)[index] = static_cast<std::size_t>(&slot - layout->latest);
+            }
             return &slot;
         }
     }
@@ -344,6 +406,15 @@ void pushPendingWrite(
     const PendingWriteCommand& command,
     std::size_t maxPendingWrites
 ) {
+    const auto pendingCount = ringCount(
+        layout->header.pendingWriteHead,
+        layout->header.pendingWriteTail,
+        kMaxPendingWriteSlots
+    );
+    if (pendingCount >= maxPendingWrites) {
+        throw std::runtime_error("shared pending write queue is full");
+    }
+
     auto& slot = layout->pendingWrites[layout->header.pendingWriteTail];
     slot = SharedPendingWriteSlot{};
     slot.sequence = ++layout->header.writeSequence;
@@ -356,11 +427,6 @@ void pushPendingWrite(
 
     layout->header.pendingWriteTail =
         (layout->header.pendingWriteTail + 1) % kMaxPendingWriteSlots;
-    while (((layout->header.pendingWriteTail + kMaxPendingWriteSlots - layout->header.pendingWriteHead) %
-            kMaxPendingWriteSlots) >= maxPendingWrites) {
-        layout->header.pendingWriteHead =
-            (layout->header.pendingWriteHead + 1) % kMaxPendingWriteSlots;
-    }
 }
 
 std::vector<PendingWriteCommand> drainPendingWrites(
@@ -525,6 +591,25 @@ std::string normalizeSegmentName(std::string name) {
 }
 
 #ifndef _WIN32
+class PosixFileLockGuard {
+public:
+    explicit PosixFileLockGuard(int fd) : fd_(fd) {
+        if (flock(fd_, LOCK_EX) != 0) {
+            throw std::runtime_error("failed to lock shared memory file");
+        }
+    }
+
+    ~PosixFileLockGuard() {
+        flock(fd_, LOCK_UN);
+    }
+
+    PosixFileLockGuard(const PosixFileLockGuard&) = delete;
+    PosixFileLockGuard& operator=(const PosixFileLockGuard&) = delete;
+
+private:
+    int fd_;
+};
+
 void initializePosixMutex(pthread_mutex_t& mutex) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -586,6 +671,13 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         layout->header.magic = kSharedStoreMagic;
         layout->header.version = kSharedStoreVersion;
     }
+    latestSlotByIndex_.clear();
+    latestSlotByIndex_.reserve(layout->header.latestCount);
+    for (std::size_t i = 0; i < kMaxLatestSlots; ++i) {
+        if (layout->latest[i].occupied) {
+            latestSlotByIndex_[layout->latest[i].index] = i;
+        }
+    }
 #else
     cleanupOrphanedSegment(segmentName_);
     const int fd = shm_open(segmentName_.c_str(), O_CREAT | O_RDWR, 0666);
@@ -593,6 +685,7 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         throw std::runtime_error("shm_open failed");
     }
     mappingHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(fd) + 1);
+    PosixFileLockGuard fileLock(fd);
 
     struct stat shmStat;
     std::memset(&shmStat, 0, sizeof(shmStat));
@@ -640,6 +733,16 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         mappingHandle_ = nullptr;
         throw std::runtime_error("shared memory version mismatch, rebuild all processes and restart");
     }
+    {
+        SharedLockGuard sharedLock(&layout->header.mutex);
+        latestSlotByIndex_.clear();
+        latestSlotByIndex_.reserve(layout->header.latestCount);
+        for (std::size_t i = 0; i < kMaxLatestSlots; ++i) {
+            if (layout->latest[i].occupied) {
+                latestSlotByIndex_[layout->latest[i].index] = i;
+            }
+        }
+    }
 #endif
 }
 
@@ -678,7 +781,9 @@ bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName) {
 
 MemoryPointStore::MemoryPointStore(const MemoryStoreConfig& config)
     : MemoryPointStore(config.sharedMemoryName) {
-    maxLatestPoints_ = kMaxLatestSlots;
+    maxLatestPoints_ = config.maxLatestPoints == 0
+        ? kMaxLatestSlots
+        : std::max<std::size_t>(1, std::min(config.maxLatestPoints, kMaxLatestSlots));
     maxPendingWrites_ = std::max<std::size_t>(1, std::min(config.maxPendingWrites, kMaxPendingWriteSlots - 1));
     maxPersistentSamples_ = std::max<std::size_t>(1, std::min(config.maxPersistentSamples, kMaxPersistentSlots - 1));
 }
@@ -786,6 +891,9 @@ void MemoryPointStore::registerPoint(
     auto* layout2 = layoutFrom(sharedView_);
     const auto ts = currentTimeMs();
     cleanupStaleOwnersAndClaims(layout2, ts);
+    if (isIndexClaimedByOtherActiveOwner(layout2, point.index, ownerId_, ts)) {
+        throw std::invalid_argument("point.index already claimed by another active process");
+    }
     auto* ownerSlot = allocateOwnerSlot(layout2, ownerId_);
     ownerSlot->heartbeatMs = ts;
     copyString(ownerSlot->source, kSourceSize, ownerSource_);
@@ -806,7 +914,7 @@ void MemoryPointStore::putLatest(const PointValue& value) {
     SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
     auto* layout2 = layoutFrom(sharedView_);
-    auto* slot = allocateLatestSlot(layout2, value.index, maxLatestPoints_);
+    auto* slot = allocateLatestSlot(layout2, value.index, maxLatestPoints_, &latestSlotByIndex_);
     slot->index = value.index;
     slot->value = value.value;
     slot->quality = value.quality;
@@ -863,9 +971,14 @@ Optional<StoredPointValue> MemoryPointStore::getLatestByIndex(
     std::int64_t nowMs
 ) const {
     Optional<PointBinding> binding;
+    Optional<std::size_t> cachedSlot;
     {
         ReadLock lock(mutex_);
         binding = getBindingByIndex(index);
+        const auto cached = latestSlotByIndex_.find(index);
+        if (cached != latestSlotByIndex_.end()) {
+            cachedSlot = cached->second;
+        }
     }
 
 #ifdef _WIN32
@@ -875,7 +988,16 @@ Optional<StoredPointValue> MemoryPointStore::getLatestByIndex(
     SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
     const auto* layout2 = layoutFrom(sharedView_);
-    const auto* slot = findLatestSlot(layout2, index);
+    const SharedLatestSlot* slot = nullptr;
+    if (cachedSlot && *cachedSlot < kMaxLatestSlots) {
+        const auto* candidate = &layout2->latest[*cachedSlot];
+        if (candidate->occupied && candidate->index == index) {
+            slot = candidate;
+        }
+    }
+    if (slot == nullptr) {
+        slot = findLatestSlot(layout2, index);
+    }
     if (slot == nullptr) {
         return NullOpt;
     }
@@ -900,13 +1022,23 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
     std::int64_t nowMs
 ) const {
     std::unordered_map<std::uint32_t, PointBinding> bindingsSnapshot;
+    std::unordered_map<std::uint32_t, std::size_t> slotSnapshot;
+    std::unordered_set<std::uint32_t> missingSlotIndexes;
     {
         ReadLock lock(mutex_);
         bindingsSnapshot.reserve(indexes.size());
+        slotSnapshot.reserve(indexes.size());
+        missingSlotIndexes.reserve(indexes.size());
         for (const auto index : indexes) {
             const auto binding = bindings_.find(index);
             if (binding != bindings_.end()) {
                 bindingsSnapshot.emplace(index, binding->second);
+            }
+            const auto slot = latestSlotByIndex_.find(index);
+            if (slot != latestSlotByIndex_.end()) {
+                slotSnapshot.emplace(index, slot->second);
+            } else {
+                missingSlotIndexes.insert(index);
             }
         }
     }
@@ -918,10 +1050,46 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
     SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
     const auto* layout2 = layoutFrom(sharedView_);
+    const bool scannedMissingSlots = !missingSlotIndexes.empty();
+    std::unordered_map<std::uint32_t, std::size_t> discoveredSlots;
+    if (!missingSlotIndexes.empty()) {
+        discoveredSlots.reserve(missingSlotIndexes.size());
+        for (std::size_t slotIndex = 0;
+             slotIndex < kMaxLatestSlots && discoveredSlots.size() < missingSlotIndexes.size();
+             ++slotIndex) {
+            const auto& candidate = layout2->latest[slotIndex];
+            if (candidate.occupied && missingSlotIndexes.find(candidate.index) != missingSlotIndexes.end()) {
+                discoveredSlots.emplace(candidate.index, slotIndex);
+            }
+        }
+    }
+
     std::vector<StoredPointValue> result;
     result.reserve(indexes.size());
     for (const auto index : indexes) {
-        const auto* slot = findLatestSlot(layout2, index);
+        const SharedLatestSlot* slot = nullptr;
+        const auto cached = slotSnapshot.find(index);
+        if (cached != slotSnapshot.end() && cached->second < kMaxLatestSlots) {
+            const auto* candidate = &layout2->latest[cached->second];
+            if (candidate->occupied && candidate->index == index) {
+                slot = candidate;
+            }
+        }
+        if (slot == nullptr) {
+            const auto discovered = discoveredSlots.find(index);
+            if (discovered != discoveredSlots.end() && discovered->second < kMaxLatestSlots) {
+                const auto* candidate = &layout2->latest[discovered->second];
+                if (candidate->occupied && candidate->index == index) {
+                    slot = candidate;
+                }
+            }
+        }
+        if (slot == nullptr && scannedMissingSlots && missingSlotIndexes.find(index) != missingSlotIndexes.end()) {
+            continue;
+        }
+        if (slot == nullptr) {
+            slot = findLatestSlot(layout2, index);
+        }
         if (slot == nullptr) {
             continue;
         }
@@ -1111,6 +1279,45 @@ std::vector<PendingWriteCommand> MemoryPointStore::peekPendingWriteCommands(std:
     return peekPendingWrites(layout2, limit);
 }
 
+MemoryStoreStats MemoryPointStore::getStats() const {
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    const auto* layout2 = layoutFrom(sharedView_);
+    MemoryStoreStats stats;
+    stats.sharedMemoryName = segmentName_;
+    stats.latestCount = layout2->header.latestCount;
+    stats.latestCapacity = kMaxLatestSlots;
+    stats.latestConfiguredLimit = maxLatestPoints_;
+    stats.pendingWriteCount = ringCount(
+        layout2->header.pendingWriteHead,
+        layout2->header.pendingWriteTail,
+        kMaxPendingWriteSlots
+    );
+    stats.pendingWriteCapacity = kMaxPendingWriteSlots - 1;
+    stats.pendingWriteConfiguredLimit = maxPendingWrites_;
+    stats.persistentCount = ringCount(
+        layout2->header.persistentHead,
+        layout2->header.persistentTail,
+        kMaxPersistentSlots
+    );
+    stats.persistentCapacity = kMaxPersistentSlots - 1;
+    stats.persistentConfiguredLimit = maxPersistentSamples_;
+    stats.pointUpdateCount = ringCount(
+        layout2->header.pointUpdateHead,
+        layout2->header.pointUpdateTail,
+        kMaxPointUpdateSlots
+    );
+    stats.pointUpdateCapacity = kMaxPointUpdateSlots - 1;
+    stats.writeSequence = layout2->header.writeSequence;
+    stats.persistentSequence = layout2->header.persistentSequence;
+    stats.pointUpdateSequence = layout2->header.pointUpdateSequence;
+    return stats;
+}
+
 std::vector<PersistentPointSample> MemoryPointStore::drainPersistentSamples() {
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
@@ -1153,6 +1360,7 @@ void MemoryPointStore::heartbeatRegisteredPoints(std::int64_t nowMs) {
 }
 
 void MemoryPointStore::removeExpired(std::int64_t nowMs) {
+    WriteLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else
@@ -1172,6 +1380,7 @@ void MemoryPointStore::removeExpired(std::int64_t nowMs) {
         value.ts = slot.ts;
         value.expireAt = slot.expireAt;
         if (isExpired(value, nowMs) || !hasActiveClaim(layout2, slot.index, nowMs)) {
+            latestSlotByIndex_.erase(slot.index);
             slot = SharedLatestSlot{};
             if (layout2->header.latestCount > 0) {
                 --layout2->header.latestCount;

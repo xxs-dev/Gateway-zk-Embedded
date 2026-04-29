@@ -72,6 +72,42 @@ void resolveConfigRelativePaths(DeviceConfig& config, const std::string& configP
     }
 }
 
+std::string discoverIdentityConfigFile(const std::string& configPath) {
+    const char* envPath = std::getenv("GATEWAY_IDENTITY_CONFIG");
+    if (envPath != nullptr && fileExists(envPath)) {
+        return envPath;
+    }
+
+    const auto configDir = directoryOf(configPath);
+    const auto configParent = directoryOf(configDir);
+    const auto configGrandParent = directoryOf(configParent);
+    const std::vector<std::string> candidates = {
+        joinPath(configDir, "device_identity.json"),
+        joinPath(configParent, "device_identity.json"),
+        joinPath(configGrandParent, "runtime/device_identity.json"),
+        "config/runtime/device_identity.json",
+        "/opt/modbus-gateway/config/runtime/device_identity.json"
+    };
+    for (const auto& candidate : candidates) {
+        if (fileExists(candidate)) {
+            return candidate;
+        }
+    }
+    return std::string();
+}
+
+void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configPath) {
+    if (!config.identityConfigFile.empty()) {
+        config.identityConfigFile = resolveRelativeToConfig(configPath, config.identityConfigFile);
+    } else {
+        config.identityConfigFile = discoverIdentityConfigFile(configPath);
+    }
+
+    for (auto& file : config.deviceConfigFiles) {
+        file = resolveRelativeToConfig(configPath, file);
+    }
+}
+
 class JsonValue;
 
 struct JsonMember {
@@ -779,6 +815,14 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.cleanSession = requireBool(object, "cleanSession", config.cleanSession);
     config.keepAliveSec = requireInt(object, "keepAliveSec", config.keepAliveSec);
     config.sessionExpirySec = requireInt(object, "sessionExpirySec", config.sessionExpirySec);
+    if (const auto* tls = value->find("tls")) {
+        const auto& tlsObject = tls->asObject();
+        config.tls.enabled = requireBool(tlsObject, "enabled", config.tls.enabled);
+        config.tls.caFile = requireString(tlsObject, "caFile", config.tls.caFile);
+        config.tls.certFile = requireString(tlsObject, "certFile", config.tls.certFile);
+        config.tls.keyFile = requireString(tlsObject, "keyFile", config.tls.keyFile);
+        config.tls.insecureSkipVerify = requireBool(tlsObject, "insecureSkipVerify", config.tls.insecureSkipVerify);
+    }
     config.maxPayloadBytes = requireSize(object, "maxPayloadBytes", config.maxPayloadBytes);
     if (const auto* offline = value->find("offlineBuffer")) {
         const auto& offlineObject = offline->asObject();
@@ -936,6 +980,8 @@ OtaConfig parseOtaConfig(const JsonValue* value) {
     config.retentionCount = requireInt(object, "retentionCount", config.retentionCount);
     config.statusReportIntervalSec = requireInt(object, "statusReportIntervalSec", config.statusReportIntervalSec);
     config.upgradeTimeoutSec = requireInt(object, "upgradeTimeoutSec", config.upgradeTimeoutSec);
+    config.downloadRetryCount = requireInt(object, "downloadRetryCount", config.downloadRetryCount);
+    config.downloadRetryBackoffMs = requireInt(object, "downloadRetryBackoffMs", config.downloadRetryBackoffMs);
     config.storage = parseOtaStorageConfig(value->find("storage"));
     return config;
 }
@@ -980,11 +1026,12 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
 
 AppConfig buildBuiltinExampleAppConfig() {
     AppConfig config;
+    config.identityConfigFile = "config/runtime/device_identity.json";
     config.deviceConfigFiles = {"config/runtime/devices/device_slave_ttySP1.json"};
     config.mqtt.enabled = false;
     config.mqtt.protocolVersion = "mqtt3";
     config.mqtt.broker = "tcp://127.0.0.1:1883";
-    config.mqtt.clientId = "modbus-gateway";
+    config.mqtt.clientId = "GW0001";
     config.mqtt.telemetryTopic = "edge/telemetry";
     config.mqtt.changeEventTopic = "edge/event/change";
     config.mqtt.alarmTopic = "edge/alarm";
@@ -1110,7 +1157,6 @@ DeviceConfig buildBuiltinExampleDeviceConfig() {
     voltage.enabled = true;
     voltage.isStore = false;
     voltage.persistIntervalSec = 60;
-    voltage.tags = {"power", "phase-a"};
     voltage.read.enable = true;
     voltage.read.function = 3;
     voltage.read.length = 1;
@@ -1137,7 +1183,6 @@ DeviceConfig buildBuiltinExampleDeviceConfig() {
     runMode.enabled = true;
     runMode.isStore = true;
     runMode.persistIntervalSec = 60;
-    runMode.tags = {"setting"};
     runMode.read.enable = true;
     runMode.read.function = 3;
     runMode.read.length = 1;
@@ -1229,7 +1274,7 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
         point.category = requireString(object, "category", "telemetry");
         point.enabled = requireBool(object, "enabledByDefault", true);
         point.isStore = requireBool(object, "storeHistory", true);
-        point.fullUpload = requireBool(object, "fullUpload", false);
+        point.fullUpload = requireBool(object, "fullUpload", true);
         point.reportOnChange = requireBool(object, "reportOnChange", false);
         point.persistIntervalSec = 60;
 
@@ -1256,6 +1301,7 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
 AppConfig parseAppConfig(const std::string& text) {
     const auto root = JsonParser(text).parse();
     AppConfig config;
+    config.identityConfigFile = requireString(root.asObject(), "identityConfigFile", config.identityConfigFile);
     config.deviceConfigFiles = parseStringArray(root.find("deviceConfigFiles"));
     config.mqtt = parseMqttConfig(root.find("mqtt"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
@@ -1265,6 +1311,24 @@ AppConfig parseAppConfig(const std::string& text) {
     config.realtime = parseRealtimeConfig(root.find("realtime"));
     config.systemMonitor = parseSystemMonitorConfig(root.find("systemMonitor"));
     return config;
+}
+
+DeviceIdentity parseDeviceIdentity(const std::string& text) {
+    const auto root = JsonParser(text).parse();
+    const auto& object = root.asObject();
+    DeviceIdentity identity;
+    identity.schemaVersion = requireString(object, "schemaVersion", identity.schemaVersion);
+    identity.machineCode = requireString(object, "machineCode", identity.machineCode);
+    identity.imei = requireString(object, "imei", identity.imei);
+    identity.imei = requireString(object, "immei", identity.imei);
+    identity.serialNumber = requireString(object, "serialNumber", identity.serialNumber);
+    identity.model = requireString(object, "model", identity.model);
+    identity.hardwareVersion = requireString(object, "hardwareVersion", identity.hardwareVersion);
+    identity.firmwareVersion = requireString(object, "firmwareVersion", identity.firmwareVersion);
+    if (identity.machineCode.empty()) {
+        throw std::invalid_argument("device identity missing required field: machineCode");
+    }
+    return identity;
 }
 
 }  // namespace
@@ -1277,6 +1341,10 @@ DeviceConfig ConfigLoader::loadFromFile(const std::string& filePath) {
         try {
             auto config = parseDeviceConfig(buffer.str());
             resolveConfigRelativePaths(config, filePath);
+            const auto identityPath = discoverIdentityConfigFile(filePath);
+            if (!identityPath.empty()) {
+                applyIdentity(config, loadDeviceIdentityFromFile(identityPath));
+            }
             return config;
         } catch (const std::exception& ex) {
             throw std::runtime_error("failed to parse config file: " + filePath + ": " + ex.what());
@@ -1285,10 +1353,21 @@ DeviceConfig ConfigLoader::loadFromFile(const std::string& filePath) {
 
     if (filePath == "config/runtime/devices/device_slave_ttySP1.json" ||
         filePath == ".\\config\\runtime\\devices\\device_slave_ttySP1.json") {
-        return buildBuiltinExampleDeviceConfig();
+        auto config = buildBuiltinExampleDeviceConfig();
+        const auto identityPath = discoverIdentityConfigFile(filePath);
+        if (!identityPath.empty()) {
+            applyIdentity(config, loadDeviceIdentityFromFile(identityPath));
+        }
+        return config;
     }
 
     throw std::runtime_error("failed to open config file: " + filePath);
+}
+
+DeviceConfig ConfigLoader::loadFromFile(const std::string& filePath, const DeviceIdentity& identity) {
+    auto config = loadFromFile(filePath);
+    applyIdentity(config, identity);
+    return config;
 }
 
 std::vector<DeviceConfig> ConfigLoader::loadMany(const std::vector<std::string>& filePaths) {
@@ -1300,13 +1379,27 @@ std::vector<DeviceConfig> ConfigLoader::loadMany(const std::vector<std::string>&
     return configs;
 }
 
+std::vector<DeviceConfig> ConfigLoader::loadMany(
+    const std::vector<std::string>& filePaths,
+    const DeviceIdentity& identity
+) {
+    std::vector<DeviceConfig> configs;
+    configs.reserve(filePaths.size());
+    for (const auto& filePath : filePaths) {
+        configs.push_back(loadFromFile(filePath, identity));
+    }
+    return configs;
+}
+
 AppConfig ConfigLoader::loadAppConfigFromFile(const std::string& filePath) {
     std::ifstream input(filePath);
     if (input.is_open()) {
         std::stringstream buffer;
         buffer << input.rdbuf();
         try {
-            return parseAppConfig(buffer.str());
+            auto config = parseAppConfig(buffer.str());
+            resolveAppConfigRelativePaths(config, filePath);
+            return config;
         } catch (const std::exception& ex) {
             throw std::runtime_error("failed to parse app config file: " + filePath + ": " + ex.what());
         }
@@ -1318,6 +1411,36 @@ AppConfig ConfigLoader::loadAppConfigFromFile(const std::string& filePath) {
     }
 
     throw std::runtime_error("failed to open app config file: " + filePath);
+}
+
+DeviceIdentity ConfigLoader::loadDeviceIdentityFromFile(const std::string& filePath) {
+    if (filePath.empty()) {
+        return DeviceIdentity();
+    }
+    std::ifstream input(filePath);
+    if (!input.is_open()) {
+        throw std::runtime_error("failed to open device identity file: " + filePath);
+    }
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    try {
+        return parseDeviceIdentity(buffer.str());
+    } catch (const std::exception& ex) {
+        throw std::runtime_error("failed to parse device identity file: " + filePath + ": " + ex.what());
+    }
+}
+
+void ConfigLoader::applyIdentity(DeviceConfig& config, const DeviceIdentity& identity) {
+    if (identity.machineCode.empty()) {
+        return;
+    }
+    if (!config.machineCode.empty() && config.machineCode != identity.machineCode) {
+        throw std::invalid_argument(
+            "device config machineCode mismatch identity file: config=" + config.machineCode +
+            " identity=" + identity.machineCode
+        );
+    }
+    config.machineCode = identity.machineCode;
 }
 
 MqttDriverConfig ConfigLoader::loadMqttDriverConfigFromFile(const std::string& filePath) {

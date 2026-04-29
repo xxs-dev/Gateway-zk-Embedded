@@ -1,4 +1,5 @@
 {
+  "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
   "deviceConfigFiles": [
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP1.json",
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP2.json"
@@ -7,7 +8,7 @@
     "enabled": true,
     "protocolVersion": "mqtt5",
     "broker": "tcp://192.168.22.102:1883",
-    "clientId": "monitor-service-01",
+    "clientId": "GW0001",
     "username": "kyxn",
     "password": "whkyxn027",
     "telemetryTopic": "edge/telemetry",
@@ -24,11 +25,20 @@
     "systemMonitorPointTopic": "edge/system/monitor/points",
     "diagRequestTopic": "edge/system/diag/request",
     "diagReplyTopic": "edge/system/diag/reply",
+    "configPullRequestTopic": "edge/config/pull/request",
+    "configPullReplyTopic": "edge/config/pull/reply",
     "qos": 1,
     "maxPayloadBytes": 49152,
     "cleanSession": true,
     "keepAliveSec": 60,
     "sessionExpirySec": 0,
+    "tls": {
+      "enabled": false,
+      "caFile": "",
+      "certFile": "",
+      "keyFile": "",
+      "insecureSkipVerify": false
+    },
     "offlineBuffer": {
       "enabled": false,
       "mode": "ring",
@@ -54,10 +64,9 @@
   },
   "mqttDriver": {
     "enabled": false,
-    "sharedMemoryName": "gateway_point_store_ttySP1",
+    "sharedMemoryName": "gateway_point_store",
     "sharedMemoryNames": [
-      "gateway_point_store_ttySP1",
-      "gateway_point_store_ttySP2"
+      "gateway_point_store"
     ],
     "scanIntervalMs": 1000,
     "fullUploadIntervalMs": 60000,
@@ -125,6 +134,8 @@
     "retentionCount": 3,
     "statusReportIntervalSec": 5,
     "upgradeTimeoutSec": 900,
+    "downloadRetryCount": 3,
+    "downloadRetryBackoffMs": 1000,
     "storage": {
       "provider": "local",
       "presignExpireMinutes": 60,

@@ -170,16 +170,31 @@ void EventEngineService::publishOrEnqueueEvent(
     const std::string& payload,
     std::int64_t eventTs
 ) {
-    if (topic.empty()) {
+    MqttEventOutbox::EventMessage event;
+    event.eventType = eventType;
+    event.topic = topic;
+    event.payload = payload;
+    event.eventTs = eventTs;
+    std::vector<MqttEventOutbox::EventMessage> events;
+    events.push_back(event);
+    publishOrEnqueueEvents(events);
+}
+
+void EventEngineService::publishOrEnqueueEvents(const std::vector<MqttEventOutbox::EventMessage>& events) {
+    if (events.empty()) {
         return;
     }
     if (eventConfig_.publishMode == "mqtt_driver_outbox") {
         if (eventOutbox_) {
-            eventOutbox_->enqueue(eventType, topic, payload, eventTs);
+            eventOutbox_->enqueueBatch(events);
         }
         return;
     }
-    publisher_->publishJsonMessage(topic, payload);
+    for (const auto& event : events) {
+        if (!event.topic.empty()) {
+            publisher_->publishJsonMessage(event.topic, event.payload);
+        }
+    }
 }
 
 std::string EventEngineService::encodeAlarmPayload(const AlarmEvent& event) {
@@ -231,19 +246,25 @@ void EventEngineService::processAlarms(const std::vector<StoredPointValue>& valu
 
     std::vector<AlarmEvent> persistentEvents;
     persistentEvents.reserve(events.size());
+    std::vector<MqttEventOutbox::EventMessage> mqttEvents;
+    mqttEvents.reserve(events.size());
 
     for (const auto& event : events) {
-        publishOrEnqueueEvent(
-            "alarm",
-            mqttConfig_.alarmTopic,
-            encodeAlarmPayload(event),
-            event.ts
-        );
+        if (!mqttConfig_.alarmTopic.empty()) {
+            MqttEventOutbox::EventMessage mqttEvent;
+            mqttEvent.eventType = "alarm";
+            mqttEvent.topic = mqttConfig_.alarmTopic;
+            mqttEvent.payload = encodeAlarmPayload(event);
+            mqttEvent.eventTs = event.ts;
+            mqttEvents.push_back(mqttEvent);
+        }
 
         if (!event.persistValue.empty()) {
             persistentEvents.push_back(event);
         }
     }
+
+    publishOrEnqueueEvents(mqttEvents);
 
     if (alarmWriter_ && !persistentEvents.empty()) {
         alarmWriter_->writeEvents(persistentEvents);
@@ -291,19 +312,25 @@ void EventEngineService::processChanges(const std::vector<StoredPointValue>& val
     }
 
     std::size_t published = 0;
+    std::vector<MqttEventOutbox::EventMessage> mqttEvents;
+    mqttEvents.reserve(publishOrder.size());
     for (const auto index : publishOrder) {
         const auto it = pendingByIndex.find(index);
         if (it == pendingByIndex.end()) {
             continue;
         }
-        publishOrEnqueueEvent(
-            "change",
-            mqttConfig_.changeEventTopic,
-            encodeChangePayload(it->second),
-            it->second.ts
-        );
+        if (!mqttConfig_.changeEventTopic.empty()) {
+            MqttEventOutbox::EventMessage mqttEvent;
+            mqttEvent.eventType = "change";
+            mqttEvent.topic = mqttConfig_.changeEventTopic;
+            mqttEvent.payload = encodeChangePayload(it->second);
+            mqttEvent.eventTs = it->second.ts;
+            mqttEvents.push_back(mqttEvent);
+        }
         ++published;
     }
+
+    publishOrEnqueueEvents(mqttEvents);
 
     if (published > 0) {
         publishStatusEvent(

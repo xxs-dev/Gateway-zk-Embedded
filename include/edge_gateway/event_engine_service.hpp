@@ -56,6 +56,7 @@ private:
         const std::string& payload,
         std::int64_t eventTs
     );
+    void publishOrEnqueueEvents(const std::vector<MqttEventOutbox::EventMessage>& events);
     static std::string encodeAlarmPayload(const AlarmEvent& event);
     static std::string encodeChangePayload(const StoredPointValue& value);
     void processAlarms(const std::vector<StoredPointValue>& values);

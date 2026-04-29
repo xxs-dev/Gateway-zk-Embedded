@@ -108,8 +108,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const auto config = ConfigLoader::loadFromFile(configPath);
     const auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    DeviceIdentity identity;
+    if (!appConfig.identityConfigFile.empty()) {
+        identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
+    }
+    const auto config = ConfigLoader::loadFromFile(configPath, identity);
     std::string processToken;
     if (config.protocol.type == "modbus_tcp") {
         processToken = "tcp" + std::to_string(config.protocol.tcp.port);

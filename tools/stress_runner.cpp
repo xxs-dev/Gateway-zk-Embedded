@@ -15,9 +15,12 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/event_engine_service.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/mqtt_event_outbox.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/sqlite_alarm_writer.hpp"
 
 namespace {
 
@@ -52,6 +55,7 @@ public:
         const std::string&,
         const std::vector<StoredPointValue>&
     ) override {
+        fullSnapshots.fetch_add(1, std::memory_order_relaxed);
     }
 
     void publishAlarm(
@@ -61,18 +65,21 @@ public:
         const std::string&,
         bool
     ) override {
+        alarms.fetch_add(1, std::memory_order_relaxed);
     }
 
     void publishOnDemand(
         const std::string&,
         const std::vector<StoredPointValue>&
     ) override {
+        onDemand.fetch_add(1, std::memory_order_relaxed);
     }
 
     void publishChangeEvent(
         const std::string&,
         const StoredPointValue&
     ) override {
+        changes.fetch_add(1, std::memory_order_relaxed);
     }
 
     void publishCommandReply(
@@ -97,11 +104,18 @@ public:
         const std::string&,
         const std::string&
     ) override {
+        jsonMessages.fetch_add(1, std::memory_order_relaxed);
     }
 
     std::vector<MqttIncomingMessage> pollIncoming(int) override {
         return {};
     }
+
+    std::atomic<std::uint64_t> fullSnapshots{0};
+    std::atomic<std::uint64_t> alarms{0};
+    std::atomic<std::uint64_t> changes{0};
+    std::atomic<std::uint64_t> onDemand{0};
+    std::atomic<std::uint64_t> jsonMessages{0};
 };
 
 std::int64_t nowMs() {
@@ -202,6 +216,7 @@ void printUsage() {
         << "stress_runner --device-config <path> [--device-config <path> ...] "
         << "[--app-config <path>] [--duration-sec <n>] [--writer-threads <n>] "
         << "[--points <n>] [--snapshot-interval-ms <n>] [--mqtt-driver-cycle-interval-ms <n>] "
+        << "[--event-engine-cycle-interval-ms <n>] "
         << "[--shm <name>]" << std::endl;
 }
 
@@ -217,6 +232,7 @@ int main(int argc, char* argv[]) {
     std::size_t expandPointCount = 0;
     int snapshotIntervalMs = 1000;
     int mqttDriverCycleIntervalMs = 1000;
+    int eventEngineCycleIntervalMs = 0;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -236,6 +252,8 @@ int main(int argc, char* argv[]) {
             snapshotIntervalMs = std::atoi(argv[++i]);
         } else if ((arg == "--mqtt-driver-cycle-interval-ms" || arg == "--mqtt-scan-interval-ms") && i + 1 < argc) {
             mqttDriverCycleIntervalMs = std::atoi(argv[++i]);
+        } else if (arg == "--event-engine-cycle-interval-ms" && i + 1 < argc) {
+            eventEngineCycleIntervalMs = std::atoi(argv[++i]);
         } else if (arg == "--shm" && i + 1 < argc) {
             shmOverride = argv[++i];
         } else if (arg == "--help") {
@@ -249,7 +267,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto deviceConfigs = ConfigLoader::loadMany(deviceConfigPaths);
+    AppConfig appConfig;
+    DeviceIdentity identity;
+    if (!appConfigPath.empty()) {
+        appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+        if (!appConfig.identityConfigFile.empty()) {
+            identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
+        }
+    }
+
+    auto deviceConfigs = ConfigLoader::loadMany(deviceConfigPaths, identity);
     if (!shmOverride.empty()) {
         for (auto& config : deviceConfigs) {
             config.memoryStore.sharedMemoryName = shmOverride;
@@ -317,15 +344,66 @@ int main(int argc, char* argv[]) {
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, deviceConfigs.front().memoryStore.sharedMemoryName);
 
+    auto publisher = std::shared_ptr<NullMqttDriverPublisher>(new NullMqttDriverPublisher());
+
     std::unique_ptr<MqttDriverService> mqttService;
     if (!appConfigPath.empty()) {
-        const auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+        std::unique_ptr<MqttEventOutbox> eventOutbox;
+        if (appConfig.eventEngine.publishMode == "mqtt_driver_outbox") {
+            eventOutbox.reset(new MqttEventOutbox(
+                appConfig.mqtt.eventOutboxSqlitePath,
+                appConfig.mqtt.eventOutboxSqliteLibraryPath,
+                appConfig.mqtt.eventOutboxRetentionMonths,
+                appConfig.mqtt.eventOutboxCleanupIntervalHours,
+                appConfig.mqtt.eventOutboxReplayBatchSize
+            ));
+        }
         mqttService.reset(new MqttDriverService(
             appConfig.mqtt,
             appConfig.mqttDriver,
             deviceConfigs,
             router,
-            std::shared_ptr<IMqttDriverPublisher>(new NullMqttDriverPublisher())
+            publisher,
+            std::move(eventOutbox)
+        ));
+    }
+
+    std::unique_ptr<EventEngineService> eventEngine;
+    if (!appConfigPath.empty() && appConfig.eventEngine.enabled) {
+        std::vector<MemoryPointStore*> eventStores;
+        eventStores.reserve(stores.size());
+        for (auto& entry : stores) {
+            eventStores.push_back(entry.second.get());
+        }
+
+        std::unique_ptr<MqttEventOutbox> eventOutbox;
+        if (appConfig.eventEngine.publishMode == "mqtt_driver_outbox") {
+            eventOutbox.reset(new MqttEventOutbox(
+                appConfig.mqtt.eventOutboxSqlitePath,
+                appConfig.mqtt.eventOutboxSqliteLibraryPath,
+                appConfig.mqtt.eventOutboxRetentionMonths,
+                appConfig.mqtt.eventOutboxCleanupIntervalHours,
+                appConfig.mqtt.eventOutboxReplayBatchSize
+            ));
+        }
+
+        std::unique_ptr<SqliteAlarmWriter> alarmWriter;
+        if (appConfig.alarmStore.enabled) {
+            alarmWriter.reset(new SqliteAlarmWriter(
+                appConfig.alarmStore.sqlitePath,
+                appConfig.alarmStore.sqliteLibraryPath
+            ));
+        }
+
+        eventEngine.reset(new EventEngineService(
+            appConfig.eventEngine,
+            appConfig.mqtt,
+            deviceConfigs,
+            router,
+            eventStores,
+            publisher,
+            std::move(eventOutbox),
+            std::move(alarmWriter)
         ));
     }
 
@@ -337,9 +415,13 @@ int main(int argc, char* argv[]) {
     std::atomic<std::uint64_t> writeOps{0};
     std::atomic<std::uint64_t> snapshotPoints{0};
     std::atomic<std::uint64_t> mqttDriverCycles{0};
+    std::atomic<std::uint64_t> mqttReplayCycles{0};
+    std::atomic<std::uint64_t> eventEngineCycles{0};
     TimingStats writeStats;
     TimingStats snapshotStats;
     TimingStats mqttStats;
+    TimingStats mqttReplayStats;
+    TimingStats eventEngineStats;
 
     std::vector<std::thread> workers;
     const auto safeWriterThreads = std::max(1, writerThreads);
@@ -348,7 +430,9 @@ int main(int argc, char* argv[]) {
             std::uint64_t sequence = static_cast<std::uint64_t>(threadIndex) * 1000000ULL;
             while (running.load(std::memory_order_relaxed)) {
                 const auto start = std::chrono::steady_clock::now();
-                for (std::size_t i = static_cast<std::size_t>(threadIndex); i < points.size(); i += static_cast<std::size_t>(safeWriterThreads)) {
+                for (std::size_t i = static_cast<std::size_t>(threadIndex);
+                     i < points.size() && running.load(std::memory_order_relaxed);
+                     i += static_cast<std::size_t>(safeWriterThreads)) {
                     const auto ts = nowMs();
                     PointValue value;
                     value.index = points[i].point.index;
@@ -404,12 +488,44 @@ int main(int argc, char* argv[]) {
         });
     }
 
+    std::thread mqttReplayThread;
+    if (mqttService) {
+        mqttReplayThread = std::thread([&]() {
+            const auto interval = std::chrono::milliseconds(std::max(50, std::min(200, mqttDriverCycleIntervalMs)));
+            while (running.load(std::memory_order_relaxed)) {
+                const auto start = std::chrono::steady_clock::now();
+                mqttService->runEventReplayOnce(nowMs());
+                mqttReplayCycles.fetch_add(1, std::memory_order_relaxed);
+                mqttReplayStats.record(elapsedUs(start));
+                std::this_thread::sleep_for(interval);
+            }
+        });
+    }
+
+    std::thread eventThread;
+    if (eventEngine) {
+        eventThread = std::thread([&]() {
+            const int configuredInterval = eventEngineCycleIntervalMs > 0
+                ? eventEngineCycleIntervalMs
+                : appConfig.eventEngine.scanIntervalMs;
+            const auto interval = std::chrono::milliseconds(std::max(20, configuredInterval));
+            while (running.load(std::memory_order_relaxed)) {
+                const auto start = std::chrono::steady_clock::now();
+                eventEngine->runOnce(nowMs());
+                eventEngineCycles.fetch_add(1, std::memory_order_relaxed);
+                eventEngineStats.record(elapsedUs(start));
+                std::this_thread::sleep_for(interval);
+            }
+        });
+    }
+
     std::cout << "stress started"
               << " points=" << points.size()
               << " writers=" << safeWriterThreads
               << " durationSec=" << durationSec
               << " shmCount=" << stores.size()
               << " mqttDriverCycle=" << (mqttService ? "on" : "off")
+              << " eventEngineCycle=" << (eventEngine ? "on" : "off")
               << std::endl;
 
     std::this_thread::sleep_for(std::chrono::seconds(std::max(1, durationSec)));
@@ -422,6 +538,15 @@ int main(int argc, char* argv[]) {
     if (mqttThread.joinable()) {
         mqttThread.join();
     }
+    if (mqttReplayThread.joinable()) {
+        mqttReplayThread.join();
+    }
+    if (eventThread.joinable()) {
+        eventThread.join();
+    }
+
+    eventEngine.reset();
+    mqttService.reset();
 
     for (const auto& entry : pointsByShm) {
         MemoryPointStore::cleanupOrphanedSegment(entry.first);
@@ -430,6 +555,8 @@ int main(int argc, char* argv[]) {
     const auto writeCount = writeStats.count.load();
     const auto snapshotCount = snapshotStats.count.load();
     const auto mqttCount = mqttStats.count.load();
+    const auto mqttReplayCount = mqttReplayStats.count.load();
+    const auto eventCount = eventEngineStats.count.load();
 
     std::cout << "stress result" << std::endl;
     std::cout << "  writeOps=" << writeOps.load()
@@ -443,11 +570,30 @@ int main(int argc, char* argv[]) {
               << " snapshotPoints=" << snapshotPoints.load()
               << std::endl;
     if (mqttService) {
-        std::cout << "  mqttDriverCycles=" << mqttDriverCycles.load()
-                  << " mqttDriverAvgUs=" << (mqttCount == 0 ? 0 : mqttStats.totalUs.load() / mqttCount)
-                  << " mqttDriverMaxUs=" << mqttStats.maxUs.load()
+        // mqttService is reset before this point; keep branch for compatibility unreachable.
+    }
+    if (appConfigPath.empty()) {
+        return 0;
+    }
+    std::cout << "  mqttDriverCycles=" << mqttDriverCycles.load()
+              << " mqttDriverAvgUs=" << (mqttCount == 0 ? 0 : mqttStats.totalUs.load() / mqttCount)
+              << " mqttDriverMaxUs=" << mqttStats.maxUs.load()
+              << std::endl;
+    std::cout << "  mqttReplayCycles=" << mqttReplayCycles.load()
+              << " mqttReplayAvgUs=" << (mqttReplayCount == 0 ? 0 : mqttReplayStats.totalUs.load() / mqttReplayCount)
+              << " mqttReplayMaxUs=" << mqttReplayStats.maxUs.load()
+              << std::endl;
+    if (eventCount > 0) {
+        std::cout << "  eventEngineCycles=" << eventEngineCycles.load()
+                  << " eventEngineAvgUs=" << (eventCount == 0 ? 0 : eventEngineStats.totalUs.load() / eventCount)
+                  << " eventEngineMaxUs=" << eventEngineStats.maxUs.load()
                   << std::endl;
     }
+    std::cout << "  published fullSnapshots=" << publisher->fullSnapshots.load()
+              << " alarms=" << publisher->alarms.load()
+              << " changes=" << publisher->changes.load()
+              << " jsonMessages=" << publisher->jsonMessages.load()
+              << std::endl;
 
     return 0;
 }
