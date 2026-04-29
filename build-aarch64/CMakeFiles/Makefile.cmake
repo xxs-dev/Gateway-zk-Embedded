@@ -50,6 +50,7 @@ set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/pointctl.dir/DependInfo.cmake"
   "CMakeFiles/MqttDriver.dir/DependInfo.cmake"
   "CMakeFiles/EventEngine.dir/DependInfo.cmake"
+  "CMakeFiles/ComputeEngine.dir/DependInfo.cmake"
   "CMakeFiles/SystemMonitor.dir/DependInfo.cmake"
   "CMakeFiles/stress_runner.dir/DependInfo.cmake"
   )

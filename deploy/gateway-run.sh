@@ -52,10 +52,10 @@ case "$cmd" in
     fi
     ;;
   status)
-    systemctl status gateway-services.service 'modbus-rtu@*.service' 'dlt645-driver@*.service' 'event-engine@*.service' 'mqtt-driver@*.service' 'system-monitor@*.service' --no-pager || true
+    systemctl status gateway-services.service 'modbus-rtu@*.service' 'dlt645-driver@*.service' 'compute-engine@*.service' 'event-engine@*.service' 'mqtt-driver@*.service' 'system-monitor@*.service' --no-pager || true
     ;;
   logs)
-    journalctl -u gateway-services.service -u 'modbus-rtu@*.service' -u 'dlt645-driver@*.service' -u 'event-engine@*.service' -u 'mqtt-driver@*.service' -u 'system-monitor@*.service' -f
+    journalctl -u gateway-services.service -u 'modbus-rtu@*.service' -u 'dlt645-driver@*.service' -u 'compute-engine@*.service' -u 'event-engine@*.service' -u 'mqtt-driver@*.service' -u 'system-monitor@*.service' -f
     ;;
   snapshot)
     "$BIN_DIR/pointctl" snapshot --app-config "$APP_CONFIG"

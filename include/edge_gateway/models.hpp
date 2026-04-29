@@ -399,6 +399,57 @@ struct EventEngineConfig {
     std::string mqttClientIdSuffix = "event_engine";
 };
 
+struct ComputeInputConfig {
+    std::string name;
+    std::uint32_t index = 0;
+    bool required = true;
+};
+
+struct ComputeOutputConfig {
+    std::string name;
+    std::uint32_t index = 0;
+    std::string mode = "latestOnly";
+    std::string sharedMemoryName;
+    std::int64_t ttlMs = 600000;
+    std::string qualityPolicy = "bad_if_any_input_bad";
+    int minIntervalMs = 0;
+    double deadband = 0.0;
+};
+
+struct ComputeTriggerConfig {
+    std::string type = "interval";
+    int intervalMs = 1000;
+    int minIntervalMs = 0;
+    double deadband = 0.0;
+};
+
+struct ComputeScriptConfig {
+    std::string type = "expression";
+    std::string expression;
+};
+
+struct ComputeRuleConfig {
+    std::string ruleCode;
+    std::string name;
+    bool enabled = true;
+    ComputeTriggerConfig trigger;
+    std::vector<ComputeInputConfig> inputs;
+    std::vector<ComputeOutputConfig> outputs;
+    ComputeScriptConfig script;
+};
+
+struct ComputeEngineConfig {
+    bool enabled = false;
+    std::vector<std::string> sharedMemoryNames;
+    std::string outputDefaultSharedMemoryName = "gateway_point_store_compute";
+    int scanIntervalMs = 200;
+    std::size_t maxRuleEvalPerScan = 1000;
+    int badQuality = 0;
+    std::int64_t defaultOutputTtlMs = 600000;
+    std::size_t maxWritesPerScan = 100;
+    std::vector<ComputeRuleConfig> rules;
+};
+
 struct OtaStorageMinioConfig {
     std::string endpoint;
     std::string accessKey;
@@ -482,6 +533,7 @@ struct AppConfig {
     MqttDriverConfig mqttDriver;
     AlarmStoreConfig alarmStore;
     EventEngineConfig eventEngine;
+    ComputeEngineConfig computeEngine;
     OtaConfig ota;
     RealtimeConfig realtime;
     SystemMonitorConfig systemMonitor;

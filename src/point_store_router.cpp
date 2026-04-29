@@ -72,6 +72,8 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
                     route.sharedMemoryName = sharedMemoryName;
                     route.writable = point.write.enable;
                     route.reportOnChange = point.reportOnChange;
+                    route.isStore = point.isStore;
+                    route.persistIntervalSec = point.persistIntervalSec;
                     addRoute(route);
                 }
                 ++meterIndex;
@@ -89,6 +91,8 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
             route.sharedMemoryName = sharedMemoryName;
             route.writable = point.write.enable;
             route.reportOnChange = point.reportOnChange;
+            route.isStore = point.isStore;
+            route.persistIntervalSec = point.persistIntervalSec;
             addRoute(route);
         }
     }
@@ -212,6 +216,30 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteComma
     store->submitWriteCommand(command);
     result.accepted = true;
     result.message = "write command routed";
+    return result;
+}
+
+CommandSubmitResult PointStoreRouter::putLatestByIndex(PointValue value) {
+    CommandSubmitResult result;
+    const auto route = routeByIndex(value.index);
+    if (!route) {
+        result.message = "latest index not found";
+        return result;
+    }
+    result.route = *route;
+    auto* store = storeForRoute(*route);
+    if (store == nullptr) {
+        result.message = "target shared memory not found: " + route->sharedMemoryName;
+        return result;
+    }
+    value.machineCode = route->machineCode;
+    value.meterCode = route->meterCode;
+    value.pointCode = route->pointCode;
+    value.isStore = route->isStore;
+    value.persistIntervalSec = route->persistIntervalSec;
+    store->putLatest(value);
+    result.accepted = true;
+    result.message = "latest value routed";
     return result;
 }
 

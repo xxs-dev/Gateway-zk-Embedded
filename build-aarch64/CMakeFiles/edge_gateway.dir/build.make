@@ -111,10 +111,24 @@ CMakeFiles/edge_gateway.dir/src/command_executor.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/edge_gateway.dir/src/command_executor.cpp.s"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /mnt/hgfs/Embedded/Gateway-zk/src/command_executor.cpp -o CMakeFiles/edge_gateway.dir/src/command_executor.cpp.s
 
+CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
+CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/compute_engine_service.cpp
+CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o"
+	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o -MF CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/compute_engine_service.cpp
+
+CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.i"
+	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /mnt/hgfs/Embedded/Gateway-zk/src/compute_engine_service.cpp > CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.i
+
+CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.s"
+	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /mnt/hgfs/Embedded/Gateway-zk/src/compute_engine_service.cpp -o CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.s
+
 CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/config_loader.cpp
 CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o -MF CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/config_loader.cpp
 
 CMakeFiles/edge_gateway.dir/src/config_loader.cpp.i: cmake_force
@@ -128,7 +142,7 @@ CMakeFiles/edge_gateway.dir/src/config_loader.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/dlt645_client.cpp
 CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o -MF CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/dlt645_client.cpp
 
 CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.i: cmake_force
@@ -142,7 +156,7 @@ CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/dlt645_codec.cpp
 CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o -MF CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/dlt645_codec.cpp
 
 CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.i: cmake_force
@@ -156,7 +170,7 @@ CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/dlt645_standard_points_loader.cpp
 CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o -MF CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/dlt645_standard_points_loader.cpp
 
 CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.i: cmake_force
@@ -170,7 +184,7 @@ CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/event_engine_service.cpp
 CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o -MF CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/event_engine_service.cpp
 
 CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.i: cmake_force
@@ -184,7 +198,7 @@ CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/gateway_daemon.cpp
 CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o -MF CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/gateway_daemon.cpp
 
 CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.i: cmake_force
@@ -198,7 +212,7 @@ CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/memory_point_store.cpp
 CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o -MF CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/memory_point_store.cpp
 
 CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.i: cmake_force
@@ -212,7 +226,7 @@ CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/mock_serial_port.cpp
 CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o -MF CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/mock_serial_port.cpp
 
 CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.i: cmake_force
@@ -226,7 +240,7 @@ CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/ota_service.cpp
 CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o -MF CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/ota_service.cpp
 
 CMakeFiles/edge_gateway.dir/src/ota_service.cpp.i: cmake_force
@@ -240,7 +254,7 @@ CMakeFiles/edge_gateway.dir/src/ota_service.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/builtin_mqtt_driver_publisher.cpp
 CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o -MF CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/builtin_mqtt_driver_publisher.cpp
 
 CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.i: cmake_force
@@ -254,7 +268,7 @@ CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/mqtt_event_outbox.cpp
 CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o -MF CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/mqtt_event_outbox.cpp
 
 CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.i: cmake_force
@@ -268,7 +282,7 @@ CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/mqtt_driver_service.cpp
 CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o -MF CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/mqtt_driver_service.cpp
 
 CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.i: cmake_force
@@ -282,7 +296,7 @@ CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/mqtt_realtime_ring_buffer.cpp
 CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o -MF CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/mqtt_realtime_ring_buffer.cpp
 
 CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.i: cmake_force
@@ -296,7 +310,7 @@ CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/modbus_rtu_client.cpp
 CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o -MF CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/modbus_rtu_client.cpp
 
 CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.i: cmake_force
@@ -310,7 +324,7 @@ CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/modbus_tcp_client.cpp
 CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o -MF CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/modbus_tcp_client.cpp
 
 CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.i: cmake_force
@@ -324,7 +338,7 @@ CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/modbus_codec.cpp
 CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o -MF CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/modbus_codec.cpp
 
 CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.i: cmake_force
@@ -338,7 +352,7 @@ CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/posix_serial_port.cpp
 CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building CXX object CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building CXX object CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o -MF CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/posix_serial_port.cpp
 
 CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.i: cmake_force
@@ -352,7 +366,7 @@ CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/point_store_router.cpp
 CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building CXX object CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building CXX object CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o -MF CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/point_store_router.cpp
 
 CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.i: cmake_force
@@ -366,7 +380,7 @@ CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/read_task_planner.cpp
 CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building CXX object CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building CXX object CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o -MF CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/read_task_planner.cpp
 
 CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.i: cmake_force
@@ -380,7 +394,7 @@ CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/sqlite_sample_writer.cpp
 CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building CXX object CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building CXX object CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o -MF CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/sqlite_sample_writer.cpp
 
 CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.i: cmake_force
@@ -394,7 +408,7 @@ CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/sqlite_alarm_writer.cpp
 CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building CXX object CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o -MF CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/sqlite_alarm_writer.cpp
 
 CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.i: cmake_force
@@ -408,7 +422,7 @@ CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/system_monitor_service.cpp
 CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o -MF CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/system_monitor_service.cpp
 
 CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.i: cmake_force
@@ -422,7 +436,7 @@ CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.s: cmake_force
 CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o: CMakeFiles/edge_gateway.dir/flags.make
 CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o: /mnt/hgfs/Embedded/Gateway-zk/src/writeback_service.cpp
 CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o: CMakeFiles/edge_gateway.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building CXX object CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Building CXX object CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o"
 	/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o -MF CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o.d -o CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o -c /mnt/hgfs/Embedded/Gateway-zk/src/writeback_service.cpp
 
 CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.i: cmake_force
@@ -438,6 +452,7 @@ edge_gateway_OBJECTS = \
 "CMakeFiles/edge_gateway.dir/src/alarm_service.cpp.o" \
 "CMakeFiles/edge_gateway.dir/src/collector.cpp.o" \
 "CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o" \
+"CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o" \
 "CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o" \
 "CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o" \
 "CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o" \
@@ -468,6 +483,7 @@ edge_gateway_EXTERNAL_OBJECTS =
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/alarm_service.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/collector.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o
+libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o
@@ -493,7 +509,7 @@ libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/build.make
 libedge_gateway.a: CMakeFiles/edge_gateway.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Linking CXX static library libedge_gateway.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Linking CXX static library libedge_gateway.a"
 	$(CMAKE_COMMAND) -P CMakeFiles/edge_gateway.dir/cmake_clean_target.cmake
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/edge_gateway.dir/link.txt --verbose=$(VERBOSE)
 

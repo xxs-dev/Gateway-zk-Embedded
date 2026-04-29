@@ -74,6 +74,7 @@ private:
     std::vector<StoredPointValue> filterValues(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) const;
     void enrichValue(StoredPointValue& value) const;
     std::vector<StoredPointValue> enrichValues(std::vector<StoredPointValue> values) const;
+    std::string primaryMachineCode() const;
 
     MqttConfig mqttConfig_;
     MqttDriverConfig driverConfig_;

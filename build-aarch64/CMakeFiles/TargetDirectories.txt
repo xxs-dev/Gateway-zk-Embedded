@@ -4,6 +4,7 @@
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/pointctl.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/MqttDriver.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/EventEngine.dir
+/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/ComputeEngine.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/SystemMonitor.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/stress_runner.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/edit_cache.dir

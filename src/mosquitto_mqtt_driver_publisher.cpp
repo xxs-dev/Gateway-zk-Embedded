@@ -99,13 +99,13 @@ void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item)
         << "}";
 }
 
-std::string firstMachineCode(const std::vector<StoredPointValue>& values) {
+std::string firstMachineCode(const std::vector<StoredPointValue>& values, const std::string& fallback = std::string()) {
     for (const auto& item : values) {
         if (!item.machineCode.empty()) {
             return item.machineCode;
         }
     }
-    return "";
+    return fallback;
 }
 
 std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue>& values) {
@@ -121,9 +121,9 @@ std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue
     return devices;
 }
 
-std::string encodeValuesJson(const std::vector<StoredPointValue>& values) {
+std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
     std::ostringstream out;
-    out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values)) << "\",\"meters\":[";
+    out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
     for (std::size_t d = 0; d < devices.size(); ++d) {
         if (d > 0) {
@@ -147,9 +147,9 @@ std::string encodeValuesJson(const std::vector<StoredPointValue>& values) {
     return out.str();
 }
 
-std::string encodeFullJson(const std::vector<StoredPointValue>& values) {
+std::string encodeFullJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
     std::ostringstream out;
-    out << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(firstMachineCode(values)) << "\",\"meters\":[";
+    out << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
     for (std::size_t d = 0; d < devices.size(); ++d) {
         if (d > 0) {
@@ -356,7 +356,7 @@ void MosquittoMqttDriverPublisher::publishFullSnapshot(
     const std::string& topic,
     const std::vector<StoredPointValue>& values
 ) {
-    publishJson(topic, encodeFullJson(values));
+    publishJson(topic, encodeFullJson(values, config_.topicMachineCode));
 }
 
 void MosquittoMqttDriverPublisher::publishAlarm(
@@ -373,7 +373,7 @@ void MosquittoMqttDriverPublisher::publishOnDemand(
     const std::string& topic,
     const std::vector<StoredPointValue>& values
 ) {
-    publishJson(topic, encodeValuesJson(values));
+    publishJson(topic, encodeValuesJson(values, config_.topicMachineCode));
 }
 
 void MosquittoMqttDriverPublisher::publishChangeEvent(

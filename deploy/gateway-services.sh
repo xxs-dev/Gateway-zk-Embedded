@@ -14,6 +14,7 @@ stop_units() {
   units=$(systemctl list-units --all --plain --no-legend \
     'modbus-rtu@*.service' \
     'dlt645-driver@*.service' \
+    'compute-engine@*.service' \
     'event-engine@*.service' \
     'system-monitor@*.service' \
     'mqtt-driver@*.service' 2>/dev/null |
@@ -99,9 +100,13 @@ if os.path.isfile(mqtt_path):
     try:
         with open(mqtt_path, "r", encoding="utf-8") as fh:
             app = json.load(fh)
+        compute_enabled = bool(app.get("computeEngine", {}).get("enabled", False))
         event_enabled = bool(app.get("eventEngine", {}).get("enabled", False))
     except Exception:
+        compute_enabled = False
         event_enabled = False
+    if compute_enabled:
+        print(f"compute-engine@{mqtt_app_name}.service")
     if event_enabled:
         print(f"event-engine@{mqtt_app_name}.service")
     print(f"mqtt-driver@{mqtt_app_name}.service")

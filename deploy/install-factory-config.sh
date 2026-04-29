@@ -8,6 +8,16 @@ ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BACKUP_DIR="${BACKUP_DIR:-$GATEWAY_HOME/backup}"
 START_SERVICES="${START_SERVICES:-1}"
 RESET_SHM="${RESET_SHM:-0}"
+FACTORY_PACKAGE_NAME="${FACTORY_PACKAGE_NAME:-gateway-factory-defaults.tar.gz}"
+FACTORY_EXTRACT_DIR=""
+
+cleanup_factory_extract() {
+  if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
+    rm -rf "$FACTORY_EXTRACT_DIR"
+  fi
+}
+
+trap cleanup_factory_extract EXIT INT TERM
 
 path_abs() {
   path="$1"
@@ -34,6 +44,16 @@ pick_existing_dir() {
   return 1
 }
 
+pick_existing_file() {
+  for file in "$@"; do
+    if [ -n "$file" ] && [ -f "$file" ]; then
+      printf '%s\n' "$file"
+      return 0
+    fi
+  done
+  return 1
+}
+
 pick_source_root() {
   for dir in "$@"; do
     if [ -n "$dir" ] && { [ -d "$dir/config/factory/runtime" ] || [ -d "$dir/deploy" ] || [ -d "$dir/build-aarch64" ]; }; then
@@ -44,17 +64,56 @@ pick_source_root() {
   return 1
 }
 
+extract_factory_package() {
+  package="$1"
+  if [ -z "$package" ] || [ ! -f "$package" ]; then
+    return 1
+  fi
+  if ! command -v tar >/dev/null 2>&1; then
+    echo "tar command not found, cannot extract factory package: $package" >&2
+    return 1
+  fi
+  FACTORY_EXTRACT_DIR="/tmp/gateway-factory-defaults.$$"
+  rm -rf "$FACTORY_EXTRACT_DIR"
+  mkdir -p "$FACTORY_EXTRACT_DIR"
+  tar -xzf "$package" -C "$FACTORY_EXTRACT_DIR"
+  echo "factory package extracted: $package"
+  return 0
+}
+
 SOURCE_ROOT="${SOURCE_ROOT:-}"
 if [ -z "$SOURCE_ROOT" ]; then
   SOURCE_ROOT=$(pick_source_root "$DEFAULT_SOURCE_ROOT" "$ROOT_DIR" "$SCRIPT_DIR" || true)
 fi
 DEPLOY_DIR="${DEPLOY_DIR:-$SOURCE_ROOT/deploy}"
 
+FACTORY_PACKAGE="${FACTORY_PACKAGE:-}"
+if [ -z "$FACTORY_PACKAGE" ]; then
+  FACTORY_PACKAGE=$(pick_existing_file \
+    "$DEFAULT_SOURCE_ROOT/$FACTORY_PACKAGE_NAME" \
+    "/home/$FACTORY_PACKAGE_NAME" \
+    "$ROOT_DIR/$FACTORY_PACKAGE_NAME" \
+    "$SCRIPT_DIR/$FACTORY_PACKAGE_NAME" \
+    "$SCRIPT_DIR/../$FACTORY_PACKAGE_NAME" \
+    "$GATEWAY_HOME/$FACTORY_PACKAGE_NAME" || true)
+fi
+
+PACKAGE_ROOT=""
+if [ -n "$FACTORY_PACKAGE" ] && extract_factory_package "$FACTORY_PACKAGE"; then
+  PACKAGE_ROOT=$(pick_source_root \
+    "$FACTORY_EXTRACT_DIR" \
+    "$FACTORY_EXTRACT_DIR/gateway-factory-defaults" \
+    "$FACTORY_EXTRACT_DIR/gateway-factory" || true)
+fi
+
 if [ -z "${FACTORY_DIR:-}" ]; then
-  FACTORY_DIR=$(pick_existing_dir "$SOURCE_ROOT/config/factory" "$DEFAULT_SOURCE_ROOT/config/factory" "$ROOT_DIR/config/factory" "$SCRIPT_DIR/config/factory" || true)
+  FACTORY_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/factory" "$SOURCE_ROOT/config/factory" "$DEFAULT_SOURCE_ROOT/config/factory" "$ROOT_DIR/config/factory" "$SCRIPT_DIR/config/factory" || true)
 fi
 if [ -z "${TEMPLATES_DIR:-}" ]; then
-  TEMPLATES_DIR=$(pick_existing_dir "$SOURCE_ROOT/config/templates" "$DEFAULT_SOURCE_ROOT/config/templates" "$ROOT_DIR/config/templates" "$SCRIPT_DIR/config/templates" || true)
+  TEMPLATES_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/templates" "$SOURCE_ROOT/config/templates" "$DEFAULT_SOURCE_ROOT/config/templates" "$ROOT_DIR/config/templates" "$SCRIPT_DIR/config/templates" || true)
+fi
+if [ -z "${DEPLOY_DIR:-}" ] || [ ! -d "$DEPLOY_DIR" ]; then
+  DEPLOY_DIR=$(pick_existing_dir "$PACKAGE_ROOT/deploy" "$SOURCE_ROOT/deploy" "$DEFAULT_SOURCE_ROOT/deploy" "$ROOT_DIR/deploy" "$SCRIPT_DIR/deploy" || true)
 fi
 
 if [ ! -d "$FACTORY_DIR/runtime" ]; then
@@ -82,6 +141,21 @@ json_string_value() {
   fi
 }
 
+json_tls_bool_value() {
+  file="$1"
+  key="$2"
+  if [ -f "$file" ]; then
+    awk -v key="$key" '
+      /"tls"[[:space:]]*:/ { in_tls=1 }
+      in_tls && $0 ~ "\"" key "\"[[:space:]]*:" {
+        if ($0 ~ /true/) { print "true"; exit }
+        if ($0 ~ /false/) { print "false"; exit }
+      }
+      in_tls && /}/ { in_tls=0 }
+    ' "$file" | sed -n '1p'
+  fi
+}
+
 set_json_string_value() {
   file="$1"
   key="$2"
@@ -89,12 +163,154 @@ set_json_string_value() {
   if [ ! -f "$file" ]; then
     return 0
   fi
-  escaped=$(printf '%s' "$value" | sed 's/[\/&]/\\&/g')
   tmp="$file.tmp.$$"
   if grep -q "\"$key\"" "$file"; then
-    sed "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$escaped\"/" "$file" > "$tmp"
+    awk -v key="$key" -v value="$value" '
+      function json_escape(text) {
+        gsub(/\\/, "\\\\", text)
+        gsub(/"/, "\\\"", text)
+        gsub(/&/, "\\\\&", text)
+        return text
+      }
+      {
+        pattern = "\"" key "\"[[:space:]]*:[[:space:]]*\"[^\"]*\""
+        replacement = "\"" key "\": \"" json_escape(value) "\""
+        gsub(pattern, replacement)
+        print
+      }
+    ' "$file" > "$tmp"
     mv "$tmp" "$file"
   fi
+}
+
+set_tls_bool_value() {
+  file="$1"
+  key="$2"
+  value="$3"
+  if [ ! -f "$file" ]; then
+    return 0
+  fi
+  case "$value" in
+    true|false) ;;
+    *) return 0 ;;
+  esac
+  tmp="$file.tmp.$$"
+  awk -v key="$key" -v value="$value" '
+    /"tls"[[:space:]]*:/ { in_tls=1 }
+    in_tls {
+      pattern = "\"" key "\"[[:space:]]*:[[:space:]]*(true|false)"
+      replacement = "\"" key "\": " value
+      sub(pattern, replacement)
+    }
+    in_tls && /}/ { in_tls=0 }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+first_nonempty() {
+  for value in "$@"; do
+    if [ -n "$value" ]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+}
+
+is_interactive_init() {
+  [ "${FACTORY_PROMPT:-1}" = "1" ] && [ -t 0 ]
+}
+
+prompt_value() {
+  label="$1"
+  default_value="$2"
+  secret="${3:-0}"
+  if ! is_interactive_init; then
+    printf '%s\n' "$default_value"
+    return 0
+  fi
+  display="$default_value"
+  if [ "$secret" = "1" ] && [ -n "$display" ]; then
+    display="******"
+  fi
+  printf '%s [%s]: ' "$label" "$display" >&2
+  if [ "$secret" = "1" ]; then
+    stty -echo 2>/dev/null || true
+  fi
+  IFS= read -r input_value || input_value=""
+  if [ "$secret" = "1" ]; then
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+  fi
+  if [ -n "$input_value" ]; then
+    printf '%s\n' "$input_value"
+  else
+    printf '%s\n' "$default_value"
+  fi
+}
+
+normalize_bool() {
+  value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$value" in
+    1|y|yes|true|on) printf 'true\n' ;;
+    0|n|no|false|off|"") printf 'false\n' ;;
+    *) printf '%s\n' "$2" ;;
+  esac
+}
+
+prompt_bool() {
+  label="$1"
+  default_value="$2"
+  default_value=$(normalize_bool "$default_value" "false")
+  if ! is_interactive_init; then
+    printf '%s\n' "$default_value"
+    return 0
+  fi
+  if [ "$default_value" = "true" ]; then
+    prompt="$label [Y/n]: "
+  else
+    prompt="$label [y/N]: "
+  fi
+  printf '%s' "$prompt" >&2
+  IFS= read -r input_value || input_value=""
+  if [ -z "$input_value" ]; then
+    printf '%s\n' "$default_value"
+  else
+    normalize_bool "$input_value" "$default_value"
+  fi
+}
+
+broker_implies_tls() {
+  case "$1" in
+    ssl://*|tls://*|mqtts://*) printf 'true\n' ;;
+    *) printf 'false\n' ;;
+  esac
+}
+
+apply_runtime_identity_and_mqtt() {
+  machine_code="$1"
+  mqtt_broker="$2"
+  mqtt_username="$3"
+  mqtt_password="$4"
+  mqtt_tls_enabled="$5"
+  mqtt_ca_file="$6"
+  mqtt_cert_file="$7"
+  mqtt_key_file="$8"
+  mqtt_tls_insecure="$9"
+
+  set_json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" "$machine_code"
+  for app_file in "$GATEWAY_HOME"/config/runtime/apps/*.json; do
+    [ -f "$app_file" ] || continue
+    set_json_string_value "$app_file" "clientId" "$machine_code"
+    set_json_string_value "$app_file" "broker" "$mqtt_broker"
+    set_json_string_value "$app_file" "username" "$mqtt_username"
+    set_json_string_value "$app_file" "password" "$mqtt_password"
+    set_json_string_value "$app_file" "caFile" "$mqtt_ca_file"
+    set_json_string_value "$app_file" "certFile" "$mqtt_cert_file"
+    set_json_string_value "$app_file" "keyFile" "$mqtt_key_file"
+    set_tls_bool_value "$app_file" "enabled" "$mqtt_tls_enabled"
+    set_tls_bool_value "$app_file" "insecureSkipVerify" "$mqtt_tls_insecure"
+  done
 }
 
 mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$BACKUP_DIR"
@@ -106,7 +322,7 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-for bin in ModbusRtu Dlt645Driver MqttDriver EventEngine SystemMonitor pointctl stress_runner; do
+for bin in ModbusRtu Dlt645Driver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl stress_runner; do
   install_file_if_exists "$SOURCE_ROOT/build-aarch64/$bin" "$GATEWAY_HOME/bin/$bin"
   install_file_if_exists "$SOURCE_ROOT/bin/$bin" "$GATEWAY_HOME/bin/$bin"
   install_file_if_exists "$SOURCE_ROOT/$bin" "$GATEWAY_HOME/bin/$bin"
@@ -122,6 +338,15 @@ chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 
 EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
+EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
+EXISTING_MQTT_BROKER=$(json_string_value "$EXISTING_MQTT_FILE" "broker" || true)
+EXISTING_MQTT_USERNAME=$(json_string_value "$EXISTING_MQTT_FILE" "username" || true)
+EXISTING_MQTT_PASSWORD=$(json_string_value "$EXISTING_MQTT_FILE" "password" || true)
+EXISTING_MQTT_TLS_ENABLED=$(json_tls_bool_value "$EXISTING_MQTT_FILE" "enabled" || true)
+EXISTING_MQTT_CA_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "caFile" || true)
+EXISTING_MQTT_CERT_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "certFile" || true)
+EXISTING_MQTT_KEY_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "keyFile" || true)
+EXISTING_MQTT_TLS_INSECURE=$(json_tls_bool_value "$EXISTING_MQTT_FILE" "insecureSkipVerify" || true)
 
 ts=$(date +%Y%m%d%H%M%S)
 if [ -d "$GATEWAY_HOME/config/runtime" ]; then
@@ -131,14 +356,59 @@ fi
 mkdir -p "$GATEWAY_HOME/config"
 cp -a "$FACTORY_DIR/runtime" "$GATEWAY_HOME/config/runtime"
 
-if [ -n "$EXISTING_MACHINE_CODE" ]; then
-  set_json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" "$EXISTING_MACHINE_CODE"
-  for app_file in "$GATEWAY_HOME"/config/runtime/apps/*.json; do
-    [ -f "$app_file" ] || continue
-    set_json_string_value "$app_file" "clientId" "$EXISTING_MACHINE_CODE"
-  done
-  echo "inherited machineCode: $EXISTING_MACHINE_CODE"
+FACTORY_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
+FACTORY_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
+FACTORY_MQTT_BROKER=$(json_string_value "$FACTORY_MQTT_FILE" "broker" || true)
+FACTORY_MQTT_USERNAME=$(json_string_value "$FACTORY_MQTT_FILE" "username" || true)
+FACTORY_MQTT_PASSWORD=$(json_string_value "$FACTORY_MQTT_FILE" "password" || true)
+FACTORY_MQTT_TLS_ENABLED=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "enabled" || true)
+FACTORY_MQTT_CA_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "caFile" || true)
+FACTORY_MQTT_CERT_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "certFile" || true)
+FACTORY_MQTT_KEY_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "keyFile" || true)
+FACTORY_MQTT_TLS_INSECURE=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "insecureSkipVerify" || true)
+
+DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
+DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
+DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
+DEFAULT_MQTT_PASSWORD=$(first_nonempty "${INIT_MQTT_PASSWORD:-}" "$EXISTING_MQTT_PASSWORD" "$FACTORY_MQTT_PASSWORD")
+DEFAULT_MQTT_CA_FILE=$(first_nonempty "${INIT_MQTT_CA_FILE:-}" "$EXISTING_MQTT_CA_FILE" "$FACTORY_MQTT_CA_FILE")
+DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQTT_CERT_FILE" "$FACTORY_MQTT_CERT_FILE")
+DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
+DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
+DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+
+INIT_MACHINE_CODE_VALUE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
+INIT_MQTT_BROKER_VALUE=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
+INIT_MQTT_USERNAME_VALUE=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
+INIT_MQTT_PASSWORD_VALUE=$(prompt_value "MQTT password" "$DEFAULT_MQTT_PASSWORD" 1)
+if [ -z "${INIT_MQTT_TLS_ENABLED:-}" ]; then
+  if [ "$(broker_implies_tls "$INIT_MQTT_BROKER_VALUE")" = "true" ]; then
+    DEFAULT_MQTT_TLS_ENABLED="true"
+  else
+    DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "false")
+  fi
 fi
+INIT_MQTT_TLS_ENABLED_VALUE=$(prompt_bool "Enable MQTT TLS" "$DEFAULT_MQTT_TLS_ENABLED")
+INIT_MQTT_CA_FILE_VALUE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
+INIT_MQTT_CERT_FILE_VALUE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
+INIT_MQTT_KEY_FILE_VALUE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
+INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
+
+apply_runtime_identity_and_mqtt \
+  "$INIT_MACHINE_CODE_VALUE" \
+  "$INIT_MQTT_BROKER_VALUE" \
+  "$INIT_MQTT_USERNAME_VALUE" \
+  "$INIT_MQTT_PASSWORD_VALUE" \
+  "$INIT_MQTT_TLS_ENABLED_VALUE" \
+  "$INIT_MQTT_CA_FILE_VALUE" \
+  "$INIT_MQTT_CERT_FILE_VALUE" \
+  "$INIT_MQTT_KEY_FILE_VALUE" \
+  "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
+
+echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"
+echo "initialized mqtt broker: $INIT_MQTT_BROKER_VALUE"
+echo "initialized mqtt username: $INIT_MQTT_USERNAME_VALUE"
+echo "initialized mqtt tls: $INIT_MQTT_TLS_ENABLED_VALUE"
 
 if [ -n "$TEMPLATES_DIR" ] && [ -d "$TEMPLATES_DIR" ]; then
   if ! same_path "$TEMPLATES_DIR" "$GATEWAY_HOME/config/templates"; then
@@ -153,6 +423,7 @@ if command -v systemctl >/dev/null 2>&1; then
   install_file_if_exists "$DEPLOY_DIR/dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/event-engine@.service" "/etc/systemd/system/event-engine@.service"
+  install_file_if_exists "$DEPLOY_DIR/compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
   install_file_if_exists "$DEPLOY_DIR/system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
   install_file_if_exists "$DEPLOY_DIR/mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   systemctl daemon-reload
@@ -170,5 +441,7 @@ if [ "$START_SERVICES" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   systemctl restart gateway-services.service
 fi
 
-echo "factory source root: $SOURCE_ROOT"
-echo "factory config installed to $GATEWAY_HOME/config/runtime"
+if [ -n "$FACTORY_PACKAGE" ]; then
+  echo "factory package: $FACTORY_PACKAGE"
+fi
+echo "factory config sou

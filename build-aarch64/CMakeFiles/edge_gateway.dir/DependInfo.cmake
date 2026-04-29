@@ -12,6 +12,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/mnt/hgfs/Embedded/Gateway-zk/src/builtin_mqtt_driver_publisher.cpp" "CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o.d"
   "/mnt/hgfs/Embedded/Gateway-zk/src/collector.cpp" "CMakeFiles/edge_gateway.dir/src/collector.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/collector.cpp.o.d"
   "/mnt/hgfs/Embedded/Gateway-zk/src/command_executor.cpp" "CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o.d"
+  "/mnt/hgfs/Embedded/Gateway-zk/src/compute_engine_service.cpp" "CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o.d"
   "/mnt/hgfs/Embedded/Gateway-zk/src/config_loader.cpp" "CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o.d"
   "/mnt/hgfs/Embedded/Gateway-zk/src/dlt645_client.cpp" "CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o.d"
   "/mnt/hgfs/Embedded/Gateway-zk/src/dlt645_codec.cpp" "CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o" "gcc" "CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o.d"

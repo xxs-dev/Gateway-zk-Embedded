@@ -933,6 +933,100 @@ EventEngineConfig parseEventEngineConfig(const JsonValue* value) {
     return config;
 }
 
+ComputeInputConfig parseComputeInputConfig(const JsonValue& value) {
+    ComputeInputConfig config;
+    const auto& object = value.asObject();
+    config.name = requireString(object, "name", config.name);
+    config.index = static_cast<std::uint32_t>(requireInt(object, "index", static_cast<int>(config.index)));
+    config.required = requireBool(object, "required", config.required);
+    return config;
+}
+
+ComputeOutputConfig parseComputeOutputConfig(const JsonValue& value, const ComputeEngineConfig& engineConfig) {
+    ComputeOutputConfig config;
+    const auto& object = value.asObject();
+    config.name = requireString(object, "name", config.name);
+    config.index = static_cast<std::uint32_t>(requireInt(object, "index", static_cast<int>(config.index)));
+    config.mode = requireString(object, "mode", config.mode);
+    config.sharedMemoryName = requireString(object, "sharedMemoryName", config.sharedMemoryName);
+    config.ttlMs = requireInt64(object, "ttlMs", engineConfig.defaultOutputTtlMs);
+    config.qualityPolicy = requireString(object, "qualityPolicy", config.qualityPolicy);
+    config.minIntervalMs = requireInt(object, "minIntervalMs", config.minIntervalMs);
+    config.deadband = requireDouble(object, "deadband", config.deadband);
+    return config;
+}
+
+ComputeTriggerConfig parseComputeTriggerConfig(const JsonValue* value) {
+    ComputeTriggerConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.type = requireString(object, "type", config.type);
+    config.intervalMs = requireInt(object, "intervalMs", config.intervalMs);
+    config.minIntervalMs = requireInt(object, "minIntervalMs", config.minIntervalMs);
+    config.deadband = requireDouble(object, "deadband", config.deadband);
+    return config;
+}
+
+ComputeScriptConfig parseComputeScriptConfig(const JsonValue* value) {
+    ComputeScriptConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.type = requireString(object, "type", config.type);
+    config.expression = requireString(object, "expression", config.expression);
+    return config;
+}
+
+ComputeRuleConfig parseComputeRuleConfig(const JsonValue& value, const ComputeEngineConfig& engineConfig) {
+    ComputeRuleConfig config;
+    const auto& object = value.asObject();
+    config.ruleCode = requireString(object, "ruleCode", config.ruleCode);
+    config.name = requireString(object, "name", config.name);
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.trigger = parseComputeTriggerConfig(value.find("trigger"));
+    if (const auto* inputs = value.find("inputs")) {
+        for (const auto& item : inputs->asArray().values) {
+            config.inputs.push_back(parseComputeInputConfig(*item));
+        }
+    }
+    if (const auto* outputs = value.find("outputs")) {
+        for (const auto& item : outputs->asArray().values) {
+            config.outputs.push_back(parseComputeOutputConfig(*item, engineConfig));
+        }
+    }
+    config.script = parseComputeScriptConfig(value.find("script"));
+    return config;
+}
+
+ComputeEngineConfig parseComputeEngineConfig(const JsonValue* value) {
+    ComputeEngineConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.sharedMemoryNames = parseStringArray(value->find("sharedMemoryNames"));
+    config.outputDefaultSharedMemoryName = requireString(
+        object,
+        "outputDefaultSharedMemoryName",
+        config.outputDefaultSharedMemoryName
+    );
+    config.scanIntervalMs = requireInt(object, "scanIntervalMs", config.scanIntervalMs);
+    config.maxRuleEvalPerScan = requireSize(object, "maxRuleEvalPerScan", config.maxRuleEvalPerScan);
+    config.badQuality = requireInt(object, "badQuality", config.badQuality);
+    config.defaultOutputTtlMs = requireInt64(object, "defaultOutputTtlMs", config.defaultOutputTtlMs);
+    config.maxWritesPerScan = requireSize(object, "maxWritesPerScan", config.maxWritesPerScan);
+    if (const auto* rules = value->find("rules")) {
+        for (const auto& item : rules->asArray().values) {
+            config.rules.push_back(parseComputeRuleConfig(*item, config));
+        }
+    }
+    return config;
+}
+
 OtaStorageMinioConfig parseOtaStorageMinioConfig(const JsonValue* value) {
     OtaStorageMinioConfig config;
     if (value == nullptr || value->isNull()) {
@@ -1071,6 +1165,13 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.eventEngine.updateDrainBatchSize = 4096;
     config.eventEngine.publishMode = "mqtt_driver_outbox";
     config.eventEngine.mqttClientIdSuffix = "event_engine";
+    config.computeEngine.enabled = false;
+    config.computeEngine.sharedMemoryNames = {"gateway_point_store"};
+    config.computeEngine.outputDefaultSharedMemoryName = "gateway_point_store";
+    config.computeEngine.scanIntervalMs = 200;
+    config.computeEngine.maxRuleEvalPerScan = 1000;
+    config.computeEngine.defaultOutputTtlMs = 600000;
+    config.computeEngine.maxWritesPerScan = 100;
     config.ota.enabled = true;
     config.ota.currentVersion = "1.0.0";
     config.ota.artifactBaseUrl = "https://example.com/releases";
@@ -1307,6 +1408,7 @@ AppConfig parseAppConfig(const std::string& text) {
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
     config.alarmStore = parseAlarmStoreConfig(root.find("alarmStore"));
     config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
+    config.computeEngine = parseComputeEngineConfig(root.find("computeEngine"));
     config.ota = parseOtaConfig(root.find("ota"));
     config.realtime = parseRealtimeConfig(root.find("realtime"));
     config.systemMonitor = parseSystemMonitorConfig(root.find("systemMonitor"));

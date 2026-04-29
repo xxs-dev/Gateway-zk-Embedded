@@ -195,6 +195,19 @@ EventEngine/fast:
 .PHONY : EventEngine/fast
 
 #=============================================================================
+# Target rules for targets named ComputeEngine
+
+# Build rule for target.
+ComputeEngine: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 ComputeEngine
+.PHONY : ComputeEngine
+
+# fast build rule for target.
+ComputeEngine/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ComputeEngine.dir/build.make CMakeFiles/ComputeEngine.dir/build
+.PHONY : ComputeEngine/fast
+
+#=============================================================================
 # Target rules for targets named SystemMonitor
 
 # Build rule for target.
@@ -219,6 +232,30 @@ stress_runner: cmake_check_build_system
 stress_runner/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/stress_runner.dir/build.make CMakeFiles/stress_runner.dir/build
 .PHONY : stress_runner/fast
+
+compute_engine_main.o: compute_engine_main.cpp.o
+.PHONY : compute_engine_main.o
+
+# target to build an object file
+compute_engine_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ComputeEngine.dir/build.make CMakeFiles/ComputeEngine.dir/compute_engine_main.cpp.o
+.PHONY : compute_engine_main.cpp.o
+
+compute_engine_main.i: compute_engine_main.cpp.i
+.PHONY : compute_engine_main.i
+
+# target to preprocess a source file
+compute_engine_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ComputeEngine.dir/build.make CMakeFiles/ComputeEngine.dir/compute_engine_main.cpp.i
+.PHONY : compute_engine_main.cpp.i
+
+compute_engine_main.s: compute_engine_main.cpp.s
+.PHONY : compute_engine_main.s
+
+# target to generate assembly for a file
+compute_engine_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ComputeEngine.dir/build.make CMakeFiles/ComputeEngine.dir/compute_engine_main.cpp.s
+.PHONY : compute_engine_main.cpp.s
 
 dlt645_main.o: dlt645_main.cpp.o
 .PHONY : dlt645_main.o
@@ -411,6 +448,30 @@ src/command_executor.s: src/command_executor.cpp.s
 src/command_executor.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/command_executor.cpp.s
 .PHONY : src/command_executor.cpp.s
+
+src/compute_engine_service.o: src/compute_engine_service.cpp.o
+.PHONY : src/compute_engine_service.o
+
+# target to build an object file
+src/compute_engine_service.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o
+.PHONY : src/compute_engine_service.cpp.o
+
+src/compute_engine_service.i: src/compute_engine_service.cpp.i
+.PHONY : src/compute_engine_service.i
+
+# target to preprocess a source file
+src/compute_engine_service.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.i
+.PHONY : src/compute_engine_service.cpp.i
+
+src/compute_engine_service.s: src/compute_engine_service.cpp.s
+.PHONY : src/compute_engine_service.s
+
+# target to generate assembly for a file
+src/compute_engine_service.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.s
+.PHONY : src/compute_engine_service.cpp.s
 
 src/config_loader.o: src/config_loader.cpp.o
 .PHONY : src/config_loader.o
@@ -1020,6 +1081,7 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... ComputeEngine"
 	@echo "... Dlt645Driver"
 	@echo "... EventEngine"
 	@echo "... ModbusRtu"
@@ -1028,6 +1090,9 @@ help:
 	@echo "... edge_gateway"
 	@echo "... pointctl"
 	@echo "... stress_runner"
+	@echo "... compute_engine_main.o"
+	@echo "... compute_engine_main.i"
+	@echo "... compute_engine_main.s"
 	@echo "... dlt645_main.o"
 	@echo "... dlt645_main.i"
 	@echo "... dlt645_main.s"
@@ -1052,6 +1117,9 @@ help:
 	@echo "... src/command_executor.o"
 	@echo "... src/command_executor.i"
 	@echo "... src/command_executor.s"
+	@echo "... src/compute_engine_service.o"
+	@echo "... src/compute_engine_service.i"
+	@echo "... src/compute_engine_service.s"
 	@echo "... src/config_loader.o"
 	@echo "... src/config_loader.i"
 	@echo "... src/config_loader.s"

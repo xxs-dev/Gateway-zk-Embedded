@@ -25,6 +25,22 @@ void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
     }
 }
 
+std::string escapeJson(const std::string& value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (const auto ch : value) {
+        switch (ch) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
 class FlatJsonReader {
 public:
     explicit FlatJsonReader(const std::string& text) : text_(text) {
@@ -720,7 +736,9 @@ void MqttDriverService::publishStatusEvent(
     }
     std::ostringstream payload;
     payload << "{\"service\":\"mqtt-driver\",\"event\":\""
-            << event
+            << escapeJson(event)
+            << "\",\"machineCode\":\""
+            << escapeJson(primaryMachineCode())
             << "\",\"ts\":"
             << ts;
     if (!detailsJson.empty()) {
@@ -728,6 +746,16 @@ void MqttDriverService::publishStatusEvent(
     }
     payload << "}";
     publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+}
+
+std::string MqttDriverService::primaryMachineCode() const {
+    if (!mqttConfig_.topicMachineCode.empty()) {
+        return mqttConfig_.topicMachineCode;
+    }
+    if (!machineCodes_.empty()) {
+        return *machineCodes_.begin();
+    }
+    return "";
 }
 
 std::vector<StoredPointValue> MqttDriverService::filterValues(

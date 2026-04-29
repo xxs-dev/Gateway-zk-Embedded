@@ -10,6 +10,7 @@ add_library(edge_gateway
     src/alarm_service.cpp
     src/collector.cpp
     src/command_executor.cpp
+    src/compute_engine_service.cpp
     src/config_loader.cpp
     src/dlt645_client.cpp
     src/dlt645_codec.cpp
@@ -60,6 +61,10 @@ target_compile_options(MqttDriver PRIVATE -fdiagnostics-color=never)
 add_executable(EventEngine event_engine_main.cpp)
 target_link_libraries(EventEngine PRIVATE edge_gateway)
 target_compile_options(EventEngine PRIVATE -fdiagnostics-color=never)
+
+add_executable(ComputeEngine compute_engine_main.cpp)
+target_link_libraries(ComputeEngine PRIVATE edge_gateway)
+target_compile_options(ComputeEngine PRIVATE -fdiagnostics-color=never)
 
 add_executable(SystemMonitor system_monitor_main.cpp)
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)

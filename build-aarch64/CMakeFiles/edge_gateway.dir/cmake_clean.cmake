@@ -7,6 +7,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/edge_gateway.dir/src/collector.cpp.o.d"
   "CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o"
   "CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o.d"
+  "CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o"
+  "CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o.d"
   "CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o"
   "CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o.d"
   "CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o"

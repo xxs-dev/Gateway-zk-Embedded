@@ -23,6 +23,8 @@ struct PointStoreRoute {
     std::string driverService;
     bool writable = false;
     bool reportOnChange = false;
+    bool isStore = false;
+    int persistIntervalSec = 60;
 };
 
 struct CommandSubmitResult {
@@ -38,6 +40,7 @@ public:
         const std::vector<DeviceConfig>& deviceConfigs,
         const std::string& fallbackSharedMemoryName
     );
+    void addRoute(const PointStoreRoute& route);
 
     Optional<PointStoreRoute> routeByIndex(std::uint32_t index) const;
     const std::unordered_map<std::uint32_t, PointStoreRoute>& routes() const;
@@ -60,11 +63,11 @@ public:
     ) const;
 
     CommandSubmitResult submitWriteCommand(const PendingWriteCommand& command);
+    CommandSubmitResult putLatestByIndex(PointValue value);
     std::vector<PendingWriteCommand> peekPendingWrites(std::size_t limit = 0) const;
     std::vector<MemoryStoreStats> getStoreStats() const;
 
 private:
-    void addRoute(const PointStoreRoute& route);
     MemoryPointStore* storeForRoute(const PointStoreRoute& route) const;
     StoredPointValue enrich(StoredPointValue value) const;
 

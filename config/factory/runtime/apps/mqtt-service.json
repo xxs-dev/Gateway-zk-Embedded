@@ -90,6 +90,19 @@
     "publishMode": "mqtt_driver_outbox",
     "mqttClientIdSuffix": "event_engine"
   },
+  "computeEngine": {
+    "enabled": false,
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ],
+    "outputDefaultSharedMemoryName": "gateway_point_store",
+    "scanIntervalMs": 200,
+    "maxRuleEvalPerScan": 1000,
+    "badQuality": 0,
+    "defaultOutputTtlMs": 600000,
+    "maxWritesPerScan": 100,
+    "rules": []
+  },
   "realtime": {
     "enabled": true,
     "telemetryTopic": "edge/telemetry",

@@ -332,13 +332,13 @@ void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item)
 
 std::int64_t currentTimeMs();
 
-std::string firstMachineCode(const std::vector<StoredPointValue>& values) {
+std::string firstMachineCode(const std::vector<StoredPointValue>& values, const std::string& fallback = std::string()) {
     for (const auto& item : values) {
         if (!item.machineCode.empty()) {
             return item.machineCode;
         }
     }
-    return "";
+    return fallback;
 }
 
 std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue>& values) {
@@ -354,9 +354,9 @@ std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue
     return devices;
 }
 
-std::string encodeValuesJson(const std::vector<StoredPointValue>& values) {
+std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
     std::ostringstream out;
-    out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values)) << "\",\"meters\":[";
+    out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
     for (std::size_t d = 0; d < devices.size(); ++d) {
         if (d > 0) {
@@ -380,9 +380,9 @@ std::string encodeValuesJson(const std::vector<StoredPointValue>& values) {
     return out.str();
 }
 
-std::string encodeFullJson(const std::vector<StoredPointValue>& values) {
+std::string encodeFullJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
     std::ostringstream out;
-    out << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(firstMachineCode(values)) << "\",\"meters\":[";
+    out << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
     for (std::size_t d = 0; d < devices.size(); ++d) {
         if (d > 0) {
@@ -449,10 +449,11 @@ std::string buildRealtimeChunkJson(
 std::vector<std::string> encodeRealtimeChunks(
     const std::string& type,
     const std::vector<StoredPointValue>& values,
-    std::size_t maxPayloadBytes
+    std::size_t maxPayloadBytes,
+    const std::string& fallbackMachineCode = std::string()
 ) {
     const auto limit = std::max<std::size_t>(4096, maxPayloadBytes);
-    const auto machineCode = firstMachineCode(values);
+    const auto machineCode = firstMachineCode(values, fallbackMachineCode);
     const auto chunkId = randomChunkId();
     std::vector<std::vector<std::pair<std::string, std::vector<std::string>>>> chunks;
     std::vector<std::pair<std::string, std::vector<std::string>>> currentMeters;
@@ -1328,7 +1329,7 @@ void BuiltinMqttDriverPublisher::publishFullSnapshot(
     const std::string& topic,
     const std::vector<StoredPointValue>& values
 ) {
-    for (const auto& payload : encodeRealtimeChunks("snapshot", values, config_.maxPayloadBytes)) {
+    for (const auto& payload : encodeRealtimeChunks("snapshot", values, config_.maxPayloadBytes, config_.topicMachineCode)) {
         publishRealtimeJson(topic, payload);
     }
 }
@@ -1347,7 +1348,7 @@ void BuiltinMqttDriverPublisher::publishOnDemand(
     const std::string& topic,
     const std::vector<StoredPointValue>& values
 ) {
-    for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes)) {
+    for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes, config_.topicMachineCode)) {
         publishRealtimeJson(topic, payload);
     }
 }
