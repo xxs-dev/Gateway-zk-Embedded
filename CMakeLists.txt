@@ -8,6 +8,8 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 add_library(edge_gateway
     src/alarm_service.cpp
+    src/can_driver_service.cpp
+    src/can_signal_codec.cpp
     src/collector.cpp
     src/command_executor.cpp
     src/compute_engine_service.cpp
@@ -17,6 +19,9 @@ add_library(edge_gateway
     src/dlt645_standard_points_loader.cpp
     src/event_engine_service.cpp
     src/gateway_daemon.cpp
+    src/graph_ems_engine.cpp
+    src/legacy_ems_engine.cpp
+    src/legacy_ems_point_catalog.cpp
     src/memory_point_store.cpp
     src/mock_serial_port.cpp
     src/ota_service.cpp
@@ -32,6 +37,7 @@ add_library(edge_gateway
     src/read_task_planner.cpp
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
+    src/sysfs_gpio_port.cpp
     src/system_monitor_service.cpp
     src/writeback_service.cpp
 )
@@ -49,6 +55,14 @@ target_compile_options(ModbusRtu PRIVATE -fdiagnostics-color=never)
 add_executable(Dlt645Driver dlt645_main.cpp)
 target_link_libraries(Dlt645Driver PRIVATE edge_gateway)
 target_compile_options(Dlt645Driver PRIVATE -fdiagnostics-color=never)
+
+add_executable(DioDriver dio_driver_main.cpp)
+target_link_libraries(DioDriver PRIVATE edge_gateway)
+target_compile_options(DioDriver PRIVATE -fdiagnostics-color=never)
+
+add_executable(CanDriver can_driver_main.cpp)
+target_link_libraries(CanDriver PRIVATE edge_gateway)
+target_compile_options(CanDriver PRIVATE -fdiagnostics-color=never)
 
 add_executable(pointctl tools/pointctl.cpp)
 target_link_libraries(pointctl PRIVATE edge_gateway)
@@ -70,6 +84,26 @@ add_executable(SystemMonitor system_monitor_main.cpp)
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)
 target_compile_options(SystemMonitor PRIVATE -fdiagnostics-color=never)
 
+add_executable(LocalDisplay local_display_main.cpp)
+target_link_libraries(LocalDisplay PRIVATE edge_gateway)
+target_compile_options(LocalDisplay PRIVATE -fdiagnostics-color=never)
+
+add_executable(CameraService camera_service_main.cpp)
+target_link_libraries(CameraService PRIVATE edge_gateway)
+target_compile_options(CameraService PRIVATE -fdiagnostics-color=never)
+
 add_executable(stress_runner tools/stress_runner.cpp)
 target_link_libraries(stress_runner PRIVATE edge_gateway)
 target_compile_options(stress_runner PRIVATE -fdiagnostics-color=never)
+
+add_executable(dio_smoke_test tools/dio_smoke_test.cpp)
+target_link_libraries(dio_smoke_test PRIVATE edge_gateway)
+target_compile_options(dio_smoke_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(can_signal_codec_test tools/can_signal_codec_test.cpp)
+target_link_libraries(can_signal_codec_test PRIVATE edge_gateway)
+target_compile_options(can_signal_codec_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
+target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
+target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)

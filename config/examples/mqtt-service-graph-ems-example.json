@@ -1,0 +1,27 @@
+{
+  "computeEngine": {
+    "enabled": true,
+    "scanIntervalMs": 1000,
+    "defaultOutputTtlMs": 600000,
+    "rules": [
+      {
+        "ruleCode": "shuntong_graph_ems",
+        "name": "Shuntong Graph EMS",
+        "enabled": true,
+        "trigger": {
+          "type": "interval",
+          "intervalMs": 1000
+        },
+        "script": {
+          "type": "graphEms",
+          "graphFile": "runtime/logic/shuntong_ems_graph.json",
+          "graphProfile": {
+            "PCS_MODEL": "3",
+            "Meter_TQ": "1",
+            "Meter_CN": "1"
+          }
+        }
+      }
+    ]
+  }
+}

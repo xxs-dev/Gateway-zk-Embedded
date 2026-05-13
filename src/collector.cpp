@@ -15,15 +15,21 @@ Collector::Collector(
     MemoryPointStore& store,
     std::shared_ptr<IModbusClient> modbusClient,
     std::shared_ptr<Dlt645Client> dlt645Client,
-    std::shared_ptr<IMqttPublisher> mqttPublisher
+    std::shared_ptr<IMqttPublisher> mqttPublisher,
+    std::shared_ptr<IGpioPort> gpioPort
 ) : config_(std::move(config)),
     store_(store),
     modbusClient_(std::move(modbusClient)),
     dlt645Client_(std::move(dlt645Client)),
-    mqttPublisher_(std::move(mqttPublisher)) {
+    mqttPublisher_(std::move(mqttPublisher)),
+    gpioPort_(std::move(gpioPort)) {
     if (config_.protocol.type == "dlt645_2007") {
         if (!dlt645Client_) {
             throw std::invalid_argument("dlt645Client is required");
+        }
+    } else if (config_.protocol.type == "local_dio") {
+        if (!gpioPort_) {
+            throw std::invalid_argument("gpioPort is required");
         }
     } else if (!modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
@@ -37,6 +43,29 @@ Collector::Collector(
 
 CollectCycleResult Collector::collectOnce(std::int64_t nowMs) {
     CollectCycleResult result;
+    if (config_.protocol.type == "local_dio") {
+        const auto points = duePoints(nowMs);
+        for (const auto& point : points) {
+            PointValue value;
+            try {
+                value = collectLocalDioPoint(point, nowMs);
+            } catch (const std::exception& ex) {
+                value = buildFailedPointValue(point, ex.what(), nowMs);
+            }
+            if (point.read.cachePolicy.storeLatest) {
+                store_.putLatest(value);
+            }
+            result.values.push_back(std::move(value));
+        }
+        if (!points.empty()) {
+            publishDeviceOnlineStatus(true, nowMs);
+        }
+        if (mqttPublisher_ && !result.values.empty()) {
+            mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
+        }
+        return result;
+    }
+
     if (config_.protocol.type == "dlt645_2007") {
         const auto points = duePoints(nowMs);
         for (const auto& point : points) {
@@ -91,6 +120,49 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs) {
         mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
     }
     return result;
+}
+
+PointValue Collector::collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs) {
+    if (!gpioPort_) {
+        throw std::runtime_error("gpioPort is required");
+    }
+    if (point.read.gpio < 0) {
+        throw std::runtime_error("local_dio point missing read.gpio: " + point.pointCode);
+    }
+    if (point.read.dataType != "digital_input" && point.read.dataType != "digital_output") {
+        throw std::runtime_error("unsupported local_dio read.dataType: " + point.read.dataType);
+    }
+    gpioPort_->exportGpio(point.read.gpio);
+    if (point.read.dataType == "digital_input") {
+        gpioPort_->setDirection(point.read.gpio, "in");
+    }
+    const auto gpioHigh = gpioPort_->readValue(point.read.gpio);
+    auto logicalValue = gpioHigh == point.read.activeHigh ? 1.0 : 0.0;
+    if (point.read.debounceMs > 0) {
+        const auto raw = lastDioRawValues_.find(point.index);
+        if (raw == lastDioRawValues_.end()) {
+            lastDioRawValues_[point.index] = logicalValue;
+            lastDioStableValues_[point.index] = logicalValue;
+            lastDioRawChangeMs_[point.index] = nowMs;
+        } else if (raw->second != logicalValue) {
+            lastDioRawValues_[point.index] = logicalValue;
+            lastDioRawChangeMs_[point.index] = nowMs;
+        }
+
+        const auto stable = lastDioStableValues_.find(point.index);
+        const auto changedAt = lastDioRawChangeMs_.find(point.index);
+        if (stable != lastDioStableValues_.end() && stable->second != logicalValue &&
+            changedAt != lastDioRawChangeMs_.end() && nowMs - changedAt->second >= point.read.debounceMs) {
+            lastDioStableValues_[point.index] = logicalValue;
+        }
+        logicalValue = lastDioStableValues_[point.index];
+    }
+
+    DecodedValue decoded;
+    decoded.value = logicalValue;
+    decoded.text = logicalValue > 0.0 ? "1" : "0";
+    decoded.rawHex = gpioHigh ? "01" : "00";
+    return buildPointValue(point, decoded, nowMs);
 }
 
 PointValue Collector::collectDlt645Point(const PointDefinition& point, std::int64_t nowMs) const {
@@ -185,6 +257,10 @@ void Collector::publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const
 
 std::vector<std::uint16_t> Collector::executeReadTask(const ReadTask& task) const {
     switch (task.function) {
+        case 1:
+            return modbusClient_->readCoils(config_.protocol.slave, task.start, task.count);
+        case 2:
+            return modbusClient_->readDiscreteInputs(config_.protocol.slave, task.start, task.count);
         case 3:
             return modbusClient_->readHoldingRegisters(config_.protocol.slave, task.start, task.count);
         case 4:

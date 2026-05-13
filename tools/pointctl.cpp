@@ -95,6 +95,10 @@ std::unique_ptr<RouterContext> createRouterContext(const std::string& appConfigP
             sharedMemoryNames.push_back(name);
         }
     }
+    if (!context->appConfig.cameraService.sharedMemoryName.empty() &&
+        seen.insert(context->appConfig.cameraService.sharedMemoryName).second) {
+        sharedMemoryNames.push_back(context->appConfig.cameraService.sharedMemoryName);
+    }
     context->stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
         context->stores.emplace_back(new MemoryPointStore(name));
@@ -104,6 +108,10 @@ std::unique_ptr<RouterContext> createRouterContext(const std::string& appConfigP
         context->deviceConfigs,
         context->appConfig.mqttDriver.sharedMemoryName
     );
+    const auto machineCode = !identity.machineCode.empty()
+        ? identity.machineCode
+        : context->appConfig.mqtt.clientId;
+    context->router.addRoutesFromCameraServiceConfig(context->appConfig.cameraService, machineCode);
     return context;
 }
 

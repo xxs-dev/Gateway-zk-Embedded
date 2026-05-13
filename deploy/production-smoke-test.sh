@@ -126,7 +126,7 @@ check_runtime_files() {
   echo "== runtime files =="
   file_exists "$APP_CONFIG" "mqtt app config"
   file_exists "$MONITOR_CONFIG" "monitor app config"
-  for bin in ModbusRtu Dlt645Driver MqttDriver EventEngine SystemMonitor pointctl; do
+  for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine SystemMonitor LocalDisplay CameraService pointctl; do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
   for script in gateway-services.sh gateway-run.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh; do
@@ -253,7 +253,7 @@ check_services() {
         fail "service not active: $unit"
       fi
     done < /tmp/gateway-smoke-units.$$
-    failed_units=$(systemctl --failed --no-legend 2>/dev/null | grep -E 'modbus|dlt645|mqtt|event-engine|system-monitor|gateway-services' || true)
+    failed_units=$(systemctl --failed --no-legend 2>/dev/null | grep -E 'modbus|dlt645|dio|can-driver|mqtt|event-engine|system-monitor|local-display|camera-service|gateway-services' || true)
     if [ -n "$failed_units" ]; then
       fail "gateway related failed systemd units detected"
       echo "$failed_units" >&2

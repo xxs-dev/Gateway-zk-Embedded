@@ -13,9 +13,12 @@ class ModbusRtuClient : public IModbusClient {
 public:
     ModbusRtuClient(std::shared_ptr<ISerialPort> serialPort, SerialPortOptions options);
 
+    std::vector<std::uint16_t> readCoils(int slave, int start, int count) override;
+    std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) override;
     std::vector<std::uint16_t> readHoldingRegisters(int slave, int start, int count) override;
     std::vector<std::uint16_t> readInputRegisters(int slave, int start, int count) override;
 
+    void writeSingleCoil(int slave, int address, bool value) override;
     void writeSingleRegister(int slave, int address, std::uint16_t value) override;
     void writeMultipleRegisters(
         int slave,
@@ -37,12 +40,23 @@ private:
         int start,
         int count
     );
+    std::vector<std::uint16_t> executeBitRead(
+        int slave,
+        std::uint8_t function,
+        int start,
+        int count
+    );
 
     void ensurePortOpen();
     static std::uint16_t crc16(const std::vector<std::uint8_t>& bytes);
     static void appendCrc(std::vector<std::uint8_t>& frame);
     static void validateCrc(const std::vector<std::uint8_t>& frame);
     static std::vector<std::uint16_t> decodeRegistersFromReadResponse(
+        const std::vector<std::uint8_t>& response,
+        std::uint8_t function,
+        int expectedCount
+    );
+    static std::vector<std::uint16_t> decodeBitsFromReadResponse(
         const std::vector<std::uint8_t>& response,
         std::uint8_t function,
         int expectedCount

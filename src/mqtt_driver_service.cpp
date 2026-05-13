@@ -296,14 +296,17 @@ MqttDriverService::MqttDriverService(
     const auto pointFullUploadIndexes = collectConfiguredFullUploadIndexes(deviceConfigs);
     if (!pointFullUploadIndexes.empty()) {
         driverConfig_.publishAllOnFull = false;
-        driverConfig_.fullUploadIndexes = pointFullUploadIndexes;
-    } else {
-        std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
-        driverConfig_.fullUploadIndexes.erase(
-            std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
-            driverConfig_.fullUploadIndexes.end()
+        driverConfig_.fullUploadIndexes.insert(
+            driverConfig_.fullUploadIndexes.end(),
+            pointFullUploadIndexes.begin(),
+            pointFullUploadIndexes.end()
         );
     }
+    std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
+    driverConfig_.fullUploadIndexes.erase(
+        std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
+        driverConfig_.fullUploadIndexes.end()
+    );
 
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
@@ -334,14 +337,17 @@ MqttDriverService::MqttDriverService(
     const auto pointFullUploadIndexes = collectConfiguredFullUploadIndexes(deviceConfigs);
     if (!pointFullUploadIndexes.empty()) {
         driverConfig_.publishAllOnFull = false;
-        driverConfig_.fullUploadIndexes = pointFullUploadIndexes;
-    } else {
-        std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
-        driverConfig_.fullUploadIndexes.erase(
-            std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
-            driverConfig_.fullUploadIndexes.end()
+        driverConfig_.fullUploadIndexes.insert(
+            driverConfig_.fullUploadIndexes.end(),
+            pointFullUploadIndexes.begin(),
+            pointFullUploadIndexes.end()
         );
     }
+    std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
+    driverConfig_.fullUploadIndexes.erase(
+        std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
+        driverConfig_.fullUploadIndexes.end()
+    );
     for (const auto& entry : router_.routes()) {
         PointRoute route;
         route.machineCode = entry.second.machineCode;
@@ -786,11 +792,14 @@ void MqttDriverService::replayPendingOtaStatuses() {
     if (!otaService_) {
         return;
     }
-    lastOtaReplayAttemptMs_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
+    lastOtaReplayAttemptMs_ = nowMs;
     const auto statuses = otaService_->loadPendingStatuses();
     if (statuses.empty()) {
+        otaReplayFirstSuccessMs_ = 0;
+        otaReplaySuccessRounds_ = 0;
         return;
     }
     std::size_t published = 0;
@@ -802,16 +811,29 @@ void MqttDriverService::replayPendingOtaStatuses() {
             break;
         }
     }
+    bool cleared = false;
     if (published == statuses.size()) {
-        otaService_->clearPendingStatuses();
+        if (otaReplaySuccessRounds_ == 0) {
+            otaReplayFirstSuccessMs_ = nowMs;
+        }
+        ++otaReplaySuccessRounds_;
+        if (otaReplaySuccessRounds_ >= 6 && nowMs - otaReplayFirstSuccessMs_ >= 30000) {
+            otaService_->clearPendingStatuses();
+            otaReplayFirstSuccessMs_ = 0;
+            otaReplaySuccessRounds_ = 0;
+            cleared = true;
+        }
+    } else {
+        otaReplayFirstSuccessMs_ = 0;
+        otaReplaySuccessRounds_ = 0;
     }
-    const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
     publishStatusEvent(
         "ota-status-replayed",
-        ts,
-        std::string(R"("count":)") + std::to_string(published)
+        nowMs,
+        std::string(R"("count":)") + std::to_string(published) +
+            R"(,"pending":)" + std::to_string(statuses.size()) +
+            R"(,"rounds":)" + std::to_string(otaReplaySuccessRounds_) +
+            R"(,"cleared":)" + (cleared ? "true" : "false")
     );
 }
 

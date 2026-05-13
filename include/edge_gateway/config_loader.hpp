@@ -9,6 +9,7 @@ namespace edge_gateway {
 class ConfigLoader {
 public:
     static DeviceConfig loadFromFile(const std::string& filePath);
+    static DeviceConfig loadFromText(const std::string& text);
     static DeviceConfig loadFromFile(const std::string& filePath, const DeviceIdentity& identity);
     static std::vector<DeviceConfig> loadMany(const std::vector<std::string>& filePaths);
     static std::vector<DeviceConfig> loadMany(

@@ -1,0 +1,1261 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocol": {
+    "type": "local_dio",
+    "backend": "sysfs_gpio",
+    "gpioBasePath": "/sys/class/gpio"
+  },
+  "collect": {
+    "defaultIntervalMs": 200,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_dio.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 100,
+    "writebackBatchSize": 64
+  },
+  "meters": [
+    {
+      "meterCode": "LOCAL_DIO",
+      "deviceName": "本机 DI/DO",
+      "points": [
+        {
+          "index": 410001,
+          "pointCode": "di_1",
+          "name": "DI1",
+          "desc": "本机 DI1 湿接点输入",
+          "category": "status",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 224,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410002,
+          "pointCode": "di_2",
+          "name": "DI2",
+          "desc": "本机 DI2 湿接点输入",
+          "category": "status",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 225,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410003,
+          "pointCode": "di_3",
+          "name": "DI3",
+          "desc": "本机 DI3 湿接点输入",
+          "category": "status",
+          "address": 3,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 226,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410004,
+          "pointCode": "di_4",
+          "name": "DI4",
+          "desc": "本机 DI4 湿接点输入",
+          "category": "status",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 227,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410005,
+          "pointCode": "di_5",
+          "name": "DI5",
+          "desc": "本机 DI5 湿接点输入",
+          "category": "status",
+          "address": 5,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 230,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410006,
+          "pointCode": "di_6",
+          "name": "DI6",
+          "desc": "本机 DI6 干接点输入",
+          "category": "status",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 134,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410007,
+          "pointCode": "di_7",
+          "name": "DI7",
+          "desc": "本机 DI7 干接点输入",
+          "category": "status",
+          "address": 7,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 135,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410008,
+          "pointCode": "di_8",
+          "name": "DI8",
+          "desc": "本机 DI8 干接点输入",
+          "category": "status",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 136,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410009,
+          "pointCode": "di_9",
+          "name": "DI9",
+          "desc": "本机 DI9 干接点输入",
+          "category": "status",
+          "address": 9,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 137,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410010,
+          "pointCode": "di_10",
+          "name": "DI10",
+          "desc": "本机 DI10 干接点输入",
+          "category": "status",
+          "address": 10,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 138,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410011,
+          "pointCode": "di_11",
+          "name": "DI11",
+          "desc": "本机 DI11 干接点输入",
+          "category": "status",
+          "address": 11,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 143,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410012,
+          "pointCode": "di_12",
+          "name": "DI12",
+          "desc": "本机 DI12 干接点输入",
+          "category": "status",
+          "address": 12,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 128,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410013,
+          "pointCode": "di_13",
+          "name": "DI13",
+          "desc": "本机 DI13 干接点输入",
+          "category": "status",
+          "address": 13,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 139,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410014,
+          "pointCode": "di_14",
+          "name": "DI14",
+          "desc": "本机 DI14 干接点输入",
+          "category": "status",
+          "address": 14,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 140,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410015,
+          "pointCode": "di_15",
+          "name": "DI15",
+          "desc": "本机 DI15 干接点输入",
+          "category": "status",
+          "address": 15,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 341,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410016,
+          "pointCode": "di_16",
+          "name": "DI16",
+          "desc": "本机 DI16 干接点输入",
+          "category": "status",
+          "address": 16,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 340,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410017,
+          "pointCode": "di_17",
+          "name": "DI17",
+          "desc": "本机 DI17 干接点输入",
+          "category": "status",
+          "address": 17,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 339,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 410018,
+          "pointCode": "di_18",
+          "name": "DI18",
+          "desc": "本机 DI18 干接点输入",
+          "category": "status",
+          "address": 18,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 200,
+            "gpio": 338,
+            "activeHigh": false,
+            "debounceMs": 50,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "无效",
+            "1": "有效"
+          }
+        },
+        {
+          "index": 420001,
+          "pointCode": "do_1",
+          "name": "DO1",
+          "desc": "本机 DO1 继电器输出",
+          "category": "control",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 231,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420002,
+          "pointCode": "do_2",
+          "name": "DO2",
+          "desc": "本机 DO2 继电器输出",
+          "category": "control",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 238,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420003,
+          "pointCode": "do_3",
+          "name": "DO3",
+          "desc": "本机 DO3 继电器输出",
+          "category": "control",
+          "address": 3,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 239,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420004,
+          "pointCode": "do_4",
+          "name": "DO4",
+          "desc": "本机 DO4 继电器输出",
+          "category": "control",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 129,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420005,
+          "pointCode": "do_5",
+          "name": "DO5",
+          "desc": "本机 DO5 继电器输出",
+          "category": "control",
+          "address": 5,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 130,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420006,
+          "pointCode": "do_6",
+          "name": "DO6",
+          "desc": "本机 DO6 继电器输出",
+          "category": "control",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 131,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420007,
+          "pointCode": "do_7",
+          "name": "DO7",
+          "desc": "本机 DO7 继电器输出",
+          "category": "control",
+          "address": 7,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 132,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 420008,
+          "pointCode": "do_8",
+          "name": "DO8",
+          "desc": "本机 DO8 继电器输出",
+          "category": "control",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "gpio": 133,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        }
+      ]
+    }
+  ]
+}

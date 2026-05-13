@@ -12,15 +12,28 @@ class IModbusClient {
 public:
     virtual ~IModbusClient() = default;
 
+    virtual std::vector<std::uint16_t> readCoils(int slave, int start, int count) = 0;
+    virtual std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) = 0;
     virtual std::vector<std::uint16_t> readHoldingRegisters(int slave, int start, int count) = 0;
     virtual std::vector<std::uint16_t> readInputRegisters(int slave, int start, int count) = 0;
 
+    virtual void writeSingleCoil(int slave, int address, bool value) = 0;
     virtual void writeSingleRegister(int slave, int address, std::uint16_t value) = 0;
     virtual void writeMultipleRegisters(
         int slave,
         int address,
         const std::vector<std::uint16_t>& values
     ) = 0;
+};
+
+class IGpioPort {
+public:
+    virtual ~IGpioPort() = default;
+
+    virtual void exportGpio(int gpio) = 0;
+    virtual void setDirection(int gpio, const std::string& direction) = 0;
+    virtual bool readValue(int gpio) = 0;
+    virtual void writeValue(int gpio, bool high) = 0;
 };
 
 class IMqttPublisher {

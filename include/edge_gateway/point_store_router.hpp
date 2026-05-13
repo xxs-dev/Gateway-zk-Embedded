@@ -40,6 +40,10 @@ public:
         const std::vector<DeviceConfig>& deviceConfigs,
         const std::string& fallbackSharedMemoryName
     );
+    void addRoutesFromCameraServiceConfig(
+        const CameraServiceConfig& cameraConfig,
+        const std::string& machineCode
+    );
     void addRoute(const PointStoreRoute& route);
 
     Optional<PointStoreRoute> routeByIndex(std::uint32_t index) const;

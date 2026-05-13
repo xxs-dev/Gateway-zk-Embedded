@@ -192,30 +192,41 @@ DecodedValue ModbusCodec::decodeReadValue(
         throw std::invalid_argument("not enough registers");
     }
 
-    const auto flattened = flattenRegisters(registers);
-    const auto byteCount = static_cast<std::size_t>(point.read.length) * 2;
-    std::vector<std::uint8_t> rawBytes(flattened.begin(), flattened.begin() + static_cast<std::ptrdiff_t>(byteCount));
-    const auto orderedBytes = reorderBytes(rawBytes, point.read.byteOrder);
-
     double rawValue = 0.0;
+    std::vector<std::uint8_t> rawBytes;
     if (point.read.dataType == "bit") {
-        if (point.read.bit < 0 || point.read.bit > 15) {
-            throw std::invalid_argument("bit dataType requires read.bit between 0 and 15");
+        if (point.read.function == 1 || point.read.function == 2) {
+            rawValue = registers.empty() || registers.front() == 0 ? 0.0 : 1.0;
+            rawBytes.push_back(static_cast<std::uint8_t>(rawValue > 0.0 ? 1 : 0));
+        } else {
+            const auto flattened = flattenRegisters(registers);
+            const auto byteCount = static_cast<std::size_t>(point.read.length) * 2;
+            rawBytes.assign(flattened.begin(), flattened.begin() + static_cast<std::ptrdiff_t>(byteCount));
+            const auto orderedBytes = reorderBytes(rawBytes, point.read.byteOrder);
+            if (point.read.bit < 0 || point.read.bit > 15) {
+                throw std::invalid_argument("bit dataType requires read.bit between 0 and 15 for register reads");
+            }
+            const auto word = readBigEndian<std::uint16_t>(orderedBytes);
+            rawValue = static_cast<double>((word >> point.read.bit) & 0x1);
         }
-        const auto word = readBigEndian<std::uint16_t>(orderedBytes);
-        rawValue = static_cast<double>((word >> point.read.bit) & 0x1);
-    } else if (point.read.dataType == "uint16") {
-        rawValue = static_cast<double>(readBigEndian<std::uint16_t>(orderedBytes));
-    } else if (point.read.dataType == "int16") {
-        rawValue = static_cast<double>(readBigEndian<std::int16_t>(orderedBytes));
-    } else if (point.read.dataType == "uint32") {
-        rawValue = static_cast<double>(readBigEndian<std::uint32_t>(orderedBytes));
-    } else if (point.read.dataType == "int32") {
-        rawValue = static_cast<double>(readBigEndian<std::int32_t>(orderedBytes));
-    } else if (point.read.dataType == "float32") {
-        rawValue = static_cast<double>(readBigEndian<float>(orderedBytes));
     } else {
-        throw std::invalid_argument("unsupported read.dataType: " + point.read.dataType);
+        const auto flattened = flattenRegisters(registers);
+        const auto byteCount = static_cast<std::size_t>(point.read.length) * 2;
+        rawBytes.assign(flattened.begin(), flattened.begin() + static_cast<std::ptrdiff_t>(byteCount));
+        const auto orderedBytes = reorderBytes(rawBytes, point.read.byteOrder);
+        if (point.read.dataType == "uint16") {
+            rawValue = static_cast<double>(readBigEndian<std::uint16_t>(orderedBytes));
+        } else if (point.read.dataType == "int16") {
+            rawValue = static_cast<double>(readBigEndian<std::int16_t>(orderedBytes));
+        } else if (point.read.dataType == "uint32") {
+            rawValue = static_cast<double>(readBigEndian<std::uint32_t>(orderedBytes));
+        } else if (point.read.dataType == "int32") {
+            rawValue = static_cast<double>(readBigEndian<std::int32_t>(orderedBytes));
+        } else if (point.read.dataType == "float32") {
+            rawValue = static_cast<double>(readBigEndian<float>(orderedBytes));
+        } else {
+            throw std::invalid_argument("unsupported read.dataType: " + point.read.dataType);
+        }
     }
 
     const auto actualValue = applyReadScale(rawValue, point.read);
@@ -250,7 +261,9 @@ std::vector<std::uint16_t> ModbusCodec::encodeWriteValue(
 
     const auto rawValue = removeWriteScale(businessValue, point.write);
     std::vector<std::uint8_t> canonicalBytes;
-    if (point.write.dataType == "uint16") {
+    if (point.write.dataType == "bit" || point.write.dataType == "bool") {
+        canonicalBytes = writeBigEndian(static_cast<std::uint16_t>(std::abs(rawValue) > 0.0 ? 1 : 0));
+    } else if (point.write.dataType == "uint16") {
         canonicalBytes = writeBigEndian(static_cast<std::uint16_t>(std::llround(rawValue)));
     } else if (point.write.dataType == "int16") {
         canonicalBytes = writeBigEndian(static_cast<std::int16_t>(std::llround(rawValue)));

@@ -256,6 +256,24 @@ int main(int argc, char* argv[]) {
             sharedMemoryNames.push_back(name);
         }
     }
+    if (!appConfig.cameraService.sharedMemoryName.empty() &&
+        seenSharedMemoryNames.insert(appConfig.cameraService.sharedMemoryName).second) {
+        sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
+    }
+    for (const auto& camera : appConfig.cameraService.cameras) {
+        if (!camera.enabled) {
+            continue;
+        }
+        const auto addCameraStatusIndex = [&](std::uint32_t index) {
+            if (index != 0) {
+                appConfig.mqttDriver.fullUploadIndexes.push_back(index);
+            }
+        };
+        addCameraStatusIndex(camera.statusPointIndexes.online);
+        addCameraStatusIndex(camera.statusPointIndexes.fps);
+        addCameraStatusIndex(camera.statusPointIndexes.bitrateKbps);
+        addCameraStatusIndex(camera.statusPointIndexes.errorCode);
+    }
     PointStoreRouter router;
     std::vector<std::unique_ptr<MemoryPointStore>> stores;
     stores.reserve(sharedMemoryNames.size());
@@ -264,6 +282,7 @@ int main(int argc, char* argv[]) {
         router.addStore(name, *stores.back());
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
+    router.addRoutesFromCameraServiceConfig(appConfig.cameraService, topicMachineCode);
     std::shared_ptr<IMqttDriverPublisher> publisher;
     if (appConfig.mqtt.enabled) {
         publisher = std::make_shared<BuiltinMqttDriverPublisher>(appConfig.mqtt);

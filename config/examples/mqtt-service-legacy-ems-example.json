@@ -1,0 +1,48 @@
+{
+  "identityConfigFile": "runtime/device_identity.json",
+  "deviceConfigFiles": [
+    "runtime/devices/device_slave_ttySP1.json",
+    "runtime/devices/device_slave_ttySP2.json"
+  ],
+  "computeEngine": {
+    "enabled": true,
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ],
+    "outputDefaultSharedMemoryName": "gateway_point_store",
+    "scanIntervalMs": 2000,
+    "maxRuleEvalPerScan": 1000,
+    "badQuality": 0,
+    "defaultOutputTtlMs": 600000,
+    "maxWritesPerScan": 100,
+    "rules": [
+      {
+        "ruleCode": "legacy_ems_shuntong",
+        "name": "舜通 EMS 逻辑",
+        "enabled": true,
+        "trigger": {
+          "type": "interval",
+          "intervalMs": 2000
+        },
+        "inputs": [],
+        "outputs": [],
+        "script": {
+          "type": "legacyEms",
+          "legacyGlListFile": "config/工程/GLList.xml",
+          "legacyVarListFile": "config/工程/VarList.xml",
+          "legacyEncoding": "gbk",
+          "legacyProfile": {
+            "PCS_MODEL": "3",
+            "BMS_MODEL": "2",
+            "ZL_MODEL": "21",
+            "Meter_CN": "1",
+            "Meter_TQ": "1",
+            "Meter_BW": "0",
+            "Meter_FH": "0",
+            "LED_SCREEN": "1"
+          }
+        }
+      }
+    ]
+  }
+}

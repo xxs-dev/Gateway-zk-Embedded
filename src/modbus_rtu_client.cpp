@@ -26,10 +26,10 @@ std::size_t expectedResponseSize(
     if (response.size() >= 2 && (response[1] & 0x80U) != 0) {
         return 5;
     }
-    if ((function == 0x03 || function == 0x04) && response.size() >= 3) {
+    if ((function == 0x01 || function == 0x02 || function == 0x03 || function == 0x04) && response.size() >= 3) {
         return static_cast<std::size_t>(response[2]) + 5;
     }
-    if (function == 0x06 || function == 0x10) {
+    if (function == 0x05 || function == 0x06 || function == 0x10) {
         return 8;
     }
     return fallbackMinSize;
@@ -47,12 +47,31 @@ ModbusRtuClient::ModbusRtuClient(
     }
 }
 
+std::vector<std::uint16_t> ModbusRtuClient::readCoils(int slave, int start, int count) {
+    return executeBitRead(slave, 0x01, start, count);
+}
+
+std::vector<std::uint16_t> ModbusRtuClient::readDiscreteInputs(int slave, int start, int count) {
+    return executeBitRead(slave, 0x02, start, count);
+}
+
 std::vector<std::uint16_t> ModbusRtuClient::readHoldingRegisters(int slave, int start, int count) {
     return executeRegisterRead(slave, 0x03, start, count);
 }
 
 std::vector<std::uint16_t> ModbusRtuClient::readInputRegisters(int slave, int start, int count) {
     return executeRegisterRead(slave, 0x04, start, count);
+}
+
+void ModbusRtuClient::writeSingleCoil(int slave, int address, bool value) {
+    std::vector<std::uint8_t> pdu;
+    const auto addr = makeWord(address);
+    const auto coilValue = makeWord(value ? 0xFF00 : 0x0000);
+    pdu.insert(pdu.end(), addr.begin(), addr.end());
+    pdu.insert(pdu.end(), coilValue.begin(), coilValue.end());
+
+    const auto response = transact(slave, 0x05, pdu, 8);
+    validateWriteEcho(response, 0x05, address, value ? 0xFF00 : 0x0000);
 }
 
 void ModbusRtuClient::writeSingleRegister(int slave, int address, std::uint16_t value) {
@@ -171,6 +190,27 @@ std::vector<std::uint16_t> ModbusRtuClient::executeRegisterRead(
     return decodeRegistersFromReadResponse(response, function, count);
 }
 
+std::vector<std::uint16_t> ModbusRtuClient::executeBitRead(
+    int slave,
+    std::uint8_t function,
+    int start,
+    int count
+) {
+    if (count <= 0) {
+        throw std::invalid_argument("read count must be positive");
+    }
+
+    std::vector<std::uint8_t> pdu;
+    const auto startWord = makeWord(start);
+    const auto countWord = makeWord(count);
+    pdu.insert(pdu.end(), startWord.begin(), startWord.end());
+    pdu.insert(pdu.end(), countWord.begin(), countWord.end());
+
+    const auto byteCount = static_cast<std::size_t>((count + 7) / 8);
+    const auto response = transact(slave, function, pdu, 5 + byteCount);
+    return decodeBitsFromReadResponse(response, function, count);
+}
+
 void ModbusRtuClient::ensurePortOpen() {
     if (!serialPort_->isOpen()) {
         serialPort_->open();
@@ -242,6 +282,36 @@ std::vector<std::uint16_t> ModbusRtuClient::decodeRegistersFromReadResponse(
         registers.push_back(static_cast<std::uint16_t>((hi << 8) | lo));
     }
     return registers;
+}
+
+std::vector<std::uint16_t> ModbusRtuClient::decodeBitsFromReadResponse(
+    const std::vector<std::uint8_t>& response,
+    std::uint8_t function,
+    int expectedCount
+) {
+    if (response.size() < 5) {
+        throw std::runtime_error("bit read response too short");
+    }
+    if (response[1] != function) {
+        throw std::runtime_error("bit read function mismatch");
+    }
+
+    const auto byteCount = static_cast<std::size_t>(response[2]);
+    const auto expectedByteCount = static_cast<std::size_t>((expectedCount + 7) / 8);
+    if (byteCount != expectedByteCount) {
+        throw std::runtime_error("unexpected byte count in bit read response");
+    }
+    if (response.size() != byteCount + 5) {
+        throw std::runtime_error("unexpected bit response frame size");
+    }
+
+    std::vector<std::uint16_t> bits;
+    bits.reserve(static_cast<std::size_t>(expectedCount));
+    for (int i = 0; i < expectedCount; ++i) {
+        const auto byte = response[3 + static_cast<std::size_t>(i / 8)];
+        bits.push_back(static_cast<std::uint16_t>((byte >> (i % 8)) & 0x01U));
+    }
+    return bits;
 }
 
 void ModbusRtuClient::validateWriteEcho(

@@ -6,6 +6,7 @@ DEVICE_DIR="$BASE_DIR/config/runtime/devices"
 APP_DIR="$BASE_DIR/config/runtime/apps"
 MQTT_APP_NAME="${MQTT_APP_NAME:-mqtt-service}"
 MONITOR_APP_NAME="${MONITOR_APP_NAME:-monitor-service}"
+CAMERA_APP_NAME="${CAMERA_APP_NAME:-camera-service}"
 
 stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
@@ -14,9 +15,15 @@ stop_units() {
   units=$(systemctl list-units --all --plain --no-legend \
     'modbus-rtu@*.service' \
     'dlt645-driver@*.service' \
+    'dio-driver@*.service' \
+    'can-driver@*.service' \
     'compute-engine@*.service' \
     'event-engine@*.service' \
+    'local-display@*.service' \
+    'local-display-qt@*.service' \
+    'local-kiosk@*.service' \
     'system-monitor@*.service' \
+    'camera-service@*.service' \
     'mqtt-driver@*.service' 2>/dev/null |
     awk '{print $1}')
   [ -z "$units" ] && return 0
@@ -31,12 +38,14 @@ stop_units() {
 }
 
 desired_units() {
-  python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" <<'PY'
+  python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" "$CAMERA_APP_NAME" <<'PY'
 import json
+import glob
 import os
+import subprocess
 import sys
 
-device_dir, app_dir, mqtt_app_name, monitor_app_name = sys.argv[1:5]
+device_dir, app_dir, mqtt_app_name, monitor_app_name, camera_app_name = sys.argv[1:6]
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(device_dir)))
 
 def read_json(path):
@@ -69,12 +78,18 @@ def emit_device_unit(path):
     root = read_json(path)
     if root is None:
         return
+    if bool_value(root.get("enabled"), True) is False:
+        return
     protocol = str(root.get("protocol", {}).get("type", "")).lower()
     stem = os.path.splitext(os.path.basename(path))[0]
     if protocol in ("modbus_rtu", "modbus_tcp"):
         print(f"modbus-rtu@{stem}.service")
     elif protocol in ("dlt645_2007", "dlt645"):
         print(f"dlt645-driver@{stem}.service")
+    elif protocol in ("local_dio", "dio", "dido"):
+        print(f"dio-driver@{stem}.service")
+    elif protocol in ("can_socketcan", "can"):
+        print(f"can-driver@{stem}.service")
 
 def app_device_files(path):
     root = read_json(path)
@@ -84,6 +99,95 @@ def app_device_files(path):
     if not isinstance(files, list):
         return []
     return [resolve_path(str(item), path) for item in files if str(item)]
+
+def bool_value(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+def camera_service_enabled(path):
+    root = read_json(path)
+    if root is None:
+        return False
+    service = root.get("cameraService", {}) or {}
+    if not bool_value(service.get("enabled"), False):
+        return False
+    cameras = service.get("cameras", [])
+    if not isinstance(cameras, list):
+        return False
+    return any(bool_value((item or {}).get("enabled"), True) for item in cameras if isinstance(item, dict))
+
+def connector_has_edid(path):
+    edid = os.path.join(os.path.dirname(path), "edid")
+    try:
+        return os.path.isfile(edid) and os.path.getsize(edid) > 0
+    except Exception:
+        return False
+
+def display_connected_by_sysfs(expected_output="", require_edid=True):
+    patterns = [
+        "/sys/class/drm/card*-HDMI*/status",
+        "/sys/class/drm/card*-DP*/status",
+        "/sys/class/drm/card*-DPI*/status",
+        "/sys/class/drm/card*-DSI*/status",
+        "/sys/class/drm/card*-LVDS*/status",
+        "/sys/class/drm/card*-VGA*/status",
+    ]
+    for pattern in patterns:
+        for path in glob.glob(pattern):
+            name = os.path.basename(os.path.dirname(path))
+            if expected_output and not name.endswith("-" + expected_output):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    if fh.read().strip().lower() == "connected" and (not require_edid or connector_has_edid(path)):
+                        return True
+            except Exception:
+                pass
+    return False
+
+def display_connected_by_xrandr(expected_output="", require_edid=True):
+    if require_edid:
+        return False
+    xrandr = "/usr/bin/xrandr"
+    if not os.path.exists(xrandr):
+        return False
+    env = os.environ.copy()
+    env.setdefault("DISPLAY", ":0")
+    env.setdefault("XAUTHORITY", "/run/user/1000/gdm/Xauthority")
+    env.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
+    try:
+        result = subprocess.run(
+            [xrandr, "--query"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True,
+            timeout=2,
+            env=env,
+        )
+    except Exception:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "connected":
+            if expected_output:
+                return parts[0] == expected_output
+            name = parts[0].lower()
+            if name.startswith(("hdmi", "dp", "displayport", "dpi", "dsi", "lvds", "vga")):
+                return True
+    return False
+
+def display_connected(local_display=None):
+    kiosk = (local_display or {}).get("kiosk", {}) or {}
+    expected_output = str(kiosk.get("displayOutput") or "").strip()
+    require_edid = bool_value(kiosk.get("requireEdid"), False if expected_output else True)
+    if expected_output:
+        return display_connected_by_sysfs(expected_output, require_edid) or display_connected_by_xrandr(expected_output, require_edid)
+    return display_connected_by_sysfs("", require_edid) or display_connected_by_xrandr("", require_edid)
 
 seen_devices = set()
 for path in (app_path(mqtt_app_name), app_path(monitor_app_name)):
@@ -117,10 +221,28 @@ if os.path.isfile(monitor_path):
         with open(monitor_path, "r", encoding="utf-8") as fh:
             app = json.load(fh)
         system_monitor_enabled = bool(app.get("systemMonitor", {}).get("enabled", False))
+        local_display = app.get("localDisplay", {}) or {}
+        local_display_enabled = bool_value(local_display.get("enabled"), False)
+        kiosk = local_display.get("kiosk", {}) or {}
+        kiosk_enabled = bool_value(kiosk.get("enabled"), True)
+        kiosk_require_display = bool_value(kiosk.get("requireDisplayConnected"), True)
     except Exception:
         system_monitor_enabled = False
+        local_display_enabled = False
+        kiosk_enabled = False
+        kiosk_require_display = True
     if system_monitor_enabled:
         print(f"system-monitor@{monitor_app_name}.service")
+    if local_display_enabled:
+        print(f"local-display@{monitor_app_name}.service")
+        if kiosk_enabled and (not kiosk_require_display or display_connected(local_display)):
+            print(f"local-kiosk@{monitor_app_name}.service")
+        elif kiosk_enabled:
+            print("# skip local-kiosk: no connected HDMI/display output", file=sys.stderr)
+
+camera_path = app_path(camera_app_name)
+if os.path.isfile(camera_path) and camera_service_enabled(camera_path):
+    print(f"camera-service@{camera_app_name}.service")
 PY
 }
 

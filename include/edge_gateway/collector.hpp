@@ -23,7 +23,8 @@ public:
         MemoryPointStore& store,
         std::shared_ptr<IModbusClient> modbusClient,
         std::shared_ptr<Dlt645Client> dlt645Client = nullptr,
-        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
+        std::shared_ptr<IGpioPort> gpioPort = nullptr
     );
 
     CollectCycleResult collectOnce(std::int64_t nowMs);
@@ -32,6 +33,7 @@ public:
 private:
     std::vector<std::uint16_t> executeReadTask(const ReadTask& task) const;
     PointValue collectDlt645Point(const PointDefinition& point, std::int64_t nowMs) const;
+    PointValue collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs);
     PointValue buildFailedPointValue(
         const PointDefinition& point,
         const std::string& message,
@@ -55,7 +57,11 @@ private:
     std::shared_ptr<IModbusClient> modbusClient_;
     std::shared_ptr<Dlt645Client> dlt645Client_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
+    std::shared_ptr<IGpioPort> gpioPort_;
     std::unordered_map<std::uint32_t, std::int64_t> lastReadMs_;
+    std::unordered_map<std::uint32_t, double> lastDioRawValues_;
+    std::unordered_map<std::uint32_t, double> lastDioStableValues_;
+    std::unordered_map<std::uint32_t, std::int64_t> lastDioRawChangeMs_;
 };
 
 }  // namespace edge_gateway

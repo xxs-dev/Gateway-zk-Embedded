@@ -15,9 +15,12 @@ public:
     explicit ModbusTcpClient(TcpTransportConfig config);
     ~ModbusTcpClient() override;
 
+    std::vector<std::uint16_t> readCoils(int slave, int start, int count) override;
+    std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) override;
     std::vector<std::uint16_t> readHoldingRegisters(int slave, int start, int count) override;
     std::vector<std::uint16_t> readInputRegisters(int slave, int start, int count) override;
 
+    void writeSingleCoil(int slave, int address, bool value) override;
     void writeSingleRegister(int slave, int address, std::uint16_t value) override;
     void writeMultipleRegisters(
         int slave,
@@ -33,6 +36,12 @@ private:
     );
 
     std::vector<std::uint16_t> executeRegisterRead(
+        int slave,
+        std::uint8_t function,
+        int start,
+        int count
+    );
+    std::vector<std::uint16_t> executeBitRead(
         int slave,
         std::uint8_t function,
         int start,

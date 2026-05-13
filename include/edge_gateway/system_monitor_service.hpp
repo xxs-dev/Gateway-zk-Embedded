@@ -36,11 +36,43 @@ public:
 
 private:
     struct Sample {
+        struct CellularStatus {
+            bool enabled = false;
+            bool present = false;
+            bool registered = false;
+            bool connected = false;
+            bool simReady = false;
+            bool toolsAvailable = false;
+            std::string operatorName;
+            std::string accessTech;
+            std::string interfaceName;
+            std::string ipAddress;
+            std::string gateway;
+            std::string dns;
+            std::string simStatus;
+            std::string imei;
+            std::string imsi;
+            std::string iccid;
+            std::string modemDevice;
+            std::string lastError;
+            double signalPercent = -1.0;
+            double rssiDbm = 0.0;
+            double rsrpDbm = 0.0;
+            double rsrqDb = 0.0;
+            double sinrDb = 0.0;
+            std::uint64_t rxBytes = 0;
+            std::uint64_t txBytes = 0;
+            double rxRateBps = 0.0;
+            double txRateBps = 0.0;
+            std::int64_t ts = 0;
+        };
+
         double cpuUsage = 0.0;
         double memUsage = 0.0;
         double diskUsage = 0.0;
         double load1 = 0.0;
         int processCount = 0;
+        CellularStatus cellular;
     };
 
     struct MonitorLease {
@@ -55,6 +87,7 @@ private:
     void handleDiagRequest(const std::string& payload, std::int64_t nowMs);
     void handleConfigPullRequest(const std::string& payload, std::int64_t nowMs);
     Sample collectSample() const;
+    Sample::CellularStatus collectCellularStatus(std::int64_t nowMs) const;
     void publishTelemetry(const Sample& sample, std::int64_t nowMs);
     void evaluateAlerts(const Sample& sample, std::int64_t nowMs);
     void publishAlert(
@@ -88,6 +121,8 @@ private:
     std::uint64_t lastCpuTotal_ = 0;
     std::uint64_t lastCpuIdle_ = 0;
     bool cpuBaselineReady_ = false;
+    mutable std::int64_t lastCellularProbeMs_ = 0;
+    mutable Sample::CellularStatus lastCellularStatus_;
 };
 
 }  // namespace edge_gateway

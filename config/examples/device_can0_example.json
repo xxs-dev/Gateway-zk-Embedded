@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "protocol": {
+    "type": "can_socketcan",
+    "can": {
+      "interfaceName": "can0",
+      "interfaceCode": "CAN_1",
+      "bitrate": 500000,
+      "samplePoint": 0.875,
+      "restartMs": 100,
+      "listenOnly": false,
+      "loopback": false,
+      "fdEnabled": false,
+      "dataBitrate": 2000000,
+      "manageInterface": true,
+      "rxQueueSize": 4096,
+      "txQueueSize": 1024
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 100,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1,
+    "writebackIntervalMs": 50,
+    "interfaceCheckIntervalMs": 1000
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "shared_memory",
+    "sharedMemoryName": "gateway_point_store",
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_can0.db",
+    "maxPendingWrites": 4096,
+    "writebackBatchSize": 100,
+    "persistFlushIntervalMs": 60000
+  },
+  "meters": [
+    {
+      "meterCode": "CAN0_DEV_0001",
+      "deviceName": "CAN0 设备 1",
+      "enabled": true,
+      "onlineTimeoutMs": 5000,
+      "onlineFrameIds": [
+        "0x18FF50E5"
+      ],
+      "points": [
+        {
+          "index": 310000,
+          "pointCode": "device_online",
+          "name": "设备在线状态",
+          "category": "status",
+          "enabled": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "read": {
+            "enable": true,
+            "dataType": "device_online",
+            "unit": ""
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 310101,
+          "pointCode": "engine_speed",
+          "name": "发动机转速",
+          "category": "telemetry",
+          "enabled": true,
+          "fullUpload": true,
+          "read": {
+            "enable": true,
+            "dataType": "uint16",
+            "scale": 0.125,
+            "offset": 0,
+            "unit": "rpm",
+            "can": {
+              "frameId": "0x18FF50E5",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 0,
+              "bitOffset": 0,
+              "bitLength": 16,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 5000
+            }
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 310201,
+          "pointCode": "relay_enable",
+          "name": "继电器使能",
+          "category": "command",
+          "enabled": true,
+          "fullUpload": false,
+          "read": {
+            "enable": false,
+            "dataType": "bool"
+          },
+          "write": {
+            "enable": true,
+            "dataType": "bool",
+            "min": 0,
+            "max": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "can": {
+              "frameId": "0x321",
+              "extended": false,
+              "dlc": 8,
+              "byteOffset": 0,
+              "bitOffset": 0,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

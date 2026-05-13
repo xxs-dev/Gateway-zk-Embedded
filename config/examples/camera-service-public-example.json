@@ -1,0 +1,115 @@
+{
+  "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
+  "deviceConfigFiles": [],
+  "mqtt": {
+    "enabled": true,
+    "protocolVersion": "mqtt5",
+    "broker": "tcp://203.0.113.10:1883",
+    "clientId": "GW0001",
+    "username": "edge_user",
+    "password": "edge_password",
+    "statusTopic": "edge/status",
+    "qos": 1,
+    "maxPayloadBytes": 49152,
+    "cleanSession": true,
+    "keepAliveSec": 60,
+    "sessionExpirySec": 0,
+    "tls": {
+      "enabled": false,
+      "caFile": "",
+      "certFile": "",
+      "keyFile": "",
+      "insecureSkipVerify": false
+    }
+  },
+  "cameraService": {
+    "enabled": true,
+    "statusIntervalMs": 5000,
+    "sharedMemoryName": "gateway_point_store",
+    "statusTopic": "edge/camera/status",
+    "eventTopic": "edge/camera/event",
+    "media": {
+      "type": "rtsp_push",
+      "serverUrl": "rtsp://203.0.113.10:8554",
+      "transport": "tcp",
+      "reconnectIntervalMs": 5000,
+      "auth": {
+        "enabled": true,
+        "mode": "basic",
+        "username": "GW0001",
+        "password": "change_me",
+        "token": "",
+        "tokenParam": "token",
+        "hideCredentialsInStatus": true
+      }
+    },
+    "cameras": [
+      {
+        "cameraCode": "CAM001",
+        "name": "入口摄像头",
+        "enabled": true,
+        "sourceType": "rtsp",
+        "source": "rtsp://192.168.1.50:554/stream1",
+        "sourceAuth": {
+          "enabled": true,
+          "mode": "basic",
+          "username": "camera_user",
+          "password": "camera_password",
+          "token": "",
+          "tokenParam": "token",
+          "hideCredentialsInStatus": true
+        },
+        "video": {
+          "codec": "copy",
+          "width": 1280,
+          "height": 720,
+          "fps": 15,
+          "bitrateKbps": 1500
+        },
+        "stream": {
+          "path": "GW0001/CAM001",
+          "publishUrl": ""
+        },
+        "statusPointIndexes": {
+          "online": 51000,
+          "fps": 51001,
+          "bitrateKbps": 51002,
+          "errorCode": 51003
+        }
+      },
+      {
+        "cameraCode": "CAM002",
+        "name": "USB摄像头",
+        "enabled": false,
+        "sourceType": "usb",
+        "source": "/dev/video0",
+        "sourceAuth": {
+          "enabled": false,
+          "mode": "basic",
+          "username": "",
+          "password": "",
+          "token": "",
+          "tokenParam": "token",
+          "hideCredentialsInStatus": true
+        },
+        "video": {
+          "codec": "h264",
+          "width": 1280,
+          "height": 720,
+          "fps": 15,
+          "bitrateKbps": 1500
+        },
+        "stream": {
+          "path": "GW0001/CAM002",
+          "publishUrl": ""
+        },
+        "statusPointIndexes": {
+          "online": 51010,
+          "fps": 51011,
+          "bitrateKbps": 51012,
+          "errorCode": 51013
+        }
+      }
+    ]
+  }
+}

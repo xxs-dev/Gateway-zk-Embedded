@@ -90,6 +90,35 @@ std::vector<std::uint16_t> decodeRegistersFromReadResponse(
     return registers;
 }
 
+std::vector<std::uint16_t> decodeBitsFromReadResponse(
+    const std::vector<std::uint8_t>& pdu,
+    std::uint8_t function,
+    int expectedCount
+) {
+    if (pdu.size() < 2) {
+        throw std::runtime_error("modbus tcp bit pdu too short");
+    }
+    if (pdu[0] != function) {
+        throw std::runtime_error("modbus tcp bit function mismatch");
+    }
+    const auto byteCount = static_cast<std::size_t>(pdu[1]);
+    const auto expectedByteCount = static_cast<std::size_t>((expectedCount + 7) / 8);
+    if (byteCount != expectedByteCount) {
+        throw std::runtime_error("modbus tcp bit unexpected byte count");
+    }
+    if (pdu.size() != 2 + byteCount) {
+        throw std::runtime_error("modbus tcp bit unexpected pdu size");
+    }
+
+    std::vector<std::uint16_t> bits;
+    bits.reserve(static_cast<std::size_t>(expectedCount));
+    for (int i = 0; i < expectedCount; ++i) {
+        const auto byte = pdu[2 + static_cast<std::size_t>(i / 8)];
+        bits.push_back(static_cast<std::uint16_t>((byte >> (i % 8)) & 0x01U));
+    }
+    return bits;
+}
+
 void validateWriteEcho(
     const std::vector<std::uint8_t>& pdu,
     std::uint8_t function,
@@ -123,12 +152,32 @@ ModbusTcpClient::~ModbusTcpClient() {
     disconnect();
 }
 
+std::vector<std::uint16_t> ModbusTcpClient::readCoils(int slave, int start, int count) {
+    return executeBitRead(slave, 0x01, start, count);
+}
+
+std::vector<std::uint16_t> ModbusTcpClient::readDiscreteInputs(int slave, int start, int count) {
+    return executeBitRead(slave, 0x02, start, count);
+}
+
 std::vector<std::uint16_t> ModbusTcpClient::readHoldingRegisters(int slave, int start, int count) {
     return executeRegisterRead(slave, 0x03, start, count);
 }
 
 std::vector<std::uint16_t> ModbusTcpClient::readInputRegisters(int slave, int start, int count) {
     return executeRegisterRead(slave, 0x04, start, count);
+}
+
+void ModbusTcpClient::writeSingleCoil(int slave, int address, bool value) {
+    std::vector<std::uint8_t> pdu;
+    const auto addr = makeWord(address);
+    const auto coilValue = makeWord(value ? 0xFF00 : 0x0000);
+    pdu.push_back(0x05);
+    pdu.insert(pdu.end(), addr.begin(), addr.end());
+    pdu.insert(pdu.end(), coilValue.begin(), coilValue.end());
+
+    const auto response = transact(slave, 0x05, pdu);
+    validateWriteEcho(response, 0x05, address, value ? 0xFF00 : 0x0000);
 }
 
 void ModbusTcpClient::writeSingleRegister(int slave, int address, std::uint16_t value) {
@@ -257,6 +306,27 @@ std::vector<std::uint16_t> ModbusTcpClient::executeRegisterRead(
 
     const auto response = transact(slave, function, pdu);
     return decodeRegistersFromReadResponse(response, function, count);
+}
+
+std::vector<std::uint16_t> ModbusTcpClient::executeBitRead(
+    int slave,
+    std::uint8_t function,
+    int start,
+    int count
+) {
+    if (count <= 0) {
+        throw std::invalid_argument("read count must be positive");
+    }
+
+    std::vector<std::uint8_t> pdu;
+    const auto startWord = makeWord(start);
+    const auto countWord = makeWord(count);
+    pdu.push_back(function);
+    pdu.insert(pdu.end(), startWord.begin(), startWord.end());
+    pdu.insert(pdu.end(), countWord.begin(), countWord.end());
+
+    const auto response = transact(slave, function, pdu);
+    return decodeBitsFromReadResponse(response, function, count);
 }
 
 void ModbusTcpClient::ensureConnected() {

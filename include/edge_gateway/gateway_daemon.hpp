@@ -21,7 +21,8 @@ public:
         MemoryPointStore& store,
         std::shared_ptr<IModbusClient> modbusClient,
         std::shared_ptr<Dlt645Client> dlt645Client = nullptr,
-        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
+        std::shared_ptr<IGpioPort> gpioPort = nullptr
     );
     ~GatewayDaemon();
 
@@ -51,7 +52,8 @@ private:
     void initializeRuntimeDevices(
         std::shared_ptr<IModbusClient> modbusClient,
         std::shared_ptr<Dlt645Client> dlt645Client,
-        std::shared_ptr<IMqttPublisher> mqttPublisher
+        std::shared_ptr<IMqttPublisher> mqttPublisher,
+        std::shared_ptr<IGpioPort> gpioPort
     );
 
     DeviceConfig config_;
@@ -60,6 +62,7 @@ private:
     std::unordered_map<std::uint32_t, std::size_t> indexToRuntimeDevice_;
     SqliteSampleWriter sqliteWriter_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
+    std::shared_ptr<IGpioPort> gpioPort_;
     std::atomic<bool> running_{false};
     std::thread collectThread_;
     std::thread persistThread_;

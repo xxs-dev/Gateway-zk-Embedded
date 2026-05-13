@@ -112,6 +112,9 @@ fi
 if [ -z "${TEMPLATES_DIR:-}" ]; then
   TEMPLATES_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/templates" "$SOURCE_ROOT/config/templates" "$DEFAULT_SOURCE_ROOT/config/templates" "$ROOT_DIR/config/templates" "$SCRIPT_DIR/config/templates" || true)
 fi
+if [ -z "${EXAMPLES_DIR:-}" ]; then
+  EXAMPLES_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/examples" "$SOURCE_ROOT/config/examples" "$DEFAULT_SOURCE_ROOT/config/examples" "$ROOT_DIR/config/examples" "$SCRIPT_DIR/config/examples" || true)
+fi
 if [ -z "${DEPLOY_DIR:-}" ] || [ ! -d "$DEPLOY_DIR" ]; then
   DEPLOY_DIR=$(pick_existing_dir "$PACKAGE_ROOT/deploy" "$SOURCE_ROOT/deploy" "$DEFAULT_SOURCE_ROOT/deploy" "$ROOT_DIR/deploy" "$SCRIPT_DIR/deploy" || true)
 fi
@@ -322,7 +325,10 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-for bin in ModbusRtu Dlt645Driver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl stress_runner; do
+for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay CameraService pointctl stress_runner; do
+  install_file_if_exists "$PACKAGE_ROOT/build-aarch64/$bin" "$GATEWAY_HOME/bin/$bin"
+  install_file_if_exists "$PACKAGE_ROOT/bin/$bin" "$GATEWAY_HOME/bin/$bin"
+  install_file_if_exists "$PACKAGE_ROOT/$bin" "$GATEWAY_HOME/bin/$bin"
   install_file_if_exists "$SOURCE_ROOT/build-aarch64/$bin" "$GATEWAY_HOME/bin/$bin"
   install_file_if_exists "$SOURCE_ROOT/bin/$bin" "$GATEWAY_HOME/bin/$bin"
   install_file_if_exists "$SOURCE_ROOT/$bin" "$GATEWAY_HOME/bin/$bin"
@@ -330,6 +336,7 @@ done
 
 install_file_if_exists "$DEPLOY_DIR/gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
 install_file_if_exists "$DEPLOY_DIR/gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
+install_file_if_exists "$DEPLOY_DIR/local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 install_file_if_exists "$DEPLOY_DIR/install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
 install_file_if_exists "$DEPLOY_DIR/production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
 install_file_if_exists "$DEPLOY_DIR/ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
@@ -417,13 +424,25 @@ if [ -n "$TEMPLATES_DIR" ] && [ -d "$TEMPLATES_DIR" ]; then
   fi
 fi
 
+if [ -n "$EXAMPLES_DIR" ] && [ -d "$EXAMPLES_DIR" ]; then
+  if ! same_path "$EXAMPLES_DIR" "$GATEWAY_HOME/config/examples"; then
+    mkdir -p "$GATEWAY_HOME/config/examples"
+    cp -a "$EXAMPLES_DIR"/. "$GATEWAY_HOME/config/examples"/
+  fi
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
   install_file_if_exists "$DEPLOY_DIR/gateway-services.service" "/etc/systemd/system/gateway-services.service"
   install_file_if_exists "$DEPLOY_DIR/modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
   install_file_if_exists "$DEPLOY_DIR/dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
+  install_file_if_exists "$DEPLOY_DIR/dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
+  install_file_if_exists "$DEPLOY_DIR/can-driver@.service" "/etc/systemd/system/can-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/event-engine@.service" "/etc/systemd/system/event-engine@.service"
   install_file_if_exists "$DEPLOY_DIR/compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
+  install_file_if_exists "$DEPLOY_DIR/local-display@.service" "/etc/systemd/system/local-display@.service"
+  install_file_if_exists "$DEPLOY_DIR/local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
+  install_file_if_exists "$DEPLOY_DIR/camera-service@.service" "/etc/systemd/system/camera-service@.service"
   install_file_if_exists "$DEPLOY_DIR/system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
   install_file_if_exists "$DEPLOY_DIR/mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   systemctl daemon-reload
@@ -444,4 +463,4 @@ fi
 if [ -n "$FACTORY_PACKAGE" ]; then
   echo "factory package: $FACTORY_PACKAGE"
 fi
-echo "factory config sou
+echo "factory config installed"

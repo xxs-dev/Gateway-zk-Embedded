@@ -1,0 +1,13 @@
+[Unit]
+Description=Local DIO Driver Instance %i
+After=network.target
+
+[Service]
+Type=simple
+Environment=GATEWAY_HOME=/opt/modbus-gateway
+ExecStart=/opt/modbus-gateway/bin/DioDriver --config /opt/modbus-gateway/config/runtime/devices/%i.json --app-config /opt/modbus-gateway/config/runtime/apps/mqtt-service.json
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

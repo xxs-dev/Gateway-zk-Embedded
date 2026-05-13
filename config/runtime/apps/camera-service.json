@@ -1,0 +1,82 @@
+{
+  "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
+  "deviceConfigFiles": [],
+  "mqtt": {
+    "enabled": true,
+    "protocolVersion": "mqtt5",
+    "broker": "tcp://192.168.22.102:1883",
+    "clientId": "GW0001",
+    "username": "kyxn",
+    "password": "whkyxn027",
+    "statusTopic": "edge/status",
+    "qos": 1,
+    "maxPayloadBytes": 49152,
+    "cleanSession": true,
+    "keepAliveSec": 60,
+    "sessionExpirySec": 0,
+    "tls": {
+      "enabled": false,
+      "caFile": "",
+      "certFile": "",
+      "keyFile": "",
+      "insecureSkipVerify": false
+    }
+  },
+  "cameraService": {
+    "enabled": false,
+    "statusIntervalMs": 5000,
+    "sharedMemoryName": "gateway_point_store",
+    "statusTopic": "edge/camera/status",
+    "eventTopic": "edge/camera/event",
+    "media": {
+      "type": "rtsp_push",
+      "serverUrl": "rtsp://192.168.22.8:8554",
+      "transport": "tcp",
+      "reconnectIntervalMs": 5000,
+      "auth": {
+        "enabled": false,
+        "mode": "basic",
+        "username": "",
+        "password": "",
+        "token": "",
+        "tokenParam": "token",
+        "hideCredentialsInStatus": true
+      }
+    },
+    "cameras": [
+      {
+        "cameraCode": "CAM001",
+        "name": "Camera 1",
+        "enabled": false,
+        "sourceType": "test",
+        "source": "",
+        "sourceAuth": {
+          "enabled": false,
+          "mode": "basic",
+          "username": "",
+          "password": "",
+          "token": "",
+          "tokenParam": "token",
+          "hideCredentialsInStatus": true
+        },
+        "video": {
+          "width": 1280,
+          "height": 720,
+          "fps": 15,
+          "codec": "h264",
+          "bitrateKbps": 1500
+        },
+        "stream": {
+          "path": "GW0001/CAM001",
+          "publishUrl": ""
+        },
+        "statusPointIndexes": {
+          "online": 51000,
+          "fps": 51001,
+          "bitrateKbps": 51002,
+          "errorCode": 51003
+        }
+      }
+    ]
+  }
+}

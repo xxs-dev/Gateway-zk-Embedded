@@ -16,6 +16,19 @@ struct CachePolicy {
     std::int64_t ttlMs = 600000;
 };
 
+struct CanSignalSpec {
+    std::string frameId;
+    bool extended = false;
+    int dlc = 8;
+    int byteOffset = 0;
+    int bitOffset = 0;
+    int bitLength = 0;
+    std::string bitOrder = "lsb0";
+    std::string endian = "little";
+    int receiveTimeoutMs = 5000;
+    bool remoteRequest = false;
+};
+
 struct ReadSpec {
     bool enable = false;
     int function = 3;
@@ -28,14 +41,19 @@ struct ReadSpec {
     std::string unit;
     int intervalMs = 500;
     int bit = -1;
+    int gpio = -1;
+    bool activeHigh = true;
+    int debounceMs = 0;
     std::string dlt645Di;
     int dlt645ByteCount = 0;
     std::string dlt645Decoder;
+    CanSignalSpec can;
     CachePolicy cachePolicy;
 };
 
 struct WriteSpec {
     bool enable = false;
+    int address = -1;
     int function = 6;
     int length = 1;
     std::string dataType;
@@ -49,6 +67,7 @@ struct WriteSpec {
     bool verifyAfterWrite = false;
     int verifyDelayMs = 200;
     bool verifyByRead = true;
+    CanSignalSpec can;
 };
 
 struct AlarmRuleConfig {
@@ -246,11 +265,29 @@ struct TcpTransportConfig {
     int timeoutMs = 1000;
 };
 
+struct CanProtocolConfig {
+    std::string interfaceName = "can0";
+    std::string interfaceCode = "CAN_1";
+    int bitrate = 500000;
+    double samplePoint = 0.0;
+    int restartMs = 100;
+    bool listenOnly = false;
+    bool loopback = false;
+    bool fdEnabled = false;
+    int dataBitrate = 2000000;
+    bool manageInterface = true;
+    std::size_t rxQueueSize = 4096;
+    std::size_t txQueueSize = 1024;
+};
+
 struct ProtocolConfig {
     std::string type = "modbus_rtu";
     int slave = 1;
     SerialTransportConfig transport;
     TcpTransportConfig tcp;
+    CanProtocolConfig can;
+    std::string backend;
+    std::string gpioBasePath = "/sys/class/gpio";
     std::string standardPointsFile;
     std::string standardPointsVersion;
 };
@@ -258,8 +295,11 @@ struct ProtocolConfig {
 struct LogicalDeviceConfig {
     std::string meterCode;
     std::string deviceName;
+    bool enabled = true;
     int slave = 1;
     std::string address;
+    int onlineTimeoutMs = 5000;
+    std::vector<std::string> onlineFrameIds;
     std::vector<PointDefinition> points;
 };
 
@@ -267,6 +307,8 @@ struct CollectConfig {
     int defaultIntervalMs = 500;
     bool batchOptimize = true;
     int maxBatchRegisters = 120;
+    int writebackIntervalMs = 50;
+    int interfaceCheckIntervalMs = 1000;
 };
 
 struct MemoryStoreConfig {
@@ -426,6 +468,13 @@ struct ComputeTriggerConfig {
 struct ComputeScriptConfig {
     std::string type = "expression";
     std::string expression;
+    std::string legacyGlListFile;
+    std::string legacyVarListFile;
+    std::string legacyEncoding = "gbk";
+    std::unordered_map<std::string, std::string> legacyProfile;
+    std::string graphFile;
+    std::string graphStateFile;
+    std::unordered_map<std::string, std::string> graphProfile;
 };
 
 struct ComputeRuleConfig {
@@ -496,6 +545,30 @@ struct RealtimeConfig {
 };
 
 struct SystemMonitorConfig {
+    struct CellularConfig {
+        bool enabled = true;
+        int probeIntervalMs = 5000;
+        int commandTimeoutMs = 2000;
+        int atBaudRate = 115200;
+        double signalAlertThresholdPercent = 20.0;
+        bool maskSensitiveFields = false;
+        std::vector<std::string> interfacePatterns = {
+            "wwan*",
+            "ppp*",
+            "usb*",
+            "rmnet*",
+            "wwp*"
+        };
+        std::vector<std::string> modemDevicePatterns = {
+            "/dev/ttyUSB2",
+            "/dev/ttyUSB1",
+            "/dev/ttyUSB0",
+            "/dev/ttyUSB3",
+            "/dev/ttyUSB*",
+            "/dev/cdc-wdm*"
+        };
+    };
+
     bool enabled = false;
     int defaultIntervalMs = 5000;
     int minIntervalMs = 1000;
@@ -512,8 +585,149 @@ struct SystemMonitorConfig {
         "top_once",
         "ps_gateway",
         "journal_tail",
-        "systemctl_status"
+        "systemctl_status",
+        "cellular_status"
     };
+    CellularConfig cellular;
+};
+
+struct LocalDisplayGroupConfig {
+    std::string title;
+    std::vector<std::uint32_t> pointIndexes;
+};
+
+struct LocalDisplayPageConfig {
+    std::string pageCode = "overview";
+    std::string title = "设备总览";
+    std::vector<LocalDisplayGroupConfig> groups;
+};
+
+struct LocalDisplayWidgetGridConfig {
+    int row = 0;
+    int col = 0;
+    int rowSpan = 1;
+    int colSpan = 1;
+};
+
+struct LocalDisplayWidgetConfig {
+    std::string id;
+    std::string type = "valueCard";
+    std::string title;
+    std::string text;
+    std::uint32_t pointIndex = 0;
+    std::vector<std::uint32_t> pointIndexes;
+    std::vector<std::string> columns;
+    std::string valueFormat = "number";
+    LocalDisplayWidgetGridConfig grid;
+};
+
+struct LocalDisplayLayoutPageConfig {
+    std::string pageCode = "overview";
+    std::string title = "设备总览";
+    std::vector<LocalDisplayWidgetConfig> widgets;
+};
+
+struct LocalDisplayLayoutConfig {
+    int version = 1;
+    std::string theme = "dark";
+    int columns = 12;
+    std::vector<LocalDisplayLayoutPageConfig> pages;
+};
+
+struct LocalDisplayScreenLayoutConfig {
+    std::string type = "grid";
+    int columns = 12;
+    int rowHeight = 64;
+    int gap = 12;
+};
+
+struct LocalDisplayScreenConfig {
+    std::string screenCode = "overview";
+    std::string title = "设备总览";
+    LocalDisplayScreenLayoutConfig layout;
+    std::vector<LocalDisplayWidgetConfig> widgets;
+};
+
+struct LocalDisplayViewTemplateConfig {
+    bool enabled = true;
+    std::string html;
+    std::string css;
+    int refreshIntervalMs = 1000;
+};
+
+struct LocalDisplayConfig {
+    bool enabled = false;
+    std::string bindHost = "127.0.0.1";
+    int port = 18080;
+    int refreshIntervalMs = 500;
+    std::size_t maxPointsPerFrame = 500;
+    bool showOnlyConfiguredPoints = true;
+    std::vector<std::string> sharedMemoryNames;
+    std::vector<LocalDisplayPageConfig> pages;
+    std::vector<LocalDisplayScreenConfig> screens;
+    LocalDisplayLayoutConfig layout;
+    LocalDisplayViewTemplateConfig viewTemplate;
+};
+
+struct CameraVideoConfig {
+    int width = 1280;
+    int height = 720;
+    int fps = 15;
+    std::string codec = "h264";
+    int bitrateKbps = 1500;
+};
+
+struct CameraAuthConfig {
+    bool enabled = false;
+    std::string mode = "basic";
+    std::string username;
+    std::string password;
+    std::string token;
+    std::string tokenParam = "token";
+    bool hideCredentialsInStatus = true;
+};
+
+struct CameraMediaConfig {
+    std::string type = "rtsp_push";
+    std::string serverUrl;
+    std::string transport = "tcp";
+    int reconnectIntervalMs = 5000;
+    CameraAuthConfig auth;
+};
+
+struct CameraStreamConfig {
+    std::string path;
+    std::string publishUrl;
+};
+
+struct CameraStatusPointIndexes {
+    std::uint32_t online = 0;
+    std::uint32_t fps = 0;
+    std::uint32_t bitrateKbps = 0;
+    std::uint32_t errorCode = 0;
+};
+
+struct CameraConfig {
+    std::string cameraCode;
+    std::string name;
+    bool enabled = true;
+    std::string sourceType = "rtsp";
+    std::string source;
+    CameraAuthConfig sourceAuth;
+    std::string command;
+    CameraVideoConfig video;
+    CameraStreamConfig stream;
+    CameraStatusPointIndexes statusPointIndexes;
+};
+
+struct CameraServiceConfig {
+    bool enabled = false;
+    int statusIntervalMs = 5000;
+    std::string sharedMemoryName = "gateway_point_store";
+    std::string statusTopic = "edge/camera/status";
+    std::string eventTopic = "edge/camera/event";
+    CameraMediaConfig media;
+    std::vector<CameraConfig> cameras;
 };
 
 struct DeviceIdentity {
@@ -537,6 +751,8 @@ struct AppConfig {
     OtaConfig ota;
     RealtimeConfig realtime;
     SystemMonitorConfig systemMonitor;
+    LocalDisplayConfig localDisplay;
+    CameraServiceConfig cameraService;
 };
 
 struct DeviceConfig {

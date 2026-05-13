@@ -88,6 +88,8 @@ private:
     std::int64_t lastFullUploadMs_ = 0;
     std::int64_t lastEventOutboxReplayMs_ = 0;
     std::int64_t lastOtaReplayAttemptMs_ = 0;
+    std::int64_t otaReplayFirstSuccessMs_ = 0;
+    int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
     std::atomic<bool> running_{false};
     std::thread scanThread_;

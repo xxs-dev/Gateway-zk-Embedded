@@ -1,0 +1,26 @@
+[Unit]
+Description=SocketCAN Driver Instance %i
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/modbus-gateway
+Environment=GATEWAY_HOME=/opt/modbus-gateway
+ExecStart=/opt/modbus-gateway/bin/CanDriver --config /opt/modbus-gateway/config/runtime/devices/%i.json --app-config /opt/modbus-gateway/config/runtime/apps/mqtt-service.json
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+KillMode=mixed
+SuccessExitStatus=143
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

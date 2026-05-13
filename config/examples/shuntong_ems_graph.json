@@ -1,0 +1,352 @@
+{
+  "schemaVersion": "1.0.0",
+  "graphCode": "shuntong-default",
+  "nodes": [
+    {
+      "id": "tq_average",
+      "type": "meterAverage",
+      "enabled": true,
+      "params": {
+        "profileKey": "Meter_TQ",
+        "windowSizeIndex": 156,
+        "deriveTqMetrics": true,
+        "mappings": [
+          { "input": 1030, "output": 201 },
+          { "input": 1031, "output": 202 },
+          { "input": 1032, "output": 203 },
+          { "input": 1036, "output": 209 },
+          { "input": 1037, "output": 210 },
+          { "input": 1038, "output": 211 },
+          { "input": 1039, "output": 212 },
+          { "input": 1040, "output": 213 },
+          { "input": 1041, "output": 214 },
+          { "input": 1042, "output": 215 },
+          { "input": 1043, "output": 216 }
+        ]
+      }
+    },
+    {
+      "id": "cn_average",
+      "type": "meterAverage",
+      "enabled": true,
+      "params": {
+        "profileKey": "Meter_CN",
+        "windowSizeIndex": 156,
+        "mappings": [
+          { "input": 1130, "output": 251 },
+          { "input": 1131, "output": 252 },
+          { "input": 1132, "output": 253 },
+          { "input": 1136, "output": 259 },
+          { "input": 1137, "output": 260 },
+          { "input": 1138, "output": 261 },
+          { "input": 1139, "output": 262 },
+          { "input": 1140, "output": 263 },
+          { "input": 1141, "output": 264 },
+          { "input": 1142, "output": 265 },
+          { "input": 1143, "output": 266 }
+        ]
+      }
+    },
+    {
+      "id": "fh_derived",
+      "type": "derivedLoad",
+      "enabled": true,
+      "params": {
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "source": "tqCn",
+        "tqPaIndex": 209,
+        "tqPbIndex": 210,
+        "tqPcIndex": 211,
+        "tqP3Index": 212,
+        "tqQaIndex": 213,
+        "tqQbIndex": 214,
+        "tqQcIndex": 215,
+        "tqQ3Index": 216,
+        "cnPaIndex": 259,
+        "cnPbIndex": 260,
+        "cnPcIndex": 261,
+        "cnP3Index": 262,
+        "cnQaIndex": 263,
+        "cnQbIndex": 264,
+        "cnQcIndex": 265,
+        "cnQ3Index": 266
+      }
+    },
+    {
+      "id": "bms",
+      "type": "bmsDerived",
+      "enabled": true,
+      "params": {
+        "chargeCurrentAllowIndex": 1556,
+        "dischargeCurrentAllowIndex": 1557,
+        "voltageIndex": 1566,
+        "chargeKwhSumIndex": 1586,
+        "dischargeKwhSumIndex": 1587,
+        "chargeKwhZeroIndex": 398,
+        "dischargeKwhZeroIndex": 399,
+        "chargeKwAllowOutput": 1552,
+        "dischargeKwAllowOutput": 1553,
+        "chargeKwhTodayOutput": 1615,
+        "dischargeKwhTodayOutput": 1616
+      }
+    },
+    {
+      "id": "cos",
+      "type": "cosCompensation",
+      "enabled": true,
+      "params": {
+        "targetCosIndex": 514,
+        "tqPaIndex": 209,
+        "tqPbIndex": 210,
+        "tqPcIndex": 211,
+        "tqQaIndex": 213,
+        "tqQbIndex": 214,
+        "tqQcIndex": 215
+      }
+    },
+    {
+      "id": "lv_hv",
+      "type": "voltageCompensation",
+      "enabled": true,
+      "params": {
+        "cnUaIndex": 251,
+        "cnUbIndex": 252,
+        "cnUcIndex": 253,
+        "lvLowIndex": 544,
+        "lvUpIndex": 545,
+        "hvLowIndex": 546,
+        "hvUpIndex": 547,
+        "gradPIndex": 533,
+        "pMaxIndex": 535
+      }
+    },
+    {
+      "id": "cd_fd",
+      "type": "chargeDischarge",
+      "enabled": true,
+      "params": {
+        "bmsSocIndex": 1570,
+        "cdTargetPowerIndex": 451,
+        "cdTargetSocIndex": 452,
+        "fdTargetPowerIndex": 455,
+        "fdTargetSocIndex": 456,
+        "positiveLimitIndex": 453,
+        "positiveLimitEnableIndex": 454,
+        "negativeLimitIndex": 457,
+        "negativeLimitEnableIndex": 458,
+        "fhP3Index": 312
+      }
+    },
+    {
+      "id": "ds",
+      "type": "timedChargeDischarge",
+      "enabled": true,
+      "params": {
+        "scheduleCurve": [
+          { "hour": 0, "power": 0, "targetSoc": 80 },
+          { "hour": 1, "power": 0, "targetSoc": 80 },
+          { "hour": 2, "power": 0, "targetSoc": 80 },
+          { "hour": 3, "power": 0, "targetSoc": 80 },
+          { "hour": 4, "power": 0, "targetSoc": 80 },
+          { "hour": 5, "power": 0, "targetSoc": 80 },
+          { "hour": 6, "power": 0, "targetSoc": 80 },
+          { "hour": 7, "power": 0, "targetSoc": 80 },
+          { "hour": 8, "power": 0, "targetSoc": 80 },
+          { "hour": 9, "power": 0, "targetSoc": 80 },
+          { "hour": 10, "power": 0, "targetSoc": 80 },
+          { "hour": 11, "power": 0, "targetSoc": 80 },
+          { "hour": 12, "power": 0, "targetSoc": 80 },
+          { "hour": 13, "power": 0, "targetSoc": 80 },
+          { "hour": 14, "power": 0, "targetSoc": 80 },
+          { "hour": 15, "power": 0, "targetSoc": 80 },
+          { "hour": 16, "power": 0, "targetSoc": 80 },
+          { "hour": 17, "power": 0, "targetSoc": 80 },
+          { "hour": 18, "power": 0, "targetSoc": 80 },
+          { "hour": 19, "power": 0, "targetSoc": 80 },
+          { "hour": 20, "power": 0, "targetSoc": 80 },
+          { "hour": 21, "power": 0, "targetSoc": 80 },
+          { "hour": 22, "power": 0, "targetSoc": 80 },
+          { "hour": 23, "power": 0, "targetSoc": 80 }
+        ],
+        "bmsSocIndex": 1570,
+        "cnUaIndex": 251,
+        "cnUbIndex": 252,
+        "cnUcIndex": 253,
+        "gradPIndex": 533,
+        "vMaxIndex": 463,
+        "vMinIndex": 464,
+        "powerNowOutput": 461,
+        "socNowOutput": 462,
+        "paOutput": 615,
+        "pbOutput": 616,
+        "pcOutput": 617,
+        "p3Output": 618,
+        "runOutput": 18
+      }
+    },
+    {
+      "id": "gf",
+      "type": "photovoltaicCharge",
+      "enabled": true,
+      "params": {
+        "fhPaIndex": 309,
+        "fhPbIndex": 310,
+        "fhPcIndex": 311,
+        "negativeLimitIndex": 457,
+        "startHourIndex": 581,
+        "endHourIndex": 583,
+        "paOutput": 619,
+        "pbOutput": 620,
+        "pcOutput": 621,
+        "p3Output": 622,
+        "runOutput": 22
+      }
+    },
+    {
+      "id": "ph",
+      "type": "phaseBalance",
+      "enabled": true,
+      "params": {
+        "tqPaIndex": 209,
+        "tqPbIndex": 210,
+        "tqPcIndex": 211,
+        "tqP3Index": 212,
+        "cnPaIndex": 259,
+        "cnPbIndex": 260,
+        "cnPcIndex": 261,
+        "balancePercentIndex": 562,
+        "balanceOutput": 564,
+        "tqCnPaOutput": 565,
+        "tqCnPbOutput": 566,
+        "tqCnPcOutput": 567,
+        "paOutput": 623,
+        "pbOutput": 624,
+        "pcOutput": 625,
+        "runOutput": 20
+      }
+    },
+    {
+      "id": "zr",
+      "type": "reserveCapacity",
+      "enabled": true,
+      "params": {
+        "enableIndex": 23,
+        "zrP1Index": 588,
+        "negativeLimitIndex": 457,
+        "fhPaIndex": 309,
+        "fhPbIndex": 310,
+        "fhPcIndex": 311,
+        "runOutput": 24
+      }
+    },
+    {
+      "id": "sk",
+      "type": "skOverride",
+      "enabled": true,
+      "params": {
+        "skP3Index": 590,
+        "skQ3Index": 591,
+        "runOutput": 26
+      }
+    },
+    {
+      "id": "power_solve",
+      "type": "pcsPowerSolve",
+      "enabled": true,
+      "params": {
+        "outQaCosIndex": 601,
+        "outQbCosIndex": 602,
+        "outQcCosIndex": 603,
+        "outPaDsIndex": 615,
+        "outPbDsIndex": 616,
+        "outPcDsIndex": 617,
+        "outPaLvIndex": 605,
+        "outPbLvIndex": 606,
+        "outPcLvIndex": 607,
+        "outPaHvIndex": 609,
+        "outPbHvIndex": 610,
+        "outPcHvIndex": 611,
+        "outPaGfIndex": 619,
+        "outPbGfIndex": 620,
+        "outPcGfIndex": 621,
+        "outPaPhIndex": 623,
+        "outPbPhIndex": 624,
+        "outPcPhIndex": 625,
+        "skRunIndex": 26,
+        "skP3Index": 590,
+        "skQ3Index": 591,
+        "zrEnableIndex": 23,
+        "zrP1Index": 588,
+        "positiveLimitEnableIndex": 454,
+        "positiveLimitIndex": 453,
+        "negativeLimitEnableIndex": 458,
+        "negativeLimitIndex": 457,
+        "fhPaIndex": 309,
+        "fhPbIndex": 310,
+        "fhPcIndex": 311,
+        "pMaxIndex": 535,
+        "qMaxIndex": 504,
+        "s3MaxIndex": 151,
+        "chargeKwAllowIndex": 1552,
+        "dischargeKwAllowIndex": 1553,
+        "bmsSocIndex": 1570,
+        "bmsSocMaxIndex": 161,
+        "bmsSocMinIndex": 162,
+        "paOutput": 627,
+        "pbOutput": 628,
+        "pcOutput": 629,
+        "qaOutput": 630,
+        "qbOutput": 631,
+        "qcOutput": 632,
+        "zrRunOutput": 24,
+        "cosRunOutput": 8,
+        "lvRunOutput": 10,
+        "hvRunOutput": 12,
+        "gfRunOutput": 22,
+        "submitWrites": false
+      }
+    },
+    {
+      "id": "pcs_writeback",
+      "type": "pcsWriteback",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "paInput": 627,
+        "pbInput": 628,
+        "pcInput": 629,
+        "qaInput": 630,
+        "qbInput": 631,
+        "qcInput": 632,
+        "comStatusIndex": 1399,
+        "pControlAIndex": 1318,
+        "pControlBIndex": 1319,
+        "pControlCIndex": 1320,
+        "qControlAIndex": 1321,
+        "qControlBIndex": 1322,
+        "qControlCIndex": 1323
+      }
+    }
+  ],
+  "edges": [
+    { "from": "tq_average", "to": "fh_derived" },
+    { "from": "cn_average", "to": "fh_derived" },
+    { "from": "tq_average", "to": "cos" },
+    { "from": "cn_average", "to": "lv_hv" },
+    { "from": "fh_derived", "to": "cd_fd" },
+    { "from": "fh_derived", "to": "gf" },
+    { "from": "tq_average", "to": "ph" },
+    { "from": "cn_average", "to": "ph" },
+    { "from": "bms", "to": "power_solve" },
+    { "from": "cos", "to": "power_solve" },
+    { "from": "lv_hv", "to": "power_solve" },
+    { "from": "cd_fd", "to": "power_solve" },
+    { "from": "ds", "to": "power_solve" },
+    { "from": "gf", "to": "power_solve" },
+    { "from": "ph", "to": "power_solve" },
+    { "from": "zr", "to": "power_solve" },
+    { "from": "sk", "to": "power_solve" },
+    { "from": "power_solve", "to": "pcs_writeback" }
+  ]
+}

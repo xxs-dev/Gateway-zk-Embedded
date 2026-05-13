@@ -181,6 +181,10 @@ int main(int argc, char* argv[]) {
             sharedMemoryNames.push_back(name);
         }
     }
+    if (!appConfig.cameraService.sharedMemoryName.empty() &&
+        seen.insert(appConfig.cameraService.sharedMemoryName).second) {
+        sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
+    }
 
     PointStoreRouter router;
     std::vector<std::unique_ptr<MemoryPointStore>> ownedStores;
@@ -193,6 +197,7 @@ int main(int argc, char* argv[]) {
         router.addStore(name, *ownedStores.back());
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
+    router.addRoutesFromCameraServiceConfig(appConfig.cameraService, topicMachineCode);
 
     MqttConfig eventMqtt = appConfig.mqtt;
     if (!appConfig.eventEngine.mqttClientIdSuffix.empty()) {

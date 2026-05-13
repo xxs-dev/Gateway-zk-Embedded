@@ -134,6 +134,10 @@ int main(int argc, char* argv[]) {
             sharedMemoryNames.push_back(name);
         }
     }
+    if (!appConfig.cameraService.sharedMemoryName.empty() &&
+        seen.insert(appConfig.cameraService.sharedMemoryName).second) {
+        sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
+    }
     edge_gateway::PointStoreRouter router;
     std::vector<std::unique_ptr<edge_gateway::MemoryPointStore>> stores;
     stores.reserve(sharedMemoryNames.size());
@@ -142,10 +146,11 @@ int main(int argc, char* argv[]) {
         router.addStore(name, *stores.back());
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
-
     const auto machineCode = !identity.machineCode.empty()
         ? identity.machineCode
         : (deviceConfigs.empty() ? std::string() : deviceConfigs.front().machineCode);
+    router.addRoutesFromCameraServiceConfig(appConfig.cameraService, machineCode);
+
     if (!machineCode.empty()) {
         appConfig.mqtt.topicMachineCode = machineCode;
         appConfig.mqtt.clientId = machineCode;

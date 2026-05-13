@@ -679,7 +679,6 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         }
     }
 #else
-    cleanupOrphanedSegment(segmentName_);
     const int fd = shm_open(segmentName_.c_str(), O_CREAT | O_RDWR, 0666);
     if (fd < 0) {
         throw std::runtime_error("shm_open failed");

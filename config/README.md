@@ -11,7 +11,7 @@
 
 说明：
 
-- `runtime/devices` 放协议驱动直接加载的设备采集配置，包括 `ModbusRtu`、`Dlt645Driver`
+- `runtime/devices` 放协议驱动直接加载的设备采集配置，包括 `ModbusRtu`、`Dlt645Driver`、`DioDriver`、`CanDriver`
 - `runtime/apps` 放应用级服务配置，包括 `mqtt-service.json`、`monitor-service.json`
 - `runtime/device_identity.json` 放网关本机身份，包括 `machineCode`、`imei`、序列号、型号和版本信息
 - `runtime/tls` 放生产环境 MQTT TLS CA、客户端证书和可选 stunnel 兜底配置
@@ -43,7 +43,10 @@
 - `factory/runtime/device_identity.json` 放出厂默认网关身份模板
 - `factory/runtime/devices` 放出厂默认的设备配置示例
 - `factory/runtime/tls` 放出厂默认 TLS 证书目录和 stunnel 兜底配置模板，正式上线前必须替换 broker、CA 和证书路径
-- 出厂模板默认只启用 `ttySP1`、`ttySP2` 两个 Modbus RTU 示例串口
+- 出厂模板默认引用 `ttySP1`、`ttySP2` 两个 Modbus RTU 示例串口，以及本机 `device_dio.json`
+- CAN SocketCAN 示例模板放在 `factory/runtime/devices/device_can0.json`，同一联调样例也放在 `config/examples/device_can0_example.json`；未加入 `deviceConfigFiles[]` 时不会启动 CAN 驱动
+- 本机 `device_dio.json` 包含 18 路 DI 和 8 路 DO，DI/DO 默认都按低有效处理，平台逻辑值为 `1=有效/闭合`
+- `monitor-service.json` 默认启用 4G 模块状态采集，当前硬件按 `/dev/ttyUSB2`、`/dev/ttyUSB1`、`/dev/ttyUSB0` 顺序探测可响应 AT 口，并读取 SIM、注册、信号、运营商和流量状态
 - 正式上线前必须修改 `device_identity.json` 中的 `machineCode`、`imei`，以及 MQTT broker、MQTT 账号密码和实际串口点表
 - MQTT 配置里只填写基础 topic，运行时实际 topic 统一为 `<baseTopic>/<machineCode>`，例如 `edge/telemetry/GW0001`
 - MQTT 配置里的 `clientId` 保持为当前 `machineCode`；驱动内部连接会追加 `-rx/-tx` 或服务后缀，避免同一 broker 下冲突
@@ -80,6 +83,12 @@ DLT645-2007 单串口多表：
 
 模拟采集联调时才追加 `--mock`。
 
+本机 DI/DO：
+
+```bash
+./DioDriver --config config/runtime/devices/device_dio.json --app-config config/runtime/apps/mqtt-service.json
+```
+
 ## systemd 推荐入口
 
 部署到边端后推荐只启用统一服务管理器：
@@ -91,13 +100,24 @@ systemctl start gateway-services.service
 
 `gateway-services.sh` 会根据 `runtime/apps/mqtt-service.json` 和 `runtime/apps/monitor-service.json` 中的 `deviceConfigFiles[]` 自动决定启动哪些协议驱动；`runtime/devices` 目录里未被 app 配置引用的 JSON 不会被启动。
 
+当前出厂默认服务发现结果应包含：
+
+```text
+modbus-rtu@device_slave_ttySP1.service
+modbus-rtu@device_slave_ttySP2.service
+dio-driver@device_dio.service
+event-engine@mqtt-service.service
+mqtt-driver@mqtt-service.service
+system-monitor@monitor-service.service
+```
+
 ## 出厂安装脚本
 
 ```bash
 sh deploy/install-factory-config.sh
 ```
 
-生产设备推荐把出厂默认包放在 `/home/gateway-factory`，初始化脚本从该目录复制二进制、服务脚本、factory 配置和模板到 `/opt/modbus-gateway`。不要把出厂默认包直接放在 `/opt/modbus-gateway` 内，否则源目录和运行目录容易重叠。
+生产设备推荐把 `gateway-factory-defaults.tar.gz` 和 `install-factory-config.sh` 放在 `/home` 或 `/home/gateway-factory`。初始化脚本会解压包并复制二进制、服务脚本、factory 配置、模板和样例到 `/opt/modbus-gateway`。不要把出厂默认包直接放在 `/opt/modbus-gateway` 内，否则源目录和运行目录容易重叠。
 
 常用变量：
 

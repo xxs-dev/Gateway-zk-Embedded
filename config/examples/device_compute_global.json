@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocol": {
+    "type": "computed"
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_compute.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "COMPUTE",
+      "deviceName": "Compute Virtual Points",
+      "slave": 0,
+      "points": [
+        {
+          "index": 900001,
+          "pointCode": "serial_1_2_sum",
+          "name": "Serial 1/2 Sum",
+          "desc": "reg_1 from ttySP1 plus reg_1 from ttySP2",
+          "category": "computed",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "computed",
+            "change"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 0,
+            "dataType": "computed",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        }
+      ]
+    }
+  ]
+}

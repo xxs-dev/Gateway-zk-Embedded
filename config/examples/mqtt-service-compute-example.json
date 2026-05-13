@@ -1,0 +1,59 @@
+{
+  "identityConfigFile": "runtime/device_identity.json",
+  "deviceConfigFiles": [
+    "runtime/devices/device_slave_ttySP1.json",
+    "runtime/devices/device_slave_ttySP2.json",
+    "device_compute_global.json"
+  ],
+  "computeEngine": {
+    "enabled": true,
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ],
+    "outputDefaultSharedMemoryName": "gateway_point_store",
+    "scanIntervalMs": 200,
+    "maxRuleEvalPerScan": 1000,
+    "badQuality": 0,
+    "defaultOutputTtlMs": 600000,
+    "maxWritesPerScan": 100,
+    "rules": [
+      {
+        "ruleCode": "serial_1_2_sum",
+        "name": "Serial 1/2 Sum",
+        "enabled": true,
+        "trigger": {
+          "type": "interval",
+          "intervalMs": 1000
+        },
+        "inputs": [
+          {
+            "name": "sp1",
+            "index": 31101,
+            "required": true
+          },
+          {
+            "name": "sp2",
+            "index": 32101,
+            "required": true
+          }
+        ],
+        "outputs": [
+          {
+            "name": "serial_1_2_sum",
+            "index": 900001,
+            "mode": "latestOnly",
+            "sharedMemoryName": "gateway_point_store",
+            "ttlMs": 600000,
+            "qualityPolicy": "bad_if_any_input_bad",
+            "minIntervalMs": 0,
+            "deadband": 0
+          }
+        ],
+        "script": {
+          "type": "expression",
+          "expression": "if(valid(sp1) && valid(sp2), sp1 + sp2, null)"
+        }
+      }
+    ]
+  }
+}

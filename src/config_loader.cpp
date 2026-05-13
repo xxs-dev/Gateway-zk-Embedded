@@ -106,6 +106,21 @@ void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configP
     for (auto& file : config.deviceConfigFiles) {
         file = resolveRelativeToConfig(configPath, file);
     }
+
+    for (auto& rule : config.computeEngine.rules) {
+        if (!rule.script.legacyGlListFile.empty()) {
+            rule.script.legacyGlListFile = resolveRelativeToConfig(configPath, rule.script.legacyGlListFile);
+        }
+        if (!rule.script.legacyVarListFile.empty()) {
+            rule.script.legacyVarListFile = resolveRelativeToConfig(configPath, rule.script.legacyVarListFile);
+        }
+        if (!rule.script.graphFile.empty()) {
+            rule.script.graphFile = resolveRelativeToConfig(configPath, rule.script.graphFile);
+        }
+        if (!rule.script.graphStateFile.empty()) {
+            rule.script.graphStateFile = resolveRelativeToConfig(configPath, rule.script.graphStateFile);
+        }
+    }
 }
 
 class JsonValue;
@@ -584,6 +599,25 @@ CachePolicy parseCachePolicy(const JsonValue* value) {
     return policy;
 }
 
+CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
+    CanSignalSpec spec;
+    if (value == nullptr || value->isNull()) {
+        return spec;
+    }
+    const auto& object = value->asObject();
+    spec.frameId = requireString(object, "frameId", spec.frameId);
+    spec.extended = requireBool(object, "extended", spec.extended);
+    spec.dlc = requireInt(object, "dlc", spec.dlc);
+    spec.byteOffset = requireInt(object, "byteOffset", spec.byteOffset);
+    spec.bitOffset = requireInt(object, "bitOffset", spec.bitOffset);
+    spec.bitLength = requireInt(object, "bitLength", spec.bitLength);
+    spec.bitOrder = requireString(object, "bitOrder", spec.bitOrder);
+    spec.endian = requireString(object, "endian", spec.endian);
+    spec.receiveTimeoutMs = requireInt(object, "receiveTimeoutMs", spec.receiveTimeoutMs);
+    spec.remoteRequest = requireBool(object, "remoteRequest", spec.remoteRequest);
+    return spec;
+}
+
 ReadSpec parseReadSpec(const JsonValue* value) {
     ReadSpec spec;
     if (value == nullptr || value->isNull()) {
@@ -601,6 +635,9 @@ ReadSpec parseReadSpec(const JsonValue* value) {
     spec.unit = requireString(object, "unit", spec.unit);
     spec.intervalMs = requireInt(object, "intervalMs", spec.intervalMs);
     spec.bit = requireInt(object, "bit", spec.bit);
+    spec.gpio = requireInt(object, "gpio", spec.gpio);
+    spec.activeHigh = requireBool(object, "activeHigh", spec.activeHigh);
+    spec.debounceMs = requireInt(object, "debounceMs", spec.debounceMs);
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
         spec.dlt645Di = requireString(dlt645Object, "di", spec.dlt645Di);
@@ -610,6 +647,7 @@ ReadSpec parseReadSpec(const JsonValue* value) {
             spec.length = spec.dlt645ByteCount;
         }
     }
+    spec.can = parseCanSignalSpec(value->find("can"));
     spec.cachePolicy = parseCachePolicy(value->find("cachePolicy"));
     return spec;
 }
@@ -621,6 +659,7 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     }
     const auto& object = value->asObject();
     spec.enable = requireBool(object, "enable", spec.enable);
+    spec.address = requireInt(object, "address", spec.address);
     spec.function = requireInt(object, "function", spec.function);
     spec.length = requireInt(object, "length", spec.length);
     spec.dataType = requireString(object, "dataType", spec.dataType);
@@ -642,6 +681,7 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
+    spec.can = parseCanSignalSpec(value->find("can"));
     return spec;
 }
 
@@ -686,8 +726,11 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     const auto& object = value.asObject();
     device.meterCode = requireString(object, "meterCode");
     device.deviceName = requireString(object, "deviceName");
+    device.enabled = requireBool(object, "enabled", device.enabled);
     device.slave = requireInt(object, "slave", defaultSlave);
     device.address = requireString(object, "address", device.address);
+    device.onlineTimeoutMs = requireInt(object, "onlineTimeoutMs", device.onlineTimeoutMs);
+    device.onlineFrameIds = parseStringArray(value.find("onlineFrameIds"));
     if (const auto* points = value.find("points")) {
         for (const auto& item : points->asArray().values) {
             device.points.push_back(parsePointDefinition(*item));
@@ -724,6 +767,27 @@ TcpTransportConfig parseTcpTransport(const JsonValue* value) {
     return transport;
 }
 
+CanProtocolConfig parseCanProtocol(const JsonValue* value) {
+    CanProtocolConfig can;
+    if (value == nullptr || value->isNull()) {
+        return can;
+    }
+    const auto& object = value->asObject();
+    can.interfaceName = requireString(object, "interfaceName", can.interfaceName);
+    can.interfaceCode = requireString(object, "interfaceCode", can.interfaceCode);
+    can.bitrate = requireInt(object, "bitrate", can.bitrate);
+    can.samplePoint = requireDouble(object, "samplePoint", can.samplePoint);
+    can.restartMs = requireInt(object, "restartMs", can.restartMs);
+    can.listenOnly = requireBool(object, "listenOnly", can.listenOnly);
+    can.loopback = requireBool(object, "loopback", can.loopback);
+    can.fdEnabled = requireBool(object, "fdEnabled", can.fdEnabled);
+    can.dataBitrate = requireInt(object, "dataBitrate", can.dataBitrate);
+    can.manageInterface = requireBool(object, "manageInterface", can.manageInterface);
+    can.rxQueueSize = requireSize(object, "rxQueueSize", can.rxQueueSize);
+    can.txQueueSize = requireSize(object, "txQueueSize", can.txQueueSize);
+    return can;
+}
+
 ProtocolConfig parseProtocol(const JsonValue* value) {
     ProtocolConfig protocol;
     if (value == nullptr || value->isNull()) {
@@ -732,8 +796,11 @@ ProtocolConfig parseProtocol(const JsonValue* value) {
     const auto& object = value->asObject();
     protocol.type = requireString(object, "type", protocol.type);
     protocol.slave = requireInt(object, "slave", protocol.slave);
+    protocol.backend = requireString(object, "backend", protocol.backend);
+    protocol.gpioBasePath = requireString(object, "gpioBasePath", protocol.gpioBasePath);
     protocol.transport = parseTransport(value->find("transport"));
     protocol.tcp = parseTcpTransport(value->find("tcp"));
+    protocol.can = parseCanProtocol(value->find("can"));
     return protocol;
 }
 
@@ -755,6 +822,8 @@ CollectConfig parseCollect(const JsonValue* value) {
     config.defaultIntervalMs = requireInt(object, "defaultIntervalMs", config.defaultIntervalMs);
     config.batchOptimize = requireBool(object, "batchOptimize", config.batchOptimize);
     config.maxBatchRegisters = requireInt(object, "maxBatchRegisters", config.maxBatchRegisters);
+    config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
+    config.interfaceCheckIntervalMs = requireInt(object, "interfaceCheckIntervalMs", config.interfaceCheckIntervalMs);
     return config;
 }
 
@@ -977,6 +1046,13 @@ ComputeScriptConfig parseComputeScriptConfig(const JsonValue* value) {
     const auto& object = value->asObject();
     config.type = requireString(object, "type", config.type);
     config.expression = requireString(object, "expression", config.expression);
+    config.legacyGlListFile = requireString(object, "legacyGlListFile", config.legacyGlListFile);
+    config.legacyVarListFile = requireString(object, "legacyVarListFile", config.legacyVarListFile);
+    config.legacyEncoding = requireString(object, "legacyEncoding", config.legacyEncoding);
+    config.legacyProfile = parseStringMap(value->find("legacyProfile"));
+    config.graphFile = requireString(object, "graphFile", config.graphFile);
+    config.graphStateFile = requireString(object, "graphStateFile", config.graphStateFile);
+    config.graphProfile = parseStringMap(value->find("graphProfile"));
     return config;
 }
 
@@ -1115,6 +1191,386 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     if (config.allowedCommands.empty()) {
         config.allowedCommands = SystemMonitorConfig().allowedCommands;
     }
+    if (const auto* cellular = value->find("cellular")) {
+        const auto& cellularObject = cellular->asObject();
+        config.cellular.enabled = requireBool(cellularObject, "enabled", config.cellular.enabled);
+        config.cellular.probeIntervalMs = requireInt(cellularObject, "probeIntervalMs", config.cellular.probeIntervalMs);
+        config.cellular.commandTimeoutMs = requireInt(cellularObject, "commandTimeoutMs", config.cellular.commandTimeoutMs);
+        config.cellular.atBaudRate = requireInt(cellularObject, "atBaudRate", config.cellular.atBaudRate);
+        config.cellular.signalAlertThresholdPercent = requireDouble(
+            cellularObject,
+            "signalAlertThresholdPercent",
+            config.cellular.signalAlertThresholdPercent
+        );
+        config.cellular.maskSensitiveFields = requireBool(cellularObject, "maskSensitiveFields", config.cellular.maskSensitiveFields);
+        const auto interfacePatterns = parseStringArray(cellular->find("interfacePatterns"));
+        if (!interfacePatterns.empty()) {
+            config.cellular.interfacePatterns = interfacePatterns;
+        }
+        const auto modemDevicePatterns = parseStringArray(cellular->find("modemDevicePatterns"));
+        if (!modemDevicePatterns.empty()) {
+            config.cellular.modemDevicePatterns = modemDevicePatterns;
+        }
+    }
+    return config;
+}
+
+LocalDisplayGroupConfig parseLocalDisplayGroupConfig(const JsonValue& value) {
+    LocalDisplayGroupConfig config;
+    const auto& object = value.asObject();
+    config.title = requireString(object, "title", config.title);
+    if (const auto* indexes = value.find("pointIndexes")) {
+        for (const auto& item : indexes->asArray().values) {
+            config.pointIndexes.push_back(static_cast<std::uint32_t>(item->asNumber()));
+        }
+    }
+    return config;
+}
+
+LocalDisplayPageConfig parseLocalDisplayPageConfig(const JsonValue& value) {
+    LocalDisplayPageConfig config;
+    const auto& object = value.asObject();
+    config.pageCode = requireString(object, "pageCode", config.pageCode);
+    config.title = requireString(object, "title", config.title);
+    if (const auto* groups = value.find("groups")) {
+        for (const auto& item : groups->asArray().values) {
+            config.groups.push_back(parseLocalDisplayGroupConfig(*item));
+        }
+    }
+    return config;
+}
+
+LocalDisplayWidgetGridConfig parseLocalDisplayWidgetGridConfig(const JsonValue* value) {
+    LocalDisplayWidgetGridConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.row = requireInt(object, "row", config.row);
+    config.col = requireInt(object, "col", config.col);
+    config.rowSpan = requireInt(object, "rowSpan", config.rowSpan);
+    config.colSpan = requireInt(object, "colSpan", config.colSpan);
+    if (config.row < 0) {
+        config.row = 0;
+    }
+    if (config.col < 0) {
+        config.col = 0;
+    }
+    if (config.rowSpan < 1) {
+        config.rowSpan = 1;
+    }
+    if (config.colSpan < 1) {
+        config.colSpan = 1;
+    }
+    return config;
+}
+
+LocalDisplayWidgetGridConfig parseLocalDisplayWidgetPositionConfig(const JsonValue* value) {
+    LocalDisplayWidgetGridConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.col = requireInt(object, "x", config.col);
+    config.row = requireInt(object, "y", config.row);
+    config.colSpan = requireInt(object, "w", config.colSpan);
+    config.rowSpan = requireInt(object, "h", config.rowSpan);
+    if (config.row < 0) {
+        config.row = 0;
+    }
+    if (config.col < 0) {
+        config.col = 0;
+    }
+    if (config.rowSpan < 1) {
+        config.rowSpan = 1;
+    }
+    if (config.colSpan < 1) {
+        config.colSpan = 1;
+    }
+    return config;
+}
+
+std::vector<std::uint32_t> parseUInt32Array(const JsonValue* value) {
+    std::vector<std::uint32_t> result;
+    if (value == nullptr || value->isNull()) {
+        return result;
+    }
+    for (const auto& item : value->asArray().values) {
+        const auto numeric = item->asNumber();
+        if (numeric > 0) {
+            result.push_back(static_cast<std::uint32_t>(numeric));
+        }
+    }
+    return result;
+}
+
+LocalDisplayWidgetConfig parseLocalDisplayWidgetConfig(const JsonValue& value) {
+    LocalDisplayWidgetConfig config;
+    const auto& object = value.asObject();
+    config.id = requireString(object, "id", config.id);
+    config.type = requireString(object, "type", config.type);
+    config.title = requireString(object, "title", config.title);
+    config.text = requireString(object, "text", config.text);
+    config.pointIndex = static_cast<std::uint32_t>(requireSize(object, "pointIndex", config.pointIndex));
+    config.pointIndexes = parseUInt32Array(value.find("pointIndexes"));
+    if (const auto* bind = value.find("bind")) {
+        const auto& bindObject = bind->asObject();
+        config.pointIndex = static_cast<std::uint32_t>(requireSize(bindObject, "index", config.pointIndex));
+        const auto bindIndexes = parseUInt32Array(bind->find("indexes"));
+        if (!bindIndexes.empty()) {
+            config.pointIndexes = bindIndexes;
+        }
+    }
+    config.columns = parseStringArray(value.find("columns"));
+    config.valueFormat = requireString(object, "valueFormat", config.valueFormat);
+    if (const auto* position = value.find("position")) {
+        config.grid = parseLocalDisplayWidgetPositionConfig(position);
+    } else {
+        config.grid = parseLocalDisplayWidgetGridConfig(value.find("grid"));
+    }
+    return config;
+}
+
+LocalDisplayScreenLayoutConfig parseLocalDisplayScreenLayoutConfig(const JsonValue* value) {
+    LocalDisplayScreenLayoutConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.type = requireString(object, "type", config.type);
+    config.columns = requireInt(object, "columns", config.columns);
+    config.rowHeight = requireInt(object, "rowHeight", config.rowHeight);
+    config.gap = requireInt(object, "gap", config.gap);
+    if (config.columns < 1) {
+        config.columns = 12;
+    }
+    if (config.rowHeight < 24) {
+        config.rowHeight = 64;
+    }
+    if (config.gap < 0) {
+        config.gap = 12;
+    }
+    return config;
+}
+
+LocalDisplayScreenConfig parseLocalDisplayScreenConfig(const JsonValue& value) {
+    LocalDisplayScreenConfig config;
+    const auto& object = value.asObject();
+    config.screenCode = requireString(object, "screenCode", config.screenCode);
+    config.title = requireString(object, "title", config.title);
+    config.layout = parseLocalDisplayScreenLayoutConfig(value.find("layout"));
+    if (const auto* widgets = value.find("widgets")) {
+        for (const auto& item : widgets->asArray().values) {
+            config.widgets.push_back(parseLocalDisplayWidgetConfig(*item));
+        }
+    }
+    return config;
+}
+
+LocalDisplayLayoutPageConfig parseLocalDisplayLayoutPageConfig(const JsonValue& value) {
+    LocalDisplayLayoutPageConfig config;
+    const auto& object = value.asObject();
+    config.pageCode = requireString(object, "pageCode", config.pageCode);
+    config.title = requireString(object, "title", config.title);
+    if (const auto* widgets = value.find("widgets")) {
+        for (const auto& item : widgets->asArray().values) {
+            config.widgets.push_back(parseLocalDisplayWidgetConfig(*item));
+        }
+    }
+    return config;
+}
+
+LocalDisplayLayoutConfig parseLocalDisplayLayoutConfig(const JsonValue* value) {
+    LocalDisplayLayoutConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.version = requireInt(object, "version", config.version);
+    config.theme = requireString(object, "theme", config.theme);
+    config.columns = requireInt(object, "columns", config.columns);
+    if (config.columns < 1) {
+        config.columns = 12;
+    }
+    if (const auto* pages = value->find("pages")) {
+        for (const auto& item : pages->asArray().values) {
+            config.pages.push_back(parseLocalDisplayLayoutPageConfig(*item));
+        }
+    }
+    return config;
+}
+
+LocalDisplayViewTemplateConfig parseLocalDisplayViewTemplateConfig(const JsonValue* value) {
+    LocalDisplayViewTemplateConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.html = requireString(object, "html", config.html);
+    config.css = requireString(object, "css", config.css);
+    config.refreshIntervalMs = requireInt(object, "refreshIntervalMs", config.refreshIntervalMs);
+    return config;
+}
+
+LocalDisplayConfig parseLocalDisplayConfig(const JsonValue* value) {
+    LocalDisplayConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.bindHost = requireString(object, "bindHost", config.bindHost);
+    config.port = requireInt(object, "port", config.port);
+    config.refreshIntervalMs = requireInt(object, "refreshIntervalMs", config.refreshIntervalMs);
+    config.maxPointsPerFrame = requireSize(object, "maxPointsPerFrame", config.maxPointsPerFrame);
+    config.showOnlyConfiguredPoints = requireBool(
+        object,
+        "showOnlyConfiguredPoints",
+        config.showOnlyConfiguredPoints
+    );
+    config.sharedMemoryNames = parseStringArray(value->find("sharedMemoryNames"));
+    if (const auto* pages = value->find("pages")) {
+        for (const auto& item : pages->asArray().values) {
+            config.pages.push_back(parseLocalDisplayPageConfig(*item));
+        }
+    }
+    if (const auto* screens = value->find("screens")) {
+        for (const auto& item : screens->asArray().values) {
+            config.screens.push_back(parseLocalDisplayScreenConfig(*item));
+        }
+    }
+    config.layout = parseLocalDisplayLayoutConfig(value->find("layout"));
+    config.viewTemplate = parseLocalDisplayViewTemplateConfig(value->find("viewTemplate"));
+    return config;
+}
+
+CameraAuthConfig parseCameraAuthConfig(const JsonValue* value) {
+    CameraAuthConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.mode = requireString(object, "mode", config.mode);
+    config.username = requireString(object, "username", config.username);
+    config.password = requireString(object, "password", config.password);
+    config.token = requireString(object, "token", config.token);
+    config.tokenParam = requireString(object, "tokenParam", config.tokenParam);
+    config.hideCredentialsInStatus = requireBool(
+        object,
+        "hideCredentialsInStatus",
+        config.hideCredentialsInStatus
+    );
+    if (config.tokenParam.empty()) {
+        config.tokenParam = "token";
+    }
+    return config;
+}
+
+CameraMediaConfig parseCameraMediaConfig(const JsonValue* value) {
+    CameraMediaConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.type = requireString(object, "type", config.type);
+    config.serverUrl = requireString(object, "serverUrl", config.serverUrl);
+    config.transport = requireString(object, "transport", config.transport);
+    config.reconnectIntervalMs = requireInt(object, "reconnectIntervalMs", config.reconnectIntervalMs);
+    config.auth = parseCameraAuthConfig(value->find("auth"));
+    if (config.reconnectIntervalMs < 1000) {
+        config.reconnectIntervalMs = 1000;
+    }
+    return config;
+}
+
+CameraVideoConfig parseCameraVideoConfig(const JsonValue* value) {
+    CameraVideoConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.width = requireInt(object, "width", config.width);
+    config.height = requireInt(object, "height", config.height);
+    config.fps = requireInt(object, "fps", config.fps);
+    config.codec = requireString(object, "codec", config.codec);
+    config.bitrateKbps = requireInt(object, "bitrateKbps", config.bitrateKbps);
+    if (config.width <= 0) {
+        config.width = 1280;
+    }
+    if (config.height <= 0) {
+        config.height = 720;
+    }
+    if (config.fps <= 0) {
+        config.fps = 15;
+    }
+    if (config.bitrateKbps <= 0) {
+        config.bitrateKbps = 1500;
+    }
+    return config;
+}
+
+CameraStreamConfig parseCameraStreamConfig(const JsonValue* value) {
+    CameraStreamConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.path = requireString(object, "path", config.path);
+    config.publishUrl = requireString(object, "publishUrl", config.publishUrl);
+    return config;
+}
+
+CameraStatusPointIndexes parseCameraStatusPointIndexes(const JsonValue* value) {
+    CameraStatusPointIndexes config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.online = static_cast<std::uint32_t>(requireSize(object, "online", config.online));
+    config.fps = static_cast<std::uint32_t>(requireSize(object, "fps", config.fps));
+    config.bitrateKbps = static_cast<std::uint32_t>(requireSize(object, "bitrateKbps", config.bitrateKbps));
+    config.errorCode = static_cast<std::uint32_t>(requireSize(object, "errorCode", config.errorCode));
+    return config;
+}
+
+CameraConfig parseCameraConfig(const JsonValue& value) {
+    CameraConfig config;
+    const auto& object = value.asObject();
+    config.cameraCode = requireString(object, "cameraCode", config.cameraCode);
+    config.name = requireString(object, "name", config.name);
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.sourceType = requireString(object, "sourceType", config.sourceType);
+    config.source = requireString(object, "source", config.source);
+    config.sourceAuth = parseCameraAuthConfig(value.find("sourceAuth"));
+    config.command = requireString(object, "command", config.command);
+    config.video = parseCameraVideoConfig(value.find("video"));
+    config.stream = parseCameraStreamConfig(value.find("stream"));
+    config.statusPointIndexes = parseCameraStatusPointIndexes(value.find("statusPointIndexes"));
+    return config;
+}
+
+CameraServiceConfig parseCameraServiceConfig(const JsonValue* value) {
+    CameraServiceConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.statusIntervalMs = requireInt(object, "statusIntervalMs", config.statusIntervalMs);
+    config.sharedMemoryName = requireString(object, "sharedMemoryName", config.sharedMemoryName);
+    config.statusTopic = requireString(object, "statusTopic", config.statusTopic);
+    config.eventTopic = requireString(object, "eventTopic", config.eventTopic);
+    config.media = parseCameraMediaConfig(value->find("media"));
+    if (const auto* cameras = value->find("cameras")) {
+        for (const auto& item : cameras->asArray().values) {
+            config.cameras.push_back(parseCameraConfig(*item));
+        }
+    }
+    if (config.statusIntervalMs < 1000) {
+        config.statusIntervalMs = 1000;
+    }
     return config;
 }
 
@@ -1209,6 +1665,33 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.systemMonitor.diskAlertThreshold = 90.0;
     config.systemMonitor.alertRepeatIntervalSec = 60;
     config.systemMonitor.diagEnabled = true;
+    config.localDisplay.enabled = false;
+    config.localDisplay.bindHost = "127.0.0.1";
+    config.localDisplay.port = 18080;
+    config.localDisplay.refreshIntervalMs = 500;
+    config.localDisplay.maxPointsPerFrame = 500;
+    config.localDisplay.showOnlyConfiguredPoints = true;
+    config.localDisplay.sharedMemoryNames = {"gateway_point_store"};
+    LocalDisplayScreenConfig screen;
+    screen.screenCode = "overview";
+    screen.title = "设备总览";
+    LocalDisplayWidgetConfig titleWidget;
+    titleWidget.id = "title_overview";
+    titleWidget.type = "groupTitle";
+    titleWidget.title = "网关总览";
+    titleWidget.text = "Gateway Local Display";
+    titleWidget.grid.colSpan = 12;
+    LocalDisplayWidgetConfig tableWidget;
+    tableWidget.id = "key_points";
+    tableWidget.type = "pointTable";
+    tableWidget.title = "关键点表";
+    tableWidget.pointIndexes = {11000, 11001, 11002, 11003, 11004, 11005, 11006, 11007, 11008, 11009};
+    tableWidget.columns = {"index", "meterCode", "pointCode", "name", "value", "unit", "quality", "time"};
+    tableWidget.grid.row = 1;
+    tableWidget.grid.colSpan = 12;
+    tableWidget.grid.rowSpan = 6;
+    screen.widgets = {titleWidget, tableWidget};
+    config.localDisplay.screens = {screen};
     return config;
 }
 
@@ -1412,6 +1895,8 @@ AppConfig parseAppConfig(const std::string& text) {
     config.ota = parseOtaConfig(root.find("ota"));
     config.realtime = parseRealtimeConfig(root.find("realtime"));
     config.systemMonitor = parseSystemMonitorConfig(root.find("systemMonitor"));
+    config.localDisplay = parseLocalDisplayConfig(root.find("localDisplay"));
+    config.cameraService = parseCameraServiceConfig(root.find("cameraService"));
     return config;
 }
 
@@ -1434,6 +1919,11 @@ DeviceIdentity parseDeviceIdentity(const std::string& text) {
 }
 
 }  // namespace
+
+DeviceConfig ConfigLoader::loadFromText(const std::string& text) {
+    auto config = parseDeviceConfig(text);
+    return config;
+}
 
 DeviceConfig ConfigLoader::loadFromFile(const std::string& filePath) {
     std::ifstream input(filePath);

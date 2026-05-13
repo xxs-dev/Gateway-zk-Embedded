@@ -98,6 +98,46 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
     }
 }
 
+void PointStoreRouter::addRoutesFromCameraServiceConfig(
+    const CameraServiceConfig& cameraConfig,
+    const std::string& machineCode
+) {
+    if (!cameraConfig.enabled) {
+        return;
+    }
+    const auto sharedMemoryName = cameraConfig.sharedMemoryName.empty()
+        ? std::string("gateway_point_store")
+        : cameraConfig.sharedMemoryName;
+    const auto addCameraRoute = [&](const CameraConfig& camera, std::uint32_t index, const std::string& pointCode) {
+        if (index == 0) {
+            return;
+        }
+        PointStoreRoute route;
+        route.index = index;
+        route.machineCode = machineCode;
+        route.meterCode = camera.cameraCode;
+        route.pointCode = pointCode;
+        route.interfaceCode = "camera";
+        route.interfaceType = "camera";
+        route.sharedMemoryName = sharedMemoryName;
+        route.writable = false;
+        route.reportOnChange = pointCode == "camera_online";
+        route.isStore = false;
+        route.persistIntervalSec = 60;
+        addRoute(route);
+    };
+
+    for (const auto& camera : cameraConfig.cameras) {
+        if (!camera.enabled || camera.cameraCode.empty()) {
+            continue;
+        }
+        addCameraRoute(camera, camera.statusPointIndexes.online, "camera_online");
+        addCameraRoute(camera, camera.statusPointIndexes.fps, "camera_fps");
+        addCameraRoute(camera, camera.statusPointIndexes.bitrateKbps, "camera_bitrate_kbps");
+        addCameraRoute(camera, camera.statusPointIndexes.errorCode, "camera_error_code");
+    }
+}
+
 Optional<PointStoreRoute> PointStoreRouter::routeByIndex(std::uint32_t index) const {
     const auto it = routes_.find(index);
     if (it == routes_.end()) {

@@ -58,6 +58,10 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
     expanded.reserve(config.meters.size());
     std::size_t meterIndex = 0;
     for (const auto& logicalDevice : config.meters) {
+        if (!logicalDevice.enabled) {
+            ++meterIndex;
+            continue;
+        }
         DeviceConfig item = config;
         item.meterCode = logicalDevice.meterCode;
         item.deviceName = logicalDevice.deviceName;
@@ -84,12 +88,14 @@ GatewayDaemon::GatewayDaemon(
     MemoryPointStore& store,
     std::shared_ptr<IModbusClient> modbusClient,
     std::shared_ptr<Dlt645Client> dlt645Client,
-    std::shared_ptr<IMqttPublisher> mqttPublisher
+    std::shared_ptr<IMqttPublisher> mqttPublisher,
+    std::shared_ptr<IGpioPort> gpioPort
 ) : config_(std::move(config)),
     store_(store),
     sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
-    mqttPublisher_(std::move(mqttPublisher)) {
-    initializeRuntimeDevices(std::move(modbusClient), std::move(dlt645Client), mqttPublisher_);
+    mqttPublisher_(std::move(mqttPublisher)),
+    gpioPort_(std::move(gpioPort)) {
+    initializeRuntimeDevices(std::move(modbusClient), std::move(dlt645Client), mqttPublisher_, gpioPort_);
 }
 
 GatewayDaemon::~GatewayDaemon() {
@@ -304,6 +310,8 @@ void GatewayDaemon::publishStatusEvent(
     }
     const auto serviceName = config_.protocol.type == "dlt645_2007"
         ? "dlt645-daemon"
+        : config_.protocol.type == "local_dio"
+            ? "dio-daemon"
         : "modbus-daemon";
     std::ostringstream payload;
     payload << "{\"service\":\"" << serviceName << "\",\"event\":\""
@@ -320,7 +328,8 @@ void GatewayDaemon::publishStatusEvent(
 void GatewayDaemon::initializeRuntimeDevices(
     std::shared_ptr<IModbusClient> modbusClient,
     std::shared_ptr<Dlt645Client> dlt645Client,
-    std::shared_ptr<IMqttPublisher> mqttPublisher
+    std::shared_ptr<IMqttPublisher> mqttPublisher,
+    std::shared_ptr<IGpioPort> gpioPort
 ) {
     auto expandedConfigs = expandRuntimeConfigs(config_);
     runtimeDevices_.reserve(expandedConfigs.size());
@@ -328,8 +337,8 @@ void GatewayDaemon::initializeRuntimeDevices(
     for (std::size_t i = 0; i < expandedConfigs.size(); ++i) {
         RuntimeDevice runtimeDevice;
         runtimeDevice.config = std::move(expandedConfigs[i]);
-        runtimeDevice.collector.reset(new Collector(runtimeDevice.config, store_, modbusClient, dlt645Client));
-        runtimeDevice.executor.reset(new CommandExecutor(runtimeDevice.config, store_, modbusClient, mqttPublisher));
+        runtimeDevice.collector.reset(new Collector(runtimeDevice.config, store_, modbusClient, dlt645Client, nullptr, gpioPort));
+        runtimeDevice.executor.reset(new CommandExecutor(runtimeDevice.config, store_, modbusClient, mqttPublisher, gpioPort));
 
         for (const auto& point : runtimeDevice.config.points) {
             const auto inserted = indexToRuntimeDevice_.emplace(point.index, runtimeDevices_.size());

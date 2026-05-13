@@ -129,8 +129,147 @@
       "top_once",
       "ps_gateway",
       "journal_tail",
-      "systemctl_status"
-    ]
+      "systemctl_status",
+      "cellular_status"
+    ],
+    "cellular": {
+      "enabled": true,
+      "probeIntervalMs": 5000,
+      "commandTimeoutMs": 2000,
+      "atBaudRate": 115200,
+      "signalAlertThresholdPercent": 20,
+      "maskSensitiveFields": false,
+      "interfacePatterns": [
+        "wwan*",
+        "ppp*",
+        "usb*",
+        "rmnet*",
+        "wwp*"
+      ],
+      "modemDevicePatterns": [
+        "/dev/ttyUSB2",
+        "/dev/ttyUSB1",
+        "/dev/ttyUSB0",
+        "/dev/ttyUSB3",
+        "/dev/ttyUSB*",
+        "/dev/cdc-wdm*"
+      ]
+    }
+  },
+  "localDisplay": {
+    "enabled": false,
+    "renderer": "webkit",
+    "bindHost": "127.0.0.1",
+    "port": 18080,
+    "refreshIntervalMs": 1000,
+    "maxPointsPerFrame": 500,
+    "showOnlyConfiguredPoints": true,
+    "kiosk": {
+      "width": 1280,
+      "height": 720,
+      "fullscreen": true,
+      "setDisplayMode": true,
+      "displayOutput": "",
+      "zoom": 1.0
+    },
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ],
+    "screens": [
+      {
+        "screenCode": "overview",
+        "title": "设备总览",
+        "layout": {
+          "type": "grid",
+          "columns": 12,
+          "rowHeight": 64,
+          "gap": 12
+        },
+        "widgets": [
+          {
+            "id": "title_overview",
+            "type": "groupTitle",
+            "title": "网关总览",
+            "text": "Gateway Local Display",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 12,
+              "h": 1
+            }
+          },
+          {
+            "id": "online_status",
+            "type": "statusCard",
+            "title": "设备在线",
+            "bind": {
+              "index": 11000
+            },
+            "valueFormat": "boolOnline",
+            "position": {
+              "x": 0,
+              "y": 1,
+              "w": 3,
+              "h": 2
+            }
+          },
+          {
+            "id": "key_value",
+            "type": "valueCard",
+            "title": "关键数值",
+            "bind": {
+              "index": 11000
+            },
+            "valueFormat": "number",
+            "position": {
+              "x": 3,
+              "y": 1,
+              "w": 3,
+              "h": 2
+            }
+          },
+          {
+            "id": "key_points",
+            "type": "pointTable",
+            "title": "关键点表",
+            "bind": {
+              "indexes": [
+                11000,
+                11001,
+                11002,
+                11003,
+                11004,
+                11005,
+                11006,
+                11007,
+                11008,
+                11009
+              ]
+            },
+            "columns": [
+              "index",
+              "meterCode",
+              "pointCode",
+              "name",
+              "value",
+              "unit",
+              "quality",
+              "time"
+            ],
+            "position": {
+              "x": 0,
+              "y": 3,
+              "w": 12,
+              "h": 6
+            }
+          }
+        ]
+      }
+    ],
+    "viewTemplate": {
+      "enabled": false,
+      "refreshIntervalMs": 5000
+    }
   },
   "ota": {
     "enabled": true,
