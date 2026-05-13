@@ -220,14 +220,16 @@ App 配置增加一种脚本类型：
 
 第一阶段优先实现 EMS 领域节点。通用 `formula` 只用于少量辅助计算，不承载核心 PCS 仲裁逻辑。
 
-当前 `pcsPowerSolve` 默认只写 `627..632` 等 latest 输出，不直接写设备。要实际下发 PCS，需要单独启用 `pcsWriteback.submitWrites=true`，或在 `pcsPowerSolve.params.submitWrites=true` 时由该节点内部调用写回逻辑。模板默认关闭写回，适合影子运行。
+`derivedLoad.params.source` 默认值为 `tqCn`，表示 `FH=TQ-CN`；配置为 `tqBw` 或 `bw` 时表示 `FH=TQ-BW`；配置为 `fh`、`direct` 或 `directFh` 时直接读取 `fhPaIndex..fhQ3Index`，并继续计算 `317..325` 的视在功率、功率因数和三相不平衡率。
+
+当前 `pcsPowerSolve` 默认只写 `627..632` 等 latest 输出，不直接写设备。要实际下发 PCS，需要单独启用 `pcsWriteback.submitWrites=true`，或配置 `pcsPowerSolve.params.submitWrites=true` 由该节点内部复用同一套写回逻辑，按 `comStatusIndex` 和 `pControlAIndex..qControlCIndex` 生成待写命令。模板默认关闭写回，适合影子运行。
 
 ## 9. 舜通模板映射
 
 | 现有逻辑 | 图形化节点 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
 | TQ / CN / BW 平均 | `meterAverage` | `1030..1043`、`1130..1143`、`4536..4543` | `201..225`、`251..266` |
-| 负荷派生 | `derivedLoad` | TQ、CN、BW、profile | `309..325` |
+| 负荷派生 | `derivedLoad` | TQ、CN、BW 或直接 FH | `309..325` |
 | BMS 派生 | `bmsDerived` | `1556/1557/1566/1586/1587/398/399` | `1552/1553/1615/1616` |
 | COS | `cosCompensation` | `514`、TQ P/Q | `505..508`、`601..604`、`8` |
 | LV / HV | `voltageCompensation` | `544..547`、`533`、`535`、CN U | `605..612`、`10/12` |
@@ -237,7 +239,7 @@ App 配置增加一种脚本类型：
 | PH | `phaseBalance` | `562`、TQ、CN | `564..567`、`623..625`、`20` |
 | ZR | `reserveCapacity` | `23/588`、FH、反送限制 | `24` 和 PowerSolve 约束 |
 | SK | `skOverride` | `590/591` | `26` 和 PowerSolve 覆盖 |
-| PowerSolve | `pcsPowerSolve` | 所有模式输出、BMS 限制、SOC 限制 | `627..632` |
+| PowerSolve | `pcsPowerSolve` | 所有模式输出、BMS 限制、SOC 限制 | `627..632`，可选 `1318..1323` 待写命令 |
 | PCS 下载 | `pcsWriteback` | `627..632`、`1399` | `1318..1323` 待写命令 |
 
 ## 10. 平台图形化界面

@@ -70,6 +70,12 @@ private:
     bool runReserveCapacity(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPcsPowerSolve(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPcsWriteback(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
+    bool submitPcsWritebackCommands(
+        const GraphEmsNodeConfig& node,
+        std::int64_t nowMs,
+        GraphEmsRunResult& result,
+        bool submitMissingZeroTargets
+    );
 
     GraphEmsConfig config_;
     PointStoreRouter& router_;

@@ -303,6 +303,70 @@ void writeTextFile(const std::string& path, const std::string& text) {
     output << text;
 }
 
+struct LegacyCatalogFixturePaths {
+    std::string glListFile;
+    std::string varListFile;
+};
+
+LegacyCatalogFixturePaths writeLegacyCatalogFixture() {
+    LegacyCatalogFixturePaths paths{
+        "graph_ems_catalog_gllist_test.xml",
+        "graph_ems_catalog_varlist_test.xml"
+    };
+    writeTextFile(
+        paths.glListFile,
+        std::string("<Root>\n") +
+        "<Data index=\"6\" name=\"var6\" desc=\"\xd5\xfb\xb9\xf1\xca\xd6\xd7\xd4\xb6\xaf\xc4\xa3\xca\xbd\" iolink=\"read\" />\n" +
+        "<Data index=\"201\" name=\"var201\" desc=\"TQ_avg_UA\" iolink=\"read\" />\n" +
+        "</Root>\n"
+    );
+    writeTextFile(
+        paths.varListFile,
+        std::string("<Root>\n") +
+        "<Data index=\"984\" name=\"var984\" desc=\"\xd4\xcb\xd0\xd0\xd6\xb8\xca\xbe\xb5\xc6\" iolink=\"write\" />\n" +
+        "<Data index=\"1030\" name=\"var1030\" desc=\"A\xcf\xe0\xb5\xe7\xd1\xb9\" iolink=\"read\" />\n" +
+        "</Root>\n"
+    );
+    return paths;
+}
+
+LegacyCatalogFixturePaths writeRuntimeLegacyCatalogFixture(const edge_gateway::DeviceConfig& deviceConfig) {
+    LegacyCatalogFixturePaths paths{
+        "graph_ems_runtime_gllist_test.xml",
+        "graph_ems_runtime_varlist_test.xml"
+    };
+    std::string varList = "<Root>\n";
+    for (const auto& pointDefinition : deviceConfig.points) {
+        varList += "<Data index=\"" + std::to_string(pointDefinition.index) +
+            "\" name=\"" + pointDefinition.pointCode +
+            "\" desc=\"" + pointDefinition.desc +
+            "\" iolink=\"" + (pointDefinition.write.enable ? "write" : "read") + "\" />\n";
+    }
+    varList += "</Root>\n";
+    writeTextFile(paths.glListFile, "<Root>\n</Root>\n");
+    writeTextFile(paths.varListFile, varList);
+    return paths;
+}
+
+edge_gateway::LegacyEmsPointCatalog buildRuntimeTestCatalog(
+    const edge_gateway::LegacyEmsPointCatalog& fixtureCatalog,
+    const edge_gateway::DeviceConfig& deviceConfig
+) {
+    auto catalog = fixtureCatalog;
+    for (const auto& pointDefinition : deviceConfig.points) {
+        edge_gateway::LegacyEmsPoint point;
+        point.source = edge_gateway::LegacyEmsPointSource::Variable;
+        point.index = pointDefinition.index;
+        point.name = pointDefinition.pointCode;
+        point.desc = pointDefinition.desc.empty() ? pointDefinition.pointCode : pointDefinition.desc;
+        point.iolink = pointDefinition.write.enable ? "write" : "read";
+        point.readable = pointDefinition.read.enable;
+        point.writable = pointDefinition.write.enable;
+        catalog.addPoint(point);
+    }
+    return catalog;
+}
+
 void setTestTimezone(const char* timezone) {
 #if defined(_WIN32)
     _putenv_s("TZ", timezone);
@@ -330,14 +394,15 @@ void removeEmptyDirectoryIfExists(const std::string& path) {
 int main() {
     try {
         setTestTimezone("UTC");
+        const auto catalogFixture = writeLegacyCatalogFixture();
 
         const auto catalog = edge_gateway::LegacyEmsPointCatalog::loadFromFiles(
-            "config/工程/GLList.xml",
-            "config/工程/VarList.xml",
+            catalogFixture.glListFile,
+            catalogFixture.varListFile,
             "gbk"
         );
 
-        require(catalog.size() > 1000, "legacy catalog should include GLList and VarList points");
+        require(catalog.size() == 4, "legacy catalog fixture should include GLList and VarList points");
 
         const auto gl6 = catalog.findByIndex(6);
         require(static_cast<bool>(gl6), "GLList index 6 missing");
@@ -361,13 +426,15 @@ int main() {
         require(!var1030->writable, "index 1030 should be read-only");
 
         auto deviceConfig = buildTestDeviceConfig();
+        const auto runtimeCatalog = buildRuntimeTestCatalog(catalog, deviceConfig);
+        const auto runtimeCatalogFixture = writeRuntimeLegacyCatalogFixture(deviceConfig);
         cleanupStoreSegment(deviceConfig.memoryStore);
         edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
         edge_gateway::PointStoreRouter router;
         router.addStore(deviceConfig.memoryStore.sharedMemoryName, store);
         router.addRoutesFromDeviceConfigs({deviceConfig}, deviceConfig.memoryStore.sharedMemoryName);
 
-        edge_gateway::LegacyEmsEngine engine(catalog, router);
+        edge_gateway::LegacyEmsEngine engine(runtimeCatalog, router);
         engine.set(201, 223.5, 1000);
         const auto latest = router.getLatestByIndex(201, 1000);
         require(static_cast<bool>(latest), "legacy set should write latest value");
@@ -512,7 +579,7 @@ int main() {
             {graphAverageConfig},
             graphAverageConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphSeedEngine(catalog, graphAverageRouter);
+        edge_gateway::LegacyEmsEngine graphSeedEngine(runtimeCatalog, graphAverageRouter);
         graphSeedEngine.set(156, 2.0, 1150);
         graphSeedEngine.set(1036, 30.0, 1150);
         edge_gateway::GraphEmsEngine graphAverageEngine(
@@ -535,7 +602,7 @@ int main() {
             {graphServiceConfig},
             graphServiceConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphServiceSeedEngine(catalog, graphServiceRouter);
+        edge_gateway::LegacyEmsEngine graphServiceSeedEngine(runtimeCatalog, graphServiceRouter);
         graphServiceSeedEngine.set(156, 2.0, 1160);
         graphServiceSeedEngine.set(1036, 42.0, 1160);
 
@@ -590,7 +657,7 @@ int main() {
             {graphProfileConfig},
             graphProfileConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphProfileSeedEngine(catalog, graphProfileRouter);
+        edge_gateway::LegacyEmsEngine graphProfileSeedEngine(runtimeCatalog, graphProfileRouter);
         graphProfileSeedEngine.set(156, 2.0, 1165);
         graphProfileSeedEngine.set(1036, 42.0, 1165);
 
@@ -655,7 +722,7 @@ int main() {
             {graphTqMetricsConfig},
             graphTqMetricsConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphTqMetricsSeedEngine(catalog, graphTqMetricsRouter);
+        edge_gateway::LegacyEmsEngine graphTqMetricsSeedEngine(runtimeCatalog, graphTqMetricsRouter);
         graphTqMetricsSeedEngine.set(156, 2.0, 1166);
         graphTqMetricsSeedEngine.set(1036, 30.0, 1166);
         graphTqMetricsSeedEngine.set(1037, 20.0, 1166);
@@ -680,6 +747,69 @@ int main() {
         requireNear(graphTqSa->value, std::sqrt(916.0), 0.0001, "graph TQ SA metric mismatch");
         requireNear(graphTqCos3->value, 60.0 / std::sqrt(3649.0), 0.0001, "graph TQ COS3 metric mismatch");
         requireNear(graphTqBalance->value, 100.0, 0.0001, "graph TQ balance metric mismatch");
+
+        writeTextFile(
+            "graph_ems_fh_direct_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "fh_direct",
+  "nodes": [
+    {
+      "id": "fh_direct",
+      "type": "derivedLoad",
+      "enabled": true,
+      "params": {
+        "source": "fh",
+        "fhPaIndex": 309,
+        "fhPbIndex": 310,
+        "fhPcIndex": 311,
+        "fhP3Index": 312,
+        "fhQaIndex": 313,
+        "fhQbIndex": 314,
+        "fhQcIndex": 315,
+        "fhQ3Index": 316
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        const auto graphFhDirectConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_fh_direct");
+        edge_gateway::PointStoreRouter graphFhDirectRouter;
+        cleanupStoreSegment(graphFhDirectConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphFhDirectStore(graphFhDirectConfig.memoryStore);
+        graphFhDirectRouter.addStore(graphFhDirectConfig.memoryStore.sharedMemoryName, graphFhDirectStore);
+        graphFhDirectRouter.addRoutesFromDeviceConfigs(
+            {graphFhDirectConfig},
+            graphFhDirectConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphFhDirectSeedEngine(runtimeCatalog, graphFhDirectRouter);
+        graphFhDirectSeedEngine.set(309, 20.0, 1167);
+        graphFhDirectSeedEngine.set(310, 15.0, 1167);
+        graphFhDirectSeedEngine.set(311, 25.0, 1167);
+        graphFhDirectSeedEngine.set(312, 60.0, 1167);
+        graphFhDirectSeedEngine.set(313, 4.0, 1167);
+        graphFhDirectSeedEngine.set(314, 3.0, 1167);
+        graphFhDirectSeedEngine.set(315, 0.0, 1167);
+        graphFhDirectSeedEngine.set(316, 7.0, 1167);
+        edge_gateway::GraphEmsEngine graphFhDirectEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_fh_direct_test.json"),
+            graphFhDirectRouter,
+            600000
+        );
+        graphFhDirectEngine.runOnce(1167);
+        const auto graphFhDirectPa = graphFhDirectRouter.getLatestByIndex(309, 1167);
+        const auto graphFhDirectSa = graphFhDirectRouter.getLatestByIndex(317, 1167);
+        const auto graphFhDirectCos3 = graphFhDirectRouter.getLatestByIndex(324, 1167);
+        const auto graphFhDirectBalance = graphFhDirectRouter.getLatestByIndex(325, 1167);
+        require(static_cast<bool>(graphFhDirectPa), "graph direct FH PA missing");
+        require(static_cast<bool>(graphFhDirectSa), "graph direct FH SA missing");
+        require(static_cast<bool>(graphFhDirectCos3), "graph direct FH COS3 missing");
+        require(static_cast<bool>(graphFhDirectBalance), "graph direct FH balance missing");
+        requireNear(graphFhDirectPa->value, 20.0, 0.0001, "graph direct FH PA should preserve source value");
+        requireNear(graphFhDirectSa->value, std::sqrt(416.0), 0.0001, "graph direct FH SA mismatch");
+        requireNear(graphFhDirectCos3->value, 60.0 / std::sqrt(3649.0), 0.0001, "graph direct FH COS3 mismatch");
+        requireNear(graphFhDirectBalance->value, 50.0, 0.0001, "graph direct FH balance mismatch");
 
         writeTextFile(
             "graph_ems_bms_model_test.json",
@@ -719,7 +849,7 @@ int main() {
             {graphBmsModelConfig},
             graphBmsModelConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphBmsModelSeedEngine(catalog, graphBmsModelRouter);
+        edge_gateway::LegacyEmsEngine graphBmsModelSeedEngine(runtimeCatalog, graphBmsModelRouter);
         graphBmsModelSeedEngine.set(1556, 100.0, 1167);
         graphBmsModelSeedEngine.set(1557, 80.0, 1167);
         graphBmsModelSeedEngine.set(1566, 500.0, 1167);
@@ -798,7 +928,7 @@ int main() {
             {graphTopoConfig},
             graphTopoConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphTopoSeedEngine(catalog, graphTopoRouter);
+        edge_gateway::LegacyEmsEngine graphTopoSeedEngine(runtimeCatalog, graphTopoRouter);
         graphTopoSeedEngine.set(251, 230.0, 0);
         graphTopoSeedEngine.set(252, 230.0, 0);
         graphTopoSeedEngine.set(253, 230.0, 0);
@@ -863,7 +993,7 @@ int main() {
             legacyDsCompareConfig.memoryStore.sharedMemoryName
         );
         edge_gateway::LegacyEmsEngine legacyDsCompareEngine(
-            catalog,
+            runtimeCatalog,
             legacyDsCompareRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -878,7 +1008,7 @@ int main() {
             {graphDsCompareConfig},
             graphDsCompareConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphDsSeedEngine(catalog, graphDsCompareRouter);
+        edge_gateway::LegacyEmsEngine graphDsSeedEngine(runtimeCatalog, graphDsCompareRouter);
         const auto seedDsInputs = [](auto& engine, std::int64_t ts) {
             engine.set(251, 230.0, ts);
             engine.set(252, 230.0, ts);
@@ -990,7 +1120,7 @@ int main() {
             {graphDsCurveConfig},
             graphDsCurveConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphDsCurveSeedEngine(catalog, graphDsCurveRouter);
+        edge_gateway::LegacyEmsEngine graphDsCurveSeedEngine(runtimeCatalog, graphDsCurveRouter);
         const std::int64_t graphCurveHour5Ms = 5LL * 60LL * 60LL * 1000LL;
         graphDsCurveSeedEngine.set(251, 230.0, graphCurveHour5Ms);
         graphDsCurveSeedEngine.set(252, 230.0, graphCurveHour5Ms);
@@ -1109,7 +1239,7 @@ int main() {
             legacyGfPhConfig.memoryStore.sharedMemoryName
         );
         edge_gateway::LegacyEmsEngine legacyGfPhEngine(
-            catalog,
+            runtimeCatalog,
             legacyGfPhRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_FH", "1"}, {"BMS_MODEL", "2"}}
@@ -1124,7 +1254,7 @@ int main() {
             {graphGfPhConfig},
             graphGfPhConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphGfPhSeedEngine(catalog, graphGfPhRouter);
+        edge_gateway::LegacyEmsEngine graphGfPhSeedEngine(runtimeCatalog, graphGfPhRouter);
         const auto seedGfPhInputs = [](auto& engine, std::int64_t ts) {
             engine.set(209, 30.0, ts);
             engine.set(210, 20.0, ts);
@@ -1286,7 +1416,7 @@ int main() {
             {legacyPcsSolveConfig},
             legacyPcsSolveConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine legacyPcsSolveEngine(catalog, legacyPcsSolveRouter);
+        edge_gateway::LegacyEmsEngine legacyPcsSolveEngine(runtimeCatalog, legacyPcsSolveRouter);
         const auto graphPcsSolveConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_pcs_solve");
         edge_gateway::PointStoreRouter graphPcsSolveRouter;
         cleanupStoreSegment(graphPcsSolveConfig.memoryStore);
@@ -1296,7 +1426,7 @@ int main() {
             {graphPcsSolveConfig},
             graphPcsSolveConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphPcsSolveSeedEngine(catalog, graphPcsSolveRouter);
+        edge_gateway::LegacyEmsEngine graphPcsSolveSeedEngine(runtimeCatalog, graphPcsSolveRouter);
         seedPcsSolveInputs(legacyPcsSolveEngine, 1190);
         seedPcsSolveInputs(graphPcsSolveSeedEngine, 1190);
         legacyPcsSolveEngine.runOnce(1190);
@@ -1360,7 +1490,7 @@ int main() {
             {legacyPcsWriteConfig},
             legacyPcsWriteConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine legacyPcsWriteEngine(catalog, legacyPcsWriteRouter);
+        edge_gateway::LegacyEmsEngine legacyPcsWriteEngine(runtimeCatalog, legacyPcsWriteRouter);
         const auto graphPcsWriteConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_pcs_writeback");
         edge_gateway::PointStoreRouter graphPcsWriteRouter;
         cleanupStoreSegment(graphPcsWriteConfig.memoryStore);
@@ -1370,7 +1500,7 @@ int main() {
             {graphPcsWriteConfig},
             graphPcsWriteConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphPcsWriteSeedEngine(catalog, graphPcsWriteRouter);
+        edge_gateway::LegacyEmsEngine graphPcsWriteSeedEngine(runtimeCatalog, graphPcsWriteRouter);
         seedPcsWritebackInputs(legacyPcsWriteEngine, 1195);
         seedPcsWritebackInputs(graphPcsWriteSeedEngine, 1195);
         const auto legacyPcsWriteResult = legacyPcsWriteEngine.runOnce(1195);
@@ -1389,6 +1519,66 @@ int main() {
             requireNear(graphPcsWrites[i].value, legacyPcsWrites[i].value, 0.0001, "graph PCS write value mismatch");
             require(graphPcsWrites[i].source == "graph-ems", "graph PCS write source mismatch");
         }
+
+        writeTextFile(
+            "graph_ems_pcs_solve_submit_writes_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "pcs_solve_submit_writes",
+  "nodes": [
+    {
+      "id": "power_solve",
+      "type": "pcsPowerSolve",
+      "enabled": true,
+      "params": {
+        "paOutput": 627,
+        "pbOutput": 628,
+        "pcOutput": 629,
+        "qaOutput": 630,
+        "qbOutput": 631,
+        "qcOutput": 632,
+        "zrRunOutput": 24,
+        "cosRunOutput": 8,
+        "lvRunOutput": 10,
+        "hvRunOutput": 12,
+        "gfRunOutput": 22,
+        "submitWrites": true,
+        "comStatusIndex": 1399,
+        "pControlAIndex": 1318,
+        "pControlBIndex": 1319,
+        "pControlCIndex": 1320,
+        "qControlAIndex": 1321,
+        "qControlBIndex": 1322,
+        "qControlCIndex": 1323
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        const auto graphPcsSolveSubmitConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_pcs_solve_submit");
+        edge_gateway::PointStoreRouter graphPcsSolveSubmitRouter;
+        cleanupStoreSegment(graphPcsSolveSubmitConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphPcsSolveSubmitStore(graphPcsSolveSubmitConfig.memoryStore);
+        graphPcsSolveSubmitRouter.addStore(graphPcsSolveSubmitConfig.memoryStore.sharedMemoryName, graphPcsSolveSubmitStore);
+        graphPcsSolveSubmitRouter.addRoutesFromDeviceConfigs(
+            {graphPcsSolveSubmitConfig},
+            graphPcsSolveSubmitConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphPcsSolveSubmitSeedEngine(runtimeCatalog, graphPcsSolveSubmitRouter);
+        seedPcsWritebackInputs(graphPcsSolveSubmitSeedEngine, 1197);
+        edge_gateway::GraphEmsEngine graphPcsSolveSubmitEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_pcs_solve_submit_writes_test.json"),
+            graphPcsSolveSubmitRouter,
+            600000
+        );
+        const auto graphPcsSolveSubmitResult = graphPcsSolveSubmitEngine.runOnce(1197);
+        const auto graphPcsSolveSubmitWrites = graphPcsSolveSubmitRouter.peekPendingWrites(16);
+        require(graphPcsSolveSubmitResult.deviceWrites == 6, "pcsPowerSolve submitWrites should submit six commands");
+        require(graphPcsSolveSubmitWrites.size() == 6, "pcsPowerSolve submitWrites pending count mismatch");
+        require(graphPcsSolveSubmitWrites[0].index == 1318, "pcsPowerSolve submitWrites first index mismatch");
+        requireNear(graphPcsSolveSubmitWrites[0].value, -5.0, 0.0001, "pcsPowerSolve submitWrites first value mismatch");
+        require(graphPcsSolveSubmitWrites[0].source == "graph-ems", "pcsPowerSolve submitWrites source mismatch");
 
         writeTextFile(
             "graph_ems_legacy_nodes_test.json",
@@ -1511,7 +1701,7 @@ int main() {
             legacyNodesConfig.memoryStore.sharedMemoryName
         );
         edge_gateway::LegacyEmsEngine legacyNodesEngine(
-            catalog,
+            runtimeCatalog,
             legacyNodesRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "1"}}
@@ -1526,7 +1716,7 @@ int main() {
             {graphNodesConfig},
             graphNodesConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphNodesSeedEngine(catalog, graphNodesRouter);
+        edge_gateway::LegacyEmsEngine graphNodesSeedEngine(runtimeCatalog, graphNodesRouter);
         const auto seedLegacyNodeInputs = [](auto& seed, std::int64_t ts) {
             seed.set(209, 30.0, ts);
             seed.set(210, 20.0, ts);
@@ -1627,7 +1817,7 @@ int main() {
             {graphStateWriterConfig},
             graphStateWriterConfig.memoryStore.sharedMemoryName
         );
-        edge_gateway::LegacyEmsEngine graphStateWriterSeed(catalog, graphStateWriterRouter);
+        edge_gateway::LegacyEmsEngine graphStateWriterSeed(runtimeCatalog, graphStateWriterRouter);
         graphStateWriterSeed.set(615, 5.0, 1220);
         graphStateWriterSeed.set(616, 4.0, 1220);
         graphStateWriterSeed.set(617, 3.0, 1220);
@@ -1731,8 +1921,8 @@ int main() {
         rule.trigger.type = "interval";
         rule.trigger.intervalMs = 1;
         rule.script.type = "legacyEms";
-        rule.script.legacyGlListFile = "config/工程/GLList.xml";
-        rule.script.legacyVarListFile = "config/工程/VarList.xml";
+        rule.script.legacyGlListFile = runtimeCatalogFixture.glListFile;
+        rule.script.legacyVarListFile = runtimeCatalogFixture.varListFile;
         rule.script.legacyEncoding = "gbk";
 
         edge_gateway::ComputeEngineConfig computeConfig;
@@ -1801,7 +1991,7 @@ int main() {
         tqOffRouter.addStore(tqOffConfig.memoryStore.sharedMemoryName, tqOffStore);
         tqOffRouter.addRoutesFromDeviceConfigs({tqOffConfig}, tqOffConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine tqOffEngine(
-            catalog,
+            runtimeCatalog,
             tqOffRouter,
             600000,
             {{"Meter_TQ", "0"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -1822,7 +2012,7 @@ int main() {
         cnOffRouter.addStore(cnOffConfig.memoryStore.sharedMemoryName, cnOffStore);
         cnOffRouter.addRoutesFromDeviceConfigs({cnOffConfig}, cnOffConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine cnOffEngine(
-            catalog,
+            runtimeCatalog,
             cnOffRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "0"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -1851,7 +2041,7 @@ int main() {
         bmsRouter.addStore(bmsConfig.memoryStore.sharedMemoryName, bmsStore);
         bmsRouter.addRoutesFromDeviceConfigs({bmsConfig}, bmsConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine bmsEngine(
-            catalog,
+            runtimeCatalog,
             bmsRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "1"}}
@@ -1875,7 +2065,7 @@ int main() {
         bwRouter.addStore(bwConfig.memoryStore.sharedMemoryName, bwStore);
         bwRouter.addRoutesFromDeviceConfigs({bwConfig}, bwConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine bwEngine(
-            catalog,
+            runtimeCatalog,
             bwRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "0"}, {"Meter_BW", "1"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -1915,7 +2105,7 @@ int main() {
         cosRouter.addStore(cosConfig.memoryStore.sharedMemoryName, cosStore);
         cosRouter.addRoutesFromDeviceConfigs({cosConfig}, cosConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine cosEngine(
-            catalog,
+            runtimeCatalog,
             cosRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -1952,7 +2142,7 @@ int main() {
         lvhvRouter.addStore(lvhvConfig.memoryStore.sharedMemoryName, lvhvStore);
         lvhvRouter.addRoutesFromDeviceConfigs({lvhvConfig}, lvhvConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine lvhvEngine(
-            catalog,
+            runtimeCatalog,
             lvhvRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -1993,7 +2183,7 @@ int main() {
         cdfdRouter.addStore(cdfdConfig.memoryStore.sharedMemoryName, cdfdStore);
         cdfdRouter.addRoutesFromDeviceConfigs({cdfdConfig}, cdfdConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine cdfdEngine(
-            catalog,
+            runtimeCatalog,
             cdfdRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2049,7 +2239,7 @@ int main() {
         solveRouter.addStore(solveConfig.memoryStore.sharedMemoryName, solveStore);
         solveRouter.addRoutesFromDeviceConfigs({solveConfig}, solveConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine solveEngine(
-            catalog,
+            runtimeCatalog,
             solveRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2102,7 +2292,7 @@ int main() {
             solveAdvancedConfig.memoryStore.sharedMemoryName
         );
         edge_gateway::LegacyEmsEngine solveAdvancedEngine(
-            catalog,
+            runtimeCatalog,
             solveAdvancedRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2185,7 +2375,7 @@ int main() {
         dsRouter.addStore(dsConfig.memoryStore.sharedMemoryName, dsStore);
         dsRouter.addRoutesFromDeviceConfigs({dsConfig}, dsConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine dsEngine(
-            catalog,
+            runtimeCatalog,
             dsRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2261,7 +2451,7 @@ int main() {
             false
         );
         edge_gateway::LegacyEmsEngine dsLocalHourEngine(
-            catalog,
+            runtimeCatalog,
             dsLocalHourRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2303,7 +2493,7 @@ int main() {
         clampRouter.addStore(clampConfig.memoryStore.sharedMemoryName, clampStore);
         clampRouter.addRoutesFromDeviceConfigs({clampConfig}, clampConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine clampEngine(
-            catalog,
+            runtimeCatalog,
             clampRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2366,7 +2556,7 @@ int main() {
         lowSocRouter.addStore(lowSocConfig.memoryStore.sharedMemoryName, lowSocStore);
         lowSocRouter.addRoutesFromDeviceConfigs({lowSocConfig}, lowSocConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine lowSocEngine(
-            catalog,
+            runtimeCatalog,
             lowSocRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2423,7 +2613,7 @@ int main() {
         highSocRouter.addStore(highSocConfig.memoryStore.sharedMemoryName, highSocStore);
         highSocRouter.addRoutesFromDeviceConfigs({highSocConfig}, highSocConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine highSocEngine(
-            catalog,
+            runtimeCatalog,
             highSocRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
@@ -2480,7 +2670,7 @@ int main() {
         pcsWriteRouter.addStore(pcsWriteConfig.memoryStore.sharedMemoryName, pcsWriteStore);
         pcsWriteRouter.addRoutesFromDeviceConfigs({pcsWriteConfig}, pcsWriteConfig.memoryStore.sharedMemoryName);
         edge_gateway::LegacyEmsEngine pcsWriteEngine(
-            catalog,
+            runtimeCatalog,
             pcsWriteRouter,
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}

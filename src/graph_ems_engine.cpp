@@ -1205,38 +1205,72 @@ bool GraphEmsEngine::runDerivedLoad(
     const auto sourceIt = node.params.find("source");
     const auto source = sourceIt == node.params.end() ? std::string("tqCn") : sourceIt->second;
     const bool useBw = source == "tqBw" || source == "bw";
+    const bool useDirectFh = source == "fh" || source == "direct" || source == "directFh";
 
-    const auto tqPa = latestValue(paramIndex(node, "tqPaIndex", 209), nowMs);
-    const auto tqPb = latestValue(paramIndex(node, "tqPbIndex", 210), nowMs);
-    const auto tqPc = latestValue(paramIndex(node, "tqPcIndex", 211), nowMs);
-    const auto tqP3 = latestValue(paramIndex(node, "tqP3Index", 212), nowMs);
-    const auto tqQa = latestValue(paramIndex(node, "tqQaIndex", 213), nowMs);
-    const auto tqQb = latestValue(paramIndex(node, "tqQbIndex", 214), nowMs);
-    const auto tqQc = latestValue(paramIndex(node, "tqQcIndex", 215), nowMs);
-    const auto tqQ3 = latestValue(paramIndex(node, "tqQ3Index", 216), nowMs);
+    double fhPa = 0.0;
+    double fhPb = 0.0;
+    double fhPc = 0.0;
+    double fhP3 = 0.0;
+    double fhQa = 0.0;
+    double fhQb = 0.0;
+    double fhQc = 0.0;
+    double fhQ3 = 0.0;
 
-    const auto otherPa = latestValue(paramIndex(node, useBw ? "bwPaIndex" : "cnPaIndex", useBw ? 401 : 259), nowMs);
-    const auto otherPb = latestValue(paramIndex(node, useBw ? "bwPbIndex" : "cnPbIndex", useBw ? 402 : 260), nowMs);
-    const auto otherPc = latestValue(paramIndex(node, useBw ? "bwPcIndex" : "cnPcIndex", useBw ? 403 : 261), nowMs);
-    const auto otherP3 = latestValue(paramIndex(node, useBw ? "bwP3Index" : "cnP3Index", useBw ? 404 : 262), nowMs);
-    const auto otherQa = latestValue(paramIndex(node, useBw ? "bwQaIndex" : "cnQaIndex", useBw ? 405 : 263), nowMs);
-    const auto otherQb = latestValue(paramIndex(node, useBw ? "bwQbIndex" : "cnQbIndex", useBw ? 406 : 264), nowMs);
-    const auto otherQc = latestValue(paramIndex(node, useBw ? "bwQcIndex" : "cnQcIndex", useBw ? 407 : 265), nowMs);
-    const auto otherQ3 = latestValue(paramIndex(node, useBw ? "bwQ3Index" : "cnQ3Index", useBw ? 408 : 266), nowMs);
+    if (useDirectFh) {
+        const auto directPa = latestValue(paramIndex(node, "fhPaIndex", 309), nowMs);
+        const auto directPb = latestValue(paramIndex(node, "fhPbIndex", 310), nowMs);
+        const auto directPc = latestValue(paramIndex(node, "fhPcIndex", 311), nowMs);
+        const auto directP3 = latestValue(paramIndex(node, "fhP3Index", 312), nowMs);
+        const auto directQa = latestValue(paramIndex(node, "fhQaIndex", 313), nowMs);
+        const auto directQb = latestValue(paramIndex(node, "fhQbIndex", 314), nowMs);
+        const auto directQc = latestValue(paramIndex(node, "fhQcIndex", 315), nowMs);
+        const auto directQ3 = latestValue(paramIndex(node, "fhQ3Index", 316), nowMs);
+        if (!directPa || !directPb || !directPc || !directP3 ||
+            !directQa || !directQb || !directQc || !directQ3) {
+            return false;
+        }
+        fhPa = *directPa;
+        fhPb = *directPb;
+        fhPc = *directPc;
+        fhP3 = *directP3;
+        fhQa = *directQa;
+        fhQb = *directQb;
+        fhQc = *directQc;
+        fhQ3 = *directQ3;
+    } else {
+        const auto tqPa = latestValue(paramIndex(node, "tqPaIndex", 209), nowMs);
+        const auto tqPb = latestValue(paramIndex(node, "tqPbIndex", 210), nowMs);
+        const auto tqPc = latestValue(paramIndex(node, "tqPcIndex", 211), nowMs);
+        const auto tqP3 = latestValue(paramIndex(node, "tqP3Index", 212), nowMs);
+        const auto tqQa = latestValue(paramIndex(node, "tqQaIndex", 213), nowMs);
+        const auto tqQb = latestValue(paramIndex(node, "tqQbIndex", 214), nowMs);
+        const auto tqQc = latestValue(paramIndex(node, "tqQcIndex", 215), nowMs);
+        const auto tqQ3 = latestValue(paramIndex(node, "tqQ3Index", 216), nowMs);
 
-    if (!tqPa || !tqPb || !tqPc || !tqP3 || !tqQa || !tqQb || !tqQc || !tqQ3 ||
-        !otherPa || !otherPb || !otherPc || !otherP3 || !otherQa || !otherQb || !otherQc || !otherQ3) {
-        return false;
+        const auto otherPa = latestValue(paramIndex(node, useBw ? "bwPaIndex" : "cnPaIndex", useBw ? 401 : 259), nowMs);
+        const auto otherPb = latestValue(paramIndex(node, useBw ? "bwPbIndex" : "cnPbIndex", useBw ? 402 : 260), nowMs);
+        const auto otherPc = latestValue(paramIndex(node, useBw ? "bwPcIndex" : "cnPcIndex", useBw ? 403 : 261), nowMs);
+        const auto otherP3 = latestValue(paramIndex(node, useBw ? "bwP3Index" : "cnP3Index", useBw ? 404 : 262), nowMs);
+        const auto otherQa = latestValue(paramIndex(node, useBw ? "bwQaIndex" : "cnQaIndex", useBw ? 405 : 263), nowMs);
+        const auto otherQb = latestValue(paramIndex(node, useBw ? "bwQbIndex" : "cnQbIndex", useBw ? 406 : 264), nowMs);
+        const auto otherQc = latestValue(paramIndex(node, useBw ? "bwQcIndex" : "cnQcIndex", useBw ? 407 : 265), nowMs);
+        const auto otherQ3 = latestValue(paramIndex(node, useBw ? "bwQ3Index" : "cnQ3Index", useBw ? 408 : 266), nowMs);
+
+        if (!tqPa || !tqPb || !tqPc || !tqP3 || !tqQa || !tqQb || !tqQc || !tqQ3 ||
+            !otherPa || !otherPb || !otherPc || !otherP3 || !otherQa || !otherQb || !otherQc || !otherQ3) {
+            return false;
+        }
+
+        fhPa = *tqPa - *otherPa;
+        fhPb = *tqPb - *otherPb;
+        fhPc = *tqPc - *otherPc;
+        fhP3 = *tqP3 - *otherP3;
+        fhQa = *tqQa - *otherQa;
+        fhQb = *tqQb - *otherQb;
+        fhQc = *tqQc - *otherQc;
+        fhQ3 = *tqQ3 - *otherQ3;
     }
 
-    const double fhPa = *tqPa - *otherPa;
-    const double fhPb = *tqPb - *otherPb;
-    const double fhPc = *tqPc - *otherPc;
-    const double fhP3 = *tqP3 - *otherP3;
-    const double fhQa = *tqQa - *otherQa;
-    const double fhQb = *tqQb - *otherQb;
-    const double fhQc = *tqQc - *otherQc;
-    const double fhQ3 = *tqQ3 - *otherQ3;
     const double fhSa = apparentPower(fhPa, fhQa);
     const double fhSb = apparentPower(fhPb, fhQb);
     const double fhSc = apparentPower(fhPc, fhQc);
@@ -2201,6 +2235,9 @@ bool GraphEmsEngine::runPcsPowerSolve(
             updated = true;
         }
     }
+    if (paramBool(node, "submitWrites", false)) {
+        updated = submitPcsWritebackCommands(node, nowMs, result, true) || updated;
+    }
     return updated;
 }
 
@@ -2212,6 +2249,15 @@ bool GraphEmsEngine::runPcsWriteback(
     if (!paramBool(node, "submitWrites", false)) {
         return false;
     }
+    return submitPcsWritebackCommands(node, nowMs, result, false);
+}
+
+bool GraphEmsEngine::submitPcsWritebackCommands(
+    const GraphEmsNodeConfig& node,
+    std::int64_t nowMs,
+    GraphEmsRunResult& result,
+    bool submitMissingZeroTargets
+) {
     const auto pcsComStatus = latestValue(paramIndex(node, "comStatusIndex", 1399), nowMs);
     if (!pcsComStatus || *pcsComStatus != 1.0) {
         return false;
@@ -2238,13 +2284,18 @@ bool GraphEmsEngine::runPcsWriteback(
             continue;
         }
         const int targetValue = static_cast<int>(*target);
-        const double current = latestValue(command.outputIndex, nowMs).value_or(0.0);
+        const auto currentValue = latestValue(command.outputIndex, nowMs);
+        const double current = currentValue.value_or(0.0);
         if (targetValue == 0) {
-            if (current == 0.0) {
-                continue;
+            if (currentValue || !submitMissingZeroTargets) {
+                if (current == 0.0) {
+                    continue;
+                }
             }
         } else if (std::abs(std::abs(current) - static_cast<double>(targetValue)) <= 0.5) {
-            continue;
+            if (currentValue) {
+                continue;
+            }
         }
 
         PendingWriteCommand pending;
