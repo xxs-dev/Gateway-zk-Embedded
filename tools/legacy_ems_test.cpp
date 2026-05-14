@@ -474,6 +474,7 @@ int main() {
         const auto graphAppConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(
             "graph_ems_app_config_test.json"
         );
+        require(graphAppConfig.runtimeMode == "gateway", "missing runtimeMode should default to gateway");
         require(graphAppConfig.computeEngine.rules.size() == 1, "graphEms rule not parsed");
         const auto& graphRule = graphAppConfig.computeEngine.rules[0];
         require(graphRule.script.type == "graphEms", "graphEms script type not parsed");
@@ -482,6 +483,31 @@ int main() {
             "graphFile not parsed"
         );
         require(graphRule.script.graphProfile.at("PCS_MODEL") == "3", "graphProfile not parsed");
+
+        writeTextFile(
+            "graph_ems_runtime_mode_app_config_test.json",
+            R"json({
+  "runtimeMode": "ems",
+  "computeEngine": {
+    "enabled": false,
+    "rules": []
+  }
+})json"
+        );
+        const auto emsModeAppConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(
+            "graph_ems_runtime_mode_app_config_test.json"
+        );
+        require(emsModeAppConfig.runtimeMode == "ems", "runtimeMode ems not parsed");
+
+        writeTextFile(
+            "graph_ems_invalid_runtime_mode_app_config_test.json",
+            R"json({
+  "runtimeMode": "invalid"
+})json"
+        );
+        requireThrowsWithMessage("runtimeMode must be gateway or ems", []() {
+            edge_gateway::ConfigLoader::loadAppConfigFromFile("graph_ems_invalid_runtime_mode_app_config_test.json");
+        });
 
         writeTextFile(
             "graph_ems_minimal_test.json",

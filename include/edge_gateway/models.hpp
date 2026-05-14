@@ -741,6 +741,7 @@ struct DeviceIdentity {
 };
 
 struct AppConfig {
+    std::string runtimeMode = "gateway";
     std::string identityConfigFile;
     std::vector<std::string> deviceConfigFiles;
     MqttConfig mqtt;
