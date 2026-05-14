@@ -257,7 +257,66 @@ App 配置增加一种脚本类型：
 - `GET /api/config/app/ems/shuntong-graph` 读取当前 `runtime/logic/shuntong_ems_graph.json`；文件不存在时返回内置舜通模板。
 - `POST /api/config/app/ems/shuntong-template/apply` 写入模板，并同步 App 配置中的 `computeEngine.rules[]`。
 - `PUT /api/config/app/ems/shuntong-graph` 保存编辑后的 graph，并执行节点、边和环路校验。
+- `GET /api/config/app/ems/native` 读取 EMS 原生配置；如果文件不存在，会从当前 graph 反推一份标准模式和标准点位绑定。
+- `PUT /api/config/app/ems/native` 保存 EMS 原生配置，先校验必填点位，再编译覆盖 `runtime/logic/shuntong_ems_graph.json`。
 - 配置包生成会扫描 `computeEngine.rules[].script.graphFile`，把 `runtime/logic/shuntong_ems_graph.json` 放入 OTA 包。
+- 配置包如果存在 `runtime/logic/shuntong_ems_native_config.json`，会随 graph 一起带入包内，作为平台下次编辑的源配置；边端运行仍只依赖 graph。
+
+## 10.1.1 EMS 原生配置模型
+
+为了避免在运行时继续套 `VarList / GLList / script / graph` 多层解析，平台新增一层更贴近网关原始设计的 EMS 原生配置。它只作为平台编辑和提交校验模型，边端仍执行编译后的 `graphEms`。
+
+```text
+当前点表
+  -> 平台选择 EMS 模式
+  -> 绑定 EMS 标准点位
+  -> 提交时校验缺失/读写属性
+  -> 编译为 shuntong_ems_graph.json
+  -> 边端 ComputeEngine 执行 graphEms
+```
+
+原生配置文件路径：
+
+```text
+runtime/logic/shuntong_ems_native_config.json
+```
+
+第一版标准点位覆盖稳定运行必须直接选择的点位：
+
+| 标准点位 | 含义 | 默认 index | 编译目标 |
+| --- | --- | --- | --- |
+| `bms.soc` | BMS SOC | `1570` | `ds.bmsSocIndex`、`cd_fd.bmsSocIndex`、`power_solve.bmsSocIndex` |
+| `meter.storage.ua` | 储能侧 A 相电压 | `251` | `ds.cnUaIndex`、`lv_hv.cnUaIndex` |
+| `meter.storage.ub` | 储能侧 B 相电压 | `252` | `ds.cnUbIndex`、`lv_hv.cnUbIndex` |
+| `meter.storage.uc` | 储能侧 C 相电压 | `253` | `ds.cnUcIndex`、`lv_hv.cnUcIndex` |
+| `pcs.com_status` | PCS 通讯允许 | `1399` | `pcs_writeback.comStatusIndex` |
+| `pcs.active_power_set_a/b/c` | PCS A/B/C 相有功下发 | `1318..1320` | `pcs_writeback.pControlAIndex..pControlCIndex` |
+| `pcs.reactive_power_set_a/b/c` | PCS A/B/C 相无功下发 | `1321..1323` | `pcs_writeback.qControlAIndex..qControlCIndex` |
+
+第一版模式定义仍沿用当前舜通计算逻辑节点：
+
+| EMS 模式 | graph 节点 |
+| --- | --- |
+| 电表平均与负荷派生 | `tq_average`、`cn_average`、`fh_derived` |
+| BMS 派生 | `bms` |
+| 计划曲线 | `ds` |
+| 手动充放电 | `cd_fd` |
+| 无功补偿 | `cos` |
+| 电压补偿 | `lv_hv` |
+| 光伏优先充电 | `gf` |
+| 三相平衡 | `ph` |
+| 动态增容 | `zr` |
+| 总控设定 | `sk` |
+| PCS 功率仲裁与下发 | `power_solve`、`pcs_writeback` |
+
+提交校验规则：
+
+- 启用某个模式后，该模式声明的必填标准点位必须绑定。
+- 开启 PCS 下发后，`pcs.com_status` 和 A/B/C 相有功下发点必须绑定。
+- 当前点表存在时，绑定 index 必须能在当前点表里找到；找不到时阻止编译并返回缺失清单。
+- 写入标准点位如果对应测点没有 `write.enable=true`，平台给出警告；边端仍由 `PendingWriteCommand` 和设备点位写权限做最终保护。
+
+这层配置不是新的边端执行格式。边端不解析标准点位名称、不按中文名称匹配测点、不读取工程点表，只读取平台已经编译好的 graph JSON。
 
 ### 10.2 策略块画布
 
