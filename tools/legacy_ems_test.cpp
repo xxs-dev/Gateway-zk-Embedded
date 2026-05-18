@@ -711,6 +711,138 @@ int main() {
         );
 
         writeTextFile(
+            "graph_ems_optional_profile_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "optional_profile",
+  "nodes": [
+    {
+      "id": "required_model_node",
+      "type": "meterAverage",
+      "enabled": true,
+      "params": {
+        "profileKey": "PCS_MODEL",
+        "windowSizeIndex": 156,
+        "mappings": [
+          { "input": 1036, "output": 201 }
+        ]
+      }
+    },
+    {
+      "id": "optional_ups_node",
+      "type": "meterAverage",
+      "enabled": true,
+      "params": {
+        "optionalProfileKey": "UPS_MODEL",
+        "windowSizeIndex": 156,
+        "mappings": [
+          { "input": 1036, "output": 209 }
+        ]
+      }
+    },
+    {
+      "id": "optional_dehumidifier_node",
+      "type": "meterAverage",
+      "enabled": true,
+      "params": {
+        "optionalProfileKey": "DEHUMIDIFIER_MODEL",
+        "windowSizeIndex": 156,
+        "mappings": [
+          { "input": 1036, "output": 210 }
+        ]
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        const auto graphOptionalConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_optional");
+        edge_gateway::PointStoreRouter graphOptionalRouter;
+        cleanupStoreSegment(graphOptionalConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphOptionalStore(graphOptionalConfig.memoryStore);
+        graphOptionalRouter.addStore(graphOptionalConfig.memoryStore.sharedMemoryName, graphOptionalStore);
+        graphOptionalRouter.addRoutesFromDeviceConfigs(
+            {graphOptionalConfig},
+            graphOptionalConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphOptionalSeedEngine(runtimeCatalog, graphOptionalRouter);
+        graphOptionalSeedEngine.set(156, 2.0, 1167);
+        graphOptionalSeedEngine.set(1036, 42.0, 1167);
+
+        edge_gateway::ComputeRuleConfig graphOptionalRule;
+        graphOptionalRule.ruleCode = "graph_ems_optional_rule";
+        graphOptionalRule.enabled = true;
+        graphOptionalRule.trigger.type = "interval";
+        graphOptionalRule.trigger.intervalMs = 1;
+        graphOptionalRule.script.type = "graphEms";
+        graphOptionalRule.script.graphFile = "graph_ems_optional_profile_test.json";
+        graphOptionalRule.script.graphProfile = {{"PCS_MODEL", "3"}};
+
+        edge_gateway::ComputeEngineConfig graphOptionalComputeConfig;
+        graphOptionalComputeConfig.enabled = true;
+        graphOptionalComputeConfig.scanIntervalMs = 1;
+        graphOptionalComputeConfig.defaultOutputTtlMs = 600000;
+        graphOptionalComputeConfig.rules.push_back(graphOptionalRule);
+
+        edge_gateway::ComputeEngineService graphOptionalService(graphOptionalComputeConfig, graphOptionalRouter);
+        graphOptionalService.runOnce(1167);
+        const auto graphRequiredModelAvgPa = graphOptionalRouter.getLatestByIndex(201, 1167);
+        const auto graphOptionalAvgPa = graphOptionalRouter.getLatestByIndex(209, 1167);
+        const auto graphOptionalDehumidifierAvgPa = graphOptionalRouter.getLatestByIndex(210, 1167);
+        require(static_cast<bool>(graphRequiredModelAvgPa), "numeric profileKey PCS_MODEL=3 should run node");
+        requireNear(graphRequiredModelAvgPa->value, 42.0, 0.0001, "numeric profileKey output mismatch");
+        require(
+            !static_cast<bool>(graphOptionalAvgPa) || graphOptionalAvgPa->ts != 1167,
+            "optionalProfileKey should skip node when UPS_MODEL is missing"
+        );
+        require(
+            !static_cast<bool>(graphOptionalDehumidifierAvgPa) || graphOptionalDehumidifierAvgPa->ts != 1167,
+            "optionalProfileKey should skip node when DEHUMIDIFIER_MODEL is missing"
+        );
+
+        const auto graphOptionalEnabledConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_optional_on");
+        edge_gateway::PointStoreRouter graphOptionalEnabledRouter;
+        cleanupStoreSegment(graphOptionalEnabledConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphOptionalEnabledStore(graphOptionalEnabledConfig.memoryStore);
+        graphOptionalEnabledRouter.addStore(
+            graphOptionalEnabledConfig.memoryStore.sharedMemoryName,
+            graphOptionalEnabledStore
+        );
+        graphOptionalEnabledRouter.addRoutesFromDeviceConfigs(
+            {graphOptionalEnabledConfig},
+            graphOptionalEnabledConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphOptionalEnabledSeedEngine(runtimeCatalog, graphOptionalEnabledRouter);
+        graphOptionalEnabledSeedEngine.set(156, 2.0, 1168);
+        graphOptionalEnabledSeedEngine.set(1036, 55.0, 1168);
+
+        edge_gateway::ComputeRuleConfig graphOptionalEnabledRule = graphOptionalRule;
+        graphOptionalEnabledRule.ruleCode = "graph_ems_optional_enabled_rule";
+        graphOptionalEnabledRule.script.graphProfile = {{"UPS_MODEL", "1"}};
+
+        edge_gateway::ComputeEngineConfig graphOptionalEnabledComputeConfig;
+        graphOptionalEnabledComputeConfig.enabled = true;
+        graphOptionalEnabledComputeConfig.scanIntervalMs = 1;
+        graphOptionalEnabledComputeConfig.defaultOutputTtlMs = 600000;
+        graphOptionalEnabledComputeConfig.rules.push_back(graphOptionalEnabledRule);
+
+        edge_gateway::ComputeEngineService graphOptionalEnabledService(
+            graphOptionalEnabledComputeConfig,
+            graphOptionalEnabledRouter
+        );
+        graphOptionalEnabledService.runOnce(1168);
+        const auto graphOptionalEnabledAvgPa = graphOptionalEnabledRouter.getLatestByIndex(209, 1168);
+        const auto graphOptionalDehumidifierDisabledAvgPa =
+            graphOptionalEnabledRouter.getLatestByIndex(210, 1168);
+        require(static_cast<bool>(graphOptionalEnabledAvgPa), "optionalProfileKey should run when UPS_MODEL=1");
+        requireNear(graphOptionalEnabledAvgPa->value, 55.0, 0.0001, "optionalProfileKey enabled output mismatch");
+        require(
+            !static_cast<bool>(graphOptionalDehumidifierDisabledAvgPa) ||
+                graphOptionalDehumidifierDisabledAvgPa->ts != 1168,
+            "enabling UPS_MODEL should not enable other optional device nodes"
+        );
+
+        writeTextFile(
             "graph_ems_tq_metrics_test.json",
             R"json({
   "schemaVersion": "1.0.0",

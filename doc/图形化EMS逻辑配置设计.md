@@ -62,10 +62,14 @@ App 配置增加一种脚本类型：
     "graphProfile": {
       "PCS_MODEL": "3",
       "BMS_MODEL": "2",
+      "ZL_MODEL": "21",
       "Meter_TQ": "1",
       "Meter_CN": "1",
       "Meter_BW": "0",
-      "Meter_FH": "0"
+      "Meter_FH": "0",
+      "UPS_MODEL": "0",
+      "DEHUMIDIFIER_MODEL": "0",
+      "XF_CZ": "1"
     }
   }
 }
@@ -73,12 +77,32 @@ App 配置增加一种脚本类型：
 
 `graphFile` 使用相对路径时，按 app 配置文件所在目录解析。`graphProfile` 用于保留工程级开关和设备型号选择，避免把每个模板都复制成不同文件。
 
+设备存在性规则：
+
+- `profileKey` 用于默认应存在的设备或逻辑块；profile 未配置时按启用处理，配置为 `0/false` 时跳过。
+- `optionalProfileKey` 用于 UPS、除湿、负荷表、结算/并网表等可选设备；profile 未配置或为 `0/false` 时跳过，只有明确配置为 `1/true` 或非零型号值才执行。
+- 被跳过的节点不读取点位、不写运行态、不参与故障聚合，也不应触发“缺少点位”校验错误。
+- 平台提交校验时只校验已启用设备/模式的必填点位；未启用的可选设备不要求绑定测点。
+
+舜通默认 profile 中 `UPS_MODEL=0`、`DEHUMIDIFIER_MODEL=0`、`Meter_BW=0`、`Meter_FH=0`，表示这些设备/分支默认不存在。
+
+平台 EMS 原生配置增加 `devicePresenceProfile`，作为页面和后端校验的统一设备存在性来源。保存 EMS 原生配置时，平台会把该 profile 同步到运行 app 的 `script.graphProfile`；边端只读取 `script.graphProfile`，图文件里的 `devicePresenceProfile` 仅作为模板说明和平台展示元数据。
+
 当前边端已支持 `script.type=graphEms`。`ComputeEngineService` 会按 `ruleCode` 缓存 `GraphEmsEngine`，每轮扫描加载同一份 graph 配置执行。运行态状态文件由 `script.graphStateFile` 指定；未配置时使用 `/opt/modbus-gateway/data/graph_ems_state_<ruleCode>.json`。示例文件：
 
 | 文件 | 作用 |
 | --- | --- |
 | `config/examples/shuntong_ems_graph.json` | 舜通 EMS 默认策略图模板 |
 | `config/examples/mqtt-service-graph-ems-example.json` | `graphEms` app 配置示例 |
+
+舜通模板的旧地址段迁移规则固定为：
+
+| 地址段 | 新语义 | 说明 |
+| --- | --- | --- |
+| `4500-4599` | LED 屏 | 数字显示和 RGB 状态控制，不能再放结算/并网表点 |
+| `4600-4699` | 结算/并网表 | 旧 `4501-4599` 结算点平移到 `4601-4699`；旧 `4536-4543/4599` 对应新 `4636-4643/4699` |
+
+平台导入旧工程或生成舜通默认模板时，应按上表生成点表并在提交时校验地址段冲突。
 
 ## 6. 策略图 JSON
 
@@ -228,7 +252,7 @@ App 配置增加一种脚本类型：
 
 | 现有逻辑 | 图形化节点 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
-| TQ / CN / BW 平均 | `meterAverage` | `1030..1043`、`1130..1143`、`4536..4543` | `201..225`、`251..266` |
+| TQ / CN / BW 平均 | `meterAverage` | `1030..1043`、`1130..1143`、`4636..4643` | `201..225`、`251..266` |
 | 负荷派生 | `derivedLoad` | TQ、CN、BW 或直接 FH | `309..325` |
 | BMS 派生 | `bmsDerived` | `1556/1557/1566/1586/1587/398/399` | `1552/1553/1615/1616` |
 | COS | `cosCompensation` | `514`、TQ P/Q | `505..508`、`601..604`、`8` |

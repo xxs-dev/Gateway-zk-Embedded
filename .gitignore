@@ -1,0 +1,11 @@
+# Local graph EMS regression artifacts
+/graph_ems_*_test.json
+/graph_ems_*_test.xml
+/graph_ems_state_restore_runtime.json
+/tmp/
+
+# Generated CMake dependency folders can be recreated by the build.
+/build-aarch64/CMakeFiles/
+/build-aarch64/can_signal_codec_test
+/build-aarch64/dio_smoke_test
+/build-aarch64/legacy_ems_test

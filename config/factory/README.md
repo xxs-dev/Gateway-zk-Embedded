@@ -18,9 +18,11 @@
 - `runtime/apps/mqtt-service.json`：第三方 MQTT 转发、事件、OTA 配置。
 - `runtime/apps/monitor-service.json`：主站监测、诊断、配置拉取、本地画面配置。
 - `runtime/apps/camera-service.json`：摄像头推流配置，出厂默认关闭。
+- `runtime/logic/shuntong_ems_graph.json`：舜通 EMS 图形化逻辑模板。
 - `runtime/devices/device_slave_ttySP1.json`：`/dev/ttySP1` Modbus RTU 示例。
 - `runtime/devices/device_slave_ttySP2.json`：`/dev/ttySP2` Modbus RTU 示例。
 - `runtime/devices/device_dio.json`：本机 18 路 DI、8 路 DO 示例。
+- `runtime/devices/device_ems_virtual.json`：EMS 本体虚拟点，提供模式、状态、计划曲线和中间变量点位。
 - `runtime/devices/device_can0.json`：CAN SocketCAN 示例模板，默认不加入运行时引用。
 - `config/examples/device_can0_example.json`：同一 CAN 示例的联调样例文件。
 
@@ -30,9 +32,11 @@
 
 - `deviceConfigFiles[]` 引用了 `device_slave_ttySP1.json` 和 `device_slave_ttySP2.json`，因此默认会启动两个 `modbus-rtu@*.service`。
 - `deviceConfigFiles[]` 引用了 `device_dio.json`，因此默认会启动 `dio-driver@device_dio.service`。
-- `device_can0_example.json` 只作为示例随包发布，未被 `deviceConfigFiles[]` 引用时不会启动 `can-driver@*.service`。
+- `deviceConfigFiles[]` 引用了 `device_ems_virtual.json`，因此 EMS 本体虚拟点会进入共享内存和 MQTT 上报范围。
+- `device_can0.json` 只作为模板随包发布，未被 `deviceConfigFiles[]` 引用时不会启动 `can-driver@*.service`。
 - `mqtt-service.json` 存在，因此默认会启动 `mqtt-driver@mqtt-service.service`。
 - `mqtt-service.json:eventEngine.enabled=true`，因此默认会启动 `event-engine@mqtt-service.service`。
+- `mqtt-service.json:computeEngine.enabled=true`，因此默认会启动 `compute-engine@mqtt-service.service`，并执行 `runtime/logic/shuntong_ems_graph.json` 中的 EMS 图形逻辑。
 - `monitor-service.json:systemMonitor.enabled=true`，因此默认会启动 `system-monitor@monitor-service.service`。
 - `localDisplay.enabled=false`，因此默认不启动本地画面。
 - `cameraService.enabled=false`，因此默认不启动摄像头推流。

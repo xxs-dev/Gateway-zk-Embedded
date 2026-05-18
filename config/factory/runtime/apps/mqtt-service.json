@@ -1,9 +1,11 @@
 {
+  "runtimeMode": "ems",
   "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
   "deviceConfigFiles": [
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP1.json",
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP2.json",
-    "/opt/modbus-gateway/config/runtime/devices/device_dio.json"
+    "/opt/modbus-gateway/config/runtime/devices/device_dio.json",
+    "/opt/modbus-gateway/config/runtime/devices/device_ems_virtual.json"
   ],
   "mqtt": {
     "enabled": true,
@@ -92,7 +94,7 @@
     "mqttClientIdSuffix": "event_engine"
   },
   "computeEngine": {
-    "enabled": false,
+    "enabled": true,
     "sharedMemoryNames": [
       "gateway_point_store"
     ],
@@ -102,7 +104,37 @@
     "badQuality": 0,
     "defaultOutputTtlMs": 600000,
     "maxWritesPerScan": 100,
-    "rules": []
+    "rules": [
+      {
+        "ruleCode": "shuntong_graph_ems",
+        "name": "Shuntong Graph EMS",
+        "enabled": true,
+        "trigger": {
+          "type": "interval",
+          "intervalMs": 1000
+        },
+        "inputs": [],
+        "outputs": [],
+        "script": {
+          "type": "graphEms",
+          "graphFile": "runtime/logic/shuntong_ems_graph.json",
+          "graphStateFile": "/opt/modbus-gateway/data/graph_ems_state_shuntong_graph_ems.json",
+          "graphProfile": {
+            "PCS_MODEL": "3",
+            "BMS_MODEL": "2",
+            "ZL_MODEL": "21",
+            "Meter_TQ": "1",
+            "Meter_CN": "1",
+            "Meter_BW": "0",
+            "Meter_FH": "0",
+            "UPS_MODEL": "0",
+            "DEHUMIDIFIER_MODEL": "0",
+            "XF_CZ": "1",
+            "LOCAL_DIO": "1"
+          }
+        }
+      }
+    ]
   },
   "realtime": {
     "enabled": true,

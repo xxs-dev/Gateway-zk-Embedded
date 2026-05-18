@@ -514,7 +514,32 @@ double powerFactor(double p, double s) {
 }
 
 bool stringEnabled(const std::string& value) {
-    return value == "1" || value == "true" || value == "TRUE";
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (const auto ch : value) {
+        normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    const auto first = std::find_if(normalized.begin(), normalized.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    });
+    const auto last = std::find_if(normalized.rbegin(), normalized.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base();
+    if (first >= last) {
+        return false;
+    }
+    normalized = std::string(first, last);
+    if (normalized == "true" || normalized == "yes" || normalized == "on") {
+        return true;
+    }
+    if (normalized == "false" || normalized == "no" || normalized == "off" || normalized.empty()) {
+        return false;
+    }
+    try {
+        return std::stod(normalized) != 0.0;
+    } catch (...) {
+        return false;
+    }
 }
 
 std::string jsonEscape(const std::string& value) {
@@ -909,6 +934,19 @@ bool GraphEmsEngine::shouldRunNode(const GraphEmsNodeConfig& node) const {
         const auto keyIt = node.params.find(key);
         if (keyIt != node.params.end() && !keyIt->second.empty() &&
             !profileEnabled(keyIt->second, true)) {
+            return false;
+        }
+    }
+    const char* optionalKeys[] = {
+        "optionalProfileKey",
+        "optionalProfileKey2",
+        "optionalProfileKey3",
+        "optionalProfileKey4"
+    };
+    for (const auto* key : optionalKeys) {
+        const auto keyIt = node.params.find(key);
+        if (keyIt != node.params.end() && !keyIt->second.empty() &&
+            !profileEnabled(keyIt->second, false)) {
             return false;
         }
     }

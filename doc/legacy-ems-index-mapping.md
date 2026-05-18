@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `1030..1043` | TQ meter base values | `201..225` |
 | `1130..1143` | CN meter base values | `251..266` |
-| `4536..4543` | BW meter base values | internal BW averages, then `309..325` via `FH=TQ-BW` |
+| `4536..4543` | Legacy BW/settlement meter base values before address migration | migrated to `4636..4643`; internal BW averages, then `309..325` via `FH=TQ-BW` |
 | `TQ + CN` | load derived | `309..325` via `FH=TQ-CN` |
 
 ## BMS Derived
@@ -87,3 +87,4 @@
 
 - DS and GF use the host local hour, matching legacy `GetSysItem(3)` semantics instead of UTC epoch hour modulo 24.
 - Non-zero DS schedules are covered by a regression test for local hour 5, including `405/429/765 -> 461/18`.
+- Address migration fixes the old overlap explicitly: `4500..4599` is reserved for LED display/control, and settlement/BW meter points move to the `4600..4699` segment. Legacy BW points `4536..4543/4599` should be mapped as `4636..4643/4699` in new examples and platform-generated point tables.

@@ -1,9 +1,11 @@
 {
+  "runtimeMode": "ems",
   "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
   "deviceConfigFiles": [
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP1.json",
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP2.json",
-    "/opt/modbus-gateway/config/runtime/devices/device_dio.json"
+    "/opt/modbus-gateway/config/runtime/devices/device_dio.json",
+    "/opt/modbus-gateway/config/runtime/devices/device_ems_virtual.json"
   ],
   "mqtt": {
     "enabled": true,
