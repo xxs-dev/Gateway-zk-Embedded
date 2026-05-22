@@ -371,8 +371,9 @@ bool isSafeSystemdUnitName(const std::string& value) {
     return true;
 }
 
-std::string runShellCommand(const std::string& shellCommand, int* exitCode = nullptr) {
+std::string runShellCommand(const std::string& shellCommand, int* exitCode = nullptr, std::size_t maxOutputBytes = 0) {
     std::string output;
+    bool truncated = false;
     FILE* pipe = popen(shellCommand.c_str(), "r");
     if (pipe == nullptr) {
         if (exitCode != nullptr) {
@@ -382,13 +383,29 @@ std::string runShellCommand(const std::string& shellCommand, int* exitCode = nul
     }
     char buffer[512];
     while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
+        const std::size_t chunkSize = std::strlen(buffer);
+        if (maxOutputBytes == 0) {
+            output.append(buffer, chunkSize);
+            continue;
+        }
+        if (output.size() < maxOutputBytes) {
+            const std::size_t remaining = maxOutputBytes - output.size();
+            output.append(buffer, std::min(remaining, chunkSize));
+            if (chunkSize > remaining) {
+                truncated = true;
+            }
+        } else if (chunkSize > 0) {
+            truncated = true;
+        }
     }
     const int rc = pclose(pipe);
     if (exitCode != nullptr) {
         *exitCode = rc;
     }
-    return output;
+    if (truncated) {
+        output += "\n[truncated]";
+    }
+    return truncateText(std::move(output), maxOutputBytes);
 }
 
 std::string firstIpv4ForInterface(const std::string& interfaceName) {
@@ -984,10 +1001,7 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     } else if (command == "systemctl_status") {
         arg = service;
     }
-    const auto stdoutText = truncateText(
-        executeDiagCommand(command, arg, &exitCode),
-        monitorConfig_.maxDiagOutputBytes
-    );
+    const auto stdoutText = executeDiagCommand(command, arg, &exitCode);
     std::ostringstream reply;
     reply << "{\"cmdId\":\"" << escapeJson(cmdId)
           << "\",\"machineCode\":\"" << escapeJson(machineCode)
@@ -1540,7 +1554,7 @@ std::string SystemMonitorService::executeDiagCommand(const std::string& command,
         throw std::runtime_error("unsupported diag command");
     }
 
-    return runShellCommand(shellCommand, exitCode);
+    return runShellCommand(shellCommand, exitCode, monitorConfig_.maxDiagOutputBytes);
 }
 
 }  // namespace edge_gateway

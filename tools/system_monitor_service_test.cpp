@@ -129,6 +129,30 @@ int main() {
     }
     require(sawChunkedReply, "expected chunked reply payload");
 
+    SystemMonitorConfig diagConfig;
+    diagConfig.maxDiagOutputBytes = 256;
+    diagConfig.allowedCommands = {"top_once"};
+    auto diagPublisher = std::make_shared<CapturingPublisher>();
+    MqttConfig diagMqtt;
+    diagMqtt.diagReplyTopic = "diag/reply";
+    diagMqtt.statusTopic = "status";
+    SystemMonitorService diagService(diagConfig, diagMqtt, diagPublisher, "GW_TEST");
+    MqttIncomingMessage diagRequest;
+    diagRequest.type = MqttIncomingType::DiagRequest;
+    diagRequest.payload = "{\"cmdId\":\"DIAG_1\",\"machineCode\":\"GW_TEST\",\"command\":\"top_once\"}";
+    diagPublisher->incoming.push_back(diagRequest);
+    diagService.runOnce(1770000002000LL);
+    std::string diagReply;
+    for (std::size_t i = 0; i < diagPublisher->topics.size(); ++i) {
+        if (diagPublisher->topics[i] == diagMqtt.diagReplyTopic) {
+            diagReply = diagPublisher->payloads[i];
+            break;
+        }
+    }
+    require(!diagReply.empty(), "expected diag reply");
+    require(diagReply.find("[truncated]") != std::string::npos, "expected bounded diag output");
+    require(diagReply.size() < 2048, "diag reply should stay bounded");
+
     removeFileIfExists(small);
     removeFileIfExists(large);
     for (const auto& path : chunkFiles) {
