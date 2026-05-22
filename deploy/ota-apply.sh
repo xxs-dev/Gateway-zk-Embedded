@@ -184,6 +184,7 @@ allowed_clean_roots = (
     "/opt/modbus-gateway/config/runtime/devices",
     "/opt/modbus-gateway/config/runtime/apps",
     "/opt/modbus-gateway/config/runtime/logic",
+    "/opt/modbus-gateway/config/runtime/tls",
 )
 
 allowed_bin_targets = {
