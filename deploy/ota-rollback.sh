@@ -12,6 +12,59 @@ if [ -z "$ARTIFACT_PATH" ] || [ -z "$VERSION" ] || [ -z "$JOB_ID" ] || [ -z "$BA
   exit 2
 fi
 
+require_safe_id() {
+  label="$1"
+  value="$2"
+  case "$value" in
+    ""|.|..|*..*|*[!A-Za-z0-9._-]*)
+      echo "[ota-rollback] invalid $label: $value" >&2
+      exit 2
+      ;;
+  esac
+  if [ "${#value}" -gt 128 ]; then
+    echo "[ota-rollback] $label is too long" >&2
+    exit 2
+  fi
+}
+
+require_safe_dir() {
+  label="$1"
+  value="$2"
+  case "$value" in
+    /*) ;;
+    *)
+      echo "[ota-rollback] $label must be an absolute path: $value" >&2
+      exit 2
+      ;;
+  esac
+  case "$value" in
+    /|/opt|/opt/|/etc|/etc/|*"/../"*|*/..)
+      echo "[ota-rollback] unsafe $label: $value" >&2
+      exit 2
+      ;;
+  esac
+}
+
+safe_service_name() {
+  service="$1"
+  case "$service" in
+    *[!A-Za-z0-9_.@:-]*|""|*.service.service)
+      return 1
+      ;;
+  esac
+  case "$service" in
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+require_safe_id "jobId" "$JOB_ID"
+require_safe_id "version" "$VERSION"
+require_safe_dir "backupDir" "$BACKUP_DIR"
+require_safe_dir "stagingDir" "$STAGING_DIR"
+
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 LOG_FILE="$STAGING_DIR/upgrade_history.log"
 STATE_FILE="$STAGING_DIR/current_version.txt"
@@ -33,6 +86,10 @@ fi
 
 if [ -f "$STATE_FILE" ]; then
   WORK_DIR="$(awk -F= '/^workDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
+  case "${WORK_DIR:-}" in
+    "$STAGING_DIR"/*) ;;
+    *) WORK_DIR="" ;;
+  esac
   if [ -n "${WORK_DIR:-}" ] && [ -f "$WORK_DIR/restart_services.txt" ]; then
     cp "$WORK_DIR/restart_services.txt" "$RESTART_FILE"
   fi
@@ -68,6 +125,10 @@ if command -v systemctl >/dev/null 2>&1 && [ -f "$RESTART_FILE" ]; then
   systemctl daemon-reload || echo "[$TIMESTAMP] [ota-rollback] daemon-reload failed" | tee -a "$LOG_FILE" >&2
   while IFS= read -r service; do
     [ -z "$service" ] && continue
+    if ! safe_service_name "$service"; then
+      echo "[$TIMESTAMP] [ota-rollback] skip unsafe restart service $service" | tee -a "$LOG_FILE" >&2
+      continue
+    fi
     if [ "$service" = "gateway-services.service" ]; then
       systemctl enable "$service" || echo "[$TIMESTAMP] [ota-rollback] enable failed $service" | tee -a "$LOG_FILE" >&2
     fi

@@ -12,6 +12,97 @@ if [ -z "$ARTIFACT_PATH" ] || [ -z "$VERSION" ] || [ -z "$JOB_ID" ] || [ -z "$BA
   exit 2
 fi
 
+require_safe_id() {
+  label="$1"
+  value="$2"
+  case "$value" in
+    ""|.|..|*..*|*[!A-Za-z0-9._-]*)
+      echo "[ota-apply] invalid $label: $value" >&2
+      exit 2
+      ;;
+  esac
+  if [ "${#value}" -gt 128 ]; then
+    echo "[ota-apply] $label is too long" >&2
+    exit 2
+  fi
+}
+
+require_safe_dir() {
+  label="$1"
+  value="$2"
+  case "$value" in
+    /*) ;;
+    *)
+      echo "[ota-apply] $label must be an absolute path: $value" >&2
+      exit 2
+      ;;
+  esac
+  case "$value" in
+    /|/opt|/opt/|/etc|/etc/|*"/../"*|*/..)
+      echo "[ota-apply] unsafe $label: $value" >&2
+      exit 2
+      ;;
+  esac
+}
+
+validate_archive_entries() {
+  archive_path="$1"
+  archive_kind="$2"
+  python3 - "$archive_path" "$archive_kind" <<'PY'
+import os
+import posixpath
+import stat
+import sys
+import tarfile
+import zipfile
+
+archive_path, archive_kind = sys.argv[1:3]
+max_entries = 4096
+
+def fail(message):
+    print(f"[ota-apply] unsafe archive: {message}", file=sys.stderr)
+    sys.exit(1)
+
+def safe_member_name(name):
+    if not name or "\x00" in name:
+        return False
+    normalized = posixpath.normpath(name.replace("\\", "/"))
+    return (
+        normalized not in ("", ".", "..")
+        and not normalized.startswith("../")
+        and not normalized.startswith("/")
+        and ":" not in normalized
+    )
+
+if archive_kind == "tar":
+    with tarfile.open(archive_path, "r:*") as archive:
+        for index, member in enumerate(archive, start=1):
+            if index > max_entries:
+                fail("too many archive entries")
+            if not safe_member_name(member.name):
+                fail(f"path escapes staging directory: {member.name}")
+            if member.issym() or member.islnk() or member.isdev():
+                fail(f"unsupported archive entry type: {member.name}")
+elif archive_kind == "zip":
+    with zipfile.ZipFile(archive_path) as archive:
+        for index, info in enumerate(archive.infolist(), start=1):
+            if index > max_entries:
+                fail("too many archive entries")
+            if not safe_member_name(info.filename):
+                fail(f"path escapes staging directory: {info.filename}")
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode in (stat.S_IFLNK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFIFO, stat.S_IFSOCK):
+                fail(f"unsupported archive entry type: {info.filename}")
+else:
+    fail(f"unknown archive kind: {archive_kind}")
+PY
+}
+
+require_safe_id "jobId" "$JOB_ID"
+require_safe_id "version" "$VERSION"
+require_safe_dir "backupDir" "$BACKUP_DIR"
+require_safe_dir "stagingDir" "$STAGING_DIR"
+
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 ARTIFACT_NAME="$(basename "$ARTIFACT_PATH")"
 WORK_DIR="$STAGING_DIR/$JOB_ID"
@@ -19,7 +110,24 @@ LOG_FILE="$STAGING_DIR/upgrade_history.log"
 STATE_FILE="$STAGING_DIR/current_version.txt"
 BACKUP_ARTIFACT="$BACKUP_DIR/${JOB_ID}_${ARTIFACT_NAME}"
 
-mkdir -p "$BACKUP_DIR" "$STAGING_DIR" "$WORK_DIR"
+case "$ARTIFACT_NAME" in
+  ""|.|..|*..*|*[!A-Za-z0-9._-]*)
+    echo "[ota-apply] invalid artifact name: $ARTIFACT_NAME" >&2
+    exit 4
+    ;;
+esac
+
+case "$WORK_DIR" in
+  "$STAGING_DIR"/*) ;;
+  *)
+    echo "[ota-apply] unsafe work directory: $WORK_DIR" >&2
+    exit 2
+    ;;
+esac
+
+mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
+rm -rf "$WORK_DIR"
+mkdir -p "$WORK_DIR"
 
 echo "[$TIMESTAMP] [ota-apply] start jobId=$JOB_ID version=$VERSION artifact=$ARTIFACT_PATH" | tee -a "$LOG_FILE"
 
@@ -33,9 +141,11 @@ cp "$ARTIFACT_PATH" "$WORK_DIR/$ARTIFACT_NAME"
 
 case "$ARTIFACT_NAME" in
   *.tar.gz|*.tgz)
+    validate_archive_entries "$WORK_DIR/$ARTIFACT_NAME" tar
     tar -xzf "$WORK_DIR/$ARTIFACT_NAME" -C "$WORK_DIR"
     ;;
   *.zip)
+    validate_archive_entries "$WORK_DIR/$ARTIFACT_NAME" zip
     unzip -oq "$WORK_DIR/$ARTIFACT_NAME" -d "$WORK_DIR"
     ;;
   *.bin|*.img)
@@ -85,6 +195,22 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/ota-rollback.sh",
 }
 
+allowed_systemd_targets = {
+    "/etc/systemd/system/gateway-services.service",
+    "/etc/systemd/system/modbus-rtu@.service",
+    "/etc/systemd/system/dlt645-driver@.service",
+    "/etc/systemd/system/dio-driver@.service",
+    "/etc/systemd/system/can-driver@.service",
+    "/etc/systemd/system/compute-engine@.service",
+    "/etc/systemd/system/event-engine@.service",
+    "/etc/systemd/system/local-display@.service",
+    "/etc/systemd/system/local-kiosk@.service",
+    "/etc/systemd/system/camera-service@.service",
+    "/etc/systemd/system/mqtt-driver@.service",
+    "/etc/systemd/system/system-monitor@.service",
+    "/etc/systemd/system/mqtt-tls-tunnel@.service",
+}
+
 allowed_exact_services = (
     "gateway-services.service",
 )
@@ -120,8 +246,27 @@ def is_safe_target(dst):
     if safe_child_path(normalized, "/opt/modbus-gateway/bin"):
         return normalized in allowed_bin_targets
     if safe_child_path(normalized, "/etc/systemd/system"):
-        return normalized.endswith(".service")
+        return normalized in allowed_systemd_targets
     return False
+
+def sha256_file(path):
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def verify_manifest_checksum(item, src):
+    expected = str(item.get("sha256", "")).strip().lower()
+    if not expected:
+        return
+    allowed = set("0123456789abcdef")
+    if len(expected) != 64 or any(ch not in allowed for ch in expected):
+        raise SystemExit(f"invalid manifest sha256 for {item.get('path', '')}")
+    actual = sha256_file(src)
+    if actual != expected:
+        raise SystemExit(f"manifest checksum mismatch for {item.get('path', '')}")
 
 def is_safe_service_name(value):
     if not value or len(value) > 128 or not value.endswith(".service"):
@@ -159,6 +304,7 @@ for item in manifest.get("files", []):
     if not is_safe_target(dst):
         log(f"[manifest-copy-skip] unsafe target {dst}")
         continue
+    verify_manifest_checksum(item, src)
     if (
         os.path.abspath(dst) == "/opt/modbus-gateway/config/runtime/device_identity.json"
         and os.path.exists(dst)
@@ -225,6 +371,13 @@ if [ -f "$SYSTEMD_RELOAD_FILE" ]; then
 fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
+  case "\$service" in
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
+    *)
+      echo "[$TIMESTAMP] [ota-apply] skip unsafe restart service \$service" >> "$LOG_FILE"
+      continue
+      ;;
+  esac
   if [ "\$service" = "gateway-services.service" ]; then
     systemctl enable "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] enable failed \$service" >> "$LOG_FILE"
   fi
