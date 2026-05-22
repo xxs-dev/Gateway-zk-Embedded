@@ -104,6 +104,10 @@ add_executable(can_signal_codec_test tools/can_signal_codec_test.cpp)
 target_link_libraries(can_signal_codec_test PRIVATE edge_gateway)
 target_compile_options(can_signal_codec_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(config_loader_test tools/config_loader_test.cpp)
+target_link_libraries(config_loader_test PRIVATE edge_gateway)
+target_compile_options(config_loader_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)

@@ -1,5 +1,6 @@
 #include "edge_gateway/config_loader.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -12,6 +13,20 @@
 namespace edge_gateway {
 
 namespace {
+
+constexpr std::size_t kMqttMinPayloadBytes = 4U * 1024U;
+constexpr std::size_t kMqttMaxPayloadBytes = 1U * 1024U * 1024U;
+constexpr std::uint64_t kMqttMinRealtimeFileBytes = 16ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t kMqttMaxRealtimeFileBytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr std::size_t kMqttMinRealtimeMessageBytes = 1U * 1024U * 1024U;
+constexpr std::size_t kMqttMaxRealtimeMessageBytes = 4U * 1024U * 1024U;
+constexpr std::size_t kMqttMinDiskBytes = 1U * 1024U * 1024U;
+constexpr std::size_t kMqttMaxDiskBytes = 256U * 1024U * 1024U;
+constexpr std::size_t kMqttMaxMemoryMessages = 1000U;
+constexpr std::size_t kMqttMaxBatchSize = 1000U;
+constexpr int kMqttMaxFlushIntervalMs = 60000;
+constexpr int kMqttMaxRetentionMonths = 24;
+constexpr int kMqttMaxCleanupIntervalHours = 168;
 
 bool isAbsolutePath(const std::string& path) {
     if (path.empty()) {
@@ -545,6 +560,18 @@ std::int64_t requireInt64(const JsonValue::Object& object, const char* key, std:
     return static_cast<std::int64_t>(value->asNumber());
 }
 
+std::size_t boundedSize(std::size_t value, std::size_t minValue, std::size_t maxValue) {
+    return std::min(maxValue, std::max(minValue, value));
+}
+
+std::uint64_t boundedUInt64(std::uint64_t value, std::uint64_t minValue, std::uint64_t maxValue) {
+    return std::min(maxValue, std::max(minValue, value));
+}
+
+int boundedInt(int value, int minValue, int maxValue) {
+    return std::min(maxValue, std::max(minValue, value));
+}
+
 double requireDouble(const JsonValue::Object& object, const char* key, double defaultValue = 0.0) {
     const auto* value = findValue(object, key);
     if (value == nullptr || value->isNull()) {
@@ -892,28 +919,80 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
         config.tls.keyFile = requireString(tlsObject, "keyFile", config.tls.keyFile);
         config.tls.insecureSkipVerify = requireBool(tlsObject, "insecureSkipVerify", config.tls.insecureSkipVerify);
     }
-    config.maxPayloadBytes = requireSize(object, "maxPayloadBytes", config.maxPayloadBytes);
+    config.maxPayloadBytes = boundedSize(
+        requireSize(object, "maxPayloadBytes", config.maxPayloadBytes),
+        kMqttMinPayloadBytes,
+        kMqttMaxPayloadBytes
+    );
     if (const auto* offline = value->find("offlineBuffer")) {
         const auto& offlineObject = offline->asObject();
         config.offlineBufferEnabled = requireBool(offlineObject, "enabled", config.offlineBufferEnabled);
         config.offlineBufferMode = requireString(offlineObject, "mode", config.offlineBufferMode);
         config.offlineBufferDir = requireString(offlineObject, "dir", config.offlineBufferDir);
         config.offlineRealtimeFile = requireString(offlineObject, "realtimeFile", config.offlineRealtimeFile);
-        config.offlineRealtimeFileSizeBytes = static_cast<std::uint64_t>(requireSize(offlineObject, "realtimeFileSizeBytes", static_cast<std::size_t>(config.offlineRealtimeFileSizeBytes)));
-        config.offlineMaxRealtimeMessageBytes = static_cast<std::uint32_t>(requireSize(offlineObject, "maxRealtimeMessageBytes", config.offlineMaxRealtimeMessageBytes));
-        config.offlineBufferMaxMemoryMessages = requireSize(offlineObject, "maxMemoryMessages", config.offlineBufferMaxMemoryMessages);
-        config.offlineBufferFlushBatchSize = requireSize(offlineObject, "flushBatchSize", config.offlineBufferFlushBatchSize);
-        config.offlineBufferFlushIntervalMs = requireInt(offlineObject, "flushIntervalMs", config.offlineBufferFlushIntervalMs);
-        config.offlineBufferReplayBatchSize = requireSize(offlineObject, "replayBatchSize", config.offlineBufferReplayBatchSize);
-        config.offlineBufferMaxDiskBytes = requireSize(offlineObject, "maxDiskBytes", config.offlineBufferMaxDiskBytes);
+        config.offlineRealtimeFileSizeBytes = boundedUInt64(
+            static_cast<std::uint64_t>(requireSize(
+                offlineObject,
+                "realtimeFileSizeBytes",
+                static_cast<std::size_t>(config.offlineRealtimeFileSizeBytes)
+            )),
+            kMqttMinRealtimeFileBytes,
+            kMqttMaxRealtimeFileBytes
+        );
+        config.offlineMaxRealtimeMessageBytes = static_cast<std::uint32_t>(boundedSize(
+            requireSize(offlineObject, "maxRealtimeMessageBytes", config.offlineMaxRealtimeMessageBytes),
+            kMqttMinRealtimeMessageBytes,
+            kMqttMaxRealtimeMessageBytes
+        ));
+        config.offlineBufferMaxMemoryMessages = boundedSize(
+            requireSize(offlineObject, "maxMemoryMessages", config.offlineBufferMaxMemoryMessages),
+            1U,
+            kMqttMaxMemoryMessages
+        );
+        config.offlineBufferFlushBatchSize = boundedSize(
+            requireSize(offlineObject, "flushBatchSize", config.offlineBufferFlushBatchSize),
+            1U,
+            kMqttMaxBatchSize
+        );
+        config.offlineBufferFlushIntervalMs = boundedInt(
+            requireInt(offlineObject, "flushIntervalMs", config.offlineBufferFlushIntervalMs),
+            1000,
+            kMqttMaxFlushIntervalMs
+        );
+        config.offlineBufferReplayBatchSize = boundedSize(
+            requireSize(offlineObject, "replayBatchSize", config.offlineBufferReplayBatchSize),
+            1U,
+            kMqttMaxBatchSize
+        );
+        config.offlineBufferMaxDiskBytes = boundedSize(
+            requireSize(offlineObject, "maxDiskBytes", config.offlineBufferMaxDiskBytes),
+            kMqttMinDiskBytes,
+            kMqttMaxDiskBytes
+        );
         if (const auto* outbox = offline->find("eventOutbox")) {
             const auto& outboxObject = outbox->asObject();
             config.eventOutboxSqlitePath = requireString(outboxObject, "sqlitePath", config.eventOutboxSqlitePath);
             config.eventOutboxSqliteLibraryPath = requireString(outboxObject, "sqliteLibraryPath", config.eventOutboxSqliteLibraryPath);
-            config.eventOutboxRetentionMonths = requireInt(outboxObject, "retentionMonths", config.eventOutboxRetentionMonths);
-            config.eventOutboxCleanupIntervalHours = requireInt(outboxObject, "cleanupIntervalHours", config.eventOutboxCleanupIntervalHours);
-            config.eventOutboxReplayBatchSize = requireSize(outboxObject, "replayBatchSize", config.eventOutboxReplayBatchSize);
-            config.eventOutboxMaxDiskBytes = requireSize(outboxObject, "maxDiskBytes", config.eventOutboxMaxDiskBytes);
+            config.eventOutboxRetentionMonths = boundedInt(
+                requireInt(outboxObject, "retentionMonths", config.eventOutboxRetentionMonths),
+                1,
+                kMqttMaxRetentionMonths
+            );
+            config.eventOutboxCleanupIntervalHours = boundedInt(
+                requireInt(outboxObject, "cleanupIntervalHours", config.eventOutboxCleanupIntervalHours),
+                1,
+                kMqttMaxCleanupIntervalHours
+            );
+            config.eventOutboxReplayBatchSize = boundedSize(
+                requireSize(outboxObject, "replayBatchSize", config.eventOutboxReplayBatchSize),
+                1U,
+                kMqttMaxBatchSize
+            );
+            config.eventOutboxMaxDiskBytes = boundedSize(
+                requireSize(outboxObject, "maxDiskBytes", config.eventOutboxMaxDiskBytes),
+                kMqttMinDiskBytes,
+                kMqttMaxDiskBytes
+            );
         } else {
             config.eventOutboxMaxDiskBytes = config.offlineBufferMaxDiskBytes;
         }
