@@ -112,6 +112,41 @@ int main() {
     require(containsText(markerPath, "backupDir=/tmp/gateway-ota-marker/backup/JOB_MARKER_001"), "version marker should include job backup dir");
     require(containsText(markerPath, "workDir=/tmp/gateway-ota-marker/staging/JOB_MARKER_001"), "version marker should include work dir");
 
+    OtaConfig mismatchConfig;
+    mismatchConfig.enabled = true;
+    mismatchConfig.downloadDir = "/tmp/gateway-ota-mismatch/downloads";
+    mismatchConfig.stagingDir = "/tmp/gateway-ota-mismatch/staging";
+    mismatchConfig.backupDir = "/tmp/gateway-ota-mismatch/backup";
+    mismatchConfig.applyScript = "/tmp/gateway-ota-mismatch/apply-ok.sh";
+    mismatchConfig.rollbackScript.clear();
+    mismatchConfig.checksumRequired = false;
+    mismatchConfig.packageType = "tar.gz";
+    mismatchConfig.minFreeBytes = 0;
+    OtaService mismatchService(mismatchConfig);
+    OtaRequest mismatchRequest;
+    mismatchRequest.jobId = "JOB_MISMATCH_001";
+    mismatchRequest.version = "3.0.0";
+    mismatchRequest.artifactUrl = "/tmp/gateway-ota-mismatch/source.tar.gz";
+    mismatchRequest.size = 8;
+    {
+        std::system("rm -rf /tmp/gateway-ota-mismatch");
+        std::system("mkdir -p /tmp/gateway-ota-mismatch");
+        std::ofstream artifact(mismatchRequest.artifactUrl.c_str(), std::ios::binary | std::ios::trunc);
+        artifact << "payload";
+        std::ofstream script(mismatchConfig.applyScript.c_str(), std::ios::trunc);
+        script << "#!/bin/sh\nexit 0\n";
+    }
+    bool rejectedMismatch = false;
+    try {
+        OtaReply mismatchReply;
+        OtaStatus mismatchStatus;
+        mismatchService.execute(mismatchRequest, "GW_TEST", 1770000000000LL, &mismatchReply, &mismatchStatus, nullptr);
+    } catch (const std::exception& ex) {
+        rejectedMismatch = std::string(ex.what()).find("ota artifact size mismatch") != std::string::npos;
+    }
+    require(rejectedMismatch, "ota local copy should reject mismatched actual size");
+    require(containsText(mismatchConfig.stagingDir + "/upgrade_history.log", "result=failure"), "size mismatch should be recorded");
+
     std::cout << "ota_service_test passed" << std::endl;
     return 0;
 }

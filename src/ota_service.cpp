@@ -1100,6 +1100,7 @@ void OtaService::copyArtifactWithProgress(
             throw std::runtime_error("failed to copy artifact to staging");
         }
         downloadedBytes += static_cast<std::uint64_t>(got);
+        validateOtaSize(config_, downloadedBytes);
         const auto nowMs = currentTimeMs();
         if (nowMs - lastReportMs >= 500 || downloadedBytes == totalBytes) {
             reportDownloadProgress(status, downloadedBytes, totalBytes, "copying artifact", publishStatus);
@@ -1108,6 +1109,9 @@ void OtaService::copyArtifactWithProgress(
     }
     if (!output.good()) {
         throw std::runtime_error("failed to copy artifact to staging");
+    }
+    if (request.size > 0 && downloadedBytes != request.size) {
+        throw std::runtime_error("ota artifact size mismatch");
     }
     reportDownloadProgress(status, downloadedBytes, totalBytes, "artifact copied", publishStatus);
 }
@@ -1212,6 +1216,7 @@ void OtaService::downloadHttpArtifact(
         const auto bodySize = received.size() - bodyOffset;
         output.write(received.data() + bodyOffset, static_cast<std::streamsize>(bodySize));
         downloadedBytes += static_cast<std::uint64_t>(bodySize);
+        validateOtaSize(config_, downloadedBytes);
     }
     if (!output.good()) {
         throw std::runtime_error("failed to write ota artifact");

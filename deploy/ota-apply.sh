@@ -58,10 +58,18 @@ import zipfile
 
 archive_path, archive_kind = sys.argv[1:3]
 max_entries = 4096
+max_total_bytes = 512 * 1024 * 1024
+total_bytes = 0
 
 def fail(message):
     print(f"[ota-apply] unsafe archive: {message}", file=sys.stderr)
     sys.exit(1)
+
+def accept_size(size):
+    global total_bytes
+    total_bytes += max(0, int(size))
+    if total_bytes > max_total_bytes:
+        fail("uncompressed content exceeds limit")
 
 def safe_member_name(name):
     if not name or "\x00" in name:
@@ -83,6 +91,8 @@ if archive_kind == "tar":
                 fail(f"path escapes staging directory: {member.name}")
             if member.issym() or member.islnk() or member.isdev():
                 fail(f"unsupported archive entry type: {member.name}")
+            if member.isfile():
+                accept_size(member.size)
 elif archive_kind == "zip":
     with zipfile.ZipFile(archive_path) as archive:
         for index, info in enumerate(archive.infolist(), start=1):
@@ -93,6 +103,8 @@ elif archive_kind == "zip":
             mode = (info.external_attr >> 16) & 0o170000
             if mode in (stat.S_IFLNK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFIFO, stat.S_IFSOCK):
                 fail(f"unsupported archive entry type: {info.filename}")
+            if not info.is_dir():
+                accept_size(info.file_size)
 else:
     fail(f"unknown archive kind: {archive_kind}")
 PY
