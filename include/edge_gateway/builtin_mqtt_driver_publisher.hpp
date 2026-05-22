@@ -67,6 +67,12 @@ public:
 
     std::vector<MqttIncomingMessage> pollIncoming(int timeoutMs) override;
 
+    static bool parseIncomingPublishPacket(
+        const MqttConfig& config,
+        const std::vector<std::uint8_t>& packet,
+        MqttIncomingMessage* message
+    );
+
 private:
     struct MqttConnectionHandle;
 

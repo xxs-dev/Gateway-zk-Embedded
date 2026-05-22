@@ -44,6 +44,8 @@ constexpr std::uint8_t kPacketSubAck = 0x90;
 constexpr std::uint8_t kPacketPingReq = 0xC0;
 constexpr std::uint8_t kPacketPingResp = 0xD0;
 constexpr std::uint8_t kPacketDisconnect = 0xE0;
+constexpr std::size_t kMinIncomingPacketBytes = 512U * 1024U;
+constexpr std::size_t kMaxRemainingLengthBytes = 268435455U;
 
 std::string scopedTopic(const std::string& topic, const std::string& machineCode) {
     if (topic.empty() || machineCode.empty()) {
@@ -153,6 +155,9 @@ std::size_t decodeRemainingLength(const std::vector<std::uint8_t>& packet, std::
         }
         encoded = packet[offset++];
         value += (encoded & 0x7F) * multiplier;
+        if (multiplier > 128U * 128U * 128U) {
+            throw std::runtime_error("mqtt malformed remaining length");
+        }
         multiplier *= 128;
     } while ((encoded & 0x80) != 0);
     *headerSize = offset;
@@ -1010,7 +1015,17 @@ std::vector<std::uint8_t> recvExact(MqttConnection& connection, std::size_t len)
     return bytes;
 }
 
-std::vector<std::uint8_t> readPacket(SocketHandle sock) {
+std::size_t incomingPacketLimit(const MqttConfig& config) {
+    return std::max(kMinIncomingPacketBytes, config.maxPayloadBytes);
+}
+
+void rejectOversizedPacket(std::size_t remaining, std::size_t limit) {
+    if (remaining > limit) {
+        throw std::runtime_error("mqtt incoming packet is too large");
+    }
+}
+
+std::vector<std::uint8_t> readPacket(SocketHandle sock, std::size_t maxRemainingBytes = kMaxRemainingLengthBytes) {
     std::vector<std::uint8_t> packet;
     packet.push_back(recvByte(sock));
     std::size_t multiplier = 1;
@@ -1020,14 +1035,18 @@ std::vector<std::uint8_t> readPacket(SocketHandle sock) {
         encoded = recvByte(sock);
         packet.push_back(encoded);
         remaining += (encoded & 0x7F) * multiplier;
+        if (multiplier > 128U * 128U * 128U) {
+            throw std::runtime_error("mqtt malformed remaining length");
+        }
         multiplier *= 128;
     } while ((encoded & 0x80) != 0);
+    rejectOversizedPacket(remaining, maxRemainingBytes);
     const auto body = recvExact(sock, remaining);
     packet.insert(packet.end(), body.begin(), body.end());
     return packet;
 }
 
-std::vector<std::uint8_t> readPacket(MqttConnection& connection) {
+std::vector<std::uint8_t> readPacket(MqttConnection& connection, std::size_t maxRemainingBytes = kMaxRemainingLengthBytes) {
     std::vector<std::uint8_t> packet;
     packet.push_back(recvByte(connection));
     std::size_t multiplier = 1;
@@ -1037,8 +1056,12 @@ std::vector<std::uint8_t> readPacket(MqttConnection& connection) {
         encoded = recvByte(connection);
         packet.push_back(encoded);
         remaining += (encoded & 0x7F) * multiplier;
+        if (multiplier > 128U * 128U * 128U) {
+            throw std::runtime_error("mqtt malformed remaining length");
+        }
         multiplier *= 128;
     } while ((encoded & 0x80) != 0);
+    rejectOversizedPacket(remaining, maxRemainingBytes);
     const auto body = recvExact(connection, remaining);
     packet.insert(packet.end(), body.begin(), body.end());
     return packet;
@@ -1209,7 +1232,10 @@ bool parsePublishPacket(
     }
 
     std::size_t headerSize = 0;
-    decodeRemainingLength(packet, &headerSize);
+    const auto remainingLength = decodeRemainingLength(packet, &headerSize);
+    if (remainingLength > incomingPacketLimit(config) || packet.size() > headerSize + incomingPacketLimit(config)) {
+        throw std::runtime_error("mqtt incoming packet is too large");
+    }
     std::size_t cursor = headerSize;
     if (cursor + 2 > packet.size()) {
         throw std::runtime_error("mqtt publish topic length missing");
@@ -1424,7 +1450,7 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
         }
 
         while (true) {
-            const auto packet = readPacket(connection);
+            const auto packet = readPacket(connection, incomingPacketLimit(config_));
             lastSubscriberActivityMs_ = currentTimeMs();
             const auto type = packet[0] & 0xF0;
             if (type == kPacketPingResp) {
@@ -1477,6 +1503,15 @@ void BuiltinMqttDriverPublisher::publishJson(const std::string& topic, const std
     } catch (...) {
         enqueueOffline(scoped, payload);
     }
+}
+
+bool BuiltinMqttDriverPublisher::parseIncomingPublishPacket(
+    const MqttConfig& config,
+    const std::vector<std::uint8_t>& packet,
+    MqttIncomingMessage* message
+) {
+    std::uint16_t packetId = 0;
+    return parsePublishPacket(config, packet, message, &packetId);
 }
 
 void BuiltinMqttDriverPublisher::publishRealtimeJson(const std::string& topic, const std::string& payload) {
