@@ -190,6 +190,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/gateway-run.sh",
     "/opt/modbus-gateway/bin/gateway-services.sh",
     "/opt/modbus-gateway/bin/install-factory-config.sh",
+    "/opt/modbus-gateway/bin/local-kiosk.py",
     "/opt/modbus-gateway/bin/production-smoke-test.sh",
     "/opt/modbus-gateway/bin/ota-apply.sh",
     "/opt/modbus-gateway/bin/ota-rollback.sh",
