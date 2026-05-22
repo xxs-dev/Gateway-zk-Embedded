@@ -448,6 +448,30 @@ int main() {
         requireNear(pending[0].value, 1.0, 0.0001, "pending write value mismatch");
         require(pending[0].source == "legacy-ems", "pending write source mismatch");
 
+        auto fullQueueConfig = buildTestDeviceConfig();
+        fullQueueConfig.memoryStore.sharedMemoryName = "legacy_ems_test_full_write_queue";
+        fullQueueConfig.memoryStore.maxPendingWrites = 1;
+        cleanupStoreSegment(fullQueueConfig.memoryStore);
+        edge_gateway::MemoryPointStore fullQueueStore(fullQueueConfig.memoryStore);
+        edge_gateway::PointStoreRouter fullQueueRouter;
+        fullQueueRouter.addStore(fullQueueConfig.memoryStore.sharedMemoryName, fullQueueStore);
+        fullQueueRouter.addRoutesFromDeviceConfigs({fullQueueConfig}, fullQueueConfig.memoryStore.sharedMemoryName);
+        edge_gateway::PendingWriteCommand queued;
+        queued.cmdId = "queued";
+        queued.index = 984;
+        queued.value = 1.0;
+        queued.source = "test";
+        queued.ts = 1200;
+        auto acceptedFullQueue = fullQueueRouter.submitWriteCommand(queued);
+        require(acceptedFullQueue.accepted, "first write should fill bounded queue");
+        queued.cmdId = "overflow";
+        auto rejectedFullQueue = fullQueueRouter.submitWriteCommand(queued);
+        require(!rejectedFullQueue.accepted, "full write queue should reject without throwing");
+        require(
+            rejectedFullQueue.message.find("shared pending write queue is full") != std::string::npos,
+            "full write queue rejection message mismatch"
+        );
+
         writeTextFile(
             "graph_ems_app_config_test.json",
             R"json({

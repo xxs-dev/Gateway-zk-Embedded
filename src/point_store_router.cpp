@@ -253,7 +253,12 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteComma
         result.message = "target shared memory not found: " + route->sharedMemoryName;
         return result;
     }
-    store->submitWriteCommand(command);
+    try {
+        store->submitWriteCommand(command);
+    } catch (const std::exception& ex) {
+        result.message = ex.what();
+        return result;
+    }
     result.accepted = true;
     result.message = "write command routed";
     return result;
