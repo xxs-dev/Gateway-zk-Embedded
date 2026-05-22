@@ -108,7 +108,8 @@ ARTIFACT_NAME="$(basename "$ARTIFACT_PATH")"
 WORK_DIR="$STAGING_DIR/$JOB_ID"
 LOG_FILE="$STAGING_DIR/upgrade_history.log"
 STATE_FILE="$STAGING_DIR/current_version.txt"
-BACKUP_ARTIFACT="$BACKUP_DIR/${JOB_ID}_${ARTIFACT_NAME}"
+JOB_BACKUP_DIR="$BACKUP_DIR/$JOB_ID"
+BACKUP_ARTIFACT="$JOB_BACKUP_DIR/$ARTIFACT_NAME"
 
 case "$ARTIFACT_NAME" in
   ""|.|..|*..*|*[!A-Za-z0-9._-]*)
@@ -125,9 +126,18 @@ case "$WORK_DIR" in
     ;;
 esac
 
+case "$JOB_BACKUP_DIR" in
+  "$BACKUP_DIR"/*) ;;
+  *)
+    echo "[ota-apply] unsafe backup directory: $JOB_BACKUP_DIR" >&2
+    exit 2
+    ;;
+esac
+
 mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
 rm -rf "$WORK_DIR"
-mkdir -p "$WORK_DIR"
+rm -rf "$JOB_BACKUP_DIR"
+mkdir -p "$WORK_DIR" "$JOB_BACKUP_DIR"
 
 echo "[$TIMESTAMP] [ota-apply] start jobId=$JOB_ID version=$VERSION artifact=$ARTIFACT_PATH" | tee -a "$LOG_FILE"
 
@@ -165,7 +175,7 @@ if [ -f "$MANIFEST_PATH" ]; then
   RESTART_FILE="$WORK_DIR/restart_services.txt"
   SYSTEMD_RELOAD_FILE="$WORK_DIR/systemd_reload_required"
   CHMOD_FILE="$WORK_DIR/chmod_targets.txt"
-  python3 - "$MANIFEST_PATH" "$BACKUP_DIR" "$LOG_FILE" "$RESTART_FILE" "$SYSTEMD_RELOAD_FILE" "$CHMOD_FILE" <<'PY'
+  python3 - "$MANIFEST_PATH" "$JOB_BACKUP_DIR" "$LOG_FILE" "$RESTART_FILE" "$SYSTEMD_RELOAD_FILE" "$CHMOD_FILE" <<'PY'
 import json
 import glob
 import os
@@ -354,6 +364,7 @@ fi
   echo "jobId=$JOB_ID"
   echo "version=$VERSION"
   echo "artifact=$ARTIFACT_PATH"
+  echo "backupDir=$JOB_BACKUP_DIR"
   echo "backupArtifact=$BACKUP_ARTIFACT"
   echo "workDir=$WORK_DIR"
   echo "appliedAt=$TIMESTAMP"

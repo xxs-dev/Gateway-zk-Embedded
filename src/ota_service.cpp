@@ -867,13 +867,19 @@ void OtaService::ensureDirectory(const std::string& path) const {
 
 void OtaService::writeVersionMarker(const OtaRequest& request, const std::string& artifactPath) const {
     const auto versionFile = joinPath(config_.stagingDir, "current_version.txt");
+    const auto jobBackupDir = joinPath(config_.backupDir, request.jobId);
+    const auto workDir = joinPath(config_.stagingDir, request.jobId);
     std::ofstream output(versionFile.c_str(), std::ios::trunc);
     if (!output.is_open()) {
         throw std::runtime_error("failed to write ota version marker");
     }
+    output << "jobId=" << request.jobId << "\n";
     output << "previousVersion=" << config_.currentVersion << "\n";
     output << "currentVersion=" << (request.version.empty() ? config_.currentVersion : request.version) << "\n";
     output << "artifactPath=" << artifactPath << "\n";
+    output << "backupDir=" << jobBackupDir << "\n";
+    output << "backupArtifact=" << joinPath(jobBackupDir, fileNameOf(artifactPath)) << "\n";
+    output << "workDir=" << workDir << "\n";
     output << "retentionCount=" << config_.retentionCount << "\n";
     output << "autoReboot=" << (config_.autoReboot ? "true" : "false") << "\n";
 }

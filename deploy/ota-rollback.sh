@@ -71,6 +71,8 @@ STATE_FILE="$STAGING_DIR/current_version.txt"
 ROLLBACK_MARK="$STAGING_DIR/rollback_${JOB_ID}.txt"
 RESTORE_LIST="$STAGING_DIR/rollback_${JOB_ID}_restored.txt"
 RESTART_FILE="$STAGING_DIR/rollback_${JOB_ID}_restart_services.txt"
+RESTORE_BACKUP_DIR="$BACKUP_DIR"
+WORK_DIR="$STAGING_DIR/$JOB_ID"
 
 mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
 
@@ -80,23 +82,35 @@ if [ -f "$STATE_FILE" ]; then
   cp "$STATE_FILE" "$ROLLBACK_MARK"
 fi
 
-if [ -f "$BACKUP_DIR/previous_version.txt" ]; then
-  cp "$BACKUP_DIR/previous_version.txt" "$STAGING_DIR/applied_version.txt"
-fi
-
 if [ -f "$STATE_FILE" ]; then
-  WORK_DIR="$(awk -F= '/^workDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
-  case "${WORK_DIR:-}" in
-    "$STAGING_DIR"/*) ;;
-    *) WORK_DIR="" ;;
+  STATE_BACKUP_DIR="$(awk -F= '/^backupDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
+  case "${STATE_BACKUP_DIR:-}" in
+    "$BACKUP_DIR"/*) RESTORE_BACKUP_DIR="$STATE_BACKUP_DIR" ;;
   esac
-  if [ -n "${WORK_DIR:-}" ] && [ -f "$WORK_DIR/restart_services.txt" ]; then
-    cp "$WORK_DIR/restart_services.txt" "$RESTART_FILE"
-  fi
+  STATE_WORK_DIR="$(awk -F= '/^workDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
+  case "${STATE_WORK_DIR:-}" in
+    "$STAGING_DIR"/*) WORK_DIR="$STATE_WORK_DIR" ;;
+  esac
 fi
 
-if [ -d "$BACKUP_DIR/opt" ] || [ -d "$BACKUP_DIR/etc" ]; then
-  python3 - "$BACKUP_DIR" "$RESTORE_LIST" <<'PY'
+case "$WORK_DIR" in
+  "$STAGING_DIR"/*) ;;
+  *) WORK_DIR="" ;;
+esac
+if [ -n "${WORK_DIR:-}" ] && [ -f "$WORK_DIR/restart_services.txt" ]; then
+  cp "$WORK_DIR/restart_services.txt" "$RESTART_FILE"
+fi
+
+if [ "$RESTORE_BACKUP_DIR" = "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR/$JOB_ID" ]; then
+  RESTORE_BACKUP_DIR="$BACKUP_DIR/$JOB_ID"
+fi
+
+if [ -f "$RESTORE_BACKUP_DIR/previous_version.txt" ]; then
+  cp "$RESTORE_BACKUP_DIR/previous_version.txt" "$STAGING_DIR/applied_version.txt"
+fi
+
+if [ -d "$RESTORE_BACKUP_DIR/opt" ] || [ -d "$RESTORE_BACKUP_DIR/etc" ]; then
+  python3 - "$RESTORE_BACKUP_DIR" "$RESTORE_LIST" <<'PY'
 import os
 import shutil
 import sys
@@ -141,6 +155,7 @@ fi
   echo "jobId=$JOB_ID"
   echo "rollbackFromVersion=$VERSION"
   echo "artifact=$ARTIFACT_PATH"
+  echo "restoreBackupDir=$RESTORE_BACKUP_DIR"
   echo "rollbackAt=$TIMESTAMP"
   echo "restoreList=$RESTORE_LIST"
 } >> "$ROLLBACK_MARK"

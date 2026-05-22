@@ -1,5 +1,7 @@
 #include "edge_gateway/ota_service.hpp"
 
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -18,6 +20,15 @@ void requireRejected(const edge_gateway::OtaService& service, edge_gateway::OtaR
     if (error.find(expected) == std::string::npos) {
         throw std::runtime_error("unexpected ota validation error: " + error);
     }
+}
+
+bool containsText(const std::string& path, const std::string& expected) {
+    std::ifstream input(path.c_str());
+    if (!input.is_open()) {
+        return false;
+    }
+    const std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    return content.find(expected) != std::string::npos;
 }
 
 }  // namespace
@@ -68,6 +79,38 @@ int main() {
     localTraversal.version.clear();
     localTraversal.artifactUrl = "../gateway.tar.gz";
     requireRejected(service, localTraversal, "invalid ota artifactUrl");
+
+    OtaConfig markerConfig;
+    markerConfig.enabled = true;
+    markerConfig.downloadDir = "/tmp/gateway-ota-marker/downloads";
+    markerConfig.stagingDir = "/tmp/gateway-ota-marker/staging";
+    markerConfig.backupDir = "/tmp/gateway-ota-marker/backup";
+    markerConfig.applyScript = "/tmp/gateway-ota-marker/apply-ok.sh";
+    markerConfig.rollbackScript.clear();
+    markerConfig.checksumRequired = false;
+    markerConfig.currentVersion = "1.0.0";
+    markerConfig.packageType = "tar.gz";
+    markerConfig.minFreeBytes = 0;
+    OtaService markerService(markerConfig);
+    OtaRequest markerRequest;
+    markerRequest.jobId = "JOB_MARKER_001";
+    markerRequest.version = "2.0.0";
+    markerRequest.artifactUrl = "/tmp/gateway-ota-marker/source.tar.gz";
+    {
+        std::system("rm -rf /tmp/gateway-ota-marker");
+        std::system("mkdir -p /tmp/gateway-ota-marker");
+        std::ofstream artifact(markerRequest.artifactUrl.c_str(), std::ios::binary | std::ios::trunc);
+        artifact << "payload";
+        std::ofstream script(markerConfig.applyScript.c_str(), std::ios::trunc);
+        script << "#!/bin/sh\nexit 0\n";
+    }
+    OtaReply reply;
+    OtaStatus status;
+    markerService.execute(markerRequest, "GW_TEST", 1770000000000LL, &reply, &status, nullptr);
+    const std::string markerPath = markerConfig.stagingDir + "/current_version.txt";
+    require(containsText(markerPath, "jobId=JOB_MARKER_001"), "version marker should include jobId");
+    require(containsText(markerPath, "backupDir=/tmp/gateway-ota-marker/backup/JOB_MARKER_001"), "version marker should include job backup dir");
+    require(containsText(markerPath, "workDir=/tmp/gateway-ota-marker/staging/JOB_MARKER_001"), "version marker should include work dir");
 
     std::cout << "ota_service_test passed" << std::endl;
     return 0;
