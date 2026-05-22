@@ -111,3 +111,7 @@ target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
 add_executable(ota_service_test tools/ota_service_test.cpp)
 target_link_libraries(ota_service_test PRIVATE edge_gateway)
 target_compile_options(ota_service_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(system_monitor_service_test tools/system_monitor_service_test.cpp)
+target_link_libraries(system_monitor_service_test PRIVATE edge_gateway)
+target_compile_options(system_monitor_service_test PRIVATE -fdiagnostics-color=never)

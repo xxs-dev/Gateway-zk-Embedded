@@ -106,6 +106,7 @@ private:
     bool isCommandAllowed(const std::string& command) const;
     std::string executeDiagCommand(const std::string& command, const std::string& arg, int* exitCode) const;
     void publishConfigPullReply(const std::string& payload) const;
+    std::string buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const;
 
     SystemMonitorConfig monitorConfig_;
     MqttConfig mqttConfig_;

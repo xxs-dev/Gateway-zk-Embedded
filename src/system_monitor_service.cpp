@@ -26,6 +26,11 @@ namespace edge_gateway {
 
 namespace {
 
+constexpr std::size_t kMaxConfigPullFiles = 256;
+constexpr std::size_t kMaxConfigPullFileBytes = 512 * 1024;
+constexpr std::size_t kMaxConfigPullTotalBytes = 8 * 1024 * 1024;
+constexpr std::size_t kMaxConfigPullReplyBytes = 12 * 1024 * 1024;
+
 class FlatJsonReader {
 public:
     explicit FlatJsonReader(const std::string& text) : text_(text) {}
@@ -194,6 +199,14 @@ std::string readFileText(const std::string& path) {
     return buffer.str();
 }
 
+std::uint64_t fileSizeBytes(const std::string& path) {
+    struct stat st {};
+    if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+        return 0;
+    }
+    return st.st_size > 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
+}
+
 std::int64_t modifiedAtMs(const std::string& path) {
     struct stat st {};
     if (stat(path.c_str(), &st) != 0) {
@@ -283,6 +296,11 @@ std::string dirName(const std::string& path) {
 bool pathExists(const std::string& path) {
     struct stat st {};
     return stat(path.c_str(), &st) == 0;
+}
+
+bool isRegularFile(const std::string& path) {
+    struct stat st {};
+    return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
 std::string readOptionalFile(const std::string& path) {
@@ -573,7 +591,11 @@ std::string atCommand(const std::string& device, int baudRate, const std::string
     tcflush(fd, TCIOFLUSH);
 
     const std::string request = command + "\r";
-    (void)::write(fd, request.data(), request.size());
+    const auto written = ::write(fd, request.data(), request.size());
+    if (written < 0 || static_cast<std::size_t>(written) != request.size()) {
+        ::close(fd);
+        return std::string();
+    }
     tcdrain(fd);
 
     std::string response;
@@ -1003,29 +1025,70 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
         requestId = "CFG_PULL_" + std::to_string(nowMs);
     }
 
-    std::ostringstream reply;
-    reply << "{\"requestId\":\"" << escapeJson(requestId)
-          << "\",\"machineCode\":\"" << escapeJson(machineCode_)
-          << "\",\"success\":true,\"files\":[";
-    for (std::size_t i = 0; i < configFiles_.size(); ++i) {
-        const auto& path = configFiles_[i];
-        const auto content = readFileText(path);
-        if (i > 0) {
-            reply << ",";
-        }
-        reply << "{\"path\":\"" << escapeJson(path)
-              << "\",\"sizeBytes\":" << static_cast<long long>(content.size())
-              << ",\"modifiedAtMs\":" << static_cast<long long>(modifiedAtMs(path))
-              << ",\"content\":\"" << escapeJson(content) << "\"}";
-    }
-    reply << "],\"ts\":" << nowMs << "}";
-    publishConfigPullReply(reply.str());
+    const auto reply = buildConfigPullReply(requestId, nowMs);
+    publishConfigPullReply(reply);
     publishStatusEvent(
         "config-pull-replied",
         nowMs,
         std::string(R"("requestId":")") + escapeJson(requestId) +
             R"(","fileCount":)" + std::to_string(configFiles_.size())
     );
+}
+
+std::string SystemMonitorService::buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const {
+    std::ostringstream reply;
+    reply << "{\"requestId\":\"" << escapeJson(requestId)
+          << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+          << "\",\"success\":true,\"files\":[";
+
+    std::size_t emittedFiles = 0;
+    std::size_t skippedFiles = 0;
+    std::size_t totalBytes = 0;
+    for (const auto& path : configFiles_) {
+        if (path.empty()) {
+            continue;
+        }
+        if (emittedFiles >= kMaxConfigPullFiles) {
+            ++skippedFiles;
+            continue;
+        }
+        if (!isRegularFile(path)) {
+            ++skippedFiles;
+            continue;
+        }
+        const auto size = static_cast<std::size_t>(fileSizeBytes(path));
+        if (size > kMaxConfigPullFileBytes || totalBytes > kMaxConfigPullTotalBytes - size) {
+            ++skippedFiles;
+            continue;
+        }
+
+        const auto content = readFileText(path);
+        if (content.size() > kMaxConfigPullFileBytes ||
+            totalBytes > kMaxConfigPullTotalBytes - content.size()) {
+            ++skippedFiles;
+            continue;
+        }
+        totalBytes += content.size();
+        if (emittedFiles > 0) {
+            reply << ",";
+        }
+        reply << "{\"path\":\"" << escapeJson(path)
+              << "\",\"sizeBytes\":" << static_cast<long long>(content.size())
+              << ",\"modifiedAtMs\":" << static_cast<long long>(modifiedAtMs(path))
+              << ",\"content\":\"" << escapeJson(content) << "\"}";
+        ++emittedFiles;
+        if (reply.tellp() > static_cast<std::streampos>(kMaxConfigPullReplyBytes)) {
+            throw std::runtime_error("config pull reply is too large");
+        }
+    }
+    reply << "],\"fileCount\":" << static_cast<long long>(emittedFiles)
+          << ",\"skippedFiles\":" << static_cast<long long>(skippedFiles)
+          << ",\"totalBytes\":" << static_cast<long long>(totalBytes)
+          << ",\"ts\":" << nowMs << "}";
+    if (reply.tellp() > static_cast<std::streampos>(kMaxConfigPullReplyBytes)) {
+        throw std::runtime_error("config pull reply is too large");
+    }
+    return reply.str();
 }
 
 SystemMonitorService::Sample SystemMonitorService::collectSample() const {
