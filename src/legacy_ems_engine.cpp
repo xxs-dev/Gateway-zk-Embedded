@@ -127,6 +127,10 @@ int localHourFromEpochMs(std::int64_t nowMs) {
     return localTime.tm_hour;
 }
 
+bool valueMatches(double actual, double target, double tolerance = 0.5) {
+    return std::abs(actual - target) <= tolerance;
+}
+
 }  // namespace
 
 LegacyEmsEngine::LegacyEmsEngine(
@@ -1387,17 +1391,29 @@ void LegacyEmsEngine::submitPcsPowerCommands(
         {kPcsQControlB, static_cast<int>(pcsQbOut)},
         {kPcsQControlC, static_cast<int>(pcsQcOut)}
     };
+    const auto pendingWrites = router_.peekPendingWrites();
     for (const auto& command : commands) {
+        const double targetDouble = static_cast<double>(command.targetValue);
         const double current = latestValue(command.index, nowMs).value_or(0.0);
         if (command.targetValue == 0) {
             if (current == 0.0) {
                 continue;
             }
-        } else if (std::abs(std::abs(current) - command.targetValue) <= 0.5) {
+        } else if (valueMatches(current, targetDouble)) {
+            continue;
+        }
+        bool pendingDuplicate = false;
+        for (const auto& pending : pendingWrites) {
+            if (pending.index == command.index && valueMatches(pending.value, targetDouble)) {
+                pendingDuplicate = true;
+                break;
+            }
+        }
+        if (pendingDuplicate) {
             continue;
         }
 
-        const auto routed = submitCommand(command.index, static_cast<double>(command.targetValue), nowMs);
+        const auto routed = submitCommand(command.index, targetDouble, nowMs);
         if (routed.accepted) {
             ++result.deviceWrites;
         }

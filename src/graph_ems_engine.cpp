@@ -65,6 +65,10 @@ bool directoryExists(const std::string& path) {
 #endif
 }
 
+bool valueMatches(double actual, double target, double tolerance = 0.5) {
+    return std::abs(actual - target) <= tolerance;
+}
+
 void makeDirectory(const std::string& path) {
     if (path.empty() || directoryExists(path)) {
         return;
@@ -2316,12 +2320,14 @@ bool GraphEmsEngine::submitPcsWritebackCommands(
     };
 
     bool submitted = false;
+    const auto pendingWrites = router_.peekPendingWrites();
     for (const auto& command : commands) {
         const auto target = latestValue(command.inputIndex, nowMs);
         if (!target) {
             continue;
         }
         const int targetValue = static_cast<int>(*target);
+        const double targetDouble = static_cast<double>(targetValue);
         const auto currentValue = latestValue(command.outputIndex, nowMs);
         const double current = currentValue.value_or(0.0);
         if (targetValue == 0) {
@@ -2330,16 +2336,26 @@ bool GraphEmsEngine::submitPcsWritebackCommands(
                     continue;
                 }
             }
-        } else if (std::abs(std::abs(current) - static_cast<double>(targetValue)) <= 0.5) {
+        } else if (valueMatches(current, targetDouble)) {
             if (currentValue) {
                 continue;
             }
+        }
+        bool pendingDuplicate = false;
+        for (const auto& pending : pendingWrites) {
+            if (pending.index == command.outputIndex && valueMatches(pending.value, targetDouble)) {
+                pendingDuplicate = true;
+                break;
+            }
+        }
+        if (pendingDuplicate) {
+            continue;
         }
 
         PendingWriteCommand pending;
         pending.cmdId = graphCmdId(command.outputIndex, nowMs);
         pending.index = command.outputIndex;
-        pending.value = static_cast<double>(targetValue);
+        pending.value = targetDouble;
         pending.source = "graph-ems";
         pending.ts = nowMs;
         const auto routed = router_.submitWriteCommand(pending);

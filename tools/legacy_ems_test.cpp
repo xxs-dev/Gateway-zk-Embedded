@@ -2821,6 +2821,39 @@ int main() {
         require(static_cast<bool>(highSocGfRun), "high SOC GF run flag missing");
         requireNear(highSocGfRun->value, 0.0, 0.0001, "high SOC should clear GF run flag");
 
+        const auto seedPcsWriteInputs = [](auto& engine, std::int64_t ts) {
+            engine.set(156, 2.0, ts);
+            engine.set(1036, 30.0, ts);
+            engine.set(1037, 20.0, ts);
+            engine.set(1038, 10.0, ts);
+            engine.set(1039, 60.0, ts);
+            engine.set(1040, 30.0, ts);
+            engine.set(1041, 3.0, ts);
+            engine.set(1042, 2.0, ts);
+            engine.set(1043, 35.0, ts);
+            engine.set(1130, 220.0, ts);
+            engine.set(1131, 235.0, ts);
+            engine.set(1132, 250.0, ts);
+            engine.set(1136, 10.0, ts);
+            engine.set(1137, 5.0, ts);
+            engine.set(1138, 15.0, ts);
+            engine.set(1139, 30.0, ts);
+            engine.set(1140, 1.0, ts);
+            engine.set(1141, 1.0, ts);
+            engine.set(1142, 1.0, ts);
+            engine.set(1143, 3.0, ts);
+            engine.set(514, 0.8, ts);
+            engine.set(544, 225.0, ts);
+            engine.set(545, 230.0, ts);
+            engine.set(546, 240.0, ts);
+            engine.set(547, 245.0, ts);
+            engine.set(533, 5.0, ts);
+            engine.set(535, 30.0, ts);
+            engine.set(504, 20.0, ts);
+            engine.set(151, 300.0, ts);
+            engine.set(1399, 1.0, ts);
+        };
+
         const auto pcsWriteConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_pcs_write");
         edge_gateway::PointStoreRouter pcsWriteRouter;
         cleanupStoreSegment(pcsWriteConfig.memoryStore);
@@ -2833,36 +2866,7 @@ int main() {
             600000,
             {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
         );
-        pcsWriteEngine.set(156, 2.0, 4000);
-        pcsWriteEngine.set(1036, 30.0, 4000);
-        pcsWriteEngine.set(1037, 20.0, 4000);
-        pcsWriteEngine.set(1038, 10.0, 4000);
-        pcsWriteEngine.set(1039, 60.0, 4000);
-        pcsWriteEngine.set(1040, 30.0, 4000);
-        pcsWriteEngine.set(1041, 3.0, 4000);
-        pcsWriteEngine.set(1042, 2.0, 4000);
-        pcsWriteEngine.set(1043, 35.0, 4000);
-        pcsWriteEngine.set(1130, 220.0, 4000);
-        pcsWriteEngine.set(1131, 235.0, 4000);
-        pcsWriteEngine.set(1132, 250.0, 4000);
-        pcsWriteEngine.set(1136, 10.0, 4000);
-        pcsWriteEngine.set(1137, 5.0, 4000);
-        pcsWriteEngine.set(1138, 15.0, 4000);
-        pcsWriteEngine.set(1139, 30.0, 4000);
-        pcsWriteEngine.set(1140, 1.0, 4000);
-        pcsWriteEngine.set(1141, 1.0, 4000);
-        pcsWriteEngine.set(1142, 1.0, 4000);
-        pcsWriteEngine.set(1143, 3.0, 4000);
-        pcsWriteEngine.set(514, 0.8, 4000);
-        pcsWriteEngine.set(544, 225.0, 4000);
-        pcsWriteEngine.set(545, 230.0, 4000);
-        pcsWriteEngine.set(546, 240.0, 4000);
-        pcsWriteEngine.set(547, 245.0, 4000);
-        pcsWriteEngine.set(533, 5.0, 4000);
-        pcsWriteEngine.set(535, 30.0, 4000);
-        pcsWriteEngine.set(504, 20.0, 4000);
-        pcsWriteEngine.set(151, 300.0, 4000);
-        pcsWriteEngine.set(1399, 1.0, 4000);
+        seedPcsWriteInputs(pcsWriteEngine, 4000);
         const auto pcsWriteResult = pcsWriteEngine.runOnce(4000);
         const auto pcsWrites = pcsWriteRouter.peekPendingWrites(8);
         require(pcsWriteResult.deviceWrites == 3, "PCS writeback should submit three commands");
@@ -2876,6 +2880,92 @@ int main() {
         require(pcsWrites[2].index == 1321, "PCS QA write index mismatch");
         requireNear(pcsWrites[2].value, 7.0, 0.0001, "PCS QA write value mismatch");
         require(pcsWrites[2].source == "legacy-ems", "PCS QA write source mismatch");
+        const auto pcsWriteSecondResult = pcsWriteEngine.runOnce(4001);
+        const auto pcsWritesAfterSecondRun = pcsWriteRouter.peekPendingWrites(8);
+        require(pcsWriteSecondResult.deviceWrites == 0, "PCS writeback should not duplicate pending same-value commands");
+        require(pcsWritesAfterSecondRun.size() == 3, "PCS writeback duplicate pending count mismatch");
+
+        writeTextFile(
+            "graph_ems_pcs_writeback_only_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "pcs_writeback_only",
+  "nodes": [
+    {
+      "id": "pcs_writeback",
+      "type": "pcsWriteback",
+      "enabled": true,
+      "params": {
+        "submitWrites": true,
+        "paInput": 627,
+        "pbInput": 628,
+        "pcInput": 629,
+        "qaInput": 630,
+        "qbInput": 631,
+        "qcInput": 632,
+        "comStatusIndex": 1399,
+        "pControlAIndex": 1318,
+        "pControlBIndex": 1319,
+        "pControlCIndex": 1320,
+        "qControlAIndex": 1321,
+        "qControlBIndex": 1322,
+        "qControlCIndex": 1323
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+
+        const auto pcsReadbackConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_pcs_readback");
+        edge_gateway::PointStoreRouter pcsReadbackRouter;
+        cleanupStoreSegment(pcsReadbackConfig.memoryStore);
+        edge_gateway::MemoryPointStore pcsReadbackStore(pcsReadbackConfig.memoryStore);
+        pcsReadbackRouter.addStore(pcsReadbackConfig.memoryStore.sharedMemoryName, pcsReadbackStore);
+        pcsReadbackRouter.addRoutesFromDeviceConfigs({pcsReadbackConfig}, pcsReadbackConfig.memoryStore.sharedMemoryName);
+        edge_gateway::LegacyEmsEngine pcsReadbackEngine(
+            runtimeCatalog,
+            pcsReadbackRouter,
+            600000,
+            {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}}
+        );
+        seedPcsWriteInputs(pcsReadbackEngine, 5000);
+        pcsReadbackEngine.set(1318, -5.0, 5000);
+        pcsReadbackEngine.set(1320, 5.0, 5000);
+        pcsReadbackEngine.set(1321, 7.0, 5000);
+        pcsReadbackEngine.runOnce(5000);
+        require(pcsReadbackRouter.peekPendingWrites(8).empty(), "PCS writeback should respect signed readback values");
+
+        const auto graphPcsReadbackConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_pcs_readback");
+        edge_gateway::PointStoreRouter graphPcsReadbackRouter;
+        cleanupStoreSegment(graphPcsReadbackConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphPcsReadbackStore(graphPcsReadbackConfig.memoryStore);
+        graphPcsReadbackRouter.addStore(
+            graphPcsReadbackConfig.memoryStore.sharedMemoryName,
+            graphPcsReadbackStore
+        );
+        graphPcsReadbackRouter.addRoutesFromDeviceConfigs(
+            {graphPcsReadbackConfig},
+            graphPcsReadbackConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphPcsReadbackSeedEngine(runtimeCatalog, graphPcsReadbackRouter);
+        graphPcsReadbackSeedEngine.set(1399, 1.0, 5010);
+        graphPcsReadbackSeedEngine.set(627, -5.0, 5010);
+        graphPcsReadbackSeedEngine.set(628, 0.0, 5010);
+        graphPcsReadbackSeedEngine.set(629, 5.0, 5010);
+        graphPcsReadbackSeedEngine.set(630, 7.0, 5010);
+        graphPcsReadbackSeedEngine.set(631, 0.0, 5010);
+        graphPcsReadbackSeedEngine.set(632, 0.0, 5010);
+        graphPcsReadbackSeedEngine.set(1318, -5.0, 5010);
+        graphPcsReadbackSeedEngine.set(1320, 5.0, 5010);
+        graphPcsReadbackSeedEngine.set(1321, 7.0, 5010);
+        edge_gateway::GraphEmsEngine graphPcsReadbackEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_pcs_writeback_only_test.json"),
+            graphPcsReadbackRouter,
+            600000
+        );
+        graphPcsReadbackEngine.runOnce(5010);
+        require(graphPcsReadbackRouter.peekPendingWrites(8).empty(), "graph PCS writeback should respect signed readback values");
 
         std::cout << "legacy_ems_test passed\n";
         return 0;
