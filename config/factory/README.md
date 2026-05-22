@@ -41,6 +41,8 @@
 - `localDisplay.enabled=false`，因此默认不启动本地画面。
 - `cameraService.enabled=false`，因此默认不启动摄像头推流。
 
+如果 app 的 `mqtt.broker` 改为本机 stunnel 监听地址，例如 `tcp://127.0.0.1:18883`，且 `runtime/tls/*-stunnel.conf` 存在，`gateway-services.service` 会在 MQTT 相关服务前自动启动对应 `mqtt-tls-tunnel@*.service`。默认出厂 broker 不是本机 stunnel 地址，因此不会启动隧道。
+
 未被 `deviceConfigFiles[]` 引用的设备 JSON 不会启动；没有某类协议配置时，对应驱动不会运行。
 
 ## 初始化参数

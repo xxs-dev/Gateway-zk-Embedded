@@ -99,6 +99,7 @@ systemctl start gateway-services.service
 ```
 
 `gateway-services.sh` 会根据 `runtime/apps/mqtt-service.json` 和 `runtime/apps/monitor-service.json` 中的 `deviceConfigFiles[]` 自动决定启动哪些协议驱动；`runtime/devices` 目录里未被 app 配置引用的 JSON 不会被启动。
+如果 app 的 `mqtt.broker` 指向本机 stunnel 监听端口，且 `runtime/tls/*-stunnel.conf` 存在，统一服务入口会在 MQTT 相关服务前自动启动对应 `mqtt-tls-tunnel@*.service`。
 
 当前出厂默认服务发现结果应包含：
 

@@ -243,6 +243,34 @@ check_services() {
     return
   fi
   pass "desired service list generated"
+  if grep -E '^mqtt-tls-tunnel@[^[:space:]]+\.service$' /tmp/gateway-smoke-units.$$ >/dev/null; then
+    if command -v stunnel >/dev/null 2>&1 || [ -x /usr/bin/stunnel ]; then
+      pass "stunnel executable available for mqtt-tls-tunnel"
+    else
+      fail "stunnel executable missing while mqtt-tls-tunnel is desired"
+    fi
+    if [ -f /etc/systemd/system/mqtt-tls-tunnel@.service ]; then
+      pass "mqtt-tls-tunnel systemd template installed"
+    elif command -v systemctl >/dev/null 2>&1; then
+      fail "mqtt-tls-tunnel systemd template missing: /etc/systemd/system/mqtt-tls-tunnel@.service"
+    else
+      warn "systemctl not found; skipped mqtt-tls-tunnel systemd template check"
+    fi
+    while IFS= read -r unit; do
+      case "$unit" in
+        mqtt-tls-tunnel@*.service)
+          instance=${unit#mqtt-tls-tunnel@}
+          instance=${instance%.service}
+          conf="$GATEWAY_HOME/config/runtime/tls/$instance.conf"
+          if [ -f "$conf" ]; then
+            pass "stunnel config exists: $conf"
+          else
+            fail "stunnel config missing: $conf"
+          fi
+          ;;
+      esac
+    done < /tmp/gateway-smoke-units.$$
+  fi
   if command -v systemctl >/dev/null 2>&1; then
     while IFS= read -r unit; do
       [ -z "$unit" ] && continue

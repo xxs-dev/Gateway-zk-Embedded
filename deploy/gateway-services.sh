@@ -24,6 +24,7 @@ stop_units() {
     'local-kiosk@*.service' \
     'system-monitor@*.service' \
     'camera-service@*.service' \
+    'mqtt-tls-tunnel@*.service' \
     'mqtt-driver@*.service' 2>/dev/null |
     awk '{print $1}')
   [ -z "$units" ] && return 0
@@ -44,9 +45,18 @@ import glob
 import os
 import subprocess
 import sys
+from urllib.parse import urlparse
 
 device_dir, app_dir, mqtt_app_name, monitor_app_name, camera_app_name = sys.argv[1:6]
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(device_dir)))
+emitted_units = set()
+stunnel_units_by_endpoint = {}
+
+def emit_unit(unit):
+    if not unit or unit in emitted_units:
+        return
+    emitted_units.add(unit)
+    print(unit)
 
 def read_json(path):
     try:
@@ -83,13 +93,13 @@ def emit_device_unit(path):
     protocol = str(root.get("protocol", {}).get("type", "")).lower()
     stem = os.path.splitext(os.path.basename(path))[0]
     if protocol in ("modbus_rtu", "modbus_tcp"):
-        print(f"modbus-rtu@{stem}.service")
+        emit_unit(f"modbus-rtu@{stem}.service")
     elif protocol in ("dlt645_2007", "dlt645"):
-        print(f"dlt645-driver@{stem}.service")
+        emit_unit(f"dlt645-driver@{stem}.service")
     elif protocol in ("local_dio", "dio", "dido"):
-        print(f"dio-driver@{stem}.service")
+        emit_unit(f"dio-driver@{stem}.service")
     elif protocol in ("can_socketcan", "can"):
-        print(f"can-driver@{stem}.service")
+        emit_unit(f"can-driver@{stem}.service")
 
 def app_device_files(path):
     root = read_json(path)
@@ -106,6 +116,99 @@ def bool_value(value, default=False):
     if value is None:
         return default
     return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+def normalize_host(host):
+    text = str(host or "").strip().strip("[]").lower()
+    if text in ("localhost", "::1", "0:0:0:0:0:0:0:1"):
+        return "127.0.0.1"
+    return text
+
+def is_loopback_host(host):
+    host = normalize_host(host)
+    return host == "127.0.0.1" or host.startswith("127.")
+
+def parse_host_port(raw, default_host=""):
+    text = str(raw or "").strip()
+    if not text:
+        return "", None
+    if text.startswith("[") and "]" in text:
+        host, _, rest = text[1:].partition("]")
+        port_text = rest[1:] if rest.startswith(":") else rest
+    elif ":" in text:
+        host, port_text = text.rsplit(":", 1)
+    else:
+        host, port_text = default_host, text
+    try:
+        port = int(str(port_text).strip())
+    except Exception:
+        return normalize_host(host), None
+    return normalize_host(host), port
+
+def parse_broker_endpoint(broker):
+    text = str(broker or "").strip()
+    if not text:
+        return "", None
+    if "://" in text:
+        try:
+            parsed = urlparse(text)
+            return normalize_host(parsed.hostname or ""), parsed.port
+        except Exception:
+            return "", None
+    return parse_host_port(text)
+
+def parse_stunnel_accept(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = raw_line.split("#", 1)[0].split(";", 1)[0].strip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip().lower() == "accept":
+                    return parse_host_port(value, "0.0.0.0")
+    except Exception as exc:
+        print(f"# skip invalid stunnel config {path}: {exc}", file=sys.stderr)
+    return "", None
+
+def stunnel_accept_matches(accept_host, broker_host):
+    accept_host = normalize_host(accept_host)
+    broker_host = normalize_host(broker_host)
+    if accept_host in ("", "0.0.0.0", "::", "*"):
+        return is_loopback_host(broker_host)
+    return accept_host == broker_host
+
+def stunnel_unit_for_app(path):
+    root = read_json(path)
+    if root is None:
+        return ""
+    mqtt = root.get("mqtt", {}) or {}
+    if not isinstance(mqtt, dict):
+        return ""
+    if bool_value(mqtt.get("enabled"), True) is False:
+        return ""
+    broker_host, broker_port = parse_broker_endpoint(mqtt.get("broker"))
+    if broker_port is None or not is_loopback_host(broker_host):
+        return ""
+    broker_endpoint = (normalize_host(broker_host), broker_port)
+    if broker_endpoint in stunnel_units_by_endpoint:
+        return stunnel_units_by_endpoint[broker_endpoint]
+
+    tls_dir = os.path.join(base_dir, "config", "runtime", "tls")
+    preferred = os.path.join(tls_dir, os.path.splitext(os.path.basename(path))[0] + "-stunnel.conf")
+    candidates = []
+    for candidate in [preferred] + sorted(glob.glob(os.path.join(tls_dir, "*-stunnel.conf"))):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        if not os.path.isfile(candidate):
+            continue
+        accept_host, accept_port = parse_stunnel_accept(candidate)
+        if accept_port == broker_port and stunnel_accept_matches(accept_host, broker_host):
+            stem = os.path.splitext(os.path.basename(candidate))[0]
+            unit = f"mqtt-tls-tunnel@{stem}.service"
+            stunnel_units_by_endpoint[broker_endpoint] = unit
+            return unit
+    return ""
 
 def camera_service_enabled(path):
     root = read_json(path)
@@ -201,6 +304,7 @@ for path in (app_path(mqtt_app_name), app_path(monitor_app_name)):
 
 mqtt_path = app_path(mqtt_app_name)
 if os.path.isfile(mqtt_path):
+    emit_unit(stunnel_unit_for_app(mqtt_path))
     try:
         with open(mqtt_path, "r", encoding="utf-8") as fh:
             app = json.load(fh)
@@ -210,10 +314,10 @@ if os.path.isfile(mqtt_path):
         compute_enabled = False
         event_enabled = False
     if compute_enabled:
-        print(f"compute-engine@{mqtt_app_name}.service")
+        emit_unit(f"compute-engine@{mqtt_app_name}.service")
     if event_enabled:
-        print(f"event-engine@{mqtt_app_name}.service")
-    print(f"mqtt-driver@{mqtt_app_name}.service")
+        emit_unit(f"event-engine@{mqtt_app_name}.service")
+    emit_unit(f"mqtt-driver@{mqtt_app_name}.service")
 
 monitor_path = app_path(monitor_app_name)
 if os.path.isfile(monitor_path):
@@ -232,17 +336,19 @@ if os.path.isfile(monitor_path):
         kiosk_enabled = False
         kiosk_require_display = True
     if system_monitor_enabled:
-        print(f"system-monitor@{monitor_app_name}.service")
+        emit_unit(stunnel_unit_for_app(monitor_path))
+        emit_unit(f"system-monitor@{monitor_app_name}.service")
     if local_display_enabled:
-        print(f"local-display@{monitor_app_name}.service")
+        emit_unit(f"local-display@{monitor_app_name}.service")
         if kiosk_enabled and (not kiosk_require_display or display_connected(local_display)):
-            print(f"local-kiosk@{monitor_app_name}.service")
+            emit_unit(f"local-kiosk@{monitor_app_name}.service")
         elif kiosk_enabled:
             print("# skip local-kiosk: no connected HDMI/display output", file=sys.stderr)
 
 camera_path = app_path(camera_app_name)
 if os.path.isfile(camera_path) and camera_service_enabled(camera_path):
-    print(f"camera-service@{camera_app_name}.service")
+    emit_unit(stunnel_unit_for_app(camera_path))
+    emit_unit(f"camera-service@{camera_app_name}.service")
 PY
 }
 
