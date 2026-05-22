@@ -5,6 +5,7 @@ GATEWAY_HOME="${GATEWAY_HOME:-/opt/modbus-gateway}"
 BIN_DIR="${BIN_DIR:-$GATEWAY_HOME/bin}"
 APP_CONFIG="${APP_CONFIG:-$GATEWAY_HOME/config/runtime/apps/mqtt-service.json}"
 MONITOR_CONFIG="${MONITOR_CONFIG:-$GATEWAY_HOME/config/runtime/apps/monitor-service.json}"
+CAMERA_CONFIG="${CAMERA_CONFIG:-$GATEWAY_HOME/config/runtime/apps/camera-service.json}"
 IDENTITY_CONFIG="${IDENTITY_CONFIG:-$GATEWAY_HOME/config/runtime/device_identity.json}"
 MIN_FREE_MB="${MIN_FREE_MB:-512}"
 MAX_DISK_USED_PERCENT="${MAX_DISK_USED_PERCENT:-85}"
@@ -223,6 +224,201 @@ check_tls() {
   echo "== mqtt tls =="
   check_tls_one "$APP_CONFIG"
   check_tls_one "$MONITOR_CONFIG"
+  check_stunnel_brokers
+}
+
+report_check_lines() {
+  file="$1"
+  while IFS= read -r line; do
+    level=${line%%:*}
+    message=${line#*:}
+    case "$level" in
+      PASS) pass "$message" ;;
+      WARN) warn "$message" ;;
+      FAIL) fail "$message" ;;
+    esac
+  done < "$file"
+}
+
+check_stunnel_brokers() {
+  tmp="/tmp/gateway-smoke-stunnel.$$"
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 missing; cannot validate local MQTT stunnel config"
+    return
+  fi
+  if python3 - "$GATEWAY_HOME" "$APP_CONFIG" "$MONITOR_CONFIG" "$CAMERA_CONFIG" > "$tmp" <<'PY'
+import glob
+import json
+import os
+import sys
+from urllib.parse import urlparse
+
+gateway_home = sys.argv[1]
+app_paths = []
+for path in sys.argv[2:]:
+    if path and path not in app_paths and os.path.isfile(path):
+        app_paths.append(path)
+
+def emit(level, message):
+    print(f"{level}:{message}")
+
+def read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception as exc:
+        emit("FAIL", f"invalid app config {path}: {exc}")
+        return None
+
+def bool_value(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+def normalize_host(host):
+    text = str(host or "").strip().strip("[]").lower()
+    if text in ("localhost", "::1", "0:0:0:0:0:0:0:1"):
+        return "127.0.0.1"
+    return text
+
+def is_loopback_host(host):
+    host = normalize_host(host)
+    return host == "127.0.0.1" or host.startswith("127.")
+
+def parse_host_port(raw, default_host=""):
+    text = str(raw or "").strip()
+    if not text:
+        return "", None
+    if text.startswith("[") and "]" in text:
+        host, _, rest = text[1:].partition("]")
+        port_text = rest[1:] if rest.startswith(":") else rest
+    elif ":" in text:
+        host, port_text = text.rsplit(":", 1)
+    else:
+        host, port_text = default_host, text
+    try:
+        port = int(str(port_text).strip())
+    except Exception:
+        return normalize_host(host), None
+    return normalize_host(host), port
+
+def parse_broker_endpoint(broker):
+    text = str(broker or "").strip()
+    if not text:
+        return "", None
+    if "://" in text:
+        try:
+            parsed = urlparse(text)
+            return normalize_host(parsed.hostname or ""), parsed.port
+        except Exception:
+            return "", None
+    return parse_host_port(text)
+
+def stunnel_values(path):
+    values = {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = raw_line.split("#", 1)[0].split(";", 1)[0].strip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                values[key.strip().lower()] = value.strip()
+    except Exception as exc:
+        emit("FAIL", f"invalid stunnel config {path}: {exc}")
+    return values
+
+def accept_matches(accept_host, broker_host):
+    accept_host = normalize_host(accept_host)
+    broker_host = normalize_host(broker_host)
+    if accept_host in ("", "0.0.0.0", "::", "*"):
+        return is_loopback_host(broker_host)
+    return accept_host == broker_host
+
+def is_placeholder(value):
+    text = str(value or "").strip().lower()
+    return "your-" in text or "example.com" in text or text in ("broker.example.com:8883", "placeholder")
+
+def find_matching_stunnel_conf(app_path, broker_host, broker_port):
+    tls_dir = os.path.join(gateway_home, "config", "runtime", "tls")
+    preferred = os.path.join(tls_dir, os.path.splitext(os.path.basename(app_path))[0] + "-stunnel.conf")
+    candidates = []
+    for candidate in [preferred] + sorted(glob.glob(os.path.join(tls_dir, "*-stunnel.conf"))):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        if not os.path.isfile(candidate):
+            continue
+        values = stunnel_values(candidate)
+        accept_host, accept_port = parse_host_port(values.get("accept", ""), "0.0.0.0")
+        if accept_port == broker_port and accept_matches(accept_host, broker_host):
+            return candidate, values
+    return "", {}
+
+def validate_conf(app_path, broker, broker_host, broker_port, conf, values):
+    label = os.path.basename(app_path)
+    emit("PASS", f"{label} uses local MQTT stunnel broker: {broker}")
+    emit("PASS", f"matching stunnel config found: {conf}")
+
+    connect = values.get("connect", "")
+    if not connect:
+        emit("FAIL", f"stunnel connect is empty: {conf}")
+    elif is_placeholder(connect):
+        emit("FAIL", f"stunnel connect still uses template placeholder: {conf}")
+    else:
+        emit("PASS", f"stunnel connect configured: {connect}")
+
+    check_host = values.get("checkhost", "")
+    if check_host:
+        if is_placeholder(check_host):
+            emit("FAIL", f"stunnel checkHost still uses template placeholder: {conf}")
+        else:
+            emit("PASS", f"stunnel checkHost configured: {check_host}")
+    else:
+        emit("WARN", f"stunnel checkHost is empty: {conf}")
+
+    verify_chain = str(values.get("verifychain", "")).strip().lower()
+    if verify_chain in ("no", "false", "0"):
+        emit("FAIL", f"stunnel verifyChain is disabled: {conf}")
+    elif verify_chain:
+        emit("PASS", f"stunnel verifyChain configured: {values.get('verifychain')}")
+    else:
+        emit("WARN", f"stunnel verifyChain not configured: {conf}")
+
+    ca_file = values.get("cafile", "")
+    if ca_file:
+        if os.path.isfile(ca_file):
+            emit("PASS", f"stunnel CAfile exists: {ca_file}")
+        else:
+            emit("FAIL", f"stunnel CAfile missing: {ca_file}")
+    else:
+        emit("WARN", f"stunnel CAfile is empty: {conf}")
+
+for app_path in app_paths:
+    root = read_json(app_path)
+    if root is None:
+        continue
+    mqtt = root.get("mqtt") or {}
+    if not isinstance(mqtt, dict) or bool_value(mqtt.get("enabled"), True) is False:
+        continue
+    broker = str(mqtt.get("broker") or "").strip()
+    broker_host, broker_port = parse_broker_endpoint(broker)
+    if not is_loopback_host(broker_host) or broker_port is None:
+        continue
+    conf, values = find_matching_stunnel_conf(app_path, broker_host, broker_port)
+    if conf:
+        validate_conf(app_path, broker, broker_host, broker_port, conf, values)
+    elif broker_port != 1883:
+        emit("FAIL", f"{os.path.basename(app_path)} broker points to local port {broker_port} but no matching stunnel config was found: {broker}")
+PY
+  then
+    report_check_lines "$tmp"
+  else
+    fail "local MQTT stunnel validation failed"
+  fi
+  rm -f "$tmp"
 }
 
 check_services() {
