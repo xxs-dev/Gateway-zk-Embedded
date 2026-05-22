@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -416,6 +417,7 @@ std::vector<MqttIncomingMessage> MosquittoMqttDriverPublisher::pollIncoming(int)
 }
 
 void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const std::string& payload) {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto* client = impl_->create(config_.clientId.c_str(), config_.cleanSession, nullptr);
     if (client == nullptr) {
         throw std::runtime_error("mosquitto_new failed");

@@ -1312,7 +1312,8 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config)
                 config_.eventOutboxSqliteLibraryPath,
                 config_.eventOutboxRetentionMonths,
                 config_.eventOutboxCleanupIntervalHours,
-                config_.eventOutboxReplayBatchSize
+                config_.eventOutboxReplayBatchSize,
+                config_.eventOutboxMaxDiskBytes
             ));
         } catch (...) {
             eventOutbox_.reset();
@@ -1321,6 +1322,7 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config)
 }
 
 BuiltinMqttDriverPublisher::~BuiltinMqttDriverPublisher() {
+    std::lock_guard<std::mutex> lock(mutex_);
     flushOfflineBuffer(true);
     closeSubscriber();
 }
@@ -1329,6 +1331,7 @@ void BuiltinMqttDriverPublisher::publishFullSnapshot(
     const std::string& topic,
     const std::vector<StoredPointValue>& values
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& payload : encodeRealtimeChunks("snapshot", values, config_.maxPayloadBytes, config_.topicMachineCode)) {
         publishRealtimeJson(topic, payload);
     }
@@ -1341,6 +1344,7 @@ void BuiltinMqttDriverPublisher::publishAlarm(
     const std::string& alarmType,
     bool active
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     publishEventJson("alarm", topic, encodeAlarmJson(index, value, alarmType, active), value.ts);
 }
 
@@ -1348,6 +1352,7 @@ void BuiltinMqttDriverPublisher::publishOnDemand(
     const std::string& topic,
     const std::vector<StoredPointValue>& values
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes, config_.topicMachineCode)) {
         publishRealtimeJson(topic, payload);
     }
@@ -1357,6 +1362,7 @@ void BuiltinMqttDriverPublisher::publishChangeEvent(
     const std::string& topic,
     const StoredPointValue& value
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     publishEventJson("change", topic, encodeChangeEventJson(value), value.ts);
 }
 
@@ -1364,6 +1370,7 @@ void BuiltinMqttDriverPublisher::publishCommandReply(
     const std::string& topic,
     const MqttCommandReply& reply
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     publishJson(topic, encodeCommandReplyJson(reply));
 }
 
@@ -1371,6 +1378,7 @@ void BuiltinMqttDriverPublisher::publishOtaReply(
     const std::string& topic,
     const OtaReply& reply
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     publishJson(topic, encodeOtaReplyJson(reply));
 }
 
@@ -1378,6 +1386,7 @@ void BuiltinMqttDriverPublisher::publishOtaStatus(
     const std::string& topic,
     const OtaStatus& status
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     publishEventJson("ota_status", topic, encodeOtaStatusJson(status), status.ts);
 }
 
@@ -1385,10 +1394,12 @@ void BuiltinMqttDriverPublisher::publishJsonMessage(
     const std::string& topic,
     const std::string& payload
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     publishJson(topic, payload);
 }
 
 std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int timeoutMs) {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<MqttIncomingMessage> messages;
     if (config_.commandRequestTopic.empty() &&
         config_.otaRequestTopic.empty() &&

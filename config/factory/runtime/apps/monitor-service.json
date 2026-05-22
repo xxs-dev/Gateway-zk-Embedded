@@ -59,7 +59,8 @@
         "sqliteLibraryPath": "",
         "retentionMonths": 12,
         "cleanupIntervalHours": 24,
-        "replayBatchSize": 100
+        "replayBatchSize": 100,
+        "maxDiskBytes": 1073741824
       }
     },
     "alarmTopic": "edge/alarm",
@@ -125,6 +126,7 @@
     "diskAlertThreshold": 90,
     "alertRepeatIntervalSec": 60,
     "diagEnabled": true,
+    "maxDiagOutputBytes": 16384,
     "allowedCommands": [
       "uptime",
       "free_m",
@@ -141,7 +143,7 @@
       "commandTimeoutMs": 2000,
       "atBaudRate": 115200,
       "signalAlertThresholdPercent": 20,
-      "maskSensitiveFields": false,
+      "maskSensitiveFields": true,
       "interfacePatterns": [
         "wwan*",
         "ppp*",
@@ -294,6 +296,9 @@
     "upgradeTimeoutSec": 900,
     "downloadRetryCount": 3,
     "downloadRetryBackoffMs": 1000,
+    "maxPendingStatusBytes": 1048576,
+    "maxArtifactBytes": 536870912,
+    "minFreeBytes": 268435456,
     "storage": {
       "provider": "local",
       "presignExpireMinutes": 60,

@@ -49,9 +49,21 @@ if [ -d "$ROOT_DIR/deploy" ]; then
 fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
-  for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay CameraService pointctl stress_runner; do
+  REQUIRED_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
+  OPTIONAL_BINS="LocalDisplay CameraService stress_runner"
+  for bin in $REQUIRED_BINS; do
+    if [ ! -f "$ROOT_DIR/build-aarch64/$bin" ]; then
+      echo "required factory binary missing: build-aarch64/$bin" >&2
+      exit 2
+    fi
+    cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+  done
+  for bin in $OPTIONAL_BINS; do
     [ -f "$ROOT_DIR/build-aarch64/$bin" ] && cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
   done
+else
+  echo "build-aarch64 directory not found; cross compile before packaging" >&2
+  exit 2
 fi
 
 mkdir -p "$(dirname "$OUT")"

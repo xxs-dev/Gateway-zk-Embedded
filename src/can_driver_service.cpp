@@ -67,6 +67,18 @@ bool isSafeInterfaceName(const std::string& value) {
     return true;
 }
 
+bool isValidCanBitrate(int value) {
+    return value >= 10000 && value <= 8000000;
+}
+
+bool isValidCanRestartMs(int value) {
+    return value >= 0 && value <= 60000;
+}
+
+bool isValidCanSamplePoint(double value) {
+    return value <= 0.0 || (value >= 0.5 && value <= 0.999);
+}
+
 std::string quoteShellArg(const std::string& value) {
     std::string out = "'";
     for (const auto ch : value) {
@@ -236,6 +248,18 @@ void CanDriverService::configureInterface() const {
     }
     if (!isSafeInterfaceName(can.interfaceName)) {
         throw std::invalid_argument("invalid CAN interfaceName: " + can.interfaceName);
+    }
+    if (!isValidCanBitrate(can.bitrate)) {
+        throw std::invalid_argument("invalid CAN bitrate: " + std::to_string(can.bitrate));
+    }
+    if (!isValidCanSamplePoint(can.samplePoint)) {
+        throw std::invalid_argument("invalid CAN samplePoint");
+    }
+    if (!isValidCanRestartMs(can.restartMs)) {
+        throw std::invalid_argument("invalid CAN restartMs: " + std::to_string(can.restartMs));
+    }
+    if (can.fdEnabled && !isValidCanBitrate(can.dataBitrate)) {
+        throw std::invalid_argument("invalid CAN dataBitrate: " + std::to_string(can.dataBitrate));
     }
     std::ostringstream command;
     const auto iface = quoteShellArg(can.interfaceName);

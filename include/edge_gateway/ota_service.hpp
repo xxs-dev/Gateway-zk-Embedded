@@ -17,6 +17,7 @@ public:
     OtaService& operator=(const OtaService&) = delete;
 
     bool enabled() const;
+    bool validateRequest(const OtaRequest& request, std::string* errorMessage = nullptr) const;
     OtaReply createAcceptedReply(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs) const;
     std::vector<OtaStatus> loadPendingStatuses() const;
     void clearPendingStatuses() const;
@@ -47,6 +48,7 @@ private:
     bool tryRollback(const OtaRequest& request, const std::string& artifactPath) const;
     void cleanupOldArtifacts() const;
     std::string statusJournalPath() const;
+    void enforceStatusJournalLimit() const;
     void appendPendingStatus(const OtaStatus& status) const;
     void reportStage(
         OtaStatus* status,

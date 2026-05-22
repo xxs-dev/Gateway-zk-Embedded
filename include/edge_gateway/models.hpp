@@ -401,6 +401,7 @@ struct MqttConfig {
     int eventOutboxRetentionMonths = 12;
     int eventOutboxCleanupIntervalHours = 24;
     std::size_t eventOutboxReplayBatchSize = 100;
+    std::size_t eventOutboxMaxDiskBytes = 32 * 1024 * 1024;
     std::size_t maxPayloadBytes = 49152;
 };
 
@@ -531,6 +532,9 @@ struct OtaConfig {
     int upgradeTimeoutSec = 900;
     int downloadRetryCount = 3;
     int downloadRetryBackoffMs = 1000;
+    std::size_t maxPendingStatusBytes = 1024 * 1024;
+    std::uint64_t maxArtifactBytes = 512ULL * 1024ULL * 1024ULL;
+    std::uint64_t minFreeBytes = 256ULL * 1024ULL * 1024ULL;
     OtaStorageConfig storage;
 };
 
@@ -551,7 +555,7 @@ struct SystemMonitorConfig {
         int commandTimeoutMs = 2000;
         int atBaudRate = 115200;
         double signalAlertThresholdPercent = 20.0;
-        bool maskSensitiveFields = false;
+        bool maskSensitiveFields = true;
         std::vector<std::string> interfacePatterns = {
             "wwan*",
             "ppp*",
@@ -578,6 +582,7 @@ struct SystemMonitorConfig {
     double diskAlertThreshold = 90.0;
     int alertRepeatIntervalSec = 60;
     bool diagEnabled = true;
+    std::size_t maxDiagOutputBytes = 16 * 1024;
     std::vector<std::string> allowedCommands = {
         "uptime",
         "free_m",

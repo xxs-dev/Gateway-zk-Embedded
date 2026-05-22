@@ -25,6 +25,12 @@ void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
     }
 }
 
+std::int64_t currentTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
 std::string escapeJson(const std::string& value) {
     std::string out;
     out.reserve(value.size() + 8);
@@ -367,9 +373,7 @@ void MqttDriverService::start() {
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
     }
-    const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
+    const auto ts = currentTimeMs();
     publishStatusEvent(
         "started",
         ts,
@@ -386,6 +390,16 @@ void MqttDriverService::start() {
 void MqttDriverService::stop() {
     bool expected = true;
     if (!running_.compare_exchange_strong(expected, false)) {
+        std::thread finishedThread;
+        {
+            std::lock_guard<std::mutex> otaLock(otaMutex_);
+            if (otaThread_.joinable() && !otaInProgress_.load()) {
+                finishedThread = std::move(otaThread_);
+            }
+        }
+        if (finishedThread.joinable()) {
+            finishedThread.join();
+        }
         return;
     }
     if (scanThread_.joinable()) {
@@ -393,6 +407,16 @@ void MqttDriverService::stop() {
     }
     if (replayThread_.joinable()) {
         replayThread_.join();
+    }
+    std::thread otaThread;
+    {
+        std::lock_guard<std::mutex> otaLock(otaMutex_);
+        if (otaThread_.joinable()) {
+            otaThread = std::move(otaThread_);
+        }
+    }
+    if (otaThread.joinable()) {
+        otaThread.join();
     }
 }
 
@@ -453,7 +477,7 @@ void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
         publishStatusEvent(
             "event-outbox-replay-failed",
             nowMs,
-            std::string(R"("message":")") + ex.what() + R"(")"
+            std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
         );
     }
 }
@@ -473,7 +497,7 @@ bool MqttDriverService::shouldDeferSnapshotForEventBacklog(std::int64_t nowMs) {
         publishStatusEvent(
             "event-outbox-pending-count-failed",
             nowMs,
-            std::string(R"("message":")") + ex.what() + R"(")"
+            std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
         );
         return false;
     }
@@ -498,6 +522,17 @@ bool MqttDriverService::shouldDeferSnapshotForEventBacklog(std::int64_t nowMs) {
 }
 
 void MqttDriverService::processIncomingMessages(std::int64_t nowMs) {
+    std::thread finishedThread;
+    {
+        std::lock_guard<std::mutex> lock(otaMutex_);
+        if (otaThread_.joinable() && !otaInProgress_.load()) {
+            finishedThread = std::move(otaThread_);
+        }
+    }
+    if (finishedThread.joinable()) {
+        finishedThread.join();
+    }
+
     std::vector<MqttIncomingMessage> messages;
     try {
         messages = publisher_->pollIncoming(std::max(10, std::min(100, driverConfig_.scanIntervalMs)));
@@ -505,7 +540,7 @@ void MqttDriverService::processIncomingMessages(std::int64_t nowMs) {
         publishStatusEvent(
             "mqtt-subscribe-unavailable",
             nowMs,
-            std::string(R"("message":")") + ex.what() + R"(")"
+            std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
         );
         return;
     }
@@ -552,9 +587,7 @@ void MqttDriverService::publishOnDemandNow(const std::vector<std::uint32_t>& ind
 void MqttDriverService::scanLoop() {
     const auto intervalMs = std::max(100, driverConfig_.scanIntervalMs);
     while (running_.load()) {
-        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count();
+        const auto nowMs = currentTimeMs();
         try {
             runScanOnce(nowMs);
         } catch (...) {
@@ -566,9 +599,7 @@ void MqttDriverService::scanLoop() {
 void MqttDriverService::replayLoop() {
     const auto intervalMs = std::max(50, std::min(200, driverConfig_.scanIntervalMs));
     while (running_.load()) {
-        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count();
+        const auto nowMs = currentTimeMs();
         try {
             replayEventOutboxIfNeeded(nowMs);
         } catch (...) {
@@ -635,9 +666,9 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         publishStatusEvent(
             "command-accepted",
             nowMs,
-            std::string(R"("cmdId":")") + reply.cmdId +
+            std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
                 R"(","index":)" + std::to_string(reply.index) +
-                R"(,"meterCode":")" + reply.meterCode + R"(")"
+                R"(,"meterCode":")" + escapeJson(reply.meterCode) + R"(")"
         );
     } catch (const std::exception& ex) {
         reply.success = false;
@@ -650,9 +681,9 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         publishStatusEvent(
             "command-rejected",
             nowMs,
-            std::string(R"("cmdId":")") + reply.cmdId +
+            std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
                 R"(","index":)" + std::to_string(reply.index) +
-                R"(,"message":")" + reply.message + R"(")"
+                R"(,"message":")" + escapeJson(reply.message) + R"(")"
         );
     }
 
@@ -664,6 +695,7 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
     OtaStatus status;
     reply.ts = nowMs;
     status.ts = nowMs;
+    bool acceptedForExecution = false;
 
     try {
         const auto request = parseOtaRequest(payload);
@@ -682,37 +714,54 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
         if (!otaService_ || !otaService_->enabled()) {
             throw std::runtime_error("ota is disabled");
         }
+        std::string validateError;
+        if (!otaService_->validateRequest(request, &validateError)) {
+            throw std::invalid_argument(validateError.empty() ? "invalid ota request" : validateError);
+        }
 
-        reply = otaService_->createAcceptedReply(request, machineCode, nowMs);
-        publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
-
-        otaService_->execute(
-            request,
-            machineCode,
-            nowMs,
-            &reply,
-            &status,
-            [this](const OtaStatus& stageStatus) {
-                publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, stageStatus);
+        std::thread finishedThread;
+        {
+            std::lock_guard<std::mutex> lock(otaMutex_);
+            if (otaThread_.joinable() && !otaInProgress_.load()) {
+                finishedThread = std::move(otaThread_);
             }
-        );
-        std::cout << "mqtt ota request handled"
+        }
+        if (finishedThread.joinable()) {
+            finishedThread.join();
+        }
+        {
+            std::lock_guard<std::mutex> lock(otaMutex_);
+            if (otaInProgress_.load() || otaThread_.joinable()) {
+                throw std::runtime_error("ota job already running");
+            }
+            otaInProgress_.store(true);
+        }
+        try {
+            reply = otaService_->createAcceptedReply(request, machineCode, nowMs);
+            status.stage = "accepted";
+            status.progress = 0;
+            status.message = "accepted";
+            publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
+            publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
+            startOtaJob(request, machineCode, nowMs);
+            acceptedForExecution = true;
+        } catch (...) {
+            otaInProgress_.store(false);
+            throw;
+        }
+
+        std::cout << "mqtt ota request accepted"
                   << " jobId=" << reply.jobId
-                  << " stage=" << status.stage
-                  << " message=" << status.message
                   << std::endl;
         publishStatusEvent(
-            "ota-handled",
+            "ota-accepted",
             nowMs,
-            std::string(R"("jobId":")") + reply.jobId +
-                R"(","stage":")" + status.stage +
-                R"(","message":")" + status.message + R"(")"
+            std::string(R"("jobId":")") + escapeJson(reply.jobId) +
+                R"(","machineCode":")" + escapeJson(machineCode) + R"(")"
         );
     } catch (const std::exception& ex) {
         reply.accepted = false;
-        if (reply.message.empty()) {
-            reply.message = ex.what();
-        }
+        reply.message = ex.what();
         status.stage = "failed";
         status.progress = 0;
         status.message = ex.what();
@@ -723,13 +772,73 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
         publishStatusEvent(
             "ota-rejected",
             nowMs,
-            std::string(R"("jobId":")") + reply.jobId +
-                R"(","message":")" + ex.what() + R"(")"
+            std::string(R"("jobId":")") + escapeJson(reply.jobId) +
+                R"(","message":")" + escapeJson(ex.what()) + R"(")"
         );
         publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
     }
 
-    publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
+    if (!acceptedForExecution && (!status.jobId.empty() || !status.stage.empty())) {
+        publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
+    }
+}
+
+void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs) {
+    std::lock_guard<std::mutex> lock(otaMutex_);
+    if (otaThread_.joinable()) {
+        throw std::runtime_error("ota job already running");
+    }
+
+    otaThread_ = std::thread([this, request, machineCode, nowMs]() {
+        OtaReply reply;
+        OtaStatus status;
+        try {
+            otaService_->execute(
+                request,
+                machineCode,
+                nowMs,
+                &reply,
+                &status,
+                [this](const OtaStatus& stageStatus) {
+                    publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, stageStatus);
+                }
+            );
+            std::cout << "mqtt ota job completed"
+                      << " jobId=" << reply.jobId
+                      << " stage=" << status.stage
+                      << " message=" << status.message
+                      << std::endl;
+            publishStatusEvent(
+                "ota-completed",
+                currentTimeMs(),
+                std::string(R"("jobId":")") + escapeJson(reply.jobId) +
+                    R"(","stage":")" + escapeJson(status.stage) +
+                    R"(","message":")" + escapeJson(status.message) + R"(")"
+            );
+        } catch (const std::exception& ex) {
+            status.jobId = request.jobId;
+            status.machineCode = machineCode;
+            status.stage = "failed";
+            status.progress = 0;
+            status.message = ex.what();
+            status.ts = currentTimeMs();
+            std::cerr << "mqtt ota job failed"
+                      << " jobId=" << request.jobId
+                      << " error=" << ex.what()
+                      << std::endl;
+            publishStatusEvent(
+                "ota-failed",
+                status.ts,
+                std::string(R"("jobId":")") + escapeJson(request.jobId) +
+                    R"(","message":")" + escapeJson(ex.what()) + R"(")"
+            );
+            try {
+                publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
+            } catch (...) {
+            }
+        }
+        otaInProgress_.store(false);
+    });
 }
 
 void MqttDriverService::publishStatusEvent(
@@ -751,7 +860,19 @@ void MqttDriverService::publishStatusEvent(
         payload << "," << detailsJson;
     }
     payload << "}";
-    publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+    try {
+        publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+    } catch (const std::exception& ex) {
+        std::cerr << "mqtt status event publish failed"
+                  << " event=" << event
+                  << " error=" << ex.what()
+                  << std::endl;
+    } catch (...) {
+        std::cerr << "mqtt status event publish failed"
+                  << " event=" << event
+                  << " error=unknown"
+                  << std::endl;
+    }
 }
 
 std::string MqttDriverService::primaryMachineCode() const {
@@ -792,9 +913,7 @@ void MqttDriverService::replayPendingOtaStatuses() {
     if (!otaService_) {
         return;
     }
-    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
+    const auto nowMs = currentTimeMs();
     lastOtaReplayAttemptMs_ = nowMs;
     const auto statuses = otaService_->loadPendingStatuses();
     if (statuses.empty()) {

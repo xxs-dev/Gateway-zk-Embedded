@@ -73,19 +73,73 @@ with open(manifest_path, "r", encoding="utf-8") as fh:
 allowed_clean_roots = (
     "/opt/modbus-gateway/config/runtime/devices",
     "/opt/modbus-gateway/config/runtime/apps",
+    "/opt/modbus-gateway/config/runtime/logic",
 )
+
+allowed_bin_targets = {
+    "/opt/modbus-gateway/bin/gateway-run.sh",
+    "/opt/modbus-gateway/bin/gateway-services.sh",
+    "/opt/modbus-gateway/bin/install-factory-config.sh",
+    "/opt/modbus-gateway/bin/production-smoke-test.sh",
+    "/opt/modbus-gateway/bin/ota-apply.sh",
+    "/opt/modbus-gateway/bin/ota-rollback.sh",
+}
+
+allowed_exact_services = (
+    "gateway-services.service",
+)
+
+allowed_service_prefixes = (
+    "modbus-rtu@",
+    "dlt645-driver@",
+    "dio-driver@",
+    "can-driver@",
+    "compute-engine@",
+    "event-engine@",
+    "local-display@",
+    "local-kiosk@",
+    "camera-service@",
+    "mqtt-driver@",
+    "system-monitor@",
+    "mqtt-tls-tunnel@",
+)
+
+def log(message):
+    with open(log_file, "a", encoding="utf-8") as fh:
+        fh.write(message + "\n")
+
+def safe_child_path(path, root):
+    normalized = os.path.abspath(path)
+    normalized_root = os.path.abspath(root)
+    return normalized == normalized_root or normalized.startswith(normalized_root.rstrip("/") + "/")
+
+def is_safe_target(dst):
+    normalized = os.path.abspath(dst)
+    if safe_child_path(normalized, "/opt/modbus-gateway/config"):
+        return True
+    if safe_child_path(normalized, "/opt/modbus-gateway/bin"):
+        return normalized in allowed_bin_targets
+    if safe_child_path(normalized, "/etc/systemd/system"):
+        return normalized.endswith(".service")
+    return False
+
+def is_safe_service_name(value):
+    if not value or len(value) > 128 or not value.endswith(".service"):
+        return False
+    allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.@:-")
+    if any(ch not in allowed_chars for ch in value):
+        return False
+    return value in allowed_exact_services or any(value.startswith(prefix) for prefix in allowed_service_prefixes)
 
 for rule in manifest.get("cleanBeforeApply", []):
     target = os.path.abspath(rule.get("target", ""))
     if target not in allowed_clean_roots:
-        with open(log_file, "a", encoding="utf-8") as log:
-            log.write(f"[manifest-clean-skip] unsafe target {target}\n")
+        log(f"[manifest-clean-skip] unsafe target {target}")
         continue
     patterns = rule.get("patterns", ["*.json"])
     for pattern in patterns:
         if os.path.basename(pattern) != pattern:
-            with open(log_file, "a", encoding="utf-8") as log:
-                log.write(f"[manifest-clean-skip] unsafe pattern {pattern}\n")
+            log(f"[manifest-clean-skip] unsafe pattern {pattern}")
             continue
         for path in glob.glob(os.path.join(target, pattern)):
             if not os.path.isfile(path):
@@ -94,20 +148,24 @@ for rule in manifest.get("cleanBeforeApply", []):
             os.makedirs(os.path.dirname(backup_path), exist_ok=True)
             shutil.copy2(path, backup_path)
             os.remove(path)
-            with open(log_file, "a", encoding="utf-8") as log:
-                log.write(f"[manifest-clean] {path}\n")
+            log(f"[manifest-clean] {path}")
 
 for item in manifest.get("files", []):
-    src = os.path.join(root_dir, item["path"])
-    dst = item["target"]
+    src = os.path.abspath(os.path.join(root_dir, item["path"]))
+    dst = os.path.abspath(item["target"])
+    if not safe_child_path(src, root_dir) or not os.path.isfile(src):
+        log(f"[manifest-copy-skip] unsafe source {item.get('path', '')}")
+        continue
+    if not is_safe_target(dst):
+        log(f"[manifest-copy-skip] unsafe target {dst}")
+        continue
     if (
         os.path.abspath(dst) == "/opt/modbus-gateway/config/runtime/device_identity.json"
         and os.path.exists(dst)
         and not manifest.get("updateIdentity", False)
         and not item.get("updateIdentity", False)
     ):
-        with open(log_file, "a", encoding="utf-8") as log:
-            log.write(f"[manifest-skip-identity] preserve existing {dst}\n")
+        log(f"[manifest-skip-identity] preserve existing {dst}")
         continue
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if os.path.exists(dst):
@@ -119,12 +177,15 @@ for item in manifest.get("files", []):
         need_systemd_reload = True
     if dst.startswith("/opt/modbus-gateway/bin/") and (dst.endswith(".sh") or os.access(src, os.X_OK)):
         chmod_targets.append(dst)
-    with open(log_file, "a", encoding="utf-8") as log:
-        log.write(f"[manifest-copy] {src} -> {dst}\n")
+    log(f"[manifest-copy] {src} -> {dst}")
 
 with open(restart_file, "w", encoding="utf-8") as fh:
     for item in manifest.get("restart", {}).get("services", []):
-        fh.write(item + "\n")
+        service = str(item).strip()
+        if is_safe_service_name(service):
+            fh.write(service + "\n")
+        else:
+            log(f"[manifest-restart-skip] unsafe service {service}")
 if need_systemd_reload:
     with open(systemd_reload_file, "w", encoding="utf-8") as fh:
         fh.write("1\n")

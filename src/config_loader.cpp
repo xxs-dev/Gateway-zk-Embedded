@@ -913,6 +913,9 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
             config.eventOutboxRetentionMonths = requireInt(outboxObject, "retentionMonths", config.eventOutboxRetentionMonths);
             config.eventOutboxCleanupIntervalHours = requireInt(outboxObject, "cleanupIntervalHours", config.eventOutboxCleanupIntervalHours);
             config.eventOutboxReplayBatchSize = requireSize(outboxObject, "replayBatchSize", config.eventOutboxReplayBatchSize);
+            config.eventOutboxMaxDiskBytes = requireSize(outboxObject, "maxDiskBytes", config.eventOutboxMaxDiskBytes);
+        } else {
+            config.eventOutboxMaxDiskBytes = config.offlineBufferMaxDiskBytes;
         }
     }
     return config;
@@ -1152,6 +1155,9 @@ OtaConfig parseOtaConfig(const JsonValue* value) {
     config.upgradeTimeoutSec = requireInt(object, "upgradeTimeoutSec", config.upgradeTimeoutSec);
     config.downloadRetryCount = requireInt(object, "downloadRetryCount", config.downloadRetryCount);
     config.downloadRetryBackoffMs = requireInt(object, "downloadRetryBackoffMs", config.downloadRetryBackoffMs);
+    config.maxPendingStatusBytes = requireSize(object, "maxPendingStatusBytes", config.maxPendingStatusBytes);
+    config.maxArtifactBytes = static_cast<std::uint64_t>(requireSize(object, "maxArtifactBytes", static_cast<std::size_t>(config.maxArtifactBytes)));
+    config.minFreeBytes = static_cast<std::uint64_t>(requireSize(object, "minFreeBytes", static_cast<std::size_t>(config.minFreeBytes)));
     config.storage = parseOtaStorageConfig(value->find("storage"));
     return config;
 }
@@ -1187,6 +1193,7 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     config.diskAlertThreshold = requireDouble(object, "diskAlertThreshold", config.diskAlertThreshold);
     config.alertRepeatIntervalSec = requireInt(object, "alertRepeatIntervalSec", config.alertRepeatIntervalSec);
     config.diagEnabled = requireBool(object, "diagEnabled", config.diagEnabled);
+    config.maxDiagOutputBytes = requireSize(object, "maxDiagOutputBytes", config.maxDiagOutputBytes);
     config.allowedCommands = parseStringArray(value->find("allowedCommands"));
     if (config.allowedCommands.empty()) {
         config.allowedCommands = SystemMonitorConfig().allowedCommands;
@@ -1643,6 +1650,8 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.ota.retentionCount = 3;
     config.ota.statusReportIntervalSec = 5;
     config.ota.upgradeTimeoutSec = 900;
+    config.ota.maxArtifactBytes = 512ULL * 1024ULL * 1024ULL;
+    config.ota.minFreeBytes = 256ULL * 1024ULL * 1024ULL;
     config.ota.storage.provider = "local";
     config.ota.storage.presignExpireMinutes = 60;
     config.ota.storage.minio.endpoint = "http://127.0.0.1:9000";

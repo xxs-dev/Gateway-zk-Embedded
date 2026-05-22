@@ -22,7 +22,7 @@
 - `runtime/devices/device_slave_ttySP1.json`：`/dev/ttySP1` Modbus RTU 示例。
 - `runtime/devices/device_slave_ttySP2.json`：`/dev/ttySP2` Modbus RTU 示例。
 - `runtime/devices/device_dio.json`：本机 18 路 DI、8 路 DO 示例。
-- `runtime/devices/device_ems_virtual.json`：EMS 本体虚拟点，提供模式、状态、计划曲线和中间变量点位。
+- `runtime/devices/device_ems_virtual.json`：EMS 本体虚拟点，提供模式、状态、计划曲线和中间变量点位；`name`、`pointCode`、`legacyVarName` 分别表示展示名称、平台测点编码和旧舜通实际变量名。
 - `runtime/devices/device_can0.json`：CAN SocketCAN 示例模板，默认不加入运行时引用。
 - `config/examples/device_can0_example.json`：同一 CAN 示例的联调样例文件。
 

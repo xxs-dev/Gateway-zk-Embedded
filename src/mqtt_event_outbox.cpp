@@ -1,5 +1,6 @@
 #include "edge_gateway/mqtt_event_outbox.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <ctime>
@@ -147,12 +148,14 @@ MqttEventOutbox::MqttEventOutbox(
     std::string libraryPath,
     int retentionMonths,
     int cleanupIntervalHours,
-    std::size_t replayBatchSize
+    std::size_t replayBatchSize,
+    std::size_t maxDiskBytes
 ) : dbPath_(std::move(dbPath)),
     libraryPath_(std::move(libraryPath)),
     retentionMonths_(retentionMonths <= 0 ? 12 : retentionMonths),
     cleanupIntervalHours_(cleanupIntervalHours <= 0 ? 24 : cleanupIntervalHours),
-    replayBatchSize_(replayBatchSize == 0 ? 100 : replayBatchSize) {
+    replayBatchSize_(replayBatchSize == 0 ? 100 : replayBatchSize),
+    maxDiskBytes_(maxDiskBytes) {
     loadLibrary();
     openDatabase();
     ensureSchema();
@@ -195,6 +198,7 @@ std::vector<std::int64_t> MqttEventOutbox::enqueueBatch(const std::vector<EventM
     ids.reserve(events.size());
     try {
         execOrThrow(db, "BEGIN IMMEDIATE;");
+        enforceDiskLimit();
         if (prepareWithRetry(db, sql, &stmt) != kSqliteOk) {
             throw std::runtime_error(sqliteError(db));
         }
@@ -225,6 +229,7 @@ std::vector<std::int64_t> MqttEventOutbox::enqueueBatch(const std::vector<EventM
 
         g_finalize(stmt);
         stmt = nullptr;
+        enforceDiskLimit();
         execOrThrow(db, "COMMIT;");
     } catch (...) {
         if (stmt != nullptr) {
@@ -468,6 +473,80 @@ void MqttEventOutbox::ensureSchema() {
     );
     execOrThrow(db, "CREATE INDEX IF NOT EXISTS idx_mqtt_event_outbox_pending ON mqtt_event_outbox(sent, event_ts, id);");
     execOrThrow(db, "CREATE INDEX IF NOT EXISTS idx_mqtt_event_outbox_cleanup ON mqtt_event_outbox(sent, event_month);");
+}
+
+std::size_t MqttEventOutbox::pendingBytes() {
+    auto* db = static_cast<sqlite3*>(databaseHandle_);
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT COALESCE(SUM(length(topic) + length(payload)), 0) FROM mqtt_event_outbox WHERE sent=0;";
+    if (prepareWithRetry(db, sql, &stmt) != kSqliteOk) {
+        throw std::runtime_error(sqliteError(db));
+    }
+    std::size_t bytes = 0;
+    const auto rc = stepWithRetry(stmt);
+    if (rc == kSqliteRow) {
+        bytes = static_cast<std::size_t>(std::max<long long>(0, g_column_int64(stmt, 0)));
+    } else if (rc != kSqliteDone) {
+        g_finalize(stmt);
+        throw std::runtime_error(sqliteError(db));
+    }
+    g_finalize(stmt);
+    return bytes;
+}
+
+std::size_t MqttEventOutbox::prunePendingRows(std::size_t targetBytes) {
+    auto* db = static_cast<sqlite3*>(databaseHandle_);
+    const auto currentBytes = pendingBytes();
+    if (currentBytes <= targetBytes) {
+        return 0;
+    }
+
+    const auto bytesToRemove = currentBytes - targetBytes;
+    std::vector<std::int64_t> ids;
+    std::size_t selectedBytes = 0;
+    sqlite3_stmt* stmt = nullptr;
+    const char* selectSql =
+        "SELECT id, length(topic) + length(payload) FROM mqtt_event_outbox WHERE sent=0 "
+        "ORDER BY CASE event_type WHEN 'alarm' THEN 1 ELSE 0 END, event_ts ASC, id ASC;";
+    if (prepareWithRetry(db, selectSql, &stmt) != kSqliteOk) {
+        throw std::runtime_error(sqliteError(db));
+    }
+    while (stepWithRetry(stmt) == kSqliteRow) {
+        ids.push_back(static_cast<std::int64_t>(g_column_int64(stmt, 0)));
+        selectedBytes += static_cast<std::size_t>(std::max<long long>(0, g_column_int64(stmt, 1)));
+        if (selectedBytes >= bytesToRemove) {
+            break;
+        }
+    }
+    g_finalize(stmt);
+    if (ids.empty()) {
+        return 0;
+    }
+
+    std::size_t removed = 0;
+    for (const auto id : ids) {
+        stmt = nullptr;
+        const char* deleteSql = "DELETE FROM mqtt_event_outbox WHERE id=?;";
+        if (prepareWithRetry(db, deleteSql, &stmt) != kSqliteOk) {
+            throw std::runtime_error(sqliteError(db));
+        }
+        if (g_bind_int64(stmt, 1, static_cast<long long>(id)) != kSqliteOk ||
+            stepWithRetry(stmt) != kSqliteDone) {
+            g_finalize(stmt);
+            throw std::runtime_error(sqliteError(db));
+        }
+        g_finalize(stmt);
+        ++removed;
+    }
+    return removed;
+}
+
+void MqttEventOutbox::enforceDiskLimit() {
+    if (maxDiskBytes_ == 0) {
+        return;
+    }
+    const auto targetBytes = maxDiskBytes_ > 4096 ? maxDiskBytes_ - 4096 : maxDiskBytes_;
+    (void)prunePendingRows(targetBytes);
 }
 
 void MqttEventOutbox::closeDatabase() {

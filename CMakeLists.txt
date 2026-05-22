@@ -107,3 +107,7 @@ target_compile_options(can_signal_codec_test PRIVATE -fdiagnostics-color=never)
 add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(ota_service_test tools/ota_service_test.cpp)
+target_link_libraries(ota_service_test PRIVATE edge_gateway)
+target_compile_options(ota_service_test PRIVATE -fdiagnostics-color=never)

@@ -59,7 +59,8 @@ std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(const 
                 config.eventOutboxSqliteLibraryPath,
                 config.eventOutboxRetentionMonths,
                 config.eventOutboxCleanupIntervalHours,
-                config.eventOutboxReplayBatchSize
+                config.eventOutboxReplayBatchSize,
+                config.eventOutboxMaxDiskBytes
             ));
         } catch (const std::exception& ex) {
             lastError = ex.what();

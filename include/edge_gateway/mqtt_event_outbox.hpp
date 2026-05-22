@@ -29,7 +29,8 @@ public:
         std::string libraryPath,
         int retentionMonths,
         int cleanupIntervalHours,
-        std::size_t replayBatchSize
+        std::size_t replayBatchSize,
+        std::size_t maxDiskBytes = 0
     );
     ~MqttEventOutbox();
 
@@ -62,6 +63,9 @@ private:
     void loadLibrary();
     void openDatabase();
     void ensureSchema();
+    void enforceDiskLimit();
+    std::size_t pendingBytes();
+    std::size_t prunePendingRows(std::size_t targetBytes);
     void closeDatabase();
     void unloadLibrary();
     std::string eventMonth(std::int64_t eventTs) const;
@@ -72,6 +76,7 @@ private:
     int retentionMonths_;
     int cleanupIntervalHours_;
     std::size_t replayBatchSize_;
+    std::size_t maxDiskBytes_;
     std::int64_t lastCleanupMs_ = 0;
     void* libraryHandle_ = nullptr;
     void* databaseHandle_ = nullptr;

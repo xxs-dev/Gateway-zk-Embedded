@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,7 @@ private:
     bool replayingOffline_ = false;
     std::unique_ptr<MqttRealtimeRingBuffer> realtimeRing_;
     std::unique_ptr<MqttEventOutbox> eventOutbox_;
+    std::mutex mutex_;
 };
 
 }  // namespace edge_gateway

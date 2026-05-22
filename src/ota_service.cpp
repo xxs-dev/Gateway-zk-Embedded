@@ -3,10 +3,14 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -20,8 +24,12 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/select.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -31,16 +39,31 @@ namespace edge_gateway {
 namespace {
 
 std::string quoteArg(const std::string& value) {
+#ifndef _WIN32
+    std::string escaped = "'";
+    for (const auto ch : value) {
+        if (ch == '\'') {
+            escaped += "'\\''";
+        } else {
+            escaped.push_back(ch);
+        }
+    }
+    escaped += "'";
+    return escaped;
+#else
     std::string escaped;
     escaped.reserve(value.size() + 8);
     for (const auto ch : value) {
         if (ch == '"') {
             escaped += "\\\"";
+        } else if (ch == '\\') {
+            escaped += "\\\\";
         } else {
             escaped.push_back(ch);
         }
     }
     return std::string("\"") + escaped + "\"";
+#endif
 }
 
 int makeDir(const std::string& path) {
@@ -64,9 +87,35 @@ std::uint64_t fileSizeBytes(const std::string& path) {
     return st.st_size > 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
 }
 
+void keepFileTail(const std::string& path, std::size_t maxBytes) {
+    if (maxBytes == 0) {
+        return;
+    }
+    const auto size = fileSizeBytes(path);
+    if (size <= maxBytes) {
+        return;
+    }
+    std::ifstream input(path.c_str(), std::ios::binary);
+    if (!input.is_open()) {
+        return;
+    }
+    input.seekg(-static_cast<std::streamoff>(maxBytes), std::ios::end);
+    std::string tail(maxBytes, '\0');
+    input.read(&tail[0], static_cast<std::streamsize>(tail.size()));
+    tail.resize(static_cast<std::size_t>(input.gcount()));
+    const auto firstNewline = tail.find('\n');
+    if (firstNewline != std::string::npos && firstNewline + 1 < tail.size()) {
+        tail = tail.substr(firstNewline + 1);
+    }
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    if (output.is_open()) {
+        output << tail;
+    }
+}
+
 std::string sanitizeJournalField(std::string value) {
     for (auto& ch : value) {
-        if (ch == '\t' || ch == '\r' || ch == '\n') {
+        if (ch == '\t' || ch == '\r' || ch == '\n' || ch == ',') {
             ch = ' ';
         }
     }
@@ -128,6 +177,162 @@ std::string toLower(std::string value) {
     return value;
 }
 
+bool isSafeOtaId(const std::string& value) {
+    if (value.empty() || value.size() > 128) {
+        return false;
+    }
+    for (const auto ch : value) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0 ||
+            ch == '_' || ch == '-' || ch == '.';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isSafeSha256(const std::string& value) {
+    if (value.empty()) {
+        return true;
+    }
+    if (value.size() != 64) {
+        return false;
+    }
+    for (const auto ch : value) {
+        if (std::isxdigit(static_cast<unsigned char>(ch)) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isSafeRelativeArtifactName(const std::string& value) {
+    if (value.empty() || value.size() > 255) {
+        return false;
+    }
+    if (value.find("..") != std::string::npos || value.find('/') != std::string::npos || value.find('\\') != std::string::npos) {
+        return false;
+    }
+    for (const auto ch : value) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0 ||
+            ch == '_' || ch == '-' || ch == '.';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isHttpUrlText(const std::string& value) {
+    return value.find("http://") == 0 || value.find("https://") == 0;
+}
+
+bool hasControlCharacter(const std::string& value) {
+    for (const auto ch : value) {
+        if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int hexValue(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
+std::string percentDecode(const std::string& value) {
+    std::string decoded;
+    decoded.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '%' && i + 2 < value.size()) {
+            const int high = hexValue(value[i + 1]);
+            const int low = hexValue(value[i + 2]);
+            if (high >= 0 && low >= 0) {
+                decoded.push_back(static_cast<char>((high << 4) | low));
+                i += 2;
+                continue;
+            }
+        }
+        decoded.push_back(value[i]);
+    }
+    return decoded;
+}
+
+bool hasPathTraversalSegment(const std::string& value) {
+    std::string normalized = value;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    return normalized == ".." ||
+        normalized.find("../") == 0 ||
+        normalized.find("/../") != std::string::npos ||
+        (normalized.size() >= 3 && normalized.compare(normalized.size() - 3, 3, "/..") == 0);
+}
+
+std::string pathPartForTraversalCheck(const std::string& value) {
+    auto pathText = value;
+    const auto scheme = pathText.find("://");
+    if (scheme != std::string::npos) {
+        const auto pathStart = pathText.find('/', scheme + 3);
+        pathText = pathStart == std::string::npos ? "/" : pathText.substr(pathStart);
+    }
+    const auto suffix = pathText.find_first_of("?#");
+    if (suffix != std::string::npos) {
+        pathText = pathText.substr(0, suffix);
+    }
+    return pathText;
+}
+
+std::string artifactFileName(const std::string& value) {
+    if (hasPathTraversalSegment(pathPartForTraversalCheck(value))) {
+        return std::string();
+    }
+    auto fileName = fileNameOf(value);
+    const auto query = fileName.find_first_of("?#");
+    if (query != std::string::npos) {
+        fileName = fileName.substr(0, query);
+    }
+    return fileName;
+}
+
+void validateOtaRequestFields(const OtaRequest& request) {
+    if (!isSafeOtaId(request.jobId)) {
+        throw std::runtime_error("invalid ota jobId");
+    }
+    if (!request.version.empty() && !isSafeOtaId(request.version)) {
+        throw std::runtime_error("invalid ota version");
+    }
+    if (!isSafeSha256(request.sha256)) {
+        throw std::runtime_error("invalid ota sha256");
+    }
+    if (request.artifactUrl.empty() || hasControlCharacter(request.artifactUrl)) {
+        throw std::runtime_error("invalid ota artifactUrl");
+    }
+    if (hasControlCharacter(percentDecode(request.artifactUrl))) {
+        throw std::runtime_error("invalid ota artifactUrl");
+    }
+    const auto pathPart = pathPartForTraversalCheck(request.artifactUrl);
+    if (hasPathTraversalSegment(pathPart) || hasPathTraversalSegment(percentDecode(pathPart))) {
+        throw std::runtime_error("invalid ota artifactUrl");
+    }
+}
+
+void validateOtaSize(const OtaConfig& config, std::uint64_t size) {
+    if (config.maxArtifactBytes == 0 || size == 0) {
+        return;
+    }
+    if (size > config.maxArtifactBytes) {
+        throw std::runtime_error("ota artifact size exceeds maxArtifactBytes");
+    }
+}
+
 struct HttpUrl {
     std::string host;
     std::string path = "/";
@@ -179,7 +384,7 @@ private:
     int sock_;
 };
 
-int connectTcp(const std::string& host, int port) {
+int connectTcp(const std::string& host, int port, int timeoutSec) {
     addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -194,7 +399,35 @@ int connectTcp(const std::string& host, int port) {
         if (sock < 0) {
             continue;
         }
-        if (connect(sock, entry->ai_addr, entry->ai_addrlen) == 0) {
+        const int flags = fcntl(sock, F_GETFL, 0);
+        if (flags >= 0 && timeoutSec > 0) {
+            fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+        }
+        int rc = connect(sock, entry->ai_addr, entry->ai_addrlen);
+        if (rc < 0 && errno == EINPROGRESS && timeoutSec > 0) {
+            fd_set writable;
+            FD_ZERO(&writable);
+            FD_SET(sock, &writable);
+            timeval tv {};
+            tv.tv_sec = timeoutSec;
+            tv.tv_usec = 0;
+            rc = select(sock + 1, nullptr, &writable, nullptr, &tv);
+            if (rc > 0) {
+                int error = 0;
+                socklen_t errorLen = sizeof(error);
+                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &errorLen) != 0 || error != 0) {
+                    rc = -1;
+                } else {
+                    rc = 0;
+                }
+            } else {
+                rc = -1;
+            }
+        }
+        if (flags >= 0 && timeoutSec > 0) {
+            fcntl(sock, F_SETFL, flags);
+        }
+        if (rc == 0) {
             break;
         }
         close(sock);
@@ -224,6 +457,112 @@ std::int64_t currentTimeMs() {
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
 }
+
+#ifndef _WIN32
+void setSocketTimeouts(int sock, int timeoutSec) {
+    if (timeoutSec <= 0) {
+        return;
+    }
+    timeval tv {};
+    tv.tv_sec = timeoutSec;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+bool processStillRunning(pid_t pid) {
+    if (pid <= 0) {
+        return false;
+    }
+    return kill(pid, 0) == 0;
+}
+
+void terminateProcess(pid_t pid) {
+    if (pid <= 0 || !processStillRunning(pid)) {
+        return;
+    }
+    kill(-pid, SIGTERM);
+    kill(pid, SIGTERM);
+    for (int i = 0; i < 20; ++i) {
+        int status = 0;
+        const pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid || waited < 0) {
+            return;
+        }
+        usleep(100 * 1000);
+    }
+    if (processStillRunning(pid)) {
+        kill(-pid, SIGKILL);
+        kill(pid, SIGKILL);
+        int status = 0;
+        waitpid(pid, &status, 0);
+    }
+}
+
+int runShellCommandWithTimeout(const std::string& command, int timeoutSec) {
+    const pid_t pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        setsid();
+        execl("/bin/sh", "sh", "-c", command.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+
+    int status = 0;
+    const auto startedAt = currentTimeMs();
+    while (true) {
+        const pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            return status;
+        }
+        if (waited < 0) {
+            return -1;
+        }
+        if (timeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(timeoutSec) * 1000) {
+            terminateProcess(pid);
+            return -2;
+        }
+        usleep(100 * 1000);
+    }
+}
+
+bool commandStatusSucceeded(int status) {
+    if (status < 0) {
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+void ensureFreeDiskSpace(const std::string& path, std::uint64_t minFreeBytes, std::uint64_t expectedWriteBytes) {
+    if (minFreeBytes == 0 && expectedWriteBytes == 0) {
+        return;
+    }
+    struct statvfs fs {};
+    if (statvfs(path.c_str(), &fs) != 0) {
+        return;
+    }
+    const auto freeBytes = static_cast<std::uint64_t>(fs.f_bavail) * static_cast<std::uint64_t>(fs.f_frsize);
+    const auto required = minFreeBytes > std::numeric_limits<std::uint64_t>::max() - expectedWriteBytes
+        ? std::numeric_limits<std::uint64_t>::max()
+        : minFreeBytes + expectedWriteBytes;
+    if (freeBytes < required) {
+        throw std::runtime_error("ota free disk space is below required threshold");
+    }
+}
+#else
+int runShellCommandWithTimeout(const std::string& command, int) {
+    return std::system(command.c_str());
+}
+
+bool commandStatusSucceeded(int status) {
+    return status == 0;
+}
+
+void ensureFreeDiskSpace(const std::string&, std::uint64_t, std::uint64_t) {
+}
+#endif
 
 
 std::vector<std::string> listFilesInDirectory(const std::string& path) {
@@ -277,8 +616,29 @@ bool OtaService::enabled() const {
     return config_.enabled;
 }
 
+bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMessage) const {
+    try {
+        validateOtaRequestFields(request);
+        validateOtaSize(config_, request.size);
+        (void)resolveArtifactPath(request);
+        return true;
+    } catch (const std::exception& ex) {
+        if (errorMessage != nullptr) {
+            *errorMessage = ex.what();
+        }
+        return false;
+    }
+}
+
 std::string OtaService::statusJournalPath() const {
     return joinPath(config_.stagingDir, "ota_status_pending.log");
+}
+
+void OtaService::enforceStatusJournalLimit() const {
+    if (config_.maxPendingStatusBytes == 0) {
+        return;
+    }
+    keepFileTail(statusJournalPath(), config_.maxPendingStatusBytes);
 }
 
 void OtaService::appendPendingStatus(const OtaStatus& status) const {
@@ -295,6 +655,8 @@ void OtaService::appendPendingStatus(const OtaStatus& status) const {
            << status.totalBytes << "\t"
            << sanitizeJournalField(status.message) << "\t"
            << status.ts << "\n";
+    output.close();
+    enforceStatusJournalLimit();
 }
 
 std::vector<OtaStatus> OtaService::loadPendingStatuses() const {
@@ -366,6 +728,8 @@ void OtaService::execute(
     if (!config_.enabled) {
         throw std::runtime_error("ota is disabled");
     }
+    validateOtaRequestFields(request);
+    validateOtaSize(config_, request.size);
 
     reply->jobId = request.jobId;
     reply->machineCode = machineCode;
@@ -385,25 +749,33 @@ void OtaService::execute(
 
     const auto artifactPath = resolveArtifactPath(request);
     const auto startedAt = currentTimeMs();
-
-    downloadArtifact(request, artifactPath, status, publishStatus);
-    if (config_.upgradeTimeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
-        throw std::runtime_error("ota upgrade timeout after download");
-    }
-
-    reportStage(status, "verifying", 100, "verifying artifact", currentTimeMs(), publishStatus);
-    verifyChecksum(request, artifactPath);
-    if (config_.upgradeTimeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
-        throw std::runtime_error("ota upgrade timeout after verify");
-    }
-
     try {
+        ensureFreeDiskSpace(config_.downloadDir, config_.minFreeBytes, request.size);
+
+        downloadArtifact(request, artifactPath, status, publishStatus);
+        if (config_.upgradeTimeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
+            throw std::runtime_error("ota upgrade timeout after download");
+        }
+
+        reportStage(status, "verifying", 100, "verifying artifact", currentTimeMs(), publishStatus);
+        verifyChecksum(request, artifactPath);
+        if (config_.upgradeTimeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
+            throw std::runtime_error("ota upgrade timeout after verify");
+        }
+
         reportStage(status, "applying", 100, "running apply script", currentTimeMs(), publishStatus);
         runScript(config_.applyScript, request, artifactPath);
     } catch (const std::exception& ex) {
-        reportStage(status, "rollback", 100, "running rollback script", currentTimeMs(), publishStatus);
-        const bool rollbackSucceeded = tryRollback(request, artifactPath);
-        appendFailureRecord(request, "applying", ex.what(), true, rollbackSucceeded, currentTimeMs());
+        const auto failedStage = status->stage.empty() ? std::string("unknown") : status->stage;
+        bool rollbackAttempted = false;
+        bool rollbackSucceeded = false;
+        if (status->stage == "applying") {
+            rollbackAttempted = true;
+            reportStage(status, "rollback", 100, "running rollback script", currentTimeMs(), publishStatus);
+            rollbackSucceeded = tryRollback(request, artifactPath);
+        }
+        appendFailureRecord(request, failedStage, ex.what(), rollbackAttempted, rollbackSucceeded, currentTimeMs());
+        reportStage(status, "failed", 0, ex.what(), currentTimeMs(), publishStatus);
         throw;
     }
 
@@ -418,10 +790,17 @@ std::string OtaService::resolveArtifactPath(const OtaRequest& request) const {
     if (!request.version.empty()) {
         fileName = request.version + "." + config_.packageType;
     } else {
-        fileName = fileNameOf(resolveArtifactSource(request));
+        fileName = artifactFileName(resolveArtifactSource(request));
     }
     if (fileName.empty()) {
-        fileName = request.jobId + ".pkg";
+        if (request.artifactUrl.empty()) {
+            fileName = request.jobId + ".pkg";
+        } else {
+            throw std::runtime_error("invalid ota artifact file name");
+        }
+    }
+    if (!isSafeRelativeArtifactName(fileName)) {
+        throw std::runtime_error("invalid ota artifact file name");
     }
     return joinPath(config_.downloadDir, fileName);
 }
@@ -507,10 +886,10 @@ void OtaService::appendUpgradeRecord(const OtaRequest& request, const std::strin
     }
     output << ts
            << ",result=success"
-           << ",jobId=" << request.jobId
-           << ",fromVersion=" << config_.currentVersion
-           << ",toVersion=" << (request.version.empty() ? config_.currentVersion : request.version)
-           << ",artifactPath=" << artifactPath
+           << ",jobId=" << sanitizeJournalField(request.jobId)
+           << ",fromVersion=" << sanitizeJournalField(config_.currentVersion)
+           << ",toVersion=" << sanitizeJournalField(request.version.empty() ? config_.currentVersion : request.version)
+           << ",artifactPath=" << sanitizeJournalField(artifactPath)
            << "\n";
 }
 
@@ -529,12 +908,12 @@ void OtaService::appendFailureRecord(
     }
     output << ts
            << ",result=failure"
-           << ",jobId=" << request.jobId
-           << ",stage=" << stage
-           << ",toVersion=" << (request.version.empty() ? config_.currentVersion : request.version)
+           << ",jobId=" << sanitizeJournalField(request.jobId)
+           << ",stage=" << sanitizeJournalField(stage)
+           << ",toVersion=" << sanitizeJournalField(request.version.empty() ? config_.currentVersion : request.version)
            << ",rollbackAttempted=" << (rollbackAttempted ? "true" : "false")
            << ",rollbackSucceeded=" << (rollbackSucceeded ? "true" : "false")
-           << ",message=" << message
+           << ",message=" << sanitizeJournalField(message)
            << "\n";
 }
 
@@ -543,7 +922,7 @@ bool OtaService::tryRollback(const OtaRequest& request, const std::string& artif
         return false;
     }
     const auto rollbackCommand = buildScriptCommand(config_.rollbackScript, request, artifactPath);
-    return std::system(rollbackCommand.c_str()) == 0;
+    return commandStatusSucceeded(runShellCommandWithTimeout(rollbackCommand, config_.upgradeTimeoutSec));
 }
 
 void OtaService::cleanupOldArtifacts() const {
@@ -574,7 +953,17 @@ void OtaService::reportStage(
     status->ts = ts;
     appendPendingStatus(*status);
     if (publishStatus) {
-        publishStatus(*status);
+        try {
+            publishStatus(*status);
+        } catch (const std::exception& ex) {
+            std::cerr << "ota status publish failed stage=" << stage
+                      << " error=" << ex.what()
+                      << std::endl;
+        } catch (...) {
+            std::cerr << "ota status publish failed stage=" << stage
+                      << " error=unknown"
+                      << std::endl;
+        }
     }
 }
 
@@ -596,7 +985,17 @@ void OtaService::reportDownloadProgress(
     status->ts = currentTimeMs();
     appendPendingStatus(*status);
     if (publishStatus) {
-        publishStatus(*status);
+        try {
+            publishStatus(*status);
+        } catch (const std::exception& ex) {
+            std::cerr << "ota status publish failed stage=downloading"
+                      << " error=" << ex.what()
+                      << std::endl;
+        } catch (...) {
+            std::cerr << "ota status publish failed stage=downloading"
+                      << " error=unknown"
+                      << std::endl;
+        }
     }
 }
 
@@ -673,6 +1072,8 @@ void OtaService::copyArtifactWithProgress(
     const auto fileSize = input.tellg();
     input.seekg(0, std::ios::beg);
     const auto totalBytes = fileSize > 0 ? static_cast<std::uint64_t>(fileSize) : request.size;
+    validateOtaSize(config_, totalBytes);
+    ensureFreeDiskSpace(config_.downloadDir, config_.minFreeBytes, totalBytes);
 
     std::ofstream output(targetPath.c_str(), std::ios::binary | std::ios::trunc);
     if (!output.is_open()) {
@@ -721,8 +1122,9 @@ void OtaService::downloadHttpArtifact(
     throw std::runtime_error("byte-accurate ota http download is not implemented on windows");
 #else
     const auto url = parseHttpUrl(source);
-    const auto sock = connectTcp(url.host, url.port);
+    const auto sock = connectTcp(url.host, url.port, config_.upgradeTimeoutSec);
     SocketGuard guard(sock);
+    setSocketTimeouts(sock, config_.upgradeTimeoutSec);
 
     std::ostringstream requestText;
     requestText << "GET " << url.path << " HTTP/1.0\r\n"
@@ -736,7 +1138,12 @@ void OtaService::downloadHttpArtifact(
     received.reserve(32 * 1024);
     std::vector<char> buffer(64 * 1024);
     std::size_t headerEnd = std::string::npos;
+    const auto headerStartedAt = currentTimeMs();
     while (headerEnd == std::string::npos) {
+        if (config_.upgradeTimeoutSec > 0 &&
+            currentTimeMs() - headerStartedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
+            throw std::runtime_error("ota http header timeout");
+        }
         const auto rc = recv(sock, buffer.data(), buffer.size(), 0);
         if (rc <= 0) {
             throw std::runtime_error("ota http response ended before headers");
@@ -780,9 +1187,12 @@ void OtaService::downloadHttpArtifact(
     if (chunked) {
         throw std::runtime_error("ota http chunked transfer is unsupported; server must return Content-Length");
     }
+    validateOtaSize(config_, contentLength);
 
     const auto totalBytes = contentLength > 0 ? contentLength : request.size;
+    ensureFreeDiskSpace(config_.downloadDir, config_.minFreeBytes, totalBytes);
     reportDownloadProgress(status, 0, totalBytes, "downloading artifact", publishStatus);
+    const auto downloadStartedAt = currentTimeMs();
 
     std::ofstream output(targetPath.c_str(), std::ios::binary | std::ios::trunc);
     if (!output.is_open()) {
@@ -806,6 +1216,10 @@ void OtaService::downloadHttpArtifact(
     }
 
     while (true) {
+        if (config_.upgradeTimeoutSec > 0 &&
+            currentTimeMs() - downloadStartedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
+            throw std::runtime_error("ota http download timeout");
+        }
         const auto rc = recv(sock, buffer.data(), buffer.size(), 0);
         if (rc < 0) {
             throw std::runtime_error("ota http recv failed");
@@ -818,6 +1232,7 @@ void OtaService::downloadHttpArtifact(
             throw std::runtime_error("failed to write ota artifact");
         }
         downloadedBytes += static_cast<std::uint64_t>(rc);
+        validateOtaSize(config_, downloadedBytes);
         const auto nowMs = currentTimeMs();
         if (nowMs - lastReportMs >= 500 || (totalBytes > 0 && downloadedBytes >= totalBytes)) {
             reportDownloadProgress(status, downloadedBytes, totalBytes, "downloading artifact", publishStatus);
@@ -859,9 +1274,9 @@ void OtaService::downloadExternalArtifact(
 
     const char* script =
         "if command -v curl >/dev/null 2>&1; then "
-        "curl -L --fail --silent --show-error -o \"$1\" \"$2\"; "
+        "curl -L --fail --silent --show-error --connect-timeout 15 --max-time \"$3\" -o \"$1\" \"$2\"; "
         "elif command -v wget >/dev/null 2>&1; then "
-        "wget -q -O \"$1\" \"$2\"; "
+        "wget -q -T 15 -O \"$1\" \"$2\"; "
         "else "
         "echo \"curl/wget not found\" >&2; exit 127; "
         "fi";
@@ -871,13 +1286,16 @@ void OtaService::downloadExternalArtifact(
         throw std::runtime_error("failed to fork ota downloader");
     }
     if (pid == 0) {
-        execl("/bin/sh", "sh", "-c", script, "sh", targetPath.c_str(), source.c_str(), static_cast<char*>(nullptr));
+        setsid();
+        const std::string timeoutText = std::to_string(std::max(1, config_.upgradeTimeoutSec));
+        execl("/bin/sh", "sh", "-c", script, "sh", targetPath.c_str(), source.c_str(), timeoutText.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }
 
     int exitStatus = 0;
     std::uint64_t lastBytes = 0;
     std::int64_t lastReportMs = currentTimeMs();
+    const auto startedAt = currentTimeMs();
     while (true) {
         const pid_t waited = waitpid(pid, &exitStatus, WNOHANG);
         if (waited == pid) {
@@ -893,10 +1311,17 @@ void OtaService::downloadExternalArtifact(
             lastBytes = currentBytes;
             lastReportMs = nowMs;
         }
+        validateOtaSize(config_, currentBytes);
+        if (config_.upgradeTimeoutSec > 0 &&
+            nowMs - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
+            terminateProcess(pid);
+            throw std::runtime_error("ota downloader timeout");
+        }
         usleep(500 * 1000);
     }
 
     const auto finalBytes = fileSizeBytes(targetPath);
+    validateOtaSize(config_, finalBytes);
     reportDownloadProgress(status, finalBytes, totalBytes, "artifact downloaded", publishStatus);
     if (!WIFEXITED(exitStatus) || WEXITSTATUS(exitStatus) != 0) {
         throw std::runtime_error("failed to download https artifact using curl/wget");
@@ -931,7 +1356,7 @@ void OtaService::verifyChecksum(const OtaRequest& request, const std::string& ar
         "' ") +
         " sh " + quoteArg(artifactPath) + " " + quoteArg(request.sha256);
 #endif
-    if (std::system(command.c_str()) != 0) {
+    if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec))) {
         throw std::runtime_error("artifact sha256 mismatch");
     }
 }
@@ -946,7 +1371,7 @@ void OtaService::runScript(
     }
 
     const auto command = buildScriptCommand(scriptPath, request, artifactPath);
-    if (std::system(command.c_str()) != 0) {
+    if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec))) {
         throw std::runtime_error("ota apply script failed");
     }
 }

@@ -136,6 +136,45 @@ install_file_if_exists() {
   fi
 }
 
+find_first_file() {
+  for path in "$@"; do
+    if [ -f "$path" ]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_required_binary() {
+  bin="$1"
+  src=$(find_first_file \
+    "$PACKAGE_ROOT/build-aarch64/$bin" \
+    "$PACKAGE_ROOT/bin/$bin" \
+    "$PACKAGE_ROOT/$bin" \
+    "$SOURCE_ROOT/build-aarch64/$bin" \
+    "$SOURCE_ROOT/bin/$bin" \
+    "$SOURCE_ROOT/$bin" \
+  ) || {
+    echo "required binary missing: $bin" >&2
+    exit 2
+  }
+  install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
+}
+
+install_optional_binary() {
+  bin="$1"
+  src=$(find_first_file \
+    "$PACKAGE_ROOT/build-aarch64/$bin" \
+    "$PACKAGE_ROOT/bin/$bin" \
+    "$PACKAGE_ROOT/$bin" \
+    "$SOURCE_ROOT/build-aarch64/$bin" \
+    "$SOURCE_ROOT/bin/$bin" \
+    "$SOURCE_ROOT/$bin" \
+  ) || return 0
+  install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
+}
+
 json_string_value() {
   file="$1"
   key="$2"
@@ -325,13 +364,11 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay CameraService pointctl stress_runner; do
-  install_file_if_exists "$PACKAGE_ROOT/build-aarch64/$bin" "$GATEWAY_HOME/bin/$bin"
-  install_file_if_exists "$PACKAGE_ROOT/bin/$bin" "$GATEWAY_HOME/bin/$bin"
-  install_file_if_exists "$PACKAGE_ROOT/$bin" "$GATEWAY_HOME/bin/$bin"
-  install_file_if_exists "$SOURCE_ROOT/build-aarch64/$bin" "$GATEWAY_HOME/bin/$bin"
-  install_file_if_exists "$SOURCE_ROOT/bin/$bin" "$GATEWAY_HOME/bin/$bin"
-  install_file_if_exists "$SOURCE_ROOT/$bin" "$GATEWAY_HOME/bin/$bin"
+for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl; do
+  install_required_binary "$bin"
+done
+for bin in LocalDisplay CameraService stress_runner; do
+  install_optional_binary "$bin"
 done
 
 install_file_if_exists "$DEPLOY_DIR/gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"

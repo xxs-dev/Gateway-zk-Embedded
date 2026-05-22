@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,7 @@ private:
 
     MqttConfig config_;
     std::unique_ptr<Impl> impl_;
+    std::mutex mutex_;
 };
 
 }  // namespace edge_gateway

@@ -355,7 +355,8 @@ int main(int argc, char* argv[]) {
                 appConfig.mqtt.eventOutboxSqliteLibraryPath,
                 appConfig.mqtt.eventOutboxRetentionMonths,
                 appConfig.mqtt.eventOutboxCleanupIntervalHours,
-                appConfig.mqtt.eventOutboxReplayBatchSize
+                appConfig.mqtt.eventOutboxReplayBatchSize,
+                appConfig.mqtt.eventOutboxMaxDiskBytes
             ));
         }
         mqttService.reset(new MqttDriverService(
@@ -383,7 +384,8 @@ int main(int argc, char* argv[]) {
                 appConfig.mqtt.eventOutboxSqliteLibraryPath,
                 appConfig.mqtt.eventOutboxRetentionMonths,
                 appConfig.mqtt.eventOutboxCleanupIntervalHours,
-                appConfig.mqtt.eventOutboxReplayBatchSize
+                appConfig.mqtt.eventOutboxReplayBatchSize,
+                appConfig.mqtt.eventOutboxMaxDiskBytes
             ));
         }
 

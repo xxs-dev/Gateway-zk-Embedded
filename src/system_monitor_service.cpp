@@ -233,6 +233,19 @@ std::string trimCopy(const std::string& value) {
     return value.substr(begin, end - begin);
 }
 
+std::string truncateText(std::string value, std::size_t maxBytes) {
+    if (maxBytes == 0 || value.size() <= maxBytes) {
+        return value;
+    }
+    const std::string suffix = "\n[truncated]";
+    if (maxBytes <= suffix.size()) {
+        return value.substr(0, maxBytes);
+    }
+    value.resize(maxBytes - suffix.size());
+    value += suffix;
+    return value;
+}
+
 bool startsWith(const std::string& value, const std::string& prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
 }
@@ -314,6 +327,25 @@ bool isSafeShellToken(const std::string& value) {
     for (const auto ch : value) {
         const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0 ||
             ch == '_' || ch == '-' || ch == '.' || ch == ':';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isSafeSystemdUnitName(const std::string& value) {
+    if (value.empty() || value.size() > 128) {
+        return false;
+    }
+    const std::string suffix = ".service";
+    if (value.size() <= suffix.size() ||
+        value.compare(value.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return false;
+    }
+    for (const auto ch : value) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0 ||
+            ch == '_' || ch == '-' || ch == '.' || ch == '@' || ch == ':';
         if (!ok) {
             return false;
         }
@@ -930,7 +962,10 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     } else if (command == "systemctl_status") {
         arg = service;
     }
-    const auto stdoutText = executeDiagCommand(command, arg, &exitCode);
+    const auto stdoutText = truncateText(
+        executeDiagCommand(command, arg, &exitCode),
+        monitorConfig_.maxDiagOutputBytes
+    );
     std::ostringstream reply;
     reply << "{\"cmdId\":\"" << escapeJson(cmdId)
           << "\",\"machineCode\":\"" << escapeJson(machineCode)
@@ -1362,7 +1397,7 @@ void SystemMonitorService::publishStatusEvent(const std::string& event, std::int
         return;
     }
     std::ostringstream payload;
-    payload << "{\"service\":\"system-monitor\",\"event\":\"" << event << "\",\"ts\":" << ts;
+    payload << "{\"service\":\"system-monitor\",\"event\":\"" << escapeJson(event) << "\",\"ts\":" << ts;
     if (!detailsJson.empty()) {
         payload << "," << detailsJson;
     }
@@ -1413,6 +1448,9 @@ std::string SystemMonitorService::executeDiagCommand(const std::string& command,
     } else if (command == "journal_tail") {
         shellCommand = "journalctl -n " + arg + " 2>&1";
     } else if (command == "systemctl_status") {
+        if (!isSafeSystemdUnitName(arg)) {
+            throw std::runtime_error("invalid service name");
+        }
         shellCommand = "systemctl status " + arg + " 2>&1";
     } else if (command == "cellular_status") {
         shellCommand =

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <thread>
@@ -64,6 +65,7 @@ private:
     bool shouldDeferSnapshotForEventBacklog(std::int64_t nowMs);
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
+    void startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs);
     void publishStatusEvent(
         const std::string& event,
         std::int64_t ts,
@@ -92,8 +94,11 @@ private:
     int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
     std::atomic<bool> running_{false};
+    std::atomic<bool> otaInProgress_{false};
+    std::mutex otaMutex_;
     std::thread scanThread_;
     std::thread replayThread_;
+    std::thread otaThread_;
 };
 
 }  // namespace edge_gateway
