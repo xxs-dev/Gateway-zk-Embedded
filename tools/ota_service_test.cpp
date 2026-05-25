@@ -5,6 +5,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <chrono>
+#include <thread>
 
 namespace {
 
@@ -146,6 +148,42 @@ int main() {
     }
     require(rejectedMismatch, "ota local copy should reject mismatched actual size");
     require(containsText(mismatchConfig.stagingDir + "/upgrade_history.log", "result=failure"), "size mismatch should be recorded");
+
+    OtaConfig retentionConfig;
+    retentionConfig.enabled = true;
+    retentionConfig.downloadDir = "/tmp/gateway-ota-retention/downloads";
+    retentionConfig.stagingDir = "/tmp/gateway-ota-retention/staging";
+    retentionConfig.backupDir = "/tmp/gateway-ota-retention/backup";
+    retentionConfig.applyScript = "/tmp/gateway-ota-retention/apply-ok.sh";
+    retentionConfig.rollbackScript.clear();
+    retentionConfig.checksumRequired = false;
+    retentionConfig.retentionCount = 2;
+    retentionConfig.packageType = "tar.gz";
+    retentionConfig.minFreeBytes = 0;
+    OtaService retentionService(retentionConfig);
+    OtaRequest retentionRequest;
+    retentionRequest.jobId = "JOB_RETENTION_001";
+    retentionRequest.version = "1.10.0";
+    retentionRequest.artifactUrl = "/tmp/gateway-ota-retention/source.tar.gz";
+    {
+        std::system("rm -rf /tmp/gateway-ota-retention");
+        std::system("mkdir -p /tmp/gateway-ota-retention/downloads /tmp/gateway-ota-retention/staging /tmp/gateway-ota-retention/backup");
+        std::ofstream artifact(retentionRequest.artifactUrl.c_str(), std::ios::binary | std::ios::trunc);
+        artifact << "payload";
+        std::ofstream script(retentionConfig.applyScript.c_str(), std::ios::trunc);
+        script << "#!/bin/sh\nexit 0\n";
+    }
+    for (const auto& version : {"1.2.0", "1.10.0", "1.3.0"}) {
+        std::ofstream extra((std::string("/tmp/gateway-ota-retention/downloads/") + version + ".tar.gz").c_str(), std::ios::binary | std::ios::trunc);
+        extra << version;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    OtaReply retentionReply;
+    OtaStatus retentionStatus;
+    retentionService.execute(retentionRequest, "GW_TEST", 1770000000000LL, &retentionReply, &retentionStatus, nullptr);
+    require(!std::ifstream("/tmp/gateway-ota-retention/downloads/1.2.0.tar.gz").good(), "oldest artifact should be removed by retention");
+    require(std::ifstream("/tmp/gateway-ota-retention/downloads/1.10.0.tar.gz").good(), "current artifact should be retained");
+    require(std::ifstream("/tmp/gateway-ota-retention/downloads/1.3.0.tar.gz").good(), "newer artifact should be retained");
 
     std::cout << "ota_service_test passed" << std::endl;
     return 0;

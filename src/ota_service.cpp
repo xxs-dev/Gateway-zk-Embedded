@@ -781,7 +781,7 @@ void OtaService::execute(
 
     writeVersionMarker(request, artifactPath);
     appendUpgradeRecord(request, artifactPath, currentTimeMs());
-    cleanupOldArtifacts();
+    cleanupOldArtifacts(fileNameOf(artifactPath));
     reportStage(status, "completed", 100, "upgrade completed", currentTimeMs(), publishStatus);
 }
 
@@ -931,7 +931,7 @@ bool OtaService::tryRollback(const OtaRequest& request, const std::string& artif
     return commandStatusSucceeded(runShellCommandWithTimeout(rollbackCommand, config_.upgradeTimeoutSec));
 }
 
-void OtaService::cleanupOldArtifacts() const {
+void OtaService::cleanupOldArtifacts(const std::string& keepFileName) const {
     if (config_.retentionCount <= 0) {
         return;
     }
@@ -939,9 +939,40 @@ void OtaService::cleanupOldArtifacts() const {
     if (files.size() <= static_cast<std::size_t>(config_.retentionCount)) {
         return;
     }
-    const auto removable = files.size() - static_cast<std::size_t>(config_.retentionCount);
-    for (std::size_t i = 0; i < removable; ++i) {
-        removeFilePath(files[i]);
+    struct ArtifactFile {
+        std::string path;
+        std::string fileName;
+        std::int64_t modifiedAt;
+        bool isCurrent = false;
+    };
+
+    std::vector<ArtifactFile> artifacts;
+    artifacts.reserve(files.size());
+    for (const auto& path : files) {
+        struct stat st {};
+        if (stat(path.c_str(), &st) != 0) {
+            continue;
+        }
+        const auto fileName = fileNameOf(path);
+        artifacts.push_back(ArtifactFile{
+            path,
+            fileName,
+            static_cast<std::int64_t>(st.st_mtime),
+            fileName == keepFileName
+        });
+    }
+    std::sort(artifacts.begin(), artifacts.end(), [](const ArtifactFile& left, const ArtifactFile& right) {
+        if (left.isCurrent != right.isCurrent) {
+            return left.isCurrent;
+        }
+        if (left.modifiedAt != right.modifiedAt) {
+            return left.modifiedAt > right.modifiedAt;
+        }
+        return left.fileName > right.fileName;
+    });
+
+    for (std::size_t i = static_cast<std::size_t>(config_.retentionCount); i < artifacts.size(); ++i) {
+        removeFilePath(artifacts[i].path);
     }
 }
 
