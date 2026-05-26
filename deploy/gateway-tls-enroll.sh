@@ -141,6 +141,7 @@ if [ -z "$PLATFORM_URL" ] || [ -z "$ENROLLMENT_TOKEN" ]; then
 fi
 
 python3 - "$PLATFORM_URL" "$ENROLLMENT_TOKEN" "$MACHINE_CODE" "$CSR_FILE" "$CERT_FILE" "$CA_FILE" "$KEY_FILE" "$APP_CONFIG" "$VALIDITY_DAYS" "$UPDATE_LOCAL_APP" <<'PY'
+import glob
 import json
 import os
 import sys
@@ -192,18 +193,30 @@ os.chmod(cert_file, 0o644)
 os.chmod(ca_file, 0o644)
 
 if update_local_app == "1":
-    with open(app_config, "r", encoding="utf-8") as fh:
-        app = json.load(fh)
-    mqtt = app.setdefault("mqtt", {})
-    tls = mqtt.setdefault("tls", {})
-    tls["enabled"] = True
-    tls["caFile"] = ca_file
-    tls["certFile"] = cert_file
-    tls["keyFile"] = key_file
-    tls["insecureSkipVerify"] = False
-    with open(app_config, "w", encoding="utf-8") as fh:
-        json.dump(app, fh, ensure_ascii=False, indent=2)
-        fh.write("\n")
+    app_dir = os.path.dirname(app_config)
+    app_files = [app_config]
+    if app_dir:
+        app_files.extend(sorted(glob.glob(os.path.join(app_dir, "*.json"))))
+    seen = set()
+    for path in app_files:
+        normalized_path = os.path.abspath(path)
+        if normalized_path in seen or not os.path.isfile(path):
+            continue
+        seen.add(normalized_path)
+        with open(path, "r", encoding="utf-8") as fh:
+            app = json.load(fh)
+        mqtt = app.get("mqtt")
+        if not isinstance(mqtt, dict):
+            continue
+        tls = mqtt.setdefault("tls", {})
+        tls["enabled"] = True
+        tls["caFile"] = ca_file
+        tls["certFile"] = cert_file
+        tls["keyFile"] = key_file
+        tls["insecureSkipVerify"] = False
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(app, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
 
 print("certificate: " + cert_file)
 print("ca: " + ca_file)
