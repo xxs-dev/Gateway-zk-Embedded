@@ -3,7 +3,13 @@ set -eu
 
 GATEWAY_HOME="${GATEWAY_HOME:-/opt/modbus-gateway}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -z "${INIT_PROMPT:-}" ] && [ -n "${prompt:-}" ]; then
+  INIT_PROMPT="$prompt"
+fi
 INIT_PACKAGE="${INIT_PACKAGE:-${FACTORY_PACKAGE:-$SCRIPT_DIR/gateway-factory-defaults.tar.gz}}"
+if [ -n "${package:-}" ]; then
+  INIT_PACKAGE="$package"
+fi
 INIT_WORK_DIR="${INIT_WORK_DIR:-/tmp/gateway-production-init.$$}"
 INIT_START_SERVICES="${INIT_START_SERVICES:-1}"
 INIT_RUN_SMOKE="${INIT_RUN_SMOKE:-1}"
@@ -13,6 +19,204 @@ INIT_TLS_UPDATE_LOCAL_APP="${INIT_TLS_UPDATE_LOCAL_APP:-1}"
 INIT_TLS_FORCE_KEY="${INIT_TLS_FORCE_KEY:-0}"
 INIT_TLS_VALIDITY_DAYS="${INIT_TLS_VALIDITY_DAYS:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: production-init.sh [options]
+
+Manual mode:
+  sh production-init.sh --manual --package /tmp/gateway-factory-defaults.tar.gz
+  sh production-init.sh prompt=1 package=/tmp/gateway-factory-defaults.tar.gz
+
+Options:
+  --manual, --prompt              Prompt for machineCode, MQTT, TLS and startup settings
+  --auto, --no-prompt             Do not prompt; use arguments/env/defaults
+  --package FILE                  Factory package path
+  --gateway-home DIR              Gateway install directory; defaults to /opt/modbus-gateway
+  --machine-code CODE             Device machineCode
+  --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
+  --mqtt-username USER            MQTT username
+  --mqtt-password PASSWORD        MQTT password
+  --mqtt-tls, --no-mqtt-tls       Enable or disable MQTT TLS config
+  --tls-ca-file FILE              MQTT TLS CA path on the device
+  --tls-cert-file FILE            MQTT TLS client cert path on the device
+  --tls-key-file FILE             MQTT TLS client key path on the device
+  --tls-platform-url URL          Platform base URL for TLS enrollment
+  --tls-token TOKEN               TLS enrollment token
+  --tls-validity-days DAYS        Requested client certificate validity days
+  --tls-force-key                 Regenerate client private key during enrollment
+  --start, --no-start             Start services after init; default start
+  --smoke, --no-smoke             Run production smoke test; default run
+  --reset-shm                     Clear gateway shared memory before start
+  --mqtt-connect-test             Enable MQTT connect check in smoke test
+  -h, --help                      Show help
+
+Environment variables with the same meaning are also supported:
+  INIT_PROMPT INIT_PACKAGE GATEWAY_HOME INIT_MACHINE_CODE
+  INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
+  INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
+  INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --manual|--prompt)
+      INIT_PROMPT=1
+      shift
+      ;;
+    --auto|--no-prompt)
+      INIT_PROMPT=0
+      shift
+      ;;
+    --package)
+      [ "$#" -ge 2 ] || { echo "--package requires a value" >&2; exit 2; }
+      INIT_PACKAGE="$2"
+      shift 2
+      ;;
+    --gateway-home)
+      [ "$#" -ge 2 ] || { echo "--gateway-home requires a value" >&2; exit 2; }
+      GATEWAY_HOME="$2"
+      shift 2
+      ;;
+    --machine-code)
+      [ "$#" -ge 2 ] || { echo "--machine-code requires a value" >&2; exit 2; }
+      INIT_MACHINE_CODE="$2"
+      shift 2
+      ;;
+    --mqtt-broker)
+      [ "$#" -ge 2 ] || { echo "--mqtt-broker requires a value" >&2; exit 2; }
+      INIT_MQTT_BROKER="$2"
+      shift 2
+      ;;
+    --mqtt-username)
+      [ "$#" -ge 2 ] || { echo "--mqtt-username requires a value" >&2; exit 2; }
+      INIT_MQTT_USERNAME="$2"
+      shift 2
+      ;;
+    --mqtt-password)
+      [ "$#" -ge 2 ] || { echo "--mqtt-password requires a value" >&2; exit 2; }
+      INIT_MQTT_PASSWORD="$2"
+      shift 2
+      ;;
+    --mqtt-tls)
+      INIT_MQTT_TLS_ENABLED=true
+      shift
+      ;;
+    --no-mqtt-tls)
+      INIT_MQTT_TLS_ENABLED=false
+      shift
+      ;;
+    --tls-ca-file)
+      [ "$#" -ge 2 ] || { echo "--tls-ca-file requires a value" >&2; exit 2; }
+      INIT_MQTT_CA_FILE="$2"
+      shift 2
+      ;;
+    --tls-cert-file)
+      [ "$#" -ge 2 ] || { echo "--tls-cert-file requires a value" >&2; exit 2; }
+      INIT_MQTT_CERT_FILE="$2"
+      shift 2
+      ;;
+    --tls-key-file)
+      [ "$#" -ge 2 ] || { echo "--tls-key-file requires a value" >&2; exit 2; }
+      INIT_MQTT_KEY_FILE="$2"
+      shift 2
+      ;;
+    --tls-platform-url)
+      [ "$#" -ge 2 ] || { echo "--tls-platform-url requires a value" >&2; exit 2; }
+      INIT_TLS_PLATFORM_URL="$2"
+      shift 2
+      ;;
+    --tls-token)
+      [ "$#" -ge 2 ] || { echo "--tls-token requires a value" >&2; exit 2; }
+      INIT_TLS_ENROLLMENT_TOKEN="$2"
+      shift 2
+      ;;
+    --tls-validity-days)
+      [ "$#" -ge 2 ] || { echo "--tls-validity-days requires a value" >&2; exit 2; }
+      INIT_TLS_VALIDITY_DAYS="$2"
+      shift 2
+      ;;
+    --tls-force-key)
+      INIT_TLS_FORCE_KEY=1
+      shift
+      ;;
+    --start)
+      INIT_START_SERVICES=1
+      shift
+      ;;
+    --no-start)
+      INIT_START_SERVICES=0
+      shift
+      ;;
+    --smoke)
+      INIT_RUN_SMOKE=1
+      shift
+      ;;
+    --no-smoke)
+      INIT_RUN_SMOKE=0
+      shift
+      ;;
+    --reset-shm)
+      INIT_RESET_SHM=1
+      shift
+      ;;
+    --mqtt-connect-test)
+      INIT_MQTT_CONNECT_TEST=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    prompt=*|INIT_PROMPT=*)
+      INIT_PROMPT="${1#*=}"
+      shift
+      ;;
+    package=*|INIT_PACKAGE=*)
+      INIT_PACKAGE="${1#*=}"
+      shift
+      ;;
+    gateway_home=*|GATEWAY_HOME=*)
+      GATEWAY_HOME="${1#*=}"
+      shift
+      ;;
+    machine_code=*|machineCode=*|INIT_MACHINE_CODE=*)
+      INIT_MACHINE_CODE="${1#*=}"
+      shift
+      ;;
+    mqtt_broker=*|INIT_MQTT_BROKER=*)
+      INIT_MQTT_BROKER="${1#*=}"
+      shift
+      ;;
+    mqtt_username=*|INIT_MQTT_USERNAME=*)
+      INIT_MQTT_USERNAME="${1#*=}"
+      shift
+      ;;
+    mqtt_password=*|INIT_MQTT_PASSWORD=*)
+      INIT_MQTT_PASSWORD="${1#*=}"
+      shift
+      ;;
+    tls_platform_url=*|INIT_TLS_PLATFORM_URL=*)
+      INIT_TLS_PLATFORM_URL="${1#*=}"
+      shift
+      ;;
+    tls_token=*|INIT_TLS_ENROLLMENT_TOKEN=*)
+      INIT_TLS_ENROLLMENT_TOKEN="${1#*=}"
+      shift
+      ;;
+    tls_validity_days=*|INIT_TLS_VALIDITY_DAYS=*)
+      INIT_TLS_VALIDITY_DAYS="${1#*=}"
+      shift
+      ;;
+    *)
+      echo "unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
 if [ -z "${INIT_PROMPT:-}" ]; then
   if [ -t 0 ]; then
     INIT_PROMPT=1
@@ -20,6 +224,7 @@ if [ -z "${INIT_PROMPT:-}" ]; then
     INIT_PROMPT=0
   fi
 fi
+export INIT_PROMPT
 
 cleanup() {
   if [ "$INIT_KEEP_WORK_DIR" != "1" ] && [ -n "$INIT_WORK_DIR" ] && [ -d "$INIT_WORK_DIR" ]; then
