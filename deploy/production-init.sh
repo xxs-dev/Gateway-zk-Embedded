@@ -33,6 +33,7 @@ Options:
   --auto, --no-prompt             Do not prompt; use arguments/env/defaults
   --package FILE                  Factory package path
   --gateway-home DIR              Gateway install directory; defaults to /opt/modbus-gateway
+  --runtime-mode MODE             Runtime mode: gateway or ems; defaults to gateway
   --machine-code CODE             Device machineCode
   --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
   --mqtt-username USER            MQTT username
@@ -52,7 +53,7 @@ Options:
   -h, --help                      Show help
 
 Environment variables with the same meaning are also supported:
-  INIT_PROMPT INIT_PACKAGE GATEWAY_HOME INIT_MACHINE_CODE
+  INIT_PROMPT INIT_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
   INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
@@ -77,6 +78,11 @@ while [ "$#" -gt 0 ]; do
     --gateway-home)
       [ "$#" -ge 2 ] || { echo "--gateway-home requires a value" >&2; exit 2; }
       GATEWAY_HOME="$2"
+      shift 2
+      ;;
+    --runtime-mode)
+      [ "$#" -ge 2 ] || { echo "--runtime-mode requires a value" >&2; exit 2; }
+      INIT_RUNTIME_MODE="$2"
       shift 2
       ;;
     --machine-code)
@@ -179,6 +185,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     gateway_home=*|GATEWAY_HOME=*)
       GATEWAY_HOME="${1#*=}"
+      shift
+      ;;
+    runtime_mode=*|runtimeMode=*|INIT_RUNTIME_MODE=*)
+      INIT_RUNTIME_MODE="${1#*=}"
       shift
       ;;
     machine_code=*|machineCode=*|INIT_MACHINE_CODE=*)
@@ -332,12 +342,98 @@ safe_machine_file_prefix() {
   printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g'
 }
 
+normalize_runtime_mode() {
+  value=$(printf '%s' "${1:-gateway}" | tr '[:upper:]' '[:lower:]')
+  case "$value" in
+    ""|gateway) printf 'gateway\n' ;;
+    ems) printf 'ems\n' ;;
+    *)
+      echo "invalid runtime mode: $1 (expected gateway or ems)" >&2
+      exit 2
+      ;;
+  esac
+}
+
 json_string_value() {
   file="$1"
   key="$2"
   if [ -f "$file" ]; then
     sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | sed -n '1p'
   fi
+}
+
+apply_runtime_mode() {
+  runtime_mode=$(normalize_runtime_mode "$1")
+  runtime_dir="$GATEWAY_HOME/config/runtime"
+  [ -d "$runtime_dir/apps" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot apply runtime mode" >&2
+    exit 1
+  fi
+  python3 - "$runtime_mode" "$runtime_dir" <<'PY'
+import json
+import os
+import sys
+
+mode, runtime_dir = sys.argv[1:3]
+apps_dir = os.path.join(runtime_dir, "apps")
+devices_dir = os.path.join(runtime_dir, "devices")
+ems_virtual_name = "device_ems_virtual.json"
+
+
+def read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return None
+
+
+def write_json(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def is_ems_virtual_ref(value):
+    text = str(value or "").replace("\\", "/").strip()
+    return text == ems_virtual_name or text.endswith("/" + ems_virtual_name)
+
+
+def is_graph_ems_rule(rule):
+    script = (rule or {}).get("script", {})
+    if not isinstance(script, dict):
+        return False
+    graph_file = str(script.get("graphFile", "")).replace("\\", "/")
+    return str(script.get("type", "")).lower() == "graphems" or graph_file.endswith("/shuntong_ems_graph.json")
+
+
+for name in sorted(os.listdir(apps_dir)):
+    if not name.endswith(".json"):
+        continue
+    path = os.path.join(apps_dir, name)
+    root = read_json(path)
+    if not isinstance(root, dict):
+        continue
+    root["runtimeMode"] = mode
+    if mode == "gateway":
+        files = root.get("deviceConfigFiles")
+        if isinstance(files, list):
+            root["deviceConfigFiles"] = [item for item in files if not is_ems_virtual_ref(item)]
+        compute = root.get("computeEngine")
+        if isinstance(compute, dict) and isinstance(compute.get("rules"), list):
+            compute["rules"] = [rule for rule in compute["rules"] if not is_graph_ems_rule(rule)]
+    write_json(path, root)
+
+if mode == "gateway":
+    ems_device = os.path.join(devices_dir, ems_virtual_name)
+    try:
+        os.remove(ems_device)
+    except FileNotFoundError:
+        pass
+PY
 }
 
 json_tls_bool_value() {
@@ -414,6 +510,7 @@ FACTORY_MQTT_CERT_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "certFile" || tr
 FACTORY_MQTT_KEY_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "keyFile" || true)
 FACTORY_MQTT_TLS_INSECURE=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "insecureSkipVerify" || true)
 
+DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
 DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
 DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
 DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
@@ -423,6 +520,7 @@ DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}"
 
 if is_interactive_init; then
   echo "Gateway production initialization"
+  INIT_RUNTIME_MODE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
   INIT_MACHINE_CODE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
   INIT_MQTT_BROKER=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
   INIT_MQTT_USERNAME=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
@@ -450,6 +548,7 @@ if is_interactive_init; then
   INIT_MQTT_CONNECT_TEST=$(prompt_bool "Run MQTT connect test in smoke test" "$INIT_MQTT_CONNECT_TEST")
 fi
 
+export INIT_RUNTIME_MODE="$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-$DEFAULT_RUNTIME_MODE}")"
 export INIT_MACHINE_CODE="${INIT_MACHINE_CODE:-$DEFAULT_MACHINE_CODE}"
 export INIT_MQTT_BROKER="${INIT_MQTT_BROKER:-$DEFAULT_MQTT_BROKER}"
 export INIT_MQTT_USERNAME="${INIT_MQTT_USERNAME:-$DEFAULT_MQTT_USERNAME}"
@@ -483,6 +582,7 @@ export START_SERVICES=0
 export RESET_SHM="$INIT_RESET_SHM"
 
 sh "$PACKAGE_ROOT/deploy/install-factory-config.sh"
+apply_runtime_mode "$INIT_RUNTIME_MODE"
 
 if [ "$tls_requested" -eq 1 ]; then
   if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then

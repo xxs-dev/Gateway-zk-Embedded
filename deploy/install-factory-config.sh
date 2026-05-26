@@ -329,6 +329,92 @@ broker_implies_tls() {
   esac
 }
 
+normalize_runtime_mode() {
+  value=$(printf '%s' "${1:-gateway}" | tr '[:upper:]' '[:lower:]')
+  case "$value" in
+    ""|gateway) printf 'gateway\n' ;;
+    ems) printf 'ems\n' ;;
+    *)
+      echo "invalid runtime mode: $1 (expected gateway or ems)" >&2
+      exit 2
+      ;;
+  esac
+}
+
+apply_runtime_mode() {
+  runtime_mode=$(normalize_runtime_mode "$1")
+  runtime_dir="$GATEWAY_HOME/config/runtime"
+  [ -d "$runtime_dir/apps" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot apply runtime mode" >&2
+    exit 1
+  fi
+  python3 - "$runtime_mode" "$runtime_dir" <<'PY'
+import json
+import os
+import sys
+
+mode, runtime_dir = sys.argv[1:3]
+apps_dir = os.path.join(runtime_dir, "apps")
+devices_dir = os.path.join(runtime_dir, "devices")
+ems_virtual_name = "device_ems_virtual.json"
+
+
+def read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return None
+
+
+def write_json(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def is_ems_virtual_ref(value):
+    text = str(value or "").replace("\\", "/").strip()
+    return text == ems_virtual_name or text.endswith("/" + ems_virtual_name)
+
+
+def is_graph_ems_rule(rule):
+    script = (rule or {}).get("script", {})
+    if not isinstance(script, dict):
+        return False
+    graph_file = str(script.get("graphFile", "")).replace("\\", "/")
+    return str(script.get("type", "")).lower() == "graphems" or graph_file.endswith("/shuntong_ems_graph.json")
+
+
+for name in sorted(os.listdir(apps_dir)):
+    if not name.endswith(".json"):
+        continue
+    path = os.path.join(apps_dir, name)
+    root = read_json(path)
+    if not isinstance(root, dict):
+        continue
+    root["runtimeMode"] = mode
+    if mode == "gateway":
+        files = root.get("deviceConfigFiles")
+        if isinstance(files, list):
+            root["deviceConfigFiles"] = [item for item in files if not is_ems_virtual_ref(item)]
+        compute = root.get("computeEngine")
+        if isinstance(compute, dict) and isinstance(compute.get("rules"), list):
+            compute["rules"] = [rule for rule in compute["rules"] if not is_graph_ems_rule(rule)]
+    write_json(path, root)
+
+if mode == "gateway":
+    ems_device = os.path.join(devices_dir, ems_virtual_name)
+    try:
+        os.remove(ems_device)
+    except FileNotFoundError:
+        pass
+PY
+}
+
 apply_runtime_identity_and_mqtt() {
   machine_code="$1"
   mqtt_broker="$2"
@@ -421,7 +507,9 @@ DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQ
 DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
 DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
 DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
 
+INIT_RUNTIME_MODE_VALUE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
 INIT_MACHINE_CODE_VALUE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
 INIT_MQTT_BROKER_VALUE=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
 INIT_MQTT_USERNAME_VALUE=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
@@ -449,7 +537,9 @@ apply_runtime_identity_and_mqtt \
   "$INIT_MQTT_CERT_FILE_VALUE" \
   "$INIT_MQTT_KEY_FILE_VALUE" \
   "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
+apply_runtime_mode "$INIT_RUNTIME_MODE_VALUE"
 
+echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"
 echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"
 echo "initialized mqtt broker: $INIT_MQTT_BROKER_VALUE"
 echo "initialized mqtt username: $INIT_MQTT_USERNAME_VALUE"

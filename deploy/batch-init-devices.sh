@@ -22,7 +22,7 @@ Options:
   -h, --help         show help
 
 CSV columns:
-  host,port,user,password,machine_code,mqtt_broker,mqtt_username,mqtt_password,tls_platform_url,tls_enrollment_token,tls_validity_days
+  host,port,user,password,machine_code,mqtt_broker,mqtt_username,mqtt_password,tls_platform_url,tls_enrollment_token,tls_validity_days,runtime_mode
 
 Transport:
   Uses scp to upload the package and production-init.sh, then ssh to execute it.
@@ -30,6 +30,7 @@ Transport:
 
 Global defaults can be supplied with environment variables:
   EDGE_SSH_USER EDGE_SSH_PASSWORD EDGE_SSH_PORT
+  INIT_RUNTIME_MODE
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
 EOF
@@ -158,8 +159,12 @@ build_remote_env() {
   tls_platform_url="$5"
   tls_token="$6"
   tls_validity_days="$7"
+  runtime_mode="$8"
 
   remote_env="INIT_MACHINE_CODE=$(shell_quote "$machine_code")"
+  if [ -n "$runtime_mode" ]; then
+    remote_env="$remote_env INIT_RUNTIME_MODE=$(shell_quote "$runtime_mode")"
+  fi
   if [ -n "$broker" ]; then
     remote_env="$remote_env INIT_MQTT_BROKER=$(shell_quote "$broker")"
   fi
@@ -189,7 +194,7 @@ build_remote_env() {
 ok_count=0
 fail_count=0
 
-while IFS=, read -r host port user password machine_code mqtt_broker mqtt_username mqtt_password tls_platform_url tls_token tls_validity_days rest || [ -n "${host:-}" ]; do
+while IFS=, read -r host port user password machine_code mqtt_broker mqtt_username mqtt_password tls_platform_url tls_token tls_validity_days runtime_mode rest || [ -n "${host:-}" ]; do
   host=$(trim "${host:-}")
   case "$host" in
     ""|\#*) continue ;;
@@ -206,6 +211,7 @@ while IFS=, read -r host port user password machine_code mqtt_broker mqtt_userna
   tls_platform_url=$(first_nonempty "$(trim "${tls_platform_url:-}")" "${INIT_TLS_PLATFORM_URL:-}" "")
   tls_token=$(first_nonempty "$(trim "${tls_token:-}")" "${INIT_TLS_ENROLLMENT_TOKEN:-}" "")
   tls_validity_days=$(first_nonempty "$(trim "${tls_validity_days:-}")" "${INIT_TLS_VALIDITY_DAYS:-}" "")
+  runtime_mode=$(first_nonempty "$(trim "${runtime_mode:-}")" "${INIT_RUNTIME_MODE:-}" "")
 
   if [ -z "$machine_code" ]; then
     echo "skip $host: machine_code is empty" >&2
@@ -217,7 +223,7 @@ while IFS=, read -r host port user password machine_code mqtt_broker mqtt_userna
   if run_ssh "$host" "$port" "$user" "$password" "rm -rf $(shell_quote "$REMOTE_DIR") && mkdir -p $(shell_quote "$REMOTE_DIR")" &&
      run_scp "$host" "$port" "$user" "$password" "$PACKAGE" "$REMOTE_DIR/gateway-factory-defaults.tar.gz" &&
      run_scp "$host" "$port" "$user" "$password" "$SCRIPT_DIR/production-init.sh" "$REMOTE_DIR/production-init.sh"; then
-    remote_env=$(build_remote_env "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" "$tls_platform_url" "$tls_token" "$tls_validity_days")
+    remote_env=$(build_remote_env "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" "$tls_platform_url" "$tls_token" "$tls_validity_days" "$runtime_mode")
     remote_cmd="cd $(shell_quote "$REMOTE_DIR") && chmod +x production-init.sh && $remote_env INIT_PACKAGE=$(shell_quote "$REMOTE_DIR/gateway-factory-defaults.tar.gz") sh ./production-init.sh"
     if run_ssh "$host" "$port" "$user" "$password" "$remote_cmd"; then
       ok_count=$((ok_count + 1))

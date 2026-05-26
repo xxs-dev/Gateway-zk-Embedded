@@ -44,6 +44,7 @@
 - `factory/runtime/devices` 放出厂默认的设备配置示例
 - `factory/runtime/tls` 放出厂默认 TLS 证书目录和 stunnel 兜底配置模板，正式上线前必须替换 broker、CA 和证书路径
 - 出厂模板默认引用 `ttySP1`、`ttySP2` 两个 Modbus RTU 示例串口，以及本机 `device_dio.json`
+- 生产初始化默认 `INIT_RUNTIME_MODE=gateway`；脚本会把 app 配置写成网关模式，并移除 EMS 虚拟设备引用和 `graphEms` 规则。EMS 项目必须显式传 `INIT_RUNTIME_MODE=ems` 或 `--runtime-mode ems`
 - CAN SocketCAN 示例模板放在 `factory/runtime/devices/device_can0.json`，同一联调样例也放在 `config/examples/device_can0_example.json`；未加入 `deviceConfigFiles[]` 时不会启动 CAN 驱动
 - 本机 `device_dio.json` 包含 18 路 DI 和 8 路 DO，DI/DO 默认都按低有效处理，平台逻辑值为 `1=有效/闭合`
 - `monitor-service.json` 默认启用 4G 模块状态采集，当前硬件按 `/dev/ttyUSB2`、`/dev/ttyUSB1`、`/dev/ttyUSB0` 顺序探测可响应 AT 口，并读取 SIM、注册、信号、运营商和流量状态
@@ -125,10 +126,11 @@ sh deploy/install-factory-config.sh
 - `GATEWAY_HOME=/opt/modbus-gateway` 指定边端安装目录
 - `DEFAULT_SOURCE_ROOT=/home/gateway-factory` 指定出厂默认包目录
 - `SOURCE_ROOT=/home/gateway-factory` 显式指定本次初始化使用的源目录
+- `INIT_RUNTIME_MODE=gateway|ems` 指定运行模式，默认 `gateway`
 - `START_SERVICES=0` 只安装配置，不启动服务
 - `RESET_SHM=1` 停服务后清理旧共享内存，再恢复出厂配置
 
-初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时会把运行 app 配置里的 `clientId` 同步为该 `machineCode`。
+初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时会把运行 app 配置里的 `clientId` 同步为该 `machineCode`。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；只有 EMS 项目才传 `INIT_RUNTIME_MODE=ems`。
 
 日常运维入口：
 

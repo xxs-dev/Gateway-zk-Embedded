@@ -135,6 +135,49 @@ check_runtime_files() {
   done
 }
 
+app_runtime_mode() {
+  mode=$(json_string "$1" runtimeMode)
+  [ -n "$mode" ] || mode="gateway"
+  printf '%s\n' "$mode"
+}
+
+app_has_ems_graph_rule() {
+  file="$1"
+  grep -E '"type"[[:space:]]*:[[:space:]]*"graphEms"|shuntong_ems_graph\.json' "$file" >/dev/null 2>&1
+}
+
+check_runtime_mode() {
+  echo "== runtime mode =="
+  mqtt_mode=$(app_runtime_mode "$APP_CONFIG")
+  monitor_mode=$(app_runtime_mode "$MONITOR_CONFIG")
+  for item in "$APP_CONFIG:$mqtt_mode" "$MONITOR_CONFIG:$monitor_mode"; do
+    cfg=${item%%:*}
+    mode=${item#*:}
+    case "$mode" in
+      gateway|ems) pass "$(basename "$cfg") runtimeMode: $mode" ;;
+      *) fail "$(basename "$cfg") runtimeMode must be gateway or ems, actual: $mode" ;;
+    esac
+  done
+  if [ "$mqtt_mode" != "$monitor_mode" ]; then
+    fail "mqtt-service and monitor-service runtimeMode mismatch: $mqtt_mode vs $monitor_mode"
+    return
+  fi
+  if [ "$mqtt_mode" = "gateway" ]; then
+    for cfg in "$APP_CONFIG" "$MONITOR_CONFIG"; do
+      if extract_device_files "$cfg" | grep -q 'device_ems_virtual\.json'; then
+        fail "$(basename "$cfg") gateway mode must not reference device_ems_virtual.json"
+      else
+        pass "$(basename "$cfg") gateway mode has no EMS virtual device reference"
+      fi
+      if app_has_ems_graph_rule "$cfg"; then
+        fail "$(basename "$cfg") gateway mode must not include graphEms rules"
+      else
+        pass "$(basename "$cfg") gateway mode has no graphEms rules"
+      fi
+    done
+  fi
+}
+
 extract_device_files() {
   file="$1"
   sed -n '/"deviceConfigFiles"[[:space:]]*:/,/\]/p' "$file" 2>/dev/null |
@@ -595,6 +638,7 @@ echo
 
 check_identity
 check_runtime_files
+check_runtime_mode
 check_device_refs
 check_tls
 check_services
