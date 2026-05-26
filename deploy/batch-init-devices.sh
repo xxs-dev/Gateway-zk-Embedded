@@ -182,6 +182,7 @@ build_remote_env() {
   remote_env="$remote_env INIT_RUN_SMOKE=$(shell_quote "${INIT_RUN_SMOKE:-1}")"
   remote_env="$remote_env INIT_RESET_SHM=$(shell_quote "${INIT_RESET_SHM:-0}")"
   remote_env="$remote_env INIT_MQTT_CONNECT_TEST=$(shell_quote "${INIT_MQTT_CONNECT_TEST:-0}")"
+  remote_env="$remote_env INIT_PROMPT=0"
   printf '%s\n' "$remote_env"
 }
 
