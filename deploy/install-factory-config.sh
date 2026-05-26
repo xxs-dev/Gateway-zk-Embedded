@@ -373,6 +373,7 @@ done
 
 install_file_if_exists "$DEPLOY_DIR/gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
 install_file_if_exists "$DEPLOY_DIR/gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
+install_file_if_exists "$DEPLOY_DIR/gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
 install_file_if_exists "$DEPLOY_DIR/local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 install_file_if_exists "$DEPLOY_DIR/install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
 install_file_if_exists "$DEPLOY_DIR/production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"

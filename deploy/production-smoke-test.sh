@@ -130,7 +130,7 @@ check_runtime_files() {
   for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine SystemMonitor LocalDisplay CameraService pointctl; do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
-  for script in gateway-services.sh gateway-run.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh; do
+  for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh; do
     exec_exists "$BIN_DIR/$script" "$script"
   done
 }

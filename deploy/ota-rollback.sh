@@ -136,6 +136,10 @@ PY
 fi
 
 if command -v systemctl >/dev/null 2>&1 && [ -f "$RESTART_FILE" ]; then
+  need_gateway_services_restart=0
+  if [ -f "$RESTORE_LIST" ] && grep -qE -e '-> /opt/modbus-gateway/config/runtime/tls/|-> /etc/systemd/system/mqtt-tls-tunnel@\.service$' "$RESTORE_LIST"; then
+    need_gateway_services_restart=1
+  fi
   systemctl daemon-reload || echo "[$TIMESTAMP] [ota-rollback] daemon-reload failed" | tee -a "$LOG_FILE" >&2
   while IFS= read -r service; do
     [ -z "$service" ] && continue
@@ -149,6 +153,13 @@ if command -v systemctl >/dev/null 2>&1 && [ -f "$RESTART_FILE" ]; then
     echo "[$TIMESTAMP] [ota-rollback] restarting $service" | tee -a "$LOG_FILE"
     systemctl restart "$service" || echo "[$TIMESTAMP] [ota-rollback] restart failed $service" | tee -a "$LOG_FILE" >&2
   done < "$RESTART_FILE"
+  if [ "$need_gateway_services_restart" -eq 1 ]; then
+    if ! grep -qx 'gateway-services.service' "$RESTART_FILE"; then
+      echo "[$TIMESTAMP] [ota-rollback] restarting gateway-services.service for tls restoration" | tee -a "$LOG_FILE"
+      systemctl enable gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] enable failed gateway-services.service" | tee -a "$LOG_FILE" >&2
+      systemctl restart gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] restart failed gateway-services.service" | tee -a "$LOG_FILE" >&2
+    fi
+  fi
 fi
 
 {

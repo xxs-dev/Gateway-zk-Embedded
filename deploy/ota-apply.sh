@@ -197,7 +197,10 @@ import sys
 manifest_path, backup_dir, log_file, restart_file, systemd_reload_file, chmod_file = sys.argv[1:7]
 root_dir = os.path.dirname(manifest_path)
 need_systemd_reload = False
+need_gateway_services_restart = False
 chmod_targets = []
+restart_services = []
+restart_service_set = set()
 
 with open(manifest_path, "r", encoding="utf-8") as fh:
     manifest = json.load(fh)
@@ -273,6 +276,14 @@ def is_safe_target(dst):
         return normalized in allowed_systemd_targets
     return False
 
+def needs_gateway_services_restart(dst):
+    normalized = os.path.abspath(dst).replace("\\", "/")
+    if normalized.startswith("/opt/modbus-gateway/config/runtime/tls/"):
+        return True
+    if normalized == "/etc/systemd/system/mqtt-tls-tunnel@.service":
+        return True
+    return False
+
 def sha256_file(path):
     import hashlib
     digest = hashlib.sha256()
@@ -343,6 +354,8 @@ for item in manifest.get("files", []):
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         shutil.copy2(dst, backup_path)
     shutil.copy2(src, dst)
+    if needs_gateway_services_restart(dst):
+        need_gateway_services_restart = True
     if dst.startswith("/etc/systemd/system/") and dst.endswith(".service"):
         need_systemd_reload = True
     if dst.startswith("/opt/modbus-gateway/bin/") and (dst.endswith(".sh") or os.access(src, os.X_OK)):
@@ -353,9 +366,18 @@ with open(restart_file, "w", encoding="utf-8") as fh:
     for item in manifest.get("restart", {}).get("services", []):
         service = str(item).strip()
         if is_safe_service_name(service):
-            fh.write(service + "\n")
+            if service not in restart_service_set:
+                restart_service_set.add(service)
+                restart_services.append(service)
         else:
             log(f"[manifest-restart-skip] unsafe service {service}")
+if need_gateway_services_restart and "gateway-services.service" not in restart_service_set:
+    restart_service_set.add("gateway-services.service")
+    restart_services.append("gateway-services.service")
+    log("[manifest-restart-add] tls rotation requires gateway-services.service")
+with open(restart_file, "w", encoding="utf-8") as fh:
+    for service in restart_services:
+        fh.write(service + "\n")
 if need_systemd_reload:
     with open(systemd_reload_file, "w", encoding="utf-8") as fh:
         fh.write("1\n")

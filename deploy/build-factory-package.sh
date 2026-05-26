@@ -34,6 +34,7 @@ if [ -d "$ROOT_DIR/deploy" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/deploy"
   for file in \
     build-factory-package.sh \
+    gateway-tls-enroll.sh \
     gateway-run.sh \
     gateway-services.sh \
     install-factory-config.sh \
