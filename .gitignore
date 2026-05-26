@@ -3,6 +3,7 @@
 /graph_ems_*_test.xml
 /graph_ems_state_restore_runtime.json
 /tmp/
+/deploy/devices.csv
 
 # Generated CMake dependency folders can be recreated by the build.
 /build-aarch64/CMakeFiles/

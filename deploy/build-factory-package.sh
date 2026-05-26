@@ -34,6 +34,8 @@ if [ -d "$ROOT_DIR/deploy" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/deploy"
   for file in \
     build-factory-package.sh \
+    batch-init-devices.sh \
+    devices.example.csv \
     gateway-tls-enroll.sh \
     gateway-run.sh \
     gateway-services.sh \
@@ -41,6 +43,7 @@ if [ -d "$ROOT_DIR/deploy" ]; then
     local-kiosk.py \
     ota-apply.sh \
     ota-rollback.sh \
+    production-init.sh \
     production-smoke-test.sh; do
     [ -f "$ROOT_DIR/deploy/$file" ] && cp "$ROOT_DIR/deploy/$file" "$TMP_DIR/gateway-factory-defaults/deploy/$file"
   done
