@@ -824,7 +824,6 @@ void MemoryPointStore::releaseOwnerClaims() {
     }
 
     auto* layout = layoutFrom(sharedView_);
-    bool shouldUnlink = false;
     try {
         SharedLockGuard sharedLock(&layout->header.mutex);
         const auto ts = currentTimeMs();
@@ -840,13 +839,8 @@ void MemoryPointStore::releaseOwnerClaims() {
             }
         }
         cleanupStaleOwnersAndClaims(layout, ts);
-        shouldUnlink = !hasAnyActiveOwner(layout, ts);
     } catch (...) {
         return;
-    }
-
-    if (shouldUnlink) {
-        shm_unlink(segmentName_.c_str());
     }
 #endif
 }
