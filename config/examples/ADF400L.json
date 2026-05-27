@@ -894,7 +894,7 @@
         },
         {
           "index": 401026,
-          "pointCode": "energy_active_total",
+          "pointCode": "KY02100886",
           "name": "总有功电能",
           "desc": "ADF400L 0x035E 总有功电能",
           "category": "telemetry",
@@ -927,7 +927,7 @@
         },
         {
           "index": 401027,
-          "pointCode": "energy_reactive_total",
+          "pointCode": "KY02100901",
           "name": "总无功电能",
           "desc": "ADF400L 0x0360 总无功电能",
           "category": "telemetry",
@@ -1473,7 +1473,7 @@
         },
         {
           "index": 401044,
-          "pointCode": "energy_active_forward_a",
+          "pointCode": "KY02114042",
           "name": "A 相正向有功电能",
           "desc": "ADF400L 0x0377 A 相正向有功电能",
           "category": "telemetry",
@@ -1507,7 +1507,7 @@
         },
         {
           "index": 401045,
-          "pointCode": "energy_active_reverse_a",
+          "pointCode": "KY02114045",
           "name": "A 相反向有功电能",
           "desc": "ADF400L 0x0379 A 相反向有功电能",
           "category": "telemetry",
@@ -1541,7 +1541,7 @@
         },
         {
           "index": 401046,
-          "pointCode": "energy_active_forward_b",
+          "pointCode": "KY02114043",
           "name": "B 相正向有功电能",
           "desc": "ADF400L 0x037B B 相正向有功电能",
           "category": "telemetry",
@@ -1575,7 +1575,7 @@
         },
         {
           "index": 401047,
-          "pointCode": "energy_active_reverse_b",
+          "pointCode": "KY02114046",
           "name": "B 相反向有功电能",
           "desc": "ADF400L 0x037D B 相反向有功电能",
           "category": "telemetry",
@@ -1609,7 +1609,7 @@
         },
         {
           "index": 401048,
-          "pointCode": "energy_active_forward_c",
+          "pointCode": "KY02114044",
           "name": "C 相正向有功电能",
           "desc": "ADF400L 0x037F C 相正向有功电能",
           "category": "telemetry",
@@ -1643,7 +1643,7 @@
         },
         {
           "index": 401049,
-          "pointCode": "energy_active_reverse_c",
+          "pointCode": "KY02114047",
           "name": "C 相反向有功电能",
           "desc": "ADF400L 0x0381 C 相反向有功电能",
           "category": "telemetry",
@@ -1677,7 +1677,7 @@
         },
         {
           "index": 401050,
-          "pointCode": "energy_reactive_forward_a",
+          "pointCode": "KY02114048",
           "name": "A 相正向无功电能",
           "desc": "ADF400L 0x0383 A 相正向无功电能",
           "category": "telemetry",
@@ -1711,7 +1711,7 @@
         },
         {
           "index": 401051,
-          "pointCode": "energy_reactive_reverse_a",
+          "pointCode": "KY02114013",
           "name": "A 相反向无功电能",
           "desc": "ADF400L 0x0385 A 相反向无功电能",
           "category": "telemetry",
@@ -1745,7 +1745,7 @@
         },
         {
           "index": 401052,
-          "pointCode": "energy_reactive_forward_b",
+          "pointCode": "KY02114049",
           "name": "B 相正向无功电能",
           "desc": "ADF400L 0x0387 B 相正向无功电能",
           "category": "telemetry",
@@ -1779,7 +1779,7 @@
         },
         {
           "index": 401053,
-          "pointCode": "energy_reactive_reverse_b",
+          "pointCode": "KY02114017",
           "name": "B 相反向无功电能",
           "desc": "ADF400L 0x0389 B 相反向无功电能",
           "category": "telemetry",
@@ -1813,7 +1813,7 @@
         },
         {
           "index": 401054,
-          "pointCode": "energy_reactive_forward_c",
+          "pointCode": "KY02114050",
           "name": "C 相正向无功电能",
           "desc": "ADF400L 0x038B C 相正向无功电能",
           "category": "telemetry",
@@ -1847,7 +1847,7 @@
         },
         {
           "index": 401055,
-          "pointCode": "energy_reactive_reverse_c",
+          "pointCode": "KY02114018",
           "name": "C 相反向无功电能",
           "desc": "ADF400L 0x038D C 相反向无功电能",
           "category": "telemetry",
@@ -1881,7 +1881,7 @@
         },
         {
           "index": 401056,
-          "pointCode": "energy_active_forward_total",
+          "pointCode": "KY02100891",
           "name": "总正向有功电能",
           "desc": "ADF400L 0x038E 总正向有功电能",
           "category": "telemetry",
@@ -1915,7 +1915,7 @@
         },
         {
           "index": 401057,
-          "pointCode": "energy_active_reverse_total",
+          "pointCode": "KY02100896",
           "name": "总反向有功电能",
           "desc": "ADF400L 0x0390 总反向有功电能",
           "category": "telemetry",
@@ -1949,7 +1949,7 @@
         },
         {
           "index": 401058,
-          "pointCode": "energy_reactive_forward_total",
+          "pointCode": "KY02100906",
           "name": "总正向无功电能",
           "desc": "ADF400L 0x0392 总正向无功电能",
           "category": "telemetry",
@@ -1983,7 +1983,7 @@
         },
         {
           "index": 401059,
-          "pointCode": "energy_reactive_reverse_total",
+          "pointCode": "KY02100911",
           "name": "总反向无功电能",
           "desc": "ADF400L 0x0394 总反向无功电能",
           "category": "telemetry",
@@ -14393,7 +14393,7 @@
         },
         {
           "index": 402007,
-          "pointCode": "energy_active",
+          "pointCode": "1KY02100130",
           "name": "单相有功电能",
           "desc": "ADF400L 0x0306 单相有功电能",
           "category": "telemetry",
@@ -14425,7 +14425,7 @@
         },
         {
           "index": 402008,
-          "pointCode": "energy_reactive",
+          "pointCode": "1KY02100131",
           "name": "单相无功电能",
           "desc": "ADF400L 0x0308 单相无功电能",
           "category": "telemetry",
