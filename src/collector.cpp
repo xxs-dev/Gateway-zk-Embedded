@@ -45,11 +45,17 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs) {
     CollectCycleResult result;
     if (config_.protocol.type == "local_dio") {
         const auto points = duePoints(nowMs);
+        bool hasSuccessfulRead = false;
+        std::string firstFailureMessage;
         for (const auto& point : points) {
             PointValue value;
             try {
                 value = collectLocalDioPoint(point, nowMs);
+                hasSuccessfulRead = true;
             } catch (const std::exception& ex) {
+                if (firstFailureMessage.empty()) {
+                    firstFailureMessage = ex.what();
+                }
                 value = buildFailedPointValue(point, ex.what(), nowMs);
             }
             if (point.read.cachePolicy.storeLatest) {
@@ -58,21 +64,30 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs) {
             result.values.push_back(std::move(value));
         }
         if (!points.empty()) {
-            publishDeviceOnlineStatus(true, nowMs);
+            publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
         }
         if (mqttPublisher_ && !result.values.empty()) {
             mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
+        }
+        if (!points.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
+            throw std::runtime_error(firstFailureMessage);
         }
         return result;
     }
 
     if (config_.protocol.type == "dlt645_2007") {
         const auto points = duePoints(nowMs);
+        bool hasSuccessfulRead = false;
+        std::string firstFailureMessage;
         for (const auto& point : points) {
             PointValue value;
             try {
                 value = collectDlt645Point(point, nowMs);
+                hasSuccessfulRead = true;
             } catch (const std::exception& ex) {
+                if (firstFailureMessage.empty()) {
+                    firstFailureMessage = ex.what();
+                }
                 value = buildFailedPointValue(point, ex.what(), nowMs);
             }
             if (point.read.cachePolicy.storeLatest) {
@@ -81,10 +96,13 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs) {
             result.values.push_back(std::move(value));
         }
         if (!points.empty()) {
-            publishDeviceOnlineStatus(true, nowMs);
+            publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
         }
         if (mqttPublisher_ && !result.values.empty()) {
             mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
+        }
+        if (!points.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
+            throw std::runtime_error(firstFailureMessage);
         }
         return result;
     }
@@ -92,32 +110,67 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs) {
     const auto points = duePoints(nowMs);
     result.executedTasks = ReadTaskPlanner::build(points, config_.collect.maxBatchRegisters);
 
-    for (const auto& task : result.executedTasks) {
-        const auto block = executeReadTask(task);
-        if (block.size() < static_cast<std::size_t>(task.count)) {
-            throw std::runtime_error("modbus block length is shorter than planned task");
+    bool hasSuccessfulRead = false;
+    std::string firstFailureMessage;
+    const auto recordFailure = [&](const PointDefinition& point, const std::string& message) {
+        if (firstFailureMessage.empty()) {
+            firstFailureMessage = message;
         }
+        auto value = buildFailedPointValue(point, message, nowMs);
+        if (point.read.cachePolicy.storeLatest) {
+            store_.putLatest(value);
+        }
+        result.values.push_back(std::move(value));
+    };
+
+    for (const auto& task : result.executedTasks) {
+        std::vector<std::uint16_t> block;
+        try {
+            block = executeReadTask(task);
+            if (block.size() < static_cast<std::size_t>(task.count)) {
+                throw std::runtime_error("modbus block length is shorter than planned task");
+            }
+        } catch (const std::exception& ex) {
+            const auto message = std::string("modbus read task failed function=") +
+                std::to_string(task.function) +
+                " start=" + std::to_string(task.start) +
+                " count=" + std::to_string(task.count) +
+                " error=" + ex.what();
+            for (const auto& taskPoint : task.points) {
+                recordFailure(taskPoint.definition, message);
+            }
+            continue;
+        }
+
         for (const auto& taskPoint : task.points) {
             const auto& point = taskPoint.definition;
             const auto begin = block.begin() + taskPoint.offset;
             const auto end = begin + point.read.length;
             std::vector<std::uint16_t> slice(begin, end);
 
-            const auto decoded = ModbusCodec::decodeReadValue(slice, point);
-            auto value = buildPointValue(point, decoded, nowMs);
-            if (point.read.cachePolicy.storeLatest) {
-                store_.putLatest(value);
+            try {
+                const auto decoded = ModbusCodec::decodeReadValue(slice, point);
+                auto value = buildPointValue(point, decoded, nowMs);
+                if (point.read.cachePolicy.storeLatest) {
+                    store_.putLatest(value);
+                }
+                result.values.push_back(std::move(value));
+                hasSuccessfulRead = true;
+            } catch (const std::exception& ex) {
+                recordFailure(point, ex.what());
             }
-            result.values.push_back(std::move(value));
         }
     }
 
     if (!result.executedTasks.empty()) {
-        publishDeviceOnlineStatus(true, nowMs);
+        publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
     }
 
     if (mqttPublisher_ && !result.values.empty()) {
         mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
+    }
+    if (!result.executedTasks.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
+        throw std::runtime_error(firstFailureMessage);
     }
     return result;
 }

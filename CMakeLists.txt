@@ -108,6 +108,10 @@ add_executable(config_loader_test tools/config_loader_test.cpp)
 target_link_libraries(config_loader_test PRIVATE edge_gateway)
 target_compile_options(config_loader_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
+target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
+target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(builtin_mqtt_driver_publisher_test tools/builtin_mqtt_driver_publisher_test.cpp)
 target_link_libraries(builtin_mqtt_driver_publisher_test PRIVATE edge_gateway)
 target_compile_options(builtin_mqtt_driver_publisher_test PRIVATE -fdiagnostics-color=never)

@@ -45,7 +45,7 @@
       "points": [
         {
           "index": 11000,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "Device Online",
           "desc": "TTYSP1 slave 1 online status",
           "category": "status",

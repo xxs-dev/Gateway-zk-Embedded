@@ -48,7 +48,7 @@
       "points": [
         {
           "index": 401000,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "设备在线状态",
           "desc": "ADF400L three phase/CT user online status",
           "category": "status",
@@ -14172,7 +14172,7 @@
       "points": [
         {
           "index": 402000,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "设备在线状态",
           "desc": "ADF400L single phase user online status",
           "category": "status",

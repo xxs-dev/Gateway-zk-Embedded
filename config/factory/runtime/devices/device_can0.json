@@ -46,7 +46,7 @@
       "points": [
         {
           "index": 310000,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "设备在线状态",
           "category": "status",
           "enabled": true,

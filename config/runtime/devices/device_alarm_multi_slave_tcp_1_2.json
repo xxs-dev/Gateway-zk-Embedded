@@ -43,7 +43,7 @@
       "points": [
         {
           "index": 21000,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "DEVICE_ONLINE",
           "desc": "TCP unit 1 online status",
           "category": "status",
@@ -419,7 +419,7 @@
       "points": [
         {
           "index": 22000,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "DEVICE_ONLINE",
           "desc": "TCP unit 2 online status",
           "category": "status",

@@ -45,7 +45,7 @@
       "points": [
         {
           "index": 32100,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "DEVICE_ONLINE",
           "desc": "Serial2 slave 1 online status",
           "category": "status",
@@ -415,7 +415,7 @@
       "points": [
         {
           "index": 32200,
-          "pointCode": "device_online",
+          "pointCode": "KY02200101",
           "name": "DEVICE_ONLINE",
           "desc": "Serial2 slave 2 online status",
           "category": "status",
