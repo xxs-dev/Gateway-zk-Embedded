@@ -84,6 +84,10 @@ add_executable(SystemMonitor system_monitor_main.cpp)
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)
 target_compile_options(SystemMonitor PRIVATE -fdiagnostics-color=never)
 
+add_executable(DirectAgent direct_agent_main.cpp)
+target_link_libraries(DirectAgent PRIVATE edge_gateway)
+target_compile_options(DirectAgent PRIVATE -fdiagnostics-color=never)
+
 add_executable(LocalDisplay local_display_main.cpp)
 target_link_libraries(LocalDisplay PRIVATE edge_gateway)
 target_compile_options(LocalDisplay PRIVATE -fdiagnostics-color=never)

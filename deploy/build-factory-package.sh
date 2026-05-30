@@ -54,7 +54,7 @@ fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   REQUIRED_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
-  OPTIONAL_BINS="LocalDisplay CameraService stress_runner"
+  OPTIONAL_BINS="LocalDisplay CameraService DirectAgent stress_runner"
   for bin in $REQUIRED_BINS; do
     if [ ! -f "$ROOT_DIR/build-aarch64/$bin" ]; then
       echo "required factory binary missing: build-aarch64/$bin" >&2
