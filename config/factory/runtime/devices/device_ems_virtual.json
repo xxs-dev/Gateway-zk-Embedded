@@ -38,7 +38,7 @@
       "meterCode",
       "pointCode"
     ],
-    "sharedMemoryName": "gateway_point_store",
+    "sharedMemoryName": "gateway_point_store_ems_virtual",
     "maxLatestPoints": 100000,
     "maxPendingWrites": 4096,
     "maxPersistentSamples": 20000,

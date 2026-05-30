@@ -81,7 +81,7 @@ public:
     explicit StdoutMqttDriverPublisher(edge_gateway::MqttConfig config) : config_(std::move(config)) {
     }
 
-    void publishFullSnapshot(const std::string& topic, const std::vector<edge_gateway::StoredPointValue>& values) override {
+    void publishFullSnapshot(const std::string& topic, const std::vector<edge_gateway::StoredPointValue>& values, const std::string&) override {
         std::cout << "event full topic=" << topic << " count=" << values.size() << std::endl;
     }
 
@@ -100,7 +100,7 @@ public:
                   << std::endl;
     }
 
-    void publishOnDemand(const std::string& topic, const std::vector<edge_gateway::StoredPointValue>& values) override {
+    void publishOnDemand(const std::string& topic, const std::vector<edge_gateway::StoredPointValue>& values, const std::string&) override {
         std::cout << "event demand topic=" << topic << " count=" << values.size() << std::endl;
     }
 

@@ -1,10 +1,17 @@
 #include "edge_gateway/modbus_rtu_client.hpp"
 
+#include <cstdlib>
 #include <chrono>
+#include <algorithm>
+#include <iostream>
 #include <stdexcept>
+#include <string>
+#include <thread>
 #include <utility>
 
 namespace edge_gateway {
+
+thread_local int ModbusRtuClient::priorityContextDepth_ = 0;
 
 namespace {
 
@@ -16,6 +23,34 @@ std::vector<std::uint8_t> makeWord(int value) {
         static_cast<std::uint8_t>((value >> 8) & 0xFF),
         static_cast<std::uint8_t>(value & 0xFF)
     };
+}
+
+std::uint16_t frameCrc16(const std::vector<std::uint8_t>& bytes) {
+    std::uint16_t crc = 0xFFFF;
+    for (const auto byte : bytes) {
+        crc ^= byte;
+        for (int i = 0; i < 8; ++i) {
+            const bool lsb = (crc & 0x0001U) != 0;
+            crc >>= 1;
+            if (lsb) {
+                crc ^= 0xA001U;
+            }
+        }
+    }
+    return crc;
+}
+
+bool hasValidCrc(const std::vector<std::uint8_t>& frame) {
+    if (frame.size() < 4) {
+        return false;
+    }
+    std::vector<std::uint8_t> payload(frame.begin(), frame.end() - 2);
+    const auto expected = frameCrc16(payload);
+    const auto actual = static_cast<std::uint16_t>(
+        static_cast<std::uint16_t>(frame[frame.size() - 1] << 8) |
+        frame[frame.size() - 2]
+    );
+    return expected == actual;
 }
 
 std::size_t expectedResponseSize(
@@ -35,6 +70,146 @@ std::size_t expectedResponseSize(
     return fallbackMinSize;
 }
 
+bool isReadFunction(std::uint8_t function) {
+    return function == 0x01 || function == 0x02 || function == 0x03 || function == 0x04;
+}
+
+bool isExceptionResponse(const std::vector<std::uint8_t>& response, std::uint8_t function) {
+    return response.size() == 5 &&
+        response[1] == static_cast<std::uint8_t>(function | 0x80U);
+}
+
+bool isCompleteResponse(
+    const std::vector<std::uint8_t>& response,
+    std::uint8_t function,
+    std::size_t minResponseSize
+) {
+    return response.size() >= minResponseSize || isExceptionResponse(response, function);
+}
+
+std::string hexBytes(const std::vector<std::uint8_t>& bytes) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(bytes.size() * 2);
+    for (const auto byte : bytes) {
+        out.push_back(kHex[(byte >> 4) & 0x0F]);
+        out.push_back(kHex[byte & 0x0F]);
+    }
+    return out;
+}
+
+bool traceFailuresEnabled() {
+    const char* value = std::getenv("MODBUS_TRACE_FAILURES");
+    return value != nullptr && std::string(value) == "1";
+}
+
+int wordAt(const std::vector<std::uint8_t>& pdu, std::size_t offset) {
+    if (pdu.size() < offset + 2) {
+        return -1;
+    }
+    return (static_cast<int>(pdu[offset]) << 8) | static_cast<int>(pdu[offset + 1]);
+}
+
+std::size_t drainSerialInput(ISerialPort& serialPort, int perReadTimeoutMs = 0) {
+    std::size_t drained = 0;
+    for (int i = 0; i < 16; ++i) {
+        auto chunk = serialPort.read(256, perReadTimeoutMs);
+        if (chunk.empty()) {
+            return drained;
+        }
+        drained += chunk.size();
+    }
+    return drained;
+}
+
+std::size_t tryDrainSerialInput(ISerialPort& serialPort, int perReadTimeoutMs) {
+    try {
+        return drainSerialInput(serialPort, perReadTimeoutMs);
+    } catch (...) {
+        return 0;
+    }
+}
+
+class ModbusTransactionScope {
+public:
+    explicit ModbusTransactionScope(ModbusRtuClient& client) : client_(client) {
+        client_.enterTransaction();
+    }
+
+    ~ModbusTransactionScope() {
+        client_.leaveTransaction();
+    }
+
+    ModbusTransactionScope(const ModbusTransactionScope&) = delete;
+    ModbusTransactionScope& operator=(const ModbusTransactionScope&) = delete;
+
+private:
+    ModbusRtuClient& client_;
+};
+
+class PriorityWriteScope {
+public:
+    explicit PriorityWriteScope(ModbusRtuClient& client) : client_(client) {
+        client_.beginPriorityWrite();
+    }
+
+    ~PriorityWriteScope() {
+        client_.endPriorityWrite();
+    }
+
+    PriorityWriteScope(const PriorityWriteScope&) = delete;
+    PriorityWriteScope& operator=(const PriorityWriteScope&) = delete;
+
+private:
+    ModbusRtuClient& client_;
+};
+
+bool tryExtractResponseFrame(
+    std::vector<std::uint8_t>& buffer,
+    std::uint8_t slave,
+    std::uint8_t function,
+    std::vector<std::uint8_t>& frame,
+    std::size_t minResponseSize
+) {
+    while (buffer.size() >= 2) {
+        const auto start = std::find(buffer.begin(), buffer.end(), slave);
+        if (start == buffer.end()) {
+            buffer.clear();
+            return false;
+        }
+        if (start != buffer.begin()) {
+            buffer.erase(buffer.begin(), start);
+        }
+        if (buffer.size() < 2) {
+            return false;
+        }
+
+        const auto responseFunction = buffer[1];
+        if (responseFunction != function && responseFunction != static_cast<std::uint8_t>(function | 0x80U)) {
+            buffer.erase(buffer.begin());
+            continue;
+        }
+
+        const auto expectedSize = expectedResponseSize(function, buffer, minResponseSize);
+        if (buffer.size() < expectedSize) {
+            return false;
+        }
+        if (isReadFunction(function) && (buffer[1] & 0x80U) == 0 && expectedSize != minResponseSize) {
+            buffer.erase(buffer.begin());
+            continue;
+        }
+
+        std::vector<std::uint8_t> candidate(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(expectedSize));
+        if (hasValidCrc(candidate)) {
+            frame = std::move(candidate);
+            buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(expectedSize));
+            return true;
+        }
+        buffer.erase(buffer.begin());
+    }
+    return false;
+}
+
 }  // namespace
 
 ModbusRtuClient::ModbusRtuClient(
@@ -44,6 +219,64 @@ ModbusRtuClient::ModbusRtuClient(
     options_(std::move(options)) {
     if (!serialPort_) {
         throw std::invalid_argument("serialPort is required");
+    }
+}
+
+void ModbusRtuClient::beginPriorityWrite() {
+    ++priorityContextDepth_;
+    if (priorityContextDepth_ == 1) {
+        std::lock_guard<std::mutex> lock(transactionMutex_);
+        ++pendingPriorityWrites_;
+        transactionCv_.notify_all();
+    }
+}
+
+void ModbusRtuClient::endPriorityWrite() {
+    if (priorityContextDepth_ <= 0) {
+        return;
+    }
+    --priorityContextDepth_;
+    if (priorityContextDepth_ == 0) {
+        {
+            std::lock_guard<std::mutex> lock(transactionMutex_);
+            if (pendingPriorityWrites_ > 0) {
+                --pendingPriorityWrites_;
+            }
+        }
+        transactionCv_.notify_all();
+    }
+}
+
+void ModbusRtuClient::enterTransaction() {
+    std::unique_lock<std::mutex> lock(transactionMutex_);
+    const bool priorityContext = priorityContextDepth_ > 0;
+    transactionCv_.wait(lock, [&] {
+        if (activeTransactions_ != 0) {
+            return false;
+        }
+        return priorityContext || pendingPriorityWrites_ == 0;
+    });
+    activeTransactions_ = 1;
+}
+
+void ModbusRtuClient::leaveTransaction() {
+    {
+        std::lock_guard<std::mutex> lock(transactionMutex_);
+        activeTransactions_ = 0;
+    }
+    transactionCv_.notify_all();
+}
+
+void ModbusRtuClient::waitForFrameInterval() {
+    const auto intervalMs = std::max(0, options_.frameIntervalMs);
+    if (intervalMs <= 0 || lastRequestWriteAt_ == std::chrono::steady_clock::time_point{}) {
+        return;
+    }
+
+    const auto nextWriteAt = lastRequestWriteAt_ + std::chrono::milliseconds(intervalMs);
+    const auto now = std::chrono::steady_clock::now();
+    if (now < nextWriteAt) {
+        std::this_thread::sleep_until(nextWriteAt);
     }
 }
 
@@ -64,6 +297,7 @@ std::vector<std::uint16_t> ModbusRtuClient::readInputRegisters(int slave, int st
 }
 
 void ModbusRtuClient::writeSingleCoil(int slave, int address, bool value) {
+    PriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
     const auto coilValue = makeWord(value ? 0xFF00 : 0x0000);
@@ -75,6 +309,7 @@ void ModbusRtuClient::writeSingleCoil(int slave, int address, bool value) {
 }
 
 void ModbusRtuClient::writeSingleRegister(int slave, int address, std::uint16_t value) {
+    PriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
     pdu.insert(pdu.end(), addr.begin(), addr.end());
@@ -90,8 +325,15 @@ void ModbusRtuClient::writeMultipleRegisters(
     int address,
     const std::vector<std::uint16_t>& values
 ) {
+    PriorityWriteScope priority(*this);
     if (values.empty()) {
         throw std::invalid_argument("writeMultipleRegisters requires at least one value");
+    }
+    if (values.size() > static_cast<std::size_t>(options_.maxRequestRegisters)) {
+        throw std::invalid_argument(
+            "write register count exceeds maxRequestRegisters: " + std::to_string(values.size()) +
+            " > " + std::to_string(options_.maxRequestRegisters)
+        );
     }
 
     std::vector<std::uint8_t> pdu;
@@ -115,6 +357,7 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
     const std::vector<std::uint8_t>& pdu,
     std::size_t minResponseSize
 ) {
+    ModbusTransactionScope transaction(*this);
     if (slave <= 0 || slave > 247) {
         throw std::invalid_argument("slave must be in range 1..247");
     }
@@ -128,32 +371,84 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
     frame.insert(frame.end(), pdu.begin(), pdu.end());
     appendCrc(frame);
 
-    serialPort_->write(frame);
     std::vector<std::uint8_t> response;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
-    std::size_t expectedSize = minResponseSize;
-    while (std::chrono::steady_clock::now() < deadline) {
-        const auto now = std::chrono::steady_clock::now();
-        const auto remainingMs = static_cast<int>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count()
-        );
-        if (remainingMs <= 0) {
+    std::vector<std::uint8_t> lastRawReceived;
+    std::size_t lastCleanupRxBytes = 0;
+    int attemptsMade = 0;
+    bool sawResponseBytes = false;
+    const auto maxAttempts = isReadFunction(function)
+        ? std::max(1, options_.readRetryCount + 1)
+        : 1;
+    for (int attempts = 1; attempts <= maxAttempts; ++attempts) {
+        attemptsMade = attempts;
+        waitForFrameInterval();
+        drainSerialInput(*serialPort_);
+        const auto writeStartedAt = std::chrono::steady_clock::now();
+        serialPort_->write(frame);
+        lastRequestWriteAt_ = writeStartedAt;
+        std::vector<std::uint8_t> buffer;
+        std::vector<std::uint8_t> rawReceived;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto now = std::chrono::steady_clock::now();
+            const auto remainingMs = static_cast<int>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count()
+            );
+            if (remainingMs <= 0) {
+                break;
+            }
+
+            auto chunk = serialPort_->read(256, remainingMs);
+            if (chunk.empty()) {
+                continue;
+            }
+
+            rawReceived.insert(rawReceived.end(), chunk.begin(), chunk.end());
+            buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+            if (tryExtractResponseFrame(
+                    buffer,
+                    static_cast<std::uint8_t>(slave),
+                    function,
+                    response,
+                    minResponseSize
+                )) {
+                break;
+            }
+        }
+
+        if (isCompleteResponse(response, function, minResponseSize)) {
             break;
         }
 
-        auto chunk = serialPort_->read(256, remainingMs);
-        if (chunk.empty()) {
-            continue;
+        if (!rawReceived.empty()) {
+            lastRawReceived = rawReceived;
+            sawResponseBytes = true;
         }
-
-        response.insert(response.end(), chunk.begin(), chunk.end());
-        expectedSize = expectedResponseSize(function, response, minResponseSize);
-        if (response.size() >= expectedSize) {
+        lastCleanupRxBytes = tryDrainSerialInput(*serialPort_, 10);
+        if (attempts >= maxAttempts) {
             break;
         }
     }
 
-    if (response.size() < minResponseSize) {
+    if (!isCompleteResponse(response, function, minResponseSize)) {
+        if (traceFailuresEnabled()) {
+            std::cerr << "modbus trace failure"
+                      << " port=" << options_.device
+                      << " slave=" << slave
+                      << " function=" << static_cast<int>(function)
+                      << " start=" << wordAt(pdu, 0)
+                      << " count=" << wordAt(pdu, 2)
+                      << " expectedBytes=" << minResponseSize
+                      << " rxBytes=" << lastRawReceived.size()
+                      << " cleanupRxBytes=" << lastCleanupRxBytes
+                      << " attempts=" << attemptsMade
+                      << " tx=" << hexBytes(frame)
+                      << " rx=" << hexBytes(lastRawReceived)
+                      << std::endl;
+        }
+        if (!sawResponseBytes) {
+            throw std::runtime_error("modbus response timeout");
+        }
         throw std::runtime_error("modbus response too short");
     }
 
@@ -179,6 +474,12 @@ std::vector<std::uint16_t> ModbusRtuClient::executeRegisterRead(
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
     }
+    if (count > options_.maxRequestRegisters) {
+        throw std::invalid_argument(
+            "read count exceeds maxRequestRegisters: " + std::to_string(count) +
+            " > " + std::to_string(options_.maxRequestRegisters)
+        );
+    }
 
     std::vector<std::uint8_t> pdu;
     const auto startWord = makeWord(start);
@@ -198,6 +499,12 @@ std::vector<std::uint16_t> ModbusRtuClient::executeBitRead(
 ) {
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
+    }
+    if (count > options_.maxRequestRegisters) {
+        throw std::invalid_argument(
+            "bit read count exceeds maxRequestRegisters: " + std::to_string(count) +
+            " > " + std::to_string(options_.maxRequestRegisters)
+        );
     }
 
     std::vector<std::uint8_t> pdu;

@@ -815,6 +815,79 @@ MemoryPointStore::~MemoryPointStore() {
 #endif
 }
 
+void MemoryPointStore::ensureCurrentMapping() const {
+    WriteLock lock(mutex_);
+    refreshCurrentMappingLocked();
+}
+
+void MemoryPointStore::refreshCurrentMappingLocked() const {
+#ifdef _WIN32
+    return;
+#else
+    if (segmentName_.empty() || sharedView_ == nullptr || mappingHandle_ == nullptr) {
+        return;
+    }
+
+    const int existingFd = static_cast<int>(reinterpret_cast<std::intptr_t>(mappingHandle_) - 1);
+    const int currentFd = shm_open(segmentName_.c_str(), O_RDWR, 0660);
+    if (currentFd < 0) {
+        return;
+    }
+
+    struct stat existingStat;
+    struct stat currentStat;
+    std::memset(&existingStat, 0, sizeof(existingStat));
+    std::memset(&currentStat, 0, sizeof(currentStat));
+    if (fstat(existingFd, &existingStat) != 0 || fstat(currentFd, &currentStat) != 0) {
+        close(currentFd);
+        return;
+    }
+
+    const bool sameObject =
+        existingStat.st_dev == currentStat.st_dev &&
+        existingStat.st_ino == currentStat.st_ino &&
+        existingStat.st_size == currentStat.st_size;
+    if (sameObject) {
+        close(currentFd);
+        return;
+    }
+
+    if (currentStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
+        close(currentFd);
+        throw std::runtime_error("shared memory size mismatch while refreshing mapping");
+    }
+
+    void* newView = mmap(nullptr, sizeof(SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, currentFd, 0);
+    if (newView == MAP_FAILED) {
+        close(currentFd);
+        throw std::runtime_error("mmap failed while refreshing shared memory mapping");
+    }
+
+    auto* newLayout = layoutFrom(newView);
+    if (newLayout->header.magic != kSharedStoreMagic || newLayout->header.version != kSharedStoreVersion) {
+        munmap(newView, sizeof(SharedStoreLayout));
+        close(currentFd);
+        throw std::runtime_error("shared memory version mismatch while refreshing mapping");
+    }
+
+    munmap(sharedView_, sizeof(SharedStoreLayout));
+    close(existingFd);
+    sharedView_ = newView;
+    mappingHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(currentFd) + 1);
+
+    latestSlotByIndex_.clear();
+    {
+        SharedLockGuard sharedLock(&newLayout->header.mutex);
+        latestSlotByIndex_.reserve(newLayout->header.latestCount);
+        for (std::size_t i = 0; i < kMaxLatestSlots; ++i) {
+            if (newLayout->latest[i].occupied) {
+                latestSlotByIndex_[newLayout->latest[i].index] = i;
+            }
+        }
+    }
+#endif
+}
+
 void MemoryPointStore::releaseOwnerClaims() {
 #ifdef _WIN32
     return;
@@ -947,6 +1020,7 @@ Optional<StoredPointValue> MemoryPointStore::getLatest(
     const std::string& pointCode,
     std::int64_t nowMs
 ) const {
+    ensureCurrentMapping();
     std::uint32_t index = 0;
     {
         ReadLock lock(mutex_);
@@ -963,15 +1037,14 @@ Optional<StoredPointValue> MemoryPointStore::getLatestByIndex(
     std::uint32_t index,
     std::int64_t nowMs
 ) const {
+    ensureCurrentMapping();
     Optional<PointBinding> binding;
     Optional<std::size_t> cachedSlot;
-    {
-        ReadLock lock(mutex_);
-        binding = getBindingByIndex(index);
-        const auto cached = latestSlotByIndex_.find(index);
-        if (cached != latestSlotByIndex_.end()) {
-            cachedSlot = cached->second;
-        }
+    ReadLock lock(mutex_);
+    binding = getBindingByIndex(index);
+    const auto cached = latestSlotByIndex_.find(index);
+    if (cached != latestSlotByIndex_.end()) {
+        cachedSlot = cached->second;
     }
 
 #ifdef _WIN32
@@ -1014,25 +1087,24 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
     const std::vector<std::uint32_t>& indexes,
     std::int64_t nowMs
 ) const {
+    ensureCurrentMapping();
     std::unordered_map<std::uint32_t, PointBinding> bindingsSnapshot;
     std::unordered_map<std::uint32_t, std::size_t> slotSnapshot;
     std::unordered_set<std::uint32_t> missingSlotIndexes;
-    {
-        ReadLock lock(mutex_);
-        bindingsSnapshot.reserve(indexes.size());
-        slotSnapshot.reserve(indexes.size());
-        missingSlotIndexes.reserve(indexes.size());
-        for (const auto index : indexes) {
-            const auto binding = bindings_.find(index);
-            if (binding != bindings_.end()) {
-                bindingsSnapshot.emplace(index, binding->second);
-            }
-            const auto slot = latestSlotByIndex_.find(index);
-            if (slot != latestSlotByIndex_.end()) {
-                slotSnapshot.emplace(index, slot->second);
-            } else {
-                missingSlotIndexes.insert(index);
-            }
+    ReadLock lock(mutex_);
+    bindingsSnapshot.reserve(indexes.size());
+    slotSnapshot.reserve(indexes.size());
+    missingSlotIndexes.reserve(indexes.size());
+    for (const auto index : indexes) {
+        const auto binding = bindings_.find(index);
+        if (binding != bindings_.end()) {
+            bindingsSnapshot.emplace(index, binding->second);
+        }
+        const auto slot = latestSlotByIndex_.find(index);
+        if (slot != latestSlotByIndex_.end()) {
+            slotSnapshot.emplace(index, slot->second);
+        } else {
+            missingSlotIndexes.insert(index);
         }
     }
 
@@ -1105,11 +1177,10 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
 }
 
 std::vector<StoredPointValue> MemoryPointStore::getAllLatest(std::int64_t nowMs) const {
+    ensureCurrentMapping();
     std::unordered_map<std::uint32_t, PointBinding> bindingsSnapshot;
-    {
-        ReadLock lock(mutex_);
-        bindingsSnapshot = bindings_;
-    }
+    ReadLock lock(mutex_);
+    bindingsSnapshot = bindings_;
 
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
@@ -1159,6 +1230,8 @@ std::vector<StoredPointValue> MemoryPointStore::getAllLatest(std::int64_t nowMs)
 }
 
 std::vector<PointLeaseStatus> MemoryPointStore::getAllLeaseStatus(std::int64_t nowMs) const {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else
@@ -1234,6 +1307,8 @@ void MemoryPointStore::submitWriteCommand(const PendingWriteCommand& command) {
         throw std::invalid_argument("pending write index must be non-zero");
     }
 
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else
@@ -1245,11 +1320,10 @@ void MemoryPointStore::submitWriteCommand(const PendingWriteCommand& command) {
 }
 
 std::vector<PendingWriteCommand> MemoryPointStore::drainPendingWriteCommands(std::size_t limit) {
+    ensureCurrentMapping();
     std::set<std::uint32_t> registeredIndexes;
-    {
-        ReadLock lock(mutex_);
-        registeredIndexes = registeredIndexes_;
-    }
+    ReadLock lock(mutex_);
+    registeredIndexes = registeredIndexes_;
 
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
@@ -1262,6 +1336,8 @@ std::vector<PendingWriteCommand> MemoryPointStore::drainPendingWriteCommands(std
 }
 
 std::vector<PendingWriteCommand> MemoryPointStore::peekPendingWriteCommands(std::size_t limit) const {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else
@@ -1273,6 +1349,8 @@ std::vector<PendingWriteCommand> MemoryPointStore::peekPendingWriteCommands(std:
 }
 
 MemoryStoreStats MemoryPointStore::getStats() const {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else
@@ -1312,6 +1390,8 @@ MemoryStoreStats MemoryPointStore::getStats() const {
 }
 
 std::vector<PersistentPointSample> MemoryPointStore::drainPersistentSamples() {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else
@@ -1323,6 +1403,8 @@ std::vector<PersistentPointSample> MemoryPointStore::drainPersistentSamples() {
 }
 
 std::vector<PointUpdateRecord> MemoryPointStore::drainPointUpdates(std::size_t limit) {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else

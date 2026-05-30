@@ -24,7 +24,8 @@ public:
 
     void publishFullSnapshot(
         const std::string& topic,
-        const std::vector<StoredPointValue>& values
+        const std::vector<StoredPointValue>& values,
+        const std::string& valueFormat
     ) override;
 
     void publishAlarm(
@@ -37,7 +38,8 @@ public:
 
     void publishOnDemand(
         const std::string& topic,
-        const std::vector<StoredPointValue>& values
+        const std::vector<StoredPointValue>& values,
+        const std::string& valueFormat
     ) override;
 
     void publishChangeEvent(

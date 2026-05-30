@@ -53,7 +53,8 @@ class NullMqttDriverPublisher : public IMqttDriverPublisher {
 public:
     void publishFullSnapshot(
         const std::string&,
-        const std::vector<StoredPointValue>&
+        const std::vector<StoredPointValue>&,
+        const std::string&
     ) override {
         fullSnapshots.fetch_add(1, std::memory_order_relaxed);
     }
@@ -70,7 +71,8 @@ public:
 
     void publishOnDemand(
         const std::string&,
-        const std::vector<StoredPointValue>&
+        const std::vector<StoredPointValue>&,
+        const std::string&
     ) override {
         onDemand.fetch_add(1, std::memory_order_relaxed);
     }

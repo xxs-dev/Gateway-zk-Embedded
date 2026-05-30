@@ -10,3 +10,10 @@
 /build-aarch64/can_signal_codec_test
 /build-aarch64/dio_smoke_test
 /build-aarch64/legacy_ems_test
+/build-aarch64/*_test
+/build-aarch64/*.no-mqtt
+/build-aarch64/*.array
+/build-aarch64/*.clean
+/build-aarch64/*.realtime-monitor
+/build/
+/*.tar.gz.bak-*

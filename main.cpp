@@ -2,6 +2,7 @@
 #include <chrono>
 #include <csignal>
 #include <memory>
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -52,43 +53,6 @@ void setProcessName(const std::string& name) {
 #endif
 }
 
-class DemoMqttPublisher : public edge_gateway::IMqttPublisher {
-public:
-    explicit DemoMqttPublisher(edge_gateway::MqttConfig config) : config_(std::move(config)) {
-    }
-
-    void publishTelemetry(
-        const std::string& machineCode,
-        const std::vector<edge_gateway::PointValue>& values
-    ) override {
-        std::cout << "publish telemetry broker=" << config_.broker
-                  << " topic=" << config_.telemetryTopic
-                  << " machine=" << machineCode
-                  << " count=" << values.size() << std::endl;
-    }
-
-    void publishCommandResult(const edge_gateway::CommandResult& result) override {
-        std::cout << "publish command result broker=" << config_.broker
-                  << " topic=" << config_.commandReplyTopic
-                  << " point=" << result.pointCode
-                  << " success=" << result.success << std::endl;
-    }
-
-    void publishStatusMessage(
-        const std::string& machineCode,
-        const std::string& payload
-    ) override {
-        std::cout << "publish status broker=" << config_.broker
-                  << " topic=" << config_.statusTopic
-                  << " machine=" << machineCode
-                  << " payload=" << payload
-                  << std::endl;
-    }
-
-private:
-    edge_gateway::MqttConfig config_;
-};
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -124,17 +88,19 @@ int main(int argc, char* argv[]) {
         processToken = basenameOf(configPath);
     }
     setProcessName("modbus-" + sanitizeProcessToken(processToken));
-    std::shared_ptr<IMqttPublisher> mqttPublisher;
-    if (appConfig.mqtt.enabled) {
-        mqttPublisher = std::make_shared<DemoMqttPublisher>(appConfig.mqtt);
-    }
     std::shared_ptr<IModbusClient> modbusClient;
     std::shared_ptr<Dlt645Client> dlt645Client;
+    const auto frameIntervalMs = config.protocol.transport.frameIntervalMs >= 0
+        ? config.protocol.transport.frameIntervalMs
+        : std::max(0, config.collect.defaultIntervalMs);
     if (config.protocol.type == "modbus_tcp") {
         if (useMock) {
             throw std::invalid_argument("--mock is not supported for modbus_tcp");
         }
-        modbusClient = std::make_shared<ModbusTcpClient>(config.protocol.tcp);
+        modbusClient = std::make_shared<ModbusTcpClient>(
+            config.protocol.tcp,
+            config.collect.maxRequestRegisters
+        );
     } else if (config.protocol.type == "dlt645_2007") {
         SerialPortOptions serialOptions;
         serialOptions.device = config.protocol.transport.serialPort;
@@ -143,6 +109,9 @@ int main(int argc, char* argv[]) {
         serialOptions.stopBits = config.protocol.transport.stopBits;
         serialOptions.parity = config.protocol.transport.parity;
         serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
+        serialOptions.maxRequestRegisters = config.collect.maxRequestRegisters;
+        serialOptions.frameIntervalMs = frameIntervalMs;
+        serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
 
         std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32
@@ -166,6 +135,9 @@ int main(int argc, char* argv[]) {
         serialOptions.stopBits = config.protocol.transport.stopBits;
         serialOptions.parity = config.protocol.transport.parity;
         serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
+        serialOptions.maxRequestRegisters = config.collect.maxRequestRegisters;
+        serialOptions.frameIntervalMs = frameIntervalMs;
+        serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
 
         std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32
@@ -184,9 +156,20 @@ int main(int argc, char* argv[]) {
 #endif
         modbusClient = std::make_shared<ModbusRtuClient>(serialPort, serialOptions);
     }
+    if (!config.memoryStore.sharedMemoryName.empty()) {
+        MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
+    }
     MemoryPointStore store(config.memoryStore);
 
-    GatewayDaemon daemon(config, store, modbusClient, dlt645Client, mqttPublisher);
+    GatewayDaemon daemon(
+        config,
+        store,
+        modbusClient,
+        dlt645Client,
+        nullptr,
+        nullptr,
+        appConfig.systemMonitor.realtimeMeterLeaseFile
+    );
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
 
@@ -198,7 +181,7 @@ int main(int argc, char* argv[]) {
               << " meters=" << runtimeMeterCount
               << " sharedMemory=" << config.memoryStore.sharedMemoryName
               << " sqlite=" << config.memoryStore.sqlitePath
-              << " mqtt=" << (appConfig.mqtt.enabled ? appConfig.mqtt.broker : "disabled")
+              << " mqtt=disabled"
               << " mode=" << (useMock ? "mock" : config.protocol.type)
               << std::endl;
 

@@ -89,6 +89,7 @@ struct PointDefinition {
     bool fullUpload = false;
     bool reportOnChange = false;
     int persistIntervalSec = 60;
+    int collectPriority = 0;
     std::vector<std::string> tags;
     ReadSpec read;
     WriteSpec write;
@@ -256,6 +257,8 @@ struct SerialTransportConfig {
     int stopBits = 1;
     std::string parity = "N";
     int timeoutMs = 1000;
+    int frameIntervalMs = -1;
+    int readRetryCount = 1;
 };
 
 struct TcpTransportConfig {
@@ -307,6 +310,32 @@ struct CollectConfig {
     int defaultIntervalMs = 500;
     bool batchOptimize = true;
     int maxBatchRegisters = 120;
+    int maxRequestRegisters = 120;
+    int offlineFailureThreshold = 3;
+    int recoverySuccessThreshold = 1;
+    int slaveFailureBackoffThreshold = 3;
+    int slaveFailureBackoffMs = 30000;
+    int taskFailureBackoffThreshold = 1;
+    int taskFailureBackoffMs = 180000;
+    int taskFailureBackoffMaxMs = 900000;
+    int realtimeTaskFailureBackoffMs = 5000;
+    int realtimeTaskFailureBackoffMaxMs = 30000;
+    int failureGoodValueGraceMs = 0;
+    int failureBadQualityThreshold = 3;
+    bool adaptiveSplitOnFailure = true;
+    int adaptiveSplitMaxRegisters = 1;
+    int adaptiveSplitMaxDepth = 2;
+    int adaptiveSplitLeafProbeBudget = 3;
+    bool logAdaptiveSplitParentFailures = false;
+    bool offlineProbeOnly = true;
+    int offlineProbeTaskCount = 2;
+    int runtimeMeterBatchSize = 16;
+    int maxTasksPerMeterPerCycle = 2;
+    int realtimeMaxTasksPerMeterPerCycle = 6;
+    int backgroundTaskIntervalMs = 5000;
+    int maxBackgroundTasksPerMeterPerCycle = 1;
+    int realtimeMaxBackgroundTasksPerMeterPerCycle = 4;
+    int realtimeAdaptiveSplitLeafProbeBudget = 12;
     int writebackIntervalMs = 50;
     int interfaceCheckIntervalMs = 1000;
 };
@@ -402,7 +431,7 @@ struct MqttConfig {
     int eventOutboxCleanupIntervalHours = 24;
     std::size_t eventOutboxReplayBatchSize = 100;
     std::size_t eventOutboxMaxDiskBytes = 32 * 1024 * 1024;
-    std::size_t maxPayloadBytes = 49152;
+    std::size_t maxPayloadBytes = 163840;
 };
 
 struct MqttAlarmRule {
@@ -423,6 +452,7 @@ struct MqttDriverConfig {
     std::size_t eventReplayMaxBytes = 256 * 1024;
     bool publishFullOnStart = true;
     bool publishAllOnFull = true;
+    std::string fullUploadJsonFormat = "compactArray";
     std::vector<std::uint32_t> fullUploadIndexes;
     std::vector<MqttAlarmRule> alarmRules;
 };
@@ -575,7 +605,7 @@ struct SystemMonitorConfig {
 
     bool enabled = false;
     int defaultIntervalMs = 5000;
-    int minIntervalMs = 1000;
+    int minIntervalMs = 500;
     int subscriptionTtlSec = 30;
     double cpuAlertThreshold = 90.0;
     double memAlertThreshold = 90.0;
@@ -583,6 +613,7 @@ struct SystemMonitorConfig {
     int alertRepeatIntervalSec = 60;
     bool diagEnabled = true;
     std::size_t maxDiagOutputBytes = 16 * 1024;
+    std::string realtimeMeterLeaseFile = "/opt/modbus-gateway/run/realtime-meter-leases.json";
     std::vector<std::string> allowedCommands = {
         "uptime",
         "free_m",

@@ -21,6 +21,27 @@ int writeAddressOf(const PointDefinition& point) {
     return point.write.address >= 0 ? point.write.address : point.address;
 }
 
+class ModbusPriorityWriteGuard {
+public:
+    explicit ModbusPriorityWriteGuard(const std::shared_ptr<IModbusClient>& client) : client_(client) {
+        if (client_) {
+            client_->beginPriorityWrite();
+        }
+    }
+
+    ~ModbusPriorityWriteGuard() {
+        if (client_) {
+            client_->endPriorityWrite();
+        }
+    }
+
+    ModbusPriorityWriteGuard(const ModbusPriorityWriteGuard&) = delete;
+    ModbusPriorityWriteGuard& operator=(const ModbusPriorityWriteGuard&) = delete;
+
+private:
+    std::shared_ptr<IModbusClient> client_;
+};
+
 }  // namespace
 
 CommandExecutor::CommandExecutor(
@@ -82,6 +103,7 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
         }
 
         const auto encoded = ModbusCodec::encodeWriteValue(request.value, point);
+        ModbusPriorityWriteGuard priority(modbusClient_);
         dispatchWrite(point, encoded);
 
         if (point.write.verifyAfterWrite && point.write.verifyByRead) {

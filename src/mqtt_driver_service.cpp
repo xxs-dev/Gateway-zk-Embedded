@@ -564,18 +564,20 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
     } else {
         values = filterValues(driverConfig_.fullUploadIndexes, nowMs);
     }
-    publisher_->publishFullSnapshot(mqttConfig_.telemetryTopic, values);
+    publisher_->publishFullSnapshot(mqttConfig_.telemetryTopic, values, driverConfig_.fullUploadJsonFormat);
+    const auto finishedMs = currentTimeMs();
     publishStatusEvent(
         "full-snapshot",
-        nowMs,
-        std::string(R"("valueCount":)") + std::to_string(values.size())
+        finishedMs,
+        std::string(R"("valueCount":)") + std::to_string(values.size()) +
+            R"(,"durationMs":)" + std::to_string(std::max<std::int64_t>(0, finishedMs - nowMs))
     );
-    lastFullUploadMs_ = nowMs;
+    lastFullUploadMs_ = finishedMs;
 }
 
 void MqttDriverService::publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) {
     const auto values = indexes.empty() ? enrichValues(router_.getAllLatest(nowMs)) : filterValues(indexes, nowMs);
-    publisher_->publishOnDemand(mqttConfig_.telemetryTopic, values);
+    publisher_->publishOnDemand(mqttConfig_.telemetryTopic, values, driverConfig_.fullUploadJsonFormat);
     publishStatusEvent(
         "on-demand",
         nowMs,

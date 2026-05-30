@@ -24,6 +24,9 @@ struct SerialPortOptions {
     int stopBits = 1;
     std::string parity = "N";
     int timeoutMs = 1000;
+    int maxRequestRegisters = 125;
+    int frameIntervalMs = 0;
+    int readRetryCount = 1;
 };
 
 }  // namespace edge_gateway

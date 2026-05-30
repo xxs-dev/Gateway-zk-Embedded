@@ -94,10 +94,12 @@ public:
 
     void publishFullSnapshot(
         const std::string& topic,
-        const std::vector<edge_gateway::StoredPointValue>& values
+        const std::vector<edge_gateway::StoredPointValue>& values,
+        const std::string& valueFormat
     ) override {
         std::cout << "mqtt full version=" << config_.protocolVersion
                   << " topic=" << scopedTopic(topic, config_.topicMachineCode)
+                  << " format=" << valueFormat
                   << " count=" << values.size()
                   << std::endl;
     }
@@ -120,10 +122,12 @@ public:
 
     void publishOnDemand(
         const std::string& topic,
-        const std::vector<edge_gateway::StoredPointValue>& values
+        const std::vector<edge_gateway::StoredPointValue>& values,
+        const std::string& valueFormat
     ) override {
         std::cout << "mqtt demand version=" << config_.protocolVersion
                   << " topic=" << scopedTopic(topic, config_.topicMachineCode)
+                  << " format=" << valueFormat
                   << " count=" << values.size()
                   << std::endl;
     }

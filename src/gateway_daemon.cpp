@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <fstream>
 #include <iostream>
+#include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -42,6 +46,103 @@ void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
         std::this_thread::sleep_for(std::chrono::milliseconds(slice));
         remaining -= slice;
     }
+}
+
+std::string readSmallTextFile(const std::string& path, std::size_t maxBytes) {
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    if (!input) {
+        return std::string();
+    }
+    input.seekg(0, std::ios::end);
+    const auto size = input.tellg();
+    if (size < 0 || static_cast<std::uint64_t>(size) > maxBytes) {
+        return std::string();
+    }
+    input.seekg(0, std::ios::beg);
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+}
+
+std::size_t skipWhitespace(const std::string& text, std::size_t pos) {
+    while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])) != 0) {
+        ++pos;
+    }
+    return pos;
+}
+
+std::int64_t extractInt64Field(const std::string& text, const char* key, std::int64_t fallback) {
+    const std::string needle = std::string("\"") + key + "\"";
+    auto pos = text.find(needle);
+    if (pos == std::string::npos) {
+        return fallback;
+    }
+    pos = skipWhitespace(text, pos + needle.size());
+    if (pos >= text.size() || text[pos] != ':') {
+        return fallback;
+    }
+    pos = skipWhitespace(text, pos + 1);
+    const auto begin = pos;
+    if (pos < text.size() && (text[pos] == '-' || text[pos] == '+')) {
+        ++pos;
+    }
+    while (pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos])) != 0) {
+        ++pos;
+    }
+    if (begin == pos) {
+        return fallback;
+    }
+    try {
+        return std::stoll(text.substr(begin, pos - begin));
+    } catch (...) {
+        return fallback;
+    }
+}
+
+std::vector<std::string> extractStringArrayField(const std::string& text, const char* key) {
+    std::vector<std::string> result;
+    const std::string needle = std::string("\"") + key + "\"";
+    auto pos = text.find(needle);
+    if (pos == std::string::npos) {
+        return result;
+    }
+    pos = skipWhitespace(text, pos + needle.size());
+    if (pos >= text.size() || text[pos] != ':') {
+        return result;
+    }
+    pos = skipWhitespace(text, pos + 1);
+    if (pos >= text.size() || text[pos] != '[') {
+        return result;
+    }
+    ++pos;
+    while (pos < text.size()) {
+        pos = skipWhitespace(text, pos);
+        if (pos >= text.size() || text[pos] == ']') {
+            break;
+        }
+        if (text[pos] != '"') {
+            break;
+        }
+        ++pos;
+        std::string value;
+        while (pos < text.size()) {
+            const char ch = text[pos++];
+            if (ch == '"') {
+                result.push_back(value);
+                break;
+            }
+            if (ch == '\\' && pos < text.size()) {
+                value.push_back(text[pos++]);
+            } else {
+                value.push_back(ch);
+            }
+        }
+        pos = skipWhitespace(text, pos);
+        if (pos < text.size() && text[pos] == ',') {
+            ++pos;
+        }
+    }
+    return result;
 }
 
 std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
@@ -89,9 +190,11 @@ GatewayDaemon::GatewayDaemon(
     std::shared_ptr<IModbusClient> modbusClient,
     std::shared_ptr<Dlt645Client> dlt645Client,
     std::shared_ptr<IMqttPublisher> mqttPublisher,
-    std::shared_ptr<IGpioPort> gpioPort
+    std::shared_ptr<IGpioPort> gpioPort,
+    std::string realtimeMeterLeaseFile
 ) : config_(std::move(config)),
     store_(store),
+    realtimeMeterLeaseFile_(std::move(realtimeMeterLeaseFile)),
     sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
     mqttPublisher_(std::move(mqttPublisher)),
     gpioPort_(std::move(gpioPort)) {
@@ -142,9 +245,21 @@ bool GatewayDaemon::isRunning() const {
 }
 
 void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
-    for (auto& runtimeDevice : runtimeDevices_) {
+    if (runtimeDevices_.empty()) {
+        return;
+    }
+    const auto batchSize = collectRuntimeMeterBatchSize();
+    std::set<std::size_t> collectedIndexes;
+    const auto collectDevice = [&](std::size_t index, bool realtimeFocused) {
+        if (index >= runtimeDevices_.size()) {
+            return;
+        }
+        if (!collectedIndexes.insert(index).second) {
+            return;
+        }
+        auto& runtimeDevice = runtimeDevices_[index];
         try {
-            runtimeDevice.collector->collectOnce(nowMsValue);
+            runtimeDevice.collector->collectOnce(nowMsValue, realtimeFocused);
         } catch (const std::exception& ex) {
             runtimeDevice.collector->publishDeviceOnlineStatus(false, nowMsValue);
             std::cerr << "collect failed"
@@ -160,6 +275,27 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
             );
         }
+    };
+
+    const auto activeIndexes = activeRealtimeDeviceIndexes(nowMsValue);
+    std::set<std::size_t> activeIndexSet(activeIndexes.begin(), activeIndexes.end());
+    for (const auto index : activeIndexes) {
+        collectDevice(index, true);
+    }
+    if (!activeIndexes.empty()) {
+        return;
+    }
+
+    const auto targetCount = std::max(batchSize, collectedIndexes.size());
+    std::size_t attempts = 0;
+    while (attempts < runtimeDevices_.size() && collectedIndexes.size() < targetCount) {
+        const auto index = collectCursor_ % runtimeDevices_.size();
+        collectCursor_ = (collectCursor_ + 1) % runtimeDevices_.size();
+        ++attempts;
+        if (collectedIndexes.find(index) != collectedIndexes.end()) {
+            continue;
+        }
+        collectDevice(index, activeIndexSet.find(index) != activeIndexSet.end());
     }
 }
 
@@ -273,6 +409,58 @@ int GatewayDaemon::collectLoopIntervalMs() const {
     return intervalMs;
 }
 
+std::size_t GatewayDaemon::collectRuntimeMeterBatchSize() const {
+    if (runtimeDevices_.empty()) {
+        return 0;
+    }
+    return std::min<std::size_t>(
+        runtimeDevices_.size(),
+        static_cast<std::size_t>(std::max(1, config_.collect.runtimeMeterBatchSize))
+    );
+}
+
+std::vector<std::string> GatewayDaemon::activeRealtimeMeterCodes(std::int64_t nowMsValue) {
+    if (realtimeMeterLeaseFile_.empty()) {
+        return {};
+    }
+    if (realtimeLeaseLastReadMs_ > 0 && nowMsValue - realtimeLeaseLastReadMs_ < 200) {
+        return realtimeLeaseExpireAtMs_ > nowMsValue ? realtimeLeaseMeterCodes_ : std::vector<std::string>();
+    }
+    realtimeLeaseLastReadMs_ = nowMsValue;
+    const auto text = readSmallTextFile(realtimeMeterLeaseFile_, 64 * 1024);
+    if (text.empty()) {
+        realtimeLeaseExpireAtMs_ = 0;
+        realtimeLeaseMeterCodes_.clear();
+        return {};
+    }
+    const auto expireAtMs = extractInt64Field(text, "expireAtMs", 0);
+    auto meterCodes = extractStringArrayField(text, "meterCodes");
+    std::sort(meterCodes.begin(), meterCodes.end());
+    meterCodes.erase(std::unique(meterCodes.begin(), meterCodes.end()), meterCodes.end());
+    if (expireAtMs <= nowMsValue || meterCodes.empty()) {
+        realtimeLeaseExpireAtMs_ = expireAtMs;
+        realtimeLeaseMeterCodes_.clear();
+        return {};
+    }
+    realtimeLeaseExpireAtMs_ = expireAtMs;
+    realtimeLeaseMeterCodes_ = std::move(meterCodes);
+    return realtimeLeaseMeterCodes_;
+}
+
+std::vector<std::size_t> GatewayDaemon::activeRealtimeDeviceIndexes(std::int64_t nowMsValue) {
+    std::vector<std::size_t> indexes;
+    for (const auto& meterCode : activeRealtimeMeterCodes(nowMsValue)) {
+        const auto it = meterCodeToRuntimeDevice_.find(meterCode);
+        if (it == meterCodeToRuntimeDevice_.end()) {
+            continue;
+        }
+        if (std::find(indexes.begin(), indexes.end(), it->second) == indexes.end()) {
+            indexes.push_back(it->second);
+        }
+    }
+    return indexes;
+}
+
 void GatewayDaemon::persistLoop() {
     const auto intervalMs = std::max(1000, config_.memoryStore.persistFlushIntervalMs);
     while (running_.load()) {
@@ -347,6 +535,7 @@ void GatewayDaemon::initializeRuntimeDevices(
             }
         }
 
+        meterCodeToRuntimeDevice_.emplace(runtimeDevice.config.meterCode, runtimeDevices_.size());
         runtimeDevices_.push_back(std::move(runtimeDevice));
     }
 

@@ -28,7 +28,7 @@
   "memoryStore": {
     "enabled": true,
     "backend": "shared_memory",
-    "sharedMemoryName": "gateway_point_store",
+    "sharedMemoryName": "gateway_point_store_can0",
     "sqlitePath": "/opt/modbus-gateway/data/point_samples_can0.db",
     "maxPendingWrites": 4096,
     "writebackBatchSize": 100,

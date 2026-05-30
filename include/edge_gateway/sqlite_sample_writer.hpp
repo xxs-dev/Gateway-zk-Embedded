@@ -26,6 +26,7 @@ private:
 
     std::string dbPath_;
     std::string libraryPath_;
+    bool enabled_ = false;
     void* libraryHandle_ = nullptr;
     void* databaseHandle_ = nullptr;
 };

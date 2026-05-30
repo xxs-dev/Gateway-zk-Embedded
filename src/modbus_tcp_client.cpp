@@ -20,6 +20,8 @@
 
 namespace edge_gateway {
 
+thread_local int ModbusTcpClient::priorityContextDepth_ = 0;
+
 namespace {
 
 #ifdef _WIN32
@@ -142,14 +144,94 @@ void validateWriteEcho(
     }
 }
 
+class ModbusTcpTransactionScope {
+public:
+    explicit ModbusTcpTransactionScope(ModbusTcpClient& client) : client_(client) {
+        client_.enterTransaction();
+    }
+
+    ~ModbusTcpTransactionScope() {
+        client_.leaveTransaction();
+    }
+
+    ModbusTcpTransactionScope(const ModbusTcpTransactionScope&) = delete;
+    ModbusTcpTransactionScope& operator=(const ModbusTcpTransactionScope&) = delete;
+
+private:
+    ModbusTcpClient& client_;
+};
+
+class ModbusTcpPriorityWriteScope {
+public:
+    explicit ModbusTcpPriorityWriteScope(ModbusTcpClient& client) : client_(client) {
+        client_.beginPriorityWrite();
+    }
+
+    ~ModbusTcpPriorityWriteScope() {
+        client_.endPriorityWrite();
+    }
+
+    ModbusTcpPriorityWriteScope(const ModbusTcpPriorityWriteScope&) = delete;
+    ModbusTcpPriorityWriteScope& operator=(const ModbusTcpPriorityWriteScope&) = delete;
+
+private:
+    ModbusTcpClient& client_;
+};
+
 }  // namespace
 
-ModbusTcpClient::ModbusTcpClient(TcpTransportConfig config)
-    : config_(std::move(config)) {
+ModbusTcpClient::ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters)
+    : config_(std::move(config)),
+      maxRequestRegisters_(maxRequestRegisters > 0 ? maxRequestRegisters : 125) {
 }
 
 ModbusTcpClient::~ModbusTcpClient() {
     disconnect();
+}
+
+void ModbusTcpClient::beginPriorityWrite() {
+    ++priorityContextDepth_;
+    if (priorityContextDepth_ == 1) {
+        std::lock_guard<std::mutex> lock(transactionMutex_);
+        ++pendingPriorityWrites_;
+        transactionCv_.notify_all();
+    }
+}
+
+void ModbusTcpClient::endPriorityWrite() {
+    if (priorityContextDepth_ <= 0) {
+        return;
+    }
+    --priorityContextDepth_;
+    if (priorityContextDepth_ == 0) {
+        {
+            std::lock_guard<std::mutex> lock(transactionMutex_);
+            if (pendingPriorityWrites_ > 0) {
+                --pendingPriorityWrites_;
+            }
+        }
+        transactionCv_.notify_all();
+    }
+}
+
+void ModbusTcpClient::enterTransaction() {
+    std::unique_lock<std::mutex> lock(transactionMutex_);
+    const bool priorityContext = priorityContextDepth_ > 0;
+    transactionCv_.wait(lock, [&] {
+        if (activeTransactions_ != 0) {
+            return false;
+        }
+        return priorityContext || pendingPriorityWrites_ == 0;
+    });
+    activeTransactions_ = 1;
+}
+
+void ModbusTcpClient::leaveTransaction() {
+    {
+        std::lock_guard<std::mutex> lock(transactionMutex_);
+        activeTransactions_ = 0;
+    }
+    transactionCv_.notify_all();
 }
 
 std::vector<std::uint16_t> ModbusTcpClient::readCoils(int slave, int start, int count) {
@@ -169,6 +251,7 @@ std::vector<std::uint16_t> ModbusTcpClient::readInputRegisters(int slave, int st
 }
 
 void ModbusTcpClient::writeSingleCoil(int slave, int address, bool value) {
+    ModbusTcpPriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
     const auto coilValue = makeWord(value ? 0xFF00 : 0x0000);
@@ -181,6 +264,7 @@ void ModbusTcpClient::writeSingleCoil(int slave, int address, bool value) {
 }
 
 void ModbusTcpClient::writeSingleRegister(int slave, int address, std::uint16_t value) {
+    ModbusTcpPriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
     pdu.push_back(0x06);
@@ -197,8 +281,15 @@ void ModbusTcpClient::writeMultipleRegisters(
     int address,
     const std::vector<std::uint16_t>& values
 ) {
+    ModbusTcpPriorityWriteScope priority(*this);
     if (values.empty()) {
         throw std::invalid_argument("writeMultipleRegisters requires at least one value");
+    }
+    if (values.size() > static_cast<std::size_t>(maxRequestRegisters_)) {
+        throw std::invalid_argument(
+            "modbus tcp write register count exceeds maxRequestRegisters: " + std::to_string(values.size()) +
+            " > " + std::to_string(maxRequestRegisters_)
+        );
     }
 
     std::vector<std::uint8_t> pdu;
@@ -222,6 +313,7 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
     std::uint8_t function,
     const std::vector<std::uint8_t>& pdu
 ) {
+    ModbusTcpTransactionScope transaction(*this);
     if (slave < 0 || slave > 255) {
         throw std::invalid_argument("unit id must be in range 0..255");
     }
@@ -296,6 +388,12 @@ std::vector<std::uint16_t> ModbusTcpClient::executeRegisterRead(
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
     }
+    if (count > maxRequestRegisters_) {
+        throw std::invalid_argument(
+            "modbus tcp read count exceeds maxRequestRegisters: " + std::to_string(count) +
+            " > " + std::to_string(maxRequestRegisters_)
+        );
+    }
 
     std::vector<std::uint8_t> pdu;
     const auto startWord = makeWord(start);
@@ -316,6 +414,12 @@ std::vector<std::uint16_t> ModbusTcpClient::executeBitRead(
 ) {
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
+    }
+    if (count > maxRequestRegisters_) {
+        throw std::invalid_argument(
+            "modbus tcp bit read count exceeds maxRequestRegisters: " + std::to_string(count) +
+            " > " + std::to_string(maxRequestRegisters_)
+        );
     }
 
     std::vector<std::uint8_t> pdu;

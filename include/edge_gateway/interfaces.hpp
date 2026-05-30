@@ -12,6 +12,12 @@ class IModbusClient {
 public:
     virtual ~IModbusClient() = default;
 
+    virtual void beginPriorityWrite() {
+    }
+
+    virtual void endPriorityWrite() {
+    }
+
     virtual std::vector<std::uint16_t> readCoils(int slave, int start, int count) = 0;
     virtual std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) = 0;
     virtual std::vector<std::uint16_t> readHoldingRegisters(int slave, int start, int count) = 0;
@@ -59,7 +65,8 @@ public:
 
     virtual void publishFullSnapshot(
         const std::string& topic,
-        const std::vector<StoredPointValue>& values
+        const std::vector<StoredPointValue>& values,
+        const std::string& valueFormat
     ) = 0;
 
     virtual void publishAlarm(
@@ -72,7 +79,8 @@ public:
 
     virtual void publishOnDemand(
         const std::string& topic,
-        const std::vector<StoredPointValue>& values
+        const std::vector<StoredPointValue>& values,
+        const std::string& valueFormat
     ) = 0;
 
     virtual void publishChangeEvent(

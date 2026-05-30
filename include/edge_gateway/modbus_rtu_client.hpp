@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
@@ -12,6 +15,11 @@ namespace edge_gateway {
 class ModbusRtuClient : public IModbusClient {
 public:
     ModbusRtuClient(std::shared_ptr<ISerialPort> serialPort, SerialPortOptions options);
+
+    void beginPriorityWrite() override;
+    void endPriorityWrite() override;
+    void enterTransaction();
+    void leaveTransaction();
 
     std::vector<std::uint16_t> readCoils(int slave, int start, int count) override;
     std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) override;
@@ -48,6 +56,7 @@ private:
     );
 
     void ensurePortOpen();
+    void waitForFrameInterval();
     static std::uint16_t crc16(const std::vector<std::uint8_t>& bytes);
     static void appendCrc(std::vector<std::uint8_t>& frame);
     static void validateCrc(const std::vector<std::uint8_t>& frame);
@@ -70,6 +79,12 @@ private:
 
     std::shared_ptr<ISerialPort> serialPort_;
     SerialPortOptions options_;
+    std::mutex transactionMutex_;
+    std::condition_variable transactionCv_;
+    int activeTransactions_ = 0;
+    int pendingPriorityWrites_ = 0;
+    std::chrono::steady_clock::time_point lastRequestWriteAt_{};
+    static thread_local int priorityContextDepth_;
 };
 
 }  // namespace edge_gateway

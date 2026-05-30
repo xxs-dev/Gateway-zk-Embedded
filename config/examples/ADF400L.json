@@ -17,7 +17,31 @@
   "collect": {
     "defaultIntervalMs": 5000,
     "batchOptimize": true,
-    "maxBatchRegisters": 16
+    "maxBatchRegisters": 120,
+    "maxRequestRegisters": 120,
+    "offlineFailureThreshold": 3,
+    "recoverySuccessThreshold": 1,
+    "slaveFailureBackoffThreshold": 3,
+    "slaveFailureBackoffMs": 30000,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffMs": 180000,
+    "offlineProbeOnly": true,
+    "offlineProbeTaskCount": 2,
+    "adaptiveSplitOnFailure": true,
+    "adaptiveSplitMaxRegisters": 1,
+    "logAdaptiveSplitParentFailures": false,
+    "taskFailureBackoffMaxMs": 900000,
+    "adaptiveSplitMaxDepth": 2,
+    "adaptiveSplitLeafProbeBudget": 3,
+    "realtimeAdaptiveSplitLeafProbeBudget": 24,
+    "runtimeMeterBatchSize": 16,
+    "maxTasksPerMeterPerCycle": 2,
+    "realtimeMaxTasksPerMeterPerCycle": 8,
+    "backgroundTaskIntervalMs": 5000,
+    "maxBackgroundTasksPerMeterPerCycle": 1,
+    "realtimeMaxBackgroundTasksPerMeterPerCycle": 8,
+    "failureGoodValueGraceMs": 0,
+    "failureBadQualityThreshold": 3
   },
   "memoryStore": {
     "enabled": true,
@@ -725,7 +749,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401021,
@@ -758,7 +783,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401022,
@@ -791,7 +817,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401023,
@@ -824,7 +851,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401024,
@@ -857,7 +885,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401025,
@@ -890,7 +919,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401026,
@@ -923,7 +953,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401027,
@@ -956,7 +987,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401028,
@@ -1503,7 +1535,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401045,
@@ -1537,7 +1570,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401046,
@@ -1571,7 +1605,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401047,
@@ -1605,7 +1640,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401048,
@@ -1639,7 +1675,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401049,
@@ -1673,7 +1710,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401050,
@@ -1707,7 +1745,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401051,
@@ -1741,7 +1780,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401052,
@@ -1775,7 +1815,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401053,
@@ -1809,7 +1850,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401054,
@@ -1843,7 +1885,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401055,
@@ -1877,7 +1920,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401056,
@@ -1911,7 +1955,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401057,
@@ -1945,7 +1990,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401058,
@@ -1979,7 +2025,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401059,
@@ -2013,7 +2060,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401060,
@@ -2047,7 +2095,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401061,
@@ -2081,7 +2130,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401062,
@@ -2115,7 +2165,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401063,
@@ -2149,7 +2200,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401064,
@@ -2183,7 +2235,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401065,
@@ -2217,7 +2270,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401066,
@@ -2251,7 +2305,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401067,
@@ -2285,7 +2340,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401068,
@@ -2327,7 +2383,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401069,
@@ -2369,7 +2426,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401070,
@@ -2411,7 +2469,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401071,
@@ -2453,7 +2512,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401072,
@@ -2495,7 +2555,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401073,
@@ -2537,7 +2598,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401074,
@@ -2579,7 +2641,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401075,
@@ -2621,7 +2684,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401076,
@@ -2663,7 +2727,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401077,
@@ -2705,7 +2770,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401078,
@@ -2747,7 +2813,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401079,
@@ -2789,7 +2856,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401080,
@@ -2831,7 +2899,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401081,
@@ -2873,7 +2942,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401082,
@@ -2915,7 +2985,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401083,
@@ -2957,7 +3028,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 401084,
@@ -14421,7 +14493,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402008,
@@ -14453,7 +14526,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402009,
@@ -14485,7 +14559,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402010,
@@ -14517,7 +14592,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402011,
@@ -14581,7 +14657,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402013,
@@ -14644,7 +14721,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402015,
@@ -14804,7 +14882,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402020,
@@ -14837,7 +14916,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402021,
@@ -14870,7 +14950,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402022,
@@ -14903,7 +14984,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402023,
@@ -14937,7 +15019,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402024,
@@ -14971,7 +15054,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402025,
@@ -15005,7 +15089,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402026,
@@ -15039,7 +15124,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402027,
@@ -15073,7 +15159,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402028,
@@ -15107,7 +15194,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402029,
@@ -15141,7 +15229,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402030,
@@ -15175,7 +15264,8 @@
           },
           "write": {
             "enable": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402031,
@@ -15217,7 +15307,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402032,
@@ -15259,7 +15350,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402033,
@@ -15301,7 +15393,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402034,
@@ -15343,7 +15436,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402035,
@@ -15385,7 +15479,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402036,
@@ -15427,7 +15522,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402037,
@@ -15469,7 +15565,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402038,
@@ -15511,7 +15608,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402039,
@@ -15553,7 +15651,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402040,
@@ -15595,7 +15694,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402041,
@@ -15637,7 +15737,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402042,
@@ -15679,7 +15780,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402043,
@@ -15721,7 +15823,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402044,
@@ -15763,7 +15866,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402045,
@@ -15805,7 +15909,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402046,
@@ -15847,7 +15952,8 @@
             "offset": 0,
             "byteOrder": "ABCD",
             "signed": false
-          }
+          },
+          "collectPriority": 1
         },
         {
           "index": 402047,

@@ -59,6 +59,22 @@ bool fileExists(const std::string& path) {
     return input.good();
 }
 
+std::string normalizedJsonFormat(std::string value, const std::string& fallback) {
+    if (value.empty()) {
+        value = fallback;
+    }
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (value == "object") {
+        return "object";
+    }
+    if (value == "array" || value == "compactarray" || value == "compact_array") {
+        return "compactArray";
+    }
+    return fallback.empty() ? "compactArray" : fallback;
+}
+
 std::string resolveRelativeToConfig(const std::string& configPath, const std::string& value) {
     if (value.empty() || isAbsolutePath(value) || fileExists(value)) {
         return value;
@@ -572,6 +588,47 @@ int boundedInt(int value, int minValue, int maxValue) {
     return std::min(maxValue, std::max(minValue, value));
 }
 
+void normalizeCollectConfig(CollectConfig& config) {
+    if (config.maxRequestRegisters <= 0) {
+        config.maxRequestRegisters = config.maxBatchRegisters;
+    }
+    config.maxBatchRegisters = std::min(config.maxBatchRegisters, config.maxRequestRegisters);
+    config.offlineFailureThreshold = std::max(1, config.offlineFailureThreshold);
+    config.recoverySuccessThreshold = std::max(1, config.recoverySuccessThreshold);
+    config.slaveFailureBackoffThreshold = std::max(1, config.slaveFailureBackoffThreshold);
+    config.slaveFailureBackoffMs = std::max(0, config.slaveFailureBackoffMs);
+    config.taskFailureBackoffThreshold = std::max(1, config.taskFailureBackoffThreshold);
+    config.taskFailureBackoffMs = std::max(0, config.taskFailureBackoffMs);
+    config.taskFailureBackoffMaxMs = std::max(config.taskFailureBackoffMs, config.taskFailureBackoffMaxMs);
+    config.realtimeTaskFailureBackoffMs = std::max(0, config.realtimeTaskFailureBackoffMs);
+    config.realtimeTaskFailureBackoffMaxMs = std::max(
+        config.realtimeTaskFailureBackoffMs,
+        config.realtimeTaskFailureBackoffMaxMs
+    );
+    config.failureGoodValueGraceMs = std::max(0, config.failureGoodValueGraceMs);
+    config.failureBadQualityThreshold = std::max(1, config.failureBadQualityThreshold);
+    config.adaptiveSplitMaxRegisters = std::max(1, config.adaptiveSplitMaxRegisters);
+    config.adaptiveSplitMaxDepth = std::max(1, config.adaptiveSplitMaxDepth);
+    config.adaptiveSplitLeafProbeBudget = std::max(0, config.adaptiveSplitLeafProbeBudget);
+    config.offlineProbeTaskCount = std::max(1, config.offlineProbeTaskCount);
+    config.runtimeMeterBatchSize = std::max(1, config.runtimeMeterBatchSize);
+    config.maxTasksPerMeterPerCycle = std::max(1, config.maxTasksPerMeterPerCycle);
+    config.realtimeMaxTasksPerMeterPerCycle = std::max(
+        config.maxTasksPerMeterPerCycle,
+        config.realtimeMaxTasksPerMeterPerCycle
+    );
+    config.backgroundTaskIntervalMs = std::max(0, config.backgroundTaskIntervalMs);
+    config.maxBackgroundTasksPerMeterPerCycle = std::max(0, config.maxBackgroundTasksPerMeterPerCycle);
+    config.realtimeMaxBackgroundTasksPerMeterPerCycle = std::max(
+        config.maxBackgroundTasksPerMeterPerCycle,
+        config.realtimeMaxBackgroundTasksPerMeterPerCycle
+    );
+    config.realtimeAdaptiveSplitLeafProbeBudget = std::max(
+        config.adaptiveSplitLeafProbeBudget,
+        config.realtimeAdaptiveSplitLeafProbeBudget
+    );
+}
+
 double requireDouble(const JsonValue::Object& object, const char* key, double defaultValue = 0.0) {
     const auto* value = findValue(object, key);
     if (value == nullptr || value->isNull()) {
@@ -736,6 +793,7 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     point.fullUpload = requireBool(object, "fullUpload", point.fullUpload);
     point.reportOnChange = requireBool(object, "reportOnChange", point.reportOnChange);
     point.persistIntervalSec = requireInt(object, "persistIntervalSec", point.persistIntervalSec);
+    point.collectPriority = std::max(0, requireInt(object, "collectPriority", point.collectPriority));
     point.tags = parseStringArray(value.find("tags"));
     point.read = parseReadSpec(value.find("read"));
     point.write = parseWriteSpec(value.find("write"));
@@ -778,6 +836,13 @@ SerialTransportConfig parseTransport(const JsonValue* value) {
     transport.stopBits = requireInt(object, "stopBits", transport.stopBits);
     transport.parity = requireString(object, "parity", transport.parity);
     transport.timeoutMs = requireInt(object, "timeoutMs", transport.timeoutMs);
+    transport.frameIntervalMs = requireInt(
+        object,
+        "frameIntervalMs",
+        transport.frameIntervalMs
+    );
+    transport.frameIntervalMs = requireInt(object, "interRequestDelayMs", transport.frameIntervalMs);
+    transport.readRetryCount = requireInt(object, "readRetryCount", transport.readRetryCount);
     return transport;
 }
 
@@ -843,14 +908,114 @@ void parseDlt645Config(const JsonValue* value, ProtocolConfig& protocol) {
 CollectConfig parseCollect(const JsonValue* value) {
     CollectConfig config;
     if (value == nullptr || value->isNull()) {
+        normalizeCollectConfig(config);
         return config;
     }
     const auto& object = value->asObject();
     config.defaultIntervalMs = requireInt(object, "defaultIntervalMs", config.defaultIntervalMs);
     config.batchOptimize = requireBool(object, "batchOptimize", config.batchOptimize);
     config.maxBatchRegisters = requireInt(object, "maxBatchRegisters", config.maxBatchRegisters);
+    config.maxRequestRegisters = requireInt(object, "maxRequestRegisters", config.maxRequestRegisters);
+    config.offlineFailureThreshold = requireInt(object, "offlineFailureThreshold", config.offlineFailureThreshold);
+    config.recoverySuccessThreshold = requireInt(object, "recoverySuccessThreshold", config.recoverySuccessThreshold);
+    config.slaveFailureBackoffThreshold = requireInt(
+        object,
+        "slaveFailureBackoffThreshold",
+        config.slaveFailureBackoffThreshold
+    );
+    config.slaveFailureBackoffMs = requireInt(object, "slaveFailureBackoffMs", config.slaveFailureBackoffMs);
+    config.taskFailureBackoffThreshold = requireInt(
+        object,
+        "taskFailureBackoffThreshold",
+        config.taskFailureBackoffThreshold
+    );
+    config.taskFailureBackoffMs = requireInt(object, "taskFailureBackoffMs", config.taskFailureBackoffMs);
+    config.taskFailureBackoffMaxMs = requireInt(
+        object,
+        "taskFailureBackoffMaxMs",
+        config.taskFailureBackoffMaxMs
+    );
+    config.realtimeTaskFailureBackoffMs = requireInt(
+        object,
+        "realtimeTaskFailureBackoffMs",
+        config.realtimeTaskFailureBackoffMs
+    );
+    config.realtimeTaskFailureBackoffMaxMs = requireInt(
+        object,
+        "realtimeTaskFailureBackoffMaxMs",
+        config.realtimeTaskFailureBackoffMaxMs
+    );
+    config.failureGoodValueGraceMs = requireInt(
+        object,
+        "failureGoodValueGraceMs",
+        config.failureGoodValueGraceMs
+    );
+    config.failureBadQualityThreshold = requireInt(
+        object,
+        "failureBadQualityThreshold",
+        config.failureBadQualityThreshold
+    );
+    config.adaptiveSplitOnFailure = requireBool(
+        object,
+        "adaptiveSplitOnFailure",
+        config.adaptiveSplitOnFailure
+    );
+    config.adaptiveSplitMaxRegisters = requireInt(
+        object,
+        "adaptiveSplitMaxRegisters",
+        config.adaptiveSplitMaxRegisters
+    );
+    config.adaptiveSplitMaxDepth = requireInt(
+        object,
+        "adaptiveSplitMaxDepth",
+        config.adaptiveSplitMaxDepth
+    );
+    config.adaptiveSplitLeafProbeBudget = requireInt(
+        object,
+        "adaptiveSplitLeafProbeBudget",
+        config.adaptiveSplitLeafProbeBudget
+    );
+    config.logAdaptiveSplitParentFailures = requireBool(
+        object,
+        "logAdaptiveSplitParentFailures",
+        config.logAdaptiveSplitParentFailures
+    );
+    config.offlineProbeOnly = requireBool(object, "offlineProbeOnly", config.offlineProbeOnly);
+    config.offlineProbeTaskCount = requireInt(object, "offlineProbeTaskCount", config.offlineProbeTaskCount);
+    config.runtimeMeterBatchSize = requireInt(object, "runtimeMeterBatchSize", config.runtimeMeterBatchSize);
+    config.maxTasksPerMeterPerCycle = requireInt(
+        object,
+        "maxTasksPerMeterPerCycle",
+        config.maxTasksPerMeterPerCycle
+    );
+    config.realtimeMaxTasksPerMeterPerCycle = requireInt(
+        object,
+        "realtimeMaxTasksPerMeterPerCycle",
+        config.realtimeMaxTasksPerMeterPerCycle
+    );
+    config.backgroundTaskIntervalMs = requireInt(
+        object,
+        "backgroundTaskIntervalMs",
+        config.backgroundTaskIntervalMs
+    );
+    config.maxBackgroundTasksPerMeterPerCycle = requireInt(
+        object,
+        "maxBackgroundTasksPerMeterPerCycle",
+        config.maxBackgroundTasksPerMeterPerCycle
+    );
+    config.realtimeMaxBackgroundTasksPerMeterPerCycle = requireInt(
+        object,
+        "realtimeMaxBackgroundTasksPerMeterPerCycle",
+        config.realtimeMaxBackgroundTasksPerMeterPerCycle
+    );
+    config.realtimeAdaptiveSplitLeafProbeBudget = requireInt(
+        object,
+        "realtimeAdaptiveSplitLeafProbeBudget",
+        config.realtimeAdaptiveSplitLeafProbeBudget
+    );
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.interfaceCheckIntervalMs = requireInt(object, "interfaceCheckIntervalMs", config.interfaceCheckIntervalMs);
+    normalizeCollectConfig(config);
     return config;
 }
 
@@ -1044,6 +1209,10 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
     config.eventReplayMaxBytes = requireSize(object, "eventReplayMaxBytes", config.eventReplayMaxBytes);
     config.publishFullOnStart = requireBool(object, "publishFullOnStart", config.publishFullOnStart);
     config.publishAllOnFull = requireBool(object, "publishAllOnFull", config.publishAllOnFull);
+    config.fullUploadJsonFormat = normalizedJsonFormat(
+        requireString(object, "fullUploadJsonFormat", config.fullUploadJsonFormat),
+        config.fullUploadJsonFormat
+    );
     if (const auto* indexes = value->find("fullUploadIndexes")) {
         for (const auto& item : indexes->asArray().values) {
             config.fullUploadIndexes.push_back(static_cast<std::uint32_t>(item->asNumber()));
@@ -1273,6 +1442,11 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     config.alertRepeatIntervalSec = requireInt(object, "alertRepeatIntervalSec", config.alertRepeatIntervalSec);
     config.diagEnabled = requireBool(object, "diagEnabled", config.diagEnabled);
     config.maxDiagOutputBytes = requireSize(object, "maxDiagOutputBytes", config.maxDiagOutputBytes);
+    config.realtimeMeterLeaseFile = requireString(
+        object,
+        "realtimeMeterLeaseFile",
+        config.realtimeMeterLeaseFile
+    );
     config.allowedCommands = parseStringArray(value->find("allowedCommands"));
     if (config.allowedCommands.empty()) {
         config.allowedCommands = SystemMonitorConfig().allowedCommands;
@@ -1700,6 +1874,7 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqttDriver.eventReplayMaxBytes = 256 * 1024;
     config.mqttDriver.publishFullOnStart = true;
     config.mqttDriver.publishAllOnFull = true;
+    config.mqttDriver.fullUploadJsonFormat = "compactArray";
     config.alarmStore.enabled = false;
     config.alarmStore.sqlitePath = "alarm_events.db";
     config.eventEngine.enabled = true;
@@ -1747,7 +1922,7 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.realtime.pushThrottleMs = 200;
     config.systemMonitor.enabled = false;
     config.systemMonitor.defaultIntervalMs = 5000;
-    config.systemMonitor.minIntervalMs = 1000;
+    config.systemMonitor.minIntervalMs = 500;
     config.systemMonitor.subscriptionTtlSec = 30;
     config.systemMonitor.cpuAlertThreshold = 90.0;
     config.systemMonitor.memAlertThreshold = 90.0;
@@ -1798,6 +1973,8 @@ DeviceConfig buildBuiltinExampleDeviceConfig() {
     config.protocol.transport.stopBits = 1;
     config.protocol.transport.parity = "N";
     config.protocol.transport.timeoutMs = 1000;
+    config.protocol.transport.frameIntervalMs = -1;
+    config.protocol.transport.readRetryCount = 1;
     config.protocol.tcp.host = "127.0.0.1";
     config.protocol.tcp.port = 502;
     config.protocol.tcp.connectTimeoutMs = 1000;

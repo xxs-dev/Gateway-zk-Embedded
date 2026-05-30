@@ -31,7 +31,7 @@
     "configPullRequestTopic": "edge/config/pull/request",
     "configPullReplyTopic": "edge/config/pull/reply",
     "qos": 1,
-    "maxPayloadBytes": 49152,
+    "maxPayloadBytes": 163840,
     "cleanSession": true,
     "keepAliveSec": 60,
     "sessionExpirySec": 0,
@@ -68,9 +68,12 @@
   },
   "mqttDriver": {
     "enabled": false,
-    "sharedMemoryName": "gateway_point_store",
+    "sharedMemoryName": "gateway_point_store_ttySP1",
     "sharedMemoryNames": [
-      "gateway_point_store"
+      "gateway_point_store_ttySP1",
+      "gateway_point_store_ttySP2",
+      "gateway_point_store_dio",
+      "gateway_point_store_ems_virtual"
     ],
     "scanIntervalMs": 1000,
     "fullUploadIntervalMs": 60000,
@@ -97,9 +100,12 @@
   "computeEngine": {
     "enabled": false,
     "sharedMemoryNames": [
-      "gateway_point_store"
+      "gateway_point_store_ttySP1",
+      "gateway_point_store_ttySP2",
+      "gateway_point_store_dio",
+      "gateway_point_store_ems_virtual"
     ],
-    "outputDefaultSharedMemoryName": "gateway_point_store",
+    "outputDefaultSharedMemoryName": "gateway_point_store_ems_virtual",
     "scanIntervalMs": 200,
     "maxRuleEvalPerScan": 1000,
     "badQuality": 0,
@@ -109,6 +115,7 @@
   },
   "realtime": {
     "enabled": false,
+    "ingestFullUpload": false,
     "telemetryTopic": "edge/telemetry",
     "alarmTopic": "edge/alarm",
     "statusTopic": "edge/status",
@@ -119,7 +126,7 @@
   "systemMonitor": {
     "enabled": true,
     "defaultIntervalMs": 5000,
-    "minIntervalMs": 1000,
+    "minIntervalMs": 500,
     "subscriptionTtlSec": 30,
     "cpuAlertThreshold": 90,
     "memAlertThreshold": 90,
@@ -127,6 +134,7 @@
     "alertRepeatIntervalSec": 60,
     "diagEnabled": true,
     "maxDiagOutputBytes": 16384,
+    "realtimeMeterLeaseFile": "/opt/modbus-gateway/run/realtime-meter-leases.json",
     "allowedCommands": [
       "uptime",
       "free_m",
@@ -181,7 +189,10 @@
       "zoom": 1.0
     },
     "sharedMemoryNames": [
-      "gateway_point_store"
+      "gateway_point_store_ttySP1",
+      "gateway_point_store_ttySP2",
+      "gateway_point_store_dio",
+      "gateway_point_store_ems_virtual"
     ],
     "screens": [
       {

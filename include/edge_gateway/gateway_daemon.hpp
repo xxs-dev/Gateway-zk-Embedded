@@ -22,7 +22,8 @@ public:
         std::shared_ptr<IModbusClient> modbusClient,
         std::shared_ptr<Dlt645Client> dlt645Client = nullptr,
         std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
-        std::shared_ptr<IGpioPort> gpioPort = nullptr
+        std::shared_ptr<IGpioPort> gpioPort = nullptr,
+        std::string realtimeMeterLeaseFile = std::string()
     );
     ~GatewayDaemon();
 
@@ -48,6 +49,9 @@ private:
     void persistLoop();
     void writebackLoop();
     int collectLoopIntervalMs() const;
+    std::size_t collectRuntimeMeterBatchSize() const;
+    std::vector<std::size_t> activeRealtimeDeviceIndexes(std::int64_t nowMs);
+    std::vector<std::string> activeRealtimeMeterCodes(std::int64_t nowMs);
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void initializeRuntimeDevices(
         std::shared_ptr<IModbusClient> modbusClient,
@@ -60,6 +64,12 @@ private:
     MemoryPointStore& store_;
     std::vector<RuntimeDevice> runtimeDevices_;
     std::unordered_map<std::uint32_t, std::size_t> indexToRuntimeDevice_;
+    std::unordered_map<std::string, std::size_t> meterCodeToRuntimeDevice_;
+    std::size_t collectCursor_ = 0;
+    std::string realtimeMeterLeaseFile_;
+    std::int64_t realtimeLeaseLastReadMs_ = 0;
+    std::int64_t realtimeLeaseExpireAtMs_ = 0;
+    std::vector<std::string> realtimeLeaseMeterCodes_;
     SqliteSampleWriter sqliteWriter_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
     std::shared_ptr<IGpioPort> gpioPort_;

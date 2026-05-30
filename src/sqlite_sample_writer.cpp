@@ -80,6 +80,10 @@ void execOrThrow(sqlite3* db, const char* sql) {
 
 SqliteSampleWriter::SqliteSampleWriter(std::string dbPath, std::string libraryPath)
     : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)) {
+    if (dbPath_.empty()) {
+        return;
+    }
+    enabled_ = true;
     loadLibrary();
     openDatabase();
     ensureSchema();
@@ -91,7 +95,7 @@ SqliteSampleWriter::~SqliteSampleWriter() {
 }
 
 void SqliteSampleWriter::writeSamples(const std::vector<PersistentPointSample>& samples) {
-    if (samples.empty()) {
+    if (!enabled_ || samples.empty()) {
         return;
     }
 
@@ -135,6 +139,9 @@ void SqliteSampleWriter::writeSamples(const std::vector<PersistentPointSample>& 
 }
 
 void SqliteSampleWriter::loadLibrary() {
+    if (!enabled_) {
+        return;
+    }
     if (libraryHandle_ != nullptr) {
         return;
     }
@@ -175,6 +182,9 @@ void SqliteSampleWriter::loadLibrary() {
 }
 
 void SqliteSampleWriter::openDatabase() {
+    if (!enabled_) {
+        return;
+    }
     sqlite3* db = nullptr;
     const auto rc = g_sqlite3_open_v2(
         dbPath_.c_str(),
@@ -189,6 +199,9 @@ void SqliteSampleWriter::openDatabase() {
 }
 
 void SqliteSampleWriter::ensureSchema() {
+    if (!enabled_) {
+        return;
+    }
     auto* db = static_cast<sqlite3*>(databaseHandle_);
     execOrThrow(
         db,

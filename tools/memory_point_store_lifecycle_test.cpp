@@ -24,13 +24,13 @@ edge_gateway::PointDefinition buildPoint() {
     return point;
 }
 
-edge_gateway::PointValue buildValue(std::int64_t ts) {
+edge_gateway::PointValue buildValue(std::int64_t ts, double numericValue = 42.0) {
     edge_gateway::PointValue value;
     value.index = 610001;
     value.machineCode = "GW_TEST";
     value.meterCode = "METER_TEST";
     value.pointCode = "KY_TEST_LATEST";
-    value.value = 42.0;
+    value.value = numericValue;
     value.quality = 1;
     value.ts = ts;
     value.expireAt = ts + 600000;
@@ -68,11 +68,56 @@ void verifyReaderDoesNotUnlinkNamedSegment() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void verifyReaderRemapsRecreatedNamedSegment() {
+    const std::string storeName = "gateway_memory_remap_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    auto reader = std::unique_ptr<edge_gateway::MemoryPointStore>();
+    {
+        edge_gateway::MemoryStoreConfig config;
+        config.sharedMemoryName = storeName;
+        config.maxLatestPoints = 32;
+
+        edge_gateway::MemoryPointStore writer(config);
+        const auto point = buildPoint();
+        writer.registerPoint("GW_TEST", "METER_TEST", point);
+        writer.putLatest(buildValue(1000, 42.0));
+
+        reader.reset(new edge_gateway::MemoryPointStore(storeName));
+        const auto first = reader->getLatestByIndex(point.index, 1000);
+        require(static_cast<bool>(first), "reader should see initial segment value");
+        require(first->value == 42.0, "initial reader value mismatch");
+    }
+
+    require(edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName),
+            "orphaned segment should be unlinked while reader still has old mmap");
+
+    {
+        edge_gateway::MemoryStoreConfig config;
+        config.sharedMemoryName = storeName;
+        config.maxLatestPoints = 32;
+
+        edge_gateway::MemoryPointStore writer(config);
+        const auto point = buildPoint();
+        writer.registerPoint("GW_TEST", "METER_TEST", point);
+        writer.putLatest(buildValue(2000, 84.0));
+
+        const auto remapped = reader->getLatestByIndex(point.index, 2000);
+        require(static_cast<bool>(remapped), "reader should remap to recreated segment");
+        require(remapped->value == 84.0, "remapped reader value mismatch");
+        require(remapped->ts == 2000, "remapped reader timestamp mismatch");
+    }
+
+    reader.reset();
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
     try {
         verifyReaderDoesNotUnlinkNamedSegment();
+        verifyReaderRemapsRecreatedNamedSegment();
         std::cout << "memory_point_store_lifecycle_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

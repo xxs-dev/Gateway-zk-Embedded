@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -11,10 +12,14 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/select.h>
@@ -27,9 +32,9 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::size_t kMaxConfigPullFiles = 256;
-constexpr std::size_t kMaxConfigPullFileBytes = 512 * 1024;
-constexpr std::size_t kMaxConfigPullTotalBytes = 8 * 1024 * 1024;
-constexpr std::size_t kMaxConfigPullReplyBytes = 12 * 1024 * 1024;
+constexpr std::size_t kMaxConfigPullFileBytes = 5 * 1024 * 1024;
+constexpr std::size_t kMaxConfigPullTotalBytes = 16 * 1024 * 1024;
+constexpr std::size_t kMaxConfigPullReplyBytes = 24 * 1024 * 1024;
 
 class FlatJsonReader {
 public:
@@ -164,6 +169,117 @@ std::string escapeJson(const std::string& value) {
     return out;
 }
 
+void appendMonitorPointValueJson(std::ostringstream& out, const StoredPointValue& value) {
+    out << "[" << value.index
+        << ",\"" << escapeJson(value.pointCode) << "\""
+        << "," << value.value
+        << "," << value.quality
+        << "," << value.ts
+        << "," << value.expireAt
+        << "," << (value.stale ? "true" : "false")
+        << "]";
+}
+
+std::string randomChunkId() {
+    static std::uint64_t counter = 0;
+    std::ostringstream out;
+    out << currentTimeMs() << "-" << ++counter;
+    return out.str();
+}
+
+std::string buildMonitorPointChunkJson(
+    const std::string& machineCode,
+    const std::string& chunkId,
+    std::size_t chunkIndex,
+    std::size_t chunkCount,
+    const std::vector<std::pair<std::string, std::vector<std::string>>>& meters
+) {
+    std::ostringstream payload;
+    payload << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(machineCode) << "\""
+            << ",\"chunked\":true"
+            << ",\"chunkId\":\"" << escapeJson(chunkId) << "\""
+            << ",\"chunkIndex\":" << chunkIndex
+            << ",\"chunkCount\":" << chunkCount
+            << ",\"meters\":[";
+    for (std::size_t i = 0; i < meters.size(); ++i) {
+        if (i > 0) {
+            payload << ",";
+        }
+        payload << "{\"meterCode\":\"" << escapeJson(meters[i].first) << "\",\"values\":[";
+        for (std::size_t j = 0; j < meters[i].second.size(); ++j) {
+            if (j > 0) {
+                payload << ",";
+            }
+            payload << meters[i].second[j];
+        }
+        payload << "]}";
+    }
+    payload << "]}";
+    return payload.str();
+}
+
+std::vector<std::string> buildMonitorPointSnapshotPayloads(
+    const std::vector<StoredPointValue>& values,
+    const std::string& machineCode,
+    std::size_t maxPayloadBytes
+) {
+    const auto limit = std::max<std::size_t>(4096, maxPayloadBytes);
+    const auto chunkId = randomChunkId();
+    const auto emptyChunkBytes = buildMonitorPointChunkJson(machineCode, chunkId, 999999, 999999, {}).size();
+    std::map<std::string, std::vector<std::string>> grouped;
+    for (const auto& value : values) {
+        std::ostringstream item;
+        appendMonitorPointValueJson(item, value);
+        grouped[value.meterCode].push_back(item.str());
+    }
+
+    std::vector<std::vector<std::pair<std::string, std::vector<std::string>>>> chunks;
+    std::vector<std::pair<std::string, std::vector<std::string>>> currentMeters;
+    std::size_t currentBytes = emptyChunkBytes;
+    const auto flushCurrent = [&]() {
+        if (!currentMeters.empty()) {
+            chunks.push_back(currentMeters);
+            currentMeters.clear();
+            currentBytes = emptyChunkBytes;
+        }
+    };
+    const auto nextItemBytes = [&](const std::string& meterCode, const std::string& itemJson) {
+        if (currentMeters.empty() || currentMeters.back().first != meterCode) {
+            const std::string meterPrefix = std::string("{\"meterCode\":\"") + escapeJson(meterCode) + "\",\"values\":[";
+            const std::size_t meterSuffixBytes = 2; // ]}
+            return (currentMeters.empty() ? 0U : 1U) + meterPrefix.size() + itemJson.size() + meterSuffixBytes;
+        }
+        const auto& valuesInMeter = currentMeters.back().second;
+        return (valuesInMeter.empty() ? 0U : 1U) + itemJson.size();
+    };
+
+    for (const auto& entry : grouped) {
+        for (const auto& itemJson : entry.second) {
+            auto addedBytes = nextItemBytes(entry.first, itemJson);
+            if (!currentMeters.empty() && currentBytes + addedBytes > limit) {
+                flushCurrent();
+                addedBytes = nextItemBytes(entry.first, itemJson);
+            }
+            if (currentMeters.empty() || currentMeters.back().first != entry.first) {
+                currentMeters.push_back(std::make_pair(entry.first, std::vector<std::string>()));
+            }
+            currentMeters.back().second.push_back(itemJson);
+            currentBytes += addedBytes;
+        }
+    }
+    flushCurrent();
+    if (chunks.empty()) {
+        chunks.push_back({});
+    }
+
+    std::vector<std::string> payloads;
+    payloads.reserve(chunks.size());
+    for (std::size_t i = 0; i < chunks.size(); ++i) {
+        payloads.push_back(buildMonitorPointChunkJson(machineCode, chunkId, i + 1, chunks.size(), chunks[i]));
+    }
+    return payloads;
+}
+
 int countProcesses() {
     int count = 0;
     DIR* dir = opendir("/proc");
@@ -197,6 +313,67 @@ std::string readFileText(const std::string& path) {
     std::ostringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+int makeDir(const std::string& path) {
+#ifdef _WIN32
+    return _mkdir(path.c_str());
+#else
+    return mkdir(path.c_str(), 0755);
+#endif
+}
+
+std::string parentDirectory(const std::string& path) {
+    const auto pos = path.find_last_of("/\\");
+    return pos == std::string::npos ? std::string() : path.substr(0, pos);
+}
+
+void ensureDirectory(const std::string& path) {
+    if (path.empty()) {
+        return;
+    }
+    std::string current;
+    std::size_t cursor = 0;
+    if (!path.empty() && (path.front() == '/' || path.front() == '\\')) {
+        current = path.substr(0, 1);
+        cursor = 1;
+    }
+    while (cursor <= path.size()) {
+        const auto next = path.find_first_of("/\\", cursor);
+        const auto part = path.substr(cursor, next == std::string::npos ? std::string::npos : next - cursor);
+        if (!part.empty()) {
+            if (!current.empty() && current.back() != '/' && current.back() != '\\') {
+                current += "/";
+            }
+            current += part;
+            if (makeDir(current) != 0 && errno != EEXIST) {
+                throw std::runtime_error("failed to create directory: " + current);
+            }
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        cursor = next + 1;
+    }
+}
+
+void writeTextFileAtomically(const std::string& path, const std::string& content) {
+    ensureDirectory(parentDirectory(path));
+    const auto tempPath = path + ".tmp";
+    {
+        std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!output) {
+            throw std::runtime_error("failed to open temp file: " + tempPath);
+        }
+        output << content;
+        if (!output) {
+            throw std::runtime_error("failed to write temp file: " + tempPath);
+        }
+    }
+    if (std::rename(tempPath.c_str(), path.c_str()) != 0) {
+        std::remove(tempPath.c_str());
+        throw std::runtime_error("failed to replace file: " + path);
+    }
 }
 
 std::uint64_t fileSizeBytes(const std::string& path) {
@@ -871,19 +1048,32 @@ bool SystemMonitorService::isRunning() const {
 
 void SystemMonitorService::runOnce(std::int64_t nowMs) {
     processIncomingMessages(nowMs);
-    const auto sample = collectSample();
-    if (hasActiveLease(nowMs) && (lastTelemetryMs_ == 0 || nowMs - lastTelemetryMs_ >= effectiveIntervalMs(nowMs))) {
-        publishTelemetry(sample, nowMs);
-        publishPointSnapshot(nowMs);
+    if (hasActiveLease(nowMs)) {
+        const int pointIntervalMs = effectiveIntervalMs(nowMs);
+        if (lastPointSnapshotMs_ == 0 || nowMs - lastPointSnapshotMs_ >= pointIntervalMs) {
+            publishPointSnapshot(nowMs);
+            lastPointSnapshotMs_ = nowMs;
+        }
+    }
+
+    const int telemetryIntervalMs = std::max(monitorConfig_.minIntervalMs, monitorConfig_.defaultIntervalMs);
+    if (lastTelemetryMs_ == 0 || nowMs - lastTelemetryMs_ >= telemetryIntervalMs) {
+        const auto sample = collectSample();
+        if (hasActiveLease(nowMs)) {
+            publishTelemetry(sample, nowMs);
+        }
+        evaluateAlerts(sample, nowMs);
         lastTelemetryMs_ = nowMs;
     }
-    evaluateAlerts(sample, nowMs);
 }
 
 void SystemMonitorService::loop() {
     while (running_.load()) {
         runOnce(currentTimeMs());
-        sleepInterruptibly(running_, 500);
+        const auto sleepMs = hasActiveLease(currentTimeMs())
+            ? std::max(50, std::min(100, monitorConfig_.minIntervalMs / 5))
+            : 500;
+        sleepInterruptibly(running_, sleepMs);
     }
     publishStatusEvent("stopped", currentTimeMs());
 }
@@ -916,11 +1106,13 @@ void SystemMonitorService::handleMonitorRequest(const std::string& payload, std:
     std::string action;
     std::string sessionId;
     std::string machineCode;
+    std::string meterCode;
     int intervalMs = monitorConfig_.defaultIntervalMs;
     int ttlSec = monitorConfig_.subscriptionTtlSec;
     json.tryGetString("action", &action);
     json.tryGetString("sessionId", &sessionId);
     json.tryGetString("machineCode", &machineCode);
+    json.tryGetString("meterCode", &meterCode);
     json.tryGetInt("intervalMs", &intervalMs);
     json.tryGetInt("ttlSec", &ttlSec);
     if (machineCode.empty()) {
@@ -937,16 +1129,28 @@ void SystemMonitorService::handleMonitorRequest(const std::string& payload, std:
     } else {
         MonitorLease lease;
         lease.sessionId = sessionId;
+        lease.meterCode = meterCode;
         lease.intervalMs = std::max(monitorConfig_.minIntervalMs, intervalMs);
         lease.expireAtMs = nowMs + static_cast<std::int64_t>(std::max(1, ttlSec)) * 1000;
         leases_[sessionId] = lease;
         publishPointSnapshot(nowMs);
+        lastPointSnapshotMs_ = nowMs;
+    }
+    try {
+        writeRealtimeMeterLeases(nowMs);
+    } catch (const std::exception& ex) {
+        publishStatusEvent(
+            "realtime-lease-write-failed",
+            nowMs,
+            std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
+        );
     }
     publishStatusEvent(
         "monitor-request",
         nowMs,
         std::string(R"("sessionId":")") + escapeJson(sessionId) +
             R"(","action":")" + escapeJson(action.empty() ? "subscribe" : action) +
+            R"(","meterCode":")" + escapeJson(meterCode) +
             R"(")"
     );
     std::ostringstream reply;
@@ -1432,41 +1636,50 @@ void SystemMonitorService::publishPointSnapshot(std::int64_t nowMs) {
     if (router_ == nullptr || mqttConfig_.systemMonitorPointTopic.empty()) {
         return;
     }
-    const auto values = router_->getAllLatest(nowMs);
+    std::vector<StoredPointValue> values;
+    if (activeLeaseRequiresAllPoints(nowMs)) {
+        values = router_->getAllLatest(nowMs);
+    } else {
+        for (const auto& meterCode : activeMeterCodes(nowMs)) {
+            auto meterValues = router_->getLatestByMeter(machineCode_, meterCode, nowMs);
+            values.insert(values.end(), meterValues.begin(), meterValues.end());
+        }
+    }
     if (values.empty()) {
         return;
     }
-    std::map<std::string, std::vector<std::string>> grouped;
-    for (const auto& value : values) {
-        std::ostringstream item;
-        item << "{\"index\":" << value.index
-             << ",\"pointCode\":\"" << escapeJson(value.pointCode) << "\""
-             << ",\"value\":" << value.value
-             << ",\"quality\":" << value.quality
-             << ",\"ts\":" << value.ts
-             << ",\"stale\":" << (value.stale ? "true" : "false")
-             << "}";
-        grouped[value.meterCode].push_back(item.str());
+    for (const auto& payload : buildMonitorPointSnapshotPayloads(values, machineCode_, mqttConfig_.maxPayloadBytes)) {
+        publisher_->publishJsonMessage(mqttConfig_.systemMonitorPointTopic, payload);
     }
+}
+
+void SystemMonitorService::writeRealtimeMeterLeases(std::int64_t nowMs) const {
+    if (monitorConfig_.realtimeMeterLeaseFile.empty()) {
+        return;
+    }
+    const auto meters = activeMeterCodes(nowMs);
+    std::int64_t expireAtMs = nowMs;
+    for (const auto& entry : leases_) {
+        const auto& lease = entry.second;
+        if (lease.expireAtMs <= nowMs || lease.meterCode.empty()) {
+            continue;
+        }
+        expireAtMs = std::max(expireAtMs, lease.expireAtMs);
+    }
+
     std::ostringstream payload;
-    payload << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(machineCode_) << "\",\"meters\":[";
-    bool firstMeter = true;
-    for (const auto& entry : grouped) {
-        if (!firstMeter) {
+    payload << "{\"machineCode\":\"" << escapeJson(machineCode_)
+            << "\",\"updatedAtMs\":" << nowMs
+            << ",\"expireAtMs\":" << expireAtMs
+            << ",\"meterCodes\":[";
+    for (std::size_t i = 0; i < meters.size(); ++i) {
+        if (i > 0) {
             payload << ",";
         }
-        firstMeter = false;
-        payload << "{\"meterCode\":\"" << escapeJson(entry.first) << "\",\"values\":[";
-        for (std::size_t i = 0; i < entry.second.size(); ++i) {
-            if (i > 0) {
-                payload << ",";
-            }
-            payload << entry.second[i];
-        }
-        payload << "]}";
+        payload << "\"" << escapeJson(meters[i]) << "\"";
     }
     payload << "]}";
-    publisher_->publishJsonMessage(mqttConfig_.systemMonitorPointTopic, payload.str());
+    writeTextFileAtomically(monitorConfig_.realtimeMeterLeaseFile, payload.str());
 }
 
 void SystemMonitorService::publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson) const {
@@ -1489,6 +1702,27 @@ bool SystemMonitorService::hasActiveLease(std::int64_t nowMs) const {
         }
     }
     return false;
+}
+
+bool SystemMonitorService::activeLeaseRequiresAllPoints(std::int64_t nowMs) const {
+    for (const auto& entry : leases_) {
+        if (entry.second.expireAtMs > nowMs && entry.second.meterCode.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<std::string> SystemMonitorService::activeMeterCodes(std::int64_t nowMs) const {
+    std::set<std::string> unique;
+    for (const auto& entry : leases_) {
+        const auto& lease = entry.second;
+        if (lease.expireAtMs <= nowMs || lease.meterCode.empty()) {
+            continue;
+        }
+        unique.insert(lease.meterCode);
+    }
+    return std::vector<std::string>(unique.begin(), unique.end());
 }
 
 int SystemMonitorService::effectiveIntervalMs(std::int64_t nowMs) const {

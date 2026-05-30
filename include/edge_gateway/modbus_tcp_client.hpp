@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <condition_variable>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -12,8 +14,13 @@ namespace edge_gateway {
 
 class ModbusTcpClient : public IModbusClient {
 public:
-    explicit ModbusTcpClient(TcpTransportConfig config);
+    explicit ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters = 125);
     ~ModbusTcpClient() override;
+
+    void beginPriorityWrite() override;
+    void endPriorityWrite() override;
+    void enterTransaction();
+    void leaveTransaction();
 
     std::vector<std::uint16_t> readCoils(int slave, int start, int count) override;
     std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) override;
@@ -55,8 +62,14 @@ private:
     void sendAll(const std::vector<std::uint8_t>& bytes);
 
     TcpTransportConfig config_;
+    int maxRequestRegisters_ = 125;
     std::uint16_t transactionId_ = 0;
     std::intptr_t socket_ = -1;
+    std::mutex transactionMutex_;
+    std::condition_variable transactionCv_;
+    int activeTransactions_ = 0;
+    int pendingPriorityWrites_ = 0;
+    static thread_local int priorityContextDepth_;
 };
 
 }  // namespace edge_gateway

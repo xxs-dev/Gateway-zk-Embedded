@@ -20,7 +20,8 @@ bool canMerge(const ReadTask& task, const PointDefinition& point, int maxBatchRe
 
 std::vector<ReadTask> ReadTaskPlanner::build(
     const std::vector<PointDefinition>& points,
-    int maxBatchRegisters
+    int maxBatchRegisters,
+    bool batchOptimize
 ) {
     if (maxBatchRegisters <= 0) {
         throw std::invalid_argument("maxBatchRegisters must be positive");
@@ -43,7 +44,7 @@ std::vector<ReadTask> ReadTaskPlanner::build(
 
     std::vector<ReadTask> tasks;
     for (const auto& point : readable) {
-        if (tasks.empty() || !canMerge(tasks.back(), point, maxBatchRegisters)) {
+        if (!batchOptimize || tasks.empty() || !canMerge(tasks.back(), point, maxBatchRegisters)) {
             ReadTask task;
             task.function = point.read.function;
             task.start = point.address;

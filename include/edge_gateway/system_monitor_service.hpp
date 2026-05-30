@@ -77,6 +77,7 @@ private:
 
     struct MonitorLease {
         std::string sessionId;
+        std::string meterCode;
         int intervalMs = 5000;
         std::int64_t expireAtMs = 0;
     };
@@ -101,7 +102,10 @@ private:
     void publishReply(const std::string& payload);
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void publishPointSnapshot(std::int64_t nowMs);
+    void writeRealtimeMeterLeases(std::int64_t nowMs) const;
     bool hasActiveLease(std::int64_t nowMs) const;
+    bool activeLeaseRequiresAllPoints(std::int64_t nowMs) const;
+    std::vector<std::string> activeMeterCodes(std::int64_t nowMs) const;
     int effectiveIntervalMs(std::int64_t nowMs) const;
     bool isCommandAllowed(const std::string& command) const;
     std::string executeDiagCommand(const std::string& command, const std::string& arg, int* exitCode) const;
@@ -118,6 +122,7 @@ private:
     std::thread thread_;
     mutable std::map<std::string, MonitorLease> leases_;
     std::int64_t lastTelemetryMs_ = 0;
+    std::int64_t lastPointSnapshotMs_ = 0;
     std::map<std::string, std::int64_t> lastAlertPublishMs_;
     std::uint64_t lastCpuTotal_ = 0;
     std::uint64_t lastCpuIdle_ = 0;

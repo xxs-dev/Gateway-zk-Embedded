@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -324,7 +325,31 @@ std::vector<std::uint8_t> buildDisconnectPacket() {
     return {kPacketDisconnect, 0x00};
 }
 
-void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item) {
+enum class PointValueJsonFormat {
+    CompactArray,
+    Object
+};
+
+PointValueJsonFormat pointValueJsonFormat(const std::string& value) {
+    std::string normalized = value;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return normalized == "object" ? PointValueJsonFormat::Object : PointValueJsonFormat::CompactArray;
+}
+
+void appendCompactPointValueJson(std::ostringstream& out, const StoredPointValue& item) {
+    out << "[" << item.index
+        << ",\"" << escapeJson(item.pointCode) << "\""
+        << "," << item.value
+        << "," << item.quality
+        << "," << item.ts
+        << "," << item.expireAt
+        << "," << (item.stale ? "true" : "false")
+        << "]";
+}
+
+void appendObjectPointValueJson(std::ostringstream& out, const StoredPointValue& item) {
     out << "{\"index\":" << item.index
         << ",\"pointCode\":\"" << escapeJson(item.pointCode) << "\""
         << ",\"value\":" << item.value
@@ -333,6 +358,14 @@ void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item)
         << ",\"expireAt\":" << item.expireAt
         << ",\"stale\":" << (item.stale ? "true" : "false")
         << "}";
+}
+
+void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item, PointValueJsonFormat format) {
+    if (format == PointValueJsonFormat::Object) {
+        appendObjectPointValueJson(out, item);
+    } else {
+        appendCompactPointValueJson(out, item);
+    }
 }
 
 std::int64_t currentTimeMs();
@@ -359,7 +392,11 @@ std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue
     return devices;
 }
 
-std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
+std::string encodeValuesJson(
+    const std::vector<StoredPointValue>& values,
+    PointValueJsonFormat format,
+    const std::string& fallbackMachineCode = std::string()
+) {
     std::ostringstream out;
     out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
@@ -376,7 +413,7 @@ std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const 
             if (!firstValue) {
                 out << ",";
             }
-            appendPointValueJson(out, item);
+            appendPointValueJson(out, item, format);
             firstValue = false;
         }
         out << "]}";
@@ -385,7 +422,11 @@ std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const 
     return out.str();
 }
 
-std::string encodeFullJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
+std::string encodeFullJson(
+    const std::vector<StoredPointValue>& values,
+    PointValueJsonFormat format,
+    const std::string& fallbackMachineCode = std::string()
+) {
     std::ostringstream out;
     out << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
@@ -402,7 +443,7 @@ std::string encodeFullJson(const std::vector<StoredPointValue>& values, const st
             if (!firstValue) {
                 out << ",";
             }
-            appendPointValueJson(out, item);
+            appendPointValueJson(out, item, format);
             firstValue = false;
         }
         out << "]}";
@@ -455,6 +496,7 @@ std::vector<std::string> encodeRealtimeChunks(
     const std::string& type,
     const std::vector<StoredPointValue>& values,
     std::size_t maxPayloadBytes,
+    PointValueJsonFormat format,
     const std::string& fallbackMachineCode = std::string()
 ) {
     const auto limit = std::max<std::size_t>(4096, maxPayloadBytes);
@@ -476,27 +518,30 @@ std::vector<std::string> encodeRealtimeChunks(
 
     const auto devices = meterCodesFromValues(values);
     for (const auto& meterCode : devices) {
-        currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>()));
         for (const auto& item : values) {
             if (item.meterCode != meterCode) {
                 continue;
             }
-            std::ostringstream itemJson;
-            appendPointValueJson(itemJson, item);
-            auto& meter = currentMeters.back();
-            meter.second.push_back(itemJson.str());
-            if (currentSize() > limit && meter.second.size() > 1) {
-                const auto overflow = meter.second.back();
-                meter.second.pop_back();
-                flushCurrent();
-                currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>{overflow}));
-            } else if (currentSize() > limit && meter.second.size() == 1) {
-                flushCurrent();
+            if (currentMeters.empty() || currentMeters.back().first != meterCode) {
                 currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>()));
             }
-        }
-        if (currentMeters.back().second.empty()) {
-            currentMeters.pop_back();
+            std::ostringstream itemJson;
+            appendPointValueJson(itemJson, item, format);
+            auto& meter = currentMeters.back();
+            meter.second.push_back(itemJson.str());
+            if (currentSize() <= limit) {
+                continue;
+            }
+            const auto overflow = meter.second.back();
+            meter.second.pop_back();
+            if (meter.second.empty()) {
+                currentMeters.pop_back();
+            }
+            flushCurrent();
+            currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>{overflow}));
+            if (currentSize() > limit) {
+                flushCurrent();
+            }
         }
     }
     flushCurrent();
@@ -1355,10 +1400,12 @@ BuiltinMqttDriverPublisher::~BuiltinMqttDriverPublisher() {
 
 void BuiltinMqttDriverPublisher::publishFullSnapshot(
     const std::string& topic,
-    const std::vector<StoredPointValue>& values
+    const std::vector<StoredPointValue>& values,
+    const std::string& valueFormat
 ) {
     std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& payload : encodeRealtimeChunks("snapshot", values, config_.maxPayloadBytes, config_.topicMachineCode)) {
+    const auto format = pointValueJsonFormat(valueFormat);
+    for (const auto& payload : encodeRealtimeChunks("snapshot", values, config_.maxPayloadBytes, format, config_.topicMachineCode)) {
         publishRealtimeJson(topic, payload);
     }
 }
@@ -1376,10 +1423,12 @@ void BuiltinMqttDriverPublisher::publishAlarm(
 
 void BuiltinMqttDriverPublisher::publishOnDemand(
     const std::string& topic,
-    const std::vector<StoredPointValue>& values
+    const std::vector<StoredPointValue>& values,
+    const std::string& valueFormat
 ) {
     std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes, config_.topicMachineCode)) {
+    const auto format = pointValueJsonFormat(valueFormat);
+    for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes, format, config_.topicMachineCode)) {
         publishRealtimeJson(topic, payload);
     }
 }

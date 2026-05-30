@@ -28,7 +28,7 @@
     "configPullRequestTopic": "edge/config/pull/request",
     "configPullReplyTopic": "edge/config/pull/reply",
     "qos": 1,
-    "maxPayloadBytes": 49152,
+    "maxPayloadBytes": 163840,
     "cleanSession": true,
     "keepAliveSec": 60,
     "sessionExpirySec": 0,
@@ -105,6 +105,7 @@
   },
   "realtime": {
     "enabled": false,
+    "ingestFullUpload": false,
     "telemetryTopic": "edge/telemetry",
     "alarmTopic": "edge/alarm",
     "statusTopic": "edge/status",
@@ -115,13 +116,14 @@
   "systemMonitor": {
     "enabled": true,
     "defaultIntervalMs": 5000,
-    "minIntervalMs": 1000,
+    "minIntervalMs": 500,
     "subscriptionTtlSec": 30,
     "cpuAlertThreshold": 90,
     "memAlertThreshold": 90,
     "diskAlertThreshold": 90,
     "alertRepeatIntervalSec": 60,
     "diagEnabled": true,
+    "realtimeMeterLeaseFile": "/opt/modbus-gateway/run/realtime-meter-leases.json",
     "allowedCommands": [
       "uptime",
       "free_m",

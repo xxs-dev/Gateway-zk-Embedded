@@ -1,6 +1,7 @@
 #include "edge_gateway/mosquitto_mqtt_driver_publisher.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
@@ -89,7 +90,31 @@ BrokerEndpoint parseBroker(const std::string& broker) {
     return endpoint;
 }
 
-void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item) {
+enum class PointValueJsonFormat {
+    CompactArray,
+    Object
+};
+
+PointValueJsonFormat pointValueJsonFormat(const std::string& value) {
+    std::string normalized = value;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return normalized == "object" ? PointValueJsonFormat::Object : PointValueJsonFormat::CompactArray;
+}
+
+void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item, PointValueJsonFormat format) {
+    if (format == PointValueJsonFormat::CompactArray) {
+        out << "[" << item.index
+            << ",\"" << escapeJson(item.pointCode) << "\""
+            << "," << item.value
+            << "," << item.quality
+            << "," << item.ts
+            << "," << item.expireAt
+            << "," << (item.stale ? "true" : "false")
+            << "]";
+        return;
+    }
     out << "{\"index\":" << item.index
         << ",\"pointCode\":\"" << escapeJson(item.pointCode) << "\""
         << ",\"value\":" << item.value
@@ -122,7 +147,11 @@ std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue
     return devices;
 }
 
-std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
+std::string encodeValuesJson(
+    const std::vector<StoredPointValue>& values,
+    PointValueJsonFormat format,
+    const std::string& fallbackMachineCode = std::string()
+) {
     std::ostringstream out;
     out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
@@ -139,7 +168,7 @@ std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const 
             if (!firstValue) {
                 out << ",";
             }
-            appendPointValueJson(out, item);
+            appendPointValueJson(out, item, format);
             firstValue = false;
         }
         out << "]}";
@@ -148,7 +177,11 @@ std::string encodeValuesJson(const std::vector<StoredPointValue>& values, const 
     return out.str();
 }
 
-std::string encodeFullJson(const std::vector<StoredPointValue>& values, const std::string& fallbackMachineCode = std::string()) {
+std::string encodeFullJson(
+    const std::vector<StoredPointValue>& values,
+    PointValueJsonFormat format,
+    const std::string& fallbackMachineCode = std::string()
+) {
     std::ostringstream out;
     out << "{\"type\":\"snapshot\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
@@ -165,7 +198,7 @@ std::string encodeFullJson(const std::vector<StoredPointValue>& values, const st
             if (!firstValue) {
                 out << ",";
             }
-            appendPointValueJson(out, item);
+            appendPointValueJson(out, item, format);
             firstValue = false;
         }
         out << "]}";
@@ -355,9 +388,10 @@ MosquittoMqttDriverPublisher::~MosquittoMqttDriverPublisher() {
 
 void MosquittoMqttDriverPublisher::publishFullSnapshot(
     const std::string& topic,
-    const std::vector<StoredPointValue>& values
+    const std::vector<StoredPointValue>& values,
+    const std::string& valueFormat
 ) {
-    publishJson(topic, encodeFullJson(values, config_.topicMachineCode));
+    publishJson(topic, encodeFullJson(values, pointValueJsonFormat(valueFormat), config_.topicMachineCode));
 }
 
 void MosquittoMqttDriverPublisher::publishAlarm(
@@ -372,9 +406,10 @@ void MosquittoMqttDriverPublisher::publishAlarm(
 
 void MosquittoMqttDriverPublisher::publishOnDemand(
     const std::string& topic,
-    const std::vector<StoredPointValue>& values
+    const std::vector<StoredPointValue>& values,
+    const std::string& valueFormat
 ) {
-    publishJson(topic, encodeValuesJson(values, config_.topicMachineCode));
+    publishJson(topic, encodeValuesJson(values, pointValueJsonFormat(valueFormat), config_.topicMachineCode));
 }
 
 void MosquittoMqttDriverPublisher::publishChangeEvent(

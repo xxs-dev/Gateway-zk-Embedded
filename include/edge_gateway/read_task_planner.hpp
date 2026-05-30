@@ -10,7 +10,8 @@ class ReadTaskPlanner {
 public:
     static std::vector<ReadTask> build(
         const std::vector<PointDefinition>& points,
-        int maxBatchRegisters
+        int maxBatchRegisters,
+        bool batchOptimize = true
     );
 };
 

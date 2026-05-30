@@ -67,6 +67,8 @@ public:
     void removeExpired(std::int64_t nowMs);
 
 private:
+    void ensureCurrentMapping() const;
+    void refreshCurrentMappingLocked() const;
     void releaseOwnerClaims();
     Optional<PointBinding> getBindingByIndex(std::uint32_t index) const;
     static std::string buildKey(
@@ -80,7 +82,7 @@ private:
     mutable SharedMutex mutex_;
     std::unordered_map<std::string, std::uint32_t> keyToIndex_;
     std::unordered_map<std::uint32_t, PointBinding> bindings_;
-    std::unordered_map<std::uint32_t, std::size_t> latestSlotByIndex_;
+    mutable std::unordered_map<std::uint32_t, std::size_t> latestSlotByIndex_;
     std::unordered_map<std::uint32_t, std::int64_t> lastPersistentSampleTs_;
     std::set<std::uint32_t> registeredIndexes_;
     std::size_t maxLatestPoints_ = 100000;
@@ -89,9 +91,9 @@ private:
     std::string segmentName_;
     std::uint64_t ownerId_ = 0;
     std::string ownerSource_;
-    void* mappingHandle_ = nullptr;
-    void* mutexHandle_ = nullptr;
-    void* sharedView_ = nullptr;
+    mutable void* mappingHandle_ = nullptr;
+    mutable void* mutexHandle_ = nullptr;
+    mutable void* sharedView_ = nullptr;
 };
 
 }  // namespace edge_gateway

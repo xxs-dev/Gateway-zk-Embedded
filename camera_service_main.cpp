@@ -469,9 +469,9 @@ std::string cameraStatusPayload(
 
 class StdoutJsonPublisher : public edge_gateway::IMqttDriverPublisher {
 public:
-    void publishFullSnapshot(const std::string&, const std::vector<edge_gateway::StoredPointValue>&) override {}
+    void publishFullSnapshot(const std::string&, const std::vector<edge_gateway::StoredPointValue>&, const std::string&) override {}
     void publishAlarm(const std::string&, std::uint32_t, const edge_gateway::StoredPointValue&, const std::string&, bool) override {}
-    void publishOnDemand(const std::string&, const std::vector<edge_gateway::StoredPointValue>&) override {}
+    void publishOnDemand(const std::string&, const std::vector<edge_gateway::StoredPointValue>&, const std::string&) override {}
     void publishChangeEvent(const std::string&, const edge_gateway::StoredPointValue&) override {}
     void publishCommandReply(const std::string&, const edge_gateway::MqttCommandReply&) override {}
     void publishOtaReply(const std::string&, const edge_gateway::OtaReply&) override {}
