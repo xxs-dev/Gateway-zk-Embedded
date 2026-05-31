@@ -87,6 +87,7 @@ private:
     void handleMonitorRequest(const std::string& payload, std::int64_t nowMs);
     void handleDiagRequest(const std::string& payload, std::int64_t nowMs);
     void handleConfigPullRequest(const std::string& payload, std::int64_t nowMs);
+    void handleConfigApplyRequest(const std::string& payload, std::int64_t nowMs);
     Sample collectSample() const;
     Sample::CellularStatus collectCellularStatus(std::int64_t nowMs) const;
     void publishTelemetry(const Sample& sample, std::int64_t nowMs);
@@ -110,7 +111,9 @@ private:
     bool isCommandAllowed(const std::string& command) const;
     std::string executeDiagCommand(const std::string& command, const std::string& arg, int* exitCode) const;
     void publishConfigPullReply(const std::string& payload) const;
+    void publishConfigApplyReply(const std::string& payload) const;
     std::string buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const;
+    std::string buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const;
 
     SystemMonitorConfig monitorConfig_;
     MqttConfig mqttConfig_;

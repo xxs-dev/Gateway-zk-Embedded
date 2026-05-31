@@ -27,6 +27,8 @@
 #include <unistd.h>
 #endif
 
+#include "edge_gateway/config_loader.hpp"
+
 namespace edge_gateway {
 
 namespace {
@@ -35,6 +37,12 @@ constexpr std::size_t kMaxConfigPullFiles = 256;
 constexpr std::size_t kMaxConfigPullFileBytes = 5 * 1024 * 1024;
 constexpr std::size_t kMaxConfigPullTotalBytes = 16 * 1024 * 1024;
 constexpr std::size_t kMaxConfigPullReplyBytes = 24 * 1024 * 1024;
+constexpr std::size_t kMaxConfigApplyFiles = 64;
+
+struct ConfigApplyFile {
+    std::string path;
+    std::string content;
+};
 
 class FlatJsonReader {
 public:
@@ -85,6 +93,23 @@ public:
         }
         *out = static_cast<std::int64_t>(value);
         return true;
+    }
+
+    bool tryGetBool(const char* key, bool* out) const {
+        const auto pos = findKey(key);
+        if (pos == std::string::npos) {
+            return false;
+        }
+        auto cursor = skipWhitespace(pos);
+        if (text_.compare(cursor, 4, "true") == 0) {
+            *out = true;
+            return true;
+        }
+        if (text_.compare(cursor, 5, "false") == 0) {
+            *out = false;
+            return true;
+        }
+        return false;
     }
 
 private:
@@ -583,6 +608,290 @@ std::string runShellCommand(const std::string& shellCommand, int* exitCode = nul
         output += "\n[truncated]";
     }
     return truncateText(std::move(output), maxOutputBytes);
+}
+
+int hexDigit(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
+void appendUtf8Codepoint(std::string& out, unsigned int codepoint) {
+    if (codepoint <= 0x7F) {
+        out.push_back(static_cast<char>(codepoint));
+    } else if (codepoint <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
+        out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
+        out.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+}
+
+bool parseJsonUnicodeEscape(const std::string& text, std::size_t* pos, unsigned int* codepoint) {
+    if (*pos + 4 > text.size()) {
+        return false;
+    }
+    unsigned int value = 0;
+    for (int i = 0; i < 4; ++i) {
+        const int digit = hexDigit(text[*pos + i]);
+        if (digit < 0) {
+            return false;
+        }
+        value = (value << 4) | static_cast<unsigned int>(digit);
+    }
+    *pos += 4;
+    *codepoint = value;
+    return true;
+}
+
+std::size_t skipJsonWhitespace(const std::string& text, std::size_t pos) {
+    while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])) != 0) {
+        ++pos;
+    }
+    return pos;
+}
+
+std::string parseJsonStringAt(const std::string& text, std::size_t pos) {
+    if (pos >= text.size() || text[pos] != '"') {
+        throw std::runtime_error("json string expected");
+    }
+    ++pos;
+    std::string out;
+    while (pos < text.size()) {
+        const char ch = text[pos++];
+        if (ch == '"') {
+            return out;
+        }
+        if (ch != '\\') {
+            out.push_back(ch);
+            continue;
+        }
+        if (pos >= text.size()) {
+            throw std::runtime_error("json string escape is malformed");
+        }
+        const char esc = text[pos++];
+        switch (esc) {
+            case '"': out.push_back('"'); break;
+            case '\\': out.push_back('\\'); break;
+            case '/': out.push_back('/'); break;
+            case 'b': out.push_back('\b'); break;
+            case 'f': out.push_back('\f'); break;
+            case 'n': out.push_back('\n'); break;
+            case 'r': out.push_back('\r'); break;
+            case 't': out.push_back('\t'); break;
+            case 'u': {
+                unsigned int codepoint = 0;
+                if (!parseJsonUnicodeEscape(text, &pos, &codepoint)) {
+                    throw std::runtime_error("json unicode escape is malformed");
+                }
+                if (codepoint >= 0xD800 && codepoint <= 0xDBFF &&
+                    pos + 6 <= text.size() &&
+                    text[pos] == '\\' &&
+                    text[pos + 1] == 'u') {
+                    pos += 2;
+                    unsigned int low = 0;
+                    if (parseJsonUnicodeEscape(text, &pos, &low) &&
+                        low >= 0xDC00 &&
+                        low <= 0xDFFF) {
+                        codepoint = 0x10000 + (((codepoint - 0xD800) << 10) | (low - 0xDC00));
+                    }
+                }
+                appendUtf8Codepoint(out, codepoint);
+                break;
+            }
+            default:
+                throw std::runtime_error("json string escape is unsupported");
+        }
+    }
+    throw std::runtime_error("json string is unterminated");
+}
+
+std::size_t skipJsonStringToken(const std::string& text, std::size_t pos) {
+    if (pos >= text.size() || text[pos] != '"') {
+        return std::string::npos;
+    }
+    ++pos;
+    while (pos < text.size()) {
+        const char ch = text[pos++];
+        if (ch == '"') {
+            return pos;
+        }
+        if (ch == '\\' && pos < text.size()) {
+            ++pos;
+        }
+    }
+    return std::string::npos;
+}
+
+std::size_t findJsonValue(const std::string& text, const std::string& key) {
+    const auto keyPattern = "\"" + key + "\"";
+    auto keyPos = text.find(keyPattern);
+    while (keyPos != std::string::npos) {
+        auto pos = skipJsonWhitespace(text, keyPos + keyPattern.size());
+        if (pos < text.size() && text[pos] == ':') {
+            return pos + 1;
+        }
+        keyPos = text.find(keyPattern, keyPos + keyPattern.size());
+    }
+    return std::string::npos;
+}
+
+std::size_t findMatchingJsonToken(const std::string& text, std::size_t begin, char openToken, char closeToken) {
+    if (begin >= text.size() || text[begin] != openToken) {
+        return std::string::npos;
+    }
+    int depth = 0;
+    for (std::size_t pos = begin; pos < text.size();) {
+        if (text[pos] == '"') {
+            pos = skipJsonStringToken(text, pos);
+            if (pos == std::string::npos) {
+                return std::string::npos;
+            }
+            continue;
+        }
+        if (text[pos] == openToken) {
+            ++depth;
+        } else if (text[pos] == closeToken) {
+            --depth;
+            if (depth == 0) {
+                return pos;
+            }
+        }
+        ++pos;
+    }
+    return std::string::npos;
+}
+
+std::vector<ConfigApplyFile> parseConfigApplyFiles(const std::string& payload) {
+    auto pos = skipJsonWhitespace(payload, findJsonValue(payload, "files"));
+    if (pos == std::string::npos || pos >= payload.size() || payload[pos] != '[') {
+        throw std::runtime_error("config apply files array is required");
+    }
+    const auto arrayEnd = findMatchingJsonToken(payload, pos, '[', ']');
+    if (arrayEnd == std::string::npos) {
+        throw std::runtime_error("config apply files array is malformed");
+    }
+
+    std::vector<ConfigApplyFile> files;
+    ++pos;
+    while (pos < arrayEnd) {
+        pos = skipJsonWhitespace(payload, pos);
+        if (pos >= arrayEnd) {
+            break;
+        }
+        if (payload[pos] == ',') {
+            ++pos;
+            continue;
+        }
+        if (payload[pos] != '{') {
+            throw std::runtime_error("config apply file item must be object");
+        }
+        const auto objectEnd = findMatchingJsonToken(payload, pos, '{', '}');
+        if (objectEnd == std::string::npos || objectEnd > arrayEnd) {
+            throw std::runtime_error("config apply file item is malformed");
+        }
+        const auto objectText = payload.substr(pos, objectEnd - pos + 1);
+        ConfigApplyFile file;
+        auto pathPos = skipJsonWhitespace(objectText, findJsonValue(objectText, "path"));
+        auto contentPos = skipJsonWhitespace(objectText, findJsonValue(objectText, "content"));
+        if (pathPos == std::string::npos || contentPos == std::string::npos) {
+            throw std::runtime_error("config apply file path and content are required");
+        }
+        file.path = parseJsonStringAt(objectText, pathPos);
+        file.content = parseJsonStringAt(objectText, contentPos);
+        if (file.path.empty()) {
+            throw std::runtime_error("config apply file path is required");
+        }
+        if (file.content.size() > kMaxConfigPullFileBytes) {
+            throw std::runtime_error("config apply file is too large: " + file.path);
+        }
+        files.push_back(std::move(file));
+        if (files.size() > kMaxConfigApplyFiles) {
+            throw std::runtime_error("too many config apply files");
+        }
+        pos = objectEnd + 1;
+    }
+    if (files.empty()) {
+        throw std::runtime_error("config apply files cannot be empty");
+    }
+    return files;
+}
+
+bool isAllowedConfigPath(const std::vector<std::string>& configFiles, const std::string& path) {
+    if (path.empty() || path.find("..") != std::string::npos) {
+        return false;
+    }
+    return std::find(configFiles.begin(), configFiles.end(), path) != configFiles.end();
+}
+
+bool containsPathSegment(std::string path, const std::string& segment) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    return path.find(segment) != std::string::npos;
+}
+
+void validateConfigContentForPath(const std::string& path, const std::string& content) {
+    const auto name = baseName(path);
+    if (containsPathSegment(path, "/devices/")) {
+        (void)ConfigLoader::loadFromText(content);
+        return;
+    }
+
+    const auto tempPath = path + ".validate." + std::to_string(currentTimeMs());
+    writeTextFileAtomically(tempPath, content);
+    try {
+        if (name == "device_identity.json") {
+            (void)ConfigLoader::loadDeviceIdentityFromFile(tempPath);
+        } else if (containsPathSegment(path, "/apps/")) {
+            (void)ConfigLoader::loadAppConfigFromFile(tempPath);
+        } else {
+            (void)ConfigLoader::loadFromText(content);
+        }
+    } catch (...) {
+        std::remove(tempPath.c_str());
+        throw;
+    }
+    std::remove(tempPath.c_str());
+}
+
+void backupFileIfExists(const std::string& path) {
+    if (!isRegularFile(path)) {
+        return;
+    }
+    const auto backupPath = path + ".bak." + std::to_string(currentTimeMs());
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    std::ofstream output(backupPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!input.is_open() || !output.is_open()) {
+        throw std::runtime_error("failed to create backup for: " + path);
+    }
+    output << input.rdbuf();
+    if (!output) {
+        throw std::runtime_error("failed to write backup for: " + path);
+    }
+}
+
+void restartGatewayServicesLater() {
+    std::thread([]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        (void)runShellCommand(
+            "sh -c 'if command -v systemctl >/dev/null 2>&1; then systemctl restart gateway-services.service; "
+            "elif [ -x /opt/modbus-gateway/bin/gateway-services.sh ]; then /opt/modbus-gateway/bin/gateway-services.sh restart; fi' "
+            ">/dev/null 2>&1"
+        );
+    }).detach();
 }
 
 std::string firstIpv4ForInterface(const std::string& interfaceName) {
@@ -1094,6 +1403,8 @@ void SystemMonitorService::processIncomingMessages(std::int64_t nowMs) {
                 handleDiagRequest(message.payload, nowMs);
             } else if (message.type == MqttIncomingType::ConfigPullRequest) {
                 handleConfigPullRequest(message.payload, nowMs);
+            } else if (message.type == MqttIncomingType::ConfigApplyRequest) {
+                handleConfigApplyRequest(message.payload, nowMs);
             }
         } catch (const std::exception& ex) {
             publishStatusEvent("request-failed", nowMs, std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
@@ -1253,6 +1564,36 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
     );
 }
 
+void SystemMonitorService::handleConfigApplyRequest(const std::string& payload, std::int64_t nowMs) {
+    std::string requestId = extractJsonStringField(payload, "requestId");
+    if (requestId.empty()) {
+        requestId = "CFG_APPLY_" + std::to_string(nowMs);
+    }
+
+    try {
+        const auto reply = buildConfigApplyReply(payload, nowMs);
+        publishConfigApplyReply(reply);
+        publishStatusEvent(
+            "config-apply-replied",
+            nowMs,
+            std::string(R"("requestId":")") + escapeJson(requestId) + R"(")"
+        );
+    } catch (const std::exception& ex) {
+        std::ostringstream reply;
+        reply << "{\"requestId\":\"" << escapeJson(requestId)
+              << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+              << "\",\"success\":false"
+              << ",\"dryRun\":true"
+              << ",\"appliedFiles\":0"
+              << ",\"changedFiles\":0"
+              << ",\"message\":\"" << escapeJson(ex.what()) << "\""
+              << ",\"files\":[]"
+              << ",\"ts\":" << nowMs << "}";
+        publishConfigApplyReply(reply.str());
+        throw;
+    }
+}
+
 std::string SystemMonitorService::buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const {
     std::ostringstream reply;
     reply << "{\"requestId\":\"" << escapeJson(requestId)
@@ -1306,6 +1647,85 @@ std::string SystemMonitorService::buildConfigPullReply(const std::string& reques
     if (reply.tellp() > static_cast<std::streampos>(kMaxConfigPullReplyBytes)) {
         throw std::runtime_error("config pull reply is too large");
     }
+    return reply.str();
+}
+
+std::string SystemMonitorService::buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const {
+    FlatJsonReader json(payload);
+    std::string requestId;
+    std::string machineCode;
+    bool dryRun = true;
+    bool restartServices = false;
+    json.tryGetString("requestId", &requestId);
+    json.tryGetString("machineCode", &machineCode);
+    json.tryGetBool("dryRun", &dryRun);
+    json.tryGetBool("restartServices", &restartServices);
+    if (machineCode.empty()) {
+        throw std::runtime_error("machineCode is required");
+    }
+    if (machineCode != machineCode_) {
+        throw std::runtime_error("machineCode mismatch");
+    }
+    if (requestId.empty()) {
+        requestId = "CFG_APPLY_" + std::to_string(nowMs);
+    }
+
+    const auto files = parseConfigApplyFiles(payload);
+    bool allSuccess = true;
+    int changedFiles = 0;
+    int appliedFiles = 0;
+    std::ostringstream results;
+    results << "[";
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto& file = files[i];
+        bool success = true;
+        bool changed = false;
+        std::string message = "ok";
+        try {
+            if (!isAllowedConfigPath(configFiles_, file.path)) {
+                throw std::runtime_error("path is not allowed");
+            }
+            validateConfigContentForPath(file.path, file.content);
+            const auto current = readFileText(file.path);
+            changed = current != file.content;
+            if (changed) {
+                ++changedFiles;
+            }
+            if (!dryRun && changed) {
+                backupFileIfExists(file.path);
+                writeTextFileAtomically(file.path, file.content);
+                ++appliedFiles;
+            }
+        } catch (const std::exception& ex) {
+            success = false;
+            allSuccess = false;
+            message = ex.what();
+        }
+        if (i > 0) {
+            results << ",";
+        }
+        results << "{\"path\":\"" << escapeJson(file.path)
+                << "\",\"success\":" << (success ? "true" : "false")
+                << ",\"changed\":" << (changed ? "true" : "false")
+                << ",\"message\":\"" << escapeJson(message) << "\"}";
+    }
+    results << "]";
+
+    if (!dryRun && restartServices && allSuccess && changedFiles > 0) {
+        restartGatewayServicesLater();
+    }
+
+    std::ostringstream reply;
+    reply << "{\"requestId\":\"" << escapeJson(requestId)
+          << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+          << "\",\"success\":" << (allSuccess ? "true" : "false")
+          << ",\"dryRun\":" << (dryRun ? "true" : "false")
+          << ",\"appliedFiles\":" << appliedFiles
+          << ",\"changedFiles\":" << changedFiles
+          << ",\"message\":\""
+          << (allSuccess ? (dryRun ? "config apply dry-run passed" : "config apply completed") : "config apply failed")
+          << "\",\"files\":" << results.str()
+          << ",\"ts\":" << nowMs << "}";
     return reply.str();
 }
 
@@ -1630,6 +2050,10 @@ void SystemMonitorService::publishConfigPullReply(const std::string& payload) co
               << "}";
         publisher_->publishJsonMessage(mqttConfig_.configPullReplyTopic, chunk.str());
     }
+}
+
+void SystemMonitorService::publishConfigApplyReply(const std::string& payload) const {
+    publisher_->publishJsonMessage(mqttConfig_.configApplyReplyTopic, payload);
 }
 
 void SystemMonitorService::publishPointSnapshot(std::int64_t nowMs) {

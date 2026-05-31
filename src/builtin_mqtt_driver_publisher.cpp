@@ -261,6 +261,7 @@ std::vector<std::uint8_t> buildSubscribePacket(
     const std::string& systemMonitorTopic,
     const std::string& diagTopic,
     const std::string& configPullTopic,
+    const std::string& configApplyTopic,
     std::uint16_t packetId
 ) {
     std::vector<std::uint8_t> variableHeader;
@@ -289,6 +290,10 @@ std::vector<std::uint8_t> buildSubscribePacket(
     }
     if (!configPullTopic.empty()) {
         appendString(payload, configPullTopic);
+        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+    }
+    if (!configApplyTopic.empty()) {
+        appendString(payload, configApplyTopic);
         payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
     }
 
@@ -1342,6 +1347,8 @@ bool parsePublishPacket(
         message->type = MqttIncomingType::DiagRequest;
     } else if (topic == scopedTopic(config.configPullRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::ConfigPullRequest;
+    } else if (topic == scopedTopic(config.configApplyRequestTopic, config.topicMachineCode)) {
+        message->type = MqttIncomingType::ConfigApplyRequest;
     } else {
         return false;
     }
@@ -1480,7 +1487,8 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
         config_.otaRequestTopic.empty() &&
         config_.systemMonitorRequestTopic.empty() &&
         config_.diagRequestTopic.empty() &&
-        config_.configPullRequestTopic.empty()) {
+        config_.configPullRequestTopic.empty() &&
+        config_.configApplyRequestTopic.empty()) {
         return messages;
     }
 
@@ -1806,6 +1814,7 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
                 scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.configApplyRequestTopic, config_.topicMachineCode),
                 nextPacketId_++
             )
         );

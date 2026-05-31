@@ -1072,6 +1072,8 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.diagReplyTopic = requireString(object, "diagReplyTopic", config.diagReplyTopic);
     config.configPullRequestTopic = requireString(object, "configPullRequestTopic", config.configPullRequestTopic);
     config.configPullReplyTopic = requireString(object, "configPullReplyTopic", config.configPullReplyTopic);
+    config.configApplyRequestTopic = requireString(object, "configApplyRequestTopic", config.configApplyRequestTopic);
+    config.configApplyReplyTopic = requireString(object, "configApplyReplyTopic", config.configApplyReplyTopic);
     config.qos = requireInt(object, "qos", config.qos);
     config.cleanSession = requireBool(object, "cleanSession", config.cleanSession);
     config.keepAliveSec = requireInt(object, "keepAliveSec", config.keepAliveSec);
@@ -1861,6 +1863,8 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.diagReplyTopic = "edge/system/diag/reply";
     config.mqtt.configPullRequestTopic = "edge/config/pull/request";
     config.mqtt.configPullReplyTopic = "edge/config/pull/reply";
+    config.mqtt.configApplyRequestTopic = "edge/config/apply/request";
+    config.mqtt.configApplyReplyTopic = "edge/config/apply/reply";
     config.mqtt.qos = 1;
     config.mqtt.cleanSession = true;
     config.mqtt.keepAliveSec = 60;
