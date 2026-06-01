@@ -544,6 +544,18 @@ std::string requireString(const JsonValue::Object& object, const char* key, cons
     return value->asString();
 }
 
+std::string topicWithSuffix(const std::string& base, const std::string& suffix) {
+    if (base.empty()) {
+        return base;
+    }
+    const std::string targetSuffix = "/" + suffix;
+    if (base.size() >= targetSuffix.size() &&
+        base.compare(base.size() - targetSuffix.size(), targetSuffix.size(), targetSuffix) == 0) {
+        return base;
+    }
+    return base + targetSuffix;
+}
+
 bool requireBool(const JsonValue::Object& object, const char* key, bool defaultValue = false) {
     const auto* value = findValue(object, key);
     if (value == nullptr || value->isNull()) {
@@ -1055,6 +1067,21 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.username = requireString(object, "username", config.username);
     config.password = requireString(object, "password", config.password);
     config.telemetryTopic = requireString(object, "telemetryTopic", config.telemetryTopic);
+    config.realtimeTelemetryTopic = requireString(
+        object,
+        "realtimeTelemetryTopic",
+        topicWithSuffix(config.telemetryTopic, "realtime")
+    );
+    config.fullTelemetryTopic = requireString(
+        object,
+        "fullTelemetryTopic",
+        topicWithSuffix(config.telemetryTopic, "full")
+    );
+    config.realtimeRequestTopic = requireString(
+        object,
+        "realtimeRequestTopic",
+        topicWithSuffix(config.realtimeTelemetryTopic, "request")
+    );
     config.changeEventTopic = requireString(object, "changeEventTopic", config.changeEventTopic);
     config.alarmTopic = requireString(object, "alarmTopic", config.alarmTopic);
     config.statusTopic = requireString(object, "statusTopic", config.statusTopic);
@@ -1420,6 +1447,7 @@ RealtimeConfig parseRealtimeConfig(const JsonValue* value) {
     const auto& object = value->asObject();
     config.enabled = requireBool(object, "enabled", config.enabled);
     config.telemetryTopic = requireString(object, "telemetryTopic", config.telemetryTopic);
+    config.fullTelemetryTopic = requireString(object, "fullTelemetryTopic", config.fullTelemetryTopic);
     config.alarmTopic = requireString(object, "alarmTopic", config.alarmTopic);
     config.statusTopic = requireString(object, "statusTopic", config.statusTopic);
     config.maxLatestPoints = requireSize(object, "maxLatestPoints", config.maxLatestPoints);
@@ -1846,6 +1874,9 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.broker = "tcp://127.0.0.1:1883";
     config.mqtt.clientId = "GW0001";
     config.mqtt.telemetryTopic = "edge/telemetry";
+    config.mqtt.realtimeTelemetryTopic = "edge/telemetry/realtime";
+    config.mqtt.fullTelemetryTopic = "edge/telemetry/full";
+    config.mqtt.realtimeRequestTopic = "edge/telemetry/realtime/request";
     config.mqtt.changeEventTopic = "edge/event/change";
     config.mqtt.alarmTopic = "edge/alarm";
     config.mqtt.statusTopic = "edge/status";
@@ -1876,7 +1907,7 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqttDriver.snapshotBacklogThreshold = 0;
     config.mqttDriver.snapshotBackoffIntervalMs = 0;
     config.mqttDriver.eventReplayMaxBytes = 256 * 1024;
-    config.mqttDriver.publishFullOnStart = true;
+    config.mqttDriver.publishFullOnStart = false;
     config.mqttDriver.publishAllOnFull = true;
     config.mqttDriver.fullUploadJsonFormat = "compactArray";
     config.alarmStore.enabled = false;
@@ -1918,7 +1949,8 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.ota.storage.minio.bucket = "edge-ota";
     config.ota.storage.minio.basePath = "packages";
     config.realtime.enabled = true;
-    config.realtime.telemetryTopic = "edge/telemetry";
+    config.realtime.telemetryTopic = "edge/telemetry/realtime";
+    config.realtime.fullTelemetryTopic = "edge/telemetry/full";
     config.realtime.alarmTopic = "edge/alarm";
     config.realtime.statusTopic = "edge/status";
     config.realtime.maxLatestPoints = 100000;

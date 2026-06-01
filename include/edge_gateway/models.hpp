@@ -232,6 +232,7 @@ struct OtaStatus {
 enum class MqttIncomingType {
     CommandRequest,
     OtaRequest,
+    RealtimeRequest,
     SystemMonitorRequest,
     DiagRequest,
     ConfigPullRequest,
@@ -393,6 +394,9 @@ struct MqttConfig {
     std::string username;
     std::string password;
     std::string telemetryTopic = "edge/telemetry";
+    std::string realtimeTelemetryTopic = "edge/telemetry/realtime";
+    std::string fullTelemetryTopic = "edge/telemetry/full";
+    std::string realtimeRequestTopic = "edge/telemetry/realtime/request";
     std::string changeEventTopic = "edge/event/change";
     std::string alarmTopic = "edge/alarm";
     std::string statusTopic = "edge/status";
@@ -453,7 +457,7 @@ struct MqttDriverConfig {
     std::size_t snapshotBacklogThreshold = 0;
     int snapshotBackoffIntervalMs = 0;
     std::size_t eventReplayMaxBytes = 256 * 1024;
-    bool publishFullOnStart = true;
+    bool publishFullOnStart = false;
     bool publishAllOnFull = true;
     std::string fullUploadJsonFormat = "compactArray";
     std::vector<std::uint32_t> fullUploadIndexes;
@@ -573,7 +577,8 @@ struct OtaConfig {
 
 struct RealtimeConfig {
     bool enabled = false;
-    std::string telemetryTopic = "edge/telemetry";
+    std::string telemetryTopic = "edge/telemetry/realtime";
+    std::string fullTelemetryTopic = "edge/telemetry/full";
     std::string alarmTopic = "edge/alarm";
     std::string statusTopic = "edge/status";
     std::size_t maxLatestPoints = 100000;

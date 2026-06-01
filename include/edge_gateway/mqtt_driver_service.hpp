@@ -65,6 +65,7 @@ private:
     bool shouldDeferSnapshotForEventBacklog(std::int64_t nowMs);
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
+    void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
     void startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs);
     void publishStatusEvent(
         const std::string& event,
@@ -74,6 +75,16 @@ private:
     void scanLoop();
     void replayLoop();
     std::vector<StoredPointValue> filterValues(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) const;
+    std::vector<StoredPointValue> filterValuesByMeter(
+        const std::string& machineCode,
+        const std::string& meterCode,
+        std::int64_t nowMs
+    ) const;
+    void publishRealtimeValues(
+        std::vector<StoredPointValue> values,
+        std::size_t requestedCount,
+        std::int64_t nowMs
+    );
     void enrichValue(StoredPointValue& value) const;
     std::vector<StoredPointValue> enrichValues(std::vector<StoredPointValue> values) const;
     std::string primaryMachineCode() const;

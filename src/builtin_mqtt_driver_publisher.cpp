@@ -258,6 +258,7 @@ std::vector<std::uint8_t> buildSubscribePacket(
     const MqttConfig& config,
     const std::string& commandTopic,
     const std::string& otaTopic,
+    const std::string& realtimeRequestTopic,
     const std::string& systemMonitorTopic,
     const std::string& diagTopic,
     const std::string& configPullTopic,
@@ -278,6 +279,10 @@ std::vector<std::uint8_t> buildSubscribePacket(
     }
     if (!otaTopic.empty()) {
         appendString(payload, otaTopic);
+        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+    }
+    if (!realtimeRequestTopic.empty()) {
+        appendString(payload, realtimeRequestTopic);
         payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
     }
     if (!systemMonitorTopic.empty()) {
@@ -1341,6 +1346,8 @@ bool parsePublishPacket(
         message->type = MqttIncomingType::CommandRequest;
     } else if (topic == scopedTopic(config.otaRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::OtaRequest;
+    } else if (topic == scopedTopic(config.realtimeRequestTopic, config.topicMachineCode)) {
+        message->type = MqttIncomingType::RealtimeRequest;
     } else if (topic == scopedTopic(config.systemMonitorRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::SystemMonitorRequest;
     } else if (topic == scopedTopic(config.diagRequestTopic, config.topicMachineCode)) {
@@ -1485,6 +1492,7 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
     std::vector<MqttIncomingMessage> messages;
     if (config_.commandRequestTopic.empty() &&
         config_.otaRequestTopic.empty() &&
+        config_.realtimeRequestTopic.empty() &&
         config_.systemMonitorRequestTopic.empty() &&
         config_.diagRequestTopic.empty() &&
         config_.configPullRequestTopic.empty() &&
@@ -1811,6 +1819,7 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
                 config_,
                 scopedTopic(config_.commandRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.realtimeRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode),

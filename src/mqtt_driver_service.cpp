@@ -225,6 +225,94 @@ OtaRequest parseOtaRequest(const std::string& payload) {
     return request;
 }
 
+struct RealtimeSnapshotRequest {
+    std::string machineCode;
+    std::string meterCode;
+    std::vector<std::uint32_t> indexes;
+};
+
+std::size_t skipJsonWhitespace(const std::string& text, std::size_t pos) {
+    while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])) != 0) {
+        ++pos;
+    }
+    return pos;
+}
+
+std::size_t findJsonValueStart(const std::string& text, const char* key) {
+    const std::string needle = std::string("\"") + key + "\"";
+    auto keyPos = text.find(needle);
+    if (keyPos == std::string::npos) {
+        return std::string::npos;
+    }
+    keyPos += needle.size();
+    keyPos = skipJsonWhitespace(text, keyPos);
+    if (keyPos >= text.size() || text[keyPos] != ':') {
+        return std::string::npos;
+    }
+    return skipJsonWhitespace(text, keyPos + 1);
+}
+
+std::vector<std::uint32_t> parseUInt32ArrayField(const std::string& text, const char* key) {
+    std::vector<std::uint32_t> values;
+    auto cursor = findJsonValueStart(text, key);
+    if (cursor == std::string::npos || cursor >= text.size() || text[cursor] != '[') {
+        return values;
+    }
+    ++cursor;
+    while (cursor < text.size()) {
+        cursor = skipJsonWhitespace(text, cursor);
+        if (cursor >= text.size() || text[cursor] == ']') {
+            break;
+        }
+        const bool quoted = text[cursor] == '"';
+        if (quoted) {
+            ++cursor;
+        }
+        const auto begin = cursor;
+        while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
+            ++cursor;
+        }
+        if (begin != cursor) {
+            const auto parsed = std::strtoul(text.c_str() + begin, nullptr, 10);
+            if (parsed > 0 && parsed <= 0xFFFFFFFFUL) {
+                values.push_back(static_cast<std::uint32_t>(parsed));
+            }
+        }
+        if (quoted && cursor < text.size() && text[cursor] == '"') {
+            ++cursor;
+        }
+        cursor = skipJsonWhitespace(text, cursor);
+        if (cursor < text.size() && text[cursor] == ',') {
+            ++cursor;
+            continue;
+        }
+        if (cursor < text.size() && text[cursor] == ']') {
+            break;
+        }
+        break;
+    }
+    return values;
+}
+
+RealtimeSnapshotRequest parseRealtimeSnapshotRequest(const std::string& payload) {
+    FlatJsonReader json(payload);
+    RealtimeSnapshotRequest request;
+    json.tryGetString("machineCode", &request.machineCode);
+    json.tryGetString("meterCode", &request.meterCode);
+
+    std::uint32_t index = 0;
+    if (json.tryGetUInt32("index", &index) && index != 0) {
+        request.indexes.push_back(index);
+    }
+    auto indexes = parseUInt32ArrayField(payload, "indexes");
+    request.indexes.insert(request.indexes.end(), indexes.begin(), indexes.end());
+    indexes = parseUInt32ArrayField(payload, "indices");
+    request.indexes.insert(request.indexes.end(), indexes.begin(), indexes.end());
+    std::sort(request.indexes.begin(), request.indexes.end());
+    request.indexes.erase(std::unique(request.indexes.begin(), request.indexes.end()), request.indexes.end());
+    return request;
+}
+
 std::vector<PointDefinition> effectiveMeterPoints(const DeviceConfig& config, const LogicalDeviceConfig& device) {
     if (!device.points.empty()) {
         return device.points;
@@ -432,10 +520,13 @@ void MqttDriverService::runScanOnce(std::int64_t nowMs) {
 
     processIncomingMessages(nowMs);
 
-    if (driverConfig_.publishFullOnStart && lastFullUploadMs_ == 0) {
-        publishFullSnapshotNow(nowMs);
-    } else if (driverConfig_.fullUploadIntervalMs > 0 &&
-               (lastFullUploadMs_ == 0 || nowMs - lastFullUploadMs_ >= driverConfig_.fullUploadIntervalMs)) {
+    if (lastFullUploadMs_ == 0) {
+        lastFullUploadMs_ = nowMs;
+        return;
+    }
+
+    if (driverConfig_.fullUploadIntervalMs > 0 &&
+        nowMs - lastFullUploadMs_ >= driverConfig_.fullUploadIntervalMs) {
         if (shouldDeferSnapshotForEventBacklog(nowMs)) {
             return;
         }
@@ -550,6 +641,8 @@ void MqttDriverService::processIncomingMessages(std::int64_t nowMs) {
                 handleCommandRequest(message.payload, nowMs);
             } else if (message.type == MqttIncomingType::OtaRequest) {
                 handleOtaRequest(message.payload, nowMs);
+            } else if (message.type == MqttIncomingType::RealtimeRequest) {
+                handleRealtimeRequest(message.payload, nowMs);
             }
         } catch (const std::exception& ex) {
             (void)ex;
@@ -564,7 +657,10 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
     } else {
         values = filterValues(driverConfig_.fullUploadIndexes, nowMs);
     }
-    publisher_->publishFullSnapshot(mqttConfig_.telemetryTopic, values, driverConfig_.fullUploadJsonFormat);
+    const auto& topic = mqttConfig_.fullTelemetryTopic.empty()
+        ? mqttConfig_.telemetryTopic
+        : mqttConfig_.fullTelemetryTopic;
+    publisher_->publishFullSnapshot(topic, values, driverConfig_.fullUploadJsonFormat);
     const auto finishedMs = currentTimeMs();
     publishStatusEvent(
         "full-snapshot",
@@ -577,11 +673,22 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
 
 void MqttDriverService::publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) {
     const auto values = indexes.empty() ? enrichValues(router_.getAllLatest(nowMs)) : filterValues(indexes, nowMs);
-    publisher_->publishOnDemand(mqttConfig_.telemetryTopic, values, driverConfig_.fullUploadJsonFormat);
+    publishRealtimeValues(values, indexes.size(), nowMs);
+}
+
+void MqttDriverService::publishRealtimeValues(
+    std::vector<StoredPointValue> values,
+    std::size_t requestedCount,
+    std::int64_t nowMs
+) {
+    const auto& topic = mqttConfig_.realtimeTelemetryTopic.empty()
+        ? mqttConfig_.telemetryTopic
+        : mqttConfig_.realtimeTelemetryTopic;
+    publisher_->publishOnDemand(topic, values, driverConfig_.fullUploadJsonFormat);
     publishStatusEvent(
         "on-demand",
         nowMs,
-        std::string(R"("requestedCount":)") + std::to_string(indexes.size()) +
+        std::string(R"("requestedCount":)") + std::to_string(requestedCount) +
             R"(,"publishedCount":)" + std::to_string(values.size())
     );
 }
@@ -785,6 +892,44 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
     }
 }
 
+void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::int64_t nowMs) {
+    const auto request = parseRealtimeSnapshotRequest(payload);
+    const auto primaryMachine = primaryMachineCode();
+    const auto machineCode = request.machineCode.empty() ? primaryMachine : request.machineCode;
+    if (machineCode.empty()) {
+        throw std::invalid_argument("machineCode is required");
+    }
+    if (!primaryMachine.empty() && machineCode != primaryMachine) {
+        throw std::invalid_argument("machineCode mismatch");
+    }
+    bool hasKnownMachine = false;
+    bool knownMachine = false;
+    for (const auto& code : machineCodes_) {
+        if (code.empty()) {
+            continue;
+        }
+        hasKnownMachine = true;
+        if (code == machineCode) {
+            knownMachine = true;
+            break;
+        }
+    }
+    if (hasKnownMachine && !knownMachine) {
+        throw std::invalid_argument("machineCode mismatch");
+    }
+
+    if (!request.indexes.empty()) {
+        publishOnDemandNow(request.indexes, nowMs);
+        return;
+    }
+    if (!request.meterCode.empty()) {
+        auto values = filterValuesByMeter(machineCode, request.meterCode, nowMs);
+        publishRealtimeValues(std::move(values), 0, nowMs);
+        return;
+    }
+    publishOnDemandNow({}, nowMs);
+}
+
 void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs) {
     std::lock_guard<std::mutex> lock(otaMutex_);
     if (otaThread_.joinable()) {
@@ -892,6 +1037,14 @@ std::vector<StoredPointValue> MqttDriverService::filterValues(
     std::int64_t nowMs
 ) const {
     return enrichValues(router_.getLatestByIndexes(indexes, nowMs));
+}
+
+std::vector<StoredPointValue> MqttDriverService::filterValuesByMeter(
+    const std::string& machineCode,
+    const std::string& meterCode,
+    std::int64_t nowMs
+) const {
+    return enrichValues(router_.getLatestByMeter(machineCode, meterCode, nowMs));
 }
 
 void MqttDriverService::enrichValue(StoredPointValue& value) const {
