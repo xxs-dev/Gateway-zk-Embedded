@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/direct_agent_embedded.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -29,6 +30,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -553,6 +555,59 @@ std::string realtimePointsJson(const DirectAgentConfig& config) {
     return out.str();
 }
 
+std::string fullTelemetryJson(const DirectAgentConfig& config) {
+    auto context = createRealtimeContext(config);
+    auto machineCode = context->appConfig.mqtt.clientId;
+    try {
+        const auto identity = loadIdentity(config.identityConfigFile);
+        if (!identity.machineCode.empty()) {
+            machineCode = identity.machineCode;
+        }
+    } catch (const std::exception&) {
+    }
+    const auto ts = nowMs();
+    const auto values = context->router.getAllLatest(ts);
+    const auto limit = config.maxRealtimePoints <= 0
+        ? values.size()
+        : std::min(values.size(), static_cast<std::size_t>(config.maxRealtimePoints));
+
+    std::ostringstream points;
+    points << "[";
+    for (std::size_t i = 0; i < limit; ++i) {
+        const auto& item = values[i];
+        if (i > 0) {
+            points << ",";
+        }
+        points << "{\"index\":" << item.index
+               << ",\"machineCode\":\"" << jsonEscape(item.machineCode)
+               << "\",\"meterCode\":\"" << jsonEscape(item.meterCode)
+               << "\",\"pointCode\":\"" << jsonEscape(item.pointCode)
+               << "\",\"value\":" << item.value
+               << ",\"quality\":" << item.quality
+               << ",\"ts\":" << item.ts
+               << ",\"stale\":" << (item.stale ? "true" : "false")
+               << "}";
+    }
+    points << "]";
+
+    const auto pointsJson = points.str();
+    std::ostringstream raw;
+    raw << "{\"type\":\"telemetry/snapshot\",\"machineCode\":\"" << jsonEscape(machineCode)
+        << "\",\"ts\":" << ts
+        << ",\"count\":" << limit
+        << ",\"points\":" << pointsJson
+        << "}";
+
+    std::ostringstream out;
+    out << "{\"ts\":" << ts
+        << ",\"count\":" << limit
+        << ",\"topic\":\"direct:/api/v1/telemetry/full\""
+        << ",\"rawPayload\":\"" << jsonEscape(raw.str()) << "\""
+        << ",\"points\":" << pointsJson
+        << "}";
+    return out.str();
+}
+
 edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
     edge_gateway::OtaRequest request;
     request.jobId = jsonString(body, "jobId", "DIRECT_OTA_" + std::to_string(nowMs()));
@@ -713,9 +768,9 @@ void writeTextFileAtomically(const std::string& path, const std::string& content
     }
 }
 
-void backupFileIfExists(const std::string& path) {
+std::string backupFileIfExistsWithPath(const std::string& path) {
     if (!isRegularFile(path)) {
-        return;
+        return std::string();
     }
     const auto backupPath = path + ".bak." + std::to_string(nowMs());
     std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
@@ -727,6 +782,37 @@ void backupFileIfExists(const std::string& path) {
     if (!output) {
         throw std::runtime_error("failed to write backup for: " + path);
     }
+    return backupPath;
+}
+
+void backupFileIfExists(const std::string& path) {
+    (void)backupFileIfExistsWithPath(path);
+}
+
+std::string latestBackupPathFor(const std::string& path) {
+    const auto dir = dirnameOf(path);
+    const auto base = baseNameOf(path);
+    const auto prefix = base + ".bak.";
+    std::string bestName;
+#ifndef _WIN32
+    DIR* handle = ::opendir(dir.c_str());
+    if (handle == nullptr) {
+        return std::string();
+    }
+    while (auto* entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (startsWith(name, prefix) && (bestName.empty() || name > bestName)) {
+            bestName = name;
+        }
+    }
+    ::closedir(handle);
+#else
+    (void)prefix;
+#endif
+    if (bestName.empty()) {
+        return std::string();
+    }
+    return dir == "." ? bestName : dir + "/" + bestName;
 }
 
 bool isAllowedConfigPath(const DirectAgentConfig& config, const std::string& path) {
@@ -1227,6 +1313,94 @@ std::string configApplyJson(const DirectAgentConfig& config, const std::string& 
     return out.str();
 }
 
+std::string configFileOperationJson(const DirectAgentConfig& config, const std::string& body, const std::string& operation) {
+    const auto now = nowMs();
+    const auto requestId = jsonString(body, "requestId", "CFG_" + operation + "_" + std::to_string(now));
+    const auto requestedMachineCode = trim(jsonString(body, "machineCode"));
+    const auto path = trim(jsonString(body, "path"));
+    const auto dryRun = jsonBool(body, "dryRun", true);
+    const auto restartServices = jsonBool(body, "restartServices", false);
+    const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
+    const auto identity = loadIdentity(config.identityConfigFile);
+    const auto machineCode = identity.machineCode.empty() ? appConfig.mqtt.clientId : identity.machineCode;
+    if (!requestedMachineCode.empty() &&
+        !machineCode.empty() &&
+        requestedMachineCode != machineCode) {
+        throw std::runtime_error("machineCode mismatch");
+    }
+    if (!isAllowedConfigPath(config, path)) {
+        throw std::runtime_error("path is not allowed");
+    }
+
+    bool changed = false;
+    std::string backupPath;
+    std::string message;
+    if (operation == "delete") {
+        changed = isRegularFile(path);
+        if (!dryRun && changed) {
+            backupPath = backupFileIfExistsWithPath(path);
+            if (std::remove(path.c_str()) != 0) {
+                throw std::runtime_error("failed to delete file: " + path);
+            }
+        }
+        message = dryRun
+            ? (changed ? "config delete dry-run passed" : "config file already missing")
+            : (changed ? "config file deleted" : "config file already missing");
+    } else if (operation == "restore") {
+        const auto restorePath = latestBackupPathFor(path);
+        if (restorePath.empty() || !isRegularFile(restorePath)) {
+            throw std::runtime_error("backup file not found for: " + path);
+        }
+        const auto content = readRequiredFile(restorePath);
+        validateConfigContentForPath(config, path, content);
+        changed = true;
+        if (!dryRun) {
+            backupPath = backupFileIfExistsWithPath(path);
+            writeTextFileAtomically(path, content);
+        }
+        message = dryRun ? "config restore dry-run passed" : "config backup restored from " + restorePath;
+    } else {
+        throw std::runtime_error("unsupported config operation");
+    }
+
+    if (!dryRun && restartServices && changed) {
+        restartGatewayServicesLater();
+    }
+
+    std::ostringstream out;
+    out << "{\"requestId\":\"" << jsonEscape(requestId)
+        << "\",\"machineCode\":\"" << jsonEscape(machineCode)
+        << "\",\"success\":true"
+        << ",\"dryRun\":" << (dryRun ? "true" : "false")
+        << ",\"operation\":\"" << jsonEscape(operation)
+        << "\",\"path\":\"" << jsonEscape(path)
+        << "\",\"changed\":" << (changed ? "true" : "false")
+        << ",\"message\":\"" << jsonEscape(message)
+        << "\",\"backupPath\":\"" << jsonEscape(backupPath)
+        << "\",\"ts\":" << now << "}";
+    return out.str();
+}
+
+std::string configFileOperationResponse(
+    const DirectAgentConfig& config,
+    const std::string& body,
+    const std::string& operation
+) {
+    if (!maintenancePasswordAccepted(config, body)) {
+        return response(
+            401,
+            "Unauthorized",
+            "{\"success\":false,\"message\":\"invalid maintenance password\"}"
+        );
+    }
+
+    try {
+        return response(200, "OK", configFileOperationJson(config, body, operation));
+    } catch (const std::exception& ex) {
+        return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+    }
+}
+
 std::string configSnapshotJson(const DirectAgentConfig& config, const std::string& body) {
     const auto now = nowMs();
     const auto requestId = jsonString(body, "requestId", "DIRECT_CFG_PULL_" + std::to_string(now));
@@ -1460,9 +1634,22 @@ std::string handleRequest(
             return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
         }
     }
+    if (method == "POST" && path == "/api/v1/config/delete") {
+        return configFileOperationResponse(config, body, "delete");
+    }
+    if (method == "POST" && path == "/api/v1/config/restore") {
+        return configFileOperationResponse(config, body, "restore");
+    }
     if (method == "GET" && path == "/api/v1/realtime/points") {
         try {
             return response(200, "OK", realtimePointsJson(config));
+        } catch (const std::exception& ex) {
+            return response(503, "Service Unavailable", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+        }
+    }
+    if (method == "GET" && path == "/api/v1/telemetry/full") {
+        try {
+            return response(200, "OK", fullTelemetryJson(config));
         } catch (const std::exception& ex) {
             return response(503, "Service Unavailable", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
         }
@@ -1636,6 +1823,23 @@ int runServer(const DirectAgentConfig& config) {
               << config.listenPort << std::endl;
 
     while (g_running) {
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(server, &readSet);
+        timeval timeout{};
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 500000;
+        const int ready = ::select(server + 1, &readSet, nullptr, nullptr, &timeout);
+        if (ready < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+        if (ready == 0) {
+            continue;
+        }
+
         sockaddr_in clientAddr{};
         socklen_t clientLen = sizeof(clientAddr);
         const int client = ::accept(server, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
@@ -1679,6 +1883,32 @@ void printUsage() {
 
 }  // namespace
 
+namespace edge_gateway {
+namespace direct_agent {
+
+void requestStop() {
+    g_running = false;
+}
+
+int runFromConfigFile(const std::string& configPath) {
+    try {
+        const auto config = loadConfig(configPath);
+        if (!config.enabled) {
+            std::cerr << "embedded DirectAgent is disabled by config: " << configPath << std::endl;
+            return 3;
+        }
+        g_running = true;
+        return runServer(config);
+    } catch (const std::exception& ex) {
+        std::cerr << "embedded DirectAgent failed: " << ex.what() << std::endl;
+        return 1;
+    }
+}
+
+}  // namespace direct_agent
+}  // namespace edge_gateway
+
+#ifndef EDGE_GATEWAY_DIRECT_AGENT_EMBEDDED
 int main(int argc, char* argv[]) {
     std::string configPath = "/opt/modbus-gateway/config/runtime/apps/direct-agent.json";
     bool checkOnly = false;
@@ -1712,9 +1942,10 @@ int main(int argc, char* argv[]) {
         }
         std::signal(SIGINT, handleSignal);
         std::signal(SIGTERM, handleSignal);
-        return runServer(config);
+        return edge_gateway::direct_agent::runFromConfigFile(configPath);
     } catch (const std::exception& ex) {
         std::cerr << "DirectAgent failed: " << ex.what() << std::endl;
         return 1;
     }
 }
+#endif

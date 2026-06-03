@@ -80,8 +80,9 @@ add_executable(ComputeEngine compute_engine_main.cpp)
 target_link_libraries(ComputeEngine PRIVATE edge_gateway)
 target_compile_options(ComputeEngine PRIVATE -fdiagnostics-color=never)
 
-add_executable(SystemMonitor system_monitor_main.cpp)
+add_executable(SystemMonitor system_monitor_main.cpp direct_agent_main.cpp)
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)
+target_compile_definitions(SystemMonitor PRIVATE EDGE_GATEWAY_DIRECT_AGENT_EMBEDDED)
 target_compile_options(SystemMonitor PRIVATE -fdiagnostics-color=never)
 
 add_executable(DirectAgent direct_agent_main.cpp)

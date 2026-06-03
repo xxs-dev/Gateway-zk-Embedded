@@ -236,7 +236,9 @@ enum class MqttIncomingType {
     SystemMonitorRequest,
     DiagRequest,
     ConfigPullRequest,
-    ConfigApplyRequest
+    ConfigApplyRequest,
+    ConfigDeleteRequest,
+    ConfigRestoreRequest
 };
 
 struct MqttIncomingMessage {
@@ -416,6 +418,10 @@ struct MqttConfig {
     std::string configPullReplyTopic = "edge/config/pull/reply";
     std::string configApplyRequestTopic = "edge/config/apply/request";
     std::string configApplyReplyTopic = "edge/config/apply/reply";
+    std::string configDeleteRequestTopic = "edge/config/delete/request";
+    std::string configDeleteReplyTopic = "edge/config/delete/reply";
+    std::string configRestoreRequestTopic = "edge/config/restore/request";
+    std::string configRestoreReplyTopic = "edge/config/restore/reply";
     int qos = 1;
     bool cleanSession = true;
     int keepAliveSec = 60;

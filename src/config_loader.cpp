@@ -1101,6 +1101,10 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.configPullReplyTopic = requireString(object, "configPullReplyTopic", config.configPullReplyTopic);
     config.configApplyRequestTopic = requireString(object, "configApplyRequestTopic", config.configApplyRequestTopic);
     config.configApplyReplyTopic = requireString(object, "configApplyReplyTopic", config.configApplyReplyTopic);
+    config.configDeleteRequestTopic = requireString(object, "configDeleteRequestTopic", config.configDeleteRequestTopic);
+    config.configDeleteReplyTopic = requireString(object, "configDeleteReplyTopic", config.configDeleteReplyTopic);
+    config.configRestoreRequestTopic = requireString(object, "configRestoreRequestTopic", config.configRestoreRequestTopic);
+    config.configRestoreReplyTopic = requireString(object, "configRestoreReplyTopic", config.configRestoreReplyTopic);
     config.qos = requireInt(object, "qos", config.qos);
     config.cleanSession = requireBool(object, "cleanSession", config.cleanSession);
     config.keepAliveSec = requireInt(object, "keepAliveSec", config.keepAliveSec);
@@ -1896,6 +1900,10 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.configPullReplyTopic = "edge/config/pull/reply";
     config.mqtt.configApplyRequestTopic = "edge/config/apply/request";
     config.mqtt.configApplyReplyTopic = "edge/config/apply/reply";
+    config.mqtt.configDeleteRequestTopic = "edge/config/delete/request";
+    config.mqtt.configDeleteReplyTopic = "edge/config/delete/reply";
+    config.mqtt.configRestoreRequestTopic = "edge/config/restore/request";
+    config.mqtt.configRestoreReplyTopic = "edge/config/restore/reply";
     config.mqtt.qos = 1;
     config.mqtt.cleanSession = true;
     config.mqtt.keepAliveSec = 60;

@@ -867,9 +867,9 @@ void validateConfigContentForPath(const std::string& path, const std::string& co
     std::remove(tempPath.c_str());
 }
 
-void backupFileIfExists(const std::string& path) {
+std::string backupFileIfExistsWithPath(const std::string& path) {
     if (!isRegularFile(path)) {
-        return;
+        return std::string();
     }
     const auto backupPath = path + ".bak." + std::to_string(currentTimeMs());
     std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
@@ -881,6 +881,33 @@ void backupFileIfExists(const std::string& path) {
     if (!output) {
         throw std::runtime_error("failed to write backup for: " + path);
     }
+    return backupPath;
+}
+
+void backupFileIfExists(const std::string& path) {
+    (void)backupFileIfExistsWithPath(path);
+}
+
+std::string latestBackupPathFor(const std::string& path) {
+    const auto dir = dirName(path);
+    const auto prefix = baseName(path) + ".bak.";
+    DIR* handle = opendir(dir.c_str());
+    if (handle == nullptr) {
+        return std::string();
+    }
+
+    std::string bestName;
+    while (auto* entry = readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (startsWith(name, prefix) && (bestName.empty() || name > bestName)) {
+            bestName = name;
+        }
+    }
+    closedir(handle);
+    if (bestName.empty()) {
+        return std::string();
+    }
+    return dir == "." ? bestName : dir + "/" + bestName;
 }
 
 void restartGatewayServicesLater() {
@@ -1405,6 +1432,10 @@ void SystemMonitorService::processIncomingMessages(std::int64_t nowMs) {
                 handleConfigPullRequest(message.payload, nowMs);
             } else if (message.type == MqttIncomingType::ConfigApplyRequest) {
                 handleConfigApplyRequest(message.payload, nowMs);
+            } else if (message.type == MqttIncomingType::ConfigDeleteRequest) {
+                handleConfigFileOperationRequest(message.payload, nowMs, "delete");
+            } else if (message.type == MqttIncomingType::ConfigRestoreRequest) {
+                handleConfigFileOperationRequest(message.payload, nowMs, "restore");
             }
         } catch (const std::exception& ex) {
             publishStatusEvent("request-failed", nowMs, std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
@@ -1594,6 +1625,41 @@ void SystemMonitorService::handleConfigApplyRequest(const std::string& payload, 
     }
 }
 
+void SystemMonitorService::handleConfigFileOperationRequest(
+    const std::string& payload,
+    std::int64_t nowMs,
+    const std::string& operation
+) {
+    std::string requestId = extractJsonStringField(payload, "requestId");
+    if (requestId.empty()) {
+        requestId = "CFG_" + operation + "_" + std::to_string(nowMs);
+    }
+
+    try {
+        const auto reply = buildConfigFileOperationReply(payload, nowMs, operation);
+        publishConfigFileOperationReply(reply, operation);
+        publishStatusEvent(
+            "config-" + operation + "-replied",
+            nowMs,
+            std::string(R"("requestId":")") + escapeJson(requestId) + R"(")"
+        );
+    } catch (const std::exception& ex) {
+        std::ostringstream reply;
+        reply << "{\"requestId\":\"" << escapeJson(requestId)
+              << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+              << "\",\"success\":false"
+              << ",\"dryRun\":true"
+              << ",\"operation\":\"" << escapeJson(operation)
+              << "\",\"path\":\"" << escapeJson(extractJsonStringField(payload, "path"))
+              << "\",\"changed\":false"
+              << ",\"message\":\"" << escapeJson(ex.what())
+              << "\",\"backupPath\":\"\""
+              << ",\"ts\":" << nowMs << "}";
+        publishConfigFileOperationReply(reply.str(), operation);
+        throw;
+    }
+}
+
 std::string SystemMonitorService::buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const {
     std::ostringstream reply;
     reply << "{\"requestId\":\"" << escapeJson(requestId)
@@ -1726,6 +1792,84 @@ std::string SystemMonitorService::buildConfigApplyReply(const std::string& paylo
           << (allSuccess ? (dryRun ? "config apply dry-run passed" : "config apply completed") : "config apply failed")
           << "\",\"files\":" << results.str()
           << ",\"ts\":" << nowMs << "}";
+    return reply.str();
+}
+
+std::string SystemMonitorService::buildConfigFileOperationReply(
+    const std::string& payload,
+    std::int64_t nowMs,
+    const std::string& operation
+) const {
+    FlatJsonReader json(payload);
+    std::string requestId;
+    std::string machineCode;
+    std::string path;
+    bool dryRun = true;
+    bool restartServices = false;
+    json.tryGetString("requestId", &requestId);
+    json.tryGetString("machineCode", &machineCode);
+    json.tryGetString("path", &path);
+    json.tryGetBool("dryRun", &dryRun);
+    json.tryGetBool("restartServices", &restartServices);
+    if (machineCode.empty()) {
+        throw std::runtime_error("machineCode is required");
+    }
+    if (machineCode != machineCode_) {
+        throw std::runtime_error("machineCode mismatch");
+    }
+    if (requestId.empty()) {
+        requestId = "CFG_" + operation + "_" + std::to_string(nowMs);
+    }
+    if (!isAllowedConfigPath(configFiles_, path)) {
+        throw std::runtime_error("path is not allowed");
+    }
+
+    bool changed = false;
+    std::string backupPath;
+    std::string message;
+    if (operation == "delete") {
+        changed = isRegularFile(path);
+        if (!dryRun && changed) {
+            backupPath = backupFileIfExistsWithPath(path);
+            if (std::remove(path.c_str()) != 0) {
+                throw std::runtime_error("failed to delete file: " + path);
+            }
+        }
+        message = dryRun
+            ? (changed ? "config delete dry-run passed" : "config file already missing")
+            : (changed ? "config file deleted" : "config file already missing");
+    } else if (operation == "restore") {
+        const auto restorePath = latestBackupPathFor(path);
+        if (restorePath.empty() || !isRegularFile(restorePath)) {
+            throw std::runtime_error("backup file not found for: " + path);
+        }
+        const auto content = readFileText(restorePath);
+        validateConfigContentForPath(path, content);
+        changed = true;
+        if (!dryRun) {
+            backupPath = backupFileIfExistsWithPath(path);
+            writeTextFileAtomically(path, content);
+        }
+        message = dryRun ? "config restore dry-run passed" : "config backup restored from " + restorePath;
+    } else {
+        throw std::runtime_error("unsupported config operation");
+    }
+
+    if (!dryRun && restartServices && changed) {
+        restartGatewayServicesLater();
+    }
+
+    std::ostringstream reply;
+    reply << "{\"requestId\":\"" << escapeJson(requestId)
+          << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+          << "\",\"success\":true"
+          << ",\"dryRun\":" << (dryRun ? "true" : "false")
+          << ",\"operation\":\"" << escapeJson(operation)
+          << "\",\"path\":\"" << escapeJson(path)
+          << "\",\"changed\":" << (changed ? "true" : "false")
+          << ",\"message\":\"" << escapeJson(message)
+          << "\",\"backupPath\":\"" << escapeJson(backupPath)
+          << "\",\"ts\":" << nowMs << "}";
     return reply.str();
 }
 
@@ -2054,6 +2198,17 @@ void SystemMonitorService::publishConfigPullReply(const std::string& payload) co
 
 void SystemMonitorService::publishConfigApplyReply(const std::string& payload) const {
     publisher_->publishJsonMessage(mqttConfig_.configApplyReplyTopic, payload);
+}
+
+void SystemMonitorService::publishConfigFileOperationReply(
+    const std::string& payload,
+    const std::string& operation
+) const {
+    if (operation == "restore") {
+        publisher_->publishJsonMessage(mqttConfig_.configRestoreReplyTopic, payload);
+    } else {
+        publisher_->publishJsonMessage(mqttConfig_.configDeleteReplyTopic, payload);
+    }
 }
 
 void SystemMonitorService::publishPointSnapshot(std::int64_t nowMs) {

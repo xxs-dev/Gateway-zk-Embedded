@@ -14,6 +14,7 @@
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/direct_agent_embedded.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/system_monitor_service.hpp"
@@ -105,14 +106,23 @@ int main(int argc, char* argv[]) {
     using namespace edge_gateway;
 
     std::string appConfigPath = "config/runtime/apps/mqtt-service.json";
+    std::string directAgentConfigPath;
+    bool directAgentDisabled = false;
     bool once = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--app-config" && i + 1 < argc) {
             appConfigPath = argv[++i];
+        } else if (arg == "--direct-agent-config" && i + 1 < argc) {
+            directAgentConfigPath = argv[++i];
+        } else if (arg == "--no-direct-agent") {
+            directAgentDisabled = true;
         } else if (arg == "--once") {
             once = true;
         }
+    }
+    if (directAgentConfigPath.empty()) {
+        directAgentConfigPath = dirnameOf(appConfigPath) + "/direct-agent.json";
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
@@ -191,9 +201,16 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, handleSignal);
 
     service.start();
+    std::thread directAgentThread;
+    if (!directAgentDisabled) {
+        directAgentThread = std::thread([directAgentConfigPath]() {
+            edge_gateway::direct_agent::runFromConfigFile(directAgentConfigPath);
+        });
+    }
     std::cout << "system monitor started"
               << " appConfig=" << appConfigPath
               << " broker=" << (appConfig.mqtt.enabled ? appConfig.mqtt.broker : "disabled")
+              << " directAgent=" << (directAgentDisabled ? "disabled" : directAgentConfigPath)
               << std::endl;
 
     while (g_running) {
@@ -201,6 +218,10 @@ int main(int argc, char* argv[]) {
     }
 
     service.stop();
+    if (directAgentThread.joinable()) {
+        edge_gateway::direct_agent::requestStop();
+        directAgentThread.join();
+    }
     std::cout << "system monitor stopped" << std::endl;
     return 0;
 }

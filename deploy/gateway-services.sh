@@ -7,7 +7,6 @@ APP_DIR="$BASE_DIR/config/runtime/apps"
 MQTT_APP_NAME="${MQTT_APP_NAME:-mqtt-service}"
 MONITOR_APP_NAME="${MONITOR_APP_NAME:-monitor-service}"
 CAMERA_APP_NAME="${CAMERA_APP_NAME:-camera-service}"
-DIRECT_AGENT_APP_NAME="${DIRECT_AGENT_APP_NAME:-direct-agent}"
 
 stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
@@ -41,7 +40,7 @@ stop_units() {
 }
 
 desired_units() {
-  python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" "$CAMERA_APP_NAME" "$DIRECT_AGENT_APP_NAME" <<'PY'
+  python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" "$CAMERA_APP_NAME" <<'PY'
 import json
 import glob
 import os
@@ -49,7 +48,7 @@ import subprocess
 import sys
 from urllib.parse import urlparse
 
-device_dir, app_dir, mqtt_app_name, monitor_app_name, camera_app_name, direct_agent_app_name = sys.argv[1:7]
+device_dir, app_dir, mqtt_app_name, monitor_app_name, camera_app_name = sys.argv[1:6]
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(device_dir)))
 emitted_units = set()
 stunnel_units_by_endpoint = {}
@@ -253,13 +252,6 @@ def display_connected_by_sysfs(expected_output="", require_edid=True):
                 pass
     return False
 
-def direct_agent_enabled(path):
-    root = read_json(path)
-    if root is None:
-        return False
-    direct_agent = root.get("directAgent", {}) or {}
-    return bool_value(direct_agent.get("enabled"), False)
-
 def display_connected_by_xrandr(expected_output="", require_edid=True):
     if require_edid:
         return False
@@ -359,9 +351,6 @@ if os.path.isfile(camera_path) and camera_service_enabled(camera_path):
     emit_unit(stunnel_unit_for_app(camera_path))
     emit_unit(f"camera-service@{camera_app_name}.service")
 
-direct_agent_path = app_path(direct_agent_app_name)
-if os.path.isfile(direct_agent_path) and direct_agent_enabled(direct_agent_path):
-    emit_unit(f"direct-agent@{direct_agent_app_name}.service")
 PY
 }
 
