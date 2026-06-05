@@ -408,6 +408,87 @@ std::uint64_t jsonUint64(const std::string& text, const std::string& key, std::u
     return static_cast<std::uint64_t>(value);
 }
 
+std::vector<std::string> jsonStringArray(const std::string& text, const std::string& key) {
+    std::vector<std::string> values;
+    auto pos = findJsonValue(text, key);
+    if (pos == std::string::npos || pos >= text.size() || text[pos] != '[') {
+        return values;
+    }
+    ++pos;
+    while (pos < text.size()) {
+        while (pos < text.size() &&
+            (std::isspace(static_cast<unsigned char>(text[pos])) != 0 || text[pos] == ',')) {
+            ++pos;
+        }
+        if (pos >= text.size() || text[pos] == ']') {
+            break;
+        }
+        if (text[pos] != '"') {
+            break;
+        }
+        ++pos;
+        std::string value;
+        while (pos < text.size()) {
+            const char ch = text[pos++];
+            if (ch == '"') {
+                break;
+            }
+            if (ch == '\\' && pos < text.size()) {
+                const char esc = text[pos++];
+                switch (esc) {
+                case '"': value += '"'; break;
+                case '\\': value += '\\'; break;
+                case '/': value += '/'; break;
+                case 'b': value += '\b'; break;
+                case 'f': value += '\f'; break;
+                case 'n': value += '\n'; break;
+                case 'r': value += '\r'; break;
+                case 't': value += '\t'; break;
+                case 'u': {
+                    unsigned int codepoint = 0;
+                    if (parseJsonUnicodeEscape(text, &pos, &codepoint)) {
+                        appendUtf8Codepoint(value, codepoint);
+                    } else {
+                        value += 'u';
+                    }
+                    break;
+                }
+                default: value += esc; break;
+                }
+            } else {
+                value += ch;
+            }
+        }
+        value = trim(value);
+        if (!value.empty() && std::find(values.begin(), values.end(), value) == values.end()) {
+            values.push_back(value);
+        }
+    }
+    return values;
+}
+
+std::string joinStrings(const std::vector<std::string>& values, const std::string& separator) {
+    std::ostringstream out;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            out << separator;
+        }
+        out << values[i];
+    }
+    return out.str();
+}
+
+std::vector<std::string> normalizeStringList(const std::vector<std::string>& values) {
+    std::vector<std::string> normalized;
+    for (auto value : values) {
+        value = trim(value);
+        if (!value.empty() && std::find(normalized.begin(), normalized.end(), value) == normalized.end()) {
+            normalized.push_back(value);
+        }
+    }
+    return normalized;
+}
+
 bool constantTimeEquals(const std::string& a, const std::string& b) {
     const std::size_t maxSize = std::max(a.size(), b.size());
     unsigned char diff = static_cast<unsigned char>(a.size() ^ b.size());
@@ -425,7 +506,9 @@ struct DirectAgentConfig {
     std::string configFile;
     bool enabled = false;
     std::string listenHost = "192.168.100.1";
+    std::vector<std::string> listenHosts;
     int listenPort = 9443;
+    std::vector<std::string> allowedClientCidrs;
     std::string identityConfigFile = "/opt/modbus-gateway/config/runtime/device_identity.json";
     std::string appConfigFile = "/opt/modbus-gateway/config/runtime/apps/monitor-service.json";
     std::string otaAppConfigFile = "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json";
@@ -482,7 +565,21 @@ DirectAgentConfig loadConfig(const std::string& path) {
     }
     config.enabled = jsonBool(text, "enabled", config.enabled);
     config.listenHost = jsonString(text, "listenHost", config.listenHost);
+    config.listenHosts = jsonStringArray(text, "listenHosts");
+    if (config.listenHosts.empty()) {
+        config.listenHosts.push_back(config.listenHost);
+    } else {
+        config.listenHost = config.listenHosts.front();
+    }
+    config.listenHosts = normalizeStringList(config.listenHosts);
+    if (std::find(config.listenHosts.begin(), config.listenHosts.end(), "0.0.0.0") != config.listenHosts.end()) {
+        config.listenHosts = { "0.0.0.0" };
+    }
+    if (!config.listenHosts.empty()) {
+        config.listenHost = config.listenHosts.front();
+    }
     config.listenPort = jsonInt(text, "listenPort", config.listenPort);
+    config.allowedClientCidrs = normalizeStringList(jsonStringArray(text, "allowedClientCidrs"));
     config.identityConfigFile = jsonString(text, "identityConfigFile", config.identityConfigFile);
     config.appConfigFile = jsonString(text, "appConfigFile", config.appConfigFile);
     config.otaAppConfigFile = jsonString(text, "otaAppConfigFile", config.otaAppConfigFile);
@@ -2041,12 +2138,105 @@ void sendAll(int fd, const std::string& data) {
 #endif
 }
 
-int runServer(const DirectAgentConfig& config) {
-#ifdef _WIN32
-    (void)config;
-    std::cerr << "DirectAgent is supported on Linux edge devices only" << std::endl;
-    return 2;
-#else
+#ifndef _WIN32
+struct ListenSocket {
+    int fd = -1;
+    std::string host;
+};
+
+bool parseIpv4HostOrder(const std::string& value, std::uint32_t* output) {
+    in_addr addr{};
+    if (::inet_pton(AF_INET, value.c_str(), &addr) != 1) {
+        return false;
+    }
+    if (output != nullptr) {
+        *output = ntohl(addr.s_addr);
+    }
+    return true;
+}
+
+bool parseClientCidr(const std::string& value, std::uint32_t* network, std::uint32_t* mask) {
+    const auto cidr = trim(value);
+    if (cidr.empty()) {
+        return false;
+    }
+    const auto slash = cidr.find('/');
+    const auto ipText = slash == std::string::npos ? cidr : cidr.substr(0, slash);
+    int prefix = slash == std::string::npos ? 32 : -1;
+    if (slash != std::string::npos) {
+        const auto prefixText = cidr.substr(slash + 1);
+        char* end = nullptr;
+        prefix = static_cast<int>(std::strtol(prefixText.c_str(), &end, 10));
+        if (end == prefixText.c_str() || prefix < 0 || prefix > 32) {
+            return false;
+        }
+    }
+
+    std::uint32_t ip = 0;
+    if (!parseIpv4HostOrder(ipText, &ip)) {
+        return false;
+    }
+
+    const std::uint32_t parsedMask = prefix == 0
+        ? 0
+        : static_cast<std::uint32_t>(0xFFFFFFFFu << (32 - prefix));
+    if (network != nullptr) {
+        *network = ip & parsedMask;
+    }
+    if (mask != nullptr) {
+        *mask = parsedMask;
+    }
+    return true;
+}
+
+bool isClientAllowed(const DirectAgentConfig& config, const sockaddr_in& clientAddr) {
+    if (config.allowedClientCidrs.empty()) {
+        return true;
+    }
+
+    const auto client = ntohl(clientAddr.sin_addr.s_addr);
+    for (const auto& cidr : config.allowedClientCidrs) {
+        std::uint32_t network = 0;
+        std::uint32_t mask = 0;
+        if (!parseClientCidr(cidr, &network, &mask)) {
+            continue;
+        }
+        if ((client & mask) == network) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string sockaddrToString(const sockaddr_in& addr) {
+    char buffer[INET_ADDRSTRLEN] = {};
+    if (::inet_ntop(AF_INET, &addr.sin_addr, buffer, sizeof(buffer)) == nullptr) {
+        return "";
+    }
+    return buffer;
+}
+
+bool hasWildcardListenHost(const DirectAgentConfig& config) {
+    return std::find(config.listenHosts.begin(), config.listenHosts.end(), "0.0.0.0") != config.listenHosts.end();
+}
+
+void validateServerConfig(const DirectAgentConfig& config) {
+    if (config.listenHosts.empty()) {
+        throw std::runtime_error("listenHosts cannot be empty");
+    }
+    if (hasWildcardListenHost(config) && config.allowedClientCidrs.empty()) {
+        throw std::runtime_error("allowedClientCidrs is required when listenHosts contains 0.0.0.0");
+    }
+    for (const auto& cidr : config.allowedClientCidrs) {
+        std::uint32_t network = 0;
+        std::uint32_t mask = 0;
+        if (!parseClientCidr(cidr, &network, &mask)) {
+            throw std::runtime_error("invalid allowedClientCidrs item: " + cidr);
+        }
+    }
+}
+
+ListenSocket openListenSocket(const std::string& host, int port) {
     const int server = ::socket(AF_INET, SOCK_STREAM, 0);
     if (server < 0) {
         throw std::runtime_error("failed to create socket");
@@ -2057,36 +2247,63 @@ int runServer(const DirectAgentConfig& config) {
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(static_cast<std::uint16_t>(config.listenPort));
-    if (::inet_pton(AF_INET, config.listenHost.c_str(), &addr.sin_addr) != 1) {
+    addr.sin_port = htons(static_cast<std::uint16_t>(port));
+    if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
         ::close(server);
-        throw std::runtime_error("invalid listenHost: " + config.listenHost);
+        throw std::runtime_error("invalid listenHost: " + host);
     }
 
     if (::bind(server, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
         const std::string message = std::strerror(errno);
         ::close(server);
-        throw std::runtime_error("failed to bind " + config.listenHost + ":" +
-            std::to_string(config.listenPort) + ": " + message);
+        throw std::runtime_error("failed to bind " + host + ":" +
+            std::to_string(port) + ": " + message);
     }
 
     if (::listen(server, 16) != 0) {
         const std::string message = std::strerror(errno);
         ::close(server);
-        throw std::runtime_error("failed to listen: " + message);
+        throw std::runtime_error("failed to listen on " + host + ":" +
+            std::to_string(port) + ": " + message);
     }
 
-    std::cout << "DirectAgent listening on " << config.listenHost << ":"
-              << config.listenPort << std::endl;
+    ListenSocket result;
+    result.fd = server;
+    result.host = host;
+    return result;
+}
+#endif
+
+int runServer(const DirectAgentConfig& config) {
+#ifdef _WIN32
+    (void)config;
+    std::cerr << "DirectAgent is supported on Linux edge devices only" << std::endl;
+    return 2;
+#else
+    validateServerConfig(config);
+    std::vector<ListenSocket> servers;
+    for (const auto& host : config.listenHosts) {
+        servers.push_back(openListenSocket(host, config.listenPort));
+        std::cout << "DirectAgent listening on " << host << ":"
+                  << config.listenPort << std::endl;
+    }
+    if (!config.allowedClientCidrs.empty()) {
+        std::cout << "DirectAgent allowed clients: "
+                  << joinStrings(config.allowedClientCidrs, ",") << std::endl;
+    }
 
     while (g_running) {
         fd_set readSet;
         FD_ZERO(&readSet);
-        FD_SET(server, &readSet);
+        int maxFd = -1;
+        for (const auto& server : servers) {
+            FD_SET(server.fd, &readSet);
+            maxFd = std::max(maxFd, server.fd);
+        }
         timeval timeout{};
         timeout.tv_sec = 0;
         timeout.tv_usec = 500000;
-        const int ready = ::select(server + 1, &readSet, nullptr, nullptr, &timeout);
+        const int ready = ::select(maxFd + 1, &readSet, nullptr, nullptr, &timeout);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
@@ -2097,36 +2314,56 @@ int runServer(const DirectAgentConfig& config) {
             continue;
         }
 
-        sockaddr_in clientAddr{};
-        socklen_t clientLen = sizeof(clientAddr);
-        const int client = ::accept(server, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
-        if (client < 0) {
-            if (errno == EINTR) {
+        for (const auto& server : servers) {
+            if (!FD_ISSET(server.fd, &readSet)) {
                 continue;
             }
-            break;
-        }
-
-        std::string method;
-        std::string path;
-        std::string query;
-        std::string body;
-        std::string out;
-        try {
-            const auto raw = readHttpRequest(client);
-            if (parseRequest(raw, &method, &path, &query, &body)) {
-                out = handleRequest(config, method, path, query, body);
-            } else {
-                out = response(400, "Bad Request", "{\"success\":false,\"message\":\"invalid request\"}");
+            sockaddr_in clientAddr{};
+            socklen_t clientLen = sizeof(clientAddr);
+            const int client = ::accept(server.fd, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
+            if (client < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break;
             }
-        } catch (const std::exception& ex) {
-            out = response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+
+            if (!isClientAllowed(config, clientAddr)) {
+                const auto peer = sockaddrToString(clientAddr);
+                std::cerr << "DirectAgent rejected client " << peer
+                          << " on " << server.host << ":" << config.listenPort << std::endl;
+                sendAll(client, response(
+                    403,
+                    "Forbidden",
+                    "{\"success\":false,\"message\":\"client is not allowed for maintenance mode\"}"
+                ));
+                ::close(client);
+                continue;
+            }
+
+            std::string method;
+            std::string path;
+            std::string query;
+            std::string body;
+            std::string out;
+            try {
+                const auto raw = readHttpRequest(client);
+                if (parseRequest(raw, &method, &path, &query, &body)) {
+                    out = handleRequest(config, method, path, query, body);
+                } else {
+                    out = response(400, "Bad Request", "{\"success\":false,\"message\":\"invalid request\"}");
+                }
+            } catch (const std::exception& ex) {
+                out = response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+            }
+            sendAll(client, out);
+            ::close(client);
         }
-        sendAll(client, out);
-        ::close(client);
     }
 
-    ::close(server);
+    for (const auto& server : servers) {
+        ::close(server.fd);
+    }
     return 0;
 #endif
 }
@@ -2136,7 +2373,7 @@ void printUsage() {
         << "Usage:\n"
         << "  DirectAgent --config <path> [--check]\n"
         << "\n"
-        << "The service is intended to bind only to the maintenance Ethernet address.\n";
+        << "The service is intended for configured maintenance Ethernet or tunnel addresses only.\n";
 }
 
 }  // namespace
@@ -2187,7 +2424,8 @@ int main(int argc, char* argv[]) {
         const auto config = loadConfig(configPath);
         if (checkOnly) {
             std::cout << "enabled=" << (config.enabled ? "true" : "false")
-                      << " listen=" << config.listenHost << ":" << config.listenPort
+                      << " listen=" << joinStrings(config.listenHosts, ",") << ":" << config.listenPort
+                      << " allowedClientCidrs=" << joinStrings(config.allowedClientCidrs, ",")
                       << " identityConfigFile=" << config.identityConfigFile
                       << " appConfigFile=" << config.appConfigFile
                       << " otaAppConfigFile=" << config.otaAppConfigFile
