@@ -180,6 +180,54 @@ std::string trim(std::string value) {
     return value;
 }
 
+std::string urlDecode(const std::string& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const auto ch = value[i];
+        if (ch == '+') {
+            out += ' ';
+            continue;
+        }
+        if (ch == '%' && i + 2 < value.size()) {
+            const auto hex = value.substr(i + 1, 2);
+            char* end = nullptr;
+            const auto decoded = std::strtoul(hex.c_str(), &end, 16);
+            if (end != hex.c_str() + 2) {
+                out += ch;
+                continue;
+            }
+            out += static_cast<char>(decoded);
+            i += 2;
+            continue;
+        }
+        out += ch;
+    }
+    return out;
+}
+
+std::string queryValue(const std::string& query, const std::string& name) {
+    std::size_t pos = 0;
+    while (pos < query.size()) {
+        const auto amp = query.find('&', pos);
+        const auto end = amp == std::string::npos ? query.size() : amp;
+        const auto eq = query.find('=', pos);
+        const auto keyEnd = eq == std::string::npos || eq > end ? end : eq;
+        const auto key = urlDecode(query.substr(pos, keyEnd - pos));
+        if (key == name) {
+            if (eq == std::string::npos || eq > end) {
+                return "";
+            }
+            return trim(urlDecode(query.substr(eq + 1, end - eq - 1)));
+        }
+        if (amp == std::string::npos) {
+            break;
+        }
+        pos = amp + 1;
+    }
+    return "";
+}
+
 int hexDigit(char ch) {
     if (ch >= '0' && ch <= '9') {
         return ch - '0';
@@ -480,6 +528,21 @@ AgentDeviceIdentity loadIdentity(const std::string& path) {
     return identity;
 }
 
+std::string resolveMachineCode(
+    const DirectAgentConfig& config,
+    const edge_gateway::AppConfig& appConfig
+) {
+    auto machineCode = appConfig.mqtt.clientId;
+    try {
+        const auto identity = loadIdentity(config.identityConfigFile);
+        if (!identity.machineCode.empty()) {
+            machineCode = identity.machineCode;
+        }
+    } catch (const std::exception&) {
+    }
+    return machineCode;
+}
+
 AuthState loadAuthState(const DirectAgentConfig& config) {
     AuthState state;
     const auto text = readFile(config.authStateFile);
@@ -526,10 +589,13 @@ std::string authStateJson(const AuthState& state) {
     return out.str();
 }
 
-std::string realtimePointsJson(const DirectAgentConfig& config) {
+std::string realtimePointsJson(const DirectAgentConfig& config, const std::string& meterCode) {
     auto context = createRealtimeContext(config);
     const auto ts = nowMs();
-    const auto values = context->router.getAllLatest(ts);
+    const auto machineCode = resolveMachineCode(config, context->appConfig);
+    const auto values = meterCode.empty()
+        ? context->router.getAllLatest(ts)
+        : context->router.getLatestByMeter(machineCode, meterCode, ts);
     const auto limit = config.maxRealtimePoints <= 0
         ? values.size()
         : std::min(values.size(), static_cast<std::size_t>(config.maxRealtimePoints));
@@ -557,14 +623,7 @@ std::string realtimePointsJson(const DirectAgentConfig& config) {
 
 std::string fullTelemetryJson(const DirectAgentConfig& config) {
     auto context = createRealtimeContext(config);
-    auto machineCode = context->appConfig.mqtt.clientId;
-    try {
-        const auto identity = loadIdentity(config.identityConfigFile);
-        if (!identity.machineCode.empty()) {
-            machineCode = identity.machineCode;
-        }
-    } catch (const std::exception&) {
-    }
+    auto machineCode = resolveMachineCode(config, context->appConfig);
     const auto ts = nowMs();
     const auto values = context->router.getAllLatest(ts);
     const auto limit = config.maxRealtimePoints <= 0
@@ -1593,6 +1652,7 @@ std::string handleRequest(
     const DirectAgentConfig& config,
     const std::string& method,
     const std::string& path,
+    const std::string& query,
     const std::string& body
 ) {
     if (method == "GET" && path == "/api/v1/health") {
@@ -1642,7 +1702,7 @@ std::string handleRequest(
     }
     if (method == "GET" && path == "/api/v1/realtime/points") {
         try {
-            return response(200, "OK", realtimePointsJson(config));
+            return response(200, "OK", realtimePointsJson(config, queryValue(query, "meterCode")));
         } catch (const std::exception& ex) {
             return response(503, "Service Unavailable", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
         }
@@ -1685,6 +1745,7 @@ bool parseRequest(
     const std::string& raw,
     std::string* method,
     std::string* path,
+    std::string* query,
     std::string* body
 ) {
     const auto lineEnd = raw.find("\r\n");
@@ -1696,7 +1757,10 @@ bool parseRequest(
     line >> *method >> *path >> version;
     const auto queryPos = path->find('?');
     if (queryPos != std::string::npos) {
+        *query = path->substr(queryPos + 1);
         *path = path->substr(0, queryPos);
+    } else {
+        query->clear();
     }
     const auto bodyPos = raw.find("\r\n\r\n");
     *body = bodyPos == std::string::npos ? std::string() : raw.substr(bodyPos + 4);
@@ -1852,12 +1916,13 @@ int runServer(const DirectAgentConfig& config) {
 
         std::string method;
         std::string path;
+        std::string query;
         std::string body;
         std::string out;
         try {
             const auto raw = readHttpRequest(client);
-            if (parseRequest(raw, &method, &path, &body)) {
-                out = handleRequest(config, method, path, body);
+            if (parseRequest(raw, &method, &path, &query, &body)) {
+                out = handleRequest(config, method, path, query, body);
             } else {
                 out = response(400, "Bad Request", "{\"success\":false,\"message\":\"invalid request\"}");
             }
