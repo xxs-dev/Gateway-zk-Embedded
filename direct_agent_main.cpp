@@ -49,6 +49,7 @@ constexpr std::size_t kMaxConfigSnapshotFileBytes = 5 * 1024 * 1024;
 constexpr std::size_t kMaxConfigSnapshotTotalBytes = 16 * 1024 * 1024;
 constexpr std::size_t kMaxConfigSnapshotReplyBytes = 24 * 1024 * 1024;
 constexpr std::size_t kMaxConfigApplyFiles = 64;
+constexpr std::size_t kMaxBatchControlCommands = 128;
 constexpr std::size_t kMaxDiagOutputBytes = 64 * 1024;
 constexpr std::size_t kMaxHttpRequestBytes = 24 * 1024 * 1024;
 
@@ -378,6 +379,22 @@ int jsonInt(const std::string& text, const std::string& key, int fallback) {
     return static_cast<int>(value);
 }
 
+bool tryJsonDouble(const std::string& text, const std::string& key, double* output) {
+    const auto pos = findJsonValue(text, key);
+    if (pos == std::string::npos) {
+        return false;
+    }
+    char* end = nullptr;
+    const auto value = std::strtod(text.c_str() + pos, &end);
+    if (end == text.c_str() + pos) {
+        return false;
+    }
+    if (output != nullptr) {
+        *output = value;
+    }
+    return true;
+}
+
 std::uint64_t jsonUint64(const std::string& text, const std::string& key, std::uint64_t fallback = 0) {
     const auto pos = findJsonValue(text, key);
     if (pos == std::string::npos) {
@@ -437,6 +454,16 @@ struct AuthState {
 struct ConfigApplyFile {
     std::string path;
     std::string content;
+};
+
+struct DirectControlCommand {
+    std::string cmdId;
+    std::string meterCode;
+    std::string pointCode;
+    std::uint32_t index = 0;
+    double value = 0.0;
+    std::string source;
+    std::int64_t ts = 0;
 };
 
 struct RealtimeContext {
@@ -1012,6 +1039,65 @@ std::vector<ConfigApplyFile> parseConfigApplyFiles(const std::string& body) {
     return files;
 }
 
+std::vector<DirectControlCommand> parseBatchControlCommands(const std::string& body) {
+    const auto commandsPos = findJsonValue(body, "commands");
+    auto pos = skipWhitespace(body, commandsPos);
+    if (pos == std::string::npos || pos >= body.size() || body[pos] != '[') {
+        throw std::runtime_error("batch control commands array is required");
+    }
+    const auto arrayEnd = findMatchingJsonToken(body, pos, '[', ']');
+    if (arrayEnd == std::string::npos) {
+        throw std::runtime_error("batch control commands array is malformed");
+    }
+
+    std::vector<DirectControlCommand> commands;
+    ++pos;
+    while (pos < arrayEnd) {
+        pos = skipWhitespace(body, pos);
+        if (pos >= arrayEnd) {
+            break;
+        }
+        if (body[pos] == ',') {
+            ++pos;
+            continue;
+        }
+        if (body[pos] != '{') {
+            throw std::runtime_error("batch control command item must be object");
+        }
+        const auto objectEnd = findMatchingJsonToken(body, pos, '{', '}');
+        if (objectEnd == std::string::npos || objectEnd > arrayEnd) {
+            throw std::runtime_error("batch control command item is malformed");
+        }
+        const auto objectText = body.substr(pos, objectEnd - pos + 1);
+        DirectControlCommand command;
+        command.cmdId = jsonString(objectText, "cmdId");
+        command.meterCode = jsonString(objectText, "meterCode");
+        command.pointCode = jsonString(objectText, "pointCode");
+        const auto rawIndex = jsonUint64(objectText, "index", 0);
+        if (rawIndex == 0 || rawIndex > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::runtime_error("batch control command index is required");
+        }
+        command.index = static_cast<std::uint32_t>(rawIndex);
+        if (!tryJsonDouble(objectText, "value", &command.value)) {
+            throw std::runtime_error("batch control command value is required");
+        }
+        command.source = jsonString(objectText, "source", "direct-agent");
+        command.ts = static_cast<std::int64_t>(jsonUint64(objectText, "ts", static_cast<std::uint64_t>(nowMs())));
+        if (command.cmdId.empty()) {
+            command.cmdId = "DIRECT_CTRL_" + std::to_string(nowMs()) + "_" + std::to_string(commands.size() + 1);
+        }
+        commands.push_back(std::move(command));
+        if (commands.size() > kMaxBatchControlCommands) {
+            throw std::runtime_error("too many batch control commands");
+        }
+        pos = objectEnd + 1;
+    }
+    if (commands.empty()) {
+        throw std::runtime_error("batch control commands cannot be empty");
+    }
+    return commands;
+}
+
 std::string runShellCommand(const std::string& command, int* exitCode = nullptr, std::size_t maxOutputBytes = 0) {
     std::string output;
     bool truncated = false;
@@ -1549,6 +1635,110 @@ std::string configSnapshotResponse(const DirectAgentConfig& config, const std::s
     }
 }
 
+std::string batchControlJson(const DirectAgentConfig& config, const std::string& body) {
+    const auto requestTs = nowMs();
+    auto context = createRealtimeContext(config);
+    const auto resolvedMachineCode = resolveMachineCode(config, context->appConfig);
+    const auto requestedMachineCode = trim(jsonString(body, "machineCode"));
+    const auto machineCode = requestedMachineCode.empty() ? resolvedMachineCode : requestedMachineCode;
+    if (!requestedMachineCode.empty() &&
+        !resolvedMachineCode.empty() &&
+        requestedMachineCode != resolvedMachineCode) {
+        throw std::runtime_error("machineCode mismatch");
+    }
+
+    const auto requestId = jsonString(body, "requestId", "CTRL_BATCH_" + std::to_string(requestTs));
+    const auto commands = parseBatchControlCommands(body);
+    int accepted = 0;
+    std::ostringstream results;
+    results << "[";
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        const auto& item = commands[i];
+        bool success = false;
+        std::string message;
+        auto route = context->router.routeByIndex(item.index);
+        try {
+            if (!route) {
+                throw std::runtime_error("command index not found");
+            }
+            if (!machineCode.empty() && machineCode != route->machineCode) {
+                throw std::runtime_error("machineCode mismatch");
+            }
+            if (!item.meterCode.empty() && item.meterCode != route->meterCode) {
+                throw std::runtime_error("meterCode mismatch");
+            }
+            if (!item.pointCode.empty() && item.pointCode != route->pointCode) {
+                throw std::runtime_error("pointCode mismatch");
+            }
+
+            edge_gateway::PendingWriteCommand command;
+            command.cmdId = item.cmdId;
+            command.index = item.index;
+            command.value = item.value;
+            command.source = item.source.empty() ? "direct-agent" : item.source;
+            command.ts = item.ts > 0 ? item.ts : nowMs();
+            const auto submitResult = context->router.submitWriteCommand(command);
+            if (!submitResult.accepted) {
+                throw std::runtime_error(submitResult.message);
+            }
+
+            route = submitResult.route;
+            success = true;
+            message = "accepted";
+            ++accepted;
+        } catch (const std::exception& ex) {
+            message = ex.what();
+        }
+
+        if (i > 0) {
+            results << ",";
+        }
+        results << "{\"cmdId\":\"" << jsonEscape(item.cmdId)
+                << "\",\"machineCode\":\"" << jsonEscape(route ? route->machineCode : machineCode)
+                << "\",\"meterCode\":\"" << jsonEscape(route ? route->meterCode : item.meterCode)
+                << "\",\"pointCode\":\"" << jsonEscape(route ? route->pointCode : item.pointCode)
+                << "\",\"index\":" << item.index
+                << ",\"value\":" << item.value
+                << ",\"success\":" << (success ? "true" : "false")
+                << ",\"message\":\"" << jsonEscape(message)
+                << "\",\"ts\":" << nowMs()
+                << "}";
+    }
+    results << "]";
+
+    const auto total = static_cast<int>(commands.size());
+    const auto failed = total - accepted;
+    std::ostringstream out;
+    out << "{\"requestId\":\"" << jsonEscape(requestId)
+        << "\",\"machineCode\":\"" << jsonEscape(machineCode)
+        << "\",\"success\":" << (failed == 0 ? "true" : "false")
+        << ",\"total\":" << total
+        << ",\"accepted\":" << accepted
+        << ",\"failed\":" << failed
+        << ",\"message\":\""
+        << (failed == 0 ? "direct batch control accepted" : "direct batch control partially failed")
+        << "\",\"results\":" << results.str()
+        << ",\"ts\":" << requestTs
+        << "}";
+    return out.str();
+}
+
+std::string batchControlResponse(const DirectAgentConfig& config, const std::string& body) {
+    if (!maintenancePasswordAccepted(config, body)) {
+        return response(
+            401,
+            "Unauthorized",
+            "{\"success\":false,\"message\":\"invalid maintenance password\"}"
+        );
+    }
+
+    try {
+        return response(200, "OK", batchControlJson(config, body));
+    } catch (const std::exception& ex) {
+        return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+    }
+}
+
 std::string otaStatusJson(const DirectAgentConfig& config) {
     std::ifstream input(config.otaStatusFile);
     std::vector<std::string> lines;
@@ -1666,6 +1856,9 @@ std::string handleRequest(
     }
     if (method == "POST" && path == "/api/v1/config/snapshot") {
         return configSnapshotResponse(config, body);
+    }
+    if (method == "POST" && path == "/api/v1/control/batch") {
+        return batchControlResponse(config, body);
     }
     if (method == "GET" && path == "/api/v1/system/status") {
         try {
