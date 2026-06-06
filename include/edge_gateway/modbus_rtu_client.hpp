@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
@@ -56,7 +57,7 @@ private:
     );
 
     void ensurePortOpen();
-    void waitForFrameInterval();
+    void waitForFrameInterval(int slave);
     static std::uint16_t crc16(const std::vector<std::uint8_t>& bytes);
     static void appendCrc(std::vector<std::uint8_t>& frame);
     static void validateCrc(const std::vector<std::uint8_t>& frame);
@@ -83,7 +84,7 @@ private:
     std::condition_variable transactionCv_;
     int activeTransactions_ = 0;
     int pendingPriorityWrites_ = 0;
-    std::chrono::steady_clock::time_point lastRequestWriteAt_{};
+    std::unordered_map<int, std::chrono::steady_clock::time_point> lastRequestWriteAtBySlave_;
     static thread_local int priorityContextDepth_;
 };
 

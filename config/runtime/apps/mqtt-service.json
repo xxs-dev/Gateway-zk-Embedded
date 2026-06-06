@@ -124,6 +124,7 @@
     "diskAlertThreshold": 90,
     "alertRepeatIntervalSec": 60,
     "diagEnabled": true,
+    "configPullChunkBytes": 131072,
     "realtimeMeterLeaseFile": "/opt/modbus-gateway/run/realtime-meter-leases.json",
     "allowedCommands": [
       "uptime",

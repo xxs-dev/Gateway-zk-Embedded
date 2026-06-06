@@ -267,13 +267,14 @@ void ModbusRtuClient::leaveTransaction() {
     transactionCv_.notify_all();
 }
 
-void ModbusRtuClient::waitForFrameInterval() {
+void ModbusRtuClient::waitForFrameInterval(int slave) {
     const auto intervalMs = std::max(0, options_.frameIntervalMs);
-    if (intervalMs <= 0 || lastRequestWriteAt_ == std::chrono::steady_clock::time_point{}) {
+    const auto lastWriteIt = lastRequestWriteAtBySlave_.find(slave);
+    if (intervalMs <= 0 || lastWriteIt == lastRequestWriteAtBySlave_.end()) {
         return;
     }
 
-    const auto nextWriteAt = lastRequestWriteAt_ + std::chrono::milliseconds(intervalMs);
+    const auto nextWriteAt = lastWriteIt->second + std::chrono::milliseconds(intervalMs);
     const auto now = std::chrono::steady_clock::now();
     if (now < nextWriteAt) {
         std::this_thread::sleep_until(nextWriteAt);
@@ -381,11 +382,11 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
         : 1;
     for (int attempts = 1; attempts <= maxAttempts; ++attempts) {
         attemptsMade = attempts;
-        waitForFrameInterval();
+        waitForFrameInterval(slave);
         drainSerialInput(*serialPort_);
         const auto writeStartedAt = std::chrono::steady_clock::now();
         serialPort_->write(frame);
-        lastRequestWriteAt_ = writeStartedAt;
+        lastRequestWriteAtBySlave_[slave] = writeStartedAt;
         std::vector<std::uint8_t> buffer;
         std::vector<std::uint8_t> rawReceived;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);

@@ -125,6 +125,10 @@ add_executable(modbus_rtu_client_resync_test tools/modbus_rtu_client_resync_test
 target_link_libraries(modbus_rtu_client_resync_test PRIVATE edge_gateway)
 target_compile_options(modbus_rtu_client_resync_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(dlt645_client_interval_test tools/dlt645_client_interval_test.cpp)
+target_link_libraries(dlt645_client_interval_test PRIVATE edge_gateway)
+target_compile_options(dlt645_client_interval_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(modbus_tcp_client_limit_test tools/modbus_tcp_client_limit_test.cpp)
 target_link_libraries(modbus_tcp_client_limit_test PRIVATE edge_gateway)
 target_compile_options(modbus_tcp_client_limit_test PRIVATE -fdiagnostics-color=never)

@@ -2169,17 +2169,20 @@ void SystemMonitorService::publishReply(const std::string& payload) {
 }
 
 void SystemMonitorService::publishConfigPullReply(const std::string& payload) const {
-    static const std::size_t kConfigPullChunkBytes = 16 * 1024;
-    if (payload.size() <= kConfigPullChunkBytes) {
+    const std::size_t chunkBytes = std::max<std::size_t>(
+        16 * 1024,
+        std::min<std::size_t>(monitorConfig_.configPullChunkBytes, 256 * 1024)
+    );
+    if (payload.size() <= chunkBytes) {
         publisher_->publishJsonMessage(mqttConfig_.configPullReplyTopic, payload);
         return;
     }
 
     const std::string requestId = extractJsonStringField(payload, "requestId");
-    const std::size_t chunkCount = (payload.size() + kConfigPullChunkBytes - 1) / kConfigPullChunkBytes;
+    const std::size_t chunkCount = (payload.size() + chunkBytes - 1) / chunkBytes;
     for (std::size_t i = 0; i < chunkCount; ++i) {
-        const std::size_t begin = i * kConfigPullChunkBytes;
-        const std::size_t partSize = std::min(kConfigPullChunkBytes, payload.size() - begin);
+        const std::size_t begin = i * chunkBytes;
+        const std::size_t partSize = std::min(chunkBytes, payload.size() - begin);
         const std::string partHex = toHex(payload.data() + begin, partSize);
         std::ostringstream chunk;
         chunk << "{\"requestId\":\"" << escapeJson(requestId)

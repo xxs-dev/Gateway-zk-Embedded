@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include "edge_gateway/dlt645_codec.hpp"
@@ -66,16 +67,20 @@ Dlt645Client::Dlt645Client(
 
 std::vector<std::uint8_t> Dlt645Client::readData(const std::string& meterAddress, const std::string& dataIdHex) {
     ensurePortOpen();
-    const auto frame = Dlt645Codec::buildReadFrame(meterAddress, dataIdHex);
+    const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
+    const auto frame = Dlt645Codec::buildReadFrame(normalizedAddress, dataIdHex);
     if (dlt645DebugEnabled()) {
         std::cerr << "[dlt645] tx"
-                  << " address=" << meterAddress
+                  << " address=" << normalizedAddress
                   << " di=" << dataIdHex
                   << " size=" << frame.size()
                   << " hex=" << bytesToHex(frame)
                   << std::endl;
     }
+    waitForFrameInterval(normalizedAddress);
+    const auto writeStartedAt = std::chrono::steady_clock::now();
     serialPort_->write(frame);
+    lastRequestWriteAtByMeter_[normalizedAddress] = writeStartedAt;
 
     std::vector<std::uint8_t> response;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
@@ -104,13 +109,27 @@ std::vector<std::uint8_t> Dlt645Client::readData(const std::string& meterAddress
     }
     if (dlt645DebugEnabled()) {
         std::cerr << "[dlt645] rx"
-                  << " address=" << meterAddress
+                  << " address=" << normalizedAddress
                   << " di=" << dataIdHex
                   << " size=" << response.size()
                   << " hex=" << bytesToHex(response)
                   << std::endl;
     }
     return response;
+}
+
+void Dlt645Client::waitForFrameInterval(const std::string& meterAddress) {
+    const auto intervalMs = std::max(0, options_.frameIntervalMs);
+    const auto lastWriteIt = lastRequestWriteAtByMeter_.find(meterAddress);
+    if (intervalMs <= 0 || lastWriteIt == lastRequestWriteAtByMeter_.end()) {
+        return;
+    }
+
+    const auto nextWriteAt = lastWriteIt->second + std::chrono::milliseconds(intervalMs);
+    const auto now = std::chrono::steady_clock::now();
+    if (now < nextWriteAt) {
+        std::this_thread::sleep_until(nextWriteAt);
+    }
 }
 
 void Dlt645Client::ensurePortOpen() {

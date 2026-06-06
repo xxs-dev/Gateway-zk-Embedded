@@ -627,6 +627,7 @@ struct SystemMonitorConfig {
     int alertRepeatIntervalSec = 60;
     bool diagEnabled = true;
     std::size_t maxDiagOutputBytes = 16 * 1024;
+    std::size_t configPullChunkBytes = 128 * 1024;
     std::string realtimeMeterLeaseFile = "/opt/modbus-gateway/run/realtime-meter-leases.json";
     std::vector<std::string> allowedCommands = {
         "uptime",

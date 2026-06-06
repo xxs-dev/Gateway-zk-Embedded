@@ -1476,6 +1476,13 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     config.alertRepeatIntervalSec = requireInt(object, "alertRepeatIntervalSec", config.alertRepeatIntervalSec);
     config.diagEnabled = requireBool(object, "diagEnabled", config.diagEnabled);
     config.maxDiagOutputBytes = requireSize(object, "maxDiagOutputBytes", config.maxDiagOutputBytes);
+    config.configPullChunkBytes = std::max<std::size_t>(
+        16 * 1024,
+        std::min<std::size_t>(
+            requireSize(object, "configPullChunkBytes", config.configPullChunkBytes),
+            256 * 1024
+        )
+    );
     config.realtimeMeterLeaseFile = requireString(
         object,
         "realtimeMeterLeaseFile",

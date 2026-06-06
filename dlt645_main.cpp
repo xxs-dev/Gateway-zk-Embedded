@@ -1,6 +1,7 @@
 #include <iostream>
 #include <chrono>
 #include <csignal>
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -133,6 +134,9 @@ int main(int argc, char* argv[]) {
     serialOptions.stopBits = config.protocol.transport.stopBits;
     serialOptions.parity = config.protocol.transport.parity;
     serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
+    serialOptions.frameIntervalMs = config.protocol.transport.frameIntervalMs >= 0
+        ? config.protocol.transport.frameIntervalMs
+        : std::max(0, config.collect.defaultIntervalMs);
 
     std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32

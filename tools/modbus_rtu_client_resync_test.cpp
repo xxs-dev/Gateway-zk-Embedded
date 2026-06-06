@@ -292,6 +292,62 @@ private:
     std::vector<std::vector<std::uint8_t>> writes_;
 };
 
+class ImmediateRegisterSerialPort : public edge_gateway::ISerialPort {
+public:
+    void open() override {
+        open_ = true;
+    }
+
+    void close() override {
+        open_ = false;
+    }
+
+    bool isOpen() const override {
+        return open_;
+    }
+
+    void write(const std::vector<std::uint8_t>& bytes) override {
+        require(open_, "write on closed serial port");
+        require(bytes.size() >= 2, "request frame should include slave and function");
+        writes_.push_back(bytes);
+        writeTimes_.push_back(std::chrono::steady_clock::now());
+        chunks_.push_back(readResponse(bytes[0], bytes[1], {static_cast<std::uint16_t>(writes_.size())}));
+    }
+
+    std::vector<std::uint8_t> read(std::size_t maxBytes, int timeoutMs) override {
+        require(open_, "read on closed serial port");
+        (void)timeoutMs;
+        if (chunks_.empty()) {
+            return {};
+        }
+        auto chunk = chunks_.front();
+        chunks_.erase(chunks_.begin());
+        if (chunk.size() <= maxBytes) {
+            return chunk;
+        }
+        std::vector<std::uint8_t> head(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(maxBytes));
+        chunks_.insert(chunks_.begin(), std::vector<std::uint8_t>(
+            chunk.begin() + static_cast<std::ptrdiff_t>(maxBytes),
+            chunk.end()
+        ));
+        return head;
+    }
+
+    const std::vector<std::vector<std::uint8_t>>& writes() const {
+        return writes_;
+    }
+
+    const std::vector<std::chrono::steady_clock::time_point>& writeTimes() const {
+        return writeTimes_;
+    }
+
+private:
+    bool open_ = false;
+    std::vector<std::vector<std::uint8_t>> chunks_;
+    std::vector<std::vector<std::uint8_t>> writes_;
+    std::vector<std::chrono::steady_clock::time_point> writeTimes_;
+};
+
 void verifyWrongLengthReadResponseIsSkipped() {
     edge_gateway::SerialPortOptions options;
     options.device = "test";
@@ -363,6 +419,33 @@ void verifyNoResponseReadIsRetriedAndPaced() {
     require(intervalMs >= 25, "retry write should honor the configured frame interval");
 }
 
+void verifyFrameIntervalIsScopedToSlaveAddress() {
+    edge_gateway::SerialPortOptions options;
+    options.device = "test";
+    options.timeoutMs = 50;
+    options.frameIntervalMs = 200;
+    options.readRetryCount = 0;
+
+    auto serial = std::make_shared<ImmediateRegisterSerialPort>();
+    edge_gateway::ModbusRtuClient client(serial, options);
+
+    (void)client.readHoldingRegisters(1, 0, 1);
+    (void)client.readHoldingRegisters(2, 0, 1);
+    (void)client.readHoldingRegisters(1, 1, 1);
+
+    require(serial->writes().size() == 3, "expected one write per read");
+    require(serial->writes()[0][0] == 1 && serial->writes()[1][0] == 2 && serial->writes()[2][0] == 1,
+        "test should write slave sequence 1,2,1");
+    const auto firstToSecondMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        serial->writeTimes()[1] - serial->writeTimes()[0]
+    ).count();
+    const auto firstToThirdMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        serial->writeTimes()[2] - serial->writeTimes()[0]
+    ).count();
+    require(firstToSecondMs < 140, "different slave addresses should not be delayed by frameIntervalMs");
+    require(firstToThirdMs >= 180, "same slave address should honor frameIntervalMs");
+}
+
 void verifyNoResponseFailureIsReportedAsTimeout() {
     edge_gateway::SerialPortOptions options;
     options.device = "test";
@@ -411,6 +494,7 @@ int main() {
         verifyShortResponseDrainsLateBytes();
         verifyExceptionResponseIsNotRetriedAsShortResponse();
         verifyNoResponseReadIsRetriedAndPaced();
+        verifyFrameIntervalIsScopedToSlaveAddress();
         verifyNoResponseFailureIsReportedAsTimeout();
         verifyMaxRequestRegistersIsEnforced();
         std::cout << "modbus_rtu_client_resync_test passed" << std::endl;
