@@ -466,6 +466,19 @@ PY
 
 check_services() {
   echo "== services =="
+  if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+      runtime_watchdog=$(systemctl show --property=RuntimeWatchdogUSec --value 2>/dev/null || echo 0)
+      case "$runtime_watchdog" in
+        0|"") warn "hardware watchdog device exists but systemd RuntimeWatchdogSec is not active" ;;
+        *) pass "systemd runtime watchdog active: RuntimeWatchdogUSec=$runtime_watchdog" ;;
+      esac
+    else
+      warn "hardware watchdog device exists; skipped systemd runtime watchdog check"
+    fi
+  else
+    warn "hardware watchdog device not found"
+  fi
   if [ ! -x "$BIN_DIR/gateway-services.sh" ]; then
     fail "gateway-services.sh is not executable"
     return

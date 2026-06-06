@@ -560,6 +560,7 @@ if [ -n "$EXAMPLES_DIR" ] && [ -d "$EXAMPLES_DIR" ]; then
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
+  SYSTEMD_MANAGER_REEXEC_REQUIRED=0
   install_file_if_exists "$DEPLOY_DIR/gateway-services.service" "/etc/systemd/system/gateway-services.service"
   install_file_if_exists "$DEPLOY_DIR/modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
   install_file_if_exists "$DEPLOY_DIR/dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
@@ -573,7 +574,15 @@ if command -v systemctl >/dev/null 2>&1; then
   install_file_if_exists "$DEPLOY_DIR/camera-service@.service" "/etc/systemd/system/camera-service@.service"
   install_file_if_exists "$DEPLOY_DIR/system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
   install_file_if_exists "$DEPLOY_DIR/mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
+  if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
+    mkdir -p /etc/systemd/system.conf.d
+    install_file_if_exists "$DEPLOY_DIR/10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
+    SYSTEMD_MANAGER_REEXEC_REQUIRED=1
+  fi
   systemctl daemon-reload
+  if [ "$SYSTEMD_MANAGER_REEXEC_REQUIRED" = "1" ]; then
+    systemctl daemon-reexec
+  fi
   systemctl enable gateway-services.service >/dev/null 2>&1 || true
 fi
 
