@@ -23,7 +23,9 @@
 #else
 #include <arpa/inet.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <netdb.h>
+#include <sys/file.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -1234,11 +1236,96 @@ std::uint64_t fileSize(const std::string& path) {
     return static_cast<std::uint64_t>(input.tellg());
 }
 
-void replaceFile(const std::string& from, const std::string& to) {
+bool replaceFile(const std::string& from, const std::string& to) {
 #ifdef _WIN32
     remove(to.c_str());
 #endif
-    rename(from.c_str(), to.c_str());
+    return rename(from.c_str(), to.c_str()) == 0;
+}
+
+class OfflineQueueFileLock {
+public:
+    explicit OfflineQueueFileLock(const std::string& queuePath) {
+#ifdef _WIN32
+        (void)queuePath;
+        locked_ = true;
+#else
+        fd_ = open((queuePath + ".lock").c_str(), O_CREAT | O_RDWR, 0644);
+        if (fd_ < 0) {
+            return;
+        }
+        if (flock(fd_, LOCK_EX) == 0) {
+            locked_ = true;
+            return;
+        }
+        close(fd_);
+        fd_ = -1;
+#endif
+    }
+
+    ~OfflineQueueFileLock() {
+#ifndef _WIN32
+        if (fd_ >= 0) {
+            if (locked_) {
+                flock(fd_, LOCK_UN);
+            }
+            close(fd_);
+        }
+#endif
+    }
+
+    bool locked() const {
+        return locked_;
+    }
+
+private:
+    bool locked_ = false;
+#ifndef _WIN32
+    int fd_ = -1;
+#endif
+};
+
+bool trimFileToMaxBytes(const std::string& path, std::uint64_t maxBytes) {
+    if (maxBytes == 0) {
+        return false;
+    }
+    const auto size = fileSize(path);
+    if (size <= maxBytes) {
+        return false;
+    }
+
+    std::ifstream input(path.c_str(), std::ios::binary);
+    if (!input.is_open()) {
+        return false;
+    }
+    const auto tempPath = path + ".tmp";
+    std::ofstream output(tempPath.c_str(), std::ios::binary | std::ios::trunc);
+    if (!output.is_open()) {
+        return false;
+    }
+
+    const auto start = size - maxBytes;
+    input.seekg(static_cast<std::streamoff>(start), std::ios::beg);
+    if (start > 0) {
+        std::string partialLine;
+        std::getline(input, partialLine);
+    }
+
+    std::string line;
+    while (std::getline(input, line)) {
+        output << line << "\n";
+    }
+    input.close();
+    output.close();
+    if (!output) {
+        remove(tempPath.c_str());
+        return false;
+    }
+    if (!replaceFile(tempPath, path)) {
+        remove(tempPath.c_str());
+        return false;
+    }
+    return true;
 }
 
 char hexDigit(unsigned char value) {
@@ -1283,6 +1370,18 @@ bool hexDecode(const std::string& value, std::string* out) {
         decoded.push_back(static_cast<char>((high << 4) | low));
     }
     *out = decoded;
+    return true;
+}
+
+bool validOfflineTopic(const std::string& topic) {
+    if (topic.empty()) {
+        return false;
+    }
+    for (const unsigned char ch : topic) {
+        if (ch < 0x20 || ch == 0x7F) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1617,6 +1716,9 @@ void BuiltinMqttDriverPublisher::publishRealtimeJson(const std::string& topic, c
         } catch (...) {
         }
     }
+    if (config_.offlineBufferEnabled) {
+        replayOfflineBuffer();
+    }
     try {
         sendJsonNow(scoped, payload);
     } catch (...) {
@@ -1709,6 +1811,10 @@ void BuiltinMqttDriverPublisher::flushOfflineBuffer(bool force) {
 
     makeDirectory(config_.offlineBufferDir);
     const auto path = joinPath(config_.offlineBufferDir, "mqtt_offline_queue.log");
+    OfflineQueueFileLock lock(path);
+    if (!lock.locked()) {
+        return;
+    }
     std::ofstream output(path.c_str(), std::ios::app);
     if (!output.is_open()) {
         return;
@@ -1725,26 +1831,8 @@ void BuiltinMqttDriverPublisher::flushOfflineBuffer(bool force) {
     offlineMessages_.erase(offlineMessages_.begin(), offlineMessages_.begin() + static_cast<std::ptrdiff_t>(count));
     lastOfflineFlushMs_ = now;
 
-    if (config_.offlineBufferMaxDiskBytes > 0 && fileSize(path) > config_.offlineBufferMaxDiskBytes) {
-        std::ifstream input(path.c_str());
-        std::vector<std::string> lines;
-        std::string line;
-        std::uint64_t keptBytes = 0;
-        while (std::getline(input, line)) {
-            lines.push_back(line);
-        }
-        std::vector<std::string> kept;
-        for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
-            keptBytes += static_cast<std::uint64_t>(it->size() + 1);
-            if (keptBytes > config_.offlineBufferMaxDiskBytes) {
-                break;
-            }
-            kept.push_back(*it);
-        }
-        std::ofstream truncated(path.c_str(), std::ios::trunc);
-        for (auto it = kept.rbegin(); it != kept.rend(); ++it) {
-            truncated << *it << "\n";
-        }
+    if (config_.offlineBufferMaxDiskBytes > 0) {
+        trimFileToMaxBytes(path, config_.offlineBufferMaxDiskBytes);
     }
 }
 
@@ -1761,43 +1849,70 @@ void BuiltinMqttDriverPublisher::replayOfflineBuffer() {
 
     const auto path = joinPath(config_.offlineBufferDir, "mqtt_offline_queue.log");
     const auto replayBatch = std::max<std::size_t>(1, config_.offlineBufferReplayBatchSize);
+    OfflineQueueFileLock lock(path);
+    if (!lock.locked()) {
+        return;
+    }
     std::ifstream input(path.c_str());
     if (input.is_open()) {
-        std::vector<std::string> lines;
-        std::string line;
-        while (std::getline(input, line)) {
-            lines.push_back(line);
+        const auto tempPath = path + ".tmp";
+        std::ofstream output(tempPath.c_str(), std::ios::trunc);
+        if (!output.is_open()) {
+            return;
         }
-        input.close();
-
-        std::size_t cursor = 0;
-        for (; cursor < lines.size() && cursor < replayBatch; ++cursor) {
-            const auto tab = lines[cursor].find('\t');
+        std::string line;
+        bool replayFailed = false;
+        bool wroteRemaining = false;
+        std::size_t sentFile = 0;
+        std::size_t skippedMalformed = 0;
+        while (std::getline(input, line)) {
+            if (sentFile >= replayBatch || replayFailed) {
+                output << line << "\n";
+                wroteRemaining = true;
+                continue;
+            }
+            const auto tab = line.find('\t');
             if (tab == std::string::npos) {
+                ++skippedMalformed;
                 continue;
             }
             std::string topic;
             std::string payload;
-            if (!hexDecode(lines[cursor].substr(0, tab), &topic) ||
-                !hexDecode(lines[cursor].substr(tab + 1), &payload)) {
+            if (!hexDecode(line.substr(0, tab), &topic) ||
+                !hexDecode(line.substr(tab + 1), &payload) ||
+                !validOfflineTopic(topic)) {
+                ++skippedMalformed;
                 continue;
             }
             try {
                 sendJsonNow(topic, payload);
+                ++sentFile;
             } catch (...) {
-                break;
+                output << line << "\n";
+                replayFailed = true;
+                wroteRemaining = true;
             }
         }
-        if (cursor > 0) {
-            const auto tempPath = path + ".tmp";
-            std::ofstream output(tempPath.c_str(), std::ios::trunc);
-            for (std::size_t i = cursor; i < lines.size(); ++i) {
-                output << lines[i] << "\n";
-            }
-            output.close();
-            replaceFile(tempPath, path);
+        input.close();
+        output.close();
+        if (!output) {
+            remove(tempPath.c_str());
+            return;
         }
-        if (cursor < lines.size()) {
+        if (sentFile > 0 || skippedMalformed > 0) {
+            if (wroteRemaining) {
+                if (!replaceFile(tempPath, path)) {
+                    remove(tempPath.c_str());
+                    return;
+                }
+            } else {
+                remove(tempPath.c_str());
+                remove(path.c_str());
+            }
+        } else {
+            remove(tempPath.c_str());
+        }
+        if (replayFailed || wroteRemaining) {
             return;
         }
     }
