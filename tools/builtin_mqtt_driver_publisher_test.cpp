@@ -194,18 +194,22 @@ private:
                 require(!connect.empty() && (connect[0] & 0xF0) == 0x10, "test broker expected connect");
                 const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
                 send(fd, connAck, sizeof(connAck), 0);
-                const auto publish = readMqttPacket(fd);
-                require(!publish.empty() && (publish[0] & 0xF0) == 0x30, "test broker expected publish");
-                topics_.push_back(packetTopic(publish));
-                const auto id = packetId(publish);
-                const std::uint8_t pubAck[] = {
-                    0x40,
-                    0x02,
-                    static_cast<std::uint8_t>((id >> 8) & 0xFF),
-                    static_cast<std::uint8_t>(id & 0xFF)
-                };
-                send(fd, pubAck, sizeof(pubAck), 0);
-                (void)readMqttPacket(fd);
+                while (!stop_.load() && static_cast<int>(topics_.size()) < expectedPublishes_) {
+                    const auto publish = readMqttPacket(fd);
+                    if (publish.empty() || (publish[0] & 0xF0) == 0xE0) {
+                        break;
+                    }
+                    require((publish[0] & 0xF0) == 0x30, "test broker expected publish");
+                    topics_.push_back(packetTopic(publish));
+                    const auto id = packetId(publish);
+                    const std::uint8_t pubAck[] = {
+                        0x40,
+                        0x02,
+                        static_cast<std::uint8_t>((id >> 8) & 0xFF),
+                        static_cast<std::uint8_t>(id & 0xFF)
+                    };
+                    send(fd, pubAck, sizeof(pubAck), 0);
+                }
             } catch (...) {
             }
             close(fd);

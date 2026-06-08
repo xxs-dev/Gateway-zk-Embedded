@@ -1,8 +1,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <thread>
@@ -58,11 +61,26 @@ private:
         std::string pointCode;
         bool writable = false;
     };
+    struct RealtimeSession {
+        std::string machineCode;
+        std::string meterCode;
+        std::vector<std::uint32_t> indexes;
+        std::int64_t expireAtMs = 0;
+        std::int64_t nextPublishMs = 0;
+        int intervalMs = 0;
+        std::size_t requestedCount = 0;
+    };
 
+    void runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs);
     void processIncomingMessages(std::int64_t nowMs);
+    void processIncomingMessages(std::int64_t nowMs, int timeoutMs);
     void replayPendingOtaStatuses();
     void replayEventOutboxIfNeeded(std::int64_t nowMs);
     bool shouldDeferSnapshotForEventBacklog(std::int64_t nowMs);
+    bool hasActiveRealtimeSessions(std::int64_t nowMs) const;
+    void cleanupExpiredRealtimeSessions(std::int64_t nowMs);
+    void publishDueRealtimeSessions(std::int64_t nowMs);
+    int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
@@ -104,6 +122,8 @@ private:
     std::int64_t otaReplayFirstSuccessMs_ = 0;
     int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
+    std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
+    std::int64_t lastRealtimeSessionCleanupMs_ = 0;
     std::atomic<bool> running_{false};
     std::atomic<bool> otaInProgress_{false};
     std::mutex otaMutex_;

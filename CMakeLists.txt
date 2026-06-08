@@ -141,6 +141,10 @@ add_executable(builtin_mqtt_driver_publisher_test tools/builtin_mqtt_driver_publ
 target_link_libraries(builtin_mqtt_driver_publisher_test PRIVATE edge_gateway)
 target_compile_options(builtin_mqtt_driver_publisher_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(mqtt_driver_service_test tools/mqtt_driver_service_test.cpp)
+target_link_libraries(mqtt_driver_service_test PRIVATE edge_gateway)
+target_compile_options(mqtt_driver_service_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)

@@ -226,9 +226,13 @@ OtaRequest parseOtaRequest(const std::string& payload) {
 }
 
 struct RealtimeSnapshotRequest {
+    std::string sessionId;
+    std::string action;
     std::string machineCode;
     std::string meterCode;
     std::vector<std::uint32_t> indexes;
+    std::int64_t ttlSec = 0;
+    int intervalMs = 0;
 };
 
 std::size_t skipJsonWhitespace(const std::string& text, std::size_t pos) {
@@ -297,8 +301,21 @@ std::vector<std::uint32_t> parseUInt32ArrayField(const std::string& text, const 
 RealtimeSnapshotRequest parseRealtimeSnapshotRequest(const std::string& payload) {
     FlatJsonReader json(payload);
     RealtimeSnapshotRequest request;
+    json.tryGetString("sessionId", &request.sessionId);
+    json.tryGetString("action", &request.action);
+    if (request.action.empty()) {
+        json.tryGetString("op", &request.action);
+    }
+    if (request.action.empty()) {
+        json.tryGetString("mode", &request.action);
+    }
     json.tryGetString("machineCode", &request.machineCode);
     json.tryGetString("meterCode", &request.meterCode);
+    json.tryGetInt64("ttlSec", &request.ttlSec);
+    std::uint32_t intervalMs = 0;
+    if (json.tryGetUInt32("intervalMs", &intervalMs)) {
+        request.intervalMs = static_cast<int>(intervalMs);
+    }
 
     std::uint32_t index = 0;
     if (json.tryGetUInt32("index", &index) && index != 0) {
@@ -311,6 +328,30 @@ RealtimeSnapshotRequest parseRealtimeSnapshotRequest(const std::string& payload)
     std::sort(request.indexes.begin(), request.indexes.end());
     request.indexes.erase(std::unique(request.indexes.begin(), request.indexes.end()), request.indexes.end());
     return request;
+}
+
+std::string lowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool isRealtimeStopAction(const std::string& action) {
+    const auto normalized = lowerAscii(action);
+    return normalized == "stop" ||
+           normalized == "close" ||
+           normalized == "end" ||
+           normalized == "cancel" ||
+           normalized == "unsubscribe";
+}
+
+bool isRealtimeStartAction(const std::string& action) {
+    const auto normalized = lowerAscii(action);
+    return normalized == "start" ||
+           normalized == "open" ||
+           normalized == "subscribe" ||
+           normalized == "renew";
 }
 
 std::vector<PointDefinition> effectiveMeterPoints(const DeviceConfig& config, const LogicalDeviceConfig& device) {
@@ -513,15 +554,28 @@ bool MqttDriverService::isRunning() const {
 }
 
 void MqttDriverService::runScanOnce(std::int64_t nowMs) {
+    runScanOnceInternal(nowMs, std::max(10, std::min(100, driverConfig_.scanIntervalMs)));
+}
+
+void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs) {
     if (nowMs - lastOtaReplayAttemptMs_ >= 5000) {
         replayPendingOtaStatuses();
         lastOtaReplayAttemptMs_ = nowMs;
     }
 
-    processIncomingMessages(nowMs);
+    processIncomingMessages(nowMs, incomingTimeoutMs);
+    cleanupExpiredRealtimeSessions(nowMs);
+    publishDueRealtimeSessions(nowMs);
 
     if (lastFullUploadMs_ == 0) {
-        lastFullUploadMs_ = nowMs;
+        if (driverConfig_.publishFullOnStart) {
+            if (shouldDeferSnapshotForEventBacklog(nowMs)) {
+                return;
+            }
+            publishFullSnapshotNow(nowMs);
+        } else {
+            lastFullUploadMs_ = nowMs;
+        }
         return;
     }
 
@@ -613,6 +667,10 @@ bool MqttDriverService::shouldDeferSnapshotForEventBacklog(std::int64_t nowMs) {
 }
 
 void MqttDriverService::processIncomingMessages(std::int64_t nowMs) {
+    processIncomingMessages(nowMs, std::max(10, std::min(100, driverConfig_.scanIntervalMs)));
+}
+
+void MqttDriverService::processIncomingMessages(std::int64_t nowMs, int timeoutMs) {
     std::thread finishedThread;
     {
         std::lock_guard<std::mutex> lock(otaMutex_);
@@ -626,7 +684,7 @@ void MqttDriverService::processIncomingMessages(std::int64_t nowMs) {
 
     std::vector<MqttIncomingMessage> messages;
     try {
-        messages = publisher_->pollIncoming(std::max(10, std::min(100, driverConfig_.scanIntervalMs)));
+        messages = publisher_->pollIncoming(std::max(0, timeoutMs));
     } catch (const std::exception& ex) {
         publishStatusEvent(
             "mqtt-subscribe-unavailable",
@@ -693,15 +751,87 @@ void MqttDriverService::publishRealtimeValues(
     );
 }
 
-void MqttDriverService::scanLoop() {
-    const auto intervalMs = std::max(100, driverConfig_.scanIntervalMs);
-    while (running_.load()) {
-        const auto nowMs = currentTimeMs();
+bool MqttDriverService::hasActiveRealtimeSessions(std::int64_t nowMs) const {
+    for (const auto& entry : realtimeSessions_) {
+        if (entry.second.expireAtMs > nowMs) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MqttDriverService::cleanupExpiredRealtimeSessions(std::int64_t nowMs) {
+    if (lastRealtimeSessionCleanupMs_ > 0 && nowMs - lastRealtimeSessionCleanupMs_ < 1000) {
+        return;
+    }
+    lastRealtimeSessionCleanupMs_ = nowMs;
+    for (auto it = realtimeSessions_.begin(); it != realtimeSessions_.end();) {
+        if (it->second.expireAtMs <= nowMs) {
+            it = realtimeSessions_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
+    for (auto& entry : realtimeSessions_) {
+        auto& session = entry.second;
+        if (session.expireAtMs <= nowMs || session.nextPublishMs > nowMs) {
+            continue;
+        }
         try {
-            runScanOnce(nowMs);
+            if (!session.indexes.empty()) {
+                publishRealtimeValues(filterValues(session.indexes, nowMs), session.requestedCount, nowMs);
+            } else if (!session.meterCode.empty()) {
+                publishRealtimeValues(
+                    filterValuesByMeter(session.machineCode, session.meterCode, nowMs),
+                    session.requestedCount,
+                    nowMs
+                );
+            } else {
+                publishOnDemandNow({}, nowMs);
+            }
         } catch (...) {
         }
-        sleepInterruptibly(running_, intervalMs);
+        session.nextPublishMs = nowMs + std::max(100, session.intervalMs);
+    }
+}
+
+int MqttDriverService::scanLoopIncomingTimeoutMs(std::int64_t nowMs) const {
+    int waitMs = 1000;
+    if (lastFullUploadMs_ == 0) {
+        waitMs = 0;
+    } else if (driverConfig_.fullUploadIntervalMs > 0) {
+        const auto dueIn = driverConfig_.fullUploadIntervalMs - static_cast<int>(nowMs - lastFullUploadMs_);
+        waitMs = std::min(waitMs, std::max(0, dueIn));
+    }
+
+    for (const auto& entry : realtimeSessions_) {
+        const auto& session = entry.second;
+        if (session.expireAtMs <= nowMs) {
+            continue;
+        }
+        waitMs = std::min(waitMs, std::max(0, static_cast<int>(session.nextPublishMs - nowMs)));
+        waitMs = std::min(waitMs, std::max(100, session.intervalMs));
+    }
+
+    if (hasActiveRealtimeSessions(nowMs)) {
+        waitMs = std::min(waitMs, std::max(100, driverConfig_.scanIntervalMs));
+    }
+    return std::max(0, std::min(waitMs, 1000));
+}
+
+void MqttDriverService::scanLoop() {
+    while (running_.load()) {
+        const auto nowMs = currentTimeMs();
+        const auto timeoutMs = scanLoopIncomingTimeoutMs(nowMs);
+        try {
+            runScanOnceInternal(nowMs, std::min(250, timeoutMs));
+        } catch (...) {
+        }
+        const auto nextWaitMs = scanLoopIncomingTimeoutMs(currentTimeMs());
+        sleepInterruptibly(running_, nextWaitMs);
     }
 }
 
@@ -918,16 +1048,64 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
         throw std::invalid_argument("machineCode mismatch");
     }
 
+    const bool stopRequest = isRealtimeStopAction(request.action);
+    const bool sessionRequest =
+        !request.sessionId.empty() ||
+        request.ttlSec > 0 ||
+        request.intervalMs > 0 ||
+        isRealtimeStartAction(request.action) ||
+        stopRequest;
+    const std::string sessionId = request.sessionId.empty()
+        ? std::string("default:")
+            + machineCode + ":"
+            + (request.meterCode.empty() ? std::string("*") : request.meterCode)
+        : request.sessionId;
+
+    if (stopRequest) {
+        realtimeSessions_.erase(sessionId);
+        publishStatusEvent(
+            "realtime-session-stopped",
+            nowMs,
+            std::string(R"("sessionId":")") + escapeJson(sessionId) + R"(")"
+        );
+        return;
+    }
+
     if (!request.indexes.empty()) {
         publishOnDemandNow(request.indexes, nowMs);
-        return;
-    }
-    if (!request.meterCode.empty()) {
+    } else if (!request.meterCode.empty()) {
         auto values = filterValuesByMeter(machineCode, request.meterCode, nowMs);
         publishRealtimeValues(std::move(values), 0, nowMs);
+    } else {
+        publishOnDemandNow({}, nowMs);
+    }
+
+    if (!sessionRequest) {
         return;
     }
-    publishOnDemandNow({}, nowMs);
+
+    const auto ttlSec = request.ttlSec > 0 ? request.ttlSec : 30;
+    RealtimeSession session;
+    session.machineCode = machineCode;
+    session.meterCode = request.meterCode;
+    session.indexes = request.indexes;
+    session.expireAtMs = nowMs + ttlSec * 1000;
+    session.intervalMs = request.intervalMs > 0
+        ? request.intervalMs
+        : std::max(100, driverConfig_.scanIntervalMs);
+    session.intervalMs = std::max(100, session.intervalMs);
+    session.nextPublishMs = nowMs + session.intervalMs;
+    session.requestedCount = request.indexes.size();
+    realtimeSessions_[sessionId] = session;
+    publishStatusEvent(
+        "realtime-session-started",
+        nowMs,
+        std::string(R"("sessionId":")") + escapeJson(sessionId) +
+            R"(","meterCode":")" + escapeJson(request.meterCode) +
+            R"(","indexCount":)" + std::to_string(request.indexes.size()) +
+            R"(,"intervalMs":)" + std::to_string(session.intervalMs) +
+            R"(,"expireAtMs":)" + std::to_string(session.expireAtMs)
+    );
 }
 
 void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs) {

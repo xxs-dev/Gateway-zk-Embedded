@@ -82,9 +82,12 @@ private:
     void publishRealtimeJson(const std::string& topic, const std::string& payload);
     void publishEventJson(const std::string& eventType, const std::string& topic, const std::string& payload, std::int64_t eventTs);
     void sendJsonNow(const std::string& topic, const std::string& payload);
+    void sendJsonOnTxConnection(const std::string& topic, const std::string& payload);
     void enqueueOffline(const std::string& topic, const std::string& payload);
     void flushOfflineBuffer(bool force);
     void replayOfflineBuffer();
+    void ensureTxConnected();
+    void closeTx();
     void ensureSubscriberConnected();
     void closeSubscriber();
 
@@ -94,6 +97,9 @@ private:
     };
 
     MqttConfig config_;
+    std::unique_ptr<MqttConnectionHandle> txConnection_;
+    bool txConnected_ = false;
+    std::int64_t lastTxActivityMs_ = 0;
     std::unique_ptr<MqttConnectionHandle> subscriberConnection_;
     bool subscriberConnected_ = false;
     std::uint16_t nextPacketId_ = 1;

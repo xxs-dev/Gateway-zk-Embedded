@@ -11,6 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -514,6 +515,19 @@ std::string buildRealtimeChunkJson(
     return out.str();
 }
 
+std::size_t realtimeChunkBaseBytes(
+    const std::string& type,
+    const std::string& machineCode,
+    const std::string& chunkId
+) {
+    return buildRealtimeChunkJson(type, machineCode, chunkId, 1, 1, {}).size();
+}
+
+std::size_t meterWrapperBytes(const std::string& meterCode) {
+    static const std::string emptyMeter = "{\"meterCode\":\"\",\"values\":[]}";
+    return emptyMeter.size() + escapeJson(meterCode).size();
+}
+
 std::vector<std::string> encodeRealtimeChunks(
     const std::string& type,
     const std::vector<StoredPointValue>& values,
@@ -526,44 +540,71 @@ std::vector<std::string> encodeRealtimeChunks(
     const auto chunkId = randomChunkId();
     std::vector<std::vector<std::pair<std::string, std::vector<std::string>>>> chunks;
     std::vector<std::pair<std::string, std::vector<std::string>>> currentMeters;
+    std::vector<std::pair<std::string, std::vector<const StoredPointValue*>>> groupedValues;
+    std::unordered_map<std::string, std::size_t> groupedIndexByMeter;
+    const auto baseBytes = realtimeChunkBaseBytes(type, machineCode, chunkId);
+    std::size_t currentBytes = baseBytes;
 
     const auto flushCurrent = [&]() {
         if (!currentMeters.empty()) {
             chunks.push_back(currentMeters);
             currentMeters.clear();
+            currentBytes = baseBytes;
         }
     };
 
-    const auto currentSize = [&]() {
-        return buildRealtimeChunkJson(type, machineCode, chunkId, 1, 1, currentMeters).size();
+    const auto appendMeter = [&](const std::string& meterCode) {
+        const auto separatorBytes = currentMeters.empty() ? 0U : 1U;
+        currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>()));
+        currentBytes += separatorBytes + meterWrapperBytes(meterCode);
     };
 
-    const auto devices = meterCodesFromValues(values);
-    for (const auto& meterCode : devices) {
-        for (const auto& item : values) {
-            if (item.meterCode != meterCode) {
+    groupedValues.reserve(values.size());
+    groupedIndexByMeter.reserve(values.size());
+    for (const auto& item : values) {
+        if (item.meterCode.empty()) {
+            continue;
+        }
+        const auto inserted = groupedIndexByMeter.emplace(item.meterCode, groupedValues.size());
+        if (inserted.second) {
+            groupedValues.push_back(std::make_pair(item.meterCode, std::vector<const StoredPointValue*>()));
+        }
+        groupedValues[inserted.first->second].second.push_back(&item);
+    }
+
+    for (const auto& group : groupedValues) {
+        const auto& meterCode = group.first;
+        for (const auto* itemPtr : group.second) {
+            if (itemPtr == nullptr) {
                 continue;
             }
             if (currentMeters.empty() || currentMeters.back().first != meterCode) {
-                currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>()));
+                appendMeter(meterCode);
             }
             std::ostringstream itemJson;
-            appendPointValueJson(itemJson, item, format);
+            appendPointValueJson(itemJson, *itemPtr, format);
+            const auto itemPayload = itemJson.str();
             auto& meter = currentMeters.back();
-            meter.second.push_back(itemJson.str());
-            if (currentSize() <= limit) {
+            const auto separatorBytes = meter.second.empty() ? 0U : 1U;
+            const auto addedBytes = separatorBytes + itemPayload.size();
+            if (meter.second.empty() && currentMeters.size() > 1 && currentBytes + addedBytes > limit) {
+                currentBytes -= 1U + meterWrapperBytes(meterCode);
+                currentMeters.pop_back();
+                flushCurrent();
+                appendMeter(meterCode);
+            }
+            auto& targetMeter = currentMeters.back();
+            const auto targetSeparatorBytes = targetMeter.second.empty() ? 0U : 1U;
+            const auto targetAddedBytes = targetSeparatorBytes + itemPayload.size();
+            if (currentBytes + targetAddedBytes <= limit || targetMeter.second.empty()) {
+                targetMeter.second.push_back(itemPayload);
+                currentBytes += targetAddedBytes;
                 continue;
             }
-            const auto overflow = meter.second.back();
-            meter.second.pop_back();
-            if (meter.second.empty()) {
-                currentMeters.pop_back();
-            }
             flushCurrent();
-            currentMeters.push_back(std::make_pair(meterCode, std::vector<std::string>{overflow}));
-            if (currentSize() > limit) {
-                flushCurrent();
-            }
+            appendMeter(meterCode);
+            currentMeters.back().second.push_back(itemPayload);
+            currentBytes += itemPayload.size();
         }
     }
     flushCurrent();
@@ -1522,6 +1563,7 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config)
 BuiltinMqttDriverPublisher::~BuiltinMqttDriverPublisher() {
     std::lock_guard<std::mutex> lock(mutex_);
     flushOfflineBuffer(true);
+    closeTx();
     closeSubscriber();
 }
 
@@ -1767,18 +1809,23 @@ void BuiltinMqttDriverPublisher::publishEventJson(
 }
 
 void BuiltinMqttDriverPublisher::sendJsonNow(const std::string& topic, const std::string& payload) {
-    auto connection = connectMqttTransport(config_);
-    ConnectionGuard guard(connection);
+    try {
+        sendJsonOnTxConnection(topic, payload);
+    } catch (...) {
+        closeTx();
+        throw;
+    }
+}
 
-    sendAll(connection, buildConnectPacket(config_, "-tx"));
-    validateConnAck(config_, readPacket(connection));
+void BuiltinMqttDriverPublisher::sendJsonOnTxConnection(const std::string& topic, const std::string& payload) {
+    ensureTxConnected();
+    auto& connection = txConnection_->connection;
 
     sendAll(connection, buildPublishPacket(config_, topic, payload, nextPacketId_++));
     if (config_.qos > 0) {
         validatePubAck(readPacket(connection));
     }
-
-    sendAll(connection, buildDisconnectPacket());
+    lastTxActivityMs_ = currentTimeMs();
 }
 
 void BuiltinMqttDriverPublisher::enqueueOffline(const std::string& topic, const std::string& payload) {
@@ -1931,6 +1978,34 @@ void BuiltinMqttDriverPublisher::replayOfflineBuffer() {
             offlineMessages_.begin() + static_cast<std::ptrdiff_t>(sentMemory)
         );
     }
+}
+
+void BuiltinMqttDriverPublisher::ensureTxConnected() {
+    if (txConnected_) {
+        return;
+    }
+    std::unique_ptr<MqttConnectionHandle> handle(new MqttConnectionHandle(connectMqttTransport(config_)));
+    auto& connection = handle->connection;
+    sendAll(connection, buildConnectPacket(config_, "-tx"));
+    validateConnAck(config_, readPacket(connection));
+    txConnection_ = std::move(handle);
+    txConnected_ = true;
+    lastTxActivityMs_ = currentTimeMs();
+}
+
+void BuiltinMqttDriverPublisher::closeTx() {
+    if (!txConnected_) {
+        return;
+    }
+    try {
+        if (txConnection_) {
+            sendAll(txConnection_->connection, buildDisconnectPacket());
+        }
+    } catch (...) {
+    }
+    txConnection_.reset();
+    txConnected_ = false;
+    lastTxActivityMs_ = 0;
 }
 
 void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
