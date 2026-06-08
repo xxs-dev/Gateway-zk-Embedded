@@ -6,7 +6,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <vector>
 #ifndef _WIN32
 #include <sys/prctl.h>
 #endif
@@ -50,43 +49,6 @@ void setProcessName(const std::string& name) {
 #endif
 }
 
-class DemoMqttPublisher : public edge_gateway::IMqttPublisher {
-public:
-    explicit DemoMqttPublisher(edge_gateway::MqttConfig config) : config_(std::move(config)) {
-    }
-
-    void publishTelemetry(
-        const std::string& machineCode,
-        const std::vector<edge_gateway::PointValue>& values
-    ) override {
-        std::cout << "publish telemetry broker=" << config_.broker
-                  << " topic=" << config_.telemetryTopic
-                  << " machine=" << machineCode
-                  << " count=" << values.size() << std::endl;
-    }
-
-    void publishCommandResult(const edge_gateway::CommandResult& result) override {
-        std::cout << "publish command result broker=" << config_.broker
-                  << " topic=" << config_.commandReplyTopic
-                  << " point=" << result.pointCode
-                  << " success=" << result.success << std::endl;
-    }
-
-    void publishStatusMessage(
-        const std::string& machineCode,
-        const std::string& payload
-    ) override {
-        std::cout << "publish status broker=" << config_.broker
-                  << " topic=" << config_.statusTopic
-                  << " machine=" << machineCode
-                  << " payload=" << payload
-                  << std::endl;
-    }
-
-private:
-    edge_gateway::MqttConfig config_;
-};
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -111,7 +73,8 @@ int main(int argc, char* argv[]) {
     if (!appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
-    const auto config = ConfigLoader::loadFromFile(configPath, identity);
+    auto config = ConfigLoader::loadFromFile(configPath, identity);
+    config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "dlt645_2007") {
         throw std::invalid_argument("Dlt645Driver requires protocol.type=dlt645_2007");
     }
@@ -121,11 +84,6 @@ int main(int argc, char* argv[]) {
         processToken = basenameOf(configPath);
     }
     setProcessName("dlt645-" + sanitizeProcessToken(processToken));
-
-    std::shared_ptr<IMqttPublisher> mqttPublisher;
-    if (appConfig.mqtt.enabled) {
-        mqttPublisher = std::make_shared<DemoMqttPublisher>(appConfig.mqtt);
-    }
 
     SerialPortOptions serialOptions;
     serialOptions.device = config.protocol.transport.serialPort;
@@ -153,7 +111,15 @@ int main(int argc, char* argv[]) {
 
     auto dlt645Client = std::make_shared<Dlt645Client>(serialPort, serialOptions);
     MemoryPointStore store(config.memoryStore);
-    GatewayDaemon daemon(config, store, nullptr, dlt645Client, mqttPublisher);
+    GatewayDaemon daemon(
+        config,
+        store,
+        nullptr,
+        dlt645Client,
+        nullptr,
+        nullptr,
+        appConfig.systemMonitor.realtimeMeterLeaseFile
+    );
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
 
@@ -165,7 +131,7 @@ int main(int argc, char* argv[]) {
               << " meters=" << runtimeMeterCount
               << " sharedMemory=" << config.memoryStore.sharedMemoryName
               << " sqlite=" << config.memoryStore.sqlitePath
-              << " mqtt=" << (appConfig.mqtt.enabled ? appConfig.mqtt.broker : "disabled")
+              << " mqtt=disabled"
               << " mode=" << (useMock ? "mock" : "dlt645_2007")
               << std::endl;
 

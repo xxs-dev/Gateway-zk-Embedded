@@ -82,7 +82,9 @@ private:
     void publishRealtimeJson(const std::string& topic, const std::string& payload);
     void publishEventJson(const std::string& eventType, const std::string& topic, const std::string& payload, std::int64_t eventTs);
     void sendJsonNow(const std::string& topic, const std::string& payload);
-    void sendJsonOnTxConnection(const std::string& topic, const std::string& payload);
+    void sendJsonNow(const std::string& topic, const std::string& payload, int qos);
+    void sendJsonOnTxConnection(const std::string& topic, const std::string& payload, int qos);
+    int qosForTopic(const std::string& scopedTopic) const;
     void enqueueOffline(const std::string& topic, const std::string& payload);
     void flushOfflineBuffer(bool force);
     void replayOfflineBuffer();

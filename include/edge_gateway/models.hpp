@@ -423,6 +423,7 @@ struct MqttConfig {
     std::string configRestoreRequestTopic = "edge/config/restore/request";
     std::string configRestoreReplyTopic = "edge/config/restore/reply";
     int qos = 1;
+    int controlQos = 2;
     bool cleanSession = true;
     int keepAliveSec = 60;
     int sessionExpirySec = 0;
@@ -468,6 +469,8 @@ struct MqttDriverConfig {
     std::string fullUploadJsonFormat = "compactArray";
     std::vector<std::uint32_t> fullUploadIndexes;
     std::vector<MqttAlarmRule> alarmRules;
+    std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
+    int priorityControlLeaseTtlMs = 30000;
 };
 
 struct AlarmStoreConfig {
@@ -816,6 +819,7 @@ struct DeviceConfig {
     ProtocolConfig protocol;
     CollectConfig collect;
     MemoryStoreConfig memoryStore;
+    MqttDriverConfig mqttDriver;
     std::vector<PointDefinition> points;
     std::vector<LogicalDeviceConfig> meters;
 };

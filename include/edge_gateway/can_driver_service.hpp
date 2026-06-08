@@ -10,6 +10,7 @@
 
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
 namespace edge_gateway {
@@ -56,6 +57,7 @@ private:
     void receiveLoop();
     void writebackLoop();
     void persistLoop();
+    bool priorityControlBlocked(std::int64_t nowMs) const;
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void publishPointValue(const RuntimeDevice& device, const PointDefinition& point, const DecodedValue& decoded, std::int64_t ts);
     void publishOnlinePoint(RuntimeDevice& device, bool online, std::int64_t ts);
@@ -65,6 +67,7 @@ private:
     DeviceConfig config_;
     MemoryPointStore& store_;
     SqliteSampleWriter sqliteWriter_;
+    PriorityControlLease priorityControlLease_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
     std::vector<RuntimeDevice> runtimeDevices_;
     std::vector<RuntimePoint> runtimePoints_;

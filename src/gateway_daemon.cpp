@@ -195,6 +195,10 @@ GatewayDaemon::GatewayDaemon(
 ) : config_(std::move(config)),
     store_(store),
     realtimeMeterLeaseFile_(std::move(realtimeMeterLeaseFile)),
+    priorityControlLease_(
+        config_.mqttDriver.priorityControlLeaseFile,
+        config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
+    ),
     sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
     mqttPublisher_(std::move(mqttPublisher)),
     gpioPort_(std::move(gpioPort)) {
@@ -246,6 +250,9 @@ bool GatewayDaemon::isRunning() const {
 
 void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
     if (runtimeDevices_.empty()) {
+        return;
+    }
+    if (priorityControlBlocked(nowMsValue)) {
         return;
     }
     const auto batchSize = collectRuntimeMeterBatchSize();
@@ -325,6 +332,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"reason":"unknown-index")"
             );
+            priorityControlLease_.release(command.cmdId);
             continue;
         }
         try {
@@ -349,9 +357,11 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                         R"(","index":)" + std::to_string(command.index) +
                         R"(,"message":")" + escapeJson(result.message) + R"(")"
                 );
+                priorityControlLease_.release(command.cmdId);
                 continue;
             }
             ++processed;
+            priorityControlLease_.release(command.cmdId);
             publishStatusEvent(
                 "writeback-succeeded",
                 nowMsValue,
@@ -374,6 +384,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
             );
+            priorityControlLease_.release(command.cmdId);
         }
     }
     return processed;
@@ -385,8 +396,10 @@ void GatewayDaemon::collectLoop() {
         try {
             const auto ts = nowMs();
             store_.heartbeatRegisteredPoints(ts);
-            collectOnce(ts);
-            store_.removeExpired(ts);
+            if (!priorityControlBlocked(ts)) {
+                collectOnce(ts);
+                store_.removeExpired(ts);
+            }
         } catch (...) {
         }
         sleepInterruptibly(running_, intervalMs);
@@ -417,6 +430,10 @@ std::size_t GatewayDaemon::collectRuntimeMeterBatchSize() const {
         runtimeDevices_.size(),
         static_cast<std::size_t>(std::max(1, config_.collect.runtimeMeterBatchSize))
     );
+}
+
+bool GatewayDaemon::priorityControlBlocked(std::int64_t nowMsValue) const {
+    return priorityControlLease_.isBlocked(nowMsValue);
 }
 
 std::vector<std::string> GatewayDaemon::activeRealtimeMeterCodes(std::int64_t nowMsValue) {
@@ -467,8 +484,10 @@ void GatewayDaemon::persistLoop() {
         try {
             const auto ts = nowMs();
             store_.heartbeatRegisteredPoints(ts);
-            flushPersistentOnce();
-            store_.removeExpired(ts);
+            if (!priorityControlBlocked(ts)) {
+                flushPersistentOnce();
+                store_.removeExpired(ts);
+            }
         } catch (...) {
         }
         sleepInterruptibly(running_, intervalMs);

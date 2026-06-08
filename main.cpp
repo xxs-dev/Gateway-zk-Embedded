@@ -77,7 +77,8 @@ int main(int argc, char* argv[]) {
     if (!appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
-    const auto config = ConfigLoader::loadFromFile(configPath, identity);
+    auto config = ConfigLoader::loadFromFile(configPath, identity);
+    config.mqttDriver = appConfig.mqttDriver;
     std::string processToken;
     if (config.protocol.type == "modbus_tcp") {
         processToken = "tcp" + std::to_string(config.protocol.tcp.port);

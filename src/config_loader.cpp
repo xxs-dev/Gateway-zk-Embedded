@@ -1106,6 +1106,7 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.configRestoreRequestTopic = requireString(object, "configRestoreRequestTopic", config.configRestoreRequestTopic);
     config.configRestoreReplyTopic = requireString(object, "configRestoreReplyTopic", config.configRestoreReplyTopic);
     config.qos = requireInt(object, "qos", config.qos);
+    config.controlQos = boundedInt(requireInt(object, "controlQos", config.controlQos), 0, 2);
     config.cleanSession = requireBool(object, "cleanSession", config.cleanSession);
     config.keepAliveSec = requireInt(object, "keepAliveSec", config.keepAliveSec);
     config.sessionExpirySec = requireInt(object, "sessionExpirySec", config.sessionExpirySec);
@@ -1256,6 +1257,16 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
             config.alarmRules.push_back(parseMqttAlarmRule(*item));
         }
     }
+    config.priorityControlLeaseFile = requireString(
+        object,
+        "priorityControlLeaseFile",
+        config.priorityControlLeaseFile
+    );
+    config.priorityControlLeaseTtlMs = boundedInt(
+        requireInt(object, "priorityControlLeaseTtlMs", config.priorityControlLeaseTtlMs),
+        1000,
+        300000
+    );
     return config;
 }
 
@@ -1912,6 +1923,7 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.configRestoreRequestTopic = "edge/config/restore/request";
     config.mqtt.configRestoreReplyTopic = "edge/config/restore/reply";
     config.mqtt.qos = 1;
+    config.mqtt.controlQos = 2;
     config.mqtt.cleanSession = true;
     config.mqtt.keepAliveSec = 60;
     config.mqtt.sessionExpirySec = 0;
@@ -1925,6 +1937,8 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqttDriver.publishFullOnStart = false;
     config.mqttDriver.publishAllOnFull = true;
     config.mqttDriver.fullUploadJsonFormat = "compactArray";
+    config.mqttDriver.priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
+    config.mqttDriver.priorityControlLeaseTtlMs = 30000;
     config.alarmStore.enabled = false;
     config.alarmStore.sqlitePath = "alarm_events.db";
     config.eventEngine.enabled = true;

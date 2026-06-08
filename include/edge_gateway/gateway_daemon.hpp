@@ -10,6 +10,7 @@
 #include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
 namespace edge_gateway {
@@ -50,6 +51,7 @@ private:
     void writebackLoop();
     int collectLoopIntervalMs() const;
     std::size_t collectRuntimeMeterBatchSize() const;
+    bool priorityControlBlocked(std::int64_t nowMs) const;
     std::vector<std::size_t> activeRealtimeDeviceIndexes(std::int64_t nowMs);
     std::vector<std::string> activeRealtimeMeterCodes(std::int64_t nowMs);
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
@@ -67,6 +69,7 @@ private:
     std::unordered_map<std::string, std::size_t> meterCodeToRuntimeDevice_;
     std::size_t collectCursor_ = 0;
     std::string realtimeMeterLeaseFile_;
+    PriorityControlLease priorityControlLease_;
     std::int64_t realtimeLeaseLastReadMs_ = 0;
     std::int64_t realtimeLeaseExpireAtMs_ = 0;
     std::vector<std::string> realtimeLeaseMeterCodes_;

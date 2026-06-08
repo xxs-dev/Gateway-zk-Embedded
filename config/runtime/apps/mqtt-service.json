@@ -28,6 +28,7 @@
     "configPullRequestTopic": "edge/config/pull/request",
     "configPullReplyTopic": "edge/config/pull/reply",
     "qos": 1,
+    "controlQos": 2,
     "maxPayloadBytes": 163840,
     "cleanSession": true,
     "keepAliveSec": 60,
@@ -76,7 +77,9 @@
     "publishFullOnStart": true,
     "publishAllOnFull": true,
     "fullUploadJsonFormat": "compactArray",
-    "fullUploadIndexes": []
+    "fullUploadIndexes": [],
+    "priorityControlLeaseFile": "/opt/modbus-gateway/run/priority-control.json",
+    "priorityControlLeaseTtlMs": 30000
   },
   "alarmStore": {
     "enabled": true,

@@ -413,7 +413,8 @@ MqttDriverService::MqttDriverService(
     router_(*ownedRouter_),
     publisher_(std::move(publisher)),
     eventOutbox_(std::move(eventOutbox)),
-    otaService_(std::move(otaService)) {
+    otaService_(std::move(otaService)),
+    priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver") {
     router_.addStore(driverConfig_.sharedMemoryName, store);
     router_.addRoutesFromDeviceConfigs(deviceConfigs, driverConfig_.sharedMemoryName);
 
@@ -462,7 +463,8 @@ MqttDriverService::MqttDriverService(
     router_(router),
     publisher_(std::move(publisher)),
     eventOutbox_(std::move(eventOutbox)),
-    otaService_(std::move(otaService)) {
+    otaService_(std::move(otaService)),
+    priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver") {
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
     }
@@ -880,7 +882,13 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         if (!route.writable) {
             throw std::invalid_argument("point write is disabled");
         }
-
+        priorityControlLease_.acquire(
+            request.cmdId,
+            route.meterCode,
+            request.index,
+            nowMs,
+            driverConfig_.priorityControlLeaseTtlMs
+        );
         PendingWriteCommand command;
         command.cmdId = request.cmdId;
         command.index = request.index;
@@ -889,6 +897,7 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         command.ts = request.ts > 0 ? request.ts : nowMs;
         const auto submitResult = router_.submitWriteCommand(command);
         if (!submitResult.accepted) {
+            priorityControlLease_.release(request.cmdId);
             throw std::invalid_argument(submitResult.message);
         }
 

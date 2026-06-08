@@ -2,10 +2,9 @@
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
-#include <utility>
-#include <vector>
 #ifndef _WIN32
 #include <sys/prctl.h>
 #endif
@@ -44,44 +43,6 @@ void setProcessName(const std::string& name) {
 #endif
 }
 
-class DemoMqttPublisher : public edge_gateway::IMqttPublisher {
-public:
-    explicit DemoMqttPublisher(edge_gateway::MqttConfig config) : config_(std::move(config)) {
-    }
-
-    void publishTelemetry(
-        const std::string& machineCode,
-        const std::vector<edge_gateway::PointValue>& values
-    ) override {
-        std::cout << "publish telemetry broker=" << config_.broker
-                  << " topic=" << config_.telemetryTopic
-                  << " machine=" << machineCode
-                  << " count=" << values.size() << std::endl;
-    }
-
-    void publishCommandResult(const edge_gateway::CommandResult& result) override {
-        std::cout << "publish command result broker=" << config_.broker
-                  << " topic=" << config_.commandReplyTopic
-                  << " index=" << result.index
-                  << " point=" << result.pointCode
-                  << " success=" << result.success << std::endl;
-    }
-
-    void publishStatusMessage(
-        const std::string& machineCode,
-        const std::string& payload
-    ) override {
-        std::cout << "publish status broker=" << config_.broker
-                  << " topic=" << config_.statusTopic
-                  << " machine=" << machineCode
-                  << " payload=" << payload
-                  << std::endl;
-    }
-
-private:
-    edge_gateway::MqttConfig config_;
-};
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -106,7 +67,8 @@ int main(int argc, char* argv[]) {
     if (!appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
-    const auto config = ConfigLoader::loadFromFile(configPath, identity);
+    auto config = ConfigLoader::loadFromFile(configPath, identity);
+    config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "can_socketcan" && config.protocol.type != "can") {
         throw std::invalid_argument("CanDriver requires protocol.type=can_socketcan");
     }
@@ -116,13 +78,8 @@ int main(int argc, char* argv[]) {
         : config.protocol.can.interfaceName;
     setProcessName("can-" + sanitizeProcessToken(processToken));
 
-    std::shared_ptr<IMqttPublisher> mqttPublisher;
-    if (appConfig.mqtt.enabled) {
-        mqttPublisher = std::make_shared<DemoMqttPublisher>(appConfig.mqtt);
-    }
-
     MemoryPointStore store(config.memoryStore);
-    CanDriverService service(config, store, mqttPublisher);
+    CanDriverService service(config, store, nullptr);
 
     if (once) {
         const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -145,7 +102,7 @@ int main(int argc, char* argv[]) {
               << " bitrate=" << config.protocol.can.bitrate
               << " sharedMemory=" << config.memoryStore.sharedMemoryName
               << " sqlite=" << config.memoryStore.sqlitePath
-              << " mqtt=" << (appConfig.mqtt.enabled ? appConfig.mqtt.broker : "disabled")
+              << " mqtt=disabled"
               << std::endl;
 
     while (g_running) {

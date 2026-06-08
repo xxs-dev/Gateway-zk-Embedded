@@ -1,5 +1,7 @@
 #include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -116,7 +118,7 @@ PointDefinition makePoint(std::uint32_t index, const std::string& pointCode) {
     return point;
 }
 
-ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs) {
+ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, bool firstPointWritable = false) {
     ServiceFixture fixture;
     fixture.shmName = "mqtt_driver_service_test_" + suffix;
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -129,6 +131,7 @@ ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs) 
     meter.meterCode = "METER_1";
     meter.points.push_back(makePoint(1001, "P_1"));
     meter.points.push_back(makePoint(1002, "P_2"));
+    meter.points[0].write.enable = firstPointWritable;
     fixture.deviceConfig.meters.push_back(meter);
 
     fixture.router.addStore(fixture.shmName, *fixture.store);
@@ -182,7 +185,26 @@ MqttIncomingMessage realtimeRequest(const std::string& payload) {
     return message;
 }
 
+MqttIncomingMessage commandRequest(const std::string& payload) {
+    MqttIncomingMessage message;
+    message.type = MqttIncomingType::CommandRequest;
+    message.payload = payload;
+    return message;
+}
+
+std::string readFile(const std::string& path) {
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    if (!input) {
+        return {};
+    }
+    return std::string(
+        (std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>()
+    );
+}
+
 void cleanupFixture(ServiceFixture& fixture) {
+    std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
     fixture.service.reset();
     fixture.store.reset();
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -253,6 +275,34 @@ void testRealtimeSessionStopRequest() {
     cleanupFixture(fixture);
 }
 
+void testCommandRequestCreatesPriorityControlLease() {
+    auto fixture = makeFixture("command_lease", 10000, true);
+    fixture.service.reset();
+    fixture.driverConfig.priorityControlLeaseFile = "/tmp/mqtt_driver_service_command_lease.json";
+    fixture.driverConfig.priorityControlLeaseTtlMs = 30000;
+    std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"CMD_LEASE\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7}"
+    ));
+    fixture.service->runScanOnce(1770000040000LL);
+    const auto lease = readFile(fixture.driverConfig.priorityControlLeaseFile);
+    require(lease.find("\"cmdId\":\"CMD_LEASE\"") != std::string::npos, "command should create priority lease");
+    require(lease.find("\"meterCode\":\"METER_1\"") != std::string::npos, "priority lease should include meter code");
+
+    const auto pending = fixture.store->peekPendingWriteCommands();
+    require(pending.size() == 1, "command should enqueue pending write");
+    require(pending.front().cmdId == "CMD_LEASE", "pending write cmdId mismatch");
+    cleanupFixture(fixture);
+}
+
 }  // namespace
 
 int main() {
@@ -261,6 +311,7 @@ int main() {
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
+        testCommandRequestCreatesPriorityControlLease();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

@@ -17,6 +17,7 @@
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/priority_control_lease.hpp"
 
 namespace edge_gateway {
 
@@ -114,6 +115,7 @@ private:
     std::shared_ptr<IMqttDriverPublisher> publisher_;
     std::unique_ptr<MqttEventOutbox> eventOutbox_;
     std::unique_ptr<OtaService> otaService_;
+    PriorityControlLease priorityControlLease_;
     std::unordered_set<std::string> machineCodes_;
     std::unordered_map<std::uint32_t, PointRoute> pointRoutes_;
     std::int64_t lastFullUploadMs_ = 0;

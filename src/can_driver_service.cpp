@@ -156,6 +156,10 @@ CanDriverService::CanDriverService(
 ) : config_(std::move(config)),
     store_(store),
     sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    priorityControlLease_(
+        config_.mqttDriver.priorityControlLeaseFile,
+        config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
+    ),
     mqttPublisher_(std::move(mqttPublisher)) {
     if (config_.protocol.type != "can_socketcan" && config_.protocol.type != "can") {
         throw std::invalid_argument("CanDriver requires protocol.type=can_socketcan");
@@ -399,6 +403,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
     for (const auto& command : commands) {
         const auto pointIt = indexToRuntimePoint_.find(command.index);
         if (pointIt == indexToRuntimePoint_.end()) {
+            priorityControlLease_.release(command.cmdId);
             continue;
         }
         const auto& runtimePoint = runtimePoints_[pointIt->second];
@@ -443,6 +448,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
             );
+            priorityControlLease_.release(command.cmdId);
             ++processed;
         } catch (const std::exception& ex) {
             publishStatusEvent(
@@ -452,6 +458,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
             );
+            priorityControlLease_.release(command.cmdId);
         }
     }
     return processed;
@@ -476,11 +483,13 @@ void CanDriverService::updateOnlineStatus(std::int64_t nowMsValue) {
 void CanDriverService::receiveLoop() {
     while (running_.load()) {
         try {
-            processReceiveOnce(std::max(50, config_.collect.defaultIntervalMs));
             const auto ts = nowMs();
-            updateOnlineStatus(ts);
             store_.heartbeatRegisteredPoints(ts);
-            store_.removeExpired(ts);
+            if (!priorityControlBlocked(ts)) {
+                processReceiveOnce(std::max(50, config_.collect.defaultIntervalMs));
+                updateOnlineStatus(ts);
+                store_.removeExpired(ts);
+            }
         } catch (const std::exception& ex) {
             publishStatusEvent("receive-failed", nowMs(), std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
             sleepInterruptibly(running_, 1000);
@@ -505,11 +514,18 @@ void CanDriverService::persistLoop() {
     const auto intervalMs = std::max(1000, config_.memoryStore.persistFlushIntervalMs);
     while (running_.load()) {
         try {
-            flushPersistentOnce();
+            const auto ts = nowMs();
+            if (!priorityControlBlocked(ts)) {
+                flushPersistentOnce();
+            }
         } catch (...) {
         }
         sleepInterruptibly(running_, intervalMs);
     }
+}
+
+bool CanDriverService::priorityControlBlocked(std::int64_t nowMsValue) const {
+    return priorityControlLease_.isBlocked(nowMsValue);
 }
 
 void CanDriverService::publishStatusEvent(

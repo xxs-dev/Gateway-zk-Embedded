@@ -501,7 +501,7 @@ void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const s
             scoped.c_str(),
             static_cast<int>(payload.size()),
             payload.data(),
-            config_.qos,
+            qosForTopic(scoped),
             false,
             nullptr
         );
@@ -512,7 +512,7 @@ void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const s
             scoped.c_str(),
             static_cast<int>(payload.size()),
             payload.data(),
-            config_.qos,
+            qosForTopic(scoped),
             false
         );
     }
@@ -523,6 +523,22 @@ void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const s
 
     impl_->loop(client, 1000, 1);
     cleanup();
+}
+
+int MosquittoMqttDriverPublisher::qosForTopic(const std::string& scopedTopicValue) const {
+    const auto matches = [&](const std::string& topic) {
+        return !topic.empty() && scopedTopic(topic, config_.topicMachineCode) == scopedTopicValue;
+    };
+    if (matches(config_.commandReplyTopic) ||
+        matches(config_.otaReplyTopic) ||
+        matches(config_.otaStatusTopic) ||
+        matches(config_.diagReplyTopic) ||
+        matches(config_.configApplyReplyTopic) ||
+        matches(config_.configDeleteReplyTopic) ||
+        matches(config_.configRestoreReplyTopic)) {
+        return std::max(0, std::min(2, config_.controlQos));
+    }
+    return std::max(0, std::min(2, config_.qos));
 }
 
 }  // namespace edge_gateway

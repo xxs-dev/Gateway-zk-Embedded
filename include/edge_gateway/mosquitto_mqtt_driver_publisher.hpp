@@ -69,6 +69,7 @@ private:
     struct Impl;
 
     void publishJson(const std::string& topic, const std::string& payload);
+    int qosForTopic(const std::string& scopedTopic) const;
 
     MqttConfig config_;
     std::unique_ptr<Impl> impl_;

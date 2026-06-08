@@ -42,7 +42,11 @@ constexpr std::uint8_t kPacketConnect = 0x10;
 constexpr std::uint8_t kPacketConnAck = 0x20;
 constexpr std::uint8_t kPacketPublishQos0 = 0x30;
 constexpr std::uint8_t kPacketPublishQos1 = 0x32;
+constexpr std::uint8_t kPacketPublishQos2 = 0x34;
 constexpr std::uint8_t kPacketPubAck = 0x40;
+constexpr std::uint8_t kPacketPubRec = 0x50;
+constexpr std::uint8_t kPacketPubRel = 0x62;
+constexpr std::uint8_t kPacketPubComp = 0x70;
 constexpr std::uint8_t kPacketSubscribe = 0x82;
 constexpr std::uint8_t kPacketSubAck = 0x90;
 constexpr std::uint8_t kPacketPingReq = 0xC0;
@@ -237,11 +241,13 @@ std::vector<std::uint8_t> buildPublishPacket(
     const MqttConfig& config,
     const std::string& topic,
     const std::string& payload,
-    std::uint16_t packetId
+    std::uint16_t packetId,
+    int qos
 ) {
+    qos = std::max(0, std::min(2, qos));
     std::vector<std::uint8_t> variableHeader;
     appendString(variableHeader, topic);
-    if (config.qos > 0) {
+    if (qos > 0) {
         variableHeader.push_back(static_cast<std::uint8_t>((packetId >> 8) & 0xFF));
         variableHeader.push_back(static_cast<std::uint8_t>(packetId & 0xFF));
     }
@@ -250,7 +256,7 @@ std::vector<std::uint8_t> buildPublishPacket(
     }
 
     std::vector<std::uint8_t> packet;
-    packet.push_back(config.qos > 0 ? kPacketPublishQos1 : kPacketPublishQos0);
+    packet.push_back(qos == 0 ? kPacketPublishQos0 : qos == 1 ? kPacketPublishQos1 : kPacketPublishQos2);
     appendRemainingLength(packet, variableHeader.size() + payload.size());
     packet.insert(packet.end(), variableHeader.begin(), variableHeader.end());
     packet.insert(packet.end(), payload.begin(), payload.end());
@@ -270,6 +276,8 @@ std::vector<std::uint8_t> buildSubscribePacket(
     const std::string& configRestoreTopic,
     std::uint16_t packetId
 ) {
+    const auto normalQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config.qos)));
+    const auto controlQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config.controlQos)));
     std::vector<std::uint8_t> variableHeader;
     variableHeader.push_back(static_cast<std::uint8_t>((packetId >> 8) & 0xFF));
     variableHeader.push_back(static_cast<std::uint8_t>(packetId & 0xFF));
@@ -280,39 +288,39 @@ std::vector<std::uint8_t> buildSubscribePacket(
     std::vector<std::uint8_t> payload;
     if (!commandTopic.empty()) {
         appendString(payload, commandTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(controlQos);
     }
     if (!otaTopic.empty()) {
         appendString(payload, otaTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(controlQos);
     }
     if (!realtimeRequestTopic.empty()) {
         appendString(payload, realtimeRequestTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(normalQos);
     }
     if (!systemMonitorTopic.empty()) {
         appendString(payload, systemMonitorTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(normalQos);
     }
     if (!diagTopic.empty()) {
         appendString(payload, diagTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(controlQos);
     }
     if (!configPullTopic.empty()) {
         appendString(payload, configPullTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(normalQos);
     }
     if (!configApplyTopic.empty()) {
         appendString(payload, configApplyTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(controlQos);
     }
     if (!configDeleteTopic.empty()) {
         appendString(payload, configDeleteTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(controlQos);
     }
     if (!configRestoreTopic.empty()) {
         appendString(payload, configRestoreTopic);
-        payload.push_back(static_cast<std::uint8_t>(config.qos > 0 ? 1 : 0));
+        payload.push_back(controlQos);
     }
 
     std::vector<std::uint8_t> packet;
@@ -338,6 +346,47 @@ std::vector<std::uint8_t> buildPubAckPacket(std::uint16_t packetId, bool mqtt5) 
         packet.push_back(static_cast<std::uint8_t>(packetId & 0xFF));
     }
     return packet;
+}
+
+std::vector<std::uint8_t> buildTwoBytePacket(std::uint8_t packetType, std::uint16_t packetId, bool mqtt5) {
+    std::vector<std::uint8_t> packet;
+    packet.push_back(packetType);
+    if (mqtt5) {
+        packet.push_back(0x04);
+        packet.push_back(static_cast<std::uint8_t>((packetId >> 8) & 0xFF));
+        packet.push_back(static_cast<std::uint8_t>(packetId & 0xFF));
+        packet.push_back(0x00);
+        packet.push_back(0x00);
+    } else {
+        packet.push_back(0x02);
+        packet.push_back(static_cast<std::uint8_t>((packetId >> 8) & 0xFF));
+        packet.push_back(static_cast<std::uint8_t>(packetId & 0xFF));
+    }
+    return packet;
+}
+
+std::vector<std::uint8_t> buildPubRelPacket(std::uint16_t packetId, bool mqtt5) {
+    return buildTwoBytePacket(kPacketPubRel, packetId, mqtt5);
+}
+
+std::vector<std::uint8_t> buildPubRecPacket(std::uint16_t packetId, bool mqtt5) {
+    return buildTwoBytePacket(kPacketPubRec, packetId, mqtt5);
+}
+
+std::vector<std::uint8_t> buildPubCompPacket(std::uint16_t packetId, bool mqtt5) {
+    return buildTwoBytePacket(kPacketPubComp, packetId, mqtt5);
+}
+
+std::uint16_t packetIdentifier(const std::vector<std::uint8_t>& packet) {
+    if (packet.empty()) {
+        return 0;
+    }
+    std::size_t headerSize = 0;
+    decodeRemainingLength(packet, &headerSize);
+    if (headerSize + 2 > packet.size()) {
+        return 0;
+    }
+    return static_cast<std::uint16_t>((packet[headerSize] << 8) | packet[headerSize + 1]);
 }
 
 std::vector<std::uint8_t> buildPingReqPacket() {
@@ -1218,6 +1267,18 @@ void validatePubAck(const std::vector<std::uint8_t>& packet) {
     }
 }
 
+void validatePubRec(const std::vector<std::uint8_t>& packet) {
+    if (packet.empty() || (packet[0] & 0xF0) != kPacketPubRec) {
+        throw std::runtime_error("mqtt pubrec missing");
+    }
+}
+
+void validatePubComp(const std::vector<std::uint8_t>& packet) {
+    if (packet.empty() || (packet[0] & 0xF0) != kPacketPubComp) {
+        throw std::runtime_error("mqtt pubcomp missing");
+    }
+}
+
 void validateSubAck(const std::vector<std::uint8_t>& packet) {
     if (packet.empty() || (packet[0] & 0xF0) != kPacketSubAck) {
         throw std::runtime_error("mqtt suback missing");
@@ -1681,13 +1742,28 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
                 }
                 continue;
             }
+            if (packet[0] == kPacketPubRel) {
+                const auto id = packetIdentifier(packet);
+                if (id != 0) {
+                    sendAll(connection, buildPubCompPacket(id, config_.protocolVersion == "mqtt5"));
+                }
+                if (!waitReadable(connection, 0)) {
+                    break;
+                }
+                continue;
+            }
 
             MqttIncomingMessage message;
             std::uint16_t packetId = 0;
             if (parsePublishPacket(config_, packet, &message, &packetId)) {
                 messages.push_back(message);
                 if (packetId != 0) {
-                    sendAll(connection, buildPubAckPacket(packetId, config_.protocolVersion == "mqtt5"));
+                    const int incomingQos = (packet[0] >> 1) & 0x03;
+                    if (incomingQos == 2) {
+                        sendAll(connection, buildPubRecPacket(packetId, config_.protocolVersion == "mqtt5"));
+                    } else {
+                        sendAll(connection, buildPubAckPacket(packetId, config_.protocolVersion == "mqtt5"));
+                    }
                 }
             }
 
@@ -1809,23 +1885,49 @@ void BuiltinMqttDriverPublisher::publishEventJson(
 }
 
 void BuiltinMqttDriverPublisher::sendJsonNow(const std::string& topic, const std::string& payload) {
+    sendJsonNow(topic, payload, qosForTopic(topic));
+}
+
+void BuiltinMqttDriverPublisher::sendJsonNow(const std::string& topic, const std::string& payload, int qos) {
     try {
-        sendJsonOnTxConnection(topic, payload);
+        sendJsonOnTxConnection(topic, payload, qos);
     } catch (...) {
         closeTx();
         throw;
     }
 }
 
-void BuiltinMqttDriverPublisher::sendJsonOnTxConnection(const std::string& topic, const std::string& payload) {
+void BuiltinMqttDriverPublisher::sendJsonOnTxConnection(const std::string& topic, const std::string& payload, int qos) {
     ensureTxConnected();
     auto& connection = txConnection_->connection;
 
-    sendAll(connection, buildPublishPacket(config_, topic, payload, nextPacketId_++));
-    if (config_.qos > 0) {
+    qos = std::max(0, std::min(2, qos));
+    const auto packetId = nextPacketId_++;
+    sendAll(connection, buildPublishPacket(config_, topic, payload, packetId, qos));
+    if (qos == 1) {
         validatePubAck(readPacket(connection));
+    } else if (qos == 2) {
+        validatePubRec(readPacket(connection));
+        sendAll(connection, buildPubRelPacket(packetId, config_.protocolVersion == "mqtt5"));
+        validatePubComp(readPacket(connection));
     }
     lastTxActivityMs_ = currentTimeMs();
+}
+
+int BuiltinMqttDriverPublisher::qosForTopic(const std::string& scopedTopicValue) const {
+    const auto matches = [&](const std::string& topic) {
+        return !topic.empty() && scopedTopic(topic, config_.topicMachineCode) == scopedTopicValue;
+    };
+    if (matches(config_.commandReplyTopic) ||
+        matches(config_.otaReplyTopic) ||
+        matches(config_.otaStatusTopic) ||
+        matches(config_.diagReplyTopic) ||
+        matches(config_.configApplyReplyTopic) ||
+        matches(config_.configDeleteReplyTopic) ||
+        matches(config_.configRestoreReplyTopic)) {
+        return std::max(0, std::min(2, config_.controlQos));
+    }
+    return std::max(0, std::min(2, config_.qos));
 }
 
 void BuiltinMqttDriverPublisher::enqueueOffline(const std::string& topic, const std::string& payload) {

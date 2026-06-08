@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifndef _WIN32
@@ -135,8 +136,50 @@ std::uint16_t packetId(const std::vector<std::uint8_t>& packet) {
     return static_cast<std::uint16_t>((packet[cursor] << 8) | packet[cursor + 1]);
 }
 
+std::uint16_t ackPacketId(const std::vector<std::uint8_t>& packet) {
+    if (packet.size() < 4) {
+        return 0;
+    }
+    return static_cast<std::uint16_t>((packet[2] << 8) | packet[3]);
+}
+
+void sendPubAck(int fd, std::uint16_t id) {
+    const std::uint8_t pubAck[] = {
+        0x40,
+        0x02,
+        static_cast<std::uint8_t>((id >> 8) & 0xFF),
+        static_cast<std::uint8_t>(id & 0xFF)
+    };
+    send(fd, pubAck, sizeof(pubAck), 0);
+}
+
+void sendPubRec(int fd, std::uint16_t id) {
+    const std::uint8_t pubRec[] = {
+        0x50,
+        0x02,
+        static_cast<std::uint8_t>((id >> 8) & 0xFF),
+        static_cast<std::uint8_t>(id & 0xFF)
+    };
+    send(fd, pubRec, sizeof(pubRec), 0);
+}
+
+void sendPubComp(int fd, std::uint16_t id) {
+    const std::uint8_t pubComp[] = {
+        0x70,
+        0x02,
+        static_cast<std::uint8_t>((id >> 8) & 0xFF),
+        static_cast<std::uint8_t>(id & 0xFF)
+    };
+    send(fd, pubComp, sizeof(pubComp), 0);
+}
+
 class TestMqttBroker {
 public:
+    struct PublishedMessage {
+        std::string topic;
+        int qos = 0;
+    };
+
     explicit TestMqttBroker(int expectedPublishes)
         : expectedPublishes_(expectedPublishes) {
         listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -179,12 +222,21 @@ public:
     }
 
     std::vector<std::string> topics() const {
-        return topics_;
+        std::vector<std::string> result;
+        result.reserve(messages_.size());
+        for (const auto& message : messages_) {
+            result.push_back(message.topic);
+        }
+        return result;
+    }
+
+    std::vector<PublishedMessage> messages() const {
+        return messages_;
     }
 
 private:
     void run() {
-        while (!stop_.load() && static_cast<int>(topics_.size()) < expectedPublishes_) {
+        while (!stop_.load() && static_cast<int>(messages_.size()) < expectedPublishes_) {
             const int fd = accept(listenFd_, nullptr, nullptr);
             if (fd < 0) {
                 continue;
@@ -194,21 +246,24 @@ private:
                 require(!connect.empty() && (connect[0] & 0xF0) == 0x10, "test broker expected connect");
                 const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
                 send(fd, connAck, sizeof(connAck), 0);
-                while (!stop_.load() && static_cast<int>(topics_.size()) < expectedPublishes_) {
+                while (!stop_.load() && static_cast<int>(messages_.size()) < expectedPublishes_) {
                     const auto publish = readMqttPacket(fd);
                     if (publish.empty() || (publish[0] & 0xF0) == 0xE0) {
                         break;
                     }
                     require((publish[0] & 0xF0) == 0x30, "test broker expected publish");
-                    topics_.push_back(packetTopic(publish));
+                    const auto qos = static_cast<int>((publish[0] >> 1) & 0x03);
+                    messages_.push_back(PublishedMessage{packetTopic(publish), qos});
                     const auto id = packetId(publish);
-                    const std::uint8_t pubAck[] = {
-                        0x40,
-                        0x02,
-                        static_cast<std::uint8_t>((id >> 8) & 0xFF),
-                        static_cast<std::uint8_t>(id & 0xFF)
-                    };
-                    send(fd, pubAck, sizeof(pubAck), 0);
+                    if (qos == 1) {
+                        sendPubAck(fd, id);
+                    } else if (qos == 2) {
+                        sendPubRec(fd, id);
+                        const auto pubRel = readMqttPacket(fd);
+                        require(!pubRel.empty() && pubRel[0] == 0x62, "test broker expected pubrel");
+                        require(ackPacketId(pubRel) == id, "test broker pubrel id mismatch");
+                        sendPubComp(fd, id);
+                    }
                 }
             } catch (...) {
             }
@@ -221,7 +276,7 @@ private:
     int port_ = 0;
     std::atomic<bool> stop_ {false};
     std::thread thread_;
-    std::vector<std::string> topics_;
+    std::vector<PublishedMessage> messages_;
 };
 
 void testOfflineReplayRemovesSentRecords() {
@@ -269,6 +324,37 @@ void testOfflineReplayRemovesSentRecords() {
     std::remove((queuePath + ".lock").c_str());
     rmdir(dir.c_str());
 }
+
+void testControlTopicsUseQos2() {
+    TestMqttBroker broker(2);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_TEST";
+    config.topicMachineCode = "GW_TEST";
+    config.qos = 1;
+    config.controlQos = 2;
+    config.statusTopic = "edge/status";
+    config.commandReplyTopic = "edge/command/reply";
+    config.offlineBufferEnabled = false;
+
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        edge_gateway::MqttCommandReply reply;
+        reply.cmdId = "CMD1";
+        reply.machineCode = "GW_TEST";
+        reply.success = true;
+        reply.message = "accepted";
+        publisher.publishCommandReply(config.commandReplyTopic, reply);
+        publisher.publishJsonMessage(config.statusTopic, "{\"ok\":true}");
+    }
+
+    const auto messages = broker.messages();
+    require(messages.size() == 2, "test broker should capture two publishes");
+    require(messages[0].topic == "edge/command/reply/GW_TEST", "command reply topic mismatch");
+    require(messages[0].qos == 2, "command reply should use qos2");
+    require(messages[1].topic == "edge/status/GW_TEST", "status topic mismatch");
+    require(messages[1].qos == 1, "status should keep normal qos");
+}
 #endif
 
 }  // namespace
@@ -296,6 +382,7 @@ int main() {
 
 #ifndef _WIN32
     testOfflineReplayRemovesSentRecords();
+    testControlTopicsUseQos2();
 #endif
 
     std::cout << "builtin_mqtt_driver_publisher_test passed" << std::endl;

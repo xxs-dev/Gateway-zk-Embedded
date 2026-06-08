@@ -34,6 +34,7 @@ add_library(edge_gateway
     src/modbus_codec.cpp
     src/posix_serial_port.cpp
     src/point_store_router.cpp
+    src/priority_control_lease.cpp
     src/read_task_planner.cpp
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
@@ -120,6 +121,10 @@ target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-colo
 add_executable(gateway_daemon_realtime_priority_test tools/gateway_daemon_realtime_priority_test.cpp)
 target_link_libraries(gateway_daemon_realtime_priority_test PRIVATE edge_gateway)
 target_compile_options(gateway_daemon_realtime_priority_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(priority_control_lease_test tools/priority_control_lease_test.cpp)
+target_link_libraries(priority_control_lease_test PRIVATE edge_gateway)
+target_compile_options(priority_control_lease_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(modbus_rtu_client_resync_test tools/modbus_rtu_client_resync_test.cpp)
 target_link_libraries(modbus_rtu_client_resync_test PRIVATE edge_gateway)
