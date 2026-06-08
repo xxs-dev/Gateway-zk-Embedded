@@ -10,7 +10,6 @@
 #include <utility>
 #include <stdexcept>
 
-#include "edge_gateway/dlt645_codec.hpp"
 #include "edge_gateway/modbus_codec.hpp"
 #include "edge_gateway/read_task_planner.hpp"
 
@@ -69,105 +68,16 @@ Collector::Collector(
     DeviceConfig config,
     MemoryPointStore& store,
     std::shared_ptr<IModbusClient> modbusClient,
-    std::shared_ptr<Dlt645Client> dlt645Client,
-    std::shared_ptr<IMqttPublisher> mqttPublisher,
-    std::shared_ptr<IGpioPort> gpioPort
-) : config_(std::move(config)),
-    store_(store),
-    modbusClient_(std::move(modbusClient)),
-    dlt645Client_(std::move(dlt645Client)),
-    mqttPublisher_(std::move(mqttPublisher)),
-    gpioPort_(std::move(gpioPort)) {
-    if (config_.protocol.type == "dlt645_2007") {
-        if (!dlt645Client_) {
-            throw std::invalid_argument("dlt645Client is required");
-        }
-    } else if (config_.protocol.type == "local_dio") {
-        if (!gpioPort_) {
-            throw std::invalid_argument("gpioPort is required");
-        }
-    } else if (!modbusClient_) {
+    std::shared_ptr<IMqttPublisher> mqttPublisher
+) : CollectorBase(std::move(config), store, std::move(mqttPublisher)),
+    modbusClient_(std::move(modbusClient)) {
+    if (!modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
-    }
-    for (const auto& point : config_.points) {
-        if (point.enabled) {
-            store_.registerPoint(config_.machineCode, config_.meterCode, point);
-        }
     }
 }
 
 CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     CollectCycleResult result;
-    if (config_.protocol.type == "local_dio") {
-        const auto points = duePoints(nowMs);
-        bool hasSuccessfulRead = false;
-        std::string firstFailureMessage;
-        for (const auto& point : points) {
-            PointValue value;
-            const auto pointNowMs = currentTimeMs();
-            try {
-                value = collectLocalDioPoint(point, pointNowMs);
-                hasSuccessfulRead = true;
-            } catch (const std::exception& ex) {
-                if (firstFailureMessage.empty()) {
-                    firstFailureMessage = ex.what();
-                }
-                value = buildFailedPointValue(point, ex.what(), currentTimeMs());
-            }
-            lastReadMs_[point.index] = nowMs;
-            lastValueUpdateMs_[point.index] = nowMs;
-            if (point.read.cachePolicy.storeLatest) {
-                store_.putLatest(value);
-            }
-            result.values.push_back(std::move(value));
-        }
-        if (!points.empty()) {
-            publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
-        }
-        if (mqttPublisher_ && !result.values.empty()) {
-            mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
-        }
-        if (!points.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
-            throw std::runtime_error(firstFailureMessage);
-        }
-        return result;
-    }
-
-    if (config_.protocol.type == "dlt645_2007") {
-        const auto points = duePoints(nowMs);
-        bool hasSuccessfulRead = false;
-        std::string firstFailureMessage;
-        for (const auto& point : points) {
-            PointValue value;
-            const auto pointNowMs = currentTimeMs();
-            try {
-                value = collectDlt645Point(point, pointNowMs);
-                hasSuccessfulRead = true;
-            } catch (const std::exception& ex) {
-                if (firstFailureMessage.empty()) {
-                    firstFailureMessage = ex.what();
-                }
-                value = buildFailedPointValue(point, ex.what(), currentTimeMs());
-            }
-            lastReadMs_[point.index] = nowMs;
-            lastValueUpdateMs_[point.index] = nowMs;
-            if (point.read.cachePolicy.storeLatest) {
-                store_.putLatest(value);
-            }
-            result.values.push_back(std::move(value));
-        }
-        if (!points.empty()) {
-            publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
-        }
-        if (mqttPublisher_ && !result.values.empty()) {
-            mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
-        }
-        if (!points.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
-            throw std::runtime_error(firstFailureMessage);
-        }
-        return result;
-    }
-
     if (shouldSkipForBackoff(nowMs)) {
         publishDeviceOnlineStatus(currentOnline(), nowMs);
         return result;
@@ -466,128 +376,6 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         throw std::runtime_error(firstFailureMessage);
     }
     return result;
-}
-
-PointValue Collector::collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs) {
-    if (!gpioPort_) {
-        throw std::runtime_error("gpioPort is required");
-    }
-    if (point.read.gpio < 0) {
-        throw std::runtime_error("local_dio point missing read.gpio: " + point.pointCode);
-    }
-    if (point.read.dataType != "digital_input" && point.read.dataType != "digital_output") {
-        throw std::runtime_error("unsupported local_dio read.dataType: " + point.read.dataType);
-    }
-    gpioPort_->exportGpio(point.read.gpio);
-    if (point.read.dataType == "digital_input") {
-        gpioPort_->setDirection(point.read.gpio, "in");
-    }
-    const auto gpioHigh = gpioPort_->readValue(point.read.gpio);
-    auto logicalValue = gpioHigh == point.read.activeHigh ? 1.0 : 0.0;
-    if (point.read.debounceMs > 0) {
-        const auto raw = lastDioRawValues_.find(point.index);
-        if (raw == lastDioRawValues_.end()) {
-            lastDioRawValues_[point.index] = logicalValue;
-            lastDioStableValues_[point.index] = logicalValue;
-            lastDioRawChangeMs_[point.index] = nowMs;
-        } else if (raw->second != logicalValue) {
-            lastDioRawValues_[point.index] = logicalValue;
-            lastDioRawChangeMs_[point.index] = nowMs;
-        }
-
-        const auto stable = lastDioStableValues_.find(point.index);
-        const auto changedAt = lastDioRawChangeMs_.find(point.index);
-        if (stable != lastDioStableValues_.end() && stable->second != logicalValue &&
-            changedAt != lastDioRawChangeMs_.end() && nowMs - changedAt->second >= point.read.debounceMs) {
-            lastDioStableValues_[point.index] = logicalValue;
-        }
-        logicalValue = lastDioStableValues_[point.index];
-    }
-
-    DecodedValue decoded;
-    decoded.value = logicalValue;
-    decoded.text = logicalValue > 0.0 ? "1" : "0";
-    decoded.rawHex = gpioHigh ? "01" : "00";
-    return buildPointValue(point, decoded, nowMs);
-}
-
-PointValue Collector::collectDlt645Point(const PointDefinition& point, std::int64_t nowMs) const {
-    if (config_.address.empty()) {
-        throw std::runtime_error("DLT645 meter address is empty");
-    }
-    if (config_.protocol.type != "dlt645_2007") {
-        throw std::runtime_error("collectDlt645Point called for non-DLT645 protocol");
-    }
-    if (point.read.dlt645Di.empty()) {
-        throw std::runtime_error("DLT645 point missing read.dlt645.di: " + point.pointCode);
-    }
-    try {
-        const auto response = dlt645Client_->readData(config_.address, point.read.dlt645Di);
-        const auto decoded = Dlt645Codec::decodeReadResponse(response, point);
-    return buildPointValue(point, decoded, nowMs);
-    } catch (const std::exception& ex) {
-        throw std::runtime_error(
-            std::string("DLT645 read failed address=") + config_.address +
-            " di=" + point.read.dlt645Di +
-            " pointCode=" + point.pointCode +
-            " error=" + ex.what()
-        );
-    }
-}
-
-PointValue Collector::buildFailedPointValue(
-    const PointDefinition& point,
-    const std::string& message,
-    std::int64_t nowMs
-) const {
-    PointValue value;
-    value.index = point.index;
-    value.machineCode = config_.machineCode;
-    value.meterCode = config_.meterCode;
-    value.pointCode = point.pointCode;
-    value.pointName = point.name;
-    value.category = point.category;
-    value.unit = point.read.unit;
-    value.value = 0.0;
-    value.text = message;
-    value.rawHex.clear();
-    value.quality = 0;
-    value.qualityMsg = message;
-    value.ts = nowMs;
-    value.expireAt = nowMs + point.read.cachePolicy.ttlMs;
-    value.stale = false;
-    value.function = point.read.function;
-    value.address = point.address;
-    value.length = point.read.length;
-    value.isStore = false;
-    value.persistIntervalSec = point.persistIntervalSec;
-    return value;
-}
-
-std::vector<PointDefinition> Collector::duePoints(std::int64_t nowMs, bool forceDue) {
-    std::vector<PointDefinition> points;
-    points.reserve(config_.points.size());
-    for (const auto& point : config_.points) {
-        if (!point.enabled || !point.read.enable || point.read.dataType == "device_online") {
-            continue;
-        }
-        if (!forceDue) {
-            const auto intervalMs = effectiveIntervalMs(point);
-            const auto last = lastReadMs_.find(point.index);
-            if (last != lastReadMs_.end() && nowMs - last->second < intervalMs) {
-                continue;
-            }
-        }
-        points.push_back(point);
-    }
-    return points;
-}
-
-int Collector::effectiveIntervalMs(const PointDefinition& point) const {
-    if (point.read.intervalMs > 0) {
-        return std::max(100, point.read.intervalMs);
-    }
-    return std::max(100, config_.collect.defaultIntervalMs);
 }
 
 bool Collector::shouldSkipForBackoff(std::int64_t nowMs) const {
@@ -966,18 +754,6 @@ int Collector::taskPriority(const ReadTask& task) const {
     return priority == std::numeric_limits<int>::max() ? 0 : priority;
 }
 
-void Collector::publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const {
-    for (const auto& point : config_.points) {
-        if (!point.enabled || !point.read.enable || point.read.dataType != "device_online") {
-            continue;
-        }
-        auto value = buildDeviceOnlineValue(point, online, nowMs);
-        if (point.read.cachePolicy.storeLatest) {
-            store_.putLatest(value);
-        }
-    }
-}
-
 std::vector<std::uint16_t> Collector::executeReadTask(const ReadTask& task) const {
     switch (task.function) {
         case 1:
@@ -991,60 +767,6 @@ std::vector<std::uint16_t> Collector::executeReadTask(const ReadTask& task) cons
         default:
             throw std::invalid_argument("unsupported read function: " + std::to_string(task.function));
     }
-}
-
-PointValue Collector::buildPointValue(
-    const PointDefinition& point,
-    const DecodedValue& decoded,
-    std::int64_t nowMs
-) const {
-    PointValue value;
-    value.index = point.index;
-    value.machineCode = config_.machineCode;
-    value.meterCode = config_.meterCode;
-    value.pointCode = point.pointCode;
-    value.pointName = point.name;
-    value.category = point.category;
-    value.unit = point.read.unit;
-    value.value = decoded.value;
-    value.text = decoded.text;
-    value.rawHex = decoded.rawHex;
-    value.ts = nowMs;
-    value.expireAt = nowMs + point.read.cachePolicy.ttlMs;
-    value.function = point.read.function;
-    value.address = point.address;
-    value.length = point.read.length;
-    value.isStore = point.isStore;
-    value.persistIntervalSec = point.persistIntervalSec;
-    return value;
-}
-
-PointValue Collector::buildDeviceOnlineValue(
-    const PointDefinition& point,
-    bool online,
-    std::int64_t nowMs
-) const {
-    PointValue value;
-    value.index = point.index;
-    value.machineCode = config_.machineCode;
-    value.meterCode = config_.meterCode;
-    value.pointCode = point.pointCode;
-    value.pointName = point.name;
-    value.category = point.category;
-    value.unit = point.read.unit;
-    value.value = online ? 1.0 : 0.0;
-    value.text = online ? "online" : "offline";
-    value.rawHex.clear();
-    value.quality = 1;
-    value.qualityMsg = "ok";
-    value.ts = nowMs;
-    value.expireAt = nowMs + point.read.cachePolicy.ttlMs;
-    value.function = 0;
-    value.address = point.address;
-    value.length = 0;
-    value.isStore = point.isStore;
-    value.persistIntervalSec = point.persistIntervalSec;
-    return value;
 }
 
 }  // namespace edge_gateway

@@ -1,16 +1,16 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include "edge_gateway/collector.hpp"
-#include "edge_gateway/command_executor.hpp"
+#include "edge_gateway/command_executor_interface.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/memory_point_store.hpp"
-#include "edge_gateway/modbus_northbound_server.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
@@ -18,6 +18,10 @@ namespace edge_gateway {
 
 class GatewayDaemon {
 public:
+    using CollectorFactory = std::function<std::unique_ptr<ICollector>(const DeviceConfig&, MemoryPointStore&)>;
+    using CommandExecutorFactory = std::function<std::unique_ptr<ICommandExecutor>(const DeviceConfig&, MemoryPointStore&)>;
+    using ServiceStartStop = std::function<void(bool start)>;
+
     GatewayDaemon(
         DeviceConfig config,
         MemoryPointStore& store,
@@ -25,6 +29,16 @@ public:
         std::shared_ptr<Dlt645Client> dlt645Client = nullptr,
         std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
         std::shared_ptr<IGpioPort> gpioPort = nullptr,
+        std::string realtimeMeterLeaseFile = std::string()
+    );
+
+    GatewayDaemon(
+        DeviceConfig config,
+        MemoryPointStore& store,
+        CollectorFactory collectorFactory,
+        CommandExecutorFactory commandExecutorFactory,
+        ServiceStartStop auxiliaryService,
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
         std::string realtimeMeterLeaseFile = std::string()
     );
     ~GatewayDaemon();
@@ -43,8 +57,8 @@ public:
 private:
     struct RuntimeDevice {
         DeviceConfig config;
-        std::unique_ptr<Collector> collector;
-        std::unique_ptr<CommandExecutor> executor;
+        std::unique_ptr<ICollector> collector;
+        std::unique_ptr<ICommandExecutor> executor;
     };
 
     void collectLoop();
@@ -56,12 +70,7 @@ private:
     std::vector<std::size_t> activeRealtimeDeviceIndexes(std::int64_t nowMs);
     std::vector<std::string> activeRealtimeMeterCodes(std::int64_t nowMs);
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
-    void initializeRuntimeDevices(
-        std::shared_ptr<IModbusClient> modbusClient,
-        std::shared_ptr<Dlt645Client> dlt645Client,
-        std::shared_ptr<IMqttPublisher> mqttPublisher,
-        std::shared_ptr<IGpioPort> gpioPort
-    );
+    void initializeRuntimeDevices();
 
     DeviceConfig config_;
     MemoryPointStore& store_;
@@ -76,8 +85,9 @@ private:
     std::vector<std::string> realtimeLeaseMeterCodes_;
     SqliteSampleWriter sqliteWriter_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
-    std::shared_ptr<IGpioPort> gpioPort_;
-    std::unique_ptr<ModbusNorthboundServer> northboundServer_;
+    CollectorFactory collectorFactory_;
+    CommandExecutorFactory commandExecutorFactory_;
+    ServiceStartStop auxiliaryService_;
     std::atomic<bool> running_{false};
     std::thread collectThread_;
     std::thread persistThread_;

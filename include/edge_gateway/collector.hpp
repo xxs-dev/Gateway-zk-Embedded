@@ -8,28 +8,72 @@
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
-#include "edge_gateway/dlt645_client.hpp"
 
 namespace edge_gateway {
+
+class Dlt645Client;
 
 struct CollectCycleResult {
     std::vector<ReadTask> executedTasks;
     std::vector<PointValue> values;
 };
 
-class Collector {
+class ICollector {
+public:
+    virtual ~ICollector() = default;
+
+    virtual CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) = 0;
+    virtual void publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const = 0;
+};
+
+class CollectorBase : public ICollector {
+public:
+    CollectorBase(
+        DeviceConfig config,
+        MemoryPointStore& store,
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+    );
+
+    void publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const override;
+
+protected:
+    PointValue buildFailedPointValue(
+        const PointDefinition& point,
+        const std::string& message,
+        std::int64_t nowMs
+    ) const;
+    PointValue buildPointValue(
+        const PointDefinition& point,
+        const DecodedValue& decoded,
+        std::int64_t nowMs
+    ) const;
+    PointValue buildDeviceOnlineValue(
+        const PointDefinition& point,
+        bool online,
+        std::int64_t nowMs
+    ) const;
+    std::vector<PointDefinition> duePoints(std::int64_t nowMs, bool forceDue = false);
+    int effectiveIntervalMs(const PointDefinition& point) const;
+
+    DeviceConfig config_;
+    MemoryPointStore& store_;
+    std::shared_ptr<IMqttPublisher> mqttPublisher_;
+    std::unordered_map<std::uint32_t, std::int64_t> lastReadMs_;
+    std::unordered_map<std::uint32_t, std::int64_t> lastValueUpdateMs_;
+};
+
+// Modbus collector. The historical name is kept so existing tests/tools that
+// instantiate Collector continue to mean "Modbus collector".
+class Collector : public CollectorBase {
 public:
     Collector(
         DeviceConfig config,
         MemoryPointStore& store,
         std::shared_ptr<IModbusClient> modbusClient,
-        std::shared_ptr<Dlt645Client> dlt645Client = nullptr,
-        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
-        std::shared_ptr<IGpioPort> gpioPort = nullptr
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
     );
 
-    CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false);
-    void publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const;
+    CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
 
 private:
     bool shouldSkipForBackoff(std::int64_t nowMs) const;
@@ -72,38 +116,9 @@ private:
     int pointPriority(const PointDefinition& point) const;
     int taskPriority(const ReadTask& task) const;
     std::vector<std::uint16_t> executeReadTask(const ReadTask& task) const;
-    PointValue collectDlt645Point(const PointDefinition& point, std::int64_t nowMs) const;
-    PointValue collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs);
-    PointValue buildFailedPointValue(
-        const PointDefinition& point,
-        const std::string& message,
-        std::int64_t nowMs
-    ) const;
-    PointValue buildPointValue(
-        const PointDefinition& point,
-        const DecodedValue& decoded,
-        std::int64_t nowMs
-    ) const;
-    PointValue buildDeviceOnlineValue(
-        const PointDefinition& point,
-        bool online,
-        std::int64_t nowMs
-    ) const;
-    std::vector<PointDefinition> duePoints(std::int64_t nowMs, bool forceDue = false);
-    int effectiveIntervalMs(const PointDefinition& point) const;
 
-    DeviceConfig config_;
-    MemoryPointStore& store_;
     std::shared_ptr<IModbusClient> modbusClient_;
-    std::shared_ptr<Dlt645Client> dlt645Client_;
-    std::shared_ptr<IMqttPublisher> mqttPublisher_;
-    std::shared_ptr<IGpioPort> gpioPort_;
-    std::unordered_map<std::uint32_t, std::int64_t> lastReadMs_;
-    std::unordered_map<std::uint32_t, std::int64_t> lastValueUpdateMs_;
     std::unordered_map<std::uint32_t, int> pointFailureCounts_;
-    std::unordered_map<std::uint32_t, double> lastDioRawValues_;
-    std::unordered_map<std::uint32_t, double> lastDioStableValues_;
-    std::unordered_map<std::uint32_t, std::int64_t> lastDioRawChangeMs_;
     int consecutiveSuccesses_ = 0;
     int consecutiveFailures_ = 0;
     bool online_ = false;
@@ -118,6 +133,41 @@ private:
     mutable std::unordered_map<std::string, std::size_t> adaptiveSplitProbeCursors_;
     mutable std::size_t offlineProbeCursor_ = 0;
     std::int64_t lastBackgroundTaskMs_ = -1;
+};
+
+class Dlt645Collector : public CollectorBase {
+public:
+    Dlt645Collector(
+        DeviceConfig config,
+        MemoryPointStore& store,
+        std::shared_ptr<Dlt645Client> dlt645Client,
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+    );
+
+    CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
+
+private:
+    std::shared_ptr<Dlt645Client> dlt645Client_;
+};
+
+class DioCollector : public CollectorBase {
+public:
+    DioCollector(
+        DeviceConfig config,
+        MemoryPointStore& store,
+        std::shared_ptr<IGpioPort> gpioPort,
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+    );
+
+    CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
+
+private:
+    PointValue collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs);
+
+    std::shared_ptr<IGpioPort> gpioPort_;
+    std::unordered_map<std::uint32_t, double> lastDioRawValues_;
+    std::unordered_map<std::uint32_t, double> lastDioStableValues_;
+    std::unordered_map<std::uint32_t, std::int64_t> lastDioRawChangeMs_;
 };
 
 }  // namespace edge_gateway

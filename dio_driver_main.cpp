@@ -10,6 +10,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/dio_command_executor.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/sysfs_gpio_port.hpp"
@@ -81,10 +82,18 @@ int main(int argc, char* argv[]) {
     GatewayDaemon daemon(
         config,
         store,
+        [gpioPort](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
+            return std::unique_ptr<ICollector>(
+                new DioCollector(runtimeConfig, runtimeStore, gpioPort)
+            );
+        },
+        [gpioPort](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
+            return std::unique_ptr<ICommandExecutor>(
+                new DioCommandExecutor(runtimeConfig, runtimeStore, gpioPort)
+            );
+        },
         nullptr,
         nullptr,
-        nullptr,
-        gpioPort,
         appConfig.systemMonitor.realtimeMeterLeaseFile
     );
 

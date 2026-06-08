@@ -187,10 +187,10 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
 GatewayDaemon::GatewayDaemon(
     DeviceConfig config,
     MemoryPointStore& store,
-    std::shared_ptr<IModbusClient> modbusClient,
-    std::shared_ptr<Dlt645Client> dlt645Client,
+    CollectorFactory collectorFactory,
+    CommandExecutorFactory commandExecutorFactory,
+    ServiceStartStop auxiliaryService,
     std::shared_ptr<IMqttPublisher> mqttPublisher,
-    std::shared_ptr<IGpioPort> gpioPort,
     std::string realtimeMeterLeaseFile
 ) : config_(std::move(config)),
     store_(store),
@@ -201,11 +201,16 @@ GatewayDaemon::GatewayDaemon(
     ),
     sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
     mqttPublisher_(std::move(mqttPublisher)),
-    gpioPort_(std::move(gpioPort)) {
-    initializeRuntimeDevices(std::move(modbusClient), std::move(dlt645Client), mqttPublisher_, gpioPort_);
-    if (config_.northboundServer.enabled) {
-        northboundServer_.reset(new ModbusNorthboundServer(config_, store_));
+    collectorFactory_(std::move(collectorFactory)),
+    commandExecutorFactory_(std::move(commandExecutorFactory)),
+    auxiliaryService_(std::move(auxiliaryService)) {
+    if (!collectorFactory_) {
+        throw std::invalid_argument("collectorFactory is required");
     }
+    if (!commandExecutorFactory_) {
+        throw std::invalid_argument("commandExecutorFactory is required");
+    }
+    initializeRuntimeDevices();
 }
 
 GatewayDaemon::~GatewayDaemon() {
@@ -225,8 +230,8 @@ void GatewayDaemon::start() {
             R"(","mode":")" + config_.protocol.type + R"(")"
     );
 
-    if (northboundServer_) {
-        northboundServer_->start();
+    if (auxiliaryService_) {
+        auxiliaryService_(true);
     }
     collectThread_ = std::thread(&GatewayDaemon::collectLoop, this);
     persistThread_ = std::thread(&GatewayDaemon::persistLoop, this);
@@ -248,8 +253,8 @@ void GatewayDaemon::stop() {
     if (writebackThread_.joinable()) {
         writebackThread_.join();
     }
-    if (northboundServer_) {
-        northboundServer_->stop();
+    if (auxiliaryService_) {
+        auxiliaryService_(false);
     }
 }
 
@@ -541,20 +546,22 @@ void GatewayDaemon::publishStatusEvent(
     mqttPublisher_->publishStatusMessage(config_.machineCode, payload.str());
 }
 
-void GatewayDaemon::initializeRuntimeDevices(
-    std::shared_ptr<IModbusClient> modbusClient,
-    std::shared_ptr<Dlt645Client> dlt645Client,
-    std::shared_ptr<IMqttPublisher> mqttPublisher,
-    std::shared_ptr<IGpioPort> gpioPort
-) {
+void GatewayDaemon::initializeRuntimeDevices() {
     auto expandedConfigs = expandRuntimeConfigs(config_);
+    store_.registerDevicePoints(expandedConfigs);
     runtimeDevices_.reserve(expandedConfigs.size());
 
     for (std::size_t i = 0; i < expandedConfigs.size(); ++i) {
         RuntimeDevice runtimeDevice;
         runtimeDevice.config = std::move(expandedConfigs[i]);
-        runtimeDevice.collector.reset(new Collector(runtimeDevice.config, store_, modbusClient, dlt645Client, nullptr, gpioPort));
-        runtimeDevice.executor.reset(new CommandExecutor(runtimeDevice.config, store_, modbusClient, mqttPublisher, gpioPort));
+        runtimeDevice.collector = collectorFactory_(runtimeDevice.config, store_);
+        runtimeDevice.executor = commandExecutorFactory_(runtimeDevice.config, store_);
+        if (!runtimeDevice.collector) {
+            throw std::invalid_argument("collectorFactory returned null for meter: " + runtimeDevice.config.meterCode);
+        }
+        if (!runtimeDevice.executor) {
+            throw std::invalid_argument("commandExecutorFactory returned null for meter: " + runtimeDevice.config.meterCode);
+        }
 
         for (const auto& point : runtimeDevice.config.points) {
             const auto inserted = indexToRuntimeDevice_.emplace(point.index, runtimeDevices_.size());

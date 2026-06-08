@@ -3,13 +3,14 @@
 #include <cstdint>
 #include <memory>
 
+#include "edge_gateway/command_executor_interface.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
 
 namespace edge_gateway {
 
-class CommandExecutor {
+class CommandExecutor : public ICommandExecutor {
 public:
     CommandExecutor(
         DeviceConfig config,
@@ -25,7 +26,7 @@ public:
         std::uint32_t index,
         double value,
         std::int64_t nowMs
-    ) const;
+    ) const override;
 
 private:
     const PointDefinition& findPoint(const std::string& pointCode) const;

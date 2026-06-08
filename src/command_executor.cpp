@@ -62,11 +62,7 @@ CommandExecutor::CommandExecutor(
     } else if (config_.protocol.type != "dlt645_2007" && !modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
     }
-    for (const auto& point : config_.points) {
-        if (point.enabled) {
-            store_.registerPoint(config_.machineCode, config_.meterCode, point);
-        }
-    }
+    store_.registerPoints(config_.machineCode, config_.meterCode, config_.points);
 }
 
 CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64_t nowMs) const {

@@ -27,6 +27,12 @@ public:
         const std::string& meterCode,
         const PointDefinition& point
     );
+    void registerPoints(
+        const std::string& machineCode,
+        const std::string& meterCode,
+        const std::vector<PointDefinition>& points
+    );
+    void registerDevicePoints(const std::vector<DeviceConfig>& configs);
 
     void putLatest(const PointValue& value);
 

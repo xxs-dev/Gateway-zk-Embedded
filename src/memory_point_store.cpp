@@ -40,6 +40,7 @@ constexpr std::size_t kMaxClaimSlots = 100000;
 constexpr std::size_t kCmdIdSize = 64;
 constexpr std::size_t kSourceSize = 32;
 constexpr std::int64_t kOwnerLeaseMs = 30000;
+constexpr int kSharedMutexLockTimeoutSec = 30;
 
 struct SharedLatestSlot {
     std::uint32_t index = 0;
@@ -164,7 +165,7 @@ public:
     explicit SharedLockGuard(pthread_mutex_t* mutex) : mutex_(mutex) {
         timespec deadline{};
         clock_gettime(CLOCK_REALTIME, &deadline);
-        deadline.tv_sec += 5;
+        deadline.tv_sec += kSharedMutexLockTimeoutSec;
 
         const auto rc = pthread_mutex_timedlock(mutex_, &deadline);
         if (rc == EOWNERDEAD) {
@@ -923,30 +924,95 @@ void MemoryPointStore::registerPoint(
     const std::string& meterCode,
     const PointDefinition& point
 ) {
-    if (point.index == 0) {
-        throw std::invalid_argument("point.index must be non-zero");
-    }
+    registerPoints(machineCode, meterCode, std::vector<PointDefinition>{point});
+}
 
+void MemoryPointStore::registerPoints(
+    const std::string& machineCode,
+    const std::string& meterCode,
+    const std::vector<PointDefinition>& points
+) {
+    DeviceConfig config;
+    config.machineCode = machineCode;
+    config.meterCode = meterCode;
+    config.points = points;
+    registerDevicePoints(std::vector<DeviceConfig>{config});
+}
+
+void MemoryPointStore::registerDevicePoints(const std::vector<DeviceConfig>& configs) {
     WriteLock lock(mutex_);
-    const auto key = buildKey(machineCode, meterCode, point.pointCode);
-    const auto keyIt = keyToIndex_.find(key);
-    if (keyIt != keyToIndex_.end() && keyIt->second != point.index) {
-        throw std::invalid_argument("point key already bound to another index");
-    }
 
-    const auto bindingIt = bindings_.find(point.index);
-    if (bindingIt != bindings_.end()) {
-        const auto& binding = bindingIt->second;
-        if (binding.machineCode != machineCode ||
-            binding.meterCode != meterCode ||
-            binding.pointCode != point.pointCode) {
-            throw std::invalid_argument("duplicate point.index detected");
+    struct PendingRegistration {
+        std::string key;
+        PointBinding binding;
+        const PointDefinition* point = nullptr;
+    };
+
+    std::vector<PendingRegistration> pendingRegistrations;
+    pendingRegistrations.reserve(configs.size() * 16);
+    std::vector<const PointDefinition*> newPoints;
+    std::unordered_map<std::string, std::uint32_t> pendingKeys;
+    std::unordered_map<std::uint32_t, PointBinding> pendingBindings;
+
+    for (const auto& config : configs) {
+        for (const auto& point : config.points) {
+            if (!point.enabled) {
+                continue;
+            }
+            if (point.index == 0) {
+                throw std::invalid_argument("point.index must be non-zero");
+            }
+
+            const auto key = buildKey(config.machineCode, config.meterCode, point.pointCode);
+            const auto keyIt = keyToIndex_.find(key);
+            if (keyIt != keyToIndex_.end() && keyIt->second != point.index) {
+                throw std::invalid_argument("point key already bound to another index");
+            }
+            const auto pendingKeyIt = pendingKeys.find(key);
+            if (pendingKeyIt != pendingKeys.end() && pendingKeyIt->second != point.index) {
+                throw std::invalid_argument("point key already bound to another index");
+            }
+
+            const PointBinding binding{point.index, config.machineCode, config.meterCode, point.pointCode};
+            const auto bindingIt = bindings_.find(point.index);
+            if (bindingIt != bindings_.end()) {
+                const auto& existing = bindingIt->second;
+                if (existing.machineCode != binding.machineCode ||
+                    existing.meterCode != binding.meterCode ||
+                    existing.pointCode != binding.pointCode) {
+                    throw std::invalid_argument("duplicate point.index detected");
+                }
+            }
+            const auto pendingBindingIt = pendingBindings.find(point.index);
+            if (pendingBindingIt != pendingBindings.end()) {
+                const auto& existing = pendingBindingIt->second;
+                if (existing.machineCode != binding.machineCode ||
+                    existing.meterCode != binding.meterCode ||
+                    existing.pointCode != binding.pointCode) {
+                    throw std::invalid_argument("duplicate point.index detected");
+                }
+                continue;
+            }
+
+            pendingKeys[key] = point.index;
+            pendingBindings[point.index] = binding;
+            pendingRegistrations.push_back(PendingRegistration{key, binding, &point});
+            if (registeredIndexes_.find(point.index) == registeredIndexes_.end()) {
+                newPoints.push_back(&point);
+            }
         }
     }
 
-    keyToIndex_[key] = point.index;
-    bindings_[point.index] = PointBinding{point.index, machineCode, meterCode, point.pointCode};
-    registeredIndexes_.insert(point.index);
+    if (newPoints.empty()) {
+        for (const auto& entry : pendingKeys) {
+            keyToIndex_[entry.first] = entry.second;
+        }
+        for (const auto& entry : pendingBindings) {
+            bindings_[entry.first] = entry.second;
+            registeredIndexes_.insert(entry.first);
+        }
+        return;
+    }
 
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
@@ -957,14 +1023,69 @@ void MemoryPointStore::registerPoint(
     auto* layout2 = layoutFrom(sharedView_);
     const auto ts = currentTimeMs();
     cleanupStaleOwnersAndClaims(layout2, ts);
-    if (isIndexClaimedByOtherActiveOwner(layout2, point.index, ownerId_, ts)) {
-        throw std::invalid_argument("point.index already claimed by another active process");
+
+    std::unordered_set<std::uint64_t> activeOtherOwners;
+    for (const auto& owner : layout2->owners) {
+        if (owner.ownerId != ownerId_ && isOwnerAlive(owner, ts)) {
+            activeOtherOwners.insert(owner.ownerId);
+        }
     }
+    if (!activeOtherOwners.empty()) {
+        std::unordered_set<std::uint32_t> claimedByOtherOwners;
+        for (const auto& claim : layout2->claims) {
+            if (claim.occupied && activeOtherOwners.find(claim.ownerId) != activeOtherOwners.end()) {
+                claimedByOtherOwners.insert(claim.index);
+            }
+        }
+        for (const auto* point : newPoints) {
+            if (claimedByOtherOwners.find(point->index) != claimedByOtherOwners.end()) {
+                throw std::invalid_argument("point.index already claimed by another active process");
+            }
+        }
+    }
+
     auto* ownerSlot = allocateOwnerSlot(layout2, ownerId_);
     ownerSlot->heartbeatMs = ts;
     copyString(ownerSlot->source, kSourceSize, ownerSource_);
-    auto* claimSlot = allocateClaimSlot(layout2, point.index, ownerId_);
-    claimSlot->heartbeatMs = ts;
+
+    std::unordered_map<std::uint32_t, SharedClaimSlot*> ownClaims;
+    std::vector<SharedClaimSlot*> freeClaims;
+    ownClaims.reserve(newPoints.size());
+    freeClaims.reserve(newPoints.size());
+    for (auto& claim : layout2->claims) {
+        if (claim.occupied) {
+            if (claim.ownerId == ownerId_) {
+                ownClaims.emplace(claim.index, &claim);
+            }
+        } else if (freeClaims.size() < newPoints.size()) {
+            freeClaims.push_back(&claim);
+        }
+    }
+
+    std::size_t freeCursor = 0;
+    for (const auto* point : newPoints) {
+        SharedClaimSlot* claimSlot = nullptr;
+        const auto existing = ownClaims.find(point->index);
+        if (existing != ownClaims.end()) {
+            claimSlot = existing->second;
+        } else {
+            if (freeCursor >= freeClaims.size()) {
+                throw std::runtime_error("shared claim registry is full");
+            }
+            claimSlot = freeClaims[freeCursor++];
+            *claimSlot = SharedClaimSlot{};
+            claimSlot->index = point->index;
+            claimSlot->ownerId = ownerId_;
+            claimSlot->occupied = 1;
+        }
+        claimSlot->heartbeatMs = ts;
+    }
+
+    for (const auto& registration : pendingRegistrations) {
+        keyToIndex_[registration.key] = registration.binding.index;
+        bindings_[registration.binding.index] = registration.binding;
+        registeredIndexes_.insert(registration.binding.index);
+    }
 }
 
 void MemoryPointStore::putLatest(const PointValue& value) {
@@ -1428,8 +1549,34 @@ void MemoryPointStore::heartbeatRegisteredPoints(std::int64_t nowMs) {
     auto* ownerSlot = allocateOwnerSlot(layout2, ownerId_);
     ownerSlot->heartbeatMs = nowMs;
     copyString(ownerSlot->source, kSourceSize, ownerSource_);
-    for (const auto index : registeredIndexes_) {
-        auto* claimSlot = allocateClaimSlot(layout2, index, ownerId_);
+
+    std::unordered_set<std::uint32_t> pendingIndexes(registeredIndexes_.begin(), registeredIndexes_.end());
+    std::vector<SharedClaimSlot*> freeClaims;
+    freeClaims.reserve(pendingIndexes.size());
+    for (auto& claim : layout2->claims) {
+        if (claim.occupied) {
+            if (claim.ownerId == ownerId_) {
+                const auto pending = pendingIndexes.find(claim.index);
+                if (pending != pendingIndexes.end()) {
+                    claim.heartbeatMs = nowMs;
+                    pendingIndexes.erase(pending);
+                }
+            }
+        } else if (freeClaims.size() < pendingIndexes.size()) {
+            freeClaims.push_back(&claim);
+        }
+    }
+
+    auto freeIt = freeClaims.begin();
+    for (const auto index : pendingIndexes) {
+        if (freeIt == freeClaims.end()) {
+            throw std::runtime_error("shared claim registry is full");
+        }
+        auto* claimSlot = *freeIt++;
+        *claimSlot = SharedClaimSlot{};
+        claimSlot->index = index;
+        claimSlot->ownerId = ownerId_;
+        claimSlot->occupied = 1;
         claimSlot->heartbeatMs = nowMs;
     }
 }
@@ -1444,6 +1591,18 @@ void MemoryPointStore::removeExpired(std::int64_t nowMs) {
 #endif
     auto* layout2 = layoutFrom(sharedView_);
     cleanupStaleOwnersAndClaims(layout2, nowMs);
+    std::unordered_set<std::uint64_t> activeOwners;
+    for (const auto& owner : layout2->owners) {
+        if (isOwnerAlive(owner, nowMs)) {
+            activeOwners.insert(owner.ownerId);
+        }
+    }
+    std::unordered_set<std::uint32_t> activelyClaimedIndexes;
+    for (const auto& claim : layout2->claims) {
+        if (claim.occupied && activeOwners.find(claim.ownerId) != activeOwners.end()) {
+            activelyClaimedIndexes.insert(claim.index);
+        }
+    }
     for (auto& slot : layout2->latest) {
         if (!slot.occupied) {
             continue;
@@ -1454,7 +1613,7 @@ void MemoryPointStore::removeExpired(std::int64_t nowMs) {
         value.quality = slot.quality;
         value.ts = slot.ts;
         value.expireAt = slot.expireAt;
-        if (isExpired(value, nowMs) || !hasActiveClaim(layout2, slot.index, nowMs)) {
+        if (isExpired(value, nowMs) || activelyClaimedIndexes.find(slot.index) == activelyClaimedIndexes.end()) {
             latestSlotByIndex_.erase(slot.index);
             slot = SharedLatestSlot{};
             if (layout2->header.latestCount > 0) {
@@ -1489,4 +1648,4 @@ StoredPointValue MemoryPointStore::markStale(StoredPointValue value, std::int64_
     return value;
 }
 
-}  // namespac
+}  // namespace edge_gateway

@@ -227,11 +227,11 @@ void CanDriverService::initializeRuntimeDevices() {
             device.config.meters.clear();
         }
         const auto deviceIndex = runtimeDevices_.size();
+        store_.registerPoints(device.config.machineCode, device.config.meterCode, device.config.points);
         for (const auto& point : device.config.points) {
             if (!point.enabled) {
                 continue;
             }
-            store_.registerPoint(device.config.machineCode, device.config.meterCode, point);
             const auto inserted = indexToRuntimePoint_.emplace(point.index, runtimePoints_.size());
             if (!inserted.second) {
                 throw std::invalid_argument("duplicate CAN point.index: " + std::to_string(point.index));

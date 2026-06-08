@@ -114,8 +114,16 @@ int main(int argc, char* argv[]) {
     GatewayDaemon daemon(
         config,
         store,
-        nullptr,
-        dlt645Client,
+        [dlt645Client](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
+            return std::unique_ptr<ICollector>(
+                new Dlt645Collector(runtimeConfig, runtimeStore, dlt645Client)
+            );
+        },
+        [](const DeviceConfig& runtimeConfig, MemoryPointStore&) {
+            return std::unique_ptr<ICommandExecutor>(
+                new UnsupportedCommandExecutor(runtimeConfig)
+            );
+        },
         nullptr,
         nullptr,
         appConfig.systemMonitor.realtimeMeterLeaseFile

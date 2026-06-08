@@ -6,8 +6,8 @@
 #include <unordered_map>
 
 #include "edge_gateway/collector.hpp"
-#include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/dio_command_executor.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 
@@ -171,7 +171,7 @@ int main() {
         gpio->setValue(134, true);
         gpio->setValue(231, true);
 
-        edge_gateway::Collector collector(runtime, store, nullptr, nullptr, nullptr, gpio);
+        edge_gateway::DioCollector collector(runtime, store, gpio);
         const auto collected = collector.collectOnce(1000);
         require(collected.values.size() == 2, "expected two local dio values");
         auto di = store.getLatestByIndex(410006, 1000);
@@ -181,7 +181,7 @@ int main() {
         require(static_cast<bool>(doBefore), "DO value missing from store");
         require((*doBefore).value == 0.0, "DO1 active-low GPIO high should expose value 0");
 
-        edge_gateway::CommandExecutor executor(runtime, store, nullptr, nullptr, gpio);
+        edge_gateway::DioCommandExecutor executor(runtime, store, gpio);
         const auto result = executor.executeByIndex("CMD_DIO_1", 420001, 1.0, 1100);
         require(result.success, "DO write command should succeed: " + result.message);
         require(!gpio->value(231), "DO1 value=1 should write GPIO low");
