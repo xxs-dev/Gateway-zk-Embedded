@@ -781,6 +781,56 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     return spec;
 }
 
+int normalizeNorthboundReadFunction(const std::string& area, int configuredFunction) {
+    if (configuredFunction == 1 || configuredFunction == 2 ||
+        configuredFunction == 3 || configuredFunction == 4) {
+        return configuredFunction;
+    }
+    if (area == "coil" || area == "coils") {
+        return 1;
+    }
+    if (area == "discrete_input" || area == "discrete_inputs") {
+        return 2;
+    }
+    if (area == "input_register" || area == "input_registers") {
+        return 4;
+    }
+    return 3;
+}
+
+ModbusNorthboundMappingConfig parseNorthboundMapping(const JsonValue* value, const ReadSpec& read) {
+    ModbusNorthboundMappingConfig mapping;
+    mapping.length = std::max(1, read.length);
+    mapping.dataType = read.dataType.empty() ? "uint16" : read.dataType;
+    mapping.scale = read.scale;
+    mapping.offset = read.offset;
+    mapping.byteOrder = read.byteOrder;
+    if (value == nullptr || value->isNull()) {
+        return mapping;
+    }
+    const auto& object = value->asObject();
+    mapping.enabled = requireBool(object, "enabled", mapping.enabled);
+    mapping.unitId = requireInt(object, "unitId", mapping.unitId);
+    mapping.area = requireString(object, "area", mapping.area);
+    const bool hasReadFunction = value->find("readFunction") != nullptr;
+    mapping.readFunction = hasReadFunction
+        ? requireInt(object, "readFunction", mapping.readFunction)
+        : normalizeNorthboundReadFunction(mapping.area, 0);
+    mapping.address = requireInt(object, "address", mapping.address);
+    mapping.length = requireInt(object, "length", mapping.length);
+    mapping.dataType = requireString(object, "dataType", mapping.dataType);
+    mapping.scale = requireDouble(object, "scale", mapping.scale);
+    mapping.offset = requireDouble(object, "offset", mapping.offset);
+    mapping.byteOrder = requireString(object, "byteOrder", mapping.byteOrder);
+    mapping.writeEnabled = requireBool(object, "writeEnabled", mapping.writeEnabled);
+    mapping.writeFunction = requireInt(object, "writeFunction", mapping.writeFunction);
+    mapping.stalePolicy = requireString(object, "stalePolicy", mapping.stalePolicy);
+    mapping.readFunction = normalizeNorthboundReadFunction(mapping.area, mapping.readFunction);
+    mapping.unitId = boundedInt(mapping.unitId, 0, 255);
+    mapping.length = std::max(1, mapping.length);
+    return mapping;
+}
+
 AlarmRuleConfig parseAlarmRule(const JsonValue& value) {
     AlarmRuleConfig rule;
     const auto& object = value.asObject();
@@ -809,6 +859,10 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     point.tags = parseStringArray(value.find("tags"));
     point.read = parseReadSpec(value.find("read"));
     point.write = parseWriteSpec(value.find("write"));
+    point.northbound = parseNorthboundMapping(value.find("northbound"), point.read);
+    if (const auto* forward = value.find("forward")) {
+        point.northbound = parseNorthboundMapping(forward, point.read);
+    }
     if (const auto* alarms = value.find("alarms")) {
         for (const auto& item : alarms->asArray().values) {
             point.alarms.push_back(parseAlarmRule(*item));
@@ -1051,6 +1105,31 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.persistFlushIntervalMs = requireInt(object, "persistFlushIntervalMs", config.persistFlushIntervalMs);
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
+    return config;
+}
+
+NorthboundServerConfig parseNorthboundServerConfig(const JsonValue* value) {
+    NorthboundServerConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.mode = requireString(object, "mode", config.mode);
+    config.protocol = requireString(object, "protocol", config.protocol);
+    config.bindHost = requireString(object, "bindHost", config.bindHost);
+    config.port = requireInt(object, "port", config.port);
+    config.requestTimeoutMs = requireInt(object, "requestTimeoutMs", config.requestTimeoutMs);
+    config.maxClients = requireInt(object, "maxClients", config.maxClients);
+    config.writesEnabled = requireBool(object, "writesEnabled", config.writesEnabled);
+    config.maxReadRegisters = requireInt(object, "maxReadRegisters", config.maxReadRegisters);
+    config.maxReadBits = requireInt(object, "maxReadBits", config.maxReadBits);
+    config.allowedClientCidrs = parseStringArray(value->find("allowedClientCidrs"));
+    config.port = boundedInt(config.port, 1, 65535);
+    config.requestTimeoutMs = boundedInt(config.requestTimeoutMs, 100, 60000);
+    config.maxClients = boundedInt(config.maxClients, 1, 64);
+    config.maxReadRegisters = boundedInt(config.maxReadRegisters, 1, 125);
+    config.maxReadBits = boundedInt(config.maxReadBits, 1, 2000);
     return config;
 }
 
@@ -2149,6 +2228,10 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
     parseDlt645Config(root.find("dlt645"), config.protocol);
     config.collect = parseCollect(root.find("collect"));
     config.memoryStore = parseMemoryStore(root.find("memoryStore"));
+    config.northboundServer = parseNorthboundServerConfig(root.find("northboundServer"));
+    if (const auto* server = root.find("server")) {
+        config.northboundServer = parseNorthboundServerConfig(server);
+    }
 
     if (const auto* meters = root.find("meters")) {
         for (const auto& item : meters->asArray().values) {

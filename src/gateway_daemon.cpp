@@ -203,6 +203,9 @@ GatewayDaemon::GatewayDaemon(
     mqttPublisher_(std::move(mqttPublisher)),
     gpioPort_(std::move(gpioPort)) {
     initializeRuntimeDevices(std::move(modbusClient), std::move(dlt645Client), mqttPublisher_, gpioPort_);
+    if (config_.northboundServer.enabled) {
+        northboundServer_.reset(new ModbusNorthboundServer(config_, store_));
+    }
 }
 
 GatewayDaemon::~GatewayDaemon() {
@@ -222,6 +225,9 @@ void GatewayDaemon::start() {
             R"(","mode":")" + config_.protocol.type + R"(")"
     );
 
+    if (northboundServer_) {
+        northboundServer_->start();
+    }
     collectThread_ = std::thread(&GatewayDaemon::collectLoop, this);
     persistThread_ = std::thread(&GatewayDaemon::persistLoop, this);
     writebackThread_ = std::thread(&GatewayDaemon::writebackLoop, this);
@@ -241,6 +247,9 @@ void GatewayDaemon::stop() {
     }
     if (writebackThread_.joinable()) {
         writebackThread_.join();
+    }
+    if (northboundServer_) {
+        northboundServer_->stop();
     }
 }
 

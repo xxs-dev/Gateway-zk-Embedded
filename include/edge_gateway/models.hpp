@@ -77,6 +77,22 @@ struct AlarmRuleConfig {
     std::string persistValue;
 };
 
+struct ModbusNorthboundMappingConfig {
+    bool enabled = false;
+    int unitId = 1;
+    std::string area = "holding_register";
+    int readFunction = 3;
+    int address = -1;
+    int length = 0;
+    std::string dataType;
+    double scale = 1.0;
+    double offset = 0.0;
+    std::string byteOrder = "AB";
+    bool writeEnabled = false;
+    int writeFunction = 6;
+    std::string stalePolicy = "exception";
+};
+
 struct PointDefinition {
     std::uint32_t index = 0;
     std::string pointCode;
@@ -93,6 +109,7 @@ struct PointDefinition {
     std::vector<std::string> tags;
     ReadSpec read;
     WriteSpec write;
+    ModbusNorthboundMappingConfig northbound;
     std::vector<AlarmRuleConfig> alarms;
     std::unordered_map<std::string, std::string> valueMap;
 };
@@ -359,6 +376,20 @@ struct MemoryStoreConfig {
     int persistFlushIntervalMs = 60000;
     int writebackIntervalMs = 500;
     std::size_t writebackBatchSize = 100;
+};
+
+struct NorthboundServerConfig {
+    bool enabled = false;
+    std::string mode = "mapped";
+    std::string protocol = "modbus_tcp";
+    std::string bindHost = "0.0.0.0";
+    int port = 1502;
+    int requestTimeoutMs = 1000;
+    int maxClients = 8;
+    bool writesEnabled = false;
+    int maxReadRegisters = 125;
+    int maxReadBits = 2000;
+    std::vector<std::string> allowedClientCidrs;
 };
 
 struct MemoryStoreStats {
@@ -819,6 +850,7 @@ struct DeviceConfig {
     ProtocolConfig protocol;
     CollectConfig collect;
     MemoryStoreConfig memoryStore;
+    NorthboundServerConfig northboundServer;
     MqttDriverConfig mqttDriver;
     std::vector<PointDefinition> points;
     std::vector<LogicalDeviceConfig> meters;

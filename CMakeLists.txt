@@ -29,6 +29,7 @@ add_library(edge_gateway
     src/mqtt_event_outbox.cpp
     src/mqtt_driver_service.cpp
     src/mqtt_realtime_ring_buffer.cpp
+    src/modbus_northbound_server.cpp
     src/modbus_rtu_client.cpp
     src/modbus_tcp_client.cpp
     src/modbus_codec.cpp
@@ -137,6 +138,10 @@ target_compile_options(dlt645_client_interval_test PRIVATE -fdiagnostics-color=n
 add_executable(modbus_tcp_client_limit_test tools/modbus_tcp_client_limit_test.cpp)
 target_link_libraries(modbus_tcp_client_limit_test PRIVATE edge_gateway)
 target_compile_options(modbus_tcp_client_limit_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(modbus_northbound_server_test tools/modbus_northbound_server_test.cpp)
+target_link_libraries(modbus_northbound_server_test PRIVATE edge_gateway)
+target_compile_options(modbus_northbound_server_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(memory_point_store_lifecycle_test tools/memory_point_store_lifecycle_test.cpp)
 target_link_libraries(memory_point_store_lifecycle_test PRIVATE edge_gateway)

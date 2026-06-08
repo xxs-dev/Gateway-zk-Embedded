@@ -138,6 +138,57 @@ void verifyDeviceCollectBackgroundTaskConfig() {
     );
 }
 
+void verifyNorthboundConfig() {
+    const auto config = edge_gateway::ConfigLoader::loadFromText(
+        "{"
+        "\"schemaVersion\":\"1.1.0\","
+        "\"machineCode\":\"GW_TEST\","
+        "\"meterCode\":\"MTR_TEST\","
+        "\"deviceName\":\"Meter Test\","
+        "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1},"
+        "\"northboundServer\":{"
+        "\"enabled\":true,"
+        "\"mode\":\"mapped\","
+        "\"protocol\":\"modbus_tcp\","
+        "\"bindHost\":\"127.0.0.1\","
+        "\"port\":1502,"
+        "\"requestTimeoutMs\":500,"
+        "\"maxClients\":4,"
+        "\"writesEnabled\":false,"
+        "\"allowedClientCidrs\":[\"127.0.0.1/32\"]"
+        "},"
+        "\"points\":[{"
+        "\"index\":1001,"
+        "\"pointCode\":\"P1\","
+        "\"name\":\"Point 1\","
+        "\"read\":{\"enable\":true,\"length\":2,\"dataType\":\"float32\",\"scale\":0.1,\"byteOrder\":\"ABCD\"},"
+        "\"northbound\":{"
+        "\"enabled\":true,"
+        "\"unitId\":2,"
+        "\"area\":\"input_register\","
+        "\"address\":300,"
+        "\"length\":2,"
+        "\"dataType\":\"float32\","
+        "\"scale\":1,"
+        "\"offset\":0,"
+        "\"byteOrder\":\"ABCD\","
+        "\"stalePolicy\":\"zero\""
+        "}"
+        "}],"
+        "\"meters\":[]"
+        "}"
+    );
+    require(config.northboundServer.enabled, "northbound server should parse");
+    require(config.northboundServer.bindHost == "127.0.0.1", "northbound bind host should parse");
+    require(config.northboundServer.port == 1502, "northbound port should parse");
+    require(config.northboundServer.allowedClientCidrs.size() == 1, "northbound cidr list should parse");
+    require(config.points.size() == 1, "northbound point should parse");
+    require(config.points.front().northbound.enabled, "northbound mapping should parse");
+    require(config.points.front().northbound.readFunction == 4, "northbound area should infer function 4");
+    require(config.points.front().northbound.address == 300, "northbound address should parse");
+    require(config.points.front().northbound.stalePolicy == "zero", "northbound stale policy should parse");
+}
+
 }  // namespace
 
 int main() {
@@ -185,6 +236,7 @@ int main() {
     require(config.eventOutboxMaxDiskBytes == 256U * 1024U * 1024U, "outbox disk should be bounded");
 
     verifyDeviceCollectBackgroundTaskConfig();
+    verifyNorthboundConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

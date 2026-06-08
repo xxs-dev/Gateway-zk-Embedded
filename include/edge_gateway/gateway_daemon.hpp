@@ -10,6 +10,7 @@
 #include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/modbus_northbound_server.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
@@ -76,6 +77,7 @@ private:
     SqliteSampleWriter sqliteWriter_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
     std::shared_ptr<IGpioPort> gpioPort_;
+    std::unique_ptr<ModbusNorthboundServer> northboundServer_;
     std::atomic<bool> running_{false};
     std::thread collectThread_;
     std::thread persistThread_;
