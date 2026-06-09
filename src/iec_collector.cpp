@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 #include "edge_gateway/iec_codec.hpp"
@@ -34,16 +35,41 @@ IecCollector::IecCollector(
 CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     (void)realtimeFocused;
     CollectCycleResult result;
+    auto dataValues = client_->drainBufferedValues();
+    std::unordered_map<std::uint32_t, bool> updatedByPush;
+    for (const auto& dataValue : dataValues) {
+        for (const auto& point : config_.points) {
+            if (!point.enabled || !point.read.enable || point.read.dataType == "device_online") {
+                continue;
+            }
+            if (!IecCodec::pointMatches(point, dataValue)) {
+                continue;
+            }
+            const auto decoded = IecCodec::decodePointValue(point, dataValue);
+            auto value = buildPointValue(point, decoded, currentTimeMs());
+            lastReadMs_[point.index] = nowMs;
+            lastValueUpdateMs_[point.index] = nowMs;
+            updatedByPush[point.index] = true;
+            if (point.read.cachePolicy.storeLatest) {
+                store_.putLatest(value);
+            }
+            result.values.push_back(std::move(value));
+        }
+    }
+
     const auto points = duePoints(nowMs);
     if (points.empty()) {
+        if (!result.values.empty()) {
+            publishDeviceOnlineStatus(true, nowMs);
+        }
         return result;
     }
 
-    std::vector<IecDataValue> dataValues;
     bool pollSucceeded = false;
     std::string firstFailureMessage;
     try {
-        dataValues = client_->poll();
+        auto polledValues = client_->poll();
+        dataValues.insert(dataValues.end(), polledValues.begin(), polledValues.end());
         pollSucceeded = true;
     } catch (const std::exception& ex) {
         firstFailureMessage = ex.what();
@@ -51,6 +77,10 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
 
     bool hasSuccessfulRead = false;
     for (const auto& point : points) {
+        if (updatedByPush[point.index]) {
+            hasSuccessfulRead = true;
+            continue;
+        }
         PointValue value;
         const auto pointNowMs = currentTimeMs();
         const auto match = std::find_if(

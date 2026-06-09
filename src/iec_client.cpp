@@ -1,10 +1,14 @@
 #include "edge_gateway/iec_client.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cctype>
 #include <cstring>
+#include <cmath>
+#include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #ifdef _WIN32
@@ -63,6 +67,12 @@ std::string normalizedProtocol(std::string value) {
     return value;
 }
 
+std::int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
 void appendDecodedAsduValues(
     std::vector<IecDataValue>& out,
     const std::vector<std::uint8_t>& asduBytes,
@@ -72,7 +82,62 @@ void appendDecodedAsduValues(
     out.insert(out.end(), asdu.values.begin(), asdu.values.end());
 }
 
+bool controlConfirmationMatches(const PointDefinition& point, const IecDataValue& value, int expectedCause) {
+    const int configuredIoa = point.write.iec.ioa >= 0
+        ? point.write.iec.ioa
+        : point.read.iec.ioa >= 0
+            ? point.read.iec.ioa
+            : point.write.address >= 0
+                ? point.write.address
+                : (point.address > 0 ? point.address : -1);
+    if (configuredIoa >= 0 && configuredIoa != value.ioa) {
+        return false;
+    }
+    const int configuredCa = point.write.iec.commonAddress > 0
+        ? point.write.iec.commonAddress
+        : point.read.iec.commonAddress;
+    if (configuredCa > 0 && configuredCa != value.commonAddress) {
+        return false;
+    }
+    const int configuredType = point.write.iec.typeId > 0
+        ? point.write.iec.typeId
+        : point.read.iec.typeId;
+    if (configuredType > 0 && configuredType != value.typeId) {
+        return false;
+    }
+    return value.cause == expectedCause;
+}
+
+bool isControlType(int typeId) {
+    return typeId >= 45 && typeId <= 51;
+}
+
 }  // namespace
+
+CommandResult IecClient::writeByPoint(
+    const PointDefinition& point,
+    double value,
+    const std::string& cmdId,
+    const std::string& machineCode,
+    const std::string& meterCode,
+    std::int64_t nowMsValue
+) {
+    CommandResult result;
+    result.cmdId = cmdId;
+    result.machineCode = machineCode;
+    result.meterCode = meterCode;
+    result.pointCode = point.pointCode;
+    result.index = point.index;
+    result.requestedValue = value;
+    result.ts = nowMsValue;
+    result.success = false;
+    result.message = "IEC write is not supported for this transport";
+    return result;
+}
+
+void IecClient::synchronizeClock(std::int64_t) {
+    throw std::runtime_error("IEC clock sync is not supported for this transport");
+}
 
 IecTcpClient::IecTcpClient(std::string protocolType, TcpTransportConfig tcp, IecProtocolConfig iec)
     : protocolType_(normalizedProtocol(std::move(protocolType))),
@@ -81,6 +146,7 @@ IecTcpClient::IecTcpClient(std::string protocolType, TcpTransportConfig tcp, Iec
 }
 
 IecTcpClient::~IecTcpClient() {
+    stopReceiveLoop();
     disconnect();
 }
 
@@ -88,34 +154,22 @@ std::vector<IecDataValue> IecTcpClient::poll() {
     ensureConnected();
     std::vector<IecDataValue> values;
     if (protocolType_ == "iec104") {
-        if (!iec104Started_) {
-            sendAll(IecCodec::buildIec104StartDtAct());
+        ensureIec104Started();
+        if (iec_.pollOnCollect) {
+            sendAll(IecCodec::buildIec104InterrogationCommand(iec_, nextSendSequence(), currentReceiveSequence()));
+        }
+        if (!iec_.backgroundReceive) {
             const auto frames = drainIec104Frames(iec_.pollTimeoutMs, iec_.maxPollFrames);
             for (const auto& frame : frames) {
-                if (IecCodec::isIec104StartDtCon(frame)) {
-                    iec104Started_ = true;
-                    break;
-                }
+                handleIec104Frame(frame);
             }
-            if (!iec104Started_) {
-                throw std::runtime_error("IEC104 STARTDT confirmation timeout");
-            }
+        } else if (iec_.pollTimeoutMs > 0) {
+            std::unique_lock<std::mutex> lock(stateMutex_);
+            stateChanged_.wait_for(lock, std::chrono::milliseconds(iec_.pollTimeoutMs), [&] {
+                return !bufferedValues_.empty();
+            });
         }
-        if (iec_.pollOnCollect) {
-            sendAll(IecCodec::buildIec104InterrogationCommand(iec_, sendSequence_++, receiveSequence_));
-        }
-        const auto frames = drainIec104Frames(iec_.pollTimeoutMs, iec_.maxPollFrames);
-        for (const auto& frame : frames) {
-            if (!IecCodec::isIec104IFrame(frame)) {
-                continue;
-            }
-            receiveSequence_ = static_cast<std::uint16_t>(IecCodec::iec104SendSequence(frame) + 1);
-            const auto asdu = IecCodec::iec104AsduPayload(frame);
-            if (!asdu.empty()) {
-                appendDecodedAsduValues(values, asdu, iec_);
-            }
-        }
-        return values;
+        return drainBufferedValues();
     }
 
     if (protocolType_ == "iec103" || protocolType_ == "iec103_tcp") {
@@ -132,6 +186,93 @@ std::vector<IecDataValue> IecTcpClient::poll() {
     }
 
     throw std::invalid_argument("IecTcpClient does not support protocol.type=" + protocolType_);
+}
+
+std::vector<IecDataValue> IecTcpClient::drainBufferedValues() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return drainBufferedValuesLocked();
+}
+
+CommandResult IecTcpClient::writeByPoint(
+    const PointDefinition& point,
+    double value,
+    const std::string& cmdId,
+    const std::string& machineCode,
+    const std::string& meterCode,
+    std::int64_t nowMsValue
+) {
+    CommandResult result;
+    result.cmdId = cmdId;
+    result.machineCode = machineCode;
+    result.meterCode = meterCode;
+    result.pointCode = point.pointCode;
+    result.index = point.index;
+    result.requestedValue = value;
+    result.ts = nowMsValue;
+
+    try {
+        if (protocolType_ != "iec104") {
+            throw std::invalid_argument("IEC write is only supported for iec104");
+        }
+        if (!point.write.enable) {
+            throw std::invalid_argument("point write is disabled");
+        }
+        if (point.write.minValue && value < *point.write.minValue) {
+            throw std::invalid_argument("value below min");
+        }
+        if (point.write.maxValue && value > *point.write.maxValue) {
+            throw std::invalid_argument("value above max");
+        }
+        if (!point.write.allowedValues.empty()) {
+            const auto match = std::find_if(
+                point.write.allowedValues.begin(),
+                point.write.allowedValues.end(),
+                [value](double candidate) {
+                    return std::abs(candidate - value) <= 1e-9;
+                }
+            );
+            if (match == point.write.allowedValues.end()) {
+                throw std::invalid_argument("value is not in allowedValues");
+            }
+        }
+
+        ensureConnected();
+        ensureIec104Started();
+
+        const auto timeoutMs = point.write.iec.timeoutMs > 0 ? point.write.iec.timeoutMs : iec_.t1Ms;
+        if (point.write.iec.selectBeforeExecute) {
+            sendAll(IecCodec::buildIec104ControlCommand(iec_, point, value, nextSendSequence(), currentReceiveSequence(), true));
+            if (!waitForControlConfirmation(point, value, 7, timeoutMs)) {
+                throw std::runtime_error("IEC104 select confirmation timeout");
+            }
+        }
+
+        sendAll(IecCodec::buildIec104ControlCommand(iec_, point, value, nextSendSequence(), currentReceiveSequence(), false));
+        if (!waitForControlConfirmation(point, value, 7, timeoutMs)) {
+            throw std::runtime_error("IEC104 execute confirmation timeout");
+        }
+        if (point.write.iec.waitActivationTermination &&
+            !waitForControlConfirmation(point, value, iec_.activationTerminationCot, timeoutMs)) {
+            throw std::runtime_error("IEC104 activation termination timeout");
+        }
+
+        result.success = true;
+        result.message = "ok";
+        return result;
+    } catch (const std::exception& ex) {
+        result.success = false;
+        result.message = ex.what();
+        return result;
+    }
+}
+
+void IecTcpClient::synchronizeClock(std::int64_t nowMsValue) {
+    if (protocolType_ != "iec104") {
+        throw std::invalid_argument("IEC clock sync is only supported for iec104");
+    }
+    ensureConnected();
+    ensureIec104Started();
+    sendAll(IecCodec::buildIec104ClockSyncCommand(iec_, nextSendSequence(), currentReceiveSequence(), nowMsValue));
 }
 
 void IecTcpClient::ensureConnected() {
@@ -171,7 +312,98 @@ void IecTcpClient::ensureConnected() {
 
     socket_ = static_cast<std::intptr_t>(connected);
     configureSocketTimeouts();
-    iec104Started_ = false;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        iec104Started_ = false;
+        rxBuffer_.clear();
+        lastReceiveMs_ = nowMs();
+        lastSendMs_ = lastReceiveMs_;
+        lastAckMs_ = lastReceiveMs_;
+        unacknowledgedReceived_ = 0;
+    }
+    if (protocolType_ == "iec104" && iec_.backgroundReceive) {
+        startReceiveLoop();
+    }
+}
+
+void IecTcpClient::ensureIec104Started() {
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (iec104Started_) {
+            return;
+        }
+    }
+    sendAll(IecCodec::buildIec104StartDtAct());
+    if (iec_.backgroundReceive) {
+        if (!waitForIec104Start(iec_.t0Ms)) {
+            throw std::runtime_error("IEC104 STARTDT confirmation timeout");
+        }
+        return;
+    }
+    const auto frames = drainIec104Frames(iec_.pollTimeoutMs, iec_.maxPollFrames);
+    for (const auto& frame : frames) {
+        handleIec104Frame(frame);
+    }
+    if (!waitForIec104Start(10)) {
+        throw std::runtime_error("IEC104 STARTDT confirmation timeout");
+    }
+}
+
+void IecTcpClient::startReceiveLoop() {
+    if (receiveRunning_.load()) {
+        return;
+    }
+    receiveRunning_.store(true);
+    receiveThread_ = std::thread(&IecTcpClient::receiveLoop, this);
+}
+
+void IecTcpClient::stopReceiveLoop() {
+    receiveRunning_.store(false);
+    disconnect();
+    stateChanged_.notify_all();
+    if (receiveThread_.joinable()) {
+        receiveThread_.join();
+    }
+}
+
+void IecTcpClient::receiveLoop() {
+    while (receiveRunning_.load()) {
+        try {
+            if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            const auto frames = drainIec104Frames(iec_.idleReadTimeoutMs, std::max(1, iec_.maxPollFrames));
+            for (const auto& frame : frames) {
+                handleIec104Frame(frame);
+            }
+            const auto ts = nowMs();
+            const auto idleMs = ts - lastReceiveMs_;
+            std::uint16_t pendingAckSequence = 0;
+            bool shouldSendDelayedAck = false;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                shouldSendDelayedAck = iec_.sendSFrameAck && unacknowledgedReceived_ > 0 && ts - lastAckMs_ >= iec_.t2Ms;
+                if (shouldSendDelayedAck) {
+                    pendingAckSequence = receiveSequence_;
+                    unacknowledgedReceived_ = 0;
+                    lastAckMs_ = ts;
+                }
+            }
+            if (shouldSendDelayedAck) {
+                sendAll(IecCodec::buildIec104SFrame(pendingAckSequence));
+            }
+            if (idleMs >= iec_.t3Ms && ts - lastSendMs_ >= iec_.t2Ms) {
+                sendAll(IecCodec::buildIec104TestFrAct());
+            }
+        } catch (const std::exception& ex) {
+            if (receiveRunning_.load()) {
+                std::cerr << "IEC104 receive loop error: " << ex.what() << std::endl;
+            }
+            disconnect();
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    }
 }
 
 void IecTcpClient::disconnect() {
@@ -180,8 +412,13 @@ void IecTcpClient::disconnect() {
     }
     closeSocket(static_cast<SocketHandle>(socket_));
     socket_ = static_cast<std::intptr_t>(kInvalidSocket);
-    rxBuffer_.clear();
-    iec104Started_ = false;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        rxBuffer_.clear();
+        iec104Started_ = false;
+        unacknowledgedReceived_ = 0;
+    }
+    stateChanged_.notify_all();
 }
 
 void IecTcpClient::configureSocketTimeouts() const {
@@ -198,7 +435,18 @@ void IecTcpClient::configureSocketTimeouts() const {
 #endif
 }
 
+std::uint16_t IecTcpClient::nextSendSequence() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return sendSequence_++;
+}
+
+std::uint16_t IecTcpClient::currentReceiveSequence() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return receiveSequence_;
+}
+
 void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
+    std::lock_guard<std::mutex> sendLock(sendMutex_);
     std::size_t sent = 0;
     while (sent < bytes.size()) {
 #ifdef _WIN32
@@ -212,21 +460,148 @@ void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
         }
         sent += static_cast<std::size_t>(rc);
     }
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastSendMs_ = nowMs();
+    }
 }
 
 std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
     (void)timeoutMs;
     std::vector<std::uint8_t> bytes(512);
 #ifdef _WIN32
-    const auto rc = recv(static_cast<SocketHandle>(socket_), reinterpret_cast<char*>(bytes.data()), static_cast<int>(bytes.size()), 0);
+        const auto rc = recv(static_cast<SocketHandle>(socket_), reinterpret_cast<char*>(bytes.data()), static_cast<int>(bytes.size()), 0);
 #else
-    const auto rc = recv(static_cast<SocketHandle>(socket_), bytes.data(), bytes.size(), 0);
+        const auto rc = recv(static_cast<SocketHandle>(socket_), bytes.data(), bytes.size(), 0);
 #endif
+    if (rc == 0) {
+        disconnect();
+        throw std::runtime_error("IEC TCP connection closed");
+    }
+    if (rc < 0) {
+#ifdef _WIN32
+        const auto err = WSAGetLastError();
+        if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK) {
+            return {};
+        }
+#else
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return {};
+        }
+#endif
+        disconnect();
+        throw std::runtime_error("IEC TCP receive failed");
+    }
     if (rc <= 0) {
         return {};
     }
     bytes.resize(static_cast<std::size_t>(rc));
     return bytes;
+}
+
+void IecTcpClient::handleIec104Frame(const std::vector<std::uint8_t>& frame) {
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastReceiveMs_ = nowMs();
+    }
+    if (IecCodec::isIec104StartDtCon(frame)) {
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            iec104Started_ = true;
+        }
+        stateChanged_.notify_all();
+        return;
+    }
+    if (IecCodec::isIec104TestFrAct(frame)) {
+        sendAll({0x68, 0x04, 0x83, 0x00, 0x00, 0x00});
+        return;
+    }
+    if (IecCodec::isIec104TestFrCon(frame) || IecCodec::isIec104StopDtCon(frame) || IecCodec::isIec104SFrame(frame)) {
+        stateChanged_.notify_all();
+        return;
+    }
+    if (!IecCodec::isIec104IFrame(frame)) {
+        return;
+    }
+
+    std::uint16_t ackSequence = 0;
+    bool shouldAck = false;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        receiveSequence_ = static_cast<std::uint16_t>(IecCodec::iec104SendSequence(frame) + 1);
+        ackSequence = receiveSequence_;
+        ++unacknowledgedReceived_;
+        shouldAck = iec_.sendSFrameAck && unacknowledgedReceived_ >= static_cast<std::uint16_t>(std::max(1, iec_.wAck));
+        if (shouldAck) {
+            unacknowledgedReceived_ = 0;
+            lastAckMs_ = nowMs();
+        }
+    }
+    if (shouldAck) {
+        sendAll(IecCodec::buildIec104SFrame(ackSequence));
+    }
+
+    const auto asdu = IecCodec::iec104AsduPayload(frame);
+    if (asdu.empty()) {
+        return;
+    }
+    try {
+        const auto decoded = IecCodec::decodeAsdu(asdu, iec_);
+        if (!decoded.values.empty()) {
+            if (isControlType(decoded.typeId)) {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                controlValues_.insert(controlValues_.end(), decoded.values.begin(), decoded.values.end());
+                if (controlValues_.size() > 1024) {
+                    controlValues_.erase(controlValues_.begin(), controlValues_.begin() + static_cast<std::ptrdiff_t>(controlValues_.size() - 1024));
+                }
+                stateChanged_.notify_all();
+                return;
+            }
+            bufferValues(decoded.values);
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "IEC104 ASDU decode failed: " << ex.what() << std::endl;
+    }
+}
+
+void IecTcpClient::bufferValues(const std::vector<IecDataValue>& values) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    bufferedValues_.insert(bufferedValues_.end(), values.begin(), values.end());
+    if (bufferedValues_.size() > 4096) {
+        bufferedValues_.erase(bufferedValues_.begin(), bufferedValues_.begin() + static_cast<std::ptrdiff_t>(bufferedValues_.size() - 4096));
+    }
+    stateChanged_.notify_all();
+}
+
+std::vector<IecDataValue> IecTcpClient::drainBufferedValuesLocked() {
+    std::vector<IecDataValue> values;
+    values.swap(bufferedValues_);
+    return values;
+}
+
+bool IecTcpClient::waitForIec104Start(int timeoutMs) {
+    std::unique_lock<std::mutex> lock(stateMutex_);
+    return stateChanged_.wait_for(lock, std::chrono::milliseconds(std::max(1, timeoutMs)), [&] {
+        return iec104Started_;
+    });
+}
+
+bool IecTcpClient::waitForControlConfirmation(const PointDefinition& point, double value, int expectedCause, int timeoutMs) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(1, timeoutMs));
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::unique_lock<std::mutex> lock(stateMutex_);
+        stateChanged_.wait_until(lock, deadline, [&] {
+            return !controlValues_.empty();
+        });
+        for (auto it = controlValues_.begin(); it != controlValues_.end(); ++it) {
+            if (controlConfirmationMatches(point, *it, expectedCause)) {
+                (void)value;
+                controlValues_.erase(it);
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 std::vector<std::vector<std::uint8_t>> IecTcpClient::drainIec104Frames(int timeoutMs, int maxFrames) {

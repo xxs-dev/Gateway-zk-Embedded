@@ -31,14 +31,37 @@ struct IecAsdu {
 class IecCodec {
 public:
     static std::vector<std::uint8_t> buildIec104StartDtAct();
+    static std::vector<std::uint8_t> buildIec104StopDtAct();
+    static std::vector<std::uint8_t> buildIec104TestFrAct();
+    static std::vector<std::uint8_t> buildIec104SFrame(std::uint16_t receiveSequence);
     static std::vector<std::uint8_t> buildIec104InterrogationCommand(
         const IecProtocolConfig& config,
         std::uint16_t sendSequence,
         std::uint16_t receiveSequence
     );
+    static std::vector<std::uint8_t> buildIec104ClockSyncCommand(
+        const IecProtocolConfig& config,
+        std::uint16_t sendSequence,
+        std::uint16_t receiveSequence,
+        std::int64_t unixTimeMs
+    );
+    static std::vector<std::uint8_t> buildIec104ControlCommand(
+        const IecProtocolConfig& config,
+        const PointDefinition& point,
+        double requestedValue,
+        std::uint16_t sendSequence,
+        std::uint16_t receiveSequence,
+        bool select,
+        bool cancel = false
+    );
     static bool isIec104Frame(const std::vector<std::uint8_t>& frame);
     static bool isIec104IFrame(const std::vector<std::uint8_t>& frame);
+    static bool isIec104SFrame(const std::vector<std::uint8_t>& frame);
+    static bool isIec104UFrame(const std::vector<std::uint8_t>& frame);
     static bool isIec104StartDtCon(const std::vector<std::uint8_t>& frame);
+    static bool isIec104StopDtCon(const std::vector<std::uint8_t>& frame);
+    static bool isIec104TestFrAct(const std::vector<std::uint8_t>& frame);
+    static bool isIec104TestFrCon(const std::vector<std::uint8_t>& frame);
     static std::uint16_t iec104SendSequence(const std::vector<std::uint8_t>& frame);
     static std::uint16_t iec104ReceiveSequence(const std::vector<std::uint8_t>& frame);
     static std::vector<std::uint8_t> iec104AsduPayload(const std::vector<std::uint8_t>& frame);

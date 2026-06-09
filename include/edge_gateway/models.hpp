@@ -37,6 +37,10 @@ struct IecPointSpec {
     int functionType = -1;
     int informationNumber = -1;
     std::string valueKind;
+    bool selectBeforeExecute = false;
+    bool waitActivationTermination = false;
+    int qualifier = 0;
+    int timeoutMs = 3000;
 };
 
 struct ReadSpec {
@@ -79,6 +83,7 @@ struct WriteSpec {
     int verifyDelayMs = 200;
     bool verifyByRead = true;
     CanSignalSpec can;
+    IecPointSpec iec;
 };
 
 struct AlarmRuleConfig {
@@ -332,6 +337,14 @@ struct IecProtocolConfig {
     int maxPollFrames = 64;
     bool pollOnCollect = true;
     bool balanced = false;
+    int t0Ms = 30000;
+    int t1Ms = 15000;
+    int t2Ms = 10000;
+    int t3Ms = 20000;
+    int kWindow = 12;
+    int wAck = 8;
+    bool backgroundReceive = true;
+    bool sendSFrameAck = true;
 };
 
 struct ProtocolConfig {

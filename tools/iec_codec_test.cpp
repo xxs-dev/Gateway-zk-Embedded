@@ -58,6 +58,41 @@ int main() {
     const auto pointValue = IecCodec::decodePointValue(point, decoded.values.front());
     requireNear(pointValue.value, 26.0, "IEC point scale offset");
 
+    const auto sFrame = IecCodec::buildIec104SFrame(5);
+    requireTrue(sFrame == std::vector<std::uint8_t>({0x68, 0x04, 0x01, 0x00, 0x0A, 0x00}), "IEC104 S frame");
+    requireTrue(IecCodec::isIec104SFrame(sFrame), "IEC104 S frame detection");
+    requireTrue(IecCodec::iec104ReceiveSequence(sFrame) == 5, "IEC104 S frame receive sequence");
+
+    PointDefinition commandPoint;
+    commandPoint.index = 500001;
+    commandPoint.pointCode = "remote_close";
+    commandPoint.address = 3001;
+    commandPoint.write.enable = true;
+    commandPoint.write.dataType = "single_command";
+    commandPoint.write.iec.typeId = 45;
+    commandPoint.write.iec.ioa = 3001;
+    commandPoint.write.iec.commonAddress = 1;
+    commandPoint.write.iec.selectBeforeExecute = true;
+    const auto selectFrame = IecCodec::buildIec104ControlCommand(config, commandPoint, 1.0, 2, 5, true);
+    requireTrue(IecCodec::isIec104IFrame(selectFrame), "IEC104 control command I frame");
+    const auto selectAsdu = IecCodec::iec104AsduPayload(selectFrame);
+    requireTrue(selectAsdu.size() == 10, "IEC104 single command ASDU size");
+    requireTrue(selectAsdu[0] == 45, "IEC104 single command type");
+    requireTrue(selectAsdu.back() == 0x81, "IEC104 select single command SCO");
+
+    const std::vector<std::uint8_t> timedAsdu = {
+        30, 1,
+        3, 0,
+        1, 0,
+        0xE9, 0x03, 0x00,
+        0x01,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x1A
+    };
+    const auto timedDecoded = IecCodec::decodeAsdu(timedAsdu, config);
+    requireTrue(timedDecoded.values.size() == 1, "IEC104 timed ASDU value count");
+    requireTrue(timedDecoded.values.front().ioa == 1001, "IEC104 timed IOA");
+    requireNear(timedDecoded.values.front().value, 1.0, "IEC104 timed single value");
+
     const std::vector<std::uint8_t> iec103UserData = {
         0x73, 0x01,
         9, 1, 3, 1,
@@ -104,14 +139,41 @@ int main() {
               "commonAddress": 1
             }
           }
+        },
+        {
+          "index": 2,
+          "pointCode": "iec104_remote_close",
+          "name": "IEC104 remote close",
+          "category": "control",
+          "address": 3001,
+          "enabled": true,
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": true,
+            "dataType": "single_command",
+            "iec": {
+              "ioa": 3001,
+              "typeId": 45,
+              "commonAddress": 1,
+              "selectBeforeExecute": true,
+              "waitActivationTermination": true,
+              "timeoutMs": 1500
+            }
+          }
         }
       ],
       "meters": []
     })JSON");
     requireTrue(loaded.protocol.type == "iec103", "config protocol type");
     requireTrue(loaded.protocol.iec.transportMode == "tcp", "config IEC103 TCP mode");
+    requireTrue(loaded.protocol.iec.backgroundReceive, "config IEC background receive default");
     requireTrue(!loaded.points.empty(), "config IEC points");
     requireTrue(loaded.points.front().read.iec.functionType == 160, "config IEC103 FUN");
+    requireTrue(loaded.points.size() == 2, "config IEC command point count");
+    requireTrue(loaded.points.back().write.iec.selectBeforeExecute, "config IEC write SBO");
+    requireTrue(loaded.points.back().write.iec.waitActivationTermination, "config IEC write activation termination");
 
     std::cout << "iec codec tests passed" << std::endl;
     return EXIT_SUCCESS;

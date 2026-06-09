@@ -727,6 +727,10 @@ IecPointSpec parseIecPointSpec(const JsonValue* value) {
     spec.functionType = requireInt(object, "functionType", spec.functionType);
     spec.informationNumber = requireInt(object, "informationNumber", spec.informationNumber);
     spec.valueKind = requireString(object, "valueKind", spec.valueKind);
+    spec.selectBeforeExecute = requireBool(object, "selectBeforeExecute", spec.selectBeforeExecute);
+    spec.waitActivationTermination = requireBool(object, "waitActivationTermination", spec.waitActivationTermination);
+    spec.qualifier = requireInt(object, "qualifier", spec.qualifier);
+    spec.timeoutMs = boundedInt(requireInt(object, "timeoutMs", spec.timeoutMs), 100, 60000);
     return spec;
 }
 
@@ -795,6 +799,7 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
     spec.can = parseCanSignalSpec(value->find("can"));
+    spec.iec = parseIecPointSpec(value->find("iec"));
     return spec;
 }
 
@@ -985,6 +990,14 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.maxPollFrames = requireInt(object, "maxPollFrames", iec.maxPollFrames);
     iec.pollOnCollect = requireBool(object, "pollOnCollect", iec.pollOnCollect);
     iec.balanced = requireBool(object, "balanced", iec.balanced);
+    iec.t0Ms = requireInt(object, "t0Ms", iec.t0Ms);
+    iec.t1Ms = requireInt(object, "t1Ms", iec.t1Ms);
+    iec.t2Ms = requireInt(object, "t2Ms", iec.t2Ms);
+    iec.t3Ms = requireInt(object, "t3Ms", iec.t3Ms);
+    iec.kWindow = requireInt(object, "kWindow", iec.kWindow);
+    iec.wAck = requireInt(object, "wAck", iec.wAck);
+    iec.backgroundReceive = requireBool(object, "backgroundReceive", iec.backgroundReceive);
+    iec.sendSFrameAck = requireBool(object, "sendSFrameAck", iec.sendSFrameAck);
     iec.cotSize = boundedInt(iec.cotSize, 1, 2);
     iec.caSize = boundedInt(iec.caSize, 1, 2);
     iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
@@ -992,6 +1005,12 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.pollTimeoutMs = std::max(100, iec.pollTimeoutMs);
     iec.idleReadTimeoutMs = std::max(10, iec.idleReadTimeoutMs);
     iec.maxPollFrames = std::max(1, iec.maxPollFrames);
+    iec.t0Ms = boundedInt(iec.t0Ms, 1000, 120000);
+    iec.t1Ms = boundedInt(iec.t1Ms, 1000, 120000);
+    iec.t2Ms = boundedInt(iec.t2Ms, 1000, 120000);
+    iec.t3Ms = boundedInt(iec.t3Ms, 1000, 300000);
+    iec.kWindow = boundedInt(iec.kWindow, 1, 32767);
+    iec.wAck = boundedInt(iec.wAck, 1, iec.kWindow);
     return iec;
 }
 

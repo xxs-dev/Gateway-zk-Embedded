@@ -15,6 +15,7 @@
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/iec_client.hpp"
 #include "edge_gateway/iec_collector.hpp"
+#include "edge_gateway/iec_command_executor.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mock_serial_port.hpp"
 #ifndef _WIN32
@@ -147,9 +148,9 @@ int main(int argc, char* argv[]) {
                 new IecCollector(runtimeConfig, runtimeStore, iecClient)
             );
         },
-        [](const DeviceConfig& runtimeConfig, MemoryPointStore&) {
+        [iecClient](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
             return std::unique_ptr<ICommandExecutor>(
-                new UnsupportedCommandExecutor(runtimeConfig)
+                new IecCommandExecutor(runtimeConfig, runtimeStore, iecClient)
             );
         },
         nullptr,

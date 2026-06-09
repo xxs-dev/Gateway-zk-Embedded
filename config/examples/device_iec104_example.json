@@ -19,7 +19,15 @@
       "pollTimeoutMs": 1000,
       "idleReadTimeoutMs": 50,
       "maxPollFrames": 64,
-      "pollOnCollect": true
+      "pollOnCollect": true,
+      "backgroundReceive": true,
+      "sendSFrameAck": true,
+      "t0Ms": 30000,
+      "t1Ms": 15000,
+      "t2Ms": 10000,
+      "t3Ms": 20000,
+      "kWindow": 12,
+      "wAck": 8
     }
   },
   "collect": {
@@ -43,6 +51,7 @@
       "address": 1001,
       "enabled": true,
       "fullUpload": true,
+      "reportOnChange": true,
       "read": {
         "enable": true,
         "dataType": "single_point",
@@ -81,6 +90,57 @@
       },
       "write": {
         "enable": false
+      }
+    },
+    {
+      "index": 410003,
+      "pointCode": "iec104_remote_close_1",
+      "name": "IEC104 遥控合闸 1",
+      "category": "control",
+      "address": 3001,
+      "enabled": true,
+      "fullUpload": false,
+      "read": {
+        "enable": false
+      },
+      "write": {
+        "enable": true,
+        "dataType": "single_command",
+        "allowedValues": [0, 1],
+        "iec": {
+          "ioa": 3001,
+          "typeId": 45,
+          "commonAddress": 1,
+          "selectBeforeExecute": true,
+          "waitActivationTermination": true,
+          "timeoutMs": 3000
+        }
+      }
+    },
+    {
+      "index": 410004,
+      "pointCode": "iec104_setpoint_float_1",
+      "name": "IEC104 浮点设点 1",
+      "category": "control",
+      "address": 4001,
+      "enabled": true,
+      "fullUpload": false,
+      "read": {
+        "enable": false
+      },
+      "write": {
+        "enable": true,
+        "dataType": "setpoint_float",
+        "min": -100000,
+        "max": 100000,
+        "iec": {
+          "ioa": 4001,
+          "typeId": 50,
+          "commonAddress": 1,
+          "selectBeforeExecute": false,
+          "waitActivationTermination": true,
+          "timeoutMs": 3000
+        }
       }
     }
   ],

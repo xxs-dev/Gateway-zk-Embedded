@@ -29,6 +29,7 @@ add_library(edge_gateway
     src/graph_ems_engine.cpp
     src/iec_client.cpp
     src/iec_codec.cpp
+    src/iec_command_executor.cpp
     src/iec_collector.cpp
     src/legacy_ems_engine.cpp
     src/legacy_ems_point_catalog.cpp
@@ -132,6 +133,10 @@ target_compile_options(can_signal_codec_test PRIVATE -fdiagnostics-color=never)
 add_executable(iec_codec_test tools/iec_codec_test.cpp)
 target_link_libraries(iec_codec_test PRIVATE edge_gateway)
 target_compile_options(iec_codec_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(iec104_client_integration_test tools/iec104_client_integration_test.cpp)
+target_link_libraries(iec104_client_integration_test PRIVATE edge_gateway)
+target_compile_options(iec104_client_integration_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(config_loader_test tools/config_loader_test.cpp)
 target_link_libraries(config_loader_test PRIVATE edge_gateway)
