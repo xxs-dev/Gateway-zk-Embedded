@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
+option(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS "Enable function/data section GC for smaller edge binaries" ON)
+
 add_library(edge_gateway
     src/alarm_service.cpp
     src/can_driver_service.cpp
@@ -51,6 +53,10 @@ add_library(edge_gateway
 
 target_include_directories(edge_gateway PUBLIC include)
 target_compile_options(edge_gateway PRIVATE -fdiagnostics-color=never)
+if(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS AND NOT MSVC)
+    target_compile_options(edge_gateway PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(edge_gateway INTERFACE -Wl,--gc-sections)
+endif()
 if(NOT WIN32)
     target_link_libraries(edge_gateway PUBLIC dl pthread rt)
 endif()
