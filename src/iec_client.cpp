@@ -156,7 +156,7 @@ std::vector<IecDataValue> IecTcpClient::poll() {
     if (protocolType_ == "iec104") {
         ensureIec104Started();
         if (iec_.pollOnCollect) {
-            sendAll(IecCodec::buildIec104InterrogationCommand(iec_, nextSendSequence(), currentReceiveSequence()));
+            sendIec104IFrame(IecCodec::buildIec104InterrogationCommand(iec_, nextSendSequence(), currentReceiveSequence()));
         }
         if (!iec_.backgroundReceive) {
             const auto frames = drainIec104Frames(iec_.pollTimeoutMs, iec_.maxPollFrames);
@@ -241,13 +241,13 @@ CommandResult IecTcpClient::writeByPoint(
 
         const auto timeoutMs = point.write.iec.timeoutMs > 0 ? point.write.iec.timeoutMs : iec_.t1Ms;
         if (point.write.iec.selectBeforeExecute) {
-            sendAll(IecCodec::buildIec104ControlCommand(iec_, point, value, nextSendSequence(), currentReceiveSequence(), true));
+            sendIec104IFrame(IecCodec::buildIec104ControlCommand(iec_, point, value, nextSendSequence(), currentReceiveSequence(), true));
             if (!waitForControlConfirmation(point, value, 7, timeoutMs)) {
                 throw std::runtime_error("IEC104 select confirmation timeout");
             }
         }
 
-        sendAll(IecCodec::buildIec104ControlCommand(iec_, point, value, nextSendSequence(), currentReceiveSequence(), false));
+        sendIec104IFrame(IecCodec::buildIec104ControlCommand(iec_, point, value, nextSendSequence(), currentReceiveSequence(), false));
         if (!waitForControlConfirmation(point, value, 7, timeoutMs)) {
             throw std::runtime_error("IEC104 execute confirmation timeout");
         }
@@ -272,7 +272,7 @@ void IecTcpClient::synchronizeClock(std::int64_t nowMsValue) {
     }
     ensureConnected();
     ensureIec104Started();
-    sendAll(IecCodec::buildIec104ClockSyncCommand(iec_, nextSendSequence(), currentReceiveSequence(), nowMsValue));
+    sendIec104IFrame(IecCodec::buildIec104ClockSyncCommand(iec_, nextSendSequence(), currentReceiveSequence(), nowMsValue));
 }
 
 void IecTcpClient::ensureConnected() {
@@ -316,6 +316,9 @@ void IecTcpClient::ensureConnected() {
         std::lock_guard<std::mutex> lock(stateMutex_);
         iec104Started_ = false;
         rxBuffer_.clear();
+        sendSequence_ = 0;
+        receiveSequence_ = 0;
+        remoteReceiveSequence_ = 0;
         lastReceiveMs_ = nowMs();
         lastSendMs_ = lastReceiveMs_;
         lastAckMs_ = lastReceiveMs_;
@@ -445,6 +448,27 @@ std::uint16_t IecTcpClient::currentReceiveSequence() const {
     return receiveSequence_;
 }
 
+void IecTcpClient::sendIec104IFrame(const std::vector<std::uint8_t>& bytes) {
+    if (!IecCodec::isIec104IFrame(bytes)) {
+        sendAll(bytes);
+        return;
+    }
+    const auto frameSequence = IecCodec::iec104SendSequence(bytes);
+    {
+        std::unique_lock<std::mutex> lock(stateMutex_);
+        const auto timeout = std::chrono::milliseconds(std::max(1, iec_.t1Ms));
+        const auto accepted = stateChanged_.wait_for(lock, timeout, [&] {
+            const auto outstanding = static_cast<std::uint16_t>(sendSequence_ - remoteReceiveSequence_);
+            return outstanding <= static_cast<std::uint16_t>(std::max(1, iec_.kWindow));
+        });
+        if (!accepted) {
+            throw std::runtime_error("IEC104 send window timeout");
+        }
+    }
+    sendAll(bytes);
+    (void)frameSequence;
+}
+
 void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
     std::lock_guard<std::mutex> sendLock(sendMutex_);
     std::size_t sent = 0;
@@ -517,6 +541,10 @@ void IecTcpClient::handleIec104Frame(const std::vector<std::uint8_t>& frame) {
         return;
     }
     if (IecCodec::isIec104TestFrCon(frame) || IecCodec::isIec104StopDtCon(frame) || IecCodec::isIec104SFrame(frame)) {
+        if (IecCodec::isIec104SFrame(frame)) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            remoteReceiveSequence_ = IecCodec::iec104ReceiveSequence(frame);
+        }
         stateChanged_.notify_all();
         return;
     }
@@ -529,6 +557,7 @@ void IecTcpClient::handleIec104Frame(const std::vector<std::uint8_t>& frame) {
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         receiveSequence_ = static_cast<std::uint16_t>(IecCodec::iec104SendSequence(frame) + 1);
+        remoteReceiveSequence_ = IecCodec::iec104ReceiveSequence(frame);
         ackSequence = receiveSequence_;
         ++unacknowledgedReceived_;
         shouldAck = iec_.sendSFrameAck && unacknowledgedReceived_ >= static_cast<std::uint16_t>(std::max(1, iec_.wAck));

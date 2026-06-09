@@ -998,6 +998,7 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.wAck = requireInt(object, "wAck", iec.wAck);
     iec.backgroundReceive = requireBool(object, "backgroundReceive", iec.backgroundReceive);
     iec.sendSFrameAck = requireBool(object, "sendSFrameAck", iec.sendSFrameAck);
+    iec.clockSyncIntervalSec = requireInt(object, "clockSyncIntervalSec", iec.clockSyncIntervalSec);
     iec.cotSize = boundedInt(iec.cotSize, 1, 2);
     iec.caSize = boundedInt(iec.caSize, 1, 2);
     iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
@@ -1011,6 +1012,7 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.t3Ms = boundedInt(iec.t3Ms, 1000, 300000);
     iec.kWindow = boundedInt(iec.kWindow, 1, 32767);
     iec.wAck = boundedInt(iec.wAck, 1, iec.kWindow);
+    iec.clockSyncIntervalSec = std::max(0, iec.clockSyncIntervalSec);
     return iec;
 }
 

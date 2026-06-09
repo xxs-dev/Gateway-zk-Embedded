@@ -170,6 +170,10 @@ public:
         return sawExecute_.load();
     }
 
+    bool sawClockSync() const {
+        return sawClockSync_.load();
+    }
+
 private:
     void run() {
         clientFd_ = accept(listenFd_, nullptr, nullptr);
@@ -199,6 +203,7 @@ private:
                 continue;
             }
             if (asdu[0] == 45 && asdu.size() >= 10) {
+                sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
                 const bool select = (asdu.back() & 0x80U) != 0;
                 if (select) {
                     sawSelect_.store(true);
@@ -214,7 +219,14 @@ private:
                     sendIFrame(done);
                 }
             } else if (asdu[0] == 100) {
+                sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
                 sendAll(clientFd_, buildSinglePointFrame(config_, serverSendSeq_++, IecCodec::iec104SendSequence(frame) + 1, 20, 1001, true));
+            } else if (asdu[0] == 103) {
+                sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
+                sawClockSync_.store(true);
+                auto confirm = asdu;
+                confirm[2] = 7;
+                sendIFrame(confirm);
             }
         }
     }
@@ -232,6 +244,10 @@ private:
         sendAll(clientFd_, frame);
     }
 
+    void sendSFrame(std::uint16_t receiveSequence) {
+        sendAll(clientFd_, IecCodec::buildIec104SFrame(receiveSequence));
+    }
+
     IecProtocolConfig config_;
     int listenFd_ = -1;
     int clientFd_ = -1;
@@ -240,6 +256,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> sawSelect_{false};
     std::atomic<bool> sawExecute_{false};
+    std::atomic<bool> sawClockSync_{false};
     std::thread thread_;
 };
 
@@ -304,9 +321,11 @@ int main() {
 
         const auto result = client.writeByPoint(command, 1.0, "CMD_TEST", "MACHINE", "METER", 1234);
         requireTrue(result.success, "IEC104 command should succeed: " + result.message);
+        client.synchronizeClock(1234567890);
     }
     requireTrue(server.sawSelect(), "server should receive select command");
     requireTrue(server.sawExecute(), "server should receive execute command");
+    requireTrue(server.sawClockSync(), "server should receive clock sync command");
 
     server.stop();
     std::cout << "iec104 client integration test passed" << std::endl;

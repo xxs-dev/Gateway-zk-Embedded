@@ -61,6 +61,7 @@ private:
     void configureSocketTimeouts() const;
     std::uint16_t nextSendSequence();
     std::uint16_t currentReceiveSequence() const;
+    void sendIec104IFrame(const std::vector<std::uint8_t>& bytes);
     void sendAll(const std::vector<std::uint8_t>& bytes);
     std::vector<std::uint8_t> readSome(int timeoutMs);
     void handleIec104Frame(const std::vector<std::uint8_t>& frame);
@@ -77,6 +78,7 @@ private:
     std::intptr_t socket_ = -1;
     std::uint16_t sendSequence_ = 0;
     std::uint16_t receiveSequence_ = 0;
+    std::uint16_t remoteReceiveSequence_ = 0;
     bool iec104Started_ = false;
     std::vector<std::uint8_t> rxBuffer_;
     std::atomic<bool> receiveRunning_{false};

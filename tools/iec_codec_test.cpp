@@ -119,7 +119,8 @@ int main() {
           "transportMode": "tcp",
           "linkAddress": 1,
           "linkAddressSize": 1,
-          "commonAddress": 1
+          "commonAddress": 1,
+          "clockSyncIntervalSec": 300
         }
       },
       "points": [
@@ -169,6 +170,7 @@ int main() {
     requireTrue(loaded.protocol.type == "iec103", "config protocol type");
     requireTrue(loaded.protocol.iec.transportMode == "tcp", "config IEC103 TCP mode");
     requireTrue(loaded.protocol.iec.backgroundReceive, "config IEC background receive default");
+    requireTrue(loaded.protocol.iec.clockSyncIntervalSec == 300, "config IEC clock sync interval");
     requireTrue(!loaded.points.empty(), "config IEC points");
     requireTrue(loaded.points.front().read.iec.functionType == 160, "config IEC103 FUN");
     requireTrue(loaded.points.size() == 2, "config IEC command point count");

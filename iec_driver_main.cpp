@@ -58,6 +58,12 @@ bool isTcpIecMode(const edge_gateway::DeviceConfig& config) {
         (type == "iec103" && config.protocol.iec.transportMode == "tcp");
 }
 
+std::int64_t currentTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -182,7 +188,21 @@ int main(int argc, char* argv[]) {
               << " mqtt=disabled"
               << std::endl;
 
+    std::int64_t lastClockSyncMs = 0;
     while (g_running) {
+        if (config.protocol.type == "iec104" && config.protocol.iec.clockSyncIntervalSec > 0) {
+            const auto now = currentTimeMs();
+            const auto intervalMs = static_cast<std::int64_t>(config.protocol.iec.clockSyncIntervalSec) * 1000;
+            if (lastClockSyncMs == 0 || now - lastClockSyncMs >= intervalMs) {
+                try {
+                    iecClient->synchronizeClock(now);
+                    lastClockSyncMs = now;
+                } catch (const std::exception& ex) {
+                    std::cerr << "IEC104 clock sync failed: " << ex.what() << std::endl;
+                    lastClockSyncMs = now;
+                }
+            }
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 

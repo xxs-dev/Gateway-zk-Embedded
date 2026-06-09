@@ -27,7 +27,8 @@
       "t2Ms": 10000,
       "t3Ms": 20000,
       "kWindow": 12,
-      "wAck": 8
+      "wAck": 8,
+      "clockSyncIntervalSec": 0
     }
   },
   "collect": {

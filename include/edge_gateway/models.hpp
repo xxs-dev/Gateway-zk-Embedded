@@ -345,6 +345,7 @@ struct IecProtocolConfig {
     int wAck = 8;
     bool backgroundReceive = true;
     bool sendSFrameAck = true;
+    int clockSyncIntervalSec = 0;
 };
 
 struct ProtocolConfig {
