@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "edge_gateway/collector.hpp"
+#include "edge_gateway/modbus_collector.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"

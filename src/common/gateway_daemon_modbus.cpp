@@ -5,7 +5,9 @@
 #include <utility>
 
 #include "edge_gateway/command_executor.hpp"
+#include "edge_gateway/dlt645_collector.hpp"
 #include "edge_gateway/modbus_northbound_server.hpp"
+#include "edge_gateway/modbus_collector.hpp"
 
 namespace edge_gateway {
 

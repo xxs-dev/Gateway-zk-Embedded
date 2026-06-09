@@ -11,6 +11,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/dlt645_collector.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"

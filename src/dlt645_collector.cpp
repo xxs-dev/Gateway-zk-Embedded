@@ -1,4 +1,4 @@
-#include "edge_gateway/collector.hpp"
+#include "edge_gateway/dlt645_collector.hpp"
 
 #include <chrono>
 #include <stdexcept>

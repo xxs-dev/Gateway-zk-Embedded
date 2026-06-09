@@ -1,4 +1,4 @@
-#include "edge_gateway/collector.hpp"
+#include "edge_gateway/common/collector_base.hpp"
 
 #include <algorithm>
 #include <utility>

@@ -1,4 +1,4 @@
-#include "edge_gateway/collector.hpp"
+#include "edge_gateway/modbus_collector.hpp"
 
 #include <algorithm>
 #include <chrono>

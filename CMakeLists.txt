@@ -13,7 +13,7 @@ add_library(edge_gateway
     src/can_driver_service.cpp
     src/can_signal_codec.cpp
     src/collector.cpp
-    src/collector_base.cpp
+    src/common/collector_base.cpp
     src/command_executor.cpp
     src/compute_engine_service.cpp
     src/config_loader.cpp
@@ -24,8 +24,8 @@ add_library(edge_gateway
     src/dlt645_codec.cpp
     src/dlt645_standard_points_loader.cpp
     src/event_engine_service.cpp
-    src/gateway_daemon.cpp
-    src/gateway_daemon_modbus.cpp
+    src/common/gateway_daemon.cpp
+    src/common/gateway_daemon_modbus.cpp
     src/graph_ems_engine.cpp
     src/legacy_ems_engine.cpp
     src/legacy_ems_point_catalog.cpp

@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include "edge_gateway/command_executor_interface.hpp"
+#include "edge_gateway/common/command_executor_interface.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"

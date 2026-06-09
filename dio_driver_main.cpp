@@ -10,6 +10,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/dio_collector.hpp"
 #include "edge_gateway/dio_command_executor.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"

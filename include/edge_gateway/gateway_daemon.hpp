@@ -7,8 +7,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "edge_gateway/collector.hpp"
-#include "edge_gateway/command_executor_interface.hpp"
+#include "edge_gateway/common/collector_base.hpp"
+#include "edge_gateway/common/command_executor_interface.hpp"
+#include "edge_gateway/common/runtime_device.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
@@ -55,12 +56,6 @@ public:
     std::size_t processWritebackOnce(std::int64_t nowMs);
 
 private:
-    struct RuntimeDevice {
-        DeviceConfig config;
-        std::unique_ptr<ICollector> collector;
-        std::unique_ptr<ICommandExecutor> executor;
-    };
-
     void collectLoop();
     void persistLoop();
     void writebackLoop();
