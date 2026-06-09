@@ -533,6 +533,51 @@ check_services() {
         fail "service not active: $unit"
       fi
     done < /tmp/gateway-smoke-units.$$
+    active_units_file=/tmp/gateway-smoke-active.$$
+    enabled_units_file=/tmp/gateway-smoke-enabled.$$
+    systemctl list-units --plain --no-legend --state=active \
+      'modbus-rtu@*.service' \
+      'dlt645-driver@*.service' \
+      'dio-driver@*.service' \
+      'can-driver@*.service' \
+      'compute-engine@*.service' \
+      'event-engine@*.service' \
+      'local-display@*.service' \
+      'local-display-qt@*.service' \
+      'local-kiosk@*.service' \
+      'camera-service@*.service' \
+      'mqtt-driver@*.service' \
+      'system-monitor@*.service' \
+      'mqtt-tls-tunnel@*.service' 2>/dev/null |
+      awk '{print $1}' > "$active_units_file"
+    systemctl list-unit-files --plain --no-legend \
+      'modbus-rtu@*.service' \
+      'dlt645-driver@*.service' \
+      'dio-driver@*.service' \
+      'can-driver@*.service' \
+      'compute-engine@*.service' \
+      'event-engine@*.service' \
+      'local-display@*.service' \
+      'local-display-qt@*.service' \
+      'local-kiosk@*.service' \
+      'camera-service@*.service' \
+      'mqtt-driver@*.service' \
+      'system-monitor@*.service' \
+      'mqtt-tls-tunnel@*.service' 2>/dev/null |
+      awk '$2 ~ /^enabled/ {print $1}' > "$enabled_units_file"
+    unexpected_active=$(awk 'NR==FNR {desired[$1]=1; next} !($1 in desired) {print $1}' /tmp/gateway-smoke-units.$$ "$active_units_file" | tr '\n' ' ')
+    unexpected_enabled=$(awk 'NR==FNR {desired[$1]=1; next} !($1 in desired) {print $1}' /tmp/gateway-smoke-units.$$ "$enabled_units_file" | tr '\n' ' ')
+    if [ -n "$unexpected_active" ]; then
+      fail "unexpected active gateway units: $unexpected_active"
+    else
+      pass "no unexpected active gateway units"
+    fi
+    if [ -n "$unexpected_enabled" ]; then
+      fail "unexpected enabled gateway units: $unexpected_enabled"
+    else
+      pass "no unexpected enabled gateway units"
+    fi
+    rm -f "$active_units_file" "$enabled_units_file"
     failed_units=$(systemctl --failed --no-legend 2>/dev/null | grep -E 'modbus|dlt645|dio|can-driver|mqtt|event-engine|system-monitor|local-display|camera-service|gateway-services' || true)
     if [ -n "$failed_units" ]; then
       fail "gateway related failed systemd units detected"

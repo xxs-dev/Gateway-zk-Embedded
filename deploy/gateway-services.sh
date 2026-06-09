@@ -12,22 +12,42 @@ stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
     return 0
   fi
-  units=$(systemctl list-units --all --plain --no-legend \
-    'modbus-rtu@*.service' \
-    'dlt645-driver@*.service' \
-    'dio-driver@*.service' \
-    'can-driver@*.service' \
-    'compute-engine@*.service' \
-    'event-engine@*.service' \
-    'local-display@*.service' \
-    'local-display-qt@*.service' \
-    'local-kiosk@*.service' \
-    'system-monitor@*.service' \
-    'camera-service@*.service' \
-    'direct-agent@*.service' \
-    'mqtt-tls-tunnel@*.service' \
-    'mqtt-driver@*.service' 2>/dev/null |
-    awk '{print $1}')
+  units=$(
+    {
+      systemctl list-units --all --plain --no-legend \
+        'modbus-rtu@*.service' \
+        'dlt645-driver@*.service' \
+        'dio-driver@*.service' \
+        'can-driver@*.service' \
+        'compute-engine@*.service' \
+        'event-engine@*.service' \
+        'local-display@*.service' \
+        'local-display-qt@*.service' \
+        'local-kiosk@*.service' \
+        'system-monitor@*.service' \
+        'camera-service@*.service' \
+        'direct-agent@*.service' \
+        'mqtt-tls-tunnel@*.service' \
+        'mqtt-driver@*.service' 2>/dev/null |
+        awk '{print $1}'
+      systemctl list-unit-files --plain --no-legend \
+        'modbus-rtu@*.service' \
+        'dlt645-driver@*.service' \
+        'dio-driver@*.service' \
+        'can-driver@*.service' \
+        'compute-engine@*.service' \
+        'event-engine@*.service' \
+        'local-display@*.service' \
+        'local-display-qt@*.service' \
+        'local-kiosk@*.service' \
+        'system-monitor@*.service' \
+        'camera-service@*.service' \
+        'direct-agent@*.service' \
+        'mqtt-tls-tunnel@*.service' \
+        'mqtt-driver@*.service' 2>/dev/null |
+        awk '{print $1}'
+    } | awk '$0 !~ /@\.service$/ && $0 ~ /@.*\.service$/ && !seen[$0]++'
+  )
   [ -z "$units" ] && return 0
   # Stop all instances together so OTA/config switching is bounded by the slowest
   # driver, not by the sum of every serial port timeout.
@@ -223,6 +243,34 @@ def camera_service_enabled(path):
         return False
     return any(bool_value((item or {}).get("enabled"), True) for item in cameras if isinstance(item, dict))
 
+def mqtt_driver_process_needed(app):
+    if not isinstance(app, dict):
+        return False
+    mqtt = app.get("mqtt", {}) or {}
+    mqtt_enabled = bool_value(mqtt.get("enabled"), False)
+    if not mqtt_enabled:
+        return False
+    mqtt_driver = app.get("mqttDriver", {}) or {}
+    event_engine = app.get("eventEngine", {}) or {}
+    ota = app.get("ota", {}) or {}
+    realtime = app.get("realtime", {}) or {}
+    if bool_value(mqtt_driver.get("enabled"), False):
+        return True
+    if bool_value(ota.get("enabled"), False):
+        return True
+    if bool_value(realtime.get("enabled"), False):
+        return True
+    if bool_value(event_engine.get("enabled"), False) and str(event_engine.get("publishMode", "")).strip() == "mqtt_driver_outbox":
+        return True
+    for key in (
+        "commandRequestTopic",
+        "otaRequestTopic",
+        "realtimeRequestTopic",
+    ):
+        if str(mqtt.get(key, "")).strip():
+            return True
+    return False
+
 def connector_has_edid(path):
     edid = os.path.join(os.path.dirname(path), "edid")
     try:
@@ -305,20 +353,24 @@ for path in (app_path(mqtt_app_name), app_path(monitor_app_name)):
 
 mqtt_path = app_path(mqtt_app_name)
 if os.path.isfile(mqtt_path):
-    emit_unit(stunnel_unit_for_app(mqtt_path))
     try:
         with open(mqtt_path, "r", encoding="utf-8") as fh:
             app = json.load(fh)
-        compute_enabled = bool(app.get("computeEngine", {}).get("enabled", False))
-        event_enabled = bool(app.get("eventEngine", {}).get("enabled", False))
+        compute_enabled = bool_value((app.get("computeEngine", {}) or {}).get("enabled"), False)
+        event_enabled = bool_value((app.get("eventEngine", {}) or {}).get("enabled"), False)
+        mqtt_driver_needed = mqtt_driver_process_needed(app)
     except Exception:
         compute_enabled = False
         event_enabled = False
+        mqtt_driver_needed = False
+    if mqtt_driver_needed or event_enabled:
+        emit_unit(stunnel_unit_for_app(mqtt_path))
     if compute_enabled:
         emit_unit(f"compute-engine@{mqtt_app_name}.service")
     if event_enabled:
         emit_unit(f"event-engine@{mqtt_app_name}.service")
-    emit_unit(f"mqtt-driver@{mqtt_app_name}.service")
+    if mqtt_driver_needed:
+        emit_unit(f"mqtt-driver@{mqtt_app_name}.service")
 
 monitor_path = app_path(monitor_app_name)
 if os.path.isfile(monitor_path):

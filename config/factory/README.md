@@ -47,7 +47,7 @@ INIT_RUNTIME_MODE=ems sh deploy/install-factory-config.sh
 - `deviceConfigFiles[]` 引用了 `device_dio.json`，因此默认会启动 `dio-driver@device_dio.service`。
 - `deviceConfigFiles[]` 默认不引用 `device_ems_virtual.json`，因此 EMS 本体虚拟点不会进入共享内存和 MQTT 上报范围。
 - `device_can0.json` 只作为模板随包发布，未被 `deviceConfigFiles[]` 引用时不会启动 `can-driver@*.service`。
-- `mqtt-service.json` 存在，因此默认会启动 `mqtt-driver@mqtt-service.service`。
+- `mqtt-service.json:mqtt.enabled=true` 且默认开启 MQTT 上传、事件 outbox、OTA 和控制通道，因此会启动 `mqtt-driver@mqtt-service.service`。
 - `mqtt-service.json:eventEngine.enabled=true`，因此默认会启动 `event-engine@mqtt-service.service`。
 - `mqtt-service.json:computeEngine.enabled=true` 时会启动 `compute-engine@mqtt-service.service`；默认 `gateway` 模式不会执行 `runtime/logic/shuntong_ems_graph.json` 中的 EMS 图形逻辑。
 - `monitor-service.json:systemMonitor.enabled=true`，因此默认会启动 `system-monitor@monitor-service.service`。
