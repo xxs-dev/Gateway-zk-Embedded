@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "protocol": {
+    "type": "iec103",
+    "tcp": {
+      "host": "192.168.22.201",
+      "port": 2404,
+      "connectTimeoutMs": 1000,
+      "timeoutMs": 1000
+    },
+    "iec": {
+      "transportMode": "tcp",
+      "linkAddress": 1,
+      "linkAddressSize": 1,
+      "commonAddress": 1,
+      "pollTimeoutMs": 1000,
+      "maxPollFrames": 64,
+      "pollOnCollect": true
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "shared_memory",
+    "sharedMemoryName": "gateway_point_store",
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_iec103_tcp.db"
+  },
+  "points": [
+    {
+      "index": 431001,
+      "pointCode": "iec103_tcp_fun160_inf1",
+      "name": "IEC103 TCP FUN160 INF1",
+      "category": "telemetry",
+      "enabled": true,
+      "fullUpload": true,
+      "read": {
+        "enable": true,
+        "dataType": "int16",
+        "intervalMs": 1000,
+        "iec": {
+          "functionType": 160,
+          "informationNumber": 1,
+          "typeId": 9,
+          "commonAddress": 1
+        }
+      },
+      "write": {
+        "enable": false
+      }
+    }
+  ],
+  "meters": []
+}

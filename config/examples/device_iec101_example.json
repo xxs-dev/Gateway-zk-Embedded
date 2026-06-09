@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "protocol": {
+    "type": "iec101",
+    "transport": {
+      "serialPort": "/dev/ttyS1",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "E",
+      "timeoutMs": 1000,
+      "frameIntervalMs": 20,
+      "readRetryCount": 1
+    },
+    "iec": {
+      "transportMode": "serial",
+      "linkAddress": 1,
+      "linkAddressSize": 1,
+      "commonAddress": 1,
+      "cotSize": 2,
+      "caSize": 2,
+      "ioaSize": 3,
+      "interrogationQualifier": 20,
+      "pollTimeoutMs": 1000,
+      "maxPollFrames": 64,
+      "pollOnCollect": true
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "shared_memory",
+    "sharedMemoryName": "gateway_point_store",
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_iec101.db"
+  },
+  "points": [
+    {
+      "index": 420001,
+      "pointCode": "iec101_remote_signal_1",
+      "name": "IEC101 遥信 1",
+      "category": "telemetry",
+      "address": 1001,
+      "enabled": true,
+      "fullUpload": true,
+      "read": {
+        "enable": true,
+        "dataType": "single_point",
+        "intervalMs": 1000,
+        "iec": {
+          "ioa": 1001,
+          "typeId": 1,
+          "commonAddress": 1
+        }
+      },
+      "write": {
+        "enable": false
+      }
+    }
+  ],
+  "meters": []
+}

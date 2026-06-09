@@ -450,7 +450,7 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl; do
+for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl; do
   install_required_binary "$bin"
 done
 for bin in LocalDisplay CameraService stress_runner; do
@@ -566,6 +566,7 @@ if command -v systemctl >/dev/null 2>&1; then
   install_file_if_exists "$DEPLOY_DIR/dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/can-driver@.service" "/etc/systemd/system/can-driver@.service"
+  install_file_if_exists "$DEPLOY_DIR/iec-driver@.service" "/etc/systemd/system/iec-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
   install_file_if_exists "$DEPLOY_DIR/event-engine@.service" "/etc/systemd/system/event-engine@.service"
   install_file_if_exists "$DEPLOY_DIR/compute-engine@.service" "/etc/systemd/system/compute-engine@.service"

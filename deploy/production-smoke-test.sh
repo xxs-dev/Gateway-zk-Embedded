@@ -127,7 +127,7 @@ check_runtime_files() {
   echo "== runtime files =="
   file_exists "$APP_CONFIG" "mqtt app config"
   file_exists "$MONITOR_CONFIG" "monitor app config"
-  for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine SystemMonitor LocalDisplay CameraService pointctl; do
+  for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine SystemMonitor LocalDisplay CameraService pointctl; do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
   for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh; do

@@ -53,7 +53,7 @@ if [ -d "$ROOT_DIR/deploy" ]; then
 fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
-  REQUIRED_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
+  REQUIRED_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
   OPTIONAL_BINS="LocalDisplay CameraService DirectAgent stress_runner"
   for bin in $REQUIRED_BINS; do
     if [ ! -f "$ROOT_DIR/build-aarch64/$bin" ]; then

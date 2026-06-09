@@ -714,6 +714,22 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     return spec;
 }
 
+IecPointSpec parseIecPointSpec(const JsonValue* value) {
+    IecPointSpec spec;
+    if (value == nullptr || value->isNull()) {
+        return spec;
+    }
+    const auto& object = value->asObject();
+    spec.ioa = requireInt(object, "ioa", spec.ioa);
+    spec.typeId = requireInt(object, "typeId", spec.typeId);
+    spec.cause = requireInt(object, "cause", spec.cause);
+    spec.commonAddress = requireInt(object, "commonAddress", spec.commonAddress);
+    spec.functionType = requireInt(object, "functionType", spec.functionType);
+    spec.informationNumber = requireInt(object, "informationNumber", spec.informationNumber);
+    spec.valueKind = requireString(object, "valueKind", spec.valueKind);
+    return spec;
+}
+
 ReadSpec parseReadSpec(const JsonValue* value) {
     ReadSpec spec;
     if (value == nullptr || value->isNull()) {
@@ -744,6 +760,7 @@ ReadSpec parseReadSpec(const JsonValue* value) {
         }
     }
     spec.can = parseCanSignalSpec(value->find("can"));
+    spec.iec = parseIecPointSpec(value->find("iec"));
     spec.cachePolicy = parseCachePolicy(value->find("cachePolicy"));
     return spec;
 }
@@ -946,6 +963,38 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     return can;
 }
 
+IecProtocolConfig parseIecProtocol(const JsonValue* value) {
+    IecProtocolConfig iec;
+    if (value == nullptr || value->isNull()) {
+        return iec;
+    }
+    const auto& object = value->asObject();
+    iec.transportMode = requireString(object, "transportMode", iec.transportMode);
+    iec.commonAddress = requireInt(object, "commonAddress", iec.commonAddress);
+    iec.originatorAddress = requireInt(object, "originatorAddress", iec.originatorAddress);
+    iec.cotSize = requireInt(object, "cotSize", iec.cotSize);
+    iec.caSize = requireInt(object, "caSize", iec.caSize);
+    iec.ioaSize = requireInt(object, "ioaSize", iec.ioaSize);
+    iec.linkAddress = requireInt(object, "linkAddress", iec.linkAddress);
+    iec.linkAddressSize = requireInt(object, "linkAddressSize", iec.linkAddressSize);
+    iec.interrogationQualifier = requireInt(object, "interrogationQualifier", iec.interrogationQualifier);
+    iec.interrogationCot = requireInt(object, "interrogationCot", iec.interrogationCot);
+    iec.activationTerminationCot = requireInt(object, "activationTerminationCot", iec.activationTerminationCot);
+    iec.pollTimeoutMs = requireInt(object, "pollTimeoutMs", iec.pollTimeoutMs);
+    iec.idleReadTimeoutMs = requireInt(object, "idleReadTimeoutMs", iec.idleReadTimeoutMs);
+    iec.maxPollFrames = requireInt(object, "maxPollFrames", iec.maxPollFrames);
+    iec.pollOnCollect = requireBool(object, "pollOnCollect", iec.pollOnCollect);
+    iec.balanced = requireBool(object, "balanced", iec.balanced);
+    iec.cotSize = boundedInt(iec.cotSize, 1, 2);
+    iec.caSize = boundedInt(iec.caSize, 1, 2);
+    iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
+    iec.linkAddressSize = boundedInt(iec.linkAddressSize, 0, 2);
+    iec.pollTimeoutMs = std::max(100, iec.pollTimeoutMs);
+    iec.idleReadTimeoutMs = std::max(10, iec.idleReadTimeoutMs);
+    iec.maxPollFrames = std::max(1, iec.maxPollFrames);
+    return iec;
+}
+
 ProtocolConfig parseProtocol(const JsonValue* value) {
     ProtocolConfig protocol;
     if (value == nullptr || value->isNull()) {
@@ -959,6 +1008,21 @@ ProtocolConfig parseProtocol(const JsonValue* value) {
     protocol.transport = parseTransport(value->find("transport"));
     protocol.tcp = parseTcpTransport(value->find("tcp"));
     protocol.can = parseCanProtocol(value->find("can"));
+    protocol.iec = parseIecProtocol(value->find("iec"));
+    if (protocol.iec.transportMode.empty()) {
+        if (protocol.type == "iec104" || protocol.type == "iec103_tcp") {
+            protocol.iec.transportMode = "tcp";
+        } else {
+            protocol.iec.transportMode = "serial";
+        }
+    }
+    if (protocol.type == "iec104" && protocol.tcp.port == 502) {
+        protocol.tcp.port = 2404;
+    }
+    if ((protocol.type == "iec103_tcp" || protocol.type == "iec103") &&
+        protocol.iec.transportMode == "tcp" && protocol.tcp.port == 502) {
+        protocol.tcp.port = 2404;
+    }
     return protocol;
 }
 
