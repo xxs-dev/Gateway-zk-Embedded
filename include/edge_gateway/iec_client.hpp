@@ -32,6 +32,10 @@ public:
         std::int64_t nowMs
     );
     virtual void synchronizeClock(std::int64_t nowMs);
+    virtual IecParameterValue readParameter(int ioa, int typeId, std::uint8_t qualifier, int timeoutMs);
+    virtual CommandResult writeParameter(int ioa, int typeId, double value, std::uint8_t qualifier, int timeoutMs);
+    virtual CommandResult activateParameter(int ioa, std::uint8_t qualifier, int timeoutMs);
+    virtual std::vector<IecFileSegment> callFile(int ioa, int nameOfFile, int nameOfSection, std::uint8_t qualifier, int timeoutMs);
 };
 
 class IecTcpClient : public IecClient {
@@ -50,6 +54,10 @@ public:
         std::int64_t nowMs
     ) override;
     void synchronizeClock(std::int64_t nowMs) override;
+    IecParameterValue readParameter(int ioa, int typeId, std::uint8_t qualifier, int timeoutMs) override;
+    CommandResult writeParameter(int ioa, int typeId, double value, std::uint8_t qualifier, int timeoutMs) override;
+    CommandResult activateParameter(int ioa, std::uint8_t qualifier, int timeoutMs) override;
+    std::vector<IecFileSegment> callFile(int ioa, int nameOfFile, int nameOfSection, std::uint8_t qualifier, int timeoutMs) override;
 
 private:
     void ensureConnected();
@@ -69,6 +77,8 @@ private:
     std::vector<IecDataValue> drainBufferedValuesLocked();
     bool waitForIec104Start(int timeoutMs);
     bool waitForControlConfirmation(const PointDefinition& point, double value, int expectedCause, int timeoutMs);
+    bool waitForParameterConfirmation(int ioa, int typeId, int expectedCause, int timeoutMs, IecParameterValue* value = nullptr);
+    std::vector<IecFileSegment> waitForFileSegments(int nameOfFile, int timeoutMs);
     std::vector<std::vector<std::uint8_t>> drainIec104Frames(int timeoutMs, int maxFrames);
     std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames);
 
@@ -88,6 +98,8 @@ private:
     std::condition_variable stateChanged_;
     std::vector<IecDataValue> bufferedValues_;
     std::vector<IecDataValue> controlValues_;
+    std::vector<IecParameterValue> parameterValues_;
+    std::vector<IecFileSegment> fileSegments_;
     std::int64_t lastReceiveMs_ = 0;
     std::int64_t lastSendMs_ = 0;
     std::int64_t lastAckMs_ = 0;

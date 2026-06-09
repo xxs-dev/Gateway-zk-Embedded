@@ -174,6 +174,18 @@ public:
         return sawClockSync_.load();
     }
 
+    bool sawParameterWrite() const {
+        return sawParameterWrite_.load();
+    }
+
+    bool sawParameterActivation() const {
+        return sawParameterActivation_.load();
+    }
+
+    bool sawFileCall() const {
+        return sawFileCall_.load();
+    }
+
 private:
     void run() {
         clientFd_ = accept(listenFd_, nullptr, nullptr);
@@ -227,6 +239,32 @@ private:
                 auto confirm = asdu;
                 confirm[2] = 7;
                 sendIFrame(confirm);
+            } else if (asdu[0] >= 110 && asdu[0] <= 112) {
+                sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
+                sawParameterWrite_.store(true);
+                auto confirm = asdu;
+                confirm[2] = 7;
+                sendIFrame(confirm);
+            } else if (asdu[0] == 113) {
+                sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
+                sawParameterActivation_.store(true);
+                auto confirm = asdu;
+                confirm[2] = 7;
+                sendIFrame(confirm);
+            } else if (asdu[0] == 122) {
+                sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
+                sawFileCall_.store(true);
+                sendIFrame({
+                    125, 1,
+                    13, 0,
+                    1, 0,
+                    0, 0, 0,
+                    0x07, 0x00,
+                    0x01,
+                    0x80,
+                    0x03,
+                    'a', 'b', 'c'
+                });
             }
         }
     }
@@ -257,6 +295,9 @@ private:
     std::atomic<bool> sawSelect_{false};
     std::atomic<bool> sawExecute_{false};
     std::atomic<bool> sawClockSync_{false};
+    std::atomic<bool> sawParameterWrite_{false};
+    std::atomic<bool> sawParameterActivation_{false};
+    std::atomic<bool> sawFileCall_{false};
     std::thread thread_;
 };
 
@@ -322,10 +363,20 @@ int main() {
         const auto result = client.writeByPoint(command, 1.0, "CMD_TEST", "MACHINE", "METER", 1234);
         requireTrue(result.success, "IEC104 command should succeed: " + result.message);
         client.synchronizeClock(1234567890);
+        const auto parameterResult = client.writeParameter(5001, 112, 12.5, 0x01, 3000);
+        requireTrue(parameterResult.success, "IEC104 parameter write should succeed: " + parameterResult.message);
+        const auto activationResult = client.activateParameter(5001, 0x02, 3000);
+        requireTrue(activationResult.success, "IEC104 parameter activation should succeed: " + activationResult.message);
+        const auto segments = client.callFile(0, 7, 1, 0x01, 3000);
+        requireTrue(!segments.empty(), "IEC104 file call should return segment");
+        requireTrue(segments.front().data.size() == 3, "IEC104 file segment size");
     }
     requireTrue(server.sawSelect(), "server should receive select command");
     requireTrue(server.sawExecute(), "server should receive execute command");
     requireTrue(server.sawClockSync(), "server should receive clock sync command");
+    requireTrue(server.sawParameterWrite(), "server should receive parameter write command");
+    requireTrue(server.sawParameterActivation(), "server should receive parameter activation command");
+    requireTrue(server.sawFileCall(), "server should receive file call command");
 
     server.stop();
     std::cout << "iec104 client integration test passed" << std::endl;

@@ -93,6 +93,55 @@ int main() {
     requireTrue(timedDecoded.values.front().ioa == 1001, "IEC104 timed IOA");
     requireNear(timedDecoded.values.front().value, 1.0, "IEC104 timed single value");
 
+    const auto parameterFrame = IecCodec::buildIec104ParameterCommand(config, 5001, 112, 12.5, 0x01, 3, 1, 6);
+    requireTrue(IecCodec::isIec104IFrame(parameterFrame), "IEC104 parameter I frame");
+    const auto parameterDecoded = IecCodec::decodeAsdu(IecCodec::iec104AsduPayload(parameterFrame), config);
+    requireTrue(parameterDecoded.parameters.size() == 1, "IEC104 parameter decode count");
+    requireTrue(parameterDecoded.parameters.front().ioa == 5001, "IEC104 parameter IOA");
+    requireNear(parameterDecoded.parameters.front().value, 12.5, "IEC104 parameter float");
+    requireTrue(parameterDecoded.parameters.front().qualifier == 0x01, "IEC104 parameter qualifier");
+
+    const auto activationFrame = IecCodec::buildIec104ParameterActivationCommand(config, 5001, 0x02, 4, 1);
+    const auto activationDecoded = IecCodec::decodeAsdu(IecCodec::iec104AsduPayload(activationFrame), config);
+    requireTrue(activationDecoded.parameters.size() == 1, "IEC104 parameter activation count");
+    requireTrue(activationDecoded.parameters.front().typeId == 113, "IEC104 parameter activation type");
+
+    const auto fileCall = IecCodec::buildIec104FileCallCommand(config, 0, 7, 1, 0x01, 5, 1);
+    const auto fileCallDecoded = IecCodec::decodeAsdu(IecCodec::iec104AsduPayload(fileCall), config);
+    requireTrue(fileCallDecoded.fileSegments.size() == 1, "IEC104 file call decode count");
+    requireTrue(fileCallDecoded.fileSegments.front().nameOfFile == 7, "IEC104 file call NOF");
+
+    const std::vector<std::uint8_t> protectionAsdu = {
+        38, 1,
+        3, 0,
+        1, 0,
+        0x71, 0x17, 0x00,
+        0x02,
+        0xE8, 0x03,
+        0, 0, 0, 0, 1, 1, 0x1A
+    };
+    const auto protectionDecoded = IecCodec::decodeAsdu(protectionAsdu, config);
+    requireTrue(protectionDecoded.protectionEvents.size() == 1, "IEC104 protection event count");
+    requireTrue(protectionDecoded.protectionEvents.front().ioa == 6001, "IEC104 protection IOA");
+    requireTrue(protectionDecoded.protectionEvents.front().eventState == 2, "IEC104 protection event state");
+    requireTrue(protectionDecoded.protectionEvents.front().elapsedTimeMs == 1000, "IEC104 protection elapsed time");
+
+    const std::vector<std::uint8_t> fileSegmentAsdu = {
+        125, 1,
+        13, 0,
+        1, 0,
+        0, 0, 0,
+        0x07, 0x00,
+        0x01,
+        0x80,
+        0x03,
+        'a', 'b', 'c'
+    };
+    const auto fileSegmentDecoded = IecCodec::decodeAsdu(fileSegmentAsdu, config);
+    requireTrue(fileSegmentDecoded.fileSegments.size() == 1, "IEC104 file segment count");
+    requireTrue(fileSegmentDecoded.fileSegments.front().data.size() == 3, "IEC104 file segment length");
+    requireTrue(fileSegmentDecoded.fileSegments.front().data.front() == 'a', "IEC104 file segment data");
+
     const std::vector<std::uint8_t> iec103UserData = {
         0x73, 0x01,
         9, 1, 3, 1,

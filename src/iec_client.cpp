@@ -112,6 +112,26 @@ bool isControlType(int typeId) {
     return typeId >= 45 && typeId <= 51;
 }
 
+IecDataValue protectionEventToValue(const IecProtectionEvent& event) {
+    IecDataValue value;
+    value.commonAddress = event.commonAddress;
+    value.ioa = event.ioa;
+    value.typeId = event.typeId;
+    value.cause = event.cause;
+    value.value = static_cast<double>(event.eventState);
+    value.text = std::to_string(event.eventState);
+    value.rawHex = event.rawHex;
+    return value;
+}
+
+CommandResult failedResult(const std::string& message, std::int64_t ts = 0) {
+    CommandResult result;
+    result.success = false;
+    result.message = message;
+    result.ts = ts;
+    return result;
+}
+
 }  // namespace
 
 CommandResult IecClient::writeByPoint(
@@ -137,6 +157,22 @@ CommandResult IecClient::writeByPoint(
 
 void IecClient::synchronizeClock(std::int64_t) {
     throw std::runtime_error("IEC clock sync is not supported for this transport");
+}
+
+IecParameterValue IecClient::readParameter(int, int, std::uint8_t, int) {
+    throw std::runtime_error("IEC parameter read is not supported for this transport");
+}
+
+CommandResult IecClient::writeParameter(int, int, double, std::uint8_t, int) {
+    return failedResult("IEC parameter write is not supported for this transport");
+}
+
+CommandResult IecClient::activateParameter(int, std::uint8_t, int) {
+    return failedResult("IEC parameter activation is not supported for this transport");
+}
+
+std::vector<IecFileSegment> IecClient::callFile(int, int, int, std::uint8_t, int) {
+    throw std::runtime_error("IEC file transfer is not supported for this transport");
 }
 
 IecTcpClient::IecTcpClient(std::string protocolType, TcpTransportConfig tcp, IecProtocolConfig iec)
@@ -273,6 +309,86 @@ void IecTcpClient::synchronizeClock(std::int64_t nowMsValue) {
     ensureConnected();
     ensureIec104Started();
     sendIec104IFrame(IecCodec::buildIec104ClockSyncCommand(iec_, nextSendSequence(), currentReceiveSequence(), nowMsValue));
+}
+
+IecParameterValue IecTcpClient::readParameter(int ioa, int typeId, std::uint8_t qualifier, int timeoutMs) {
+    if (protocolType_ != "iec104") {
+        throw std::invalid_argument("IEC parameter read is only supported for iec104");
+    }
+    ensureConnected();
+    ensureIec104Started();
+    sendIec104IFrame(IecCodec::buildIec104ParameterCommand(
+        iec_, ioa, typeId, 0.0, qualifier, nextSendSequence(), currentReceiveSequence(), 5));
+    IecParameterValue value;
+    if (!waitForParameterConfirmation(ioa, typeId, 5, timeoutMs, &value) &&
+        !waitForParameterConfirmation(ioa, typeId, 7, timeoutMs, &value)) {
+        throw std::runtime_error("IEC104 parameter read timeout");
+    }
+    return value;
+}
+
+CommandResult IecTcpClient::writeParameter(int ioa, int typeId, double value, std::uint8_t qualifier, int timeoutMs) {
+    CommandResult result;
+    result.ts = nowMs();
+    result.requestedValue = value;
+    try {
+        if (protocolType_ != "iec104") {
+            throw std::invalid_argument("IEC parameter write is only supported for iec104");
+        }
+        ensureConnected();
+        ensureIec104Started();
+        sendIec104IFrame(IecCodec::buildIec104ParameterCommand(
+            iec_, ioa, typeId, value, qualifier, nextSendSequence(), currentReceiveSequence(), 6));
+        if (!waitForParameterConfirmation(ioa, typeId, 7, timeoutMs)) {
+            throw std::runtime_error("IEC104 parameter write confirmation timeout");
+        }
+        result.success = true;
+        result.message = "ok";
+    } catch (const std::exception& ex) {
+        result.success = false;
+        result.message = ex.what();
+    }
+    return result;
+}
+
+CommandResult IecTcpClient::activateParameter(int ioa, std::uint8_t qualifier, int timeoutMs) {
+    CommandResult result;
+    result.ts = nowMs();
+    try {
+        if (protocolType_ != "iec104") {
+            throw std::invalid_argument("IEC parameter activation is only supported for iec104");
+        }
+        ensureConnected();
+        ensureIec104Started();
+        sendIec104IFrame(IecCodec::buildIec104ParameterActivationCommand(
+            iec_, ioa, qualifier, nextSendSequence(), currentReceiveSequence()));
+        if (!waitForParameterConfirmation(ioa, 113, 7, timeoutMs)) {
+            throw std::runtime_error("IEC104 parameter activation confirmation timeout");
+        }
+        result.success = true;
+        result.message = "ok";
+    } catch (const std::exception& ex) {
+        result.success = false;
+        result.message = ex.what();
+    }
+    return result;
+}
+
+std::vector<IecFileSegment> IecTcpClient::callFile(
+    int ioa,
+    int nameOfFile,
+    int nameOfSection,
+    std::uint8_t qualifier,
+    int timeoutMs
+) {
+    if (protocolType_ != "iec104") {
+        throw std::invalid_argument("IEC file transfer is only supported for iec104");
+    }
+    ensureConnected();
+    ensureIec104Started();
+    sendIec104IFrame(IecCodec::buildIec104FileCallCommand(
+        iec_, ioa, nameOfFile, nameOfSection, qualifier, nextSendSequence(), currentReceiveSequence()));
+    return waitForFileSegments(nameOfFile, timeoutMs);
 }
 
 void IecTcpClient::ensureConnected() {
@@ -588,6 +704,30 @@ void IecTcpClient::handleIec104Frame(const std::vector<std::uint8_t>& frame) {
             }
             bufferValues(decoded.values);
         }
+        if (!decoded.protectionEvents.empty()) {
+            std::vector<IecDataValue> values;
+            values.reserve(decoded.protectionEvents.size());
+            for (const auto& event : decoded.protectionEvents) {
+                values.push_back(protectionEventToValue(event));
+            }
+            bufferValues(values);
+        }
+        if (!decoded.parameters.empty()) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            parameterValues_.insert(parameterValues_.end(), decoded.parameters.begin(), decoded.parameters.end());
+            if (parameterValues_.size() > 1024) {
+                parameterValues_.erase(parameterValues_.begin(), parameterValues_.begin() + static_cast<std::ptrdiff_t>(parameterValues_.size() - 1024));
+            }
+            stateChanged_.notify_all();
+        }
+        if (!decoded.fileSegments.empty()) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            fileSegments_.insert(fileSegments_.end(), decoded.fileSegments.begin(), decoded.fileSegments.end());
+            if (fileSegments_.size() > 1024) {
+                fileSegments_.erase(fileSegments_.begin(), fileSegments_.begin() + static_cast<std::ptrdiff_t>(fileSegments_.size() - 1024));
+            }
+            stateChanged_.notify_all();
+        }
     } catch (const std::exception& ex) {
         std::cerr << "IEC104 ASDU decode failed: " << ex.what() << std::endl;
     }
@@ -631,6 +771,59 @@ bool IecTcpClient::waitForControlConfirmation(const PointDefinition& point, doub
         }
     }
     return false;
+}
+
+bool IecTcpClient::waitForParameterConfirmation(
+    int ioa,
+    int typeId,
+    int expectedCause,
+    int timeoutMs,
+    IecParameterValue* value
+) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(1, timeoutMs));
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::unique_lock<std::mutex> lock(stateMutex_);
+        stateChanged_.wait_until(lock, deadline, [&] {
+            return !parameterValues_.empty();
+        });
+        for (auto it = parameterValues_.begin(); it != parameterValues_.end(); ++it) {
+            if (it->ioa == ioa && it->typeId == typeId && it->cause == expectedCause) {
+                if (value) {
+                    *value = *it;
+                }
+                parameterValues_.erase(it);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+std::vector<IecFileSegment> IecTcpClient::waitForFileSegments(int nameOfFile, int timeoutMs) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(1, timeoutMs));
+    std::vector<IecFileSegment> result;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::unique_lock<std::mutex> lock(stateMutex_);
+        stateChanged_.wait_until(lock, deadline, [&] {
+            return !fileSegments_.empty();
+        });
+        for (auto it = fileSegments_.begin(); it != fileSegments_.end();) {
+            if (it->nameOfFile == nameOfFile) {
+                result.push_back(*it);
+                const bool last = it->lastSectionOrSegment != 0 || it->qualifier == 0x80;
+                it = fileSegments_.erase(it);
+                if (last) {
+                    return result;
+                }
+            } else {
+                ++it;
+            }
+        }
+        if (!result.empty()) {
+            return result;
+        }
+    }
+    return result;
 }
 
 std::vector<std::vector<std::uint8_t>> IecTcpClient::drainIec104Frames(int timeoutMs, int maxFrames) {

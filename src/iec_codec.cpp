@@ -70,6 +70,9 @@ std::size_t typePayloadSize(int typeId) {
         case 14: return 8;  // M_ME_TC_1
         case 15: return 5;  // M_IT_NA_1
         case 16: return 8;  // M_IT_TA_1
+        case 17: return 6;  // M_EP_TA_1
+        case 18: return 7;  // M_EP_TB_1
+        case 19: return 7;  // M_EP_TC_1
         case 20: return 1;  // M_PS_NA_1
         case 21: return 2;  // M_ME_ND_1
         case 30: return 8;  // M_SP_TB_1
@@ -80,11 +83,25 @@ std::size_t typePayloadSize(int typeId) {
         case 35: return 10; // M_ME_TE_1
         case 36: return 12; // M_ME_TF_1
         case 37: return 12; // M_IT_TB_1
+        case 38: return 10; // M_EP_TD_1
+        case 39: return 11; // M_EP_TE_1
+        case 40: return 11; // M_EP_TF_1
         case 45: return 1;  // C_SC_NA_1
         case 46: return 1;  // C_DC_NA_1
         case 48: return 3;  // C_SE_NA_1
         case 49: return 3;  // C_SE_NB_1
         case 50: return 5;  // C_SE_NC_1
+        case 110: return 0; // P_ME_NA_1
+        case 111: return 0; // P_ME_NB_1
+        case 112: return 0; // P_ME_NC_1
+        case 113: return 0; // P_AC_NA_1
+        case 120: return 0; // F_FR_NA_1
+        case 121: return 0; // F_SR_NA_1
+        case 122: return 0; // F_SC_NA_1
+        case 123: return 0; // F_LS_NA_1
+        case 124: return 0; // F_AF_NA_1
+        case 125: return 0; // F_SG_NA_1
+        case 126: return 0; // F_DR_TA_1
         default:
             return 0;
     }
@@ -100,6 +117,18 @@ void appendCot(std::vector<std::uint8_t>& bytes, int cause, const IecProtocolCon
 
 bool hasCp56Time(int typeId) {
     return typeId >= 30 && typeId <= 40;
+}
+
+bool isParameterType(int typeId) {
+    return typeId >= 110 && typeId <= 113;
+}
+
+bool isFileType(int typeId) {
+    return typeId >= 120 && typeId <= 126;
+}
+
+bool isProtectionType(int typeId) {
+    return (typeId >= 17 && typeId <= 19) || (typeId >= 38 && typeId <= 40);
 }
 
 bool hasCp24Time(int typeId) {
@@ -352,6 +381,152 @@ std::vector<std::uint8_t> IecCodec::buildIec104StartDtAct() {
     return {0x68, 0x04, 0x07, 0x00, 0x00, 0x00};
 }
 
+IecProtectionEvent decodeProtectionEvent(
+    const std::vector<std::uint8_t>& bytes,
+    std::size_t payloadOffset,
+    int typeId,
+    int cause,
+    int commonAddress,
+    int ioa
+) {
+    IecProtectionEvent event;
+    event.commonAddress = commonAddress;
+    event.ioa = ioa;
+    event.typeId = typeId;
+    event.cause = cause;
+    event.rawHex = IecCodec::toHex(bytes);
+    if (payloadOffset + typePayloadSize(typeId) > bytes.size()) {
+        throw std::runtime_error("IEC protection ASDU too short");
+    }
+    event.eventState = bytes[payloadOffset] & 0x03U;
+    event.elapsedTimeMs = readLe(bytes, payloadOffset + 1, 2);
+    event.relayDurationMs = readLe(bytes, payloadOffset + 3, 2);
+    return event;
+}
+
+IecParameterValue decodeParameterObject(
+    const std::vector<std::uint8_t>& bytes,
+    std::size_t offset,
+    int typeId,
+    int cause,
+    int commonAddress,
+    int ioa
+) {
+    IecParameterValue parameter;
+    parameter.commonAddress = commonAddress;
+    parameter.ioa = ioa;
+    parameter.typeId = typeId;
+    parameter.cause = cause;
+    parameter.rawHex = IecCodec::toHex(bytes);
+    switch (typeId) {
+        case 110:
+            if (offset + 3 > bytes.size()) {
+                throw std::runtime_error("IEC normalized parameter too short");
+            }
+            parameter.value = static_cast<double>(readInt16Le(bytes, offset)) / 32768.0;
+            parameter.qualifier = bytes[offset + 2];
+            return parameter;
+        case 111:
+            if (offset + 3 > bytes.size()) {
+                throw std::runtime_error("IEC scaled parameter too short");
+            }
+            parameter.value = static_cast<double>(readInt16Le(bytes, offset));
+            parameter.qualifier = bytes[offset + 2];
+            return parameter;
+        case 112:
+            if (offset + 5 > bytes.size()) {
+                throw std::runtime_error("IEC float parameter too short");
+            }
+            parameter.value = static_cast<double>(readFloatLe(bytes, offset));
+            parameter.qualifier = bytes[offset + 4];
+            return parameter;
+        case 113:
+            if (offset + 1 > bytes.size()) {
+                throw std::runtime_error("IEC parameter activation too short");
+            }
+            parameter.qualifier = bytes[offset];
+            return parameter;
+        default:
+            throw std::runtime_error("unsupported IEC parameter typeId: " + std::to_string(typeId));
+    }
+}
+
+IecFileSegment decodeFileObject(
+    const std::vector<std::uint8_t>& bytes,
+    std::size_t offset,
+    int typeId,
+    int cause,
+    int commonAddress,
+    int ioa
+) {
+    IecFileSegment segment;
+    segment.commonAddress = commonAddress;
+    segment.ioa = ioa;
+    segment.cause = cause;
+    segment.rawHex = IecCodec::toHex(bytes);
+    switch (typeId) {
+        case 120:
+            if (offset + 5 > bytes.size()) {
+                throw std::runtime_error("IEC file ready ASDU too short");
+            }
+            segment.nameOfFile = readLe(bytes, offset, 2);
+            segment.nameOfSection = 0;
+            segment.qualifier = bytes[offset + 4];
+            return segment;
+        case 121:
+            if (offset + 6 > bytes.size()) {
+                throw std::runtime_error("IEC section ready ASDU too short");
+            }
+            segment.nameOfFile = readLe(bytes, offset, 2);
+            segment.nameOfSection = bytes[offset + 2];
+            segment.qualifier = bytes[offset + 5];
+            return segment;
+        case 122:
+        case 124:
+            if (offset + 4 > bytes.size()) {
+                throw std::runtime_error("IEC file command ASDU too short");
+            }
+            segment.nameOfFile = readLe(bytes, offset, 2);
+            segment.nameOfSection = bytes[offset + 2];
+            segment.qualifier = bytes[offset + 3];
+            return segment;
+        case 123:
+            if (offset + 4 > bytes.size()) {
+                throw std::runtime_error("IEC last section ASDU too short");
+            }
+            segment.nameOfFile = readLe(bytes, offset, 2);
+            segment.nameOfSection = bytes[offset + 2];
+            segment.lastSectionOrSegment = bytes[offset + 3];
+            return segment;
+        case 125:
+            if (offset + 5 > bytes.size()) {
+                throw std::runtime_error("IEC file segment ASDU too short");
+            }
+            segment.nameOfFile = readLe(bytes, offset, 2);
+            segment.nameOfSection = bytes[offset + 2];
+            segment.qualifier = bytes[offset + 3];
+            {
+                const auto length = static_cast<std::size_t>(bytes[offset + 4]);
+                const auto dataOffset = offset + 5;
+                if (dataOffset + length > bytes.size()) {
+                    throw std::runtime_error("IEC file segment data out of range");
+                }
+                segment.data.assign(bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset),
+                    bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset + length));
+            }
+            return segment;
+        case 126:
+            if (offset + 4 > bytes.size()) {
+                throw std::runtime_error("IEC file directory ASDU too short");
+            }
+            segment.nameOfFile = readLe(bytes, offset, 2);
+            segment.qualifier = bytes[offset + 2];
+            return segment;
+        default:
+            throw std::runtime_error("unsupported IEC file typeId: " + std::to_string(typeId));
+    }
+}
+
 std::vector<std::uint8_t> IecCodec::buildIec104StopDtAct() {
     return {0x68, 0x04, 0x13, 0x00, 0x00, 0x00};
 }
@@ -470,6 +645,113 @@ std::vector<std::uint8_t> IecCodec::buildIec104ControlCommand(
         default:
             throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
     }
+    return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec104ParameterCommand(
+    const IecProtocolConfig& config,
+    int ioa,
+    int typeId,
+    double value,
+    std::uint8_t qualifier,
+    std::uint16_t sendSequence,
+    std::uint16_t receiveSequence,
+    int cause
+) {
+    if (typeId < 110 || typeId > 112) {
+        throw std::invalid_argument("IEC104 parameter typeId must be 110, 111 or 112");
+    }
+    std::vector<std::uint8_t> asdu;
+    asdu.push_back(static_cast<std::uint8_t>(typeId));
+    asdu.push_back(1);
+    appendCot(asdu, cause, config);
+    appendLe(asdu, config.commonAddress, config.caSize);
+    appendLe(asdu, ioa, config.ioaSize);
+    switch (typeId) {
+        case 110: {
+            int raw = static_cast<int>(std::round(value * 32768.0));
+            raw = std::max(-32768, std::min(32767, raw));
+            appendLe(asdu, raw, 2);
+            asdu.push_back(qualifier);
+            break;
+        }
+        case 111: {
+            int raw = static_cast<int>(std::round(value));
+            raw = std::max(-32768, std::min(32767, raw));
+            appendLe(asdu, raw, 2);
+            asdu.push_back(qualifier);
+            break;
+        }
+        case 112: {
+            const auto rawFloat = static_cast<float>(value);
+            std::uint32_t raw = 0;
+            std::memcpy(&raw, &rawFloat, sizeof(rawFloat));
+            appendLe(asdu, static_cast<int>(raw), 4);
+            asdu.push_back(qualifier);
+            break;
+        }
+        default:
+            break;
+    }
+    return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec104ParameterActivationCommand(
+    const IecProtocolConfig& config,
+    int ioa,
+    std::uint8_t qualifier,
+    std::uint16_t sendSequence,
+    std::uint16_t receiveSequence
+) {
+    std::vector<std::uint8_t> asdu;
+    asdu.push_back(113);
+    asdu.push_back(1);
+    appendCot(asdu, 6, config);
+    appendLe(asdu, config.commonAddress, config.caSize);
+    appendLe(asdu, ioa, config.ioaSize);
+    asdu.push_back(qualifier);
+    return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec104FileCallCommand(
+    const IecProtocolConfig& config,
+    int ioa,
+    int nameOfFile,
+    int nameOfSection,
+    std::uint8_t qualifier,
+    std::uint16_t sendSequence,
+    std::uint16_t receiveSequence
+) {
+    std::vector<std::uint8_t> asdu;
+    asdu.push_back(122);
+    asdu.push_back(1);
+    appendCot(asdu, 13, config);
+    appendLe(asdu, config.commonAddress, config.caSize);
+    appendLe(asdu, ioa, config.ioaSize);
+    appendLe(asdu, nameOfFile, 2);
+    asdu.push_back(static_cast<std::uint8_t>(nameOfSection & 0xFF));
+    asdu.push_back(qualifier);
+    return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec104FileAckCommand(
+    const IecProtocolConfig& config,
+    int ioa,
+    int nameOfFile,
+    int nameOfSection,
+    std::uint8_t qualifier,
+    std::uint16_t sendSequence,
+    std::uint16_t receiveSequence
+) {
+    std::vector<std::uint8_t> asdu;
+    asdu.push_back(124);
+    asdu.push_back(1);
+    appendCot(asdu, 13, config);
+    appendLe(asdu, config.commonAddress, config.caSize);
+    appendLe(asdu, ioa, config.ioaSize);
+    appendLe(asdu, nameOfFile, 2);
+    asdu.push_back(static_cast<std::uint8_t>(nameOfSection & 0xFF));
+    asdu.push_back(qualifier);
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
 }
 
@@ -600,6 +882,47 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     offset += static_cast<std::size_t>(config.caSize);
 
     const auto payloadSize = typePayloadSize(result.typeId);
+    if (isParameterType(result.typeId)) {
+        for (int i = 0; i < count; ++i) {
+            if (offset + static_cast<std::size_t>(config.ioaSize) > asdu.size()) {
+                break;
+            }
+            const int ioa = readLe(asdu, offset, config.ioaSize);
+            offset += static_cast<std::size_t>(config.ioaSize);
+            const auto begin = offset;
+            result.parameters.push_back(decodeParameterObject(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
+            offset = begin + (result.typeId == 112 ? 5 : result.typeId == 113 ? 1 : 3);
+            if (offset > asdu.size()) {
+                break;
+            }
+        }
+        return result;
+    }
+    if (isFileType(result.typeId)) {
+        for (int i = 0; i < count; ++i) {
+            if (offset + static_cast<std::size_t>(config.ioaSize) > asdu.size()) {
+                break;
+            }
+            const int ioa = readLe(asdu, offset, config.ioaSize);
+            offset += static_cast<std::size_t>(config.ioaSize);
+            const auto begin = offset;
+            auto segment = decodeFileObject(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa);
+            result.fileSegments.push_back(std::move(segment));
+            if (result.typeId == 125) {
+                offset = begin + 5 + result.fileSegments.back().data.size();
+            } else if (result.typeId == 121) {
+                offset = begin + 6;
+            } else if (result.typeId == 120) {
+                offset = begin + 5;
+            } else if (result.typeId == 122 || result.typeId == 124 || result.typeId == 123 || result.typeId == 126) {
+                offset = begin + 4;
+            }
+            if (offset > asdu.size()) {
+                break;
+            }
+        }
+        return result;
+    }
     if (payloadSize == 0) {
         return result;
     }
@@ -613,7 +936,11 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
             if (offset + payloadSize > asdu.size()) {
                 break;
             }
-            result.values.push_back(decodeInformationObject(asdu, offset, result.typeId, result.cause, result.commonAddress, baseIoa + i));
+            if (isProtectionType(result.typeId)) {
+                result.protectionEvents.push_back(decodeProtectionEvent(asdu, offset, result.typeId, result.cause, result.commonAddress, baseIoa + i));
+            } else {
+                result.values.push_back(decodeInformationObject(asdu, offset, result.typeId, result.cause, result.commonAddress, baseIoa + i));
+            }
             offset += payloadSize;
         }
     } else {
@@ -623,7 +950,11 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
             }
             const int ioa = readLe(asdu, offset, config.ioaSize);
             offset += static_cast<std::size_t>(config.ioaSize);
-            result.values.push_back(decodeInformationObject(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
+            if (isProtectionType(result.typeId)) {
+                result.protectionEvents.push_back(decodeProtectionEvent(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
+            } else {
+                result.values.push_back(decodeInformationObject(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
+            }
             offset += payloadSize;
         }
     }

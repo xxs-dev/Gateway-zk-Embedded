@@ -21,11 +21,47 @@ struct IecDataValue {
     std::string rawHex;
 };
 
+struct IecParameterValue {
+    int commonAddress = 0;
+    int ioa = 0;
+    int typeId = 0;
+    int cause = 0;
+    int qualifier = 0;
+    double value = 0.0;
+    std::string rawHex;
+};
+
+struct IecProtectionEvent {
+    int commonAddress = 0;
+    int ioa = 0;
+    int typeId = 0;
+    int cause = 0;
+    int eventState = 0;
+    int elapsedTimeMs = 0;
+    int relayDurationMs = 0;
+    std::string rawHex;
+};
+
+struct IecFileSegment {
+    int commonAddress = 0;
+    int ioa = 0;
+    int cause = 0;
+    int nameOfFile = 0;
+    int nameOfSection = 0;
+    int qualifier = 0;
+    int lastSectionOrSegment = 0;
+    std::vector<std::uint8_t> data;
+    std::string rawHex;
+};
+
 struct IecAsdu {
     int typeId = 0;
     int cause = 0;
     int commonAddress = 0;
     std::vector<IecDataValue> values;
+    std::vector<IecParameterValue> parameters;
+    std::vector<IecProtectionEvent> protectionEvents;
+    std::vector<IecFileSegment> fileSegments;
 };
 
 class IecCodec {
@@ -53,6 +89,41 @@ public:
         std::uint16_t receiveSequence,
         bool select,
         bool cancel = false
+    );
+    static std::vector<std::uint8_t> buildIec104ParameterCommand(
+        const IecProtocolConfig& config,
+        int ioa,
+        int typeId,
+        double value,
+        std::uint8_t qualifier,
+        std::uint16_t sendSequence,
+        std::uint16_t receiveSequence,
+        int cause = 6
+    );
+    static std::vector<std::uint8_t> buildIec104ParameterActivationCommand(
+        const IecProtocolConfig& config,
+        int ioa,
+        std::uint8_t qualifier,
+        std::uint16_t sendSequence,
+        std::uint16_t receiveSequence
+    );
+    static std::vector<std::uint8_t> buildIec104FileCallCommand(
+        const IecProtocolConfig& config,
+        int ioa,
+        int nameOfFile,
+        int nameOfSection,
+        std::uint8_t qualifier,
+        std::uint16_t sendSequence,
+        std::uint16_t receiveSequence
+    );
+    static std::vector<std::uint8_t> buildIec104FileAckCommand(
+        const IecProtocolConfig& config,
+        int ioa,
+        int nameOfFile,
+        int nameOfSection,
+        std::uint8_t qualifier,
+        std::uint16_t sendSequence,
+        std::uint16_t receiveSequence
     );
     static bool isIec104Frame(const std::vector<std::uint8_t>& frame);
     static bool isIec104IFrame(const std::vector<std::uint8_t>& frame);
