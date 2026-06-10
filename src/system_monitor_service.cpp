@@ -623,6 +623,23 @@ int hexDigit(char ch) {
     return -1;
 }
 
+std::string fromHex(const std::string& text) {
+    if ((text.size() % 2) != 0) {
+        throw std::runtime_error("hex payload length is invalid");
+    }
+    std::string decoded;
+    decoded.reserve(text.size() / 2);
+    for (std::size_t i = 0; i < text.size(); i += 2) {
+        const int high = hexDigit(text[i]);
+        const int low = hexDigit(text[i + 1]);
+        if (high < 0 || low < 0) {
+            throw std::runtime_error("hex payload contains invalid character");
+        }
+        decoded.push_back(static_cast<char>((high << 4) | low));
+    }
+    return decoded;
+}
+
 void appendUtf8Codepoint(std::string& out, unsigned int codepoint) {
     if (codepoint <= 0x7F) {
         out.push_back(static_cast<char>(codepoint));
@@ -1602,7 +1619,12 @@ void SystemMonitorService::handleConfigApplyRequest(const std::string& payload, 
     }
 
     try {
-        const auto reply = buildConfigApplyReply(payload, nowMs);
+        bool chunkComplete = true;
+        const auto assembledPayload = acceptConfigApplyChunk(payload, nowMs, &chunkComplete);
+        if (!chunkComplete) {
+            return;
+        }
+        const auto reply = buildConfigApplyReply(assembledPayload, nowMs);
         publishConfigApplyReply(reply);
         publishStatusEvent(
             "config-apply-replied",
@@ -2201,6 +2223,89 @@ void SystemMonitorService::publishConfigPullReply(const std::string& payload) co
 
 void SystemMonitorService::publishConfigApplyReply(const std::string& payload) const {
     publisher_->publishJsonMessage(mqttConfig_.configApplyReplyTopic, payload);
+}
+
+std::string SystemMonitorService::acceptConfigApplyChunk(
+    const std::string& payload,
+    std::int64_t nowMs,
+    bool* complete
+) {
+    if (complete != nullptr) {
+        *complete = true;
+    }
+
+    FlatJsonReader json(payload);
+    bool chunked = false;
+    json.tryGetBool("chunked", &chunked);
+    if (!chunked) {
+        return payload;
+    }
+
+    std::string requestId;
+    std::string machineCode;
+    std::string payloadHex;
+    int chunkIndex = 0;
+    int chunkCount = 0;
+    std::int64_t totalBytesValue = 0;
+    json.tryGetString("requestId", &requestId);
+    json.tryGetString("machineCode", &machineCode);
+    json.tryGetString("payloadHex", &payloadHex);
+    json.tryGetInt("chunkIndex", &chunkIndex);
+    json.tryGetInt("chunkCount", &chunkCount);
+    json.tryGetInt64("totalBytes", &totalBytesValue);
+    if (requestId.empty()) {
+        throw std::runtime_error("chunked config apply requestId is required");
+    }
+    if (machineCode.empty()) {
+        throw std::runtime_error("machineCode is required");
+    }
+    if (machineCode != machineCode_) {
+        throw std::runtime_error("machineCode mismatch");
+    }
+    if (chunkIndex <= 0 || chunkCount <= 0 || chunkIndex > chunkCount) {
+        throw std::runtime_error("invalid config apply chunk index");
+    }
+    if (chunkCount > 2048) {
+        throw std::runtime_error("too many config apply chunks");
+    }
+
+    const auto decoded = fromHex(payloadHex);
+    auto& pending = pendingConfigApplyChunks_[requestId];
+    if (pending.chunkCount == 0) {
+        pending.chunkCount = chunkCount;
+        pending.totalBytes = totalBytesValue > 0 ? static_cast<std::size_t>(totalBytesValue) : 0;
+        pending.chunks.assign(static_cast<std::size_t>(chunkCount), std::string());
+    } else if (pending.chunkCount != chunkCount) {
+        pendingConfigApplyChunks_.erase(requestId);
+        throw std::runtime_error("config apply chunk metadata changed");
+    }
+
+    pending.lastUpdateMs = nowMs;
+    pending.chunks[static_cast<std::size_t>(chunkIndex - 1)] = decoded;
+
+    std::size_t received = 0;
+    for (const auto& item : pending.chunks) {
+        if (!item.empty()) {
+            ++received;
+        }
+    }
+    if (received < static_cast<std::size_t>(pending.chunkCount)) {
+        if (complete != nullptr) {
+            *complete = false;
+        }
+        return std::string();
+    }
+
+    std::string assembled;
+    for (const auto& item : pending.chunks) {
+        assembled += item;
+    }
+    if (pending.totalBytes > 0 && assembled.size() != pending.totalBytes) {
+        pendingConfigApplyChunks_.erase(requestId);
+        throw std::runtime_error("config apply assembled size mismatch");
+    }
+    pendingConfigApplyChunks_.erase(requestId);
+    return assembled;
 }
 
 void SystemMonitorService::publishConfigFileOperationReply(

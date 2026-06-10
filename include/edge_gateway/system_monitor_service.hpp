@@ -82,6 +82,13 @@ private:
         std::int64_t expireAtMs = 0;
     };
 
+    struct PendingChunkedConfigApply {
+        int chunkCount = 0;
+        std::size_t totalBytes = 0;
+        std::vector<std::string> chunks;
+        std::int64_t lastUpdateMs = 0;
+    };
+
     void loop();
     void processIncomingMessages(std::int64_t nowMs);
     void handleMonitorRequest(const std::string& payload, std::int64_t nowMs);
@@ -114,6 +121,7 @@ private:
     void publishConfigPullReply(const std::string& payload) const;
     void publishConfigApplyReply(const std::string& payload) const;
     void publishConfigFileOperationReply(const std::string& payload, const std::string& operation) const;
+    std::string acceptConfigApplyChunk(const std::string& payload, std::int64_t nowMs, bool* complete);
     std::string buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const;
     std::string buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const;
     std::string buildConfigFileOperationReply(
@@ -131,6 +139,7 @@ private:
     std::atomic<bool> running_{false};
     std::thread thread_;
     mutable std::map<std::string, MonitorLease> leases_;
+    std::map<std::string, PendingChunkedConfigApply> pendingConfigApplyChunks_;
     std::int64_t lastTelemetryMs_ = 0;
     std::int64_t lastPointSnapshotMs_ = 0;
     std::map<std::string, std::int64_t> lastAlertPublishMs_;
