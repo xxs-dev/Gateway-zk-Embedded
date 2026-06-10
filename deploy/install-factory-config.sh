@@ -8,8 +8,46 @@ ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BACKUP_DIR="${BACKUP_DIR:-$GATEWAY_HOME/backup}"
 START_SERVICES="${START_SERVICES:-1}"
 RESET_SHM="${RESET_SHM:-0}"
+INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
 FACTORY_PACKAGE_NAME="${FACTORY_PACKAGE_NAME:-gateway-factory-defaults.tar.gz}"
+PACKAGE_PROFILE="${PACKAGE_PROFILE:-}"
+EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
 FACTORY_EXTRACT_DIR=""
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: install-factory-config.sh [--profile base|project|full] [--manifest FILE]
+
+Profiles:
+  base     Install only SystemMonitor, MqttDriver and pointctl.
+  project  Install base components plus binaries listed in edge-package-manifest.json.
+  full     Install all current drivers and tools; default when no package manifest exists.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --profile)
+      [ "$#" -ge 2 ] || { echo "--profile requires a value" >&2; exit 2; }
+      PACKAGE_PROFILE="$2"
+      shift 2
+      ;;
+    --manifest)
+      [ "$#" -ge 2 ] || { echo "--manifest requires a value" >&2; exit 2; }
+      EDGE_PACKAGE_MANIFEST="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
 
 cleanup_factory_extract() {
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
@@ -174,6 +212,85 @@ install_optional_binary() {
   ) || return 0
   install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
 }
+
+manifest_profile() {
+  manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$manifest" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    profile = str(data.get("packageProfile") or "").strip().lower()
+    if profile in ("base", "project", "full"):
+        print(profile)
+except Exception:
+    pass
+PY
+}
+
+manifest_binaries() {
+  manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot read manifest: $manifest" >&2
+    exit 2
+  fi
+  python3 - "$manifest" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+items = data.get("requiredDrivers") or data.get("components") or []
+seen = set()
+for item in items:
+    if isinstance(item, str):
+        name = item
+    elif isinstance(item, dict):
+        name = item.get("binary") or item.get("name") or item.get("id")
+    else:
+        continue
+    name = str(name or "").strip()
+    if not name or name in seen:
+        continue
+    seen.add(name)
+    print(name)
+PY
+}
+
+unique_words() {
+  awk 'NF && !seen[$0]++ { print }'
+}
+
+if [ -z "$EDGE_PACKAGE_MANIFEST" ]; then
+  EDGE_PACKAGE_MANIFEST=$(pick_existing_file \
+    "$PACKAGE_ROOT/edge-package-manifest.json" \
+    "$PACKAGE_ROOT/config/runtime/edge-package-manifest.json" \
+    "$SOURCE_ROOT/edge-package-manifest.json" \
+    "$SOURCE_ROOT/config/runtime/edge-package-manifest.json" \
+    "$DEFAULT_SOURCE_ROOT/edge-package-manifest.json" || true)
+fi
+
+if [ -z "$PACKAGE_PROFILE" ]; then
+  PACKAGE_PROFILE=$(manifest_profile "$EDGE_PACKAGE_MANIFEST" || true)
+fi
+if [ -z "$PACKAGE_PROFILE" ]; then
+  if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+    PACKAGE_PROFILE="project"
+  else
+    PACKAGE_PROFILE="full"
+  fi
+fi
+case "$PACKAGE_PROFILE" in
+  base|project|full) ;;
+  *) echo "invalid package profile: $PACKAGE_PROFILE" >&2; exit 2 ;;
+esac
 
 json_string_value() {
   file="$1"
@@ -450,10 +567,32 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl; do
+BASE_BINS="SystemMonitor MqttDriver pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
+OPTIONAL_BINS="LocalDisplay CameraService stress_runner"
+if [ "$PACKAGE_PROFILE" = "base" ]; then
+  REQUIRED_BINS="$BASE_BINS"
+  OPTIONAL_BINS=""
+elif [ "$PACKAGE_PROFILE" = "project" ]; then
+  if [ -z "$EDGE_PACKAGE_MANIFEST" ] || [ ! -f "$EDGE_PACKAGE_MANIFEST" ]; then
+    echo "project profile requires edge-package-manifest.json" >&2
+    exit 2
+  fi
+  REQUIRED_BINS=$(printf '%s\n' $BASE_BINS $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_words | tr '\n' ' ')
+  OPTIONAL_BINS=""
+else
+  REQUIRED_BINS="$ALL_BINS"
+fi
+
+echo "install package profile: $PACKAGE_PROFILE"
+if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+  echo "install package manifest: $EDGE_PACKAGE_MANIFEST"
+fi
+
+for bin in $REQUIRED_BINS; do
   install_required_binary "$bin"
 done
-for bin in LocalDisplay CameraService stress_runner; do
+for bin in $OPTIONAL_BINS; do
   install_optional_binary "$bin"
 done
 
@@ -486,6 +625,9 @@ if [ -d "$GATEWAY_HOME/config/runtime" ]; then
 fi
 mkdir -p "$GATEWAY_HOME/config"
 cp -a "$FACTORY_DIR/runtime" "$GATEWAY_HOME/config/runtime"
+if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+  install_file_if_exists "$EDGE_PACKAGE_MANIFEST" "$GATEWAY_HOME/config/runtime/edge-package-manifest.json"
+fi
 
 FACTORY_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 FACTORY_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
@@ -559,7 +701,7 @@ if [ -n "$EXAMPLES_DIR" ] && [ -d "$EXAMPLES_DIR" ]; then
   fi
 fi
 
-if command -v systemctl >/dev/null 2>&1; then
+if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   SYSTEMD_MANAGER_REEXEC_REQUIRED=0
   install_file_if_exists "$DEPLOY_DIR/gateway-services.service" "/etc/systemd/system/gateway-services.service"
   install_file_if_exists "$DEPLOY_DIR/modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"

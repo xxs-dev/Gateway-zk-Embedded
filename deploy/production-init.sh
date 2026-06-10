@@ -19,6 +19,8 @@ INIT_TLS_UPDATE_LOCAL_APP="${INIT_TLS_UPDATE_LOCAL_APP:-1}"
 INIT_TLS_FORCE_KEY="${INIT_TLS_FORCE_KEY:-0}"
 INIT_TLS_VALIDITY_DAYS="${INIT_TLS_VALIDITY_DAYS:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
+INIT_PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
+INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -34,6 +36,8 @@ Options:
   --package FILE                  Factory package path
   --gateway-home DIR              Gateway install directory; defaults to /opt/modbus-gateway
   --runtime-mode MODE             Runtime mode: gateway or ems; defaults to gateway
+  --package-profile PROFILE       Driver package profile: base, project or full
+  --manifest FILE                 Edge package manifest for project profile
   --machine-code CODE             Device machineCode
   --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
   --mqtt-username USER            MQTT username
@@ -54,6 +58,7 @@ Options:
 
 Environment variables with the same meaning are also supported:
   INIT_PROMPT INIT_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
+  INIT_PACKAGE_PROFILE INIT_EDGE_PACKAGE_MANIFEST
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
   INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
@@ -83,6 +88,16 @@ while [ "$#" -gt 0 ]; do
     --runtime-mode)
       [ "$#" -ge 2 ] || { echo "--runtime-mode requires a value" >&2; exit 2; }
       INIT_RUNTIME_MODE="$2"
+      shift 2
+      ;;
+    --package-profile)
+      [ "$#" -ge 2 ] || { echo "--package-profile requires a value" >&2; exit 2; }
+      INIT_PACKAGE_PROFILE="$2"
+      shift 2
+      ;;
+    --manifest)
+      [ "$#" -ge 2 ] || { echo "--manifest requires a value" >&2; exit 2; }
+      INIT_EDGE_PACKAGE_MANIFEST="$2"
       shift 2
       ;;
     --machine-code)
@@ -189,6 +204,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     runtime_mode=*|runtimeMode=*|INIT_RUNTIME_MODE=*)
       INIT_RUNTIME_MODE="${1#*=}"
+      shift
+      ;;
+    package_profile=*|PACKAGE_PROFILE=*|INIT_PACKAGE_PROFILE=*)
+      INIT_PACKAGE_PROFILE="${1#*=}"
+      shift
+      ;;
+    manifest=*|EDGE_PACKAGE_MANIFEST=*|INIT_EDGE_PACKAGE_MANIFEST=*)
+      INIT_EDGE_PACKAGE_MANIFEST="${1#*=}"
       shift
       ;;
     machine_code=*|machineCode=*|INIT_MACHINE_CODE=*)
@@ -521,6 +544,7 @@ DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}"
 if is_interactive_init; then
   echo "Gateway production initialization"
   INIT_RUNTIME_MODE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
+  INIT_PACKAGE_PROFILE=$(prompt_value "packageProfile(base/project/full)" "${INIT_PACKAGE_PROFILE:-project}")
   INIT_MACHINE_CODE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
   INIT_MQTT_BROKER=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
   INIT_MQTT_USERNAME=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
@@ -578,10 +602,19 @@ export SOURCE_ROOT="$PACKAGE_ROOT"
 export DEPLOY_DIR="$PACKAGE_ROOT/deploy"
 export FACTORY_PROMPT=0
 export FACTORY_PACKAGE=""
+export PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
+export EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 export START_SERVICES=0
 export RESET_SHM="$INIT_RESET_SHM"
 
-sh "$PACKAGE_ROOT/deploy/install-factory-config.sh"
+set -- "$PACKAGE_ROOT/deploy/install-factory-config.sh"
+if [ -n "${INIT_PACKAGE_PROFILE:-}" ]; then
+  set -- "$@" --profile "$INIT_PACKAGE_PROFILE"
+fi
+if [ -n "${INIT_EDGE_PACKAGE_MANIFEST:-}" ]; then
+  set -- "$@" --manifest "$INIT_EDGE_PACKAGE_MANIFEST"
+fi
+sh "$@"
 apply_runtime_mode "$INIT_RUNTIME_MODE"
 
 if [ "$tls_requested" -eq 1 ]; then
