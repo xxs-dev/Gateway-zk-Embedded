@@ -43,107 +43,111 @@
     "sqlitePath": "/opt/modbus-gateway/data/point_samples_iec104.db",
     "persistFlushIntervalMs": 60000
   },
-  "points": [
-    {
-      "index": 410001,
-      "pointCode": "iec104_remote_signal_1",
-      "name": "IEC104 遥信 1",
-      "category": "telemetry",
-      "address": 1001,
-      "enabled": true,
-      "fullUpload": true,
-      "reportOnChange": true,
-      "read": {
-        "enable": true,
-        "dataType": "single_point",
-        "intervalMs": 1000,
-        "unit": "",
-        "iec": {
-          "ioa": 1001,
-          "typeId": 1,
-          "commonAddress": 1
-        }
-      },
-      "write": {
-        "enable": false
-      }
-    },
-    {
-      "index": 410002,
-      "pointCode": "iec104_measured_float_1",
-      "name": "IEC104 浮点遥测 1",
-      "category": "telemetry",
-      "address": 2001,
-      "enabled": true,
-      "fullUpload": true,
-      "read": {
-        "enable": true,
-        "dataType": "measured_float",
-        "scale": 1,
-        "offset": 0,
-        "intervalMs": 1000,
-        "unit": "kW",
-        "iec": {
-          "ioa": 2001,
-          "typeId": 13,
-          "commonAddress": 1
-        }
-      },
-      "write": {
-        "enable": false
-      }
-    },
-    {
-      "index": 410003,
-      "pointCode": "iec104_remote_close_1",
-      "name": "IEC104 遥控合闸 1",
-      "category": "control",
-      "address": 3001,
-      "enabled": true,
-      "fullUpload": false,
-      "read": {
-        "enable": false
-      },
-      "write": {
-        "enable": true,
-        "dataType": "single_command",
-        "allowedValues": [0, 1],
-        "iec": {
-          "ioa": 3001,
-          "typeId": 45,
-          "commonAddress": 1,
-          "selectBeforeExecute": true,
-          "waitActivationTermination": true,
-          "timeoutMs": 3000
+  "pointGroups": {
+    "teleindication": [
+      {
+        "index": 410001,
+        "pointCode": "iec104_remote_signal_1",
+        "name": "IEC104 遥信 1",
+        "address": 1001,
+        "enabled": true,
+        "fullUpload": true,
+        "reportOnChange": true,
+        "read": {
+          "enable": true,
+          "dataType": "single_point",
+          "intervalMs": 1000,
+          "unit": "",
+          "iec": {
+            "ioa": 1001,
+            "typeId": 1,
+            "commonAddress": 1
+          }
+        },
+        "write": {
+          "enable": false
         }
       }
-    },
-    {
-      "index": 410004,
-      "pointCode": "iec104_setpoint_float_1",
-      "name": "IEC104 浮点设点 1",
-      "category": "control",
-      "address": 4001,
-      "enabled": true,
-      "fullUpload": false,
-      "read": {
-        "enable": false
-      },
-      "write": {
-        "enable": true,
-        "dataType": "setpoint_float",
-        "min": -100000,
-        "max": 100000,
-        "iec": {
-          "ioa": 4001,
-          "typeId": 50,
-          "commonAddress": 1,
-          "selectBeforeExecute": false,
-          "waitActivationTermination": true,
-          "timeoutMs": 3000
+    ],
+    "telemetry": [
+      {
+        "index": 410002,
+        "pointCode": "iec104_measured_float_1",
+        "name": "IEC104 浮点遥测 1",
+        "address": 2001,
+        "enabled": true,
+        "fullUpload": true,
+        "read": {
+          "enable": true,
+          "dataType": "measured_float",
+          "scale": 1,
+          "offset": 0,
+          "intervalMs": 1000,
+          "unit": "kW",
+          "iec": {
+            "ioa": 2001,
+            "typeId": 13,
+            "commonAddress": 1
+          }
+        },
+        "write": {
+          "enable": false
         }
       }
-    }
-  ],
+    ],
+    "telecontrol": [
+      {
+        "index": 410003,
+        "pointCode": "iec104_remote_close_1",
+        "name": "IEC104 遥控合闸 1",
+        "address": 3001,
+        "enabled": true,
+        "fullUpload": false,
+        "read": {
+          "enable": false
+        },
+        "write": {
+          "enable": true,
+          "dataType": "single_command",
+          "allowedValues": [0, 1],
+          "iec": {
+            "ioa": 3001,
+            "typeId": 45,
+            "commonAddress": 1,
+            "selectBeforeExecute": true,
+            "waitActivationTermination": true,
+            "timeoutMs": 3000
+          }
+        }
+      }
+    ],
+    "telesetting": [
+      {
+        "index": 410004,
+        "pointCode": "iec104_setpoint_float_1",
+        "name": "IEC104 浮点设点 1",
+        "address": 4001,
+        "enabled": true,
+        "fullUpload": false,
+        "read": {
+          "enable": false
+        },
+        "write": {
+          "enable": true,
+          "dataType": "setpoint_float",
+          "min": -100000,
+          "max": 100000,
+          "iec": {
+            "ioa": 4001,
+            "typeId": 50,
+            "commonAddress": 1,
+            "selectBeforeExecute": false,
+            "waitActivationTermination": true,
+            "timeoutMs": 3000
+          }
+        }
+      }
+    ]
+  },
   "meters": []
 }

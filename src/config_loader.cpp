@@ -894,6 +894,117 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     return point;
 }
 
+std::string canonicalFourRemoteCategory(const std::string& key) {
+    std::string normalized;
+    normalized.reserve(key.size());
+    for (const auto ch : key) {
+        if (std::isalnum(static_cast<unsigned char>(ch)) != 0) {
+            normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        }
+    }
+
+    if (normalized == "yx" ||
+        normalized == "status" ||
+        normalized == "signal" ||
+        normalized == "signals" ||
+        normalized == "teleindication" ||
+        normalized == "remoteindication" ||
+        normalized == "remotesignal" ||
+        normalized == "remotesignals") {
+        return "teleindication";
+    }
+    if (normalized == "yc" ||
+        normalized == "telemetry" ||
+        normalized == "measurement" ||
+        normalized == "measurements" ||
+        normalized == "telemetering" ||
+        normalized == "remotemeasurement" ||
+        normalized == "remotemeasurements") {
+        return "telemetry";
+    }
+    if (normalized == "yk" ||
+        normalized == "control" ||
+        normalized == "controls" ||
+        normalized == "telecontrol" ||
+        normalized == "remotecontrol" ||
+        normalized == "remotecontrols") {
+        return "telecontrol";
+    }
+    if (normalized == "yt" ||
+        normalized == "setting" ||
+        normalized == "settings" ||
+        normalized == "setpoint" ||
+        normalized == "setpoints" ||
+        normalized == "telesetting" ||
+        normalized == "teleadjust" ||
+        normalized == "remoteadjust" ||
+        normalized == "remoteadjustment" ||
+        normalized == "remoteregulation") {
+        return "telesetting";
+    }
+
+    return key;
+}
+
+void appendPointArray(
+    const JsonValue& value,
+    const std::string& groupKey,
+    std::vector<PointDefinition>& points
+) {
+    if (value.isNull()) {
+        return;
+    }
+
+    const JsonValue* arrayValue = &value;
+    if (value.isObject()) {
+        if (const auto* nested = value.find("points")) {
+            arrayValue = nested;
+        }
+    }
+    if (arrayValue == nullptr || !arrayValue->isArray()) {
+        return;
+    }
+
+    const auto category = canonicalFourRemoteCategory(groupKey);
+    for (const auto& item : arrayValue->asArray().values) {
+        auto point = parsePointDefinition(*item);
+        if (point.category.empty()) {
+            point.category = category;
+        }
+        points.push_back(std::move(point));
+    }
+}
+
+void appendGroupedPoints(const JsonValue* value, std::vector<PointDefinition>& points) {
+    if (value == nullptr || value->isNull()) {
+        return;
+    }
+    if (value->isArray()) {
+        appendPointArray(*value, "telemetry", points);
+        return;
+    }
+
+    const auto& object = value->asObject();
+    for (const auto& entry : object.values) {
+        appendPointArray(*entry.value, entry.key, points);
+    }
+}
+
+void appendPointGroups(const JsonValue& owner, std::vector<PointDefinition>& points) {
+    static const char* const kGroupFields[] = {
+        "pointGroups",
+        "iecPointGroups",
+        "fourRemote",
+        "fourRemotePoints",
+        "pointsByType",
+        "pointsByCategory"
+    };
+
+    for (const auto* field : kGroupFields) {
+        appendGroupedPoints(owner.find(field), points);
+    }
+}
+
 LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave) {
     LogicalDeviceConfig device;
     const auto& object = value.asObject();
@@ -909,6 +1020,7 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
             device.points.push_back(parsePointDefinition(*item));
         }
     }
+    appendPointGroups(value, device.points);
     return device;
 }
 
@@ -2331,6 +2443,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
             config.points.push_back(parsePointDefinition(*item));
         }
     }
+    appendPointGroups(root, config.points);
     return config;
 }
 
