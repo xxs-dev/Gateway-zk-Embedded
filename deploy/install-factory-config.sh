@@ -174,6 +174,43 @@ install_file_if_exists() {
   fi
 }
 
+deploy_file() {
+  name="$1"
+  for candidate in \
+    "$DEPLOY_DIR/$name" \
+    "$PACKAGE_ROOT/deploy/$name" \
+    "$SOURCE_ROOT/deploy/$name" \
+    "$DEFAULT_SOURCE_ROOT/deploy/$name" \
+    "$ROOT_DIR/deploy/$name" \
+    "$SCRIPT_DIR/$name" \
+    "$SCRIPT_DIR/deploy/$name"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_deploy_file_if_exists() {
+  name="$1"
+  dst="$2"
+  src=$(deploy_file "$name" || true)
+  [ -n "$src" ] || return 0
+  install_file_if_exists "$src" "$dst"
+}
+
+install_required_deploy_file() {
+  name="$1"
+  dst="$2"
+  src=$(deploy_file "$name" || true)
+  if [ -z "$src" ]; then
+    echo "required deploy file missing: $name" >&2
+    exit 2
+  fi
+  install_file_if_exists "$src" "$dst"
+}
+
 find_first_file() {
   for path in "$@"; do
     if [ -f "$path" ]; then
@@ -596,14 +633,14 @@ for bin in $OPTIONAL_BINS; do
   install_optional_binary "$bin"
 done
 
-install_file_if_exists "$DEPLOY_DIR/gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
-install_file_if_exists "$DEPLOY_DIR/gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
-install_file_if_exists "$DEPLOY_DIR/gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
-install_file_if_exists "$DEPLOY_DIR/local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
-install_file_if_exists "$DEPLOY_DIR/install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
-install_file_if_exists "$DEPLOY_DIR/production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
-install_file_if_exists "$DEPLOY_DIR/ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
-install_file_if_exists "$DEPLOY_DIR/ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_required_deploy_file "gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
+install_required_deploy_file "gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
+install_required_deploy_file "gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
+install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
+install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
+install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
+install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 
@@ -703,23 +740,23 @@ fi
 
 if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   SYSTEMD_MANAGER_REEXEC_REQUIRED=0
-  install_file_if_exists "$DEPLOY_DIR/gateway-services.service" "/etc/systemd/system/gateway-services.service"
-  install_file_if_exists "$DEPLOY_DIR/modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
-  install_file_if_exists "$DEPLOY_DIR/dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/can-driver@.service" "/etc/systemd/system/can-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/iec-driver@.service" "/etc/systemd/system/iec-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/event-engine@.service" "/etc/systemd/system/event-engine@.service"
-  install_file_if_exists "$DEPLOY_DIR/compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
-  install_file_if_exists "$DEPLOY_DIR/local-display@.service" "/etc/systemd/system/local-display@.service"
-  install_file_if_exists "$DEPLOY_DIR/local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
-  install_file_if_exists "$DEPLOY_DIR/camera-service@.service" "/etc/systemd/system/camera-service@.service"
-  install_file_if_exists "$DEPLOY_DIR/system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
-  install_file_if_exists "$DEPLOY_DIR/mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
+  install_required_deploy_file "gateway-services.service" "/etc/systemd/system/gateway-services.service"
+  install_deploy_file_if_exists "modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
+  install_deploy_file_if_exists "dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
+  install_deploy_file_if_exists "dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
+  install_deploy_file_if_exists "can-driver@.service" "/etc/systemd/system/can-driver@.service"
+  install_deploy_file_if_exists "iec-driver@.service" "/etc/systemd/system/iec-driver@.service"
+  install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
+  install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
+  install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
+  install_deploy_file_if_exists "local-display@.service" "/etc/systemd/system/local-display@.service"
+  install_deploy_file_if_exists "local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
+  install_deploy_file_if_exists "camera-service@.service" "/etc/systemd/system/camera-service@.service"
+  install_deploy_file_if_exists "system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
+  install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
     mkdir -p /etc/systemd/system.conf.d
-    install_file_if_exists "$DEPLOY_DIR/10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
+    install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
     SYSTEMD_MANAGER_REEXEC_REQUIRED=1
   fi
   systemctl daemon-reload
@@ -731,7 +768,11 @@ fi
 
 if [ "$RESET_SHM" = "1" ]; then
   if command -v systemctl >/dev/null 2>&1; then
-    "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
+    if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
+      "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
+    else
+      systemctl stop gateway-services.service 2>/dev/null || true
+    fi
   fi
   rm -f /dev/shm/gateway_point_store* 2>/dev/null || true
 fi
