@@ -549,8 +549,6 @@ PACKAGE_ROOT=$(find_package_root) || {
   exit 1
 }
 
-require_file "$PACKAGE_ROOT/deploy/install-factory-config.sh" "install script"
-
 EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
 EXISTING_MQTT_BROKER=$(json_string_value "$EXISTING_MQTT_FILE" "broker" || true)
@@ -641,7 +639,12 @@ if [ "$tls_requested" -eq 1 ] && [ -n "${INIT_MACHINE_CODE:-}" ]; then
 fi
 
 export SOURCE_ROOT="$PACKAGE_ROOT"
-export DEPLOY_DIR="$PACKAGE_ROOT/deploy"
+if [ -f "$SCRIPT_DIR/install-factory-config.sh" ]; then
+  export DEPLOY_DIR="$SCRIPT_DIR"
+else
+  export DEPLOY_DIR="$PACKAGE_ROOT/deploy"
+fi
+require_file "$DEPLOY_DIR/install-factory-config.sh" "install script"
 export FACTORY_PROMPT=0
 export FACTORY_PACKAGE=""
 export FACTORY_DIR="$PACKAGE_ROOT/config/factory"
@@ -652,7 +655,7 @@ export EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 export START_SERVICES=0
 export RESET_SHM="$INIT_RESET_SHM"
 
-set -- "$PACKAGE_ROOT/deploy/install-factory-config.sh"
+set -- "$DEPLOY_DIR/install-factory-config.sh"
 if [ -n "${INIT_PACKAGE_PROFILE:-}" ]; then
   set -- "$@" --profile "$INIT_PACKAGE_PROFILE"
 fi
@@ -667,7 +670,11 @@ if [ "$tls_requested" -eq 1 ]; then
     echo "INIT_MACHINE_CODE is required for TLS enrollment" >&2
     exit 2
   fi
-  require_file "$GATEWAY_HOME/bin/gateway-tls-enroll.sh" "TLS enrollment script"
+  TLS_ENROLL_SCRIPT="$DEPLOY_DIR/gateway-tls-enroll.sh"
+  if [ ! -f "$TLS_ENROLL_SCRIPT" ]; then
+    TLS_ENROLL_SCRIPT="$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
+  fi
+  require_file "$TLS_ENROLL_SCRIPT" "TLS enrollment script"
 
   set -- --machine-code "$INIT_MACHINE_CODE"
   if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
@@ -699,7 +706,7 @@ if [ "$tls_requested" -eq 1 ]; then
     set -- "$@" --force-key
   fi
 
-  GATEWAY_HOME="$GATEWAY_HOME" sh "$GATEWAY_HOME/bin/gateway-tls-enroll.sh" "$@"
+  GATEWAY_HOME="$GATEWAY_HOME" sh "$TLS_ENROLL_SCRIPT" "$@"
 fi
 
 if truthy "$INIT_START_SERVICES"; then
