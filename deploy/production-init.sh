@@ -18,6 +18,10 @@ INIT_KEEP_WORK_DIR="${INIT_KEEP_WORK_DIR:-0}"
 INIT_TLS_UPDATE_LOCAL_APP="${INIT_TLS_UPDATE_LOCAL_APP:-1}"
 INIT_TLS_FORCE_KEY="${INIT_TLS_FORCE_KEY:-0}"
 INIT_TLS_VALIDITY_DAYS="${INIT_TLS_VALIDITY_DAYS:-}"
+INIT_TLS_GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
+INIT_TLS_FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
+INIT_TLS_CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
+INIT_TLS_CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
 INIT_PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
 INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
@@ -50,6 +54,10 @@ Options:
   --tls-token TOKEN               TLS enrollment token
   --tls-validity-days DAYS        Requested client certificate validity days
   --tls-force-key                 Regenerate client private key during enrollment
+  --tls-generate-root-ca          Generate local bootstrap root CA before enrollment
+  --tls-force-root-ca             Regenerate local bootstrap root CA
+  --tls-ca-validity-days DAYS     Local bootstrap root CA validity days
+  --tls-ca-subject SUBJECT        Local bootstrap root CA subject
   --start, --no-start             Start services after init; default start
   --smoke, --no-smoke             Run production smoke test; default run
   --reset-shm                     Clear gateway shared memory before start
@@ -62,6 +70,7 @@ Environment variables with the same meaning are also supported:
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
   INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
+  INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
 EOF
 }
 
@@ -162,6 +171,25 @@ while [ "$#" -gt 0 ]; do
       INIT_TLS_FORCE_KEY=1
       shift
       ;;
+    --tls-generate-root-ca)
+      INIT_TLS_GENERATE_ROOT_CA=1
+      shift
+      ;;
+    --tls-force-root-ca)
+      INIT_TLS_FORCE_ROOT_CA=1
+      INIT_TLS_GENERATE_ROOT_CA=1
+      shift
+      ;;
+    --tls-ca-validity-days)
+      [ "$#" -ge 2 ] || { echo "--tls-ca-validity-days requires a value" >&2; exit 2; }
+      INIT_TLS_CA_VALIDITY_DAYS="$2"
+      shift 2
+      ;;
+    --tls-ca-subject)
+      [ "$#" -ge 2 ] || { echo "--tls-ca-subject requires a value" >&2; exit 2; }
+      INIT_TLS_CA_SUBJECT="$2"
+      shift 2
+      ;;
     --start)
       INIT_START_SERVICES=1
       shift
@@ -240,6 +268,18 @@ while [ "$#" -gt 0 ]; do
       ;;
     tls_validity_days=*|INIT_TLS_VALIDITY_DAYS=*)
       INIT_TLS_VALIDITY_DAYS="${1#*=}"
+      shift
+      ;;
+    tls_generate_root_ca=*|INIT_TLS_GENERATE_ROOT_CA=*)
+      INIT_TLS_GENERATE_ROOT_CA="${1#*=}"
+      shift
+      ;;
+    tls_ca_validity_days=*|INIT_TLS_CA_VALIDITY_DAYS=*)
+      INIT_TLS_CA_VALIDITY_DAYS="${1#*=}"
+      shift
+      ;;
+    tls_ca_subject=*|INIT_TLS_CA_SUBJECT=*)
+      INIT_TLS_CA_SUBJECT="${1#*=}"
       shift
       ;;
     *)
@@ -562,9 +602,11 @@ if is_interactive_init; then
     INIT_MQTT_CA_FILE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
     INIT_MQTT_CERT_FILE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
     INIT_MQTT_KEY_FILE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
+    INIT_TLS_GENERATE_ROOT_CA=$(prompt_bool "Generate local bootstrap root CA" "$INIT_TLS_GENERATE_ROOT_CA")
     INIT_TLS_PLATFORM_URL=$(prompt_value "TLS enrollment platform URL" "${INIT_TLS_PLATFORM_URL:-}")
     INIT_TLS_ENROLLMENT_TOKEN=$(prompt_value "TLS enrollment token" "${INIT_TLS_ENROLLMENT_TOKEN:-}" 1)
     INIT_TLS_VALIDITY_DAYS=$(prompt_value "TLS certificate validity days" "$INIT_TLS_VALIDITY_DAYS")
+    INIT_TLS_CA_VALIDITY_DAYS=$(prompt_value "TLS bootstrap root CA validity days" "$INIT_TLS_CA_VALIDITY_DAYS")
   fi
   INIT_START_SERVICES=$(prompt_bool "Start gateway services after init" "$INIT_START_SERVICES")
   INIT_RUN_SMOKE=$(prompt_bool "Run production smoke test" "$INIT_RUN_SMOKE")
@@ -582,7 +624,7 @@ export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-$DEFAUL
 export INIT_START_SERVICES INIT_RUN_SMOKE INIT_RESET_SHM INIT_MQTT_CONNECT_TEST
 
 tls_requested=0
-if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] || truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
   tls_requested=1
 fi
 if truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
@@ -618,20 +660,32 @@ sh "$@"
 apply_runtime_mode "$INIT_RUNTIME_MODE"
 
 if [ "$tls_requested" -eq 1 ]; then
-  if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
-    echo "TLS requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
-    exit 2
-  fi
   if [ -z "${INIT_MACHINE_CODE:-}" ]; then
     echo "INIT_MACHINE_CODE is required for TLS enrollment" >&2
     exit 2
   fi
   require_file "$GATEWAY_HOME/bin/gateway-tls-enroll.sh" "TLS enrollment script"
 
-  set -- \
-    --machine-code "$INIT_MACHINE_CODE" \
-    --platform-url "$INIT_TLS_PLATFORM_URL" \
-    --token "$INIT_TLS_ENROLLMENT_TOKEN"
+  set -- --machine-code "$INIT_MACHINE_CODE"
+  if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
+    set -- "$@" --generate-root-ca --ca-validity-days "$INIT_TLS_CA_VALIDITY_DAYS"
+    if [ -n "${INIT_TLS_CA_SUBJECT:-}" ]; then
+      set -- "$@" --ca-subject "$INIT_TLS_CA_SUBJECT"
+    fi
+    if truthy "${INIT_TLS_FORCE_ROOT_CA:-0}"; then
+      set -- "$@" --force-root-ca
+    fi
+  fi
+  if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+    if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+      echo "TLS enrollment requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
+      exit 2
+    fi
+    set -- "$@" --platform-url "$INIT_TLS_PLATFORM_URL" --token "$INIT_TLS_ENROLLMENT_TOKEN"
+  elif truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
+    echo "MQTT TLS requested but platform enrollment URL/token is empty" >&2
+    exit 2
+  fi
   if [ -n "$INIT_TLS_VALIDITY_DAYS" ]; then
     set -- "$@" --validity-days "$INIT_TLS_VALIDITY_DAYS"
   fi

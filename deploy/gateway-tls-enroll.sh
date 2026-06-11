@@ -12,6 +12,10 @@ VALIDITY_DAYS=""
 FORCE_KEY=0
 RESTART_SERVICES=0
 UPDATE_LOCAL_APP=0
+GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
+FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
+CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
+CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-/CN=KYXN Gateway Local Root CA/O=KYXN/OU=edge-gateway}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -25,6 +29,10 @@ Options:
   --app-config FILE         MQTT app config to update when --update-local-app is set
   --validity-days DAYS      Requested client certificate validity days
   --force-key               Regenerate the private key even when it already exists
+  --generate-root-ca        Generate a local bootstrap root CA before enrollment
+  --force-root-ca           Regenerate the local bootstrap root CA
+  --ca-validity-days DAYS   Local bootstrap root CA validity days; defaults to 3650
+  --ca-subject SUBJECT      Local bootstrap root CA subject
   --update-local-app        Update mqtt.tls caFile/certFile/keyFile in local app config
   --restart                 Restart gateway-services.service after successful enrollment
   -h, --help                Show this help
@@ -62,6 +70,23 @@ while [ "$#" -gt 0 ]; do
     --force-key)
       FORCE_KEY=1
       shift
+      ;;
+    --generate-root-ca)
+      GENERATE_ROOT_CA=1
+      shift
+      ;;
+    --force-root-ca)
+      FORCE_ROOT_CA=1
+      GENERATE_ROOT_CA=1
+      shift
+      ;;
+    --ca-validity-days)
+      CA_VALIDITY_DAYS="${2:-}"
+      shift 2
+      ;;
+    --ca-subject)
+      CA_SUBJECT="${2:-}"
+      shift 2
       ;;
     --restart)
       RESTART_SERVICES=1
@@ -115,6 +140,38 @@ KEY_FILE="$TLS_DIR/$SAFE_MACHINE-client.key"
 CSR_FILE="$TLS_DIR/$SAFE_MACHINE-client.csr"
 CERT_FILE="$TLS_DIR/$SAFE_MACHINE-client.pem"
 CA_FILE="$TLS_DIR/ca.crt"
+CA_KEY_FILE="$TLS_DIR/ca.key"
+
+truthy() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|y|yes|true|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if truthy "$GENERATE_ROOT_CA"; then
+  case "$CA_VALIDITY_DAYS" in
+    ""|*[!0-9]*)
+      echo "invalid --ca-validity-days: $CA_VALIDITY_DAYS" >&2
+      exit 2
+      ;;
+  esac
+  if truthy "$FORCE_ROOT_CA" || [ ! -s "$CA_FILE" ] || [ ! -s "$CA_KEY_FILE" ]; then
+    umask 077
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$CA_KEY_FILE" >/dev/null 2>&1
+    openssl req -x509 -new -nodes \
+      -key "$CA_KEY_FILE" \
+      -sha256 \
+      -days "$CA_VALIDITY_DAYS" \
+      -out "$CA_FILE" \
+      -subj "$CA_SUBJECT" >/dev/null 2>&1
+    chmod 600 "$CA_KEY_FILE" 2>/dev/null || true
+    chmod 644 "$CA_FILE" 2>/dev/null || true
+    echo "bootstrap root ca: $CA_FILE"
+  else
+    echo "bootstrap root ca exists: $CA_FILE"
+  fi
+fi
 
 if [ "$FORCE_KEY" -eq 1 ] || [ ! -s "$KEY_FILE" ]; then
   umask 077
