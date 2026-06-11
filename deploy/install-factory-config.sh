@@ -126,7 +126,7 @@ fi
 DEPLOY_DIR="${DEPLOY_DIR:-$SOURCE_ROOT/deploy}"
 
 FACTORY_PACKAGE="${FACTORY_PACKAGE:-}"
-if [ -z "$FACTORY_PACKAGE" ]; then
+if [ -z "$FACTORY_PACKAGE" ] && [ -z "${SOURCE_ROOT:-}" ]; then
   FACTORY_PACKAGE=$(pick_existing_file \
     "$DEFAULT_SOURCE_ROOT/$FACTORY_PACKAGE_NAME" \
     "/home/$FACTORY_PACKAGE_NAME" \
