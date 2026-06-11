@@ -1,12 +1,12 @@
 {
-  "enabled": false,
-  "listenHost": "192.168.100.1",
+  "enabled": true,
+  "listenHost": "192.168.1.250",
   "listenHosts": [
-    "192.168.100.1"
+    "192.168.1.250"
   ],
   "listenPort": 9443,
   "allowedClientCidrs": [
-    "192.168.100.0/24"
+    "192.168.1.0/24"
   ],
   "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
   "appConfigFile": "/opt/modbus-gateway/config/runtime/apps/monitor-service.json",

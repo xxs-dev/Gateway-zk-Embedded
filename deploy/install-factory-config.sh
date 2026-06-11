@@ -12,16 +12,24 @@ INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
 FACTORY_PACKAGE_NAME="${FACTORY_PACKAGE_NAME:-gateway-factory-defaults.tar.gz}"
 PACKAGE_PROFILE="${PACKAGE_PROFILE:-}"
 EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
+INIT_DIRECT_AGENT_ENABLED="${INIT_DIRECT_AGENT_ENABLED:-1}"
+INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
+INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
 
 usage() {
   cat >&2 <<'EOF'
 Usage: install-factory-config.sh [--profile base|project|full] [--manifest FILE]
+                                 [--direct-maintenance|--no-direct-maintenance]
+                                 [--direct-listen-host HOST|--direct-listen-hosts HOSTS]
+                                 [--direct-allowed-cidr CIDR|--direct-allowed-cidrs CIDRS]
 
 Profiles:
   base     Install only SystemMonitor, MqttDriver and pointctl.
   project  Install base components plus binaries listed in edge-package-manifest.json.
   full     Install all current drivers and tools; default when no package manifest exists.
+
+Direct maintenance is served by SystemMonitor's embedded HTTP API, not a standalone service.
 EOF
 }
 
@@ -35,6 +43,34 @@ while [ "$#" -gt 0 ]; do
     --manifest)
       [ "$#" -ge 2 ] || { echo "--manifest requires a value" >&2; exit 2; }
       EDGE_PACKAGE_MANIFEST="$2"
+      shift 2
+      ;;
+    --direct-maintenance)
+      INIT_DIRECT_AGENT_ENABLED=1
+      shift
+      ;;
+    --no-direct-maintenance)
+      INIT_DIRECT_AGENT_ENABLED=0
+      shift
+      ;;
+    --direct-listen-host)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-host requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-listen-hosts)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-hosts requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidr)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidr requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidrs)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidrs requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
       shift 2
       ;;
     -h|--help)
@@ -595,6 +631,56 @@ apply_runtime_identity_and_mqtt() {
   done
 }
 
+apply_direct_maintenance_config() {
+  enabled="$1"
+  listen_hosts="$2"
+  allowed_cidrs="$3"
+  direct_config="$GATEWAY_HOME/config/runtime/apps/direct-agent.json"
+  [ -f "$direct_config" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot configure direct maintenance" >&2
+    exit 1
+  fi
+  python3 - "$direct_config" "$enabled" "$listen_hosts" "$allowed_cidrs" "$GATEWAY_HOME" <<'PY'
+import json
+import os
+import sys
+
+path, enabled_raw, listen_raw, cidrs_raw, gateway_home = sys.argv[1:6]
+
+
+def split_list(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").replace(";", ",").split(",") if item.strip()]
+
+
+with open(path, "r", encoding="utf-8") as fh:
+    root = json.load(fh)
+
+listen_hosts = split_list(listen_raw) or split_list(root.get("listenHosts")) or [str(root.get("listenHost") or "192.168.1.250")]
+allowed_cidrs = split_list(cidrs_raw) or split_list(root.get("allowedClientCidrs")) or ["192.168.1.0/24"]
+root["enabled"] = str(enabled_raw or "").strip().lower() in ("1", "y", "yes", "true", "on")
+root["listenHost"] = listen_hosts[0]
+root["listenHosts"] = listen_hosts
+root["listenPort"] = int(root.get("listenPort") or 9443)
+root["allowedClientCidrs"] = allowed_cidrs
+root["identityConfigFile"] = os.path.join(gateway_home, "config/runtime/device_identity.json")
+root["appConfigFile"] = os.path.join(gateway_home, "config/runtime/apps/monitor-service.json")
+root["otaAppConfigFile"] = os.path.join(gateway_home, "config/runtime/apps/mqtt-service.json")
+root["authStateFile"] = os.path.join(gateway_home, "config/runtime/direct-agent-state.json")
+root["otaStatusFile"] = os.path.join(gateway_home, "ota/direct-agent-status.jsonl")
+root["defaultPasswordSha256"] = "5c2358ee05dbd6bc6d52939f51a45c315533ad9191eecf1631fd788ec8ab76b3"
+root["maxRealtimePoints"] = int(root.get("maxRealtimePoints") or 2000)
+
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(root, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+os.replace(tmp, path)
+PY
+}
+
 mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$BACKUP_DIR"
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -686,6 +772,9 @@ DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQ
 DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
 DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
 DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+DEFAULT_DIRECT_AGENT_ENABLED=$(normalize_bool "${INIT_DIRECT_AGENT_ENABLED:-1}" "true")
+DEFAULT_DIRECT_LISTEN_HOSTS=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
+DEFAULT_DIRECT_ALLOWED_CIDRS=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}" "192.168.1.0/24")
 DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
 
 INIT_RUNTIME_MODE_VALUE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
@@ -705,6 +794,9 @@ INIT_MQTT_CA_FILE_VALUE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE"
 INIT_MQTT_CERT_FILE_VALUE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
 INIT_MQTT_KEY_FILE_VALUE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
 INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
+INIT_DIRECT_AGENT_ENABLED_VALUE=$(normalize_bool "$DEFAULT_DIRECT_AGENT_ENABLED" "true")
+INIT_DIRECT_LISTEN_HOSTS_VALUE="$DEFAULT_DIRECT_LISTEN_HOSTS"
+INIT_DIRECT_ALLOWED_CIDRS_VALUE="$DEFAULT_DIRECT_ALLOWED_CIDRS"
 
 apply_runtime_identity_and_mqtt \
   "$INIT_MACHINE_CODE_VALUE" \
@@ -717,12 +809,17 @@ apply_runtime_identity_and_mqtt \
   "$INIT_MQTT_KEY_FILE_VALUE" \
   "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
 apply_runtime_mode "$INIT_RUNTIME_MODE_VALUE"
+apply_direct_maintenance_config \
+  "$INIT_DIRECT_AGENT_ENABLED_VALUE" \
+  "$INIT_DIRECT_LISTEN_HOSTS_VALUE" \
+  "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
 echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"
 echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"
 echo "initialized mqtt broker: $INIT_MQTT_BROKER_VALUE"
 echo "initialized mqtt username: $INIT_MQTT_USERNAME_VALUE"
 echo "initialized mqtt tls: $INIT_MQTT_TLS_ENABLED_VALUE"
+echo "initialized direct maintenance: enabled=$INIT_DIRECT_AGENT_ENABLED_VALUE listen=$INIT_DIRECT_LISTEN_HOSTS_VALUE allowed=$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
 if [ -n "$TEMPLATES_DIR" ] && [ -d "$TEMPLATES_DIR" ]; then
   if ! same_path "$TEMPLATES_DIR" "$GATEWAY_HOME/config/templates"; then

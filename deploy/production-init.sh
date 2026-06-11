@@ -25,6 +25,9 @@ INIT_TLS_CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
 INIT_PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
 INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
+INIT_DIRECT_AGENT_ENABLED="${INIT_DIRECT_AGENT_ENABLED:-1}"
+INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
+INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -62,6 +65,12 @@ Options:
   --smoke, --no-smoke             Run production smoke test; default run
   --reset-shm                     Clear gateway shared memory before start
   --mqtt-connect-test             Enable MQTT connect check in smoke test
+  --direct-maintenance            Enable SystemMonitor embedded direct maintenance API; default
+  --no-direct-maintenance         Disable SystemMonitor embedded direct maintenance API
+  --direct-listen-host HOST       Maintenance API listen host; defaults to factory maintenance address
+  --direct-listen-hosts HOSTS     Comma separated maintenance API listen hosts
+  --direct-allowed-cidr CIDR      Allowed maintenance client CIDR; defaults to factory maintenance CIDR
+  --direct-allowed-cidrs CIDRS    Comma separated allowed maintenance client CIDRs
   -h, --help                      Show help
 
 Environment variables with the same meaning are also supported:
@@ -71,6 +80,7 @@ Environment variables with the same meaning are also supported:
   INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
   INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
+  INIT_DIRECT_AGENT_ENABLED INIT_DIRECT_LISTEN_HOSTS INIT_DIRECT_ALLOWED_CIDRS
 EOF
 }
 
@@ -214,6 +224,34 @@ while [ "$#" -gt 0 ]; do
       INIT_MQTT_CONNECT_TEST=1
       shift
       ;;
+    --direct-maintenance)
+      INIT_DIRECT_AGENT_ENABLED=1
+      shift
+      ;;
+    --no-direct-maintenance)
+      INIT_DIRECT_AGENT_ENABLED=0
+      shift
+      ;;
+    --direct-listen-host)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-host requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-listen-hosts)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-hosts requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidr)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidr requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidrs)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidrs requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -280,6 +318,18 @@ while [ "$#" -gt 0 ]; do
       ;;
     tls_ca_subject=*|INIT_TLS_CA_SUBJECT=*)
       INIT_TLS_CA_SUBJECT="${1#*=}"
+      shift
+      ;;
+    direct_agent_enabled=*|directMaintenance=*|INIT_DIRECT_AGENT_ENABLED=*)
+      INIT_DIRECT_AGENT_ENABLED="${1#*=}"
+      shift
+      ;;
+    direct_listen_host=*|directListenHost=*|direct_listen_hosts=*|directListenHosts=*|INIT_DIRECT_LISTEN_HOSTS=*)
+      INIT_DIRECT_LISTEN_HOSTS="${1#*=}"
+      shift
+      ;;
+    direct_allowed_cidr=*|directAllowedCidr=*|direct_allowed_cidrs=*|directAllowedCidrs=*|INIT_DIRECT_ALLOWED_CIDRS=*)
+      INIT_DIRECT_ALLOWED_CIDRS="${1#*=}"
       shift
       ;;
     *)
@@ -620,6 +670,9 @@ export INIT_MQTT_PASSWORD="${INIT_MQTT_PASSWORD:-$DEFAULT_MQTT_PASSWORD}"
 export INIT_MQTT_TLS_ENABLED="${INIT_MQTT_TLS_ENABLED:-$DEFAULT_MQTT_TLS_ENABLED}"
 export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-$DEFAULT_MQTT_TLS_INSECURE}"
 export INIT_START_SERVICES INIT_RUN_SMOKE INIT_RESET_SHM INIT_MQTT_CONNECT_TEST
+export INIT_DIRECT_AGENT_ENABLED="$(normalize_bool "${INIT_DIRECT_AGENT_ENABLED:-1}" "true")"
+export INIT_DIRECT_LISTEN_HOSTS="$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")"
+export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}" "192.168.1.0/24")"
 
 tls_requested=0
 if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] || truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
