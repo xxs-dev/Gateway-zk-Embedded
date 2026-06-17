@@ -49,7 +49,7 @@
 - 本机 `device_dio.json` 包含 18 路 DI 和 8 路 DO，DI/DO 默认都按低有效处理，平台逻辑值为 `1=有效/闭合`
 - `monitor-service.json` 默认启用 4G 模块状态采集，当前硬件按 `/dev/ttyUSB2`、`/dev/ttyUSB1`、`/dev/ttyUSB0` 顺序探测可响应 AT 口，并读取 SIM、注册、信号、运营商和流量状态
 - 正式上线前必须修改 `device_identity.json` 中的 `machineCode`、`imei`，以及 MQTT broker、MQTT 账号密码和实际串口点表
-- MQTT 配置里只填写基础 topic，运行时实际 topic 统一为 `<baseTopic>/<machineCode>`，例如 `edge/telemetry/GW0001`
+- MQTT 配置里只填写基础 topic，运行时实际 topic 统一为 `<baseTopic>/<machineCode>`。实时与全量已拆分，例如 `edge/telemetry/realtime/GW0001` 和 `edge/telemetry/full/GW0001`
 - MQTT 配置里的 `clientId` 保持为当前 `machineCode`；驱动内部连接会追加 `-rx/-tx` 或服务后缀，避免同一 broker 下冲突
 - 详细步骤见 [边端网关操作手册](D:/workspace/Embedded/Gateway-zk/doc/边端操作手册.md)
 
@@ -119,7 +119,7 @@ system-monitor@monitor-service.service
 sh deploy/install-factory-config.sh
 ```
 
-生产设备推荐把 `gateway-factory-defaults.tar.gz` 和 `install-factory-config.sh` 放在 `/home` 或 `/home/gateway-factory`。初始化脚本会解压包并复制二进制、服务脚本、factory 配置、模板和样例到 `/opt/modbus-gateway`。不要把出厂默认包直接放在 `/opt/modbus-gateway` 内，否则源目录和运行目录容易重叠。
+生产设备推荐把 `gateway-factory-defaults.tar.gz` 和 `install-factory-config.sh` 放在 `/home` 或 `/home/gateway-factory`。初始化脚本会解压包并复制二进制、服务脚本、factory 配置、模板和样例到 `/opt/modbus-gateway`。不要把出厂默认包直接放在 `/opt/modbus-gateway` 内，否则源目录和运行目录容易重叠。发布前需要确认边端包、Windows 初始化内置包和平台 `config/deploy` 包三份 SHA256 一致。
 
 常用变量：
 

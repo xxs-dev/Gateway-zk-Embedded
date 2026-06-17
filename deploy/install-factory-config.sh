@@ -8,8 +8,82 @@ ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BACKUP_DIR="${BACKUP_DIR:-$GATEWAY_HOME/backup}"
 START_SERVICES="${START_SERVICES:-1}"
 RESET_SHM="${RESET_SHM:-0}"
+INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
 FACTORY_PACKAGE_NAME="${FACTORY_PACKAGE_NAME:-gateway-factory-defaults.tar.gz}"
+PACKAGE_PROFILE="${PACKAGE_PROFILE:-}"
+EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
+INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
+INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
+INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: install-factory-config.sh [--profile base|project|full] [--manifest FILE]
+                                 [--direct-maintenance|--no-direct-maintenance]
+                                 [--direct-listen-host HOST|--direct-listen-hosts HOSTS]
+                                 [--direct-allowed-cidr CIDR|--direct-allowed-cidrs CIDRS]
+
+Profiles:
+  base     Install only SystemMonitor, MqttDriver and pointctl.
+  project  Install base components plus binaries listed in edge-package-manifest.json.
+  full     Install all current drivers and tools; default when no package manifest exists.
+
+Direct maintenance is served by SystemMonitor's embedded HTTP API, not a standalone service.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --profile)
+      [ "$#" -ge 2 ] || { echo "--profile requires a value" >&2; exit 2; }
+      PACKAGE_PROFILE="$2"
+      shift 2
+      ;;
+    --manifest)
+      [ "$#" -ge 2 ] || { echo "--manifest requires a value" >&2; exit 2; }
+      EDGE_PACKAGE_MANIFEST="$2"
+      shift 2
+      ;;
+    --direct-maintenance)
+      INIT_DIRECT_MAINTENANCE_ENABLED=1
+      shift
+      ;;
+    --no-direct-maintenance)
+      INIT_DIRECT_MAINTENANCE_ENABLED=0
+      shift
+      ;;
+    --direct-listen-host)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-host requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-listen-hosts)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-hosts requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidr)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidr requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidrs)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidrs requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
 
 cleanup_factory_extract() {
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
@@ -88,7 +162,7 @@ fi
 DEPLOY_DIR="${DEPLOY_DIR:-$SOURCE_ROOT/deploy}"
 
 FACTORY_PACKAGE="${FACTORY_PACKAGE:-}"
-if [ -z "$FACTORY_PACKAGE" ]; then
+if [ -z "$FACTORY_PACKAGE" ] && [ -z "${SOURCE_ROOT:-}" ]; then
   FACTORY_PACKAGE=$(pick_existing_file \
     "$DEFAULT_SOURCE_ROOT/$FACTORY_PACKAGE_NAME" \
     "/home/$FACTORY_PACKAGE_NAME" \
@@ -136,6 +210,43 @@ install_file_if_exists() {
   fi
 }
 
+deploy_file() {
+  name="$1"
+  for candidate in \
+    "$DEPLOY_DIR/$name" \
+    "$PACKAGE_ROOT/deploy/$name" \
+    "$SOURCE_ROOT/deploy/$name" \
+    "$DEFAULT_SOURCE_ROOT/deploy/$name" \
+    "$ROOT_DIR/deploy/$name" \
+    "$SCRIPT_DIR/$name" \
+    "$SCRIPT_DIR/deploy/$name"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_deploy_file_if_exists() {
+  name="$1"
+  dst="$2"
+  src=$(deploy_file "$name" || true)
+  [ -n "$src" ] || return 0
+  install_file_if_exists "$src" "$dst"
+}
+
+install_required_deploy_file() {
+  name="$1"
+  dst="$2"
+  src=$(deploy_file "$name" || true)
+  if [ -z "$src" ]; then
+    echo "required deploy file missing: $name" >&2
+    exit 2
+  fi
+  install_file_if_exists "$src" "$dst"
+}
+
 find_first_file() {
   for path in "$@"; do
     if [ -f "$path" ]; then
@@ -174,6 +285,85 @@ install_optional_binary() {
   ) || return 0
   install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
 }
+
+manifest_profile() {
+  manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$manifest" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    profile = str(data.get("packageProfile") or "").strip().lower()
+    if profile in ("base", "project", "full"):
+        print(profile)
+except Exception:
+    pass
+PY
+}
+
+manifest_binaries() {
+  manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot read manifest: $manifest" >&2
+    exit 2
+  fi
+  python3 - "$manifest" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+items = data.get("requiredDrivers") or data.get("components") or []
+seen = set()
+for item in items:
+    if isinstance(item, str):
+        name = item
+    elif isinstance(item, dict):
+        name = item.get("binary") or item.get("name") or item.get("id")
+    else:
+        continue
+    name = str(name or "").strip()
+    if not name or name in seen:
+        continue
+    seen.add(name)
+    print(name)
+PY
+}
+
+unique_words() {
+  awk 'NF && !seen[$0]++ { print }'
+}
+
+if [ -z "$EDGE_PACKAGE_MANIFEST" ]; then
+  EDGE_PACKAGE_MANIFEST=$(pick_existing_file \
+    "$PACKAGE_ROOT/edge-package-manifest.json" \
+    "$PACKAGE_ROOT/config/runtime/edge-package-manifest.json" \
+    "$SOURCE_ROOT/edge-package-manifest.json" \
+    "$SOURCE_ROOT/config/runtime/edge-package-manifest.json" \
+    "$DEFAULT_SOURCE_ROOT/edge-package-manifest.json" || true)
+fi
+
+if [ -z "$PACKAGE_PROFILE" ]; then
+  PACKAGE_PROFILE=$(manifest_profile "$EDGE_PACKAGE_MANIFEST" || true)
+fi
+if [ -z "$PACKAGE_PROFILE" ]; then
+  if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+    PACKAGE_PROFILE="project"
+  else
+    PACKAGE_PROFILE="full"
+  fi
+fi
+case "$PACKAGE_PROFILE" in
+  base|project|full) ;;
+  *) echo "invalid package profile: $PACKAGE_PROFILE" >&2; exit 2 ;;
+esac
 
 json_string_value() {
   file="$1"
@@ -441,6 +631,57 @@ apply_runtime_identity_and_mqtt() {
   done
 }
 
+apply_direct_maintenance_config() {
+  enabled="$1"
+  listen_hosts="$2"
+  allowed_cidrs="$3"
+  direct_config="$GATEWAY_HOME/config/runtime/apps/monitor-service.json"
+  [ -f "$direct_config" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot configure direct maintenance" >&2
+    exit 1
+  fi
+  python3 - "$direct_config" "$enabled" "$listen_hosts" "$allowed_cidrs" "$GATEWAY_HOME" <<'PY'
+import json
+import os
+import sys
+
+path, enabled_raw, listen_raw, cidrs_raw, gateway_home = sys.argv[1:6]
+
+
+def split_list(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").replace(";", ",").split(",") if item.strip()]
+
+
+with open(path, "r", encoding="utf-8") as fh:
+    root = json.load(fh)
+
+monitor = root.setdefault("systemMonitor", {})
+direct = monitor.setdefault("directMaintenance", {})
+listen_hosts = split_list(listen_raw) or split_list(direct.get("listenHosts")) or [str(direct.get("listenHost") or "192.168.1.250")]
+allowed_cidrs = split_list(cidrs_raw) or split_list(direct.get("allowedClientCidrs")) or ["192.168.1.0/24"]
+direct["enabled"] = str(enabled_raw or "").strip().lower() in ("1", "y", "yes", "true", "on")
+direct["listenHost"] = listen_hosts[0]
+direct["listenHosts"] = listen_hosts
+direct["listenPort"] = int(direct.get("listenPort") or 9443)
+direct["allowedClientCidrs"] = allowed_cidrs
+direct["identityConfigFile"] = os.path.join(gateway_home, "config/runtime/device_identity.json")
+direct["appConfigFile"] = os.path.join(gateway_home, "config/runtime/apps/monitor-service.json")
+direct["otaAppConfigFile"] = os.path.join(gateway_home, "config/runtime/apps/mqtt-service.json")
+direct["authStateFile"] = os.path.join(gateway_home, "config/runtime/monitor-direct-maintenance-state.json")
+direct["otaStatusFile"] = os.path.join(gateway_home, "ota/monitor-direct-maintenance-status.jsonl")
+direct["maxRealtimePoints"] = int(direct.get("maxRealtimePoints") or 2000)
+
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(root, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+os.replace(tmp, path)
+PY
+}
+
 mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$BACKUP_DIR"
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -450,21 +691,43 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl; do
+BASE_BINS="SystemMonitor MqttDriver pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
+OPTIONAL_BINS="LocalDisplay CameraService stress_runner"
+if [ "$PACKAGE_PROFILE" = "base" ]; then
+  REQUIRED_BINS="$BASE_BINS"
+  OPTIONAL_BINS=""
+elif [ "$PACKAGE_PROFILE" = "project" ]; then
+  if [ -z "$EDGE_PACKAGE_MANIFEST" ] || [ ! -f "$EDGE_PACKAGE_MANIFEST" ]; then
+    echo "project profile requires edge-package-manifest.json" >&2
+    exit 2
+  fi
+  REQUIRED_BINS=$(printf '%s\n' $BASE_BINS $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_words | tr '\n' ' ')
+  OPTIONAL_BINS=""
+else
+  REQUIRED_BINS="$ALL_BINS"
+fi
+
+echo "install package profile: $PACKAGE_PROFILE"
+if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+  echo "install package manifest: $EDGE_PACKAGE_MANIFEST"
+fi
+
+for bin in $REQUIRED_BINS; do
   install_required_binary "$bin"
 done
-for bin in LocalDisplay CameraService stress_runner; do
+for bin in $OPTIONAL_BINS; do
   install_optional_binary "$bin"
 done
 
-install_file_if_exists "$DEPLOY_DIR/gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
-install_file_if_exists "$DEPLOY_DIR/gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
-install_file_if_exists "$DEPLOY_DIR/gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
-install_file_if_exists "$DEPLOY_DIR/local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
-install_file_if_exists "$DEPLOY_DIR/install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
-install_file_if_exists "$DEPLOY_DIR/production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
-install_file_if_exists "$DEPLOY_DIR/ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
-install_file_if_exists "$DEPLOY_DIR/ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_required_deploy_file "gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
+install_required_deploy_file "gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
+install_required_deploy_file "gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
+install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
+install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
+install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
+install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 
@@ -486,6 +749,9 @@ if [ -d "$GATEWAY_HOME/config/runtime" ]; then
 fi
 mkdir -p "$GATEWAY_HOME/config"
 cp -a "$FACTORY_DIR/runtime" "$GATEWAY_HOME/config/runtime"
+if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+  install_file_if_exists "$EDGE_PACKAGE_MANIFEST" "$GATEWAY_HOME/config/runtime/edge-package-manifest.json"
+fi
 
 FACTORY_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 FACTORY_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
@@ -507,6 +773,9 @@ DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQ
 DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
 DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
 DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+DEFAULT_DIRECT_MAINTENANCE_ENABLED=$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")
+DEFAULT_DIRECT_LISTEN_HOSTS=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
+DEFAULT_DIRECT_ALLOWED_CIDRS=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}" "192.168.1.0/24")
 DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
 
 INIT_RUNTIME_MODE_VALUE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
@@ -526,6 +795,9 @@ INIT_MQTT_CA_FILE_VALUE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE"
 INIT_MQTT_CERT_FILE_VALUE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
 INIT_MQTT_KEY_FILE_VALUE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
 INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
+INIT_DIRECT_MAINTENANCE_ENABLED_VALUE=$(normalize_bool "$DEFAULT_DIRECT_MAINTENANCE_ENABLED" "true")
+INIT_DIRECT_LISTEN_HOSTS_VALUE="$DEFAULT_DIRECT_LISTEN_HOSTS"
+INIT_DIRECT_ALLOWED_CIDRS_VALUE="$DEFAULT_DIRECT_ALLOWED_CIDRS"
 
 apply_runtime_identity_and_mqtt \
   "$INIT_MACHINE_CODE_VALUE" \
@@ -538,12 +810,17 @@ apply_runtime_identity_and_mqtt \
   "$INIT_MQTT_KEY_FILE_VALUE" \
   "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
 apply_runtime_mode "$INIT_RUNTIME_MODE_VALUE"
+apply_direct_maintenance_config \
+  "$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE" \
+  "$INIT_DIRECT_LISTEN_HOSTS_VALUE" \
+  "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
 echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"
 echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"
 echo "initialized mqtt broker: $INIT_MQTT_BROKER_VALUE"
 echo "initialized mqtt username: $INIT_MQTT_USERNAME_VALUE"
 echo "initialized mqtt tls: $INIT_MQTT_TLS_ENABLED_VALUE"
+echo "initialized direct maintenance: enabled=$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE listen=$INIT_DIRECT_LISTEN_HOSTS_VALUE allowed=$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
 if [ -n "$TEMPLATES_DIR" ] && [ -d "$TEMPLATES_DIR" ]; then
   if ! same_path "$TEMPLATES_DIR" "$GATEWAY_HOME/config/templates"; then
@@ -559,24 +836,25 @@ if [ -n "$EXAMPLES_DIR" ] && [ -d "$EXAMPLES_DIR" ]; then
   fi
 fi
 
-if command -v systemctl >/dev/null 2>&1; then
+if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   SYSTEMD_MANAGER_REEXEC_REQUIRED=0
-  install_file_if_exists "$DEPLOY_DIR/gateway-services.service" "/etc/systemd/system/gateway-services.service"
-  install_file_if_exists "$DEPLOY_DIR/modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
-  install_file_if_exists "$DEPLOY_DIR/dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/can-driver@.service" "/etc/systemd/system/can-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
-  install_file_if_exists "$DEPLOY_DIR/event-engine@.service" "/etc/systemd/system/event-engine@.service"
-  install_file_if_exists "$DEPLOY_DIR/compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
-  install_file_if_exists "$DEPLOY_DIR/local-display@.service" "/etc/systemd/system/local-display@.service"
-  install_file_if_exists "$DEPLOY_DIR/local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
-  install_file_if_exists "$DEPLOY_DIR/camera-service@.service" "/etc/systemd/system/camera-service@.service"
-  install_file_if_exists "$DEPLOY_DIR/system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
-  install_file_if_exists "$DEPLOY_DIR/mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
+  install_required_deploy_file "gateway-services.service" "/etc/systemd/system/gateway-services.service"
+  install_deploy_file_if_exists "modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
+  install_deploy_file_if_exists "dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
+  install_deploy_file_if_exists "dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
+  install_deploy_file_if_exists "can-driver@.service" "/etc/systemd/system/can-driver@.service"
+  install_deploy_file_if_exists "iec-driver@.service" "/etc/systemd/system/iec-driver@.service"
+  install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
+  install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
+  install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
+  install_deploy_file_if_exists "local-display@.service" "/etc/systemd/system/local-display@.service"
+  install_deploy_file_if_exists "local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
+  install_deploy_file_if_exists "camera-service@.service" "/etc/systemd/system/camera-service@.service"
+  install_deploy_file_if_exists "system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
+  install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
     mkdir -p /etc/systemd/system.conf.d
-    install_file_if_exists "$DEPLOY_DIR/10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
+    install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
     SYSTEMD_MANAGER_REEXEC_REQUIRED=1
   fi
   systemctl daemon-reload
@@ -588,7 +866,11 @@ fi
 
 if [ "$RESET_SHM" = "1" ]; then
   if command -v systemctl >/dev/null 2>&1; then
-    "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
+    if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
+      "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
+    else
+      systemctl stop gateway-services.service 2>/dev/null || true
+    fi
   fi
   rm -f /dev/shm/gateway_point_store* 2>/dev/null || true
 fi

@@ -27,6 +27,10 @@ add_library(edge_gateway
     src/common/gateway_daemon.cpp
     src/common/gateway_daemon_modbus.cpp
     src/graph_ems_engine.cpp
+    src/iec_client.cpp
+    src/iec_codec.cpp
+    src/iec_command_executor.cpp
+    src/iec_collector.cpp
     src/legacy_ems_engine.cpp
     src/legacy_ems_point_catalog.cpp
     src/memory_point_store.cpp
@@ -77,6 +81,10 @@ add_executable(CanDriver can_driver_main.cpp)
 target_link_libraries(CanDriver PRIVATE edge_gateway)
 target_compile_options(CanDriver PRIVATE -fdiagnostics-color=never)
 
+add_executable(IecDriver iec_driver_main.cpp)
+target_link_libraries(IecDriver PRIVATE edge_gateway)
+target_compile_options(IecDriver PRIVATE -fdiagnostics-color=never)
+
 add_executable(pointctl tools/pointctl.cpp)
 target_link_libraries(pointctl PRIVATE edge_gateway)
 target_compile_options(pointctl PRIVATE -fdiagnostics-color=never)
@@ -93,14 +101,9 @@ add_executable(ComputeEngine compute_engine_main.cpp)
 target_link_libraries(ComputeEngine PRIVATE edge_gateway)
 target_compile_options(ComputeEngine PRIVATE -fdiagnostics-color=never)
 
-add_executable(SystemMonitor system_monitor_main.cpp direct_agent_main.cpp)
+add_executable(SystemMonitor system_monitor_main.cpp system_monitor_direct_maintenance.cpp)
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)
-target_compile_definitions(SystemMonitor PRIVATE EDGE_GATEWAY_DIRECT_AGENT_EMBEDDED)
 target_compile_options(SystemMonitor PRIVATE -fdiagnostics-color=never)
-
-add_executable(DirectAgent direct_agent_main.cpp)
-target_link_libraries(DirectAgent PRIVATE edge_gateway)
-target_compile_options(DirectAgent PRIVATE -fdiagnostics-color=never)
 
 add_executable(LocalDisplay local_display_main.cpp)
 target_link_libraries(LocalDisplay PRIVATE edge_gateway)
@@ -121,6 +124,14 @@ target_compile_options(dio_smoke_test PRIVATE -fdiagnostics-color=never)
 add_executable(can_signal_codec_test tools/can_signal_codec_test.cpp)
 target_link_libraries(can_signal_codec_test PRIVATE edge_gateway)
 target_compile_options(can_signal_codec_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(iec_codec_test tools/iec_codec_test.cpp)
+target_link_libraries(iec_codec_test PRIVATE edge_gateway)
+target_compile_options(iec_codec_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(iec104_client_integration_test tools/iec104_client_integration_test.cpp)
+target_link_libraries(iec104_client_integration_test PRIVATE edge_gateway)
+target_compile_options(iec104_client_integration_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(config_loader_test tools/config_loader_test.cpp)
 target_link_libraries(config_loader_test PRIVATE edge_gateway)

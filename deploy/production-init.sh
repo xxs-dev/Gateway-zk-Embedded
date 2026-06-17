@@ -18,7 +18,16 @@ INIT_KEEP_WORK_DIR="${INIT_KEEP_WORK_DIR:-0}"
 INIT_TLS_UPDATE_LOCAL_APP="${INIT_TLS_UPDATE_LOCAL_APP:-1}"
 INIT_TLS_FORCE_KEY="${INIT_TLS_FORCE_KEY:-0}"
 INIT_TLS_VALIDITY_DAYS="${INIT_TLS_VALIDITY_DAYS:-}"
+INIT_TLS_GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
+INIT_TLS_FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
+INIT_TLS_CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
+INIT_TLS_CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
+INIT_PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
+INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
+INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
+INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
+INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -34,6 +43,8 @@ Options:
   --package FILE                  Factory package path
   --gateway-home DIR              Gateway install directory; defaults to /opt/modbus-gateway
   --runtime-mode MODE             Runtime mode: gateway or ems; defaults to gateway
+  --package-profile PROFILE       Driver package profile: base, project or full
+  --manifest FILE                 Edge package manifest for project profile
   --machine-code CODE             Device machineCode
   --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
   --mqtt-username USER            MQTT username
@@ -46,17 +57,30 @@ Options:
   --tls-token TOKEN               TLS enrollment token
   --tls-validity-days DAYS        Requested client certificate validity days
   --tls-force-key                 Regenerate client private key during enrollment
+  --tls-generate-root-ca          Generate local bootstrap root CA before enrollment
+  --tls-force-root-ca             Regenerate local bootstrap root CA
+  --tls-ca-validity-days DAYS     Local bootstrap root CA validity days
+  --tls-ca-subject SUBJECT        Local bootstrap root CA subject
   --start, --no-start             Start services after init; default start
   --smoke, --no-smoke             Run production smoke test; default run
   --reset-shm                     Clear gateway shared memory before start
   --mqtt-connect-test             Enable MQTT connect check in smoke test
+  --direct-maintenance            Enable SystemMonitor embedded direct maintenance API; default
+  --no-direct-maintenance         Disable SystemMonitor embedded direct maintenance API
+  --direct-listen-host HOST       Maintenance API listen host; defaults to factory maintenance address
+  --direct-listen-hosts HOSTS     Comma separated maintenance API listen hosts
+  --direct-allowed-cidr CIDR      Allowed maintenance client CIDR; defaults to factory maintenance CIDR
+  --direct-allowed-cidrs CIDRS    Comma separated allowed maintenance client CIDRs
   -h, --help                      Show help
 
 Environment variables with the same meaning are also supported:
   INIT_PROMPT INIT_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
+  INIT_PACKAGE_PROFILE INIT_EDGE_PACKAGE_MANIFEST
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
   INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
+  INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
+  INIT_DIRECT_MAINTENANCE_ENABLED INIT_DIRECT_LISTEN_HOSTS INIT_DIRECT_ALLOWED_CIDRS
 EOF
 }
 
@@ -83,6 +107,16 @@ while [ "$#" -gt 0 ]; do
     --runtime-mode)
       [ "$#" -ge 2 ] || { echo "--runtime-mode requires a value" >&2; exit 2; }
       INIT_RUNTIME_MODE="$2"
+      shift 2
+      ;;
+    --package-profile)
+      [ "$#" -ge 2 ] || { echo "--package-profile requires a value" >&2; exit 2; }
+      INIT_PACKAGE_PROFILE="$2"
+      shift 2
+      ;;
+    --manifest)
+      [ "$#" -ge 2 ] || { echo "--manifest requires a value" >&2; exit 2; }
+      INIT_EDGE_PACKAGE_MANIFEST="$2"
       shift 2
       ;;
     --machine-code)
@@ -147,6 +181,25 @@ while [ "$#" -gt 0 ]; do
       INIT_TLS_FORCE_KEY=1
       shift
       ;;
+    --tls-generate-root-ca)
+      INIT_TLS_GENERATE_ROOT_CA=1
+      shift
+      ;;
+    --tls-force-root-ca)
+      INIT_TLS_FORCE_ROOT_CA=1
+      INIT_TLS_GENERATE_ROOT_CA=1
+      shift
+      ;;
+    --tls-ca-validity-days)
+      [ "$#" -ge 2 ] || { echo "--tls-ca-validity-days requires a value" >&2; exit 2; }
+      INIT_TLS_CA_VALIDITY_DAYS="$2"
+      shift 2
+      ;;
+    --tls-ca-subject)
+      [ "$#" -ge 2 ] || { echo "--tls-ca-subject requires a value" >&2; exit 2; }
+      INIT_TLS_CA_SUBJECT="$2"
+      shift 2
+      ;;
     --start)
       INIT_START_SERVICES=1
       shift
@@ -171,6 +224,34 @@ while [ "$#" -gt 0 ]; do
       INIT_MQTT_CONNECT_TEST=1
       shift
       ;;
+    --direct-maintenance)
+      INIT_DIRECT_MAINTENANCE_ENABLED=1
+      shift
+      ;;
+    --no-direct-maintenance)
+      INIT_DIRECT_MAINTENANCE_ENABLED=0
+      shift
+      ;;
+    --direct-listen-host)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-host requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-listen-hosts)
+      [ "$#" -ge 2 ] || { echo "--direct-listen-hosts requires a value" >&2; exit 2; }
+      INIT_DIRECT_LISTEN_HOSTS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidr)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidr requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
+    --direct-allowed-cidrs)
+      [ "$#" -ge 2 ] || { echo "--direct-allowed-cidrs requires a value" >&2; exit 2; }
+      INIT_DIRECT_ALLOWED_CIDRS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -189,6 +270,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     runtime_mode=*|runtimeMode=*|INIT_RUNTIME_MODE=*)
       INIT_RUNTIME_MODE="${1#*=}"
+      shift
+      ;;
+    package_profile=*|PACKAGE_PROFILE=*|INIT_PACKAGE_PROFILE=*)
+      INIT_PACKAGE_PROFILE="${1#*=}"
+      shift
+      ;;
+    manifest=*|EDGE_PACKAGE_MANIFEST=*|INIT_EDGE_PACKAGE_MANIFEST=*)
+      INIT_EDGE_PACKAGE_MANIFEST="${1#*=}"
       shift
       ;;
     machine_code=*|machineCode=*|INIT_MACHINE_CODE=*)
@@ -217,6 +306,30 @@ while [ "$#" -gt 0 ]; do
       ;;
     tls_validity_days=*|INIT_TLS_VALIDITY_DAYS=*)
       INIT_TLS_VALIDITY_DAYS="${1#*=}"
+      shift
+      ;;
+    tls_generate_root_ca=*|INIT_TLS_GENERATE_ROOT_CA=*)
+      INIT_TLS_GENERATE_ROOT_CA="${1#*=}"
+      shift
+      ;;
+    tls_ca_validity_days=*|INIT_TLS_CA_VALIDITY_DAYS=*)
+      INIT_TLS_CA_VALIDITY_DAYS="${1#*=}"
+      shift
+      ;;
+    tls_ca_subject=*|INIT_TLS_CA_SUBJECT=*)
+      INIT_TLS_CA_SUBJECT="${1#*=}"
+      shift
+      ;;
+    direct_maintenance_enabled=*|directMaintenance=*|INIT_DIRECT_MAINTENANCE_ENABLED=*)
+      INIT_DIRECT_MAINTENANCE_ENABLED="${1#*=}"
+      shift
+      ;;
+    direct_listen_host=*|directListenHost=*|direct_listen_hosts=*|directListenHosts=*|INIT_DIRECT_LISTEN_HOSTS=*)
+      INIT_DIRECT_LISTEN_HOSTS="${1#*=}"
+      shift
+      ;;
+    direct_allowed_cidr=*|directAllowedCidr=*|direct_allowed_cidrs=*|directAllowedCidrs=*|INIT_DIRECT_ALLOWED_CIDRS=*)
+      INIT_DIRECT_ALLOWED_CIDRS="${1#*=}"
       shift
       ;;
     *)
@@ -486,8 +599,6 @@ PACKAGE_ROOT=$(find_package_root) || {
   exit 1
 }
 
-require_file "$PACKAGE_ROOT/deploy/install-factory-config.sh" "install script"
-
 EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
 EXISTING_MQTT_BROKER=$(json_string_value "$EXISTING_MQTT_FILE" "broker" || true)
@@ -521,6 +632,7 @@ DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}"
 if is_interactive_init; then
   echo "Gateway production initialization"
   INIT_RUNTIME_MODE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
+  INIT_PACKAGE_PROFILE=$(prompt_value "packageProfile(base/project/full)" "${INIT_PACKAGE_PROFILE:-project}")
   INIT_MACHINE_CODE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
   INIT_MQTT_BROKER=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
   INIT_MQTT_USERNAME=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
@@ -538,9 +650,11 @@ if is_interactive_init; then
     INIT_MQTT_CA_FILE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
     INIT_MQTT_CERT_FILE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
     INIT_MQTT_KEY_FILE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
+    INIT_TLS_GENERATE_ROOT_CA=$(prompt_bool "Generate local bootstrap root CA" "$INIT_TLS_GENERATE_ROOT_CA")
     INIT_TLS_PLATFORM_URL=$(prompt_value "TLS enrollment platform URL" "${INIT_TLS_PLATFORM_URL:-}")
     INIT_TLS_ENROLLMENT_TOKEN=$(prompt_value "TLS enrollment token" "${INIT_TLS_ENROLLMENT_TOKEN:-}" 1)
     INIT_TLS_VALIDITY_DAYS=$(prompt_value "TLS certificate validity days" "$INIT_TLS_VALIDITY_DAYS")
+    INIT_TLS_CA_VALIDITY_DAYS=$(prompt_value "TLS bootstrap root CA validity days" "$INIT_TLS_CA_VALIDITY_DAYS")
   fi
   INIT_START_SERVICES=$(prompt_bool "Start gateway services after init" "$INIT_START_SERVICES")
   INIT_RUN_SMOKE=$(prompt_bool "Run production smoke test" "$INIT_RUN_SMOKE")
@@ -556,9 +670,12 @@ export INIT_MQTT_PASSWORD="${INIT_MQTT_PASSWORD:-$DEFAULT_MQTT_PASSWORD}"
 export INIT_MQTT_TLS_ENABLED="${INIT_MQTT_TLS_ENABLED:-$DEFAULT_MQTT_TLS_ENABLED}"
 export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-$DEFAULT_MQTT_TLS_INSECURE}"
 export INIT_START_SERVICES INIT_RUN_SMOKE INIT_RESET_SHM INIT_MQTT_CONNECT_TEST
+export INIT_DIRECT_MAINTENANCE_ENABLED="$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")"
+export INIT_DIRECT_LISTEN_HOSTS="$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")"
+export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}" "192.168.1.0/24")"
 
 tls_requested=0
-if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] || truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
   tls_requested=1
 fi
 if truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
@@ -575,30 +692,63 @@ if [ "$tls_requested" -eq 1 ] && [ -n "${INIT_MACHINE_CODE:-}" ]; then
 fi
 
 export SOURCE_ROOT="$PACKAGE_ROOT"
-export DEPLOY_DIR="$PACKAGE_ROOT/deploy"
+if [ -f "$SCRIPT_DIR/install-factory-config.sh" ]; then
+  export DEPLOY_DIR="$SCRIPT_DIR"
+else
+  export DEPLOY_DIR="$PACKAGE_ROOT/deploy"
+fi
+require_file "$DEPLOY_DIR/install-factory-config.sh" "install script"
 export FACTORY_PROMPT=0
 export FACTORY_PACKAGE=""
+export FACTORY_DIR="$PACKAGE_ROOT/config/factory"
+export TEMPLATES_DIR="$PACKAGE_ROOT/config/templates"
+export EXAMPLES_DIR="$PACKAGE_ROOT/config/examples"
+export PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
+export EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 export START_SERVICES=0
 export RESET_SHM="$INIT_RESET_SHM"
 
-sh "$PACKAGE_ROOT/deploy/install-factory-config.sh"
+set -- "$DEPLOY_DIR/install-factory-config.sh"
+if [ -n "${INIT_PACKAGE_PROFILE:-}" ]; then
+  set -- "$@" --profile "$INIT_PACKAGE_PROFILE"
+fi
+if [ -n "${INIT_EDGE_PACKAGE_MANIFEST:-}" ]; then
+  set -- "$@" --manifest "$INIT_EDGE_PACKAGE_MANIFEST"
+fi
+sh "$@"
 apply_runtime_mode "$INIT_RUNTIME_MODE"
 
 if [ "$tls_requested" -eq 1 ]; then
-  if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
-    echo "TLS requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
-    exit 2
-  fi
   if [ -z "${INIT_MACHINE_CODE:-}" ]; then
     echo "INIT_MACHINE_CODE is required for TLS enrollment" >&2
     exit 2
   fi
-  require_file "$GATEWAY_HOME/bin/gateway-tls-enroll.sh" "TLS enrollment script"
+  TLS_ENROLL_SCRIPT="$DEPLOY_DIR/gateway-tls-enroll.sh"
+  if [ ! -f "$TLS_ENROLL_SCRIPT" ]; then
+    TLS_ENROLL_SCRIPT="$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
+  fi
+  require_file "$TLS_ENROLL_SCRIPT" "TLS enrollment script"
 
-  set -- \
-    --machine-code "$INIT_MACHINE_CODE" \
-    --platform-url "$INIT_TLS_PLATFORM_URL" \
-    --token "$INIT_TLS_ENROLLMENT_TOKEN"
+  set -- --machine-code "$INIT_MACHINE_CODE"
+  if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
+    set -- "$@" --generate-root-ca --ca-validity-days "$INIT_TLS_CA_VALIDITY_DAYS"
+    if [ -n "${INIT_TLS_CA_SUBJECT:-}" ]; then
+      set -- "$@" --ca-subject "$INIT_TLS_CA_SUBJECT"
+    fi
+    if truthy "${INIT_TLS_FORCE_ROOT_CA:-0}"; then
+      set -- "$@" --force-root-ca
+    fi
+  fi
+  if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+    if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+      echo "TLS enrollment requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
+      exit 2
+    fi
+    set -- "$@" --platform-url "$INIT_TLS_PLATFORM_URL" --token "$INIT_TLS_ENROLLMENT_TOKEN"
+  elif truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
+    echo "MQTT TLS requested but platform enrollment URL/token is empty" >&2
+    exit 2
+  fi
   if [ -n "$INIT_TLS_VALIDITY_DAYS" ]; then
     set -- "$@" --validity-days "$INIT_TLS_VALIDITY_DAYS"
   fi
@@ -609,7 +759,7 @@ if [ "$tls_requested" -eq 1 ]; then
     set -- "$@" --force-key
   fi
 
-  GATEWAY_HOME="$GATEWAY_HOME" sh "$GATEWAY_HOME/bin/gateway-tls-enroll.sh" "$@"
+  GATEWAY_HOME="$GATEWAY_HOME" sh "$TLS_ENROLL_SCRIPT" "$@"
 fi
 
 if truthy "$INIT_START_SERVICES"; then

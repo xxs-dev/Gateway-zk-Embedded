@@ -207,6 +207,8 @@ CMakeFiles/stress_runner.dir/tools/stress_runner.cpp.o: \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/point_store_router.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/sqlite_alarm_writer.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mqtt_driver_service.hpp \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/cstddef \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/unordered_set \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/unordered_set.h \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/priority_control_lease.hpp

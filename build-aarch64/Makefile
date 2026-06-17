@@ -156,6 +156,45 @@ Dlt645Driver/fast:
 .PHONY : Dlt645Driver/fast
 
 #=============================================================================
+# Target rules for targets named DioDriver
+
+# Build rule for target.
+DioDriver: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 DioDriver
+.PHONY : DioDriver
+
+# fast build rule for target.
+DioDriver/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/DioDriver.dir/build.make CMakeFiles/DioDriver.dir/build
+.PHONY : DioDriver/fast
+
+#=============================================================================
+# Target rules for targets named CanDriver
+
+# Build rule for target.
+CanDriver: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CanDriver
+.PHONY : CanDriver
+
+# fast build rule for target.
+CanDriver/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CanDriver.dir/build.make CMakeFiles/CanDriver.dir/build
+.PHONY : CanDriver/fast
+
+#=============================================================================
+# Target rules for targets named IecDriver
+
+# Build rule for target.
+IecDriver: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 IecDriver
+.PHONY : IecDriver
+
+# fast build rule for target.
+IecDriver/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/IecDriver.dir/build.make CMakeFiles/IecDriver.dir/build
+.PHONY : IecDriver/fast
+
+#=============================================================================
 # Target rules for targets named pointctl
 
 # Build rule for target.
@@ -221,6 +260,32 @@ SystemMonitor/fast:
 .PHONY : SystemMonitor/fast
 
 #=============================================================================
+# Target rules for targets named LocalDisplay
+
+# Build rule for target.
+LocalDisplay: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 LocalDisplay
+.PHONY : LocalDisplay
+
+# fast build rule for target.
+LocalDisplay/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LocalDisplay.dir/build.make CMakeFiles/LocalDisplay.dir/build
+.PHONY : LocalDisplay/fast
+
+#=============================================================================
+# Target rules for targets named CameraService
+
+# Build rule for target.
+CameraService: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CameraService
+.PHONY : CameraService
+
+# fast build rule for target.
+CameraService/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CameraService.dir/build.make CMakeFiles/CameraService.dir/build
+.PHONY : CameraService/fast
+
+#=============================================================================
 # Target rules for targets named stress_runner
 
 # Build rule for target.
@@ -232,6 +297,288 @@ stress_runner: cmake_check_build_system
 stress_runner/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/stress_runner.dir/build.make CMakeFiles/stress_runner.dir/build
 .PHONY : stress_runner/fast
+
+#=============================================================================
+# Target rules for targets named dio_smoke_test
+
+# Build rule for target.
+dio_smoke_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 dio_smoke_test
+.PHONY : dio_smoke_test
+
+# fast build rule for target.
+dio_smoke_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dio_smoke_test.dir/build.make CMakeFiles/dio_smoke_test.dir/build
+.PHONY : dio_smoke_test/fast
+
+#=============================================================================
+# Target rules for targets named can_signal_codec_test
+
+# Build rule for target.
+can_signal_codec_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 can_signal_codec_test
+.PHONY : can_signal_codec_test
+
+# fast build rule for target.
+can_signal_codec_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/can_signal_codec_test.dir/build.make CMakeFiles/can_signal_codec_test.dir/build
+.PHONY : can_signal_codec_test/fast
+
+#=============================================================================
+# Target rules for targets named iec_codec_test
+
+# Build rule for target.
+iec_codec_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 iec_codec_test
+.PHONY : iec_codec_test
+
+# fast build rule for target.
+iec_codec_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec_codec_test.dir/build.make CMakeFiles/iec_codec_test.dir/build
+.PHONY : iec_codec_test/fast
+
+#=============================================================================
+# Target rules for targets named iec104_client_integration_test
+
+# Build rule for target.
+iec104_client_integration_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 iec104_client_integration_test
+.PHONY : iec104_client_integration_test
+
+# fast build rule for target.
+iec104_client_integration_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec104_client_integration_test.dir/build.make CMakeFiles/iec104_client_integration_test.dir/build
+.PHONY : iec104_client_integration_test/fast
+
+#=============================================================================
+# Target rules for targets named config_loader_test
+
+# Build rule for target.
+config_loader_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 config_loader_test
+.PHONY : config_loader_test
+
+# fast build rule for target.
+config_loader_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/config_loader_test.dir/build.make CMakeFiles/config_loader_test.dir/build
+.PHONY : config_loader_test/fast
+
+#=============================================================================
+# Target rules for targets named collector_partial_failure_test
+
+# Build rule for target.
+collector_partial_failure_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 collector_partial_failure_test
+.PHONY : collector_partial_failure_test
+
+# fast build rule for target.
+collector_partial_failure_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/collector_partial_failure_test.dir/build.make CMakeFiles/collector_partial_failure_test.dir/build
+.PHONY : collector_partial_failure_test/fast
+
+#=============================================================================
+# Target rules for targets named gateway_daemon_realtime_priority_test
+
+# Build rule for target.
+gateway_daemon_realtime_priority_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 gateway_daemon_realtime_priority_test
+.PHONY : gateway_daemon_realtime_priority_test
+
+# fast build rule for target.
+gateway_daemon_realtime_priority_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/gateway_daemon_realtime_priority_test.dir/build.make CMakeFiles/gateway_daemon_realtime_priority_test.dir/build
+.PHONY : gateway_daemon_realtime_priority_test/fast
+
+#=============================================================================
+# Target rules for targets named priority_control_lease_test
+
+# Build rule for target.
+priority_control_lease_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 priority_control_lease_test
+.PHONY : priority_control_lease_test
+
+# fast build rule for target.
+priority_control_lease_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/priority_control_lease_test.dir/build.make CMakeFiles/priority_control_lease_test.dir/build
+.PHONY : priority_control_lease_test/fast
+
+#=============================================================================
+# Target rules for targets named modbus_rtu_client_resync_test
+
+# Build rule for target.
+modbus_rtu_client_resync_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 modbus_rtu_client_resync_test
+.PHONY : modbus_rtu_client_resync_test
+
+# fast build rule for target.
+modbus_rtu_client_resync_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_rtu_client_resync_test.dir/build.make CMakeFiles/modbus_rtu_client_resync_test.dir/build
+.PHONY : modbus_rtu_client_resync_test/fast
+
+#=============================================================================
+# Target rules for targets named dlt645_client_interval_test
+
+# Build rule for target.
+dlt645_client_interval_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 dlt645_client_interval_test
+.PHONY : dlt645_client_interval_test
+
+# fast build rule for target.
+dlt645_client_interval_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dlt645_client_interval_test.dir/build.make CMakeFiles/dlt645_client_interval_test.dir/build
+.PHONY : dlt645_client_interval_test/fast
+
+#=============================================================================
+# Target rules for targets named modbus_tcp_client_limit_test
+
+# Build rule for target.
+modbus_tcp_client_limit_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 modbus_tcp_client_limit_test
+.PHONY : modbus_tcp_client_limit_test
+
+# fast build rule for target.
+modbus_tcp_client_limit_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_tcp_client_limit_test.dir/build.make CMakeFiles/modbus_tcp_client_limit_test.dir/build
+.PHONY : modbus_tcp_client_limit_test/fast
+
+#=============================================================================
+# Target rules for targets named modbus_northbound_server_test
+
+# Build rule for target.
+modbus_northbound_server_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 modbus_northbound_server_test
+.PHONY : modbus_northbound_server_test
+
+# fast build rule for target.
+modbus_northbound_server_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_northbound_server_test.dir/build.make CMakeFiles/modbus_northbound_server_test.dir/build
+.PHONY : modbus_northbound_server_test/fast
+
+#=============================================================================
+# Target rules for targets named memory_point_store_lifecycle_test
+
+# Build rule for target.
+memory_point_store_lifecycle_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 memory_point_store_lifecycle_test
+.PHONY : memory_point_store_lifecycle_test
+
+# fast build rule for target.
+memory_point_store_lifecycle_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/memory_point_store_lifecycle_test.dir/build.make CMakeFiles/memory_point_store_lifecycle_test.dir/build
+.PHONY : memory_point_store_lifecycle_test/fast
+
+#=============================================================================
+# Target rules for targets named builtin_mqtt_driver_publisher_test
+
+# Build rule for target.
+builtin_mqtt_driver_publisher_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 builtin_mqtt_driver_publisher_test
+.PHONY : builtin_mqtt_driver_publisher_test
+
+# fast build rule for target.
+builtin_mqtt_driver_publisher_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build.make CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build
+.PHONY : builtin_mqtt_driver_publisher_test/fast
+
+#=============================================================================
+# Target rules for targets named mqtt_driver_service_test
+
+# Build rule for target.
+mqtt_driver_service_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 mqtt_driver_service_test
+.PHONY : mqtt_driver_service_test
+
+# fast build rule for target.
+mqtt_driver_service_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mqtt_driver_service_test.dir/build.make CMakeFiles/mqtt_driver_service_test.dir/build
+.PHONY : mqtt_driver_service_test/fast
+
+#=============================================================================
+# Target rules for targets named legacy_ems_test
+
+# Build rule for target.
+legacy_ems_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 legacy_ems_test
+.PHONY : legacy_ems_test
+
+# fast build rule for target.
+legacy_ems_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/legacy_ems_test.dir/build.make CMakeFiles/legacy_ems_test.dir/build
+.PHONY : legacy_ems_test/fast
+
+#=============================================================================
+# Target rules for targets named ota_service_test
+
+# Build rule for target.
+ota_service_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 ota_service_test
+.PHONY : ota_service_test
+
+# fast build rule for target.
+ota_service_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ota_service_test.dir/build.make CMakeFiles/ota_service_test.dir/build
+.PHONY : ota_service_test/fast
+
+#=============================================================================
+# Target rules for targets named system_monitor_service_test
+
+# Build rule for target.
+system_monitor_service_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 system_monitor_service_test
+.PHONY : system_monitor_service_test
+
+# fast build rule for target.
+system_monitor_service_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/system_monitor_service_test.dir/build.make CMakeFiles/system_monitor_service_test.dir/build
+.PHONY : system_monitor_service_test/fast
+
+camera_service_main.o: camera_service_main.cpp.o
+.PHONY : camera_service_main.o
+
+# target to build an object file
+camera_service_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CameraService.dir/build.make CMakeFiles/CameraService.dir/camera_service_main.cpp.o
+.PHONY : camera_service_main.cpp.o
+
+camera_service_main.i: camera_service_main.cpp.i
+.PHONY : camera_service_main.i
+
+# target to preprocess a source file
+camera_service_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CameraService.dir/build.make CMakeFiles/CameraService.dir/camera_service_main.cpp.i
+.PHONY : camera_service_main.cpp.i
+
+camera_service_main.s: camera_service_main.cpp.s
+.PHONY : camera_service_main.s
+
+# target to generate assembly for a file
+camera_service_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CameraService.dir/build.make CMakeFiles/CameraService.dir/camera_service_main.cpp.s
+.PHONY : camera_service_main.cpp.s
+
+can_driver_main.o: can_driver_main.cpp.o
+.PHONY : can_driver_main.o
+
+# target to build an object file
+can_driver_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CanDriver.dir/build.make CMakeFiles/CanDriver.dir/can_driver_main.cpp.o
+.PHONY : can_driver_main.cpp.o
+
+can_driver_main.i: can_driver_main.cpp.i
+.PHONY : can_driver_main.i
+
+# target to preprocess a source file
+can_driver_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CanDriver.dir/build.make CMakeFiles/CanDriver.dir/can_driver_main.cpp.i
+.PHONY : can_driver_main.cpp.i
+
+can_driver_main.s: can_driver_main.cpp.s
+.PHONY : can_driver_main.s
+
+# target to generate assembly for a file
+can_driver_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CanDriver.dir/build.make CMakeFiles/CanDriver.dir/can_driver_main.cpp.s
+.PHONY : can_driver_main.cpp.s
 
 compute_engine_main.o: compute_engine_main.cpp.o
 .PHONY : compute_engine_main.o
@@ -256,6 +603,30 @@ compute_engine_main.s: compute_engine_main.cpp.s
 compute_engine_main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/ComputeEngine.dir/build.make CMakeFiles/ComputeEngine.dir/compute_engine_main.cpp.s
 .PHONY : compute_engine_main.cpp.s
+
+dio_driver_main.o: dio_driver_main.cpp.o
+.PHONY : dio_driver_main.o
+
+# target to build an object file
+dio_driver_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/DioDriver.dir/build.make CMakeFiles/DioDriver.dir/dio_driver_main.cpp.o
+.PHONY : dio_driver_main.cpp.o
+
+dio_driver_main.i: dio_driver_main.cpp.i
+.PHONY : dio_driver_main.i
+
+# target to preprocess a source file
+dio_driver_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/DioDriver.dir/build.make CMakeFiles/DioDriver.dir/dio_driver_main.cpp.i
+.PHONY : dio_driver_main.cpp.i
+
+dio_driver_main.s: dio_driver_main.cpp.s
+.PHONY : dio_driver_main.s
+
+# target to generate assembly for a file
+dio_driver_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/DioDriver.dir/build.make CMakeFiles/DioDriver.dir/dio_driver_main.cpp.s
+.PHONY : dio_driver_main.cpp.s
 
 dlt645_main.o: dlt645_main.cpp.o
 .PHONY : dlt645_main.o
@@ -304,6 +675,54 @@ event_engine_main.s: event_engine_main.cpp.s
 event_engine_main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/EventEngine.dir/build.make CMakeFiles/EventEngine.dir/event_engine_main.cpp.s
 .PHONY : event_engine_main.cpp.s
+
+iec_driver_main.o: iec_driver_main.cpp.o
+.PHONY : iec_driver_main.o
+
+# target to build an object file
+iec_driver_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/IecDriver.dir/build.make CMakeFiles/IecDriver.dir/iec_driver_main.cpp.o
+.PHONY : iec_driver_main.cpp.o
+
+iec_driver_main.i: iec_driver_main.cpp.i
+.PHONY : iec_driver_main.i
+
+# target to preprocess a source file
+iec_driver_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/IecDriver.dir/build.make CMakeFiles/IecDriver.dir/iec_driver_main.cpp.i
+.PHONY : iec_driver_main.cpp.i
+
+iec_driver_main.s: iec_driver_main.cpp.s
+.PHONY : iec_driver_main.s
+
+# target to generate assembly for a file
+iec_driver_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/IecDriver.dir/build.make CMakeFiles/IecDriver.dir/iec_driver_main.cpp.s
+.PHONY : iec_driver_main.cpp.s
+
+local_display_main.o: local_display_main.cpp.o
+.PHONY : local_display_main.o
+
+# target to build an object file
+local_display_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LocalDisplay.dir/build.make CMakeFiles/LocalDisplay.dir/local_display_main.cpp.o
+.PHONY : local_display_main.cpp.o
+
+local_display_main.i: local_display_main.cpp.i
+.PHONY : local_display_main.i
+
+# target to preprocess a source file
+local_display_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LocalDisplay.dir/build.make CMakeFiles/LocalDisplay.dir/local_display_main.cpp.i
+.PHONY : local_display_main.cpp.i
+
+local_display_main.s: local_display_main.cpp.s
+.PHONY : local_display_main.s
+
+# target to generate assembly for a file
+local_display_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LocalDisplay.dir/build.make CMakeFiles/LocalDisplay.dir/local_display_main.cpp.s
+.PHONY : local_display_main.cpp.s
 
 main.o: main.cpp.o
 .PHONY : main.o
@@ -401,6 +820,54 @@ src/builtin_mqtt_driver_publisher.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.s
 .PHONY : src/builtin_mqtt_driver_publisher.cpp.s
 
+src/can_driver_service.o: src/can_driver_service.cpp.o
+.PHONY : src/can_driver_service.o
+
+# target to build an object file
+src/can_driver_service.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.o
+.PHONY : src/can_driver_service.cpp.o
+
+src/can_driver_service.i: src/can_driver_service.cpp.i
+.PHONY : src/can_driver_service.i
+
+# target to preprocess a source file
+src/can_driver_service.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.i
+.PHONY : src/can_driver_service.cpp.i
+
+src/can_driver_service.s: src/can_driver_service.cpp.s
+.PHONY : src/can_driver_service.s
+
+# target to generate assembly for a file
+src/can_driver_service.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.s
+.PHONY : src/can_driver_service.cpp.s
+
+src/can_signal_codec.o: src/can_signal_codec.cpp.o
+.PHONY : src/can_signal_codec.o
+
+# target to build an object file
+src/can_signal_codec.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/can_signal_codec.cpp.o
+.PHONY : src/can_signal_codec.cpp.o
+
+src/can_signal_codec.i: src/can_signal_codec.cpp.i
+.PHONY : src/can_signal_codec.i
+
+# target to preprocess a source file
+src/can_signal_codec.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/can_signal_codec.cpp.i
+.PHONY : src/can_signal_codec.cpp.i
+
+src/can_signal_codec.s: src/can_signal_codec.cpp.s
+.PHONY : src/can_signal_codec.s
+
+# target to generate assembly for a file
+src/can_signal_codec.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/can_signal_codec.cpp.s
+.PHONY : src/can_signal_codec.cpp.s
+
 src/collector.o: src/collector.cpp.o
 .PHONY : src/collector.o
 
@@ -448,6 +915,78 @@ src/command_executor.s: src/command_executor.cpp.s
 src/command_executor.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/command_executor.cpp.s
 .PHONY : src/command_executor.cpp.s
+
+src/common/collector_base.o: src/common/collector_base.cpp.o
+.PHONY : src/common/collector_base.o
+
+# target to build an object file
+src/common/collector_base.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/collector_base.cpp.o
+.PHONY : src/common/collector_base.cpp.o
+
+src/common/collector_base.i: src/common/collector_base.cpp.i
+.PHONY : src/common/collector_base.i
+
+# target to preprocess a source file
+src/common/collector_base.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/collector_base.cpp.i
+.PHONY : src/common/collector_base.cpp.i
+
+src/common/collector_base.s: src/common/collector_base.cpp.s
+.PHONY : src/common/collector_base.s
+
+# target to generate assembly for a file
+src/common/collector_base.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/collector_base.cpp.s
+.PHONY : src/common/collector_base.cpp.s
+
+src/common/gateway_daemon.o: src/common/gateway_daemon.cpp.o
+.PHONY : src/common/gateway_daemon.o
+
+# target to build an object file
+src/common/gateway_daemon.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/gateway_daemon.cpp.o
+.PHONY : src/common/gateway_daemon.cpp.o
+
+src/common/gateway_daemon.i: src/common/gateway_daemon.cpp.i
+.PHONY : src/common/gateway_daemon.i
+
+# target to preprocess a source file
+src/common/gateway_daemon.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/gateway_daemon.cpp.i
+.PHONY : src/common/gateway_daemon.cpp.i
+
+src/common/gateway_daemon.s: src/common/gateway_daemon.cpp.s
+.PHONY : src/common/gateway_daemon.s
+
+# target to generate assembly for a file
+src/common/gateway_daemon.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/gateway_daemon.cpp.s
+.PHONY : src/common/gateway_daemon.cpp.s
+
+src/common/gateway_daemon_modbus.o: src/common/gateway_daemon_modbus.cpp.o
+.PHONY : src/common/gateway_daemon_modbus.o
+
+# target to build an object file
+src/common/gateway_daemon_modbus.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/gateway_daemon_modbus.cpp.o
+.PHONY : src/common/gateway_daemon_modbus.cpp.o
+
+src/common/gateway_daemon_modbus.i: src/common/gateway_daemon_modbus.cpp.i
+.PHONY : src/common/gateway_daemon_modbus.i
+
+# target to preprocess a source file
+src/common/gateway_daemon_modbus.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/gateway_daemon_modbus.cpp.i
+.PHONY : src/common/gateway_daemon_modbus.cpp.i
+
+src/common/gateway_daemon_modbus.s: src/common/gateway_daemon_modbus.cpp.s
+.PHONY : src/common/gateway_daemon_modbus.s
+
+# target to generate assembly for a file
+src/common/gateway_daemon_modbus.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/common/gateway_daemon_modbus.cpp.s
+.PHONY : src/common/gateway_daemon_modbus.cpp.s
 
 src/compute_engine_service.o: src/compute_engine_service.cpp.o
 .PHONY : src/compute_engine_service.o
@@ -497,6 +1036,54 @@ src/config_loader.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/config_loader.cpp.s
 .PHONY : src/config_loader.cpp.s
 
+src/dio_collector.o: src/dio_collector.cpp.o
+.PHONY : src/dio_collector.o
+
+# target to build an object file
+src/dio_collector.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dio_collector.cpp.o
+.PHONY : src/dio_collector.cpp.o
+
+src/dio_collector.i: src/dio_collector.cpp.i
+.PHONY : src/dio_collector.i
+
+# target to preprocess a source file
+src/dio_collector.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dio_collector.cpp.i
+.PHONY : src/dio_collector.cpp.i
+
+src/dio_collector.s: src/dio_collector.cpp.s
+.PHONY : src/dio_collector.s
+
+# target to generate assembly for a file
+src/dio_collector.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dio_collector.cpp.s
+.PHONY : src/dio_collector.cpp.s
+
+src/dio_command_executor.o: src/dio_command_executor.cpp.o
+.PHONY : src/dio_command_executor.o
+
+# target to build an object file
+src/dio_command_executor.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.o
+.PHONY : src/dio_command_executor.cpp.o
+
+src/dio_command_executor.i: src/dio_command_executor.cpp.i
+.PHONY : src/dio_command_executor.i
+
+# target to preprocess a source file
+src/dio_command_executor.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.i
+.PHONY : src/dio_command_executor.cpp.i
+
+src/dio_command_executor.s: src/dio_command_executor.cpp.s
+.PHONY : src/dio_command_executor.s
+
+# target to generate assembly for a file
+src/dio_command_executor.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.s
+.PHONY : src/dio_command_executor.cpp.s
+
 src/dlt645_client.o: src/dlt645_client.cpp.o
 .PHONY : src/dlt645_client.o
 
@@ -544,6 +1131,30 @@ src/dlt645_codec.s: src/dlt645_codec.cpp.s
 src/dlt645_codec.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.s
 .PHONY : src/dlt645_codec.cpp.s
+
+src/dlt645_collector.o: src/dlt645_collector.cpp.o
+.PHONY : src/dlt645_collector.o
+
+# target to build an object file
+src/dlt645_collector.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dlt645_collector.cpp.o
+.PHONY : src/dlt645_collector.cpp.o
+
+src/dlt645_collector.i: src/dlt645_collector.cpp.i
+.PHONY : src/dlt645_collector.i
+
+# target to preprocess a source file
+src/dlt645_collector.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dlt645_collector.cpp.i
+.PHONY : src/dlt645_collector.cpp.i
+
+src/dlt645_collector.s: src/dlt645_collector.cpp.s
+.PHONY : src/dlt645_collector.s
+
+# target to generate assembly for a file
+src/dlt645_collector.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/dlt645_collector.cpp.s
+.PHONY : src/dlt645_collector.cpp.s
 
 src/dlt645_standard_points_loader.o: src/dlt645_standard_points_loader.cpp.o
 .PHONY : src/dlt645_standard_points_loader.o
@@ -593,29 +1204,173 @@ src/event_engine_service.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.s
 .PHONY : src/event_engine_service.cpp.s
 
-src/gateway_daemon.o: src/gateway_daemon.cpp.o
-.PHONY : src/gateway_daemon.o
+src/graph_ems_engine.o: src/graph_ems_engine.cpp.o
+.PHONY : src/graph_ems_engine.o
 
 # target to build an object file
-src/gateway_daemon.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.o
-.PHONY : src/gateway_daemon.cpp.o
+src/graph_ems_engine.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/graph_ems_engine.cpp.o
+.PHONY : src/graph_ems_engine.cpp.o
 
-src/gateway_daemon.i: src/gateway_daemon.cpp.i
-.PHONY : src/gateway_daemon.i
+src/graph_ems_engine.i: src/graph_ems_engine.cpp.i
+.PHONY : src/graph_ems_engine.i
 
 # target to preprocess a source file
-src/gateway_daemon.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.i
-.PHONY : src/gateway_daemon.cpp.i
+src/graph_ems_engine.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/graph_ems_engine.cpp.i
+.PHONY : src/graph_ems_engine.cpp.i
 
-src/gateway_daemon.s: src/gateway_daemon.cpp.s
-.PHONY : src/gateway_daemon.s
+src/graph_ems_engine.s: src/graph_ems_engine.cpp.s
+.PHONY : src/graph_ems_engine.s
 
 # target to generate assembly for a file
-src/gateway_daemon.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/gateway_daemon.cpp.s
-.PHONY : src/gateway_daemon.cpp.s
+src/graph_ems_engine.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/graph_ems_engine.cpp.s
+.PHONY : src/graph_ems_engine.cpp.s
+
+src/iec_client.o: src/iec_client.cpp.o
+.PHONY : src/iec_client.o
+
+# target to build an object file
+src/iec_client.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_client.cpp.o
+.PHONY : src/iec_client.cpp.o
+
+src/iec_client.i: src/iec_client.cpp.i
+.PHONY : src/iec_client.i
+
+# target to preprocess a source file
+src/iec_client.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_client.cpp.i
+.PHONY : src/iec_client.cpp.i
+
+src/iec_client.s: src/iec_client.cpp.s
+.PHONY : src/iec_client.s
+
+# target to generate assembly for a file
+src/iec_client.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_client.cpp.s
+.PHONY : src/iec_client.cpp.s
+
+src/iec_codec.o: src/iec_codec.cpp.o
+.PHONY : src/iec_codec.o
+
+# target to build an object file
+src/iec_codec.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_codec.cpp.o
+.PHONY : src/iec_codec.cpp.o
+
+src/iec_codec.i: src/iec_codec.cpp.i
+.PHONY : src/iec_codec.i
+
+# target to preprocess a source file
+src/iec_codec.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_codec.cpp.i
+.PHONY : src/iec_codec.cpp.i
+
+src/iec_codec.s: src/iec_codec.cpp.s
+.PHONY : src/iec_codec.s
+
+# target to generate assembly for a file
+src/iec_codec.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_codec.cpp.s
+.PHONY : src/iec_codec.cpp.s
+
+src/iec_collector.o: src/iec_collector.cpp.o
+.PHONY : src/iec_collector.o
+
+# target to build an object file
+src/iec_collector.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_collector.cpp.o
+.PHONY : src/iec_collector.cpp.o
+
+src/iec_collector.i: src/iec_collector.cpp.i
+.PHONY : src/iec_collector.i
+
+# target to preprocess a source file
+src/iec_collector.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_collector.cpp.i
+.PHONY : src/iec_collector.cpp.i
+
+src/iec_collector.s: src/iec_collector.cpp.s
+.PHONY : src/iec_collector.s
+
+# target to generate assembly for a file
+src/iec_collector.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_collector.cpp.s
+.PHONY : src/iec_collector.cpp.s
+
+src/iec_command_executor.o: src/iec_command_executor.cpp.o
+.PHONY : src/iec_command_executor.o
+
+# target to build an object file
+src/iec_command_executor.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_command_executor.cpp.o
+.PHONY : src/iec_command_executor.cpp.o
+
+src/iec_command_executor.i: src/iec_command_executor.cpp.i
+.PHONY : src/iec_command_executor.i
+
+# target to preprocess a source file
+src/iec_command_executor.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_command_executor.cpp.i
+.PHONY : src/iec_command_executor.cpp.i
+
+src/iec_command_executor.s: src/iec_command_executor.cpp.s
+.PHONY : src/iec_command_executor.s
+
+# target to generate assembly for a file
+src/iec_command_executor.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/iec_command_executor.cpp.s
+.PHONY : src/iec_command_executor.cpp.s
+
+src/legacy_ems_engine.o: src/legacy_ems_engine.cpp.o
+.PHONY : src/legacy_ems_engine.o
+
+# target to build an object file
+src/legacy_ems_engine.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/legacy_ems_engine.cpp.o
+.PHONY : src/legacy_ems_engine.cpp.o
+
+src/legacy_ems_engine.i: src/legacy_ems_engine.cpp.i
+.PHONY : src/legacy_ems_engine.i
+
+# target to preprocess a source file
+src/legacy_ems_engine.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/legacy_ems_engine.cpp.i
+.PHONY : src/legacy_ems_engine.cpp.i
+
+src/legacy_ems_engine.s: src/legacy_ems_engine.cpp.s
+.PHONY : src/legacy_ems_engine.s
+
+# target to generate assembly for a file
+src/legacy_ems_engine.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/legacy_ems_engine.cpp.s
+.PHONY : src/legacy_ems_engine.cpp.s
+
+src/legacy_ems_point_catalog.o: src/legacy_ems_point_catalog.cpp.o
+.PHONY : src/legacy_ems_point_catalog.o
+
+# target to build an object file
+src/legacy_ems_point_catalog.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/legacy_ems_point_catalog.cpp.o
+.PHONY : src/legacy_ems_point_catalog.cpp.o
+
+src/legacy_ems_point_catalog.i: src/legacy_ems_point_catalog.cpp.i
+.PHONY : src/legacy_ems_point_catalog.i
+
+# target to preprocess a source file
+src/legacy_ems_point_catalog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/legacy_ems_point_catalog.cpp.i
+.PHONY : src/legacy_ems_point_catalog.cpp.i
+
+src/legacy_ems_point_catalog.s: src/legacy_ems_point_catalog.cpp.s
+.PHONY : src/legacy_ems_point_catalog.s
+
+# target to generate assembly for a file
+src/legacy_ems_point_catalog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/legacy_ems_point_catalog.cpp.s
+.PHONY : src/legacy_ems_point_catalog.cpp.s
 
 src/memory_point_store.o: src/memory_point_store.cpp.o
 .PHONY : src/memory_point_store.o
@@ -688,6 +1443,30 @@ src/modbus_codec.s: src/modbus_codec.cpp.s
 src/modbus_codec.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.s
 .PHONY : src/modbus_codec.cpp.s
+
+src/modbus_northbound_server.o: src/modbus_northbound_server.cpp.o
+.PHONY : src/modbus_northbound_server.o
+
+# target to build an object file
+src/modbus_northbound_server.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/modbus_northbound_server.cpp.o
+.PHONY : src/modbus_northbound_server.cpp.o
+
+src/modbus_northbound_server.i: src/modbus_northbound_server.cpp.i
+.PHONY : src/modbus_northbound_server.i
+
+# target to preprocess a source file
+src/modbus_northbound_server.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/modbus_northbound_server.cpp.i
+.PHONY : src/modbus_northbound_server.cpp.i
+
+src/modbus_northbound_server.s: src/modbus_northbound_server.cpp.s
+.PHONY : src/modbus_northbound_server.s
+
+# target to generate assembly for a file
+src/modbus_northbound_server.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/modbus_northbound_server.cpp.s
+.PHONY : src/modbus_northbound_server.cpp.s
 
 src/modbus_rtu_client.o: src/modbus_rtu_client.cpp.o
 .PHONY : src/modbus_rtu_client.o
@@ -881,6 +1660,30 @@ src/posix_serial_port.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.s
 .PHONY : src/posix_serial_port.cpp.s
 
+src/priority_control_lease.o: src/priority_control_lease.cpp.o
+.PHONY : src/priority_control_lease.o
+
+# target to build an object file
+src/priority_control_lease.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/priority_control_lease.cpp.o
+.PHONY : src/priority_control_lease.cpp.o
+
+src/priority_control_lease.i: src/priority_control_lease.cpp.i
+.PHONY : src/priority_control_lease.i
+
+# target to preprocess a source file
+src/priority_control_lease.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/priority_control_lease.cpp.i
+.PHONY : src/priority_control_lease.cpp.i
+
+src/priority_control_lease.s: src/priority_control_lease.cpp.s
+.PHONY : src/priority_control_lease.s
+
+# target to generate assembly for a file
+src/priority_control_lease.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/priority_control_lease.cpp.s
+.PHONY : src/priority_control_lease.cpp.s
+
 src/read_task_planner.o: src/read_task_planner.cpp.o
 .PHONY : src/read_task_planner.o
 
@@ -953,6 +1756,30 @@ src/sqlite_sample_writer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.s
 .PHONY : src/sqlite_sample_writer.cpp.s
 
+src/sysfs_gpio_port.o: src/sysfs_gpio_port.cpp.o
+.PHONY : src/sysfs_gpio_port.o
+
+# target to build an object file
+src/sysfs_gpio_port.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/sysfs_gpio_port.cpp.o
+.PHONY : src/sysfs_gpio_port.cpp.o
+
+src/sysfs_gpio_port.i: src/sysfs_gpio_port.cpp.i
+.PHONY : src/sysfs_gpio_port.i
+
+# target to preprocess a source file
+src/sysfs_gpio_port.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/sysfs_gpio_port.cpp.i
+.PHONY : src/sysfs_gpio_port.cpp.i
+
+src/sysfs_gpio_port.s: src/sysfs_gpio_port.cpp.s
+.PHONY : src/sysfs_gpio_port.s
+
+# target to generate assembly for a file
+src/sysfs_gpio_port.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/sysfs_gpio_port.cpp.s
+.PHONY : src/sysfs_gpio_port.cpp.s
+
 src/system_monitor_service.o: src/system_monitor_service.cpp.o
 .PHONY : src/system_monitor_service.o
 
@@ -1001,6 +1828,30 @@ src/writeback_service.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.s
 .PHONY : src/writeback_service.cpp.s
 
+system_monitor_direct_maintenance.o: system_monitor_direct_maintenance.cpp.o
+.PHONY : system_monitor_direct_maintenance.o
+
+# target to build an object file
+system_monitor_direct_maintenance.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/SystemMonitor.dir/build.make CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.o
+.PHONY : system_monitor_direct_maintenance.cpp.o
+
+system_monitor_direct_maintenance.i: system_monitor_direct_maintenance.cpp.i
+.PHONY : system_monitor_direct_maintenance.i
+
+# target to preprocess a source file
+system_monitor_direct_maintenance.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/SystemMonitor.dir/build.make CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.i
+.PHONY : system_monitor_direct_maintenance.cpp.i
+
+system_monitor_direct_maintenance.s: system_monitor_direct_maintenance.cpp.s
+.PHONY : system_monitor_direct_maintenance.s
+
+# target to generate assembly for a file
+system_monitor_direct_maintenance.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/SystemMonitor.dir/build.make CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.s
+.PHONY : system_monitor_direct_maintenance.cpp.s
+
 system_monitor_main.o: system_monitor_main.cpp.o
 .PHONY : system_monitor_main.o
 
@@ -1024,6 +1875,390 @@ system_monitor_main.s: system_monitor_main.cpp.s
 system_monitor_main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/SystemMonitor.dir/build.make CMakeFiles/SystemMonitor.dir/system_monitor_main.cpp.s
 .PHONY : system_monitor_main.cpp.s
+
+tools/builtin_mqtt_driver_publisher_test.o: tools/builtin_mqtt_driver_publisher_test.cpp.o
+.PHONY : tools/builtin_mqtt_driver_publisher_test.o
+
+# target to build an object file
+tools/builtin_mqtt_driver_publisher_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build.make CMakeFiles/builtin_mqtt_driver_publisher_test.dir/tools/builtin_mqtt_driver_publisher_test.cpp.o
+.PHONY : tools/builtin_mqtt_driver_publisher_test.cpp.o
+
+tools/builtin_mqtt_driver_publisher_test.i: tools/builtin_mqtt_driver_publisher_test.cpp.i
+.PHONY : tools/builtin_mqtt_driver_publisher_test.i
+
+# target to preprocess a source file
+tools/builtin_mqtt_driver_publisher_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build.make CMakeFiles/builtin_mqtt_driver_publisher_test.dir/tools/builtin_mqtt_driver_publisher_test.cpp.i
+.PHONY : tools/builtin_mqtt_driver_publisher_test.cpp.i
+
+tools/builtin_mqtt_driver_publisher_test.s: tools/builtin_mqtt_driver_publisher_test.cpp.s
+.PHONY : tools/builtin_mqtt_driver_publisher_test.s
+
+# target to generate assembly for a file
+tools/builtin_mqtt_driver_publisher_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build.make CMakeFiles/builtin_mqtt_driver_publisher_test.dir/tools/builtin_mqtt_driver_publisher_test.cpp.s
+.PHONY : tools/builtin_mqtt_driver_publisher_test.cpp.s
+
+tools/can_signal_codec_test.o: tools/can_signal_codec_test.cpp.o
+.PHONY : tools/can_signal_codec_test.o
+
+# target to build an object file
+tools/can_signal_codec_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/can_signal_codec_test.dir/build.make CMakeFiles/can_signal_codec_test.dir/tools/can_signal_codec_test.cpp.o
+.PHONY : tools/can_signal_codec_test.cpp.o
+
+tools/can_signal_codec_test.i: tools/can_signal_codec_test.cpp.i
+.PHONY : tools/can_signal_codec_test.i
+
+# target to preprocess a source file
+tools/can_signal_codec_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/can_signal_codec_test.dir/build.make CMakeFiles/can_signal_codec_test.dir/tools/can_signal_codec_test.cpp.i
+.PHONY : tools/can_signal_codec_test.cpp.i
+
+tools/can_signal_codec_test.s: tools/can_signal_codec_test.cpp.s
+.PHONY : tools/can_signal_codec_test.s
+
+# target to generate assembly for a file
+tools/can_signal_codec_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/can_signal_codec_test.dir/build.make CMakeFiles/can_signal_codec_test.dir/tools/can_signal_codec_test.cpp.s
+.PHONY : tools/can_signal_codec_test.cpp.s
+
+tools/collector_partial_failure_test.o: tools/collector_partial_failure_test.cpp.o
+.PHONY : tools/collector_partial_failure_test.o
+
+# target to build an object file
+tools/collector_partial_failure_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/collector_partial_failure_test.dir/build.make CMakeFiles/collector_partial_failure_test.dir/tools/collector_partial_failure_test.cpp.o
+.PHONY : tools/collector_partial_failure_test.cpp.o
+
+tools/collector_partial_failure_test.i: tools/collector_partial_failure_test.cpp.i
+.PHONY : tools/collector_partial_failure_test.i
+
+# target to preprocess a source file
+tools/collector_partial_failure_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/collector_partial_failure_test.dir/build.make CMakeFiles/collector_partial_failure_test.dir/tools/collector_partial_failure_test.cpp.i
+.PHONY : tools/collector_partial_failure_test.cpp.i
+
+tools/collector_partial_failure_test.s: tools/collector_partial_failure_test.cpp.s
+.PHONY : tools/collector_partial_failure_test.s
+
+# target to generate assembly for a file
+tools/collector_partial_failure_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/collector_partial_failure_test.dir/build.make CMakeFiles/collector_partial_failure_test.dir/tools/collector_partial_failure_test.cpp.s
+.PHONY : tools/collector_partial_failure_test.cpp.s
+
+tools/config_loader_test.o: tools/config_loader_test.cpp.o
+.PHONY : tools/config_loader_test.o
+
+# target to build an object file
+tools/config_loader_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/config_loader_test.dir/build.make CMakeFiles/config_loader_test.dir/tools/config_loader_test.cpp.o
+.PHONY : tools/config_loader_test.cpp.o
+
+tools/config_loader_test.i: tools/config_loader_test.cpp.i
+.PHONY : tools/config_loader_test.i
+
+# target to preprocess a source file
+tools/config_loader_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/config_loader_test.dir/build.make CMakeFiles/config_loader_test.dir/tools/config_loader_test.cpp.i
+.PHONY : tools/config_loader_test.cpp.i
+
+tools/config_loader_test.s: tools/config_loader_test.cpp.s
+.PHONY : tools/config_loader_test.s
+
+# target to generate assembly for a file
+tools/config_loader_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/config_loader_test.dir/build.make CMakeFiles/config_loader_test.dir/tools/config_loader_test.cpp.s
+.PHONY : tools/config_loader_test.cpp.s
+
+tools/dio_smoke_test.o: tools/dio_smoke_test.cpp.o
+.PHONY : tools/dio_smoke_test.o
+
+# target to build an object file
+tools/dio_smoke_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dio_smoke_test.dir/build.make CMakeFiles/dio_smoke_test.dir/tools/dio_smoke_test.cpp.o
+.PHONY : tools/dio_smoke_test.cpp.o
+
+tools/dio_smoke_test.i: tools/dio_smoke_test.cpp.i
+.PHONY : tools/dio_smoke_test.i
+
+# target to preprocess a source file
+tools/dio_smoke_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dio_smoke_test.dir/build.make CMakeFiles/dio_smoke_test.dir/tools/dio_smoke_test.cpp.i
+.PHONY : tools/dio_smoke_test.cpp.i
+
+tools/dio_smoke_test.s: tools/dio_smoke_test.cpp.s
+.PHONY : tools/dio_smoke_test.s
+
+# target to generate assembly for a file
+tools/dio_smoke_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dio_smoke_test.dir/build.make CMakeFiles/dio_smoke_test.dir/tools/dio_smoke_test.cpp.s
+.PHONY : tools/dio_smoke_test.cpp.s
+
+tools/dlt645_client_interval_test.o: tools/dlt645_client_interval_test.cpp.o
+.PHONY : tools/dlt645_client_interval_test.o
+
+# target to build an object file
+tools/dlt645_client_interval_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dlt645_client_interval_test.dir/build.make CMakeFiles/dlt645_client_interval_test.dir/tools/dlt645_client_interval_test.cpp.o
+.PHONY : tools/dlt645_client_interval_test.cpp.o
+
+tools/dlt645_client_interval_test.i: tools/dlt645_client_interval_test.cpp.i
+.PHONY : tools/dlt645_client_interval_test.i
+
+# target to preprocess a source file
+tools/dlt645_client_interval_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dlt645_client_interval_test.dir/build.make CMakeFiles/dlt645_client_interval_test.dir/tools/dlt645_client_interval_test.cpp.i
+.PHONY : tools/dlt645_client_interval_test.cpp.i
+
+tools/dlt645_client_interval_test.s: tools/dlt645_client_interval_test.cpp.s
+.PHONY : tools/dlt645_client_interval_test.s
+
+# target to generate assembly for a file
+tools/dlt645_client_interval_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/dlt645_client_interval_test.dir/build.make CMakeFiles/dlt645_client_interval_test.dir/tools/dlt645_client_interval_test.cpp.s
+.PHONY : tools/dlt645_client_interval_test.cpp.s
+
+tools/gateway_daemon_realtime_priority_test.o: tools/gateway_daemon_realtime_priority_test.cpp.o
+.PHONY : tools/gateway_daemon_realtime_priority_test.o
+
+# target to build an object file
+tools/gateway_daemon_realtime_priority_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/gateway_daemon_realtime_priority_test.dir/build.make CMakeFiles/gateway_daemon_realtime_priority_test.dir/tools/gateway_daemon_realtime_priority_test.cpp.o
+.PHONY : tools/gateway_daemon_realtime_priority_test.cpp.o
+
+tools/gateway_daemon_realtime_priority_test.i: tools/gateway_daemon_realtime_priority_test.cpp.i
+.PHONY : tools/gateway_daemon_realtime_priority_test.i
+
+# target to preprocess a source file
+tools/gateway_daemon_realtime_priority_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/gateway_daemon_realtime_priority_test.dir/build.make CMakeFiles/gateway_daemon_realtime_priority_test.dir/tools/gateway_daemon_realtime_priority_test.cpp.i
+.PHONY : tools/gateway_daemon_realtime_priority_test.cpp.i
+
+tools/gateway_daemon_realtime_priority_test.s: tools/gateway_daemon_realtime_priority_test.cpp.s
+.PHONY : tools/gateway_daemon_realtime_priority_test.s
+
+# target to generate assembly for a file
+tools/gateway_daemon_realtime_priority_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/gateway_daemon_realtime_priority_test.dir/build.make CMakeFiles/gateway_daemon_realtime_priority_test.dir/tools/gateway_daemon_realtime_priority_test.cpp.s
+.PHONY : tools/gateway_daemon_realtime_priority_test.cpp.s
+
+tools/iec104_client_integration_test.o: tools/iec104_client_integration_test.cpp.o
+.PHONY : tools/iec104_client_integration_test.o
+
+# target to build an object file
+tools/iec104_client_integration_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec104_client_integration_test.dir/build.make CMakeFiles/iec104_client_integration_test.dir/tools/iec104_client_integration_test.cpp.o
+.PHONY : tools/iec104_client_integration_test.cpp.o
+
+tools/iec104_client_integration_test.i: tools/iec104_client_integration_test.cpp.i
+.PHONY : tools/iec104_client_integration_test.i
+
+# target to preprocess a source file
+tools/iec104_client_integration_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec104_client_integration_test.dir/build.make CMakeFiles/iec104_client_integration_test.dir/tools/iec104_client_integration_test.cpp.i
+.PHONY : tools/iec104_client_integration_test.cpp.i
+
+tools/iec104_client_integration_test.s: tools/iec104_client_integration_test.cpp.s
+.PHONY : tools/iec104_client_integration_test.s
+
+# target to generate assembly for a file
+tools/iec104_client_integration_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec104_client_integration_test.dir/build.make CMakeFiles/iec104_client_integration_test.dir/tools/iec104_client_integration_test.cpp.s
+.PHONY : tools/iec104_client_integration_test.cpp.s
+
+tools/iec_codec_test.o: tools/iec_codec_test.cpp.o
+.PHONY : tools/iec_codec_test.o
+
+# target to build an object file
+tools/iec_codec_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec_codec_test.dir/build.make CMakeFiles/iec_codec_test.dir/tools/iec_codec_test.cpp.o
+.PHONY : tools/iec_codec_test.cpp.o
+
+tools/iec_codec_test.i: tools/iec_codec_test.cpp.i
+.PHONY : tools/iec_codec_test.i
+
+# target to preprocess a source file
+tools/iec_codec_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec_codec_test.dir/build.make CMakeFiles/iec_codec_test.dir/tools/iec_codec_test.cpp.i
+.PHONY : tools/iec_codec_test.cpp.i
+
+tools/iec_codec_test.s: tools/iec_codec_test.cpp.s
+.PHONY : tools/iec_codec_test.s
+
+# target to generate assembly for a file
+tools/iec_codec_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec_codec_test.dir/build.make CMakeFiles/iec_codec_test.dir/tools/iec_codec_test.cpp.s
+.PHONY : tools/iec_codec_test.cpp.s
+
+tools/legacy_ems_test.o: tools/legacy_ems_test.cpp.o
+.PHONY : tools/legacy_ems_test.o
+
+# target to build an object file
+tools/legacy_ems_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/legacy_ems_test.dir/build.make CMakeFiles/legacy_ems_test.dir/tools/legacy_ems_test.cpp.o
+.PHONY : tools/legacy_ems_test.cpp.o
+
+tools/legacy_ems_test.i: tools/legacy_ems_test.cpp.i
+.PHONY : tools/legacy_ems_test.i
+
+# target to preprocess a source file
+tools/legacy_ems_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/legacy_ems_test.dir/build.make CMakeFiles/legacy_ems_test.dir/tools/legacy_ems_test.cpp.i
+.PHONY : tools/legacy_ems_test.cpp.i
+
+tools/legacy_ems_test.s: tools/legacy_ems_test.cpp.s
+.PHONY : tools/legacy_ems_test.s
+
+# target to generate assembly for a file
+tools/legacy_ems_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/legacy_ems_test.dir/build.make CMakeFiles/legacy_ems_test.dir/tools/legacy_ems_test.cpp.s
+.PHONY : tools/legacy_ems_test.cpp.s
+
+tools/memory_point_store_lifecycle_test.o: tools/memory_point_store_lifecycle_test.cpp.o
+.PHONY : tools/memory_point_store_lifecycle_test.o
+
+# target to build an object file
+tools/memory_point_store_lifecycle_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/memory_point_store_lifecycle_test.dir/build.make CMakeFiles/memory_point_store_lifecycle_test.dir/tools/memory_point_store_lifecycle_test.cpp.o
+.PHONY : tools/memory_point_store_lifecycle_test.cpp.o
+
+tools/memory_point_store_lifecycle_test.i: tools/memory_point_store_lifecycle_test.cpp.i
+.PHONY : tools/memory_point_store_lifecycle_test.i
+
+# target to preprocess a source file
+tools/memory_point_store_lifecycle_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/memory_point_store_lifecycle_test.dir/build.make CMakeFiles/memory_point_store_lifecycle_test.dir/tools/memory_point_store_lifecycle_test.cpp.i
+.PHONY : tools/memory_point_store_lifecycle_test.cpp.i
+
+tools/memory_point_store_lifecycle_test.s: tools/memory_point_store_lifecycle_test.cpp.s
+.PHONY : tools/memory_point_store_lifecycle_test.s
+
+# target to generate assembly for a file
+tools/memory_point_store_lifecycle_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/memory_point_store_lifecycle_test.dir/build.make CMakeFiles/memory_point_store_lifecycle_test.dir/tools/memory_point_store_lifecycle_test.cpp.s
+.PHONY : tools/memory_point_store_lifecycle_test.cpp.s
+
+tools/modbus_northbound_server_test.o: tools/modbus_northbound_server_test.cpp.o
+.PHONY : tools/modbus_northbound_server_test.o
+
+# target to build an object file
+tools/modbus_northbound_server_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_northbound_server_test.dir/build.make CMakeFiles/modbus_northbound_server_test.dir/tools/modbus_northbound_server_test.cpp.o
+.PHONY : tools/modbus_northbound_server_test.cpp.o
+
+tools/modbus_northbound_server_test.i: tools/modbus_northbound_server_test.cpp.i
+.PHONY : tools/modbus_northbound_server_test.i
+
+# target to preprocess a source file
+tools/modbus_northbound_server_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_northbound_server_test.dir/build.make CMakeFiles/modbus_northbound_server_test.dir/tools/modbus_northbound_server_test.cpp.i
+.PHONY : tools/modbus_northbound_server_test.cpp.i
+
+tools/modbus_northbound_server_test.s: tools/modbus_northbound_server_test.cpp.s
+.PHONY : tools/modbus_northbound_server_test.s
+
+# target to generate assembly for a file
+tools/modbus_northbound_server_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_northbound_server_test.dir/build.make CMakeFiles/modbus_northbound_server_test.dir/tools/modbus_northbound_server_test.cpp.s
+.PHONY : tools/modbus_northbound_server_test.cpp.s
+
+tools/modbus_rtu_client_resync_test.o: tools/modbus_rtu_client_resync_test.cpp.o
+.PHONY : tools/modbus_rtu_client_resync_test.o
+
+# target to build an object file
+tools/modbus_rtu_client_resync_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_rtu_client_resync_test.dir/build.make CMakeFiles/modbus_rtu_client_resync_test.dir/tools/modbus_rtu_client_resync_test.cpp.o
+.PHONY : tools/modbus_rtu_client_resync_test.cpp.o
+
+tools/modbus_rtu_client_resync_test.i: tools/modbus_rtu_client_resync_test.cpp.i
+.PHONY : tools/modbus_rtu_client_resync_test.i
+
+# target to preprocess a source file
+tools/modbus_rtu_client_resync_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_rtu_client_resync_test.dir/build.make CMakeFiles/modbus_rtu_client_resync_test.dir/tools/modbus_rtu_client_resync_test.cpp.i
+.PHONY : tools/modbus_rtu_client_resync_test.cpp.i
+
+tools/modbus_rtu_client_resync_test.s: tools/modbus_rtu_client_resync_test.cpp.s
+.PHONY : tools/modbus_rtu_client_resync_test.s
+
+# target to generate assembly for a file
+tools/modbus_rtu_client_resync_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_rtu_client_resync_test.dir/build.make CMakeFiles/modbus_rtu_client_resync_test.dir/tools/modbus_rtu_client_resync_test.cpp.s
+.PHONY : tools/modbus_rtu_client_resync_test.cpp.s
+
+tools/modbus_tcp_client_limit_test.o: tools/modbus_tcp_client_limit_test.cpp.o
+.PHONY : tools/modbus_tcp_client_limit_test.o
+
+# target to build an object file
+tools/modbus_tcp_client_limit_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_tcp_client_limit_test.dir/build.make CMakeFiles/modbus_tcp_client_limit_test.dir/tools/modbus_tcp_client_limit_test.cpp.o
+.PHONY : tools/modbus_tcp_client_limit_test.cpp.o
+
+tools/modbus_tcp_client_limit_test.i: tools/modbus_tcp_client_limit_test.cpp.i
+.PHONY : tools/modbus_tcp_client_limit_test.i
+
+# target to preprocess a source file
+tools/modbus_tcp_client_limit_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_tcp_client_limit_test.dir/build.make CMakeFiles/modbus_tcp_client_limit_test.dir/tools/modbus_tcp_client_limit_test.cpp.i
+.PHONY : tools/modbus_tcp_client_limit_test.cpp.i
+
+tools/modbus_tcp_client_limit_test.s: tools/modbus_tcp_client_limit_test.cpp.s
+.PHONY : tools/modbus_tcp_client_limit_test.s
+
+# target to generate assembly for a file
+tools/modbus_tcp_client_limit_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_tcp_client_limit_test.dir/build.make CMakeFiles/modbus_tcp_client_limit_test.dir/tools/modbus_tcp_client_limit_test.cpp.s
+.PHONY : tools/modbus_tcp_client_limit_test.cpp.s
+
+tools/mqtt_driver_service_test.o: tools/mqtt_driver_service_test.cpp.o
+.PHONY : tools/mqtt_driver_service_test.o
+
+# target to build an object file
+tools/mqtt_driver_service_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mqtt_driver_service_test.dir/build.make CMakeFiles/mqtt_driver_service_test.dir/tools/mqtt_driver_service_test.cpp.o
+.PHONY : tools/mqtt_driver_service_test.cpp.o
+
+tools/mqtt_driver_service_test.i: tools/mqtt_driver_service_test.cpp.i
+.PHONY : tools/mqtt_driver_service_test.i
+
+# target to preprocess a source file
+tools/mqtt_driver_service_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mqtt_driver_service_test.dir/build.make CMakeFiles/mqtt_driver_service_test.dir/tools/mqtt_driver_service_test.cpp.i
+.PHONY : tools/mqtt_driver_service_test.cpp.i
+
+tools/mqtt_driver_service_test.s: tools/mqtt_driver_service_test.cpp.s
+.PHONY : tools/mqtt_driver_service_test.s
+
+# target to generate assembly for a file
+tools/mqtt_driver_service_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mqtt_driver_service_test.dir/build.make CMakeFiles/mqtt_driver_service_test.dir/tools/mqtt_driver_service_test.cpp.s
+.PHONY : tools/mqtt_driver_service_test.cpp.s
+
+tools/ota_service_test.o: tools/ota_service_test.cpp.o
+.PHONY : tools/ota_service_test.o
+
+# target to build an object file
+tools/ota_service_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ota_service_test.dir/build.make CMakeFiles/ota_service_test.dir/tools/ota_service_test.cpp.o
+.PHONY : tools/ota_service_test.cpp.o
+
+tools/ota_service_test.i: tools/ota_service_test.cpp.i
+.PHONY : tools/ota_service_test.i
+
+# target to preprocess a source file
+tools/ota_service_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ota_service_test.dir/build.make CMakeFiles/ota_service_test.dir/tools/ota_service_test.cpp.i
+.PHONY : tools/ota_service_test.cpp.i
+
+tools/ota_service_test.s: tools/ota_service_test.cpp.s
+.PHONY : tools/ota_service_test.s
+
+# target to generate assembly for a file
+tools/ota_service_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ota_service_test.dir/build.make CMakeFiles/ota_service_test.dir/tools/ota_service_test.cpp.s
+.PHONY : tools/ota_service_test.cpp.s
 
 tools/pointctl.o: tools/pointctl.cpp.o
 .PHONY : tools/pointctl.o
@@ -1049,6 +2284,30 @@ tools/pointctl.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pointctl.dir/build.make CMakeFiles/pointctl.dir/tools/pointctl.cpp.s
 .PHONY : tools/pointctl.cpp.s
 
+tools/priority_control_lease_test.o: tools/priority_control_lease_test.cpp.o
+.PHONY : tools/priority_control_lease_test.o
+
+# target to build an object file
+tools/priority_control_lease_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/priority_control_lease_test.dir/build.make CMakeFiles/priority_control_lease_test.dir/tools/priority_control_lease_test.cpp.o
+.PHONY : tools/priority_control_lease_test.cpp.o
+
+tools/priority_control_lease_test.i: tools/priority_control_lease_test.cpp.i
+.PHONY : tools/priority_control_lease_test.i
+
+# target to preprocess a source file
+tools/priority_control_lease_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/priority_control_lease_test.dir/build.make CMakeFiles/priority_control_lease_test.dir/tools/priority_control_lease_test.cpp.i
+.PHONY : tools/priority_control_lease_test.cpp.i
+
+tools/priority_control_lease_test.s: tools/priority_control_lease_test.cpp.s
+.PHONY : tools/priority_control_lease_test.s
+
+# target to generate assembly for a file
+tools/priority_control_lease_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/priority_control_lease_test.dir/build.make CMakeFiles/priority_control_lease_test.dir/tools/priority_control_lease_test.cpp.s
+.PHONY : tools/priority_control_lease_test.cpp.s
+
 tools/stress_runner.o: tools/stress_runner.cpp.o
 .PHONY : tools/stress_runner.o
 
@@ -1073,6 +2332,30 @@ tools/stress_runner.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/stress_runner.dir/build.make CMakeFiles/stress_runner.dir/tools/stress_runner.cpp.s
 .PHONY : tools/stress_runner.cpp.s
 
+tools/system_monitor_service_test.o: tools/system_monitor_service_test.cpp.o
+.PHONY : tools/system_monitor_service_test.o
+
+# target to build an object file
+tools/system_monitor_service_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/system_monitor_service_test.dir/build.make CMakeFiles/system_monitor_service_test.dir/tools/system_monitor_service_test.cpp.o
+.PHONY : tools/system_monitor_service_test.cpp.o
+
+tools/system_monitor_service_test.i: tools/system_monitor_service_test.cpp.i
+.PHONY : tools/system_monitor_service_test.i
+
+# target to preprocess a source file
+tools/system_monitor_service_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/system_monitor_service_test.dir/build.make CMakeFiles/system_monitor_service_test.dir/tools/system_monitor_service_test.cpp.i
+.PHONY : tools/system_monitor_service_test.cpp.i
+
+tools/system_monitor_service_test.s: tools/system_monitor_service_test.cpp.s
+.PHONY : tools/system_monitor_service_test.s
+
+# target to generate assembly for a file
+tools/system_monitor_service_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/system_monitor_service_test.dir/build.make CMakeFiles/system_monitor_service_test.dir/tools/system_monitor_service_test.cpp.s
+.PHONY : tools/system_monitor_service_test.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -1081,24 +2364,62 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... CameraService"
+	@echo "... CanDriver"
 	@echo "... ComputeEngine"
+	@echo "... DioDriver"
 	@echo "... Dlt645Driver"
 	@echo "... EventEngine"
+	@echo "... IecDriver"
+	@echo "... LocalDisplay"
 	@echo "... ModbusRtu"
 	@echo "... MqttDriver"
 	@echo "... SystemMonitor"
+	@echo "... builtin_mqtt_driver_publisher_test"
+	@echo "... can_signal_codec_test"
+	@echo "... collector_partial_failure_test"
+	@echo "... config_loader_test"
+	@echo "... dio_smoke_test"
+	@echo "... dlt645_client_interval_test"
 	@echo "... edge_gateway"
+	@echo "... gateway_daemon_realtime_priority_test"
+	@echo "... iec104_client_integration_test"
+	@echo "... iec_codec_test"
+	@echo "... legacy_ems_test"
+	@echo "... memory_point_store_lifecycle_test"
+	@echo "... modbus_northbound_server_test"
+	@echo "... modbus_rtu_client_resync_test"
+	@echo "... modbus_tcp_client_limit_test"
+	@echo "... mqtt_driver_service_test"
+	@echo "... ota_service_test"
 	@echo "... pointctl"
+	@echo "... priority_control_lease_test"
 	@echo "... stress_runner"
+	@echo "... system_monitor_service_test"
+	@echo "... camera_service_main.o"
+	@echo "... camera_service_main.i"
+	@echo "... camera_service_main.s"
+	@echo "... can_driver_main.o"
+	@echo "... can_driver_main.i"
+	@echo "... can_driver_main.s"
 	@echo "... compute_engine_main.o"
 	@echo "... compute_engine_main.i"
 	@echo "... compute_engine_main.s"
+	@echo "... dio_driver_main.o"
+	@echo "... dio_driver_main.i"
+	@echo "... dio_driver_main.s"
 	@echo "... dlt645_main.o"
 	@echo "... dlt645_main.i"
 	@echo "... dlt645_main.s"
 	@echo "... event_engine_main.o"
 	@echo "... event_engine_main.i"
 	@echo "... event_engine_main.s"
+	@echo "... iec_driver_main.o"
+	@echo "... iec_driver_main.i"
+	@echo "... iec_driver_main.s"
+	@echo "... local_display_main.o"
+	@echo "... local_display_main.i"
+	@echo "... local_display_main.s"
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
@@ -1111,33 +2432,75 @@ help:
 	@echo "... src/builtin_mqtt_driver_publisher.o"
 	@echo "... src/builtin_mqtt_driver_publisher.i"
 	@echo "... src/builtin_mqtt_driver_publisher.s"
+	@echo "... src/can_driver_service.o"
+	@echo "... src/can_driver_service.i"
+	@echo "... src/can_driver_service.s"
+	@echo "... src/can_signal_codec.o"
+	@echo "... src/can_signal_codec.i"
+	@echo "... src/can_signal_codec.s"
 	@echo "... src/collector.o"
 	@echo "... src/collector.i"
 	@echo "... src/collector.s"
 	@echo "... src/command_executor.o"
 	@echo "... src/command_executor.i"
 	@echo "... src/command_executor.s"
+	@echo "... src/common/collector_base.o"
+	@echo "... src/common/collector_base.i"
+	@echo "... src/common/collector_base.s"
+	@echo "... src/common/gateway_daemon.o"
+	@echo "... src/common/gateway_daemon.i"
+	@echo "... src/common/gateway_daemon.s"
+	@echo "... src/common/gateway_daemon_modbus.o"
+	@echo "... src/common/gateway_daemon_modbus.i"
+	@echo "... src/common/gateway_daemon_modbus.s"
 	@echo "... src/compute_engine_service.o"
 	@echo "... src/compute_engine_service.i"
 	@echo "... src/compute_engine_service.s"
 	@echo "... src/config_loader.o"
 	@echo "... src/config_loader.i"
 	@echo "... src/config_loader.s"
+	@echo "... src/dio_collector.o"
+	@echo "... src/dio_collector.i"
+	@echo "... src/dio_collector.s"
+	@echo "... src/dio_command_executor.o"
+	@echo "... src/dio_command_executor.i"
+	@echo "... src/dio_command_executor.s"
 	@echo "... src/dlt645_client.o"
 	@echo "... src/dlt645_client.i"
 	@echo "... src/dlt645_client.s"
 	@echo "... src/dlt645_codec.o"
 	@echo "... src/dlt645_codec.i"
 	@echo "... src/dlt645_codec.s"
+	@echo "... src/dlt645_collector.o"
+	@echo "... src/dlt645_collector.i"
+	@echo "... src/dlt645_collector.s"
 	@echo "... src/dlt645_standard_points_loader.o"
 	@echo "... src/dlt645_standard_points_loader.i"
 	@echo "... src/dlt645_standard_points_loader.s"
 	@echo "... src/event_engine_service.o"
 	@echo "... src/event_engine_service.i"
 	@echo "... src/event_engine_service.s"
-	@echo "... src/gateway_daemon.o"
-	@echo "... src/gateway_daemon.i"
-	@echo "... src/gateway_daemon.s"
+	@echo "... src/graph_ems_engine.o"
+	@echo "... src/graph_ems_engine.i"
+	@echo "... src/graph_ems_engine.s"
+	@echo "... src/iec_client.o"
+	@echo "... src/iec_client.i"
+	@echo "... src/iec_client.s"
+	@echo "... src/iec_codec.o"
+	@echo "... src/iec_codec.i"
+	@echo "... src/iec_codec.s"
+	@echo "... src/iec_collector.o"
+	@echo "... src/iec_collector.i"
+	@echo "... src/iec_collector.s"
+	@echo "... src/iec_command_executor.o"
+	@echo "... src/iec_command_executor.i"
+	@echo "... src/iec_command_executor.s"
+	@echo "... src/legacy_ems_engine.o"
+	@echo "... src/legacy_ems_engine.i"
+	@echo "... src/legacy_ems_engine.s"
+	@echo "... src/legacy_ems_point_catalog.o"
+	@echo "... src/legacy_ems_point_catalog.i"
+	@echo "... src/legacy_ems_point_catalog.s"
 	@echo "... src/memory_point_store.o"
 	@echo "... src/memory_point_store.i"
 	@echo "... src/memory_point_store.s"
@@ -1147,6 +2510,9 @@ help:
 	@echo "... src/modbus_codec.o"
 	@echo "... src/modbus_codec.i"
 	@echo "... src/modbus_codec.s"
+	@echo "... src/modbus_northbound_server.o"
+	@echo "... src/modbus_northbound_server.i"
+	@echo "... src/modbus_northbound_server.s"
 	@echo "... src/modbus_rtu_client.o"
 	@echo "... src/modbus_rtu_client.i"
 	@echo "... src/modbus_rtu_client.s"
@@ -1171,6 +2537,9 @@ help:
 	@echo "... src/posix_serial_port.o"
 	@echo "... src/posix_serial_port.i"
 	@echo "... src/posix_serial_port.s"
+	@echo "... src/priority_control_lease.o"
+	@echo "... src/priority_control_lease.i"
+	@echo "... src/priority_control_lease.s"
 	@echo "... src/read_task_planner.o"
 	@echo "... src/read_task_planner.i"
 	@echo "... src/read_task_planner.s"
@@ -1180,21 +2549,81 @@ help:
 	@echo "... src/sqlite_sample_writer.o"
 	@echo "... src/sqlite_sample_writer.i"
 	@echo "... src/sqlite_sample_writer.s"
+	@echo "... src/sysfs_gpio_port.o"
+	@echo "... src/sysfs_gpio_port.i"
+	@echo "... src/sysfs_gpio_port.s"
 	@echo "... src/system_monitor_service.o"
 	@echo "... src/system_monitor_service.i"
 	@echo "... src/system_monitor_service.s"
 	@echo "... src/writeback_service.o"
 	@echo "... src/writeback_service.i"
 	@echo "... src/writeback_service.s"
+	@echo "... system_monitor_direct_maintenance.o"
+	@echo "... system_monitor_direct_maintenance.i"
+	@echo "... system_monitor_direct_maintenance.s"
 	@echo "... system_monitor_main.o"
 	@echo "... system_monitor_main.i"
 	@echo "... system_monitor_main.s"
+	@echo "... tools/builtin_mqtt_driver_publisher_test.o"
+	@echo "... tools/builtin_mqtt_driver_publisher_test.i"
+	@echo "... tools/builtin_mqtt_driver_publisher_test.s"
+	@echo "... tools/can_signal_codec_test.o"
+	@echo "... tools/can_signal_codec_test.i"
+	@echo "... tools/can_signal_codec_test.s"
+	@echo "... tools/collector_partial_failure_test.o"
+	@echo "... tools/collector_partial_failure_test.i"
+	@echo "... tools/collector_partial_failure_test.s"
+	@echo "... tools/config_loader_test.o"
+	@echo "... tools/config_loader_test.i"
+	@echo "... tools/config_loader_test.s"
+	@echo "... tools/dio_smoke_test.o"
+	@echo "... tools/dio_smoke_test.i"
+	@echo "... tools/dio_smoke_test.s"
+	@echo "... tools/dlt645_client_interval_test.o"
+	@echo "... tools/dlt645_client_interval_test.i"
+	@echo "... tools/dlt645_client_interval_test.s"
+	@echo "... tools/gateway_daemon_realtime_priority_test.o"
+	@echo "... tools/gateway_daemon_realtime_priority_test.i"
+	@echo "... tools/gateway_daemon_realtime_priority_test.s"
+	@echo "... tools/iec104_client_integration_test.o"
+	@echo "... tools/iec104_client_integration_test.i"
+	@echo "... tools/iec104_client_integration_test.s"
+	@echo "... tools/iec_codec_test.o"
+	@echo "... tools/iec_codec_test.i"
+	@echo "... tools/iec_codec_test.s"
+	@echo "... tools/legacy_ems_test.o"
+	@echo "... tools/legacy_ems_test.i"
+	@echo "... tools/legacy_ems_test.s"
+	@echo "... tools/memory_point_store_lifecycle_test.o"
+	@echo "... tools/memory_point_store_lifecycle_test.i"
+	@echo "... tools/memory_point_store_lifecycle_test.s"
+	@echo "... tools/modbus_northbound_server_test.o"
+	@echo "... tools/modbus_northbound_server_test.i"
+	@echo "... tools/modbus_northbound_server_test.s"
+	@echo "... tools/modbus_rtu_client_resync_test.o"
+	@echo "... tools/modbus_rtu_client_resync_test.i"
+	@echo "... tools/modbus_rtu_client_resync_test.s"
+	@echo "... tools/modbus_tcp_client_limit_test.o"
+	@echo "... tools/modbus_tcp_client_limit_test.i"
+	@echo "... tools/modbus_tcp_client_limit_test.s"
+	@echo "... tools/mqtt_driver_service_test.o"
+	@echo "... tools/mqtt_driver_service_test.i"
+	@echo "... tools/mqtt_driver_service_test.s"
+	@echo "... tools/ota_service_test.o"
+	@echo "... tools/ota_service_test.i"
+	@echo "... tools/ota_service_test.s"
 	@echo "... tools/pointctl.o"
 	@echo "... tools/pointctl.i"
 	@echo "... tools/pointctl.s"
+	@echo "... tools/priority_control_lease_test.o"
+	@echo "... tools/priority_control_lease_test.i"
+	@echo "... tools/priority_control_lease_test.s"
 	@echo "... tools/stress_runner.o"
 	@echo "... tools/stress_runner.i"
 	@echo "... tools/stress_runner.s"
+	@echo "... tools/system_monitor_service_test.o"
+	@echo "... tools/system_monitor_service_test.i"
+	@echo "... tools/system_monitor_service_test.s"
 .PHONY : help
 
 

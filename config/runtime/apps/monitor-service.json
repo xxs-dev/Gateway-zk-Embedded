@@ -160,6 +160,23 @@
         "/dev/ttyUSB*",
         "/dev/cdc-wdm*"
       ]
+    },
+    "directMaintenance": {
+      "enabled": true,
+      "listenHost": "192.168.1.250",
+      "listenHosts": [
+        "192.168.1.250"
+      ],
+      "listenPort": 9443,
+      "allowedClientCidrs": [
+        "192.168.1.0/24"
+      ],
+      "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
+      "appConfigFile": "/opt/modbus-gateway/config/runtime/apps/monitor-service.json",
+      "otaAppConfigFile": "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json",
+      "authStateFile": "/opt/modbus-gateway/config/runtime/monitor-direct-maintenance-state.json",
+      "otaStatusFile": "/opt/modbus-gateway/ota/monitor-direct-maintenance-status.jsonl",
+      "maxRealtimePoints": 2000
     }
   },
   "localDisplay": {
@@ -179,7 +196,7 @@
       "requireDisplayConnected": true,
       "requireEdid": true,
       "displayOutput": "",
-      "zoom": 1.0
+      "zoom": 1
     },
     "sharedMemoryNames": [
       "gateway_point_store"

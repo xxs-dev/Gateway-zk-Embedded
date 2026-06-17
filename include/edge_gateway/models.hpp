@@ -29,6 +29,20 @@ struct CanSignalSpec {
     bool remoteRequest = false;
 };
 
+struct IecPointSpec {
+    int ioa = -1;
+    int typeId = 0;
+    int cause = 0;
+    int commonAddress = 0;
+    int functionType = -1;
+    int informationNumber = -1;
+    std::string valueKind;
+    bool selectBeforeExecute = false;
+    bool waitActivationTermination = false;
+    int qualifier = 0;
+    int timeoutMs = 3000;
+};
+
 struct ReadSpec {
     bool enable = false;
     int function = 3;
@@ -48,6 +62,7 @@ struct ReadSpec {
     int dlt645ByteCount = 0;
     std::string dlt645Decoder;
     CanSignalSpec can;
+    IecPointSpec iec;
     CachePolicy cachePolicy;
 };
 
@@ -68,6 +83,7 @@ struct WriteSpec {
     int verifyDelayMs = 200;
     bool verifyByRead = true;
     CanSignalSpec can;
+    IecPointSpec iec;
 };
 
 struct AlarmRuleConfig {
@@ -304,12 +320,41 @@ struct CanProtocolConfig {
     std::size_t txQueueSize = 1024;
 };
 
+struct IecProtocolConfig {
+    std::string transportMode;
+    int commonAddress = 1;
+    int originatorAddress = 0;
+    int cotSize = 2;
+    int caSize = 2;
+    int ioaSize = 3;
+    int linkAddress = 1;
+    int linkAddressSize = 1;
+    int interrogationQualifier = 20;
+    int interrogationCot = 6;
+    int activationTerminationCot = 10;
+    int pollTimeoutMs = 1000;
+    int idleReadTimeoutMs = 50;
+    int maxPollFrames = 64;
+    bool pollOnCollect = true;
+    bool balanced = false;
+    int t0Ms = 30000;
+    int t1Ms = 15000;
+    int t2Ms = 10000;
+    int t3Ms = 20000;
+    int kWindow = 12;
+    int wAck = 8;
+    bool backgroundReceive = true;
+    bool sendSFrameAck = true;
+    int clockSyncIntervalSec = 0;
+};
+
 struct ProtocolConfig {
     std::string type = "modbus_rtu";
     int slave = 1;
     SerialTransportConfig transport;
     TcpTransportConfig tcp;
     CanProtocolConfig can;
+    IecProtocolConfig iec;
     std::string backend;
     std::string gpioBasePath = "/sys/class/gpio";
     std::string standardPointsFile;
@@ -502,6 +547,9 @@ struct MqttDriverConfig {
     std::vector<MqttAlarmRule> alarmRules;
     std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
     int priorityControlLeaseTtlMs = 30000;
+    int commandRateWindowMs = 10000;
+    int commandRateMaxPerWindow = 20;
+    int commandDedupTtlMs = 60000;
 };
 
 struct AlarmStoreConfig {
@@ -651,6 +699,21 @@ struct SystemMonitorConfig {
         };
     };
 
+    struct DirectMaintenanceConfig {
+        std::string configFile;
+        bool enabled = false;
+        std::string listenHost = "192.168.1.250";
+        std::vector<std::string> listenHosts;
+        int listenPort = 9443;
+        std::vector<std::string> allowedClientCidrs;
+        std::string identityConfigFile;
+        std::string appConfigFile;
+        std::string otaAppConfigFile = "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json";
+        std::string authStateFile = "/opt/modbus-gateway/config/runtime/monitor-direct-maintenance-state.json";
+        std::string otaStatusFile = "/opt/modbus-gateway/ota/monitor-direct-maintenance-status.jsonl";
+        int maxRealtimePoints = 2000;
+    };
+
     bool enabled = false;
     int defaultIntervalMs = 5000;
     int minIntervalMs = 500;
@@ -672,9 +735,10 @@ struct SystemMonitorConfig {
         "journal_tail",
         "systemctl_status",
         "cellular_status"
-    };
-    CellularConfig cellular;
-};
+      };
+      CellularConfig cellular;
+      DirectMaintenanceConfig directMaintenance;
+  };
 
 struct LocalDisplayGroupConfig {
     std::string title;

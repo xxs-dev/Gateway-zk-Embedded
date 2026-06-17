@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/mnt/hgfs/Embedded/Gateway-zk/system_monitor_direct_maintenance.cpp" "CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.o" "gcc" "CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.o.d"
   "/mnt/hgfs/Embedded/Gateway-zk/system_monitor_main.cpp" "CMakeFiles/SystemMonitor.dir/system_monitor_main.cpp.o" "gcc" "CMakeFiles/SystemMonitor.dir/system_monitor_main.cpp.o.d"
   )
 

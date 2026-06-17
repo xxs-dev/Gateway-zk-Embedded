@@ -227,6 +227,66 @@ bool isHttpUrlText(const std::string& value) {
     return value.find("http://") == 0 || value.find("https://") == 0;
 }
 
+bool hasControlCharacter(const std::string& value);
+
+// Validate an artifact URL before handing it to curl/wget. Even though the URL
+// is passed as a positional shell argument (so classic shell-metacharacter
+// injection is not possible), a value beginning with '-' would be parsed as a
+// command-line option by curl/wget (argument injection, e.g. -K/--config to
+// read an arbitrary file, or -o to write one). Reject anything that is not a
+// plain http(s) URL with a conservative character set.
+bool isSafeDownloadUrl(const std::string& value) {
+    if (value.empty() || value.size() > 2048) {
+        return false;
+    }
+    if (!isHttpUrlText(value)) {
+        return false;
+    }
+    if (hasControlCharacter(value)) {
+        return false;
+    }
+    // No whitespace anywhere in the URL.
+    for (const auto ch : value) {
+        if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+            return false;
+        }
+    }
+    // The scheme guarantees the first character is 'h', so the value can never
+    // be mistaken for an option flag; this is an explicit defensive check in
+    // case the scheme prefix is ever relaxed.
+    if (value.front() == '-') {
+        return false;
+    }
+    const auto schemeEnd = value.find("://");
+    if (schemeEnd == std::string::npos) {
+        return false;
+    }
+    const auto hostStart = schemeEnd + 3;
+    if (hostStart >= value.size()) {
+        return false;
+    }
+    // The host portion must not be empty and must not start with '/'.
+    if (value[hostStart] == '/') {
+        return false;
+    }
+    // Restrict to an allow-list of characters that legitimately appear in a
+    // URL. Excludes shell metacharacters, quotes, backticks, and parentheses
+    // as defence-in-depth even though the value is not passed through a shell
+    // string.
+    for (const auto ch : value) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0 ||
+            ch == ':' || ch == '/' || ch == '.' || ch == '-' || ch == '_' ||
+            ch == '~' || ch == '%' || ch == '?' || ch == '#' || ch == '[' ||
+            ch == ']' || ch == '@' || ch == '!' || ch == '$' || ch == '&' ||
+            ch == '\'' || ch == '(' || ch == ')' || ch == '*' || ch == '+' ||
+            ch == ',' || ch == ';' || ch == '=';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool hasControlCharacter(const std::string& value) {
     for (const auto ch : value) {
         if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f) {
@@ -1310,15 +1370,24 @@ void OtaService::downloadExternalArtifact(
     (void)publishStatus;
     throw std::runtime_error("byte-accurate ota external download is not implemented on windows");
 #else
+    if (!isSafeDownloadUrl(source)) {
+        throw std::runtime_error("ota artifact url rejected: unsafe scheme, characters, or leading dash");
+    }
     removeFilePath(targetPath);
     const std::uint64_t totalBytes = request.size;
     reportDownloadProgress(status, 0, totalBytes, "downloading artifact", publishStatus);
 
+    // The URL and target path are passed as positional parameters ($1/$2),
+    // never interpolated into the script text, so shell metacharacters cannot
+    // break out. The "--" separator additionally prevents a URL or path from
+    // being interpreted as a curl/wget option (argument injection), and
+    // isSafeDownloadUrl() has already rejected a leading '-' and any control
+    // characters as defence in depth.
     const char* script =
         "if command -v curl >/dev/null 2>&1; then "
-        "curl -L --fail --silent --show-error --connect-timeout 15 --max-time \"$3\" -o \"$1\" \"$2\"; "
+        "curl -L --fail --silent --show-error --proto '=http,https' --connect-timeout 15 --max-time \"$3\" -o \"$1\" -- \"$2\"; "
         "elif command -v wget >/dev/null 2>&1; then "
-        "wget -q -T 15 -O \"$1\" \"$2\"; "
+        "wget -q -T 15 -O \"$1\" -- \"$2\"; "
         "else "
         "echo \"curl/wget not found\" >&2; exit 127; "
         "fi";

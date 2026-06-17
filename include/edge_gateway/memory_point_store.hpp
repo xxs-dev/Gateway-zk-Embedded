@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <deque>
 #include <set>
 #include <string>
@@ -68,6 +69,7 @@ public:
     MemoryStoreStats getStats() const;
 
     std::vector<PersistentPointSample> drainPersistentSamples();
+    std::uint64_t consumePersistentDropCount();
     std::vector<PointUpdateRecord> drainPointUpdates(std::size_t limit = 0);
     void heartbeatRegisteredPoints(std::int64_t nowMs);
     void removeExpired(std::int64_t nowMs);
@@ -90,6 +92,7 @@ private:
     std::unordered_map<std::uint32_t, PointBinding> bindings_;
     mutable std::unordered_map<std::uint32_t, std::size_t> latestSlotByIndex_;
     std::unordered_map<std::uint32_t, std::int64_t> lastPersistentSampleTs_;
+    std::atomic<std::uint64_t> persistentDropped_{0};
     std::set<std::uint32_t> registeredIndexes_;
     std::size_t maxLatestPoints_ = 100000;
     std::size_t maxPendingWrites_ = 4096;

@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
-#include "edge_gateway/direct_agent_embedded.hpp"
+#include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -502,21 +502,7 @@ bool constantTimeEquals(const std::string& a, const std::string& b) {
 
 std::string response(int code, const std::string& status, const std::string& body);
 
-struct DirectAgentConfig {
-    std::string configFile;
-    bool enabled = false;
-    std::string listenHost = "192.168.100.1";
-    std::vector<std::string> listenHosts;
-    int listenPort = 9443;
-    std::vector<std::string> allowedClientCidrs;
-    std::string identityConfigFile = "/opt/modbus-gateway/config/runtime/device_identity.json";
-    std::string appConfigFile = "/opt/modbus-gateway/config/runtime/apps/monitor-service.json";
-    std::string otaAppConfigFile = "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json";
-    std::string authStateFile = "/opt/modbus-gateway/config/runtime/direct-agent-state.json";
-    std::string otaStatusFile = "/opt/modbus-gateway/ota/direct-agent-status.jsonl";
-    std::string defaultPasswordSha256 = kFixedMaintenancePasswordSha256;
-    int maxRealtimePoints = 2000;
-};
+using SystemMonitorDirectMaintenanceConfig = edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig;
 
 struct AgentDeviceIdentity {
     std::string machineCode;
@@ -556,41 +542,7 @@ struct RealtimeContext {
     edge_gateway::PointStoreRouter router;
 };
 
-DirectAgentConfig loadConfig(const std::string& path) {
-    DirectAgentConfig config;
-    config.configFile = path;
-    const auto text = readFile(path);
-    if (text.empty()) {
-        return config;
-    }
-    config.enabled = jsonBool(text, "enabled", config.enabled);
-    config.listenHost = jsonString(text, "listenHost", config.listenHost);
-    config.listenHosts = jsonStringArray(text, "listenHosts");
-    if (config.listenHosts.empty()) {
-        config.listenHosts.push_back(config.listenHost);
-    } else {
-        config.listenHost = config.listenHosts.front();
-    }
-    config.listenHosts = normalizeStringList(config.listenHosts);
-    if (std::find(config.listenHosts.begin(), config.listenHosts.end(), "0.0.0.0") != config.listenHosts.end()) {
-        config.listenHosts = { "0.0.0.0" };
-    }
-    if (!config.listenHosts.empty()) {
-        config.listenHost = config.listenHosts.front();
-    }
-    config.listenPort = jsonInt(text, "listenPort", config.listenPort);
-    config.allowedClientCidrs = normalizeStringList(jsonStringArray(text, "allowedClientCidrs"));
-    config.identityConfigFile = jsonString(text, "identityConfigFile", config.identityConfigFile);
-    config.appConfigFile = jsonString(text, "appConfigFile", config.appConfigFile);
-    config.otaAppConfigFile = jsonString(text, "otaAppConfigFile", config.otaAppConfigFile);
-    config.authStateFile = jsonString(text, "authStateFile", config.authStateFile);
-    config.otaStatusFile = jsonString(text, "otaStatusFile", config.otaStatusFile);
-    config.defaultPasswordSha256 = kFixedMaintenancePasswordSha256;
-    config.maxRealtimePoints = jsonInt(text, "maxRealtimePoints", config.maxRealtimePoints);
-    return config;
-}
-
-std::unique_ptr<RealtimeContext> createRealtimeContext(const DirectAgentConfig& config) {
+std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirectMaintenanceConfig& config) {
     using namespace edge_gateway;
     std::unique_ptr<RealtimeContext> context(new RealtimeContext());
     context->appConfig = ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
@@ -653,7 +605,7 @@ AgentDeviceIdentity loadIdentity(const std::string& path) {
 }
 
 std::string resolveMachineCode(
-    const DirectAgentConfig& config,
+    const SystemMonitorDirectMaintenanceConfig& config,
     const edge_gateway::AppConfig& appConfig
 ) {
     auto machineCode = appConfig.mqtt.clientId;
@@ -667,7 +619,7 @@ std::string resolveMachineCode(
     return machineCode;
 }
 
-AuthState loadAuthState(const DirectAgentConfig& config) {
+AuthState loadAuthState(const SystemMonitorDirectMaintenanceConfig& config) {
     AuthState state;
     const auto text = readFile(config.authStateFile);
     if (text.empty()) {
@@ -687,7 +639,7 @@ AuthState loadAuthState(const DirectAgentConfig& config) {
 std::string healthJson() {
     std::ostringstream out;
     out << "{\"success\":true,\"status\":\"ok\",\"ts\":" << nowMs()
-        << ",\"message\":\"direct agent is running\"}";
+        << ",\"message\":\"SystemMonitor direct maintenance is running\"}";
     return out.str();
 }
 
@@ -713,7 +665,7 @@ std::string authStateJson(const AuthState& state) {
     return out.str();
 }
 
-std::string realtimePointsJson(const DirectAgentConfig& config, const std::string& meterCode) {
+std::string realtimePointsJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& meterCode) {
     auto context = createRealtimeContext(config);
     const auto ts = nowMs();
     const auto machineCode = resolveMachineCode(config, context->appConfig);
@@ -745,7 +697,7 @@ std::string realtimePointsJson(const DirectAgentConfig& config, const std::strin
     return out.str();
 }
 
-std::string fullTelemetryJson(const DirectAgentConfig& config) {
+std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config) {
     auto context = createRealtimeContext(config);
     auto machineCode = resolveMachineCode(config, context->appConfig);
     const auto ts = nowMs();
@@ -803,7 +755,7 @@ edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
     return request;
 }
 
-void appendOtaStatus(const DirectAgentConfig& config, const edge_gateway::OtaStatus& status) {
+void appendOtaStatus(const SystemMonitorDirectMaintenanceConfig& config, const edge_gateway::OtaStatus& status) {
 #ifndef _WIN32
     const auto slash = config.otaStatusFile.find_last_of('/');
     if (slash != std::string::npos) {
@@ -836,9 +788,10 @@ void appendOtaStatus(const DirectAgentConfig& config, const edge_gateway::OtaSta
            << "}\n";
 }
 
-bool maintenancePasswordAccepted(const DirectAgentConfig& config, const std::string& body) {
+bool maintenancePasswordAccepted(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
+    (void)config;
     const auto providedHash = trim(jsonString(body, "passwordSha256"));
-    return !providedHash.empty() && constantTimeEquals(providedHash, config.defaultPasswordSha256);
+    return !providedHash.empty() && constantTimeEquals(providedHash, kFixedMaintenancePasswordSha256);
 }
 
 void collectConfigFilesFromAppConfig(std::vector<std::string>& files, const std::string& appConfigPath) {
@@ -857,9 +810,8 @@ void collectConfigFilesFromAppConfig(std::vector<std::string>& files, const std:
     }
 }
 
-std::vector<std::string> collectConfigSnapshotFiles(const DirectAgentConfig& config) {
+std::vector<std::string> collectConfigSnapshotFiles(const SystemMonitorDirectMaintenanceConfig& config) {
     std::vector<std::string> files;
-    addUniquePath(files, config.configFile);
     addUniquePath(files, config.identityConfigFile);
     collectConfigFilesFromAppConfig(files, config.appConfigFile);
     collectConfigFilesFromAppConfig(files, config.otaAppConfigFile);
@@ -998,7 +950,7 @@ std::string latestBackupPathFor(const std::string& path) {
     return dir == "." ? bestName : dir + "/" + bestName;
 }
 
-bool isAllowedConfigPath(const DirectAgentConfig& config, const std::string& path) {
+bool isAllowedConfigPath(const SystemMonitorDirectMaintenanceConfig& config, const std::string& path) {
     if (path.empty() || path.find("..") != std::string::npos) {
         return false;
     }
@@ -1006,7 +958,7 @@ bool isAllowedConfigPath(const DirectAgentConfig& config, const std::string& pat
     return std::find(allowed.begin(), allowed.end(), path) != allowed.end();
 }
 
-void validateConfigContentForPath(const DirectAgentConfig& config, const std::string& path, const std::string& content) {
+void validateConfigContentForPath(const SystemMonitorDirectMaintenanceConfig& config, const std::string& path, const std::string& content) {
     const auto normalized = path;
     const auto name = baseNameOf(path);
     if (containsPathSegment(normalized, "/devices/")) {
@@ -1023,8 +975,6 @@ void validateConfigContentForPath(const DirectAgentConfig& config, const std::st
                    path == config.otaAppConfigFile ||
                    containsPathSegment(normalized, "/apps/")) {
             (void)edge_gateway::ConfigLoader::loadAppConfigFromFile(tempPath);
-        } else if (path == config.configFile || name == "direct-agent.json") {
-            (void)loadConfig(tempPath);
         } else {
             (void)edge_gateway::ConfigLoader::loadFromText(content);
         }
@@ -1178,7 +1128,7 @@ std::vector<DirectControlCommand> parseBatchControlCommands(const std::string& b
         if (!tryJsonDouble(objectText, "value", &command.value)) {
             throw std::runtime_error("batch control command value is required");
         }
-        command.source = jsonString(objectText, "source", "direct-agent");
+        command.source = jsonString(objectText, "source", "system-monitor-direct-maintenance");
         command.ts = static_cast<std::int64_t>(jsonUint64(objectText, "ts", static_cast<std::uint64_t>(nowMs())));
         if (command.cmdId.empty()) {
             command.cmdId = "DIRECT_CTRL_" + std::to_string(nowMs()) + "_" + std::to_string(commands.size() + 1);
@@ -1362,7 +1312,7 @@ std::string serviceState(const std::string& service) {
     return state;
 }
 
-std::string systemStatusJson(const DirectAgentConfig& config) {
+std::string systemStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
     const auto identity = loadIdentity(config.identityConfigFile);
     auto machineCode = identity.machineCode;
     if (machineCode.empty()) {
@@ -1418,7 +1368,7 @@ std::string executeDiagCommand(const std::string& command, const std::string& se
     } else if (command == "top_once") {
         shellCommand = "top -b -n 1 2>&1";
     } else if (command == "ps_gateway") {
-        shellCommand = "ps | grep -E 'ModbusRtu|Dlt645Driver|MqttDriver|EventEngine|SystemMonitor|DirectAgent' 2>&1";
+        shellCommand = "ps | grep -E 'ModbusRtu|Dlt645Driver|MqttDriver|EventEngine|SystemMonitor|SystemMonitor direct maintenance' 2>&1";
     } else if (command == "journal_tail") {
         const int boundedLines = std::max(1, std::min(500, tailLines));
         shellCommand = "journalctl -n " + std::to_string(boundedLines) + " --no-pager 2>&1";
@@ -1440,7 +1390,7 @@ std::string executeDiagCommand(const std::string& command, const std::string& se
     return runShellCommand(shellCommand, exitCode, kMaxDiagOutputBytes);
 }
 
-std::string diagResponseJson(const DirectAgentConfig& config, const std::string& body) {
+std::string diagResponseJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     if (!maintenancePasswordAccepted(config, body)) {
         throw std::runtime_error("invalid maintenance password");
     }
@@ -1479,7 +1429,7 @@ void restartGatewayServicesLater() {
     }).detach();
 }
 
-std::string configApplyJson(const DirectAgentConfig& config, const std::string& body, bool requirePassword) {
+std::string configApplyJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body, bool requirePassword) {
     if (requirePassword && !maintenancePasswordAccepted(config, body)) {
         throw std::runtime_error("invalid maintenance password");
     }
@@ -1555,7 +1505,7 @@ std::string configApplyJson(const DirectAgentConfig& config, const std::string& 
     return out.str();
 }
 
-std::string configFileOperationJson(const DirectAgentConfig& config, const std::string& body, const std::string& operation) {
+std::string configFileOperationJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body, const std::string& operation) {
     const auto now = nowMs();
     const auto requestId = jsonString(body, "requestId", "CFG_" + operation + "_" + std::to_string(now));
     const auto requestedMachineCode = trim(jsonString(body, "machineCode"));
@@ -1624,7 +1574,7 @@ std::string configFileOperationJson(const DirectAgentConfig& config, const std::
 }
 
 std::string configFileOperationResponse(
-    const DirectAgentConfig& config,
+    const SystemMonitorDirectMaintenanceConfig& config,
     const std::string& body,
     const std::string& operation
 ) {
@@ -1643,7 +1593,7 @@ std::string configFileOperationResponse(
     }
 }
 
-std::string configSnapshotJson(const DirectAgentConfig& config, const std::string& body) {
+std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     const auto now = nowMs();
     const auto requestId = jsonString(body, "requestId", "DIRECT_CFG_PULL_" + std::to_string(now));
     const auto requestedMachineCode = trim(jsonString(body, "machineCode"));
@@ -1716,7 +1666,7 @@ std::string configSnapshotJson(const DirectAgentConfig& config, const std::strin
     return out.str();
 }
 
-std::string configSnapshotResponse(const DirectAgentConfig& config, const std::string& body) {
+std::string configSnapshotResponse(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     if (!maintenancePasswordAccepted(config, body)) {
         return response(
             401,
@@ -1732,7 +1682,7 @@ std::string configSnapshotResponse(const DirectAgentConfig& config, const std::s
     }
 }
 
-std::string batchControlJson(const DirectAgentConfig& config, const std::string& body) {
+std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     const auto requestTs = nowMs();
     auto context = createRealtimeContext(config);
     const auto resolvedMachineCode = resolveMachineCode(config, context->appConfig);
@@ -1772,7 +1722,7 @@ std::string batchControlJson(const DirectAgentConfig& config, const std::string&
             command.cmdId = item.cmdId;
             command.index = item.index;
             command.value = item.value;
-            command.source = item.source.empty() ? "direct-agent" : item.source;
+            command.source = item.source.empty() ? "system-monitor-direct-maintenance" : item.source;
             command.ts = item.ts > 0 ? item.ts : nowMs();
             const auto submitResult = context->router.submitWriteCommand(command);
             if (!submitResult.accepted) {
@@ -1820,7 +1770,7 @@ std::string batchControlJson(const DirectAgentConfig& config, const std::string&
     return out.str();
 }
 
-std::string batchControlResponse(const DirectAgentConfig& config, const std::string& body) {
+std::string batchControlResponse(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     if (!maintenancePasswordAccepted(config, body)) {
         return response(
             401,
@@ -1836,7 +1786,7 @@ std::string batchControlResponse(const DirectAgentConfig& config, const std::str
     }
 }
 
-std::string otaStatusJson(const DirectAgentConfig& config) {
+std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
     std::ifstream input(config.otaStatusFile);
     std::vector<std::string> lines;
     std::string line;
@@ -1863,7 +1813,7 @@ std::string otaStatusJson(const DirectAgentConfig& config) {
     return out.str();
 }
 
-std::string startOtaJob(const DirectAgentConfig& config, const std::string& body) {
+std::string startOtaJob(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     if (!maintenancePasswordAccepted(config, body)) {
         return response(
             401,
@@ -1936,7 +1886,7 @@ std::string response(int code, const std::string& status, const std::string& bod
 }
 
 std::string handleRequest(
-    const DirectAgentConfig& config,
+    const SystemMonitorDirectMaintenanceConfig& config,
     const std::string& method,
     const std::string& path,
     const std::string& query,
@@ -2023,7 +1973,7 @@ std::string handleRequest(
     }
     if (method == "POST" && path == "/api/v1/auth/bootstrap-login") {
         const auto providedHash = trim(jsonString(body, "passwordSha256"));
-        if (!providedHash.empty() && constantTimeEquals(providedHash, config.defaultPasswordSha256)) {
+        if (!providedHash.empty() && constantTimeEquals(providedHash, kFixedMaintenancePasswordSha256)) {
             return response(200, "OK", "{\"success\":true,\"message\":\"bootstrap password accepted\",\"sensitiveApiEnabled\":false}");
         }
         return response(401, "Unauthorized", "{\"success\":false,\"message\":\"invalid bootstrap password\"}");
@@ -2189,7 +2139,7 @@ bool parseClientCidr(const std::string& value, std::uint32_t* network, std::uint
     return true;
 }
 
-bool isClientAllowed(const DirectAgentConfig& config, const sockaddr_in& clientAddr) {
+bool isClientAllowed(const SystemMonitorDirectMaintenanceConfig& config, const sockaddr_in& clientAddr) {
     if (config.allowedClientCidrs.empty()) {
         return true;
     }
@@ -2216,11 +2166,11 @@ std::string sockaddrToString(const sockaddr_in& addr) {
     return buffer;
 }
 
-bool hasWildcardListenHost(const DirectAgentConfig& config) {
+bool hasWildcardListenHost(const SystemMonitorDirectMaintenanceConfig& config) {
     return std::find(config.listenHosts.begin(), config.listenHosts.end(), "0.0.0.0") != config.listenHosts.end();
 }
 
-void validateServerConfig(const DirectAgentConfig& config) {
+void validateServerConfig(const SystemMonitorDirectMaintenanceConfig& config) {
     if (config.listenHosts.empty()) {
         throw std::runtime_error("listenHosts cannot be empty");
     }
@@ -2274,21 +2224,21 @@ ListenSocket openListenSocket(const std::string& host, int port) {
 }
 #endif
 
-int runServer(const DirectAgentConfig& config) {
+int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
 #ifdef _WIN32
     (void)config;
-    std::cerr << "DirectAgent is supported on Linux edge devices only" << std::endl;
+    std::cerr << "SystemMonitor direct maintenance is supported on Linux edge devices only" << std::endl;
     return 2;
 #else
     validateServerConfig(config);
     std::vector<ListenSocket> servers;
     for (const auto& host : config.listenHosts) {
         servers.push_back(openListenSocket(host, config.listenPort));
-        std::cout << "DirectAgent listening on " << host << ":"
+        std::cout << "SystemMonitor direct maintenance listening on " << host << ":"
                   << config.listenPort << std::endl;
     }
     if (!config.allowedClientCidrs.empty()) {
-        std::cout << "DirectAgent allowed clients: "
+        std::cout << "SystemMonitor direct maintenance allowed clients: "
                   << joinStrings(config.allowedClientCidrs, ",") << std::endl;
     }
 
@@ -2330,7 +2280,7 @@ int runServer(const DirectAgentConfig& config) {
 
             if (!isClientAllowed(config, clientAddr)) {
                 const auto peer = sockaddrToString(clientAddr);
-                std::cerr << "DirectAgent rejected client " << peer
+                std::cerr << "SystemMonitor direct maintenance rejected client " << peer
                           << " on " << server.host << ":" << config.listenPort << std::endl;
                 sendAll(client, response(
                     403,
@@ -2368,80 +2318,29 @@ int runServer(const DirectAgentConfig& config) {
 #endif
 }
 
-void printUsage() {
-    std::cout
-        << "Usage:\n"
-        << "  DirectAgent --config <path> [--check]\n"
-        << "\n"
-        << "The service is intended for configured maintenance Ethernet or tunnel addresses only.\n";
-}
-
 }  // namespace
 
 namespace edge_gateway {
-namespace direct_agent {
+namespace system_monitor_direct_maintenance {
 
 void requestStop() {
     g_running = false;
 }
 
-int runFromConfigFile(const std::string& configPath) {
+int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config) {
     try {
-        const auto config = loadConfig(configPath);
         if (!config.enabled) {
-            std::cerr << "embedded DirectAgent is disabled by config: " << configPath << std::endl;
+            std::cerr << "SystemMonitor direct maintenance is disabled by monitor-service config" << std::endl;
             return 3;
         }
         g_running = true;
         return runServer(config);
     } catch (const std::exception& ex) {
-        std::cerr << "embedded DirectAgent failed: " << ex.what() << std::endl;
+        std::cerr << "embedded SystemMonitor direct maintenance failed: " << ex.what() << std::endl;
         return 1;
     }
 }
 
-}  // namespace direct_agent
+}  // namespace system_monitor_direct_maintenance
 }  // namespace edge_gateway
 
-#ifndef EDGE_GATEWAY_DIRECT_AGENT_EMBEDDED
-int main(int argc, char* argv[]) {
-    std::string configPath = "/opt/modbus-gateway/config/runtime/apps/direct-agent.json";
-    bool checkOnly = false;
-
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) {
-            configPath = argv[++i];
-        } else if (arg == "--check") {
-            checkOnly = true;
-        } else if (arg == "--help" || arg == "-h") {
-            printUsage();
-            return 0;
-        }
-    }
-
-    try {
-        const auto config = loadConfig(configPath);
-        if (checkOnly) {
-            std::cout << "enabled=" << (config.enabled ? "true" : "false")
-                      << " listen=" << joinStrings(config.listenHosts, ",") << ":" << config.listenPort
-                      << " allowedClientCidrs=" << joinStrings(config.allowedClientCidrs, ",")
-                      << " identityConfigFile=" << config.identityConfigFile
-                      << " appConfigFile=" << config.appConfigFile
-                      << " otaAppConfigFile=" << config.otaAppConfigFile
-                      << std::endl;
-            return 0;
-        }
-        if (!config.enabled) {
-            std::cerr << "DirectAgent is disabled by config: " << configPath << std::endl;
-            return 3;
-        }
-        std::signal(SIGINT, handleSignal);
-        std::signal(SIGTERM, handleSignal);
-        return edge_gateway::direct_agent::runFromConfigFile(configPath);
-    } catch (const std::exception& ex) {
-        std::cerr << "DirectAgent failed: " << ex.what() << std::endl;
-        return 1;
-    }
-}
-#endif

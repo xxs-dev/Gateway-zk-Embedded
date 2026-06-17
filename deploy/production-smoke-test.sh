@@ -7,6 +7,8 @@ APP_CONFIG="${APP_CONFIG:-$GATEWAY_HOME/config/runtime/apps/mqtt-service.json}"
 MONITOR_CONFIG="${MONITOR_CONFIG:-$GATEWAY_HOME/config/runtime/apps/monitor-service.json}"
 CAMERA_CONFIG="${CAMERA_CONFIG:-$GATEWAY_HOME/config/runtime/apps/camera-service.json}"
 IDENTITY_CONFIG="${IDENTITY_CONFIG:-$GATEWAY_HOME/config/runtime/device_identity.json}"
+EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-$GATEWAY_HOME/config/runtime/edge-package-manifest.json}"
+PACKAGE_PROFILE="${PACKAGE_PROFILE:-}"
 MIN_FREE_MB="${MIN_FREE_MB:-512}"
 MAX_DISK_USED_PERCENT="${MAX_DISK_USED_PERCENT:-85}"
 MQTT_CONNECT_TEST="${MQTT_CONNECT_TEST:-0}"
@@ -101,6 +103,98 @@ run_timeout() {
   fi
 }
 
+manifest_profile() {
+  manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$manifest" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    profile = str(data.get("packageProfile") or "").strip().lower()
+    if profile in ("base", "project", "full"):
+        print(profile)
+except Exception:
+    pass
+PY
+}
+
+manifest_binaries() {
+  manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 missing; cannot read edge package manifest"
+    return 0
+  fi
+  python3 - "$manifest" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    raise SystemExit(0)
+items = data.get("requiredDrivers") or data.get("components") or []
+seen = set()
+for item in items:
+    if isinstance(item, str):
+        name = item
+    elif isinstance(item, dict):
+        name = item.get("binary") or item.get("name") or item.get("id")
+    else:
+        continue
+    name = str(name or "").strip()
+    if not name or name in seen:
+        continue
+    seen.add(name)
+    print(name)
+PY
+}
+
+unique_lines() {
+  awk 'NF && !seen[$0]++ { print }'
+}
+
+runtime_package_profile() {
+  if [ -n "$PACKAGE_PROFILE" ]; then
+    printf '%s\n' "$PACKAGE_PROFILE"
+    return
+  fi
+  profile=$(manifest_profile "$EDGE_PACKAGE_MANIFEST")
+  if [ -n "$profile" ]; then
+    printf '%s\n' "$profile"
+  elif [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+    printf 'project\n'
+  else
+    printf 'full\n'
+  fi
+}
+
+required_runtime_binaries() {
+  profile=$(runtime_package_profile)
+  base_bins="SystemMonitor MqttDriver pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay CameraService pointctl"
+  case "$profile" in
+    base)
+      printf '%s\n' $base_bins | unique_lines
+      ;;
+    project)
+      if [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+        printf '%s\n' $base_bins $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_lines
+      else
+        printf '%s\n' $base_bins | unique_lines
+      fi
+      ;;
+    *)
+      printf '%s\n' $full_bins | unique_lines
+      ;;
+  esac
+}
+
 check_identity() {
   echo "== identity =="
   file_exists "$IDENTITY_CONFIG" "identity config"
@@ -127,7 +221,16 @@ check_runtime_files() {
   echo "== runtime files =="
   file_exists "$APP_CONFIG" "mqtt app config"
   file_exists "$MONITOR_CONFIG" "monitor app config"
-  for bin in ModbusRtu Dlt645Driver DioDriver CanDriver MqttDriver EventEngine SystemMonitor LocalDisplay CameraService pointctl; do
+  profile=$(runtime_package_profile)
+  if [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
+    pass "edge package manifest exists: $EDGE_PACKAGE_MANIFEST"
+  elif [ "$profile" != "full" ]; then
+    fail "edge package manifest missing for profile: $profile"
+  else
+    warn "edge package manifest missing; smoke uses full legacy binary list"
+  fi
+  pass "edge package profile: $profile"
+  for bin in $(required_runtime_binaries); do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
   for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh; do

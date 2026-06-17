@@ -849,6 +849,53 @@ void MqttDriverService::replayLoop() {
     }
 }
 
+bool MqttDriverService::admitCommand(
+    const std::string& meterCode,
+    const std::string& cmdId,
+    std::int64_t nowMs
+) {
+    const int windowMs = std::max(1, driverConfig_.commandRateWindowMs);
+    const std::size_t maxInWindow = driverConfig_.commandRateMaxPerWindow > 0
+        ? static_cast<std::size_t>(driverConfig_.commandRateMaxPerWindow)
+        : 0;
+    const std::int64_t dedupTtlMs = std::max<std::int64_t>(0, driverConfig_.commandDedupTtlMs);
+
+    std::lock_guard<std::mutex> lock(commandRateMutex_);
+
+    // Deduplicate by cmdId within the dedup TTL. Empty cmdId is never deduplicated.
+    if (!cmdId.empty() && dedupTtlMs > 0) {
+        // Opportunistically evict expired dedup entries to bound memory.
+        for (auto it = recentCommandIds_.begin(); it != recentCommandIds_.end();) {
+            if (nowMs - it->second > dedupTtlMs) {
+                it = recentCommandIds_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        const auto existing = recentCommandIds_.find(cmdId);
+        if (existing != recentCommandIds_.end() && nowMs - existing->second <= dedupTtlMs) {
+            return false;
+        }
+    }
+
+    // Sliding-window rate limit per meterCode (0 disables the limit).
+    if (maxInWindow > 0) {
+        auto& window = commandWindowByMeter_[meterCode];
+        while (!window.empty() && nowMs - window.front() > windowMs) {
+            window.pop_front();
+        }
+        if (window.size() >= maxInWindow) {
+            return false;
+        }
+        window.push_back(nowMs);
+    }
+
+    if (!cmdId.empty() && dedupTtlMs > 0) {
+        recentCommandIds_[cmdId] = nowMs;
+    }
+    return true;
+}
+
 void MqttDriverService::handleCommandRequest(const std::string& payload, std::int64_t nowMs) {
     MqttCommandReply reply;
     reply.ts = nowMs;
@@ -881,6 +928,9 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         }
         if (!route.writable) {
             throw std::invalid_argument("point write is disabled");
+        }
+        if (!admitCommand(route.meterCode, request.cmdId, nowMs)) {
+            throw std::invalid_argument("command rate limit exceeded or duplicate cmdId");
         }
         priorityControlLease_.acquire(
             request.cmdId,

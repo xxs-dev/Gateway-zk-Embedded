@@ -497,7 +497,7 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
     return result;
 }
 
-void pushPersistentSample(
+std::uint64_t pushPersistentSample(
     SharedStoreLayout* layout,
     const PersistentPointSample& sample,
     std::size_t maxPersistentSamples
@@ -512,11 +512,18 @@ void pushPersistentSample(
 
     layout->header.persistentTail =
         (layout->header.persistentTail + 1) % kMaxPersistentSlots;
+    std::uint64_t dropped = 0;
     while (((layout->header.persistentTail + kMaxPersistentSlots - layout->header.persistentHead) %
             kMaxPersistentSlots) >= maxPersistentSamples) {
+        auto& evicted = layout->persistent[layout->header.persistentHead];
+        if (evicted.occupied) {
+            ++dropped;
+        }
+        evicted = SharedPersistentSlot{};
         layout->header.persistentHead =
             (layout->header.persistentHead + 1) % kMaxPersistentSlots;
     }
+    return dropped;
 }
 
 std::vector<PersistentPointSample> drainPersistent(SharedStoreLayout* layout) {
@@ -680,7 +687,7 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         }
     }
 #else
-    const int fd = shm_open(segmentName_.c_str(), O_CREAT | O_RDWR, 0660);
+    const int fd = shm_open(segmentName_.c_str(), O_CREAT | O_RDWR, 0600);
     if (fd < 0) {
         throw std::runtime_error("shm_open failed");
     }
@@ -830,7 +837,7 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
     }
 
     const int existingFd = static_cast<int>(reinterpret_cast<std::intptr_t>(mappingHandle_) - 1);
-    const int currentFd = shm_open(segmentName_.c_str(), O_RDWR, 0660);
+    const int currentFd = shm_open(segmentName_.c_str(), O_RDWR, 0600);
     if (currentFd < 0) {
         return;
     }
@@ -1125,11 +1132,14 @@ void MemoryPointStore::putLatest(const PointValue& value) {
         const auto intervalMs = static_cast<std::int64_t>(std::max(1, value.persistIntervalSec)) * 1000;
         const auto lastIt = lastPersistentSampleTs_.find(value.index);
         if (lastIt == lastPersistentSampleTs_.end() || (value.ts - lastIt->second) >= intervalMs) {
-            pushPersistentSample(
+            const auto dropped = pushPersistentSample(
                 layout2,
                 PersistentPointSample{value.index, value.value, value.ts},
                 maxPersistentSamples_
             );
+            if (dropped > 0) {
+                persistentDropped_.fetch_add(dropped, std::memory_order_relaxed);
+            }
             lastPersistentSampleTs_[value.index] = value.ts;
         }
     }
@@ -1521,6 +1531,10 @@ std::vector<PersistentPointSample> MemoryPointStore::drainPersistentSamples() {
 #endif
     auto* layout2 = layoutFrom(sharedView_);
     return drainPersistent(layout2);
+}
+
+std::uint64_t MemoryPointStore::consumePersistentDropCount() {
+    return persistentDropped_.exchange(0, std::memory_order_relaxed);
 }
 
 std::vector<PointUpdateRecord> MemoryPointStore::drainPointUpdates(std::size_t limit) {

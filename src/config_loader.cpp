@@ -152,6 +152,27 @@ void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configP
             rule.script.graphStateFile = resolveRelativeToConfig(configPath, rule.script.graphStateFile);
         }
     }
+
+    auto& maintenance = config.systemMonitor.directMaintenance;
+    if (maintenance.identityConfigFile.empty()) {
+        maintenance.identityConfigFile = config.identityConfigFile;
+    } else {
+        maintenance.identityConfigFile = resolveRelativeToConfig(configPath, maintenance.identityConfigFile);
+    }
+    if (maintenance.appConfigFile.empty()) {
+        maintenance.appConfigFile = configPath;
+    } else {
+        maintenance.appConfigFile = resolveRelativeToConfig(configPath, maintenance.appConfigFile);
+    }
+    if (!maintenance.otaAppConfigFile.empty()) {
+        maintenance.otaAppConfigFile = resolveRelativeToConfig(configPath, maintenance.otaAppConfigFile);
+    }
+    if (!maintenance.authStateFile.empty()) {
+        maintenance.authStateFile = resolveRelativeToConfig(configPath, maintenance.authStateFile);
+    }
+    if (!maintenance.otaStatusFile.empty()) {
+        maintenance.otaStatusFile = resolveRelativeToConfig(configPath, maintenance.otaStatusFile);
+    }
 }
 
 class JsonValue;
@@ -714,6 +735,26 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     return spec;
 }
 
+IecPointSpec parseIecPointSpec(const JsonValue* value) {
+    IecPointSpec spec;
+    if (value == nullptr || value->isNull()) {
+        return spec;
+    }
+    const auto& object = value->asObject();
+    spec.ioa = requireInt(object, "ioa", spec.ioa);
+    spec.typeId = requireInt(object, "typeId", spec.typeId);
+    spec.cause = requireInt(object, "cause", spec.cause);
+    spec.commonAddress = requireInt(object, "commonAddress", spec.commonAddress);
+    spec.functionType = requireInt(object, "functionType", spec.functionType);
+    spec.informationNumber = requireInt(object, "informationNumber", spec.informationNumber);
+    spec.valueKind = requireString(object, "valueKind", spec.valueKind);
+    spec.selectBeforeExecute = requireBool(object, "selectBeforeExecute", spec.selectBeforeExecute);
+    spec.waitActivationTermination = requireBool(object, "waitActivationTermination", spec.waitActivationTermination);
+    spec.qualifier = requireInt(object, "qualifier", spec.qualifier);
+    spec.timeoutMs = boundedInt(requireInt(object, "timeoutMs", spec.timeoutMs), 100, 60000);
+    return spec;
+}
+
 ReadSpec parseReadSpec(const JsonValue* value) {
     ReadSpec spec;
     if (value == nullptr || value->isNull()) {
@@ -744,6 +785,7 @@ ReadSpec parseReadSpec(const JsonValue* value) {
         }
     }
     spec.can = parseCanSignalSpec(value->find("can"));
+    spec.iec = parseIecPointSpec(value->find("iec"));
     spec.cachePolicy = parseCachePolicy(value->find("cachePolicy"));
     return spec;
 }
@@ -778,6 +820,7 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
     spec.can = parseCanSignalSpec(value->find("can"));
+    spec.iec = parseIecPointSpec(value->find("iec"));
     return spec;
 }
 
@@ -872,6 +915,117 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     return point;
 }
 
+std::string canonicalFourRemoteCategory(const std::string& key) {
+    std::string normalized;
+    normalized.reserve(key.size());
+    for (const auto ch : key) {
+        if (std::isalnum(static_cast<unsigned char>(ch)) != 0) {
+            normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        }
+    }
+
+    if (normalized == "yx" ||
+        normalized == "status" ||
+        normalized == "signal" ||
+        normalized == "signals" ||
+        normalized == "teleindication" ||
+        normalized == "remoteindication" ||
+        normalized == "remotesignal" ||
+        normalized == "remotesignals") {
+        return "teleindication";
+    }
+    if (normalized == "yc" ||
+        normalized == "telemetry" ||
+        normalized == "measurement" ||
+        normalized == "measurements" ||
+        normalized == "telemetering" ||
+        normalized == "remotemeasurement" ||
+        normalized == "remotemeasurements") {
+        return "telemetry";
+    }
+    if (normalized == "yk" ||
+        normalized == "control" ||
+        normalized == "controls" ||
+        normalized == "telecontrol" ||
+        normalized == "remotecontrol" ||
+        normalized == "remotecontrols") {
+        return "telecontrol";
+    }
+    if (normalized == "yt" ||
+        normalized == "setting" ||
+        normalized == "settings" ||
+        normalized == "setpoint" ||
+        normalized == "setpoints" ||
+        normalized == "telesetting" ||
+        normalized == "teleadjust" ||
+        normalized == "remoteadjust" ||
+        normalized == "remoteadjustment" ||
+        normalized == "remoteregulation") {
+        return "telesetting";
+    }
+
+    return key;
+}
+
+void appendPointArray(
+    const JsonValue& value,
+    const std::string& groupKey,
+    std::vector<PointDefinition>& points
+) {
+    if (value.isNull()) {
+        return;
+    }
+
+    const JsonValue* arrayValue = &value;
+    if (value.isObject()) {
+        if (const auto* nested = value.find("points")) {
+            arrayValue = nested;
+        }
+    }
+    if (arrayValue == nullptr || !arrayValue->isArray()) {
+        return;
+    }
+
+    const auto category = canonicalFourRemoteCategory(groupKey);
+    for (const auto& item : arrayValue->asArray().values) {
+        auto point = parsePointDefinition(*item);
+        if (point.category.empty()) {
+            point.category = category;
+        }
+        points.push_back(std::move(point));
+    }
+}
+
+void appendGroupedPoints(const JsonValue* value, std::vector<PointDefinition>& points) {
+    if (value == nullptr || value->isNull()) {
+        return;
+    }
+    if (value->isArray()) {
+        appendPointArray(*value, "telemetry", points);
+        return;
+    }
+
+    const auto& object = value->asObject();
+    for (const auto& entry : object.values) {
+        appendPointArray(*entry.value, entry.key, points);
+    }
+}
+
+void appendPointGroups(const JsonValue& owner, std::vector<PointDefinition>& points) {
+    static const char* const kGroupFields[] = {
+        "pointGroups",
+        "iecPointGroups",
+        "fourRemote",
+        "fourRemotePoints",
+        "pointsByType",
+        "pointsByCategory"
+    };
+
+    for (const auto* field : kGroupFields) {
+        appendGroupedPoints(owner.find(field), points);
+    }
+}
+
 LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave) {
     LogicalDeviceConfig device;
     const auto& object = value.asObject();
@@ -887,6 +1041,7 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
             device.points.push_back(parsePointDefinition(*item));
         }
     }
+    appendPointGroups(value, device.points);
     return device;
 }
 
@@ -946,6 +1101,54 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     return can;
 }
 
+IecProtocolConfig parseIecProtocol(const JsonValue* value) {
+    IecProtocolConfig iec;
+    if (value == nullptr || value->isNull()) {
+        return iec;
+    }
+    const auto& object = value->asObject();
+    iec.transportMode = requireString(object, "transportMode", iec.transportMode);
+    iec.commonAddress = requireInt(object, "commonAddress", iec.commonAddress);
+    iec.originatorAddress = requireInt(object, "originatorAddress", iec.originatorAddress);
+    iec.cotSize = requireInt(object, "cotSize", iec.cotSize);
+    iec.caSize = requireInt(object, "caSize", iec.caSize);
+    iec.ioaSize = requireInt(object, "ioaSize", iec.ioaSize);
+    iec.linkAddress = requireInt(object, "linkAddress", iec.linkAddress);
+    iec.linkAddressSize = requireInt(object, "linkAddressSize", iec.linkAddressSize);
+    iec.interrogationQualifier = requireInt(object, "interrogationQualifier", iec.interrogationQualifier);
+    iec.interrogationCot = requireInt(object, "interrogationCot", iec.interrogationCot);
+    iec.activationTerminationCot = requireInt(object, "activationTerminationCot", iec.activationTerminationCot);
+    iec.pollTimeoutMs = requireInt(object, "pollTimeoutMs", iec.pollTimeoutMs);
+    iec.idleReadTimeoutMs = requireInt(object, "idleReadTimeoutMs", iec.idleReadTimeoutMs);
+    iec.maxPollFrames = requireInt(object, "maxPollFrames", iec.maxPollFrames);
+    iec.pollOnCollect = requireBool(object, "pollOnCollect", iec.pollOnCollect);
+    iec.balanced = requireBool(object, "balanced", iec.balanced);
+    iec.t0Ms = requireInt(object, "t0Ms", iec.t0Ms);
+    iec.t1Ms = requireInt(object, "t1Ms", iec.t1Ms);
+    iec.t2Ms = requireInt(object, "t2Ms", iec.t2Ms);
+    iec.t3Ms = requireInt(object, "t3Ms", iec.t3Ms);
+    iec.kWindow = requireInt(object, "kWindow", iec.kWindow);
+    iec.wAck = requireInt(object, "wAck", iec.wAck);
+    iec.backgroundReceive = requireBool(object, "backgroundReceive", iec.backgroundReceive);
+    iec.sendSFrameAck = requireBool(object, "sendSFrameAck", iec.sendSFrameAck);
+    iec.clockSyncIntervalSec = requireInt(object, "clockSyncIntervalSec", iec.clockSyncIntervalSec);
+    iec.cotSize = boundedInt(iec.cotSize, 1, 2);
+    iec.caSize = boundedInt(iec.caSize, 1, 2);
+    iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
+    iec.linkAddressSize = boundedInt(iec.linkAddressSize, 0, 2);
+    iec.pollTimeoutMs = std::max(100, iec.pollTimeoutMs);
+    iec.idleReadTimeoutMs = std::max(10, iec.idleReadTimeoutMs);
+    iec.maxPollFrames = std::max(1, iec.maxPollFrames);
+    iec.t0Ms = boundedInt(iec.t0Ms, 1000, 120000);
+    iec.t1Ms = boundedInt(iec.t1Ms, 1000, 120000);
+    iec.t2Ms = boundedInt(iec.t2Ms, 1000, 120000);
+    iec.t3Ms = boundedInt(iec.t3Ms, 1000, 300000);
+    iec.kWindow = boundedInt(iec.kWindow, 1, 32767);
+    iec.wAck = boundedInt(iec.wAck, 1, iec.kWindow);
+    iec.clockSyncIntervalSec = std::max(0, iec.clockSyncIntervalSec);
+    return iec;
+}
+
 ProtocolConfig parseProtocol(const JsonValue* value) {
     ProtocolConfig protocol;
     if (value == nullptr || value->isNull()) {
@@ -959,6 +1162,21 @@ ProtocolConfig parseProtocol(const JsonValue* value) {
     protocol.transport = parseTransport(value->find("transport"));
     protocol.tcp = parseTcpTransport(value->find("tcp"));
     protocol.can = parseCanProtocol(value->find("can"));
+    protocol.iec = parseIecProtocol(value->find("iec"));
+    if (protocol.iec.transportMode.empty()) {
+        if (protocol.type == "iec104" || protocol.type == "iec103_tcp") {
+            protocol.iec.transportMode = "tcp";
+        } else {
+            protocol.iec.transportMode = "serial";
+        }
+    }
+    if (protocol.type == "iec104" && protocol.tcp.port == 502) {
+        protocol.tcp.port = 2404;
+    }
+    if ((protocol.type == "iec103_tcp" || protocol.type == "iec103") &&
+        protocol.iec.transportMode == "tcp" && protocol.tcp.port == 502) {
+        protocol.tcp.port = 2404;
+    }
     return protocol;
 }
 
@@ -1346,6 +1564,21 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         1000,
         300000
     );
+    config.commandRateWindowMs = boundedInt(
+        requireInt(object, "commandRateWindowMs", config.commandRateWindowMs),
+        100,
+        600000
+    );
+    config.commandRateMaxPerWindow = boundedInt(
+        requireInt(object, "commandRateMaxPerWindow", config.commandRateMaxPerWindow),
+        0,
+        100000
+    );
+    config.commandDedupTtlMs = boundedInt(
+        requireInt(object, "commandDedupTtlMs", config.commandDedupTtlMs),
+        0,
+        3600000
+    );
     return config;
 }
 
@@ -1550,6 +1783,47 @@ RealtimeConfig parseRealtimeConfig(const JsonValue* value) {
     return config;
 }
 
+SystemMonitorConfig::DirectMaintenanceConfig parseDirectMaintenanceConfig(
+    const JsonValue* value,
+    const JsonValue* legacyRoot
+) {
+    SystemMonitorConfig::DirectMaintenanceConfig config;
+    const JsonValue* source = value;
+    if (source == nullptr || source->isNull()) {
+        if (legacyRoot != nullptr &&
+            (legacyRoot->find("listenHost") != nullptr ||
+             legacyRoot->find("listenHosts") != nullptr ||
+             legacyRoot->find("listenPort") != nullptr ||
+             legacyRoot->find("allowedClientCidrs") != nullptr ||
+             legacyRoot->find("maxRealtimePoints") != nullptr)) {
+            source = legacyRoot;
+        }
+    }
+    if (source == nullptr || source->isNull()) {
+        return config;
+    }
+    const auto& object = source->asObject();
+    config.configFile = requireString(object, "configFile", config.configFile);
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.listenHost = requireString(object, "listenHost", config.listenHost);
+    config.listenHosts = parseStringArray(source->find("listenHosts"));
+    if (config.listenHosts.empty() && !config.listenHost.empty()) {
+        config.listenHosts.push_back(config.listenHost);
+    }
+    if (!config.listenHosts.empty()) {
+        config.listenHost = config.listenHosts.front();
+    }
+    config.listenPort = requireInt(object, "listenPort", config.listenPort);
+    config.allowedClientCidrs = parseStringArray(source->find("allowedClientCidrs"));
+    config.identityConfigFile = requireString(object, "identityConfigFile", config.identityConfigFile);
+    config.appConfigFile = requireString(object, "appConfigFile", config.appConfigFile);
+    config.otaAppConfigFile = requireString(object, "otaAppConfigFile", config.otaAppConfigFile);
+    config.authStateFile = requireString(object, "authStateFile", config.authStateFile);
+    config.otaStatusFile = requireString(object, "otaStatusFile", config.otaStatusFile);
+    config.maxRealtimePoints = requireInt(object, "maxRealtimePoints", config.maxRealtimePoints);
+    return config;
+}
+
 SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     SystemMonitorConfig config;
     if (value == nullptr || value->isNull()) {
@@ -1603,6 +1877,7 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
             config.cellular.modemDevicePatterns = modemDevicePatterns;
         }
     }
+    config.directMaintenance = parseDirectMaintenanceConfig(value->find("directMaintenance"), value);
     return config;
 }
 
@@ -2246,6 +2521,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
             config.points.push_back(parsePointDefinition(*item));
         }
     }
+    appendPointGroups(root, config.points);
     return config;
 }
 

@@ -19,6 +19,7 @@ stop_units() {
         'dlt645-driver@*.service' \
         'dio-driver@*.service' \
         'can-driver@*.service' \
+        'iec-driver@*.service' \
         'compute-engine@*.service' \
         'event-engine@*.service' \
         'local-display@*.service' \
@@ -26,7 +27,6 @@ stop_units() {
         'local-kiosk@*.service' \
         'system-monitor@*.service' \
         'camera-service@*.service' \
-        'direct-agent@*.service' \
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'
@@ -35,6 +35,7 @@ stop_units() {
         'dlt645-driver@*.service' \
         'dio-driver@*.service' \
         'can-driver@*.service' \
+        'iec-driver@*.service' \
         'compute-engine@*.service' \
         'event-engine@*.service' \
         'local-display@*.service' \
@@ -42,7 +43,6 @@ stop_units() {
         'local-kiosk@*.service' \
         'system-monitor@*.service' \
         'camera-service@*.service' \
-        'direct-agent@*.service' \
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'
@@ -121,6 +121,8 @@ def emit_device_unit(path):
         emit_unit(f"dio-driver@{stem}.service")
     elif protocol in ("can_socketcan", "can"):
         emit_unit(f"can-driver@{stem}.service")
+    elif protocol in ("iec104", "iec101", "iec103", "iec103_tcp", "iec103_serial"):
+        emit_unit(f"iec-driver@{stem}.service")
 
 def app_device_files(path):
     root = read_json(path)

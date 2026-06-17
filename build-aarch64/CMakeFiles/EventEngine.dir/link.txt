@@ -1,1 +1,1 @@
-/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ -O3 -DNDEBUG CMakeFiles/EventEngine.dir/event_engine_main.cpp.o -o EventEngine  libedge_gateway.a -ldl -lpthread -lrt 
+/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-g++ -O3 -DNDEBUG -Wl,--gc-sections CMakeFiles/EventEngine.dir/event_engine_main.cpp.o -o EventEngine  libedge_gateway.a -ldl -lpthread -lrt 

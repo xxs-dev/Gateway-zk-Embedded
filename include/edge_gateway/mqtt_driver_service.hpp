@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -83,6 +84,7 @@ private:
     void publishDueRealtimeSessions(std::int64_t nowMs);
     int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
+    bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
     void startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs);
@@ -126,6 +128,9 @@ private:
     std::int64_t lastSnapshotDeferredMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::int64_t lastRealtimeSessionCleanupMs_ = 0;
+    std::mutex commandRateMutex_;
+    std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
+    std::unordered_map<std::string, std::int64_t> recentCommandIds_;
     std::atomic<bool> running_{false};
     std::atomic<bool> otaInProgress_{false};
     std::mutex otaMutex_;
