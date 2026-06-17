@@ -547,6 +547,9 @@ struct MqttDriverConfig {
     std::vector<MqttAlarmRule> alarmRules;
     std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
     int priorityControlLeaseTtlMs = 30000;
+    int commandRateWindowMs = 10000;
+    int commandRateMaxPerWindow = 20;
+    int commandDedupTtlMs = 60000;
 };
 
 struct AlarmStoreConfig {
@@ -696,6 +699,21 @@ struct SystemMonitorConfig {
         };
     };
 
+    struct DirectMaintenanceConfig {
+        std::string configFile;
+        bool enabled = false;
+        std::string listenHost = "192.168.1.250";
+        std::vector<std::string> listenHosts;
+        int listenPort = 9443;
+        std::vector<std::string> allowedClientCidrs;
+        std::string identityConfigFile;
+        std::string appConfigFile;
+        std::string otaAppConfigFile = "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json";
+        std::string authStateFile = "/opt/modbus-gateway/config/runtime/monitor-direct-maintenance-state.json";
+        std::string otaStatusFile = "/opt/modbus-gateway/ota/monitor-direct-maintenance-status.jsonl";
+        int maxRealtimePoints = 2000;
+    };
+
     bool enabled = false;
     int defaultIntervalMs = 5000;
     int minIntervalMs = 500;
@@ -717,9 +735,10 @@ struct SystemMonitorConfig {
         "journal_tail",
         "systemctl_status",
         "cellular_status"
-    };
-    CellularConfig cellular;
-};
+      };
+      CellularConfig cellular;
+      DirectMaintenanceConfig directMaintenance;
+  };
 
 struct LocalDisplayGroupConfig {
     std::string title;

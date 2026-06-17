@@ -417,11 +417,47 @@ std::int64_t modifiedAtMs(const std::string& path) {
     return static_cast<std::int64_t>(st.st_mtime) * 1000;
 }
 
+std::size_t skipJsonWhitespace(const std::string& text, std::size_t pos);
+std::size_t findJsonValue(const std::string& text, const std::string& key);
+
 std::string extractJsonStringField(const std::string& payload, const char* key) {
     FlatJsonReader json(payload);
     std::string value;
     json.tryGetString(key, &value);
     return value;
+}
+
+std::vector<int> extractJsonIntArrayField(const std::string& payload, const std::string& key) {
+    std::vector<int> values;
+    auto pos = skipJsonWhitespace(payload, findJsonValue(payload, key));
+    if (pos == std::string::npos || pos >= payload.size() || payload[pos] != '[') {
+        return values;
+    }
+
+    ++pos;
+    while (pos < payload.size()) {
+        pos = skipJsonWhitespace(payload, pos);
+        if (pos >= payload.size() || payload[pos] == ']') {
+            break;
+        }
+        if (payload[pos] == ',') {
+            ++pos;
+            continue;
+        }
+        char* end = nullptr;
+        const long value = std::strtol(payload.c_str() + pos, &end, 10);
+        if (end == payload.c_str() + pos) {
+            break;
+        }
+        if (value > 0 && value <= std::numeric_limits<int>::max()) {
+            values.push_back(static_cast<int>(value));
+        }
+        pos = static_cast<std::size_t>(end - payload.c_str());
+    }
+
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+    return values;
 }
 
 std::string toHex(const char* data, std::size_t size) {
@@ -1590,8 +1626,10 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
     FlatJsonReader json(payload);
     std::string requestId;
     std::string machineCode;
+    bool resend = false;
     json.tryGetString("requestId", &requestId);
     json.tryGetString("machineCode", &machineCode);
+    json.tryGetBool("resend", &resend);
     if (machineCode.empty()) {
         throw std::runtime_error("machineCode is required");
     }
@@ -1603,11 +1641,14 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
     }
 
     const auto reply = buildConfigPullReply(requestId, nowMs);
-    publishConfigPullReply(reply);
+    const auto missingChunks = resend ? extractJsonIntArrayField(payload, "missingChunks") : std::vector<int>();
+    publishConfigPullReply(reply, missingChunks);
     publishStatusEvent(
-        "config-pull-replied",
+        resend ? "config-pull-resend-replied" : "config-pull-replied",
         nowMs,
         std::string(R"("requestId":")") + escapeJson(requestId) +
+            R"(","resend":)" + (resend ? "true" : "false") +
+            R"(,"missingChunkCount":)" + std::to_string(missingChunks.size()) +
             R"(","fileCount":)" + std::to_string(configFiles_.size())
     );
 }
@@ -2190,12 +2231,15 @@ void SystemMonitorService::publishReply(const std::string& payload) {
     }
 }
 
-void SystemMonitorService::publishConfigPullReply(const std::string& payload) const {
+void SystemMonitorService::publishConfigPullReply(const std::string& payload, const std::vector<int>& chunkIndexes) const {
     const std::size_t chunkBytes = std::max<std::size_t>(
         16 * 1024,
         std::min<std::size_t>(monitorConfig_.configPullChunkBytes, 256 * 1024)
     );
     if (payload.size() <= chunkBytes) {
+        if (!chunkIndexes.empty()) {
+            return;
+        }
         publisher_->publishJsonMessage(mqttConfig_.configPullReplyTopic, payload);
         return;
     }
@@ -2203,6 +2247,10 @@ void SystemMonitorService::publishConfigPullReply(const std::string& payload) co
     const std::string requestId = extractJsonStringField(payload, "requestId");
     const std::size_t chunkCount = (payload.size() + chunkBytes - 1) / chunkBytes;
     for (std::size_t i = 0; i < chunkCount; ++i) {
+        if (!chunkIndexes.empty() &&
+            !std::binary_search(chunkIndexes.begin(), chunkIndexes.end(), static_cast<int>(i + 1))) {
+            continue;
+        }
         const std::size_t begin = i * chunkBytes;
         const std::size_t partSize = std::min(chunkBytes, payload.size() - begin);
         const std::string partHex = toHex(payload.data() + begin, partSize);

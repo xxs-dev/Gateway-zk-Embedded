@@ -152,6 +152,27 @@ void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configP
             rule.script.graphStateFile = resolveRelativeToConfig(configPath, rule.script.graphStateFile);
         }
     }
+
+    auto& maintenance = config.systemMonitor.directMaintenance;
+    if (maintenance.identityConfigFile.empty()) {
+        maintenance.identityConfigFile = config.identityConfigFile;
+    } else {
+        maintenance.identityConfigFile = resolveRelativeToConfig(configPath, maintenance.identityConfigFile);
+    }
+    if (maintenance.appConfigFile.empty()) {
+        maintenance.appConfigFile = configPath;
+    } else {
+        maintenance.appConfigFile = resolveRelativeToConfig(configPath, maintenance.appConfigFile);
+    }
+    if (!maintenance.otaAppConfigFile.empty()) {
+        maintenance.otaAppConfigFile = resolveRelativeToConfig(configPath, maintenance.otaAppConfigFile);
+    }
+    if (!maintenance.authStateFile.empty()) {
+        maintenance.authStateFile = resolveRelativeToConfig(configPath, maintenance.authStateFile);
+    }
+    if (!maintenance.otaStatusFile.empty()) {
+        maintenance.otaStatusFile = resolveRelativeToConfig(configPath, maintenance.otaStatusFile);
+    }
 }
 
 class JsonValue;
@@ -1543,6 +1564,21 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         1000,
         300000
     );
+    config.commandRateWindowMs = boundedInt(
+        requireInt(object, "commandRateWindowMs", config.commandRateWindowMs),
+        100,
+        600000
+    );
+    config.commandRateMaxPerWindow = boundedInt(
+        requireInt(object, "commandRateMaxPerWindow", config.commandRateMaxPerWindow),
+        0,
+        100000
+    );
+    config.commandDedupTtlMs = boundedInt(
+        requireInt(object, "commandDedupTtlMs", config.commandDedupTtlMs),
+        0,
+        3600000
+    );
     return config;
 }
 
@@ -1747,6 +1783,47 @@ RealtimeConfig parseRealtimeConfig(const JsonValue* value) {
     return config;
 }
 
+SystemMonitorConfig::DirectMaintenanceConfig parseDirectMaintenanceConfig(
+    const JsonValue* value,
+    const JsonValue* legacyRoot
+) {
+    SystemMonitorConfig::DirectMaintenanceConfig config;
+    const JsonValue* source = value;
+    if (source == nullptr || source->isNull()) {
+        if (legacyRoot != nullptr &&
+            (legacyRoot->find("listenHost") != nullptr ||
+             legacyRoot->find("listenHosts") != nullptr ||
+             legacyRoot->find("listenPort") != nullptr ||
+             legacyRoot->find("allowedClientCidrs") != nullptr ||
+             legacyRoot->find("maxRealtimePoints") != nullptr)) {
+            source = legacyRoot;
+        }
+    }
+    if (source == nullptr || source->isNull()) {
+        return config;
+    }
+    const auto& object = source->asObject();
+    config.configFile = requireString(object, "configFile", config.configFile);
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.listenHost = requireString(object, "listenHost", config.listenHost);
+    config.listenHosts = parseStringArray(source->find("listenHosts"));
+    if (config.listenHosts.empty() && !config.listenHost.empty()) {
+        config.listenHosts.push_back(config.listenHost);
+    }
+    if (!config.listenHosts.empty()) {
+        config.listenHost = config.listenHosts.front();
+    }
+    config.listenPort = requireInt(object, "listenPort", config.listenPort);
+    config.allowedClientCidrs = parseStringArray(source->find("allowedClientCidrs"));
+    config.identityConfigFile = requireString(object, "identityConfigFile", config.identityConfigFile);
+    config.appConfigFile = requireString(object, "appConfigFile", config.appConfigFile);
+    config.otaAppConfigFile = requireString(object, "otaAppConfigFile", config.otaAppConfigFile);
+    config.authStateFile = requireString(object, "authStateFile", config.authStateFile);
+    config.otaStatusFile = requireString(object, "otaStatusFile", config.otaStatusFile);
+    config.maxRealtimePoints = requireInt(object, "maxRealtimePoints", config.maxRealtimePoints);
+    return config;
+}
+
 SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     SystemMonitorConfig config;
     if (value == nullptr || value->isNull()) {
@@ -1800,6 +1877,7 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
             config.cellular.modemDevicePatterns = modemDevicePatterns;
         }
     }
+    config.directMaintenance = parseDirectMaintenanceConfig(value->find("directMaintenance"), value);
     return config;
 }
 

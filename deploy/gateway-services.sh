@@ -27,7 +27,6 @@ stop_units() {
         'local-kiosk@*.service' \
         'system-monitor@*.service' \
         'camera-service@*.service' \
-        'direct-agent@*.service' \
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'
@@ -44,7 +43,6 @@ stop_units() {
         'local-kiosk@*.service' \
         'system-monitor@*.service' \
         'camera-service@*.service' \
-        'direct-agent@*.service' \
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'

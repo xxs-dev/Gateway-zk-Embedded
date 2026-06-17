@@ -164,18 +164,23 @@ CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/sys/time.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/sys/user.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/bits/sigthread.h \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/memory \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_construct.h \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_uninitialized.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/algorithm \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/utility \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_relops.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_algo.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/algorithmfwd.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_heap.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_tempbuf.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_construct.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/uniform_int_dist.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/memory \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_uninitialized.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_raw_storage_iter.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/typeinfo \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/ext/concurrence.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/uses_allocator.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/functional \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/tuple \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/utility \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_relops.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/array \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/unique_ptr.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/shared_ptr.h \
@@ -186,10 +191,6 @@ CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/atomic_base.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/backward/auto_ptr.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/thread \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/vector \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_vector.h \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_bvector.h \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/vector.tcc \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/sys/prctl.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/linux/prctl.h \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/config_loader.hpp \
@@ -198,6 +199,10 @@ CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/hashtable.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/hashtable_policy.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/unordered_map.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/vector \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_vector.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_bvector.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/vector.tcc \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/compat.hpp \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/mutex \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/std_mutex.h \
@@ -206,13 +211,11 @@ CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/experimental/bits/lfts_config.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/shared_mutex \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/condition_variable \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/dlt645_client.hpp \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/serial_port.hpp \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/gateway_daemon.hpp \
- /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/atomic \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/collector.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/dlt645_collector.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/common/collector_base.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/interfaces.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/memory_point_store.hpp \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/atomic \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/deque \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_deque.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/deque.tcc \
@@ -220,7 +223,12 @@ CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_tree.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_set.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_multiset.h \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/command_executor.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/dlt645_client.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/serial_port.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/gateway_daemon.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/common/command_executor_interface.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/common/runtime_device.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/priority_control_lease.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/sqlite_sample_writer.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mock_serial_port.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/posix_serial_port.hpp \

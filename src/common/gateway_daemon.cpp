@@ -299,7 +299,6 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
     };
 
     const auto activeIndexes = activeRealtimeDeviceIndexes(nowMsValue);
-    std::set<std::size_t> activeIndexSet(activeIndexes.begin(), activeIndexes.end());
     for (const auto index : activeIndexes) {
         collectDevice(index, true);
     }
@@ -307,7 +306,7 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
         return;
     }
 
-    const auto targetCount = std::max(batchSize, collectedIndexes.size());
+    const auto targetCount = batchSize;
     std::size_t attempts = 0;
     while (attempts < runtimeDevices_.size() && collectedIndexes.size() < targetCount) {
         const auto index = collectCursor_ % runtimeDevices_.size();
@@ -316,7 +315,7 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
         if (collectedIndexes.find(index) != collectedIndexes.end()) {
             continue;
         }
-        collectDevice(index, activeIndexSet.find(index) != activeIndexSet.end());
+        collectDevice(index, false);
     }
 }
 
@@ -328,6 +327,18 @@ std::size_t GatewayDaemon::flushPersistentOnce() {
             "persist-flushed",
             nowMs(),
             std::string(R"("count":)") + std::to_string(samples.size())
+        );
+    }
+    const auto dropped = store_.consumePersistentDropCount();
+    if (dropped > 0) {
+        std::cerr << "persistent samples dropped"
+                  << " count=" << dropped
+                  << " sharedMemory=" << config_.memoryStore.sharedMemoryName
+                  << std::endl;
+        publishStatusEvent(
+            "persist-dropped",
+            nowMs(),
+            std::string(R"("count":)") + std::to_string(dropped)
         );
     }
     return samples.size();
@@ -406,6 +417,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
 
 void GatewayDaemon::collectLoop() {
     const auto intervalMs = collectLoopIntervalMs();
+    auto nextDeadline = nowMs() + intervalMs;
     while (running_.load()) {
         try {
             const auto ts = nowMs();
@@ -416,7 +428,13 @@ void GatewayDaemon::collectLoop() {
             }
         } catch (...) {
         }
-        sleepInterruptibly(running_, intervalMs);
+        const auto remaining = static_cast<int>(nextDeadline - nowMs());
+        sleepInterruptibly(running_, std::max(10, remaining));
+        nextDeadline += intervalMs;
+        const auto now = nowMs();
+        if (nextDeadline < now) {
+            nextDeadline = now + intervalMs;
+        }
     }
 }
 
@@ -494,30 +512,43 @@ std::vector<std::size_t> GatewayDaemon::activeRealtimeDeviceIndexes(std::int64_t
 
 void GatewayDaemon::persistLoop() {
     const auto intervalMs = std::max(1000, config_.memoryStore.persistFlushIntervalMs);
+    auto nextDeadline = nowMs() + intervalMs;
     while (running_.load()) {
         try {
             const auto ts = nowMs();
-            store_.heartbeatRegisteredPoints(ts);
             if (!priorityControlBlocked(ts)) {
                 flushPersistentOnce();
-                store_.removeExpired(ts);
             }
         } catch (...) {
         }
-        sleepInterruptibly(running_, intervalMs);
+        const auto remaining = static_cast<int>(nextDeadline - nowMs());
+        sleepInterruptibly(running_, std::max(10, remaining));
+        nextDeadline += intervalMs;
+        const auto now = nowMs();
+        if (nextDeadline < now) {
+            nextDeadline = now + intervalMs;
+        }
     }
 }
 
 void GatewayDaemon::writebackLoop() {
     const auto intervalMs = std::max(100, config_.memoryStore.writebackIntervalMs);
+    auto nextDeadline = nowMs() + intervalMs;
     while (running_.load()) {
         try {
             const auto ts = nowMs();
-            store_.heartbeatRegisteredPoints(ts);
-            processWritebackOnce(ts);
+            if (!priorityControlBlocked(ts)) {
+                processWritebackOnce(ts);
+            }
         } catch (...) {
         }
-        sleepInterruptibly(running_, intervalMs);
+        const auto remaining = static_cast<int>(nextDeadline - nowMs());
+        sleepInterruptibly(running_, std::max(10, remaining));
+        nextDeadline += intervalMs;
+        const auto now = nowMs();
+        if (nextDeadline < now) {
+            nextDeadline = now + intervalMs;
+        }
     }
 }
 

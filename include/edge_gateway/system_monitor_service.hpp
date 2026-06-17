@@ -118,7 +118,7 @@ private:
     int effectiveIntervalMs(std::int64_t nowMs) const;
     bool isCommandAllowed(const std::string& command) const;
     std::string executeDiagCommand(const std::string& command, const std::string& arg, int* exitCode) const;
-    void publishConfigPullReply(const std::string& payload) const;
+    void publishConfigPullReply(const std::string& payload, const std::vector<int>& chunkIndexes = {}) const;
     void publishConfigApplyReply(const std::string& payload) const;
     void publishConfigFileOperationReply(const std::string& payload, const std::string& operation) const;
     std::string acceptConfigApplyChunk(const std::string& payload, std::int64_t nowMs, bool* complete);

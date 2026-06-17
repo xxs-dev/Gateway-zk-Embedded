@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/mnt/hgfs/Embedded/Gateway-zk/include
 
-CXX_FLAGS = -O3 -DNDEBUG -fno-diagnostics-color -fdiagnostics-color=never -std=c++1z
+CXX_FLAGS = -O3 -DNDEBUG -fno-diagnostics-color -fdiagnostics-color=never -ffunction-sections -fdata-sections -std=c++1z
 

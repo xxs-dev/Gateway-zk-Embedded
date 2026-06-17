@@ -77,9 +77,19 @@ INIT_RUNTIME_MODE=ems sh deploy/install-factory-config.sh
 
 MQTT 配置中只填写基础 topic。运行时边端会自动追加 `/<machineCode>` 后缀，例如：
 
-- 基础 topic：`edge/telemetry`
-- 实际 topic：`edge/telemetry/GW0001`
+- 实时基础 topic：`edge/telemetry/realtime`
+- 实时实际 topic：`edge/telemetry/realtime/GW0001`
+- 全量基础 topic：`edge/telemetry/full`
+- 全量实际 topic：`edge/telemetry/full/GW0001`
 
 下行命令、OTA、系统监测、诊断和配置拉取都必须发布到带 `machineCode` 后缀的实际 topic，避免同 broker 下所有网关同时收到请求。
 
 不要在串口或协议设备配置中维护 `machineCode`。运行时代码从 `device_identity.json` 注入网关身份。
+
+## 三端同步要求
+
+`gateway-factory-defaults.tar.gz` 以边端仓库根目录生成的包为准。发布前必须确认以下三份 SHA256 一致：
+
+- 边端：`D:\workspace\Embedded\Gateway-zk\gateway-factory-defaults.tar.gz`
+- Windows 初始化内置包：`D:\workspace\CloudPlatform\idea\GatewayDesktop\src\GatewayDesktop.App\Assets\DeviceInit\gateway-factory-defaults.tar.gz`
+- 平台交付副本：`D:\workspace\CloudPlatform\idea\edge-gateway\config\deploy\gateway-factory-defaults.tar.gz`

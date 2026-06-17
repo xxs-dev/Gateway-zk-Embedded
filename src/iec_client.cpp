@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cmath>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -48,14 +49,15 @@ void closeSocket(SocketHandle socketHandle) {
 
 void ensureSocketRuntime() {
 #ifdef _WIN32
-    static bool initialized = false;
-    if (!initialized) {
+    static std::once_flag wsaOnce;
+    static int wsaStartupResult = 0;
+    std::call_once(wsaOnce, [] {
         WSADATA wsaData;
         std::memset(&wsaData, 0, sizeof(wsaData));
-        if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-            throw std::runtime_error("WSAStartup failed");
-        }
-        initialized = true;
+        wsaStartupResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    });
+    if (wsaStartupResult != 0) {
+        throw std::runtime_error("WSAStartup failed");
     }
 #endif
 }
@@ -556,7 +558,10 @@ void IecTcpClient::configureSocketTimeouts() const {
 
 std::uint16_t IecTcpClient::nextSendSequence() {
     std::lock_guard<std::mutex> lock(stateMutex_);
-    return sendSequence_++;
+    // IEC 60870-5-104 send/receive sequence numbers are 15-bit and wrap at 32768.
+    const auto current = sendSequence_;
+    sendSequence_ = static_cast<std::uint16_t>((sendSequence_ + 1) & 0x7FFF);
+    return current;
 }
 
 std::uint16_t IecTcpClient::currentReceiveSequence() const {
@@ -573,10 +578,25 @@ void IecTcpClient::sendIec104IFrame(const std::vector<std::uint8_t>& bytes) {
     {
         std::unique_lock<std::mutex> lock(stateMutex_);
         const auto timeout = std::chrono::milliseconds(std::max(1, iec_.t1Ms));
+        bool disconnected = false;
         const auto accepted = stateChanged_.wait_for(lock, timeout, [&] {
-            const auto outstanding = static_cast<std::uint16_t>(sendSequence_ - remoteReceiveSequence_);
+            // Abort the wait immediately if the link dropped, so the window
+            // wait cannot deadlock when the background receiver has stopped
+            // updating remoteReceiveSequence_.
+            if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
+                disconnected = true;
+                return true;
+            }
+            // Sequence numbers live in a 15-bit space (0..32767); compute the
+            // outstanding count modulo 2^15 so the window stays correct across
+            // a sequence wrap.
+            const auto outstanding = static_cast<std::uint16_t>(
+                (sendSequence_ - remoteReceiveSequence_) & 0x7FFF);
             return outstanding <= static_cast<std::uint16_t>(std::max(1, iec_.kWindow));
         });
+        if (disconnected) {
+            throw std::runtime_error("IEC104 link disconnected while waiting for send window");
+        }
         if (!accepted) {
             throw std::runtime_error("IEC104 send window timeout");
         }
@@ -672,7 +692,7 @@ void IecTcpClient::handleIec104Frame(const std::vector<std::uint8_t>& frame) {
     bool shouldAck = false;
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
-        receiveSequence_ = static_cast<std::uint16_t>(IecCodec::iec104SendSequence(frame) + 1);
+        receiveSequence_ = static_cast<std::uint16_t>((IecCodec::iec104SendSequence(frame) + 1) & 0x7FFF);
         remoteReceiveSequence_ = IecCodec::iec104ReceiveSequence(frame);
         ackSequence = receiveSequence_;
         ++unacknowledgedReceived_;

@@ -185,6 +185,11 @@ CMakeFiles/ModbusRtu.dir/main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/shared_ptr_atomic.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/atomic_base.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/backward/auto_ptr.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/algorithm \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_algo.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/algorithmfwd.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_heap.h \
+ /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/uniform_int_dist.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/thread \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/vector \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_vector.h \
@@ -211,7 +216,7 @@ CMakeFiles/ModbusRtu.dir/main.cpp.o: \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/serial_port.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/gateway_daemon.hpp \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/atomic \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/collector.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/common/collector_base.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/interfaces.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/memory_point_store.hpp \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/deque \
@@ -221,7 +226,9 @@ CMakeFiles/ModbusRtu.dir/main.cpp.o: \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_tree.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_set.h \
  /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/stl_multiset.h \
- /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/command_executor.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/common/command_executor_interface.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/common/runtime_device.hpp \
+ /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/priority_control_lease.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/sqlite_sample_writer.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/mock_serial_port.hpp \
  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/modbus_rtu_client.hpp \

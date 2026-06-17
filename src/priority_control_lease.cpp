@@ -8,8 +8,11 @@
 #include <utility>
 
 #ifndef _WIN32
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace edge_gateway {
@@ -205,6 +208,32 @@ void PriorityControlLease::release(const std::string& cmdId) const {
     if (!enabled()) {
         return;
     }
+#ifndef _WIN32
+    const int fd = open(path_.c_str(), O_RDWR);
+    if (fd < 0) {
+        return;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        close(fd);
+        return;
+    }
+    if (!cmdId.empty()) {
+        char buf[16 * 1024];
+        const auto n = read(fd, buf, sizeof(buf) - 1);
+        if (n > 0) {
+            buf[n] = '\0';
+            const std::string text(buf, static_cast<std::size_t>(n));
+            if (extractStringField(text, "cmdId") != cmdId) {
+                flock(fd, LOCK_UN);
+                close(fd);
+                return;
+            }
+        }
+    }
+    unlink(path_.c_str());
+    flock(fd, LOCK_UN);
+    close(fd);
+#else
     if (!cmdId.empty()) {
         const auto text = readTextFile(path_, 16 * 1024);
         if (!text.empty() && extractStringField(text, "cmdId") != cmdId) {
@@ -212,6 +241,7 @@ void PriorityControlLease::release(const std::string& cmdId) const {
         }
     }
     std::remove(path_.c_str());
+#endif
 }
 
 }  // namespace edge_gateway
