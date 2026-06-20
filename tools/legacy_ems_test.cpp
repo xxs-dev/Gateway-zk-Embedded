@@ -1570,6 +1570,8 @@ int main() {
             engine.set(309, 0.0, ts);
             engine.set(310, 0.0, ts);
             engine.set(311, 0.0, ts);
+            engine.set(613, 0.0, ts);
+            engine.set(614, 0.0, ts);
             engine.set(615, 0.0, ts);
             engine.set(616, 0.0, ts);
             engine.set(617, 0.0, ts);
@@ -1643,6 +1645,8 @@ int main() {
             engine.set(309, 0.0, ts);
             engine.set(310, 0.0, ts);
             engine.set(311, 0.0, ts);
+            engine.set(613, 0.0, ts);
+            engine.set(614, 0.0, ts);
             engine.set(615, 0.0, ts);
             engine.set(616, 0.0, ts);
             engine.set(617, 0.0, ts);
@@ -1761,6 +1765,301 @@ int main() {
         require(graphPcsSolveSubmitWrites[0].index == 1318, "pcsPowerSolve submitWrites first index mismatch");
         requireNear(graphPcsSolveSubmitWrites[0].value, -5.0, 0.0001, "pcsPowerSolve submitWrites first value mismatch");
         require(graphPcsSolveSubmitWrites[0].source == "graph-ems", "pcsPowerSolve submitWrites source mismatch");
+
+        writeTextFile(
+            "graph_ems_cdfd_power_solve_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "cdfd_power_solve",
+  "nodes": [
+    {
+      "id": "cd_fd",
+      "type": "chargeDischarge",
+      "enabled": true,
+      "params": {
+        "bmsSocIndex": 1570,
+        "cdTargetPowerIndex": 451,
+        "cdTargetSocIndex": 452,
+        "fdTargetPowerIndex": 455,
+        "fdTargetSocIndex": 456,
+        "positiveLimitEnableIndex": 454,
+        "negativeLimitEnableIndex": 458,
+        "fhP3Index": 312,
+        "cdP3Output": 613,
+        "fdP3Output": 614
+      }
+    },
+    {
+      "id": "power_solve",
+      "type": "pcsPowerSolve",
+      "enabled": true,
+      "params": {
+        "outP3CdIndex": 613,
+        "outP3FdIndex": 614,
+        "pMaxIndex": 535,
+        "qMaxIndex": 504,
+        "s3MaxIndex": 151,
+        "bmsSocIndex": 1570,
+        "bmsSocMaxIndex": 161,
+        "bmsSocMinIndex": 162,
+        "paOutput": 627,
+        "pbOutput": 628,
+        "pcOutput": 629,
+        "qaOutput": 630,
+        "qbOutput": 631,
+        "qcOutput": 632,
+        "zrRunOutput": 24
+      }
+    }
+  ],
+  "edges": [
+    { "from": "cd_fd", "to": "power_solve" }
+  ]
+})json"
+        );
+        const auto graphCdfdSolveConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_cdfd_solve");
+        edge_gateway::PointStoreRouter graphCdfdSolveRouter;
+        cleanupStoreSegment(graphCdfdSolveConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphCdfdSolveStore(graphCdfdSolveConfig.memoryStore);
+        graphCdfdSolveRouter.addStore(graphCdfdSolveConfig.memoryStore.sharedMemoryName, graphCdfdSolveStore);
+        graphCdfdSolveRouter.addRoutesFromDeviceConfigs(
+            {graphCdfdSolveConfig},
+            graphCdfdSolveConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphCdfdSolveSeedEngine(runtimeCatalog, graphCdfdSolveRouter);
+        graphCdfdSolveSeedEngine.set(1570, 97.0, 1198);
+        graphCdfdSolveSeedEngine.set(451, 30.0, 1198);
+        graphCdfdSolveSeedEngine.set(452, 95.0, 1198);
+        graphCdfdSolveSeedEngine.set(455, 30.0, 1198);
+        graphCdfdSolveSeedEngine.set(456, 20.0, 1198);
+        graphCdfdSolveSeedEngine.set(454, 0.0, 1198);
+        graphCdfdSolveSeedEngine.set(458, 0.0, 1198);
+        graphCdfdSolveSeedEngine.set(312, 0.0, 1198);
+        graphCdfdSolveSeedEngine.set(151, 30.0, 1198);
+        graphCdfdSolveSeedEngine.set(535, 10.0, 1198);
+        graphCdfdSolveSeedEngine.set(504, 10.0, 1198);
+        graphCdfdSolveSeedEngine.set(161, 100.0, 1198);
+        graphCdfdSolveSeedEngine.set(162, 5.0, 1198);
+        edge_gateway::GraphEmsEngine graphCdfdSolveEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_cdfd_power_solve_test.json"),
+            graphCdfdSolveRouter,
+            600000
+        );
+        graphCdfdSolveEngine.runOnce(1198);
+        const auto graphCdfdOutP3Fd = graphCdfdSolveRouter.getLatestByIndex(614, 1198);
+        require(static_cast<bool>(graphCdfdOutP3Fd), "graph CD/FD output missing");
+        requireNear(graphCdfdOutP3Fd->value, -30.0, 0.0001, "graph CD/FD discharge output mismatch");
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto graphCdfdPhase = graphCdfdSolveRouter.getLatestByIndex(index, 1198);
+            require(static_cast<bool>(graphCdfdPhase), "graph CD/FD PCS phase output missing");
+            requireNear(graphCdfdPhase->value, -10.0, 0.0001, "graph CD/FD PCS phase output mismatch");
+        }
+
+        writeTextFile(
+            "graph_ems_sequential_cdfd_power_solve_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "sequential_cdfd_power_solve",
+  "nodes": [
+    {
+      "id": "cd_fd",
+      "type": "chargeDischarge",
+      "enabled": true,
+      "params": {
+        "mode": "dischargeThenCharge",
+        "bmsSocIndex": 1570,
+        "cdTargetPowerIndex": 451,
+        "cdTargetSocIndex": 452,
+        "fdTargetPowerIndex": 455,
+        "fdTargetSocIndex": 456,
+        "cdRunOutput": 14,
+        "fdRunOutput": 16,
+        "cdP3Output": 613,
+        "fdP3Output": 614,
+        "phaseStateOutput": 17
+      }
+    },
+    {
+      "id": "power_solve",
+      "type": "pcsPowerSolve",
+      "enabled": true,
+      "params": {
+        "outP3CdIndex": 613,
+        "outP3FdIndex": 614,
+        "pMaxIndex": 535,
+        "qMaxIndex": 504,
+        "s3MaxIndex": 151,
+        "bmsSocIndex": 1570,
+        "bmsSocMaxIndex": 161,
+        "bmsSocMinIndex": 162,
+        "paOutput": 627,
+        "pbOutput": 628,
+        "pcOutput": 629,
+        "qaOutput": 630,
+        "qbOutput": 631,
+        "qcOutput": 632,
+        "zrRunOutput": 24
+      }
+    }
+  ],
+  "edges": [
+    { "from": "cd_fd", "to": "power_solve" }
+  ]
+})json"
+        );
+        const auto graphSeqCdfdConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_seq_cdfd");
+        edge_gateway::PointStoreRouter graphSeqCdfdRouter;
+        cleanupStoreSegment(graphSeqCdfdConfig.memoryStore);
+        edge_gateway::MemoryPointStore graphSeqCdfdStore(graphSeqCdfdConfig.memoryStore);
+        graphSeqCdfdRouter.addStore(graphSeqCdfdConfig.memoryStore.sharedMemoryName, graphSeqCdfdStore);
+        graphSeqCdfdRouter.addRoutesFromDeviceConfigs(
+            {graphSeqCdfdConfig},
+            graphSeqCdfdConfig.memoryStore.sharedMemoryName
+        );
+        edge_gateway::LegacyEmsEngine graphSeqCdfdSeedEngine(runtimeCatalog, graphSeqCdfdRouter);
+        graphSeqCdfdSeedEngine.set(1570, 97.0, 1199);
+        graphSeqCdfdSeedEngine.set(451, 30.0, 1199);
+        graphSeqCdfdSeedEngine.set(452, 95.0, 1199);
+        graphSeqCdfdSeedEngine.set(455, 30.0, 1199);
+        graphSeqCdfdSeedEngine.set(456, 20.0, 1199);
+        graphSeqCdfdSeedEngine.set(151, 30.0, 1199);
+        graphSeqCdfdSeedEngine.set(535, 10.0, 1199);
+        graphSeqCdfdSeedEngine.set(504, 10.0, 1199);
+        graphSeqCdfdSeedEngine.set(161, 100.0, 1199);
+        graphSeqCdfdSeedEngine.set(162, 5.0, 1199);
+        edge_gateway::GraphEmsEngine graphSeqCdfdEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_sequential_cdfd_power_solve_test.json"),
+            graphSeqCdfdRouter,
+            600000
+        );
+        graphSeqCdfdEngine.runOnce(1199);
+        const auto graphSeqPhase = graphSeqCdfdRouter.getLatestByIndex(17, 1199);
+        require(static_cast<bool>(graphSeqPhase), "graph sequential CD/FD phase state missing");
+        requireNear(graphSeqPhase->value, 1.0, 0.0001, "graph sequential CD/FD should start discharging");
+        const auto graphSeqFdRun = graphSeqCdfdRouter.getLatestByIndex(16, 1199);
+        require(static_cast<bool>(graphSeqFdRun), "graph sequential FD run missing");
+        requireNear(graphSeqFdRun->value, 1.0, 0.0001, "graph sequential FD run mismatch");
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto graphSeqPhaseOut = graphSeqCdfdRouter.getLatestByIndex(index, 1199);
+            require(static_cast<bool>(graphSeqPhaseOut), "graph sequential PCS phase output missing");
+            requireNear(graphSeqPhaseOut->value, -10.0, 0.0001, "graph sequential PCS phase output mismatch");
+        }
+
+        writeTextFile(
+            "graph_ems_charge_discharge_cycle_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "charge_discharge_cycle_test",
+  "nodes": [
+    {
+      "id": "charge_discharge_test",
+      "type": "chargeDischargeCycleTest",
+      "enabled": true,
+      "params": {
+        "bmsSocIndex": 1570,
+        "phasePowerA": 10.0,
+        "phasePowerB": 10.0,
+        "phasePowerC": 10.0,
+        "dischargeDepth": 20.0,
+        "chargeDepth": 95.0,
+        "paOutput": 615,
+        "pbOutput": 616,
+        "pcOutput": 617,
+        "p3Output": 618,
+        "runOutput": 18,
+        "phaseStateOutput": 17
+      }
+    },
+    {
+      "id": "power_solve",
+      "type": "pcsPowerSolve",
+      "enabled": true,
+      "params": {
+        "outPaDsIndex": 615,
+        "outPbDsIndex": 616,
+        "outPcDsIndex": 617,
+        "pMaxIndex": 535,
+        "qMaxIndex": 504,
+        "s3MaxIndex": 151,
+        "bmsSocIndex": 1570,
+        "bmsSocMaxIndex": 161,
+        "bmsSocMinIndex": 162,
+        "paOutput": 627,
+        "pbOutput": 628,
+        "pcOutput": 629,
+        "qaOutput": 630,
+        "qbOutput": 631,
+        "qcOutput": 632,
+        "zrRunOutput": 24
+      }
+    }
+  ],
+  "edges": [
+    { "from": "charge_discharge_test", "to": "power_solve" }
+  ]
+})json"
+        );
+        const auto cycleConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_cycle");
+        edge_gateway::PointStoreRouter cycleRouter;
+        cleanupStoreSegment(cycleConfig.memoryStore);
+        edge_gateway::MemoryPointStore cycleStore(cycleConfig.memoryStore);
+        cycleRouter.addStore(cycleConfig.memoryStore.sharedMemoryName, cycleStore);
+        cycleRouter.addRoutesFromDeviceConfigs({cycleConfig}, cycleConfig.memoryStore.sharedMemoryName);
+        edge_gateway::LegacyEmsEngine cycleSeedEngine(runtimeCatalog, cycleRouter);
+        cycleSeedEngine.set(151, 30.0, 1200);
+        cycleSeedEngine.set(535, 10.0, 1200);
+        cycleSeedEngine.set(504, 10.0, 1200);
+        cycleSeedEngine.set(161, 100.0, 1200);
+        cycleSeedEngine.set(162, 5.0, 1200);
+        cycleSeedEngine.set(1570, 97.0, 1200);
+        edge_gateway::GraphEmsEngine cycleEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_charge_discharge_cycle_test.json"),
+            cycleRouter,
+            600000
+        );
+
+        cycleEngine.runOnce(1200);
+        auto cyclePhase = cycleRouter.getLatestByIndex(17, 1200);
+        require(static_cast<bool>(cyclePhase), "cycle phase state missing after initial discharge");
+        requireNear(cyclePhase->value, 1.0, 0.0001, "cycle should start in discharge phase");
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto phaseOut = cycleRouter.getLatestByIndex(index, 1200);
+            require(static_cast<bool>(phaseOut), "cycle initial PCS phase output missing");
+            requireNear(phaseOut->value, -10.0, 0.0001, "cycle initial discharge output mismatch");
+        }
+
+        cycleSeedEngine.set(1570, 20.0, 1210);
+        cycleEngine.runOnce(1210);
+        cyclePhase = cycleRouter.getLatestByIndex(17, 1210);
+        require(static_cast<bool>(cyclePhase), "cycle phase state missing after discharge depth");
+        requireNear(cyclePhase->value, 2.0, 0.0001, "cycle should switch to charge at discharge depth");
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto phaseOut = cycleRouter.getLatestByIndex(index, 1210);
+            require(static_cast<bool>(phaseOut), "cycle charge PCS phase output missing");
+            requireNear(phaseOut->value, 10.0, 0.0001, "cycle charge output mismatch");
+        }
+
+        cycleSeedEngine.set(1570, 50.0, 1220);
+        cycleEngine.runOnce(1220);
+        cyclePhase = cycleRouter.getLatestByIndex(17, 1220);
+        require(static_cast<bool>(cyclePhase), "cycle phase state missing while charging");
+        requireNear(cyclePhase->value, 2.0, 0.0001, "cycle should keep charging between depth limits");
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto phaseOut = cycleRouter.getLatestByIndex(index, 1220);
+            require(static_cast<bool>(phaseOut), "cycle mid-charge PCS phase output missing");
+            requireNear(phaseOut->value, 10.0, 0.0001, "cycle mid-charge output mismatch");
+        }
+
+        cycleSeedEngine.set(1570, 95.0, 1230);
+        cycleEngine.runOnce(1230);
+        cyclePhase = cycleRouter.getLatestByIndex(17, 1230);
+        require(static_cast<bool>(cyclePhase), "cycle phase state missing after charge depth");
+        requireNear(cyclePhase->value, 1.0, 0.0001, "cycle should loop back to discharge at charge depth");
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto phaseOut = cycleRouter.getLatestByIndex(index, 1230);
+            require(static_cast<bool>(phaseOut), "cycle next discharge PCS phase output missing");
+            requireNear(phaseOut->value, -10.0, 0.0001, "cycle next discharge output mismatch");
+        }
 
         writeTextFile(
             "graph_ems_legacy_nodes_test.json",

@@ -232,6 +232,7 @@ App 配置增加一种脚本类型：
 | `cosCompensation` | 无功补偿目标和输出 | 有 | 已实现 |
 | `voltageCompensation` | LV / HV 有功补偿 | 有 | 已实现 |
 | `chargeDischarge` | 手动充电 / 放电模式 | 无 | 已实现 |
+| `chargeDischargeCycleTest` | 充放电测试循环策略 | 有 | 已实现 |
 | `timedChargeDischarge` | DS 定时充放电 | 有 | 已实现 |
 | `photovoltaicCharge` | GF 光伏充电窗口 | 无 | 已实现 |
 | `phaseBalance` | PH 三相平衡 | 无 | 已实现 |
@@ -257,14 +258,19 @@ App 配置增加一种脚本类型：
 | BMS 派生 | `bmsDerived` | `1556/1557/1566/1586/1587/398/399` | `1552/1553/1615/1616` |
 | COS | `cosCompensation` | `514`、TQ P/Q | `505..508`、`601..604`、`8` |
 | LV / HV | `voltageCompensation` | `544..547`、`533`、`535`、CN U | `605..612`、`10/12` |
-| CD / FD | `chargeDischarge` | `451/452/455/456`、SOC、台区限制 | `613/614`、`14/16` |
+| CD / FD | `chargeDischarge` | `451/452/455/456`、SOC、台区限制；`mode=dischargeThenCharge` 时先按 `455/456` 放电到目标 SOC，再按 `451/452` 充电到目标 SOC | `613/614`、`14/16`，顺序模式可输出阶段状态点 |
+| 充放电测试 | `chargeDischargeCycleTest` | SOC、三相功率或总功率、放电深度、充电深度 | 默认复用 DS 的 `615..618`、`18`，并通过 `phaseStateOutput` 保存阶段 |
 | DS | `timedChargeDischarge` | `400..423`、`424..447`、`760..783` | `461/462`、`615..618`、`18` |
 | GF | `photovoltaicCharge` | `581/583`、FH、反送限制 | `619..622`、`22` |
 | PH | `phaseBalance` | `562`、TQ、CN | `564..567`、`623..625`、`20` |
 | ZR | `reserveCapacity` | `23/588`、FH、反送限制 | `24` 和 PowerSolve 约束 |
 | SK | `skOverride` | `590/591` | `26` 和 PowerSolve 覆盖 |
-| PowerSolve | `pcsPowerSolve` | 所有模式输出、BMS 限制、SOC 限制 | `627..632`，可选 `1318..1323` 待写命令 |
+| PowerSolve | `pcsPowerSolve` | 所有模式输出、BMS 限制、SOC 限制；其中 CD/FD 的 `613/614` 会按三相均分并进入 P 输出仲裁 | `627..632`，可选 `1318..1323` 待写命令 |
 | PCS 下载 | `pcsWriteback` | `627..632`、`1399` | `1318..1323` 待写命令 |
+
+`chargeDischarge` 默认保持兼容的独立充电 / 放电判断。配置 `mode=dischargeThenCharge` 后变为 EMS 内部顺序策略：阶段 `1` 表示放电，SOC 小于等于 `fdTargetSocIndex` 后进入阶段 `2` 充电，SOC 大于等于 `cdTargetSocIndex` 后进入阶段 `3` 完成并输出零功率。可通过 `phaseStateOutput` 把阶段写入 EMS 虚拟点，并随 `graphStateFile` 持久化。
+
+`chargeDischargeCycleTest` 专用于生产联调的一充一放循环测试，不改变 `chargeDischarge` 的老策略语义。参数支持两种写法：直接配置 `phasePowerA/phasePowerB/phasePowerC`、`dischargeDepth`、`chargeDepth`，或配置 `phasePowerAIndex/phasePowerBIndex/phasePowerCIndex`、`totalPowerIndex`、`dischargeDepthIndex`、`chargeDepthIndex` 从 EMS 虚拟点读取。阶段 `1` 表示放电，输出负三相有功；SOC 小于等于放电深度后切换到阶段 `2` 充电，输出正三相有功；SOC 大于等于充电深度后回到阶段 `1`，循环执行。`phaseStateOutput` 必须落在可路由虚拟点上，例如 400xxx 映射项目使用 `400017`，模板本体点使用 `17`。
 
 ## 10. 平台图形化界面
 

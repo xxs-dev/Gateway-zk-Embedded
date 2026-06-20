@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <memory>
 #include <numeric>
@@ -479,6 +480,23 @@ Optional<double> paramDouble(const GraphEmsNodeConfig& node, const std::string& 
     return std::stod(it->second);
 }
 
+Optional<double> paramOrLatestValue(
+    const GraphEmsNodeConfig& node,
+    const std::string& valueKey,
+    const std::string& indexKey,
+    const std::function<Optional<double>(std::uint32_t)>& latestByIndex
+) {
+    const auto literal = paramDouble(node, valueKey);
+    if (literal) {
+        return literal;
+    }
+    const auto index = paramIndex(node, indexKey, 0);
+    if (index == 0) {
+        return NullOpt;
+    }
+    return latestByIndex(index);
+}
+
 const JsonValue* findValue(const JsonObject& object, const char* key) {
     for (const auto& entry : object.values) {
         if (entry.key == key) {
@@ -659,6 +677,7 @@ bool isKnownNodeType(const std::string& type) {
         "cosCompensation",
         "voltageCompensation",
         "chargeDischarge",
+        "chargeDischargeCycleTest",
         "timedChargeDischarge",
         "photovoltaicCharge",
         "phaseBalance",
@@ -864,6 +883,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
                 runVoltageCompensation(node, nowMs, result);
             } else if (node.type == "chargeDischarge") {
                 runChargeDischarge(node, nowMs, result);
+            } else if (node.type == "chargeDischargeCycleTest") {
+                runChargeDischargeCycleTest(node, nowMs, result);
             } else if (node.type == "timedChargeDischarge") {
                 runTimedChargeDischarge(node, nowMs, result);
             } else if (node.type == "photovoltaicCharge") {
@@ -1094,6 +1115,14 @@ std::vector<std::uint32_t> GraphEmsEngine::stateOutputIndexes() const {
             add(paramIndex(node, "fdRunOutput", 16));
             add(paramIndex(node, "cdP3Output", 613));
             add(paramIndex(node, "fdP3Output", 614));
+            add(paramIndex(node, "phaseStateOutput", 0));
+        } else if (node.type == "chargeDischargeCycleTest") {
+            add(paramIndex(node, "paOutput", 615));
+            add(paramIndex(node, "pbOutput", 616));
+            add(paramIndex(node, "pcOutput", 617));
+            add(paramIndex(node, "p3Output", 618));
+            add(paramIndex(node, "runOutput", 18));
+            add(paramIndex(node, "phaseStateOutput", 0));
         } else if (node.type == "timedChargeDischarge") {
             add(paramIndex(node, "powerNowOutput", 461));
             add(paramIndex(node, "socNowOutput", 462));
@@ -1551,6 +1580,11 @@ bool GraphEmsEngine::runChargeDischarge(
     std::int64_t nowMs,
     GraphEmsRunResult& result
 ) {
+    const auto modeIt = node.params.find("mode");
+    if (modeIt != node.params.end() && modeIt->second == "dischargeThenCharge") {
+        return runSequentialChargeDischarge(node, nowMs, result);
+    }
+
     const auto bmsSoc = latestValue(paramIndex(node, "bmsSocIndex", 1570), nowMs);
     const auto cdTargetP = latestValue(paramIndex(node, "cdTargetPowerIndex", 451), nowMs);
     const auto cdTargetSoc = latestValue(paramIndex(node, "cdTargetSocIndex", 452), nowMs);
@@ -1596,6 +1630,174 @@ bool GraphEmsEngine::runChargeDischarge(
         {paramIndex(node, "fdP3Output", 614), outP3Fd}
     };
     for (const auto& output : outputs) {
+        const auto routed = set(output.first, output.second, nowMs);
+        if (routed.accepted) {
+            ++result.latestWrites;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
+bool GraphEmsEngine::runSequentialChargeDischarge(
+    const GraphEmsNodeConfig& node,
+    std::int64_t nowMs,
+    GraphEmsRunResult& result
+) {
+    const auto bmsSoc = latestValue(paramIndex(node, "bmsSocIndex", 1570), nowMs);
+    const auto cdTargetP = latestValue(paramIndex(node, "cdTargetPowerIndex", 451), nowMs);
+    const auto cdTargetSoc = latestValue(paramIndex(node, "cdTargetSocIndex", 452), nowMs);
+    const auto fdTargetP = latestValue(paramIndex(node, "fdTargetPowerIndex", 455), nowMs);
+    const auto fdTargetSoc = latestValue(paramIndex(node, "fdTargetSocIndex", 456), nowMs);
+    if (!bmsSoc || !cdTargetP || !cdTargetSoc || !fdTargetP || !fdTargetSoc) {
+        return false;
+    }
+
+    const auto phaseStateOutput = paramIndex(node, "phaseStateOutput", 0);
+    int phase = 1;
+    if (phaseStateOutput != 0) {
+        if (const auto savedPhase = latestValue(phaseStateOutput, nowMs)) {
+            phase = static_cast<int>(*savedPhase);
+        }
+    }
+    if (phase < 1 || phase > 3) {
+        phase = 1;
+    }
+
+    double outP3Cd = 0.0;
+    double outP3Fd = 0.0;
+    double cdRun = 0.0;
+    double fdRun = 0.0;
+
+    if (phase == 1) {
+        if (*bmsSoc <= *fdTargetSoc) {
+            phase = 2;
+        } else if (*fdTargetP != 0.0) {
+            fdRun = 1.0;
+            outP3Fd = -1.0 * std::abs(*fdTargetP);
+        }
+    }
+
+    if (phase == 2) {
+        if (*bmsSoc >= *cdTargetSoc) {
+            phase = 3;
+        } else if (*cdTargetP != 0.0) {
+            cdRun = 1.0;
+            outP3Cd = std::abs(*cdTargetP);
+        }
+    }
+
+    bool updated = false;
+    const std::pair<std::uint32_t, double> outputs[] = {
+        {paramIndex(node, "cdRunOutput", 14), cdRun},
+        {paramIndex(node, "fdRunOutput", 16), fdRun},
+        {paramIndex(node, "cdP3Output", 613), outP3Cd},
+        {paramIndex(node, "fdP3Output", 614), outP3Fd},
+        {phaseStateOutput, static_cast<double>(phase)}
+    };
+    for (const auto& output : outputs) {
+        if (output.first == 0) {
+            continue;
+        }
+        const auto routed = set(output.first, output.second, nowMs);
+        if (routed.accepted) {
+            ++result.latestWrites;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
+bool GraphEmsEngine::runChargeDischargeCycleTest(
+    const GraphEmsNodeConfig& node,
+    std::int64_t nowMs,
+    GraphEmsRunResult& result
+) {
+    const auto bmsSoc = latestValue(paramIndex(node, "bmsSocIndex", 1570), nowMs);
+    if (!bmsSoc) {
+        return false;
+    }
+
+    const auto latestParam = [&](std::uint32_t index) {
+        return latestValue(index, nowMs);
+    };
+    const auto dischargeDepth = paramOrLatestValue(
+        node,
+        "dischargeDepth",
+        "dischargeDepthIndex",
+        latestParam
+    );
+    const auto chargeDepth = paramOrLatestValue(
+        node,
+        "chargeDepth",
+        "chargeDepthIndex",
+        latestParam
+    );
+    if (!dischargeDepth || !chargeDepth) {
+        return false;
+    }
+
+    Optional<double> phasePowerA = paramOrLatestValue(node, "phasePowerA", "phasePowerAIndex", latestParam);
+    Optional<double> phasePowerB = paramOrLatestValue(node, "phasePowerB", "phasePowerBIndex", latestParam);
+    Optional<double> phasePowerC = paramOrLatestValue(node, "phasePowerC", "phasePowerCIndex", latestParam);
+    const auto totalPower = paramOrLatestValue(node, "totalPower", "totalPowerIndex", latestParam);
+    if (!phasePowerA || !phasePowerB || !phasePowerC) {
+        if (!totalPower) {
+            return false;
+        }
+        const double perPhase = std::abs(*totalPower) / 3.0;
+        phasePowerA = perPhase;
+        phasePowerB = perPhase;
+        phasePowerC = perPhase;
+    }
+
+    if (*chargeDepth <= *dischargeDepth) {
+        return false;
+    }
+
+    const auto phaseStateOutput = paramIndex(node, "phaseStateOutput", 0);
+    int phase = 1;
+    bool hasSavedPhase = false;
+    if (phaseStateOutput != 0) {
+        if (const auto savedPhase = latestValue(phaseStateOutput, nowMs)) {
+            phase = static_cast<int>(*savedPhase);
+            hasSavedPhase = true;
+        }
+    }
+    if (phase != 1 && phase != 2) {
+        hasSavedPhase = false;
+        phase = 1;
+    }
+    if (!hasSavedPhase && *bmsSoc <= *dischargeDepth) {
+        phase = 2;
+    }
+
+    if (phase == 1 && *bmsSoc <= *dischargeDepth) {
+        phase = 2;
+    } else if (phase == 2 && *bmsSoc >= *chargeDepth) {
+        phase = 1;
+    }
+
+    const bool charging = phase == 2;
+    const double sign = charging ? 1.0 : -1.0;
+    const double outPa = sign * std::abs(*phasePowerA);
+    const double outPb = sign * std::abs(*phasePowerB);
+    const double outPc = sign * std::abs(*phasePowerC);
+    const double outP3 = std::abs(outPa) + std::abs(outPb) + std::abs(outPc);
+
+    bool updated = false;
+    const std::pair<std::uint32_t, double> outputs[] = {
+        {paramIndex(node, "paOutput", 615), outPa},
+        {paramIndex(node, "pbOutput", 616), outPb},
+        {paramIndex(node, "pcOutput", 617), outPc},
+        {paramIndex(node, "p3Output", 618), outP3},
+        {paramIndex(node, "runOutput", 18), outP3 != 0.0 ? 1.0 : 0.0},
+        {phaseStateOutput, static_cast<double>(phase)}
+    };
+    for (const auto& output : outputs) {
+        if (output.first == 0) {
+            continue;
+        }
         const auto routed = set(output.first, output.second, nowMs);
         if (routed.accepted) {
             ++result.latestWrites;
@@ -1991,6 +2193,8 @@ bool GraphEmsEngine::runPcsPowerSolve(
     const auto fhPa = latestValue(paramIndex(node, "fhPaIndex", 309), nowMs);
     const auto fhPb = latestValue(paramIndex(node, "fhPbIndex", 310), nowMs);
     const auto fhPc = latestValue(paramIndex(node, "fhPcIndex", 311), nowMs);
+    const auto outP3Cd = latestValue(paramIndex(node, "outP3CdIndex", 613), nowMs);
+    const auto outP3Fd = latestValue(paramIndex(node, "outP3FdIndex", 614), nowMs);
     const auto outPaDs = latestValue(paramIndex(node, "outPaDsIndex", 615), nowMs);
     const auto outPbDs = latestValue(paramIndex(node, "outPbDsIndex", 616), nowMs);
     const auto outPcDs = latestValue(paramIndex(node, "outPcDsIndex", 617), nowMs);
@@ -2016,6 +2220,20 @@ bool GraphEmsEngine::runPcsPowerSolve(
     double pcsQaOut = outQaCos ? *outQaCos : 0.0;
     double pcsQbOut = outQbCos ? *outQbCos : 0.0;
     double pcsQcOut = outQcCos ? *outQcCos : 0.0;
+
+    const double cdFdP3 = (outP3Cd ? *outP3Cd : 0.0) + (outP3Fd ? *outP3Fd : 0.0);
+    if (cdFdP3 != 0.0) {
+        const double cdFdPhaseP = cdFdP3 / 3.0;
+        if (cdFdPhaseP > 0.0) {
+            pcsPaOut = std::max(pcsPaOut, cdFdPhaseP);
+            pcsPbOut = std::max(pcsPbOut, cdFdPhaseP);
+            pcsPcOut = std::max(pcsPcOut, cdFdPhaseP);
+        } else {
+            pcsPaOut = std::min(pcsPaOut, cdFdPhaseP);
+            pcsPbOut = std::min(pcsPbOut, cdFdPhaseP);
+            pcsPcOut = std::min(pcsPcOut, cdFdPhaseP);
+        }
+    }
 
     if (outPaLv && *outPaLv < 0.0) {
         pcsPaOut = std::min(pcsPaOut, *outPaLv);

@@ -207,6 +207,26 @@
       }
     },
     {
+      "id": "charge_discharge_test",
+      "type": "chargeDischargeCycleTest",
+      "enabled": false,
+      "name": "充放电测试",
+      "params": {
+        "bmsSocIndex": 1570,
+        "phasePowerA": 10.0,
+        "phasePowerB": 10.0,
+        "phasePowerC": 10.0,
+        "dischargeDepth": 20.0,
+        "chargeDepth": 95.0,
+        "paOutput": 615,
+        "pbOutput": 616,
+        "pcOutput": 617,
+        "p3Output": 618,
+        "runOutput": 18,
+        "phaseStateOutput": 17
+      }
+    },
+    {
       "id": "gf",
       "type": "photovoltaicCharge",
       "enabled": true,
@@ -364,6 +384,7 @@
     { "from": "lv_hv", "to": "power_solve" },
     { "from": "cd_fd", "to": "power_solve" },
     { "from": "ds", "to": "power_solve" },
+    { "from": "charge_discharge_test", "to": "power_solve" },
     { "from": "gf", "to": "power_solve" },
     { "from": "ph", "to": "power_solve" },
     { "from": "zr", "to": "power_solve" },

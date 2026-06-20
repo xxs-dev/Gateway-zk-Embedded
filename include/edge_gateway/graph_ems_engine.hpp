@@ -63,6 +63,12 @@ private:
     bool runCosCompensation(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runVoltageCompensation(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runChargeDischarge(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
+    bool runSequentialChargeDischarge(
+        const GraphEmsNodeConfig& node,
+        std::int64_t nowMs,
+        GraphEmsRunResult& result
+    );
+    bool runChargeDischargeCycleTest(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runTimedChargeDischarge(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPhotovoltaicCharge(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPhaseBalance(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);

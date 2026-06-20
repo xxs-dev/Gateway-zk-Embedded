@@ -415,6 +415,51 @@
           ]
         },
         {
+          "index": 17,
+          "pointCode": "ems_charge_discharge_cycle_phase",
+          "name": "充放电测试阶段",
+          "desc": "EMS 本体虚拟点 / 充放电测试阶段，1=放电，2=充电",
+          "category": "status",
+          "address": 17,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "charge_discharge_cycle_phase",
+          "legacyVarName": "EMS_CD_CYCLE_PHASE",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
           "index": 18,
           "pointCode": "ems_schedule_run",
           "name": "计划曲线运行",
