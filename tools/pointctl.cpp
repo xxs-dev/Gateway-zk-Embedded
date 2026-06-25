@@ -22,7 +22,7 @@ std::int64_t nowMs() {
 void printUsage() {
     std::cout
         << "Usage:\n"
-        << "  pointctl write --index <index> --value <value> [--cmd <cmdId>] [--source <source>] [--shm <name>|--app-config <path>]\n"
+        << "  pointctl write --index <index> --value <value> [--cmd <cmdId>] [--source <source>] [--high-priority] [--shm <name>|--app-config <path>]\n"
         << "  pointctl get --index <index> [--shm <name>|--app-config <path>]\n"
         << "  pointctl dump [--limit <n>] [--owners] [--shm <name>|--app-config <path>]\n"
         << "  pointctl stats [--shm <name>|--app-config <path>]\n"
@@ -148,6 +148,8 @@ int main(int argc, char* argv[]) {
                 cmd.value = std::stod(valueText);
                 cmd.source = getOption(args, "--source", "pointctl");
                 cmd.ts = nowMs();
+                cmd.acceptedAt = cmd.ts;
+                cmd.highPriority = hasOption(args, "--high-priority");
                 const auto result = context->router.submitWriteCommand(cmd);
                 if (!result.accepted) {
                     std::cout << "write rejected"
@@ -162,6 +164,7 @@ int main(int argc, char* argv[]) {
                           << " cmdId=" << cmd.cmdId
                           << " index=" << cmd.index
                           << " value=" << cmd.value
+                          << " highPriority=" << cmd.highPriority
                           << " interface=" << result.route.interfaceCode
                           << " shm=" << result.route.sharedMemoryName
                           << std::endl;
@@ -232,6 +235,7 @@ int main(int argc, char* argv[]) {
                               << " index=" << item.index
                               << " value=" << item.value
                               << " source=" << item.source
+                              << " highPriority=" << item.highPriority
                               << " ts=" << item.ts;
                     if (route) {
                         std::cout << " interface=" << route->interfaceCode
@@ -269,12 +273,15 @@ int main(int argc, char* argv[]) {
             cmd.value = std::stod(valueText);
             cmd.source = getOption(args, "--source", "pointctl");
             cmd.ts = nowMs();
+            cmd.acceptedAt = cmd.ts;
+            cmd.highPriority = hasOption(args, "--high-priority");
             store.submitWriteCommand(cmd);
 
             std::cout << "submitted write"
                       << " cmdId=" << cmd.cmdId
                       << " index=" << cmd.index
                       << " value=" << cmd.value
+                      << " highPriority=" << cmd.highPriority
                       << " shm=" << shmName
                       << std::endl;
             return 0;
@@ -315,6 +322,7 @@ int main(int argc, char* argv[]) {
                           << " index=" << item.index
                           << " value=" << item.value
                           << " source=" << item.source
+                          << " highPriority=" << item.highPriority
                           << " ts=" << item.ts
                           << std::endl;
             }
@@ -331,6 +339,7 @@ int main(int argc, char* argv[]) {
                           << " index=" << item.index
                           << " value=" << item.value
                           << " source=" << item.source
+                          << " highPriority=" << item.highPriority
                           << " ts=" << item.ts
                           << std::endl;
             }

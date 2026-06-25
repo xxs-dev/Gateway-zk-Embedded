@@ -50,7 +50,8 @@ public:
     void writeSingleCoil(int, int, bool) override {
     }
 
-    void writeSingleRegister(int, int, std::uint16_t) override {
+    void writeSingleRegister(int slave, int, std::uint16_t) override {
+        ++writesBySlave_[slave];
     }
 
     void writeMultipleRegisters(int, int, const std::vector<std::uint16_t>&) override {
@@ -61,6 +62,11 @@ public:
         return it == readsBySlave_.end() ? 0 : it->second;
     }
 
+    int writeCount(int slave) const {
+        const auto it = writesBySlave_.find(slave);
+        return it == writesBySlave_.end() ? 0 : it->second;
+    }
+
 private:
     std::vector<std::uint16_t> readRange(int slave, int, int count) {
         ++readsBySlave_[slave];
@@ -68,6 +74,7 @@ private:
     }
 
     std::map<int, int> readsBySlave_;
+    std::map<int, int> writesBySlave_;
 };
 
 edge_gateway::PointDefinition point(std::uint32_t index, const std::string& code, int address) {
@@ -86,6 +93,11 @@ edge_gateway::PointDefinition point(std::uint32_t index, const std::string& code
     item.read.intervalMs = 100;
     item.read.cachePolicy.storeLatest = true;
     item.read.cachePolicy.ttlMs = 600000;
+    item.write.enable = true;
+    item.write.function = 6;
+    item.write.address = address;
+    item.write.length = 1;
+    item.write.dataType = "uint16";
     return item;
 }
 
@@ -132,26 +144,69 @@ int main() {
     std::remove(leaseFile.c_str());
 
     try {
-        writeFile(
-            leaseFile,
-            "{\"machineCode\":\"GW_TEST\",\"updatedAtMs\":1000,\"expireAtMs\":60000,\"meterCodes\":[\"METER_2\"]}"
-        );
         auto deviceConfig = config(storeName);
-        edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
-        auto client = std::make_shared<FakeModbusClient>();
-        edge_gateway::GatewayDaemon daemon(deviceConfig, store, client, nullptr, nullptr, nullptr, leaseFile);
+        {
+            writeFile(
+                leaseFile,
+                "{\"machineCode\":\"GW_TEST\",\"updatedAtMs\":1000,\"expireAtMs\":60000,\"meterCodes\":[\"METER_2\"]}"
+            );
+            edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
+            auto client = std::make_shared<FakeModbusClient>();
+            edge_gateway::GatewayDaemon daemon(deviceConfig, store, client, nullptr, nullptr, nullptr, leaseFile);
 
-        daemon.collectOnce(1000);
+            daemon.collectOnce(1000);
 
-        require(client->readCount(1) == 0, "cursor meter should be deferred while realtime lease is active");
-        require(client->readCount(2) == 1, "realtime lease meter should be collected first");
+            require(client->readCount(1) == 0, "cursor meter should be deferred while realtime lease is active");
+            require(client->readCount(2) == 1, "realtime lease meter should be collected first");
+        }
+
+        const std::string priorityLeaseFile = "/tmp/gateway-daemon-priority-control.json";
+        std::remove(priorityLeaseFile.c_str());
+        deviceConfig.mqttDriver.priorityControlLeaseFile = priorityLeaseFile;
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+        edge_gateway::MemoryPointStore writeStore(deviceConfig.memoryStore);
+        auto writeClient = std::make_shared<FakeModbusClient>();
+        edge_gateway::GatewayDaemon writeDaemon(deviceConfig, writeStore, writeClient, nullptr, nullptr, nullptr, leaseFile);
+        edge_gateway::PriorityControlLease mqttLease(priorityLeaseFile, "mqtt-driver");
+        mqttLease.acquire("CMD_WRITE_1", "METER_1", 1001, 2000, 30000);
+
+        edge_gateway::PendingWriteCommand normalCommand;
+        normalCommand.cmdId = "CMD_NORMAL";
+        normalCommand.index = 1001;
+        normalCommand.value = 41;
+        normalCommand.source = "test";
+        normalCommand.ts = 1990;
+        normalCommand.acceptedAt = 1990;
+        writeStore.submitWriteCommand(normalCommand);
+
+        edge_gateway::PendingWriteCommand priorityCommand;
+        priorityCommand.cmdId = "CMD_WRITE_1";
+        priorityCommand.index = 1001;
+        priorityCommand.value = 42;
+        priorityCommand.source = "test";
+        priorityCommand.ts = 2000;
+        priorityCommand.acceptedAt = 2000;
+        priorityCommand.highPriority = true;
+        writeStore.submitWriteCommand(priorityCommand);
+
+        writeDaemon.processWritebackOnce(2001);
+
+        const auto priorityResult = writeStore.getWritebackResult("CMD_WRITE_1");
+        const auto normalResult = writeStore.getWritebackResult("CMD_NORMAL");
+        const auto pending = writeStore.peekPendingWriteCommands();
+        require(priorityResult && priorityResult->success, "priority control command should process while lease is active");
+        require(!normalResult, "normal write should not process while priority control lease is active");
+        require(pending.size() == 1 && pending.front().cmdId == "CMD_NORMAL", "normal write should remain pending");
+        require(writeClient->writeCount(1) == 1, "only priority writeback should execute while lease is active");
 
         std::remove(leaseFile.c_str());
+        std::remove(priorityLeaseFile.c_str());
         edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
         std::cout << "gateway_daemon_realtime_priority_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {
         std::remove(leaseFile.c_str());
+        std::remove("/tmp/gateway-daemon-priority-control.json");
         edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
         std::cerr << "gateway_daemon_realtime_priority_test failed: " << ex.what() << std::endl;
         return 1;

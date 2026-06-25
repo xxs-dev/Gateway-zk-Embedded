@@ -69,8 +69,8 @@ Options:
   --no-direct-maintenance         Disable SystemMonitor embedded direct maintenance API
   --direct-listen-host HOST       Maintenance API listen host; defaults to factory maintenance address
   --direct-listen-hosts HOSTS     Comma separated maintenance API listen hosts
-  --direct-allowed-cidr CIDR      Allowed maintenance client CIDR; defaults to factory maintenance CIDR
-  --direct-allowed-cidrs CIDRS    Comma separated allowed maintenance client CIDRs
+  --direct-allowed-cidr CIDR      Allowed maintenance client CIDR; default empty means allow all clients
+  --direct-allowed-cidrs CIDRS    Comma separated allowed maintenance client CIDRs; default empty means allow all clients
   -h, --help                      Show help
 
 Environment variables with the same meaning are also supported:
@@ -672,7 +672,7 @@ export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-$DEFAUL
 export INIT_START_SERVICES INIT_RUN_SMOKE INIT_RESET_SHM INIT_MQTT_CONNECT_TEST
 export INIT_DIRECT_MAINTENANCE_ENABLED="$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")"
 export INIT_DIRECT_LISTEN_HOSTS="$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")"
-export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}" "192.168.1.0/24")"
+export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")"
 
 tls_requested=0
 if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] || truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then

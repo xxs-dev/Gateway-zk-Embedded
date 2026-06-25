@@ -101,7 +101,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             config_.collect.batchOptimize
         );
         tasks = splitMixedPriorityTasks(tasks);
-        return expandBackedOffTasksBeforeBudget(tasks, nowMs);
+        return expandBackedOffTasksBeforeBudget(tasks, nowMs, realtimeFocused);
     };
     auto realtimeTasks = buildPlannedTasks(realtimePoints);
     auto backgroundTasks = buildPlannedTasks(backgroundPoints);
@@ -159,7 +159,8 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         plannedTasks = limitToMeterTaskBudget(
             plannedTasks,
             nowMs,
-            realtimeTaskBudget
+            realtimeTaskBudget,
+            realtimeFocused
         );
     } else {
         const auto realtimeTaskBudget = realtimeFocused
@@ -168,7 +169,8 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         auto selectedRealtimeTasks = limitToMeterTaskBudget(
             realtimeTasks,
             nowMs,
-            realtimeTaskBudget
+            realtimeTaskBudget,
+            realtimeFocused
         );
         plannedTasks.insert(
             plannedTasks.end(),
@@ -196,7 +198,8 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             auto selectedBackgroundTasks = limitToMeterTaskBudget(
                 backgroundTasks,
                 nowMs,
-                backgroundBudget
+                backgroundBudget,
+                realtimeFocused
             );
             if (!selectedBackgroundTasks.empty()) {
                 lastBackgroundTaskMs_ = nowMs;
@@ -274,7 +277,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     );
     std::function<bool(const ReadTask&, bool, int)> executeAdaptiveTask;
     executeAdaptiveTask = [&](const ReadTask& task, bool recordPointFailures, int depth) {
-        if (shouldSkipTaskForBackoff(task, nowMs)) {
+        if (shouldSkipTaskForBackoff(task, nowMs, realtimeFocused)) {
             if (canAdaptiveSplitTask(task) && depth < config_.collect.adaptiveSplitMaxDepth) {
                 const auto state = taskFailureStates_.find(taskBackoffKey(task));
                 const bool parentNoResponse = state != taskFailureStates_.end() && state->second.noResponse;
@@ -408,9 +411,19 @@ bool Collector::currentOnline() const {
     return online_;
 }
 
-bool Collector::shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowMs) const {
+bool Collector::shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowMs, bool realtimeFocused) const {
     const auto it = taskFailureStates_.find(taskBackoffKey(task));
-    return it != taskFailureStates_.end() && it->second.backoffUntilMs > nowMs;
+    if (it == taskFailureStates_.end()) {
+        return false;
+    }
+    if (!realtimeFocused) {
+        return it->second.backoffUntilMs > nowMs;
+    }
+    const auto realtimeBackoffMs = std::max(0, config_.collect.realtimeTaskFailureBackoffMs);
+    if (realtimeBackoffMs <= 0 || it->second.lastFailureMs <= 0) {
+        return false;
+    }
+    return nowMs - it->second.lastFailureMs < realtimeBackoffMs;
 }
 
 void Collector::noteTaskReadSuccess(const ReadTask& task) {
@@ -431,6 +444,7 @@ void Collector::noteTaskReadFailure(
     }
     auto& state = taskFailureStates_[taskBackoffKey(task)];
     ++state.consecutiveFailures;
+    state.lastFailureMs = nowMs;
     state.noResponse = isNoResponseError(message);
     state.lastMessage = std::string("modbus read task is in backoff function=") +
         std::to_string(task.function) +
@@ -595,7 +609,8 @@ std::vector<ReadTask> Collector::limitAdaptiveSplitLeafProbeTasks(
 
 std::vector<ReadTask> Collector::expandBackedOffTasksBeforeBudget(
     const std::vector<ReadTask>& tasks,
-    std::int64_t nowMs
+    std::int64_t nowMs,
+    bool realtimeFocused
 ) const {
     if (!config_.collect.adaptiveSplitOnFailure || tasks.empty()) {
         return tasks;
@@ -604,7 +619,7 @@ std::vector<ReadTask> Collector::expandBackedOffTasksBeforeBudget(
     std::vector<ReadTask> expanded;
     expanded.reserve(tasks.size());
     for (const auto& task : tasks) {
-        if (!shouldSkipTaskForBackoff(task, nowMs) || !canAdaptiveSplitTask(task)) {
+        if (!shouldSkipTaskForBackoff(task, nowMs, realtimeFocused) || !canAdaptiveSplitTask(task)) {
             expanded.push_back(task);
             continue;
         }
@@ -680,7 +695,8 @@ std::vector<ReadTask> Collector::limitToOfflineProbeTasks(const std::vector<Read
 std::vector<ReadTask> Collector::limitToMeterTaskBudget(
     const std::vector<ReadTask>& tasks,
     std::int64_t nowMs,
-    int maxTasksPerCycle
+    int maxTasksPerCycle,
+    bool realtimeFocused
 ) const {
     if (tasks.empty() || maxTasksPerCycle <= 0) {
         return {};
@@ -696,8 +712,8 @@ std::vector<ReadTask> Collector::limitToMeterTaskBudget(
     std::vector<std::size_t> order(tasks.size());
     std::iota(order.begin(), order.end(), 0);
     std::stable_sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs) {
-        const auto lhsBackedOff = shouldSkipTaskForBackoff(tasks[lhs], nowMs);
-        const auto rhsBackedOff = shouldSkipTaskForBackoff(tasks[rhs], nowMs);
+        const auto lhsBackedOff = shouldSkipTaskForBackoff(tasks[lhs], nowMs, realtimeFocused);
+        const auto rhsBackedOff = shouldSkipTaskForBackoff(tasks[rhs], nowMs, realtimeFocused);
         if (lhsBackedOff != rhsBackedOff) {
             return !lhsBackedOff && rhsBackedOff;
         }

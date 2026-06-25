@@ -25,6 +25,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/priority_control_lease.hpp"
 
 #ifndef _WIN32
 #include <arpa/inet.h>
@@ -478,6 +479,13 @@ std::string joinStrings(const std::vector<std::string>& values, const std::strin
     return out.str();
 }
 
+std::int64_t nonNegativeDuration(std::int64_t endMs, std::int64_t startMs) {
+    if (endMs <= 0 || startMs <= 0 || endMs < startMs) {
+        return 0;
+    }
+    return endMs - startMs;
+}
+
 std::vector<std::string> normalizeStringList(const std::vector<std::string>& values) {
     std::vector<std::string> normalized;
     for (auto value : values) {
@@ -533,6 +541,7 @@ struct DirectControlCommand {
     double value = 0.0;
     std::string source;
     std::int64_t ts = 0;
+    bool highPriority = false;
 };
 
 struct RealtimeContext {
@@ -541,6 +550,44 @@ struct RealtimeContext {
     std::vector<std::unique_ptr<edge_gateway::MemoryPointStore>> stores;
     edge_gateway::PointStoreRouter router;
 };
+
+edge_gateway::Optional<edge_gateway::WritebackResultRecord> waitForWritebackResult(
+    const edge_gateway::PointStoreRouter& router,
+    const edge_gateway::PointStoreRoute& route,
+    const std::string& cmdId,
+    int timeoutMs
+) {
+    const auto deadline = nowMs() + std::max(0, timeoutMs);
+    do {
+        auto result = router.getWritebackResult(route, cmdId);
+        if (result) {
+            return result;
+        }
+        if (timeoutMs <= 0 || nowMs() >= deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    } while (true);
+    return edge_gateway::NullOpt;
+}
+
+void appendControlTimingJson(
+    std::ostringstream& out,
+    const edge_gateway::WritebackResultRecord& result
+) {
+    out << ",\"stage\":\"" << jsonEscape(result.stage) << "\""
+        << ",\"requestedAt\":" << result.requestedAt
+        << ",\"acceptedAt\":" << result.acceptedAt
+        << ",\"writeStartedAt\":" << result.startedAt
+        << ",\"writeCompletedAt\":" << result.completedAt
+        << ",\"queueDelayMs\":" << result.queueDelayMs
+        << ",\"deviceWriteMs\":" << result.deviceWriteMs
+        << ",\"edgeElapsedMs\":" << result.edgeElapsedMs
+        << ",\"totalElapsedMs\":" << result.totalElapsedMs
+        << ",\"verifyAttempted\":" << (result.verifyAttempted ? "true" : "false")
+        << ",\"verifyPassed\":" << (result.verifyPassed ? "true" : "false")
+        << ",\"highPriority\":" << (result.highPriority ? "true" : "false");
+}
 
 std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirectMaintenanceConfig& config) {
     using namespace edge_gateway;
@@ -574,8 +621,16 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
 
     context->stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
-        context->stores.emplace_back(new MemoryPointStore(name));
-        context->router.addStore(name, *context->stores.back());
+        try {
+            context->stores.emplace_back(new MemoryPointStore(name));
+            context->router.addStore(name, *context->stores.back());
+        } catch (const std::exception& ex) {
+            std::cerr << "SystemMonitor direct maintenance skipped shared memory "
+                      << name
+                      << ": "
+                      << ex.what()
+                      << std::endl;
+        }
     }
     context->router.addRoutesFromDeviceConfigs(
         context->deviceConfigs,
@@ -1130,6 +1185,9 @@ std::vector<DirectControlCommand> parseBatchControlCommands(const std::string& b
         }
         command.source = jsonString(objectText, "source", "system-monitor-direct-maintenance");
         command.ts = static_cast<std::int64_t>(jsonUint64(objectText, "ts", static_cast<std::uint64_t>(nowMs())));
+        command.highPriority = jsonBool(objectText, "highPriority", false) ||
+            jsonBool(objectText, "priority", false) ||
+            jsonBool(objectText, "priorityControl", false);
         if (command.cmdId.empty()) {
             command.cmdId = "DIRECT_CTRL_" + std::to_string(nowMs()) + "_" + std::to_string(commands.size() + 1);
         }
@@ -1696,6 +1754,10 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
 
     const auto requestId = jsonString(body, "requestId", "CTRL_BATCH_" + std::to_string(requestTs));
     const auto commands = parseBatchControlCommands(body);
+    edge_gateway::PriorityControlLease priorityLease(
+        context->appConfig.mqttDriver.priorityControlLeaseFile,
+        "system-monitor-direct-maintenance"
+    );
     int accepted = 0;
     std::ostringstream results;
     results << "[";
@@ -1704,6 +1766,11 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
         bool success = false;
         std::string message;
         auto route = context->router.routeByIndex(item.index);
+        edge_gateway::Optional<edge_gateway::WritebackResultRecord> writeback = edge_gateway::NullOpt;
+        std::string stage = "rejected";
+        std::int64_t itemTs = nowMs();
+        std::int64_t requestedAt = item.ts > 0 ? item.ts : itemTs;
+        std::int64_t acceptedAt = 0;
         try {
             if (!route) {
                 throw std::runtime_error("command index not found");
@@ -1717,22 +1784,60 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
             if (!item.pointCode.empty() && item.pointCode != route->pointCode) {
                 throw std::runtime_error("pointCode mismatch");
             }
+            const auto activePriorityLease = priorityLease.activeLease(nowMs());
+            if (activePriorityLease && activePriorityLease->cmdId != item.cmdId) {
+                throw std::runtime_error("priority control in progress");
+            }
+
+            if (item.highPriority) {
+                priorityLease.acquire(
+                    item.cmdId,
+                    route->meterCode,
+                    item.index,
+                    nowMs(),
+                    context->appConfig.mqttDriver.priorityControlLeaseTtlMs
+                );
+            }
 
             edge_gateway::PendingWriteCommand command;
             command.cmdId = item.cmdId;
             command.index = item.index;
             command.value = item.value;
             command.source = item.source.empty() ? "system-monitor-direct-maintenance" : item.source;
-            command.ts = item.ts > 0 ? item.ts : nowMs();
+            command.ts = requestedAt;
+            command.acceptedAt = nowMs();
+            command.highPriority = item.highPriority;
+            acceptedAt = command.acceptedAt;
             const auto submitResult = context->router.submitWriteCommand(command);
             if (!submitResult.accepted) {
+                if (item.highPriority) {
+                    priorityLease.release(item.cmdId);
+                }
                 throw std::runtime_error(submitResult.message);
             }
 
             route = submitResult.route;
-            success = true;
-            message = "accepted";
-            ++accepted;
+            writeback = waitForWritebackResult(
+                context->router,
+                *route,
+                item.cmdId,
+                context->appConfig.mqttDriver.controlResultWaitTimeoutMs
+            );
+            if (writeback) {
+                success = writeback->success;
+                message = writeback->message.empty() ? (success ? "ok" : "writeback failed") : writeback->message;
+                stage = writeback->stage;
+                writeback->highPriority = item.highPriority;
+                itemTs = writeback->completedAt > 0 ? writeback->completedAt : nowMs();
+            } else {
+                itemTs = nowMs();
+                success = false;
+                message = "writeback result timeout";
+                stage = "writeback-timeout";
+            }
+            if (success) {
+                ++accepted;
+            }
         } catch (const std::exception& ex) {
             message = ex.what();
         }
@@ -1748,8 +1853,24 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
                 << ",\"value\":" << item.value
                 << ",\"success\":" << (success ? "true" : "false")
                 << ",\"message\":\"" << jsonEscape(message)
-                << "\",\"ts\":" << nowMs()
-                << "}";
+                << "\",\"ts\":" << itemTs;
+        if (writeback) {
+            appendControlTimingJson(results, *writeback);
+        } else {
+            results << ",\"stage\":\"" << jsonEscape(stage) << "\""
+                    << ",\"requestedAt\":" << requestedAt
+                    << ",\"acceptedAt\":" << acceptedAt
+                    << ",\"writeStartedAt\":0"
+                    << ",\"writeCompletedAt\":0"
+                    << ",\"queueDelayMs\":0"
+                    << ",\"deviceWriteMs\":0"
+                    << ",\"edgeElapsedMs\":" << nonNegativeDuration(itemTs, acceptedAt)
+                    << ",\"totalElapsedMs\":" << nonNegativeDuration(itemTs, requestedAt)
+                    << ",\"verifyAttempted\":false"
+                    << ",\"verifyPassed\":false"
+                    << ",\"highPriority\":" << (item.highPriority ? "true" : "false");
+        }
+        results << "}";
     }
     results << "]";
 
@@ -2166,16 +2287,9 @@ std::string sockaddrToString(const sockaddr_in& addr) {
     return buffer;
 }
 
-bool hasWildcardListenHost(const SystemMonitorDirectMaintenanceConfig& config) {
-    return std::find(config.listenHosts.begin(), config.listenHosts.end(), "0.0.0.0") != config.listenHosts.end();
-}
-
 void validateServerConfig(const SystemMonitorDirectMaintenanceConfig& config) {
     if (config.listenHosts.empty()) {
         throw std::runtime_error("listenHosts cannot be empty");
-    }
-    if (hasWildcardListenHost(config) && config.allowedClientCidrs.empty()) {
-        throw std::runtime_error("allowedClientCidrs is required when listenHosts contains 0.0.0.0");
     }
     for (const auto& cidr : config.allowedClientCidrs) {
         std::uint32_t network = 0;
@@ -2237,7 +2351,9 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
         std::cout << "SystemMonitor direct maintenance listening on " << host << ":"
                   << config.listenPort << std::endl;
     }
-    if (!config.allowedClientCidrs.empty()) {
+    if (config.allowedClientCidrs.empty()) {
+        std::cout << "SystemMonitor direct maintenance allowed clients: all" << std::endl;
+    } else {
         std::cout << "SystemMonitor direct maintenance allowed clients: "
                   << joinStrings(config.allowedClientCidrs, ",") << std::endl;
     }

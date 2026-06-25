@@ -1458,7 +1458,17 @@ void SystemMonitorService::runOnce(std::int64_t nowMs) {
 
 void SystemMonitorService::loop() {
     while (running_.load()) {
-        runOnce(currentTimeMs());
+        try {
+            runOnce(currentTimeMs());
+        } catch (const std::exception& ex) {
+            publishStatusEvent(
+                "run-once-failed",
+                currentTimeMs(),
+                std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
+            );
+        } catch (...) {
+            publishStatusEvent("run-once-failed", currentTimeMs(), R"("message":"unknown error")");
+        }
         const auto sleepMs = hasActiveLease(currentTimeMs())
             ? std::max(50, std::min(100, monitorConfig_.minIntervalMs / 5))
             : 500;

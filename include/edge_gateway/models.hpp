@@ -208,6 +208,28 @@ struct PendingWriteCommand {
     double value = 0.0;
     std::string source;
     std::int64_t ts = 0;
+    std::int64_t acceptedAt = 0;
+    bool highPriority = false;
+};
+
+struct WritebackResultRecord {
+    std::string cmdId;
+    std::uint32_t index = 0;
+    double value = 0.0;
+    bool success = false;
+    std::string message;
+    std::string stage = "writeback";
+    std::int64_t requestedAt = 0;
+    std::int64_t acceptedAt = 0;
+    std::int64_t startedAt = 0;
+    std::int64_t completedAt = 0;
+    std::int64_t queueDelayMs = 0;
+    std::int64_t deviceWriteMs = 0;
+    std::int64_t edgeElapsedMs = 0;
+    std::int64_t totalElapsedMs = 0;
+    bool verifyAttempted = false;
+    bool verifyPassed = false;
+    bool highPriority = false;
 };
 
 struct MqttCommandRequest {
@@ -219,6 +241,7 @@ struct MqttCommandRequest {
     double value = 0.0;
     std::string source = "mqtt";
     std::int64_t ts = 0;
+    bool highPriority = false;
 };
 
 struct MqttCommandReply {
@@ -227,9 +250,22 @@ struct MqttCommandReply {
     std::string meterCode;
     std::string pointCode;
     std::uint32_t index = 0;
+    double value = 0.0;
     bool success = false;
     std::string message;
+    std::string stage;
     std::int64_t ts = 0;
+    std::int64_t requestedAt = 0;
+    std::int64_t acceptedAt = 0;
+    std::int64_t writeStartedAt = 0;
+    std::int64_t writeCompletedAt = 0;
+    std::int64_t queueDelayMs = 0;
+    std::int64_t deviceWriteMs = 0;
+    std::int64_t edgeElapsedMs = 0;
+    std::int64_t totalElapsedMs = 0;
+    bool verifyAttempted = false;
+    bool verifyPassed = false;
+    bool highPriority = false;
 };
 
 struct OtaRequest {
@@ -550,6 +586,7 @@ struct MqttDriverConfig {
     int commandRateWindowMs = 10000;
     int commandRateMaxPerWindow = 20;
     int commandDedupTtlMs = 60000;
+    int controlResultWaitTimeoutMs = 5000;
 };
 
 struct AlarmStoreConfig {

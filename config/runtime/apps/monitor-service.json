@@ -168,9 +168,7 @@
         "192.168.1.250"
       ],
       "listenPort": 9443,
-      "allowedClientCidrs": [
-        "192.168.1.0/24"
-      ],
+      "allowedClientCidrs": [],
       "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
       "appConfigFile": "/opt/modbus-gateway/config/runtime/apps/monitor-service.json",
       "otaAppConfigFile": "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json",

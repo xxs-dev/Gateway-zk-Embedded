@@ -1,0 +1,62 @@
+{
+  "runtimeMode": "ems",
+  "identityConfigFile": "config/runtime/device_identity.json",
+  "deviceConfigFiles": [
+    "config/runtime/devices/device_ems_virtual.json",
+    "config/runtime/devices/device_slave_ttySP1.json",
+    "config/runtime/devices/device_slave_ttySP2.json"
+  ],
+  "mqtt": {
+    "clientId": "COMM202600102"
+  },
+  "mqttDriver": {
+    "sharedMemoryName": "gateway_point_store",
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ]
+  },
+  "localDisplay": {
+    "enabled": true,
+    "refreshIntervalMs": 1000,
+    "maxPointsPerFrame": 500,
+    "showOnlyConfiguredPoints": false,
+    "sharedMemoryNames": [
+      "gateway_point_store"
+    ],
+    "screens": [
+      {
+        "screenCode": "overview",
+        "title": "EMS 概览",
+        "widgets": [
+          {
+            "id": "ems_power",
+            "type": "pointTable",
+            "title": "EMS 关键点",
+            "bind": {
+              "indexes": [
+                1039,
+                1043,
+                1139,
+                1143,
+                1399,
+                1570,
+                627,
+                628,
+                629,
+                630,
+                631,
+                632,
+                1318,
+                1319,
+                1320,
+                1321,
+                1322,
+                1323
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

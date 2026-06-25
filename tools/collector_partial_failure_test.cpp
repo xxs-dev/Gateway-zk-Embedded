@@ -1036,6 +1036,38 @@ void verifyRealtimeFocusedUsesShortTaskBackoff() {
     cleanupStore(storeName);
 }
 
+void verifyRealtimeFocusedOverridesPreviousLongTaskBackoff() {
+    const std::string storeName = "gateway_collector_realtime_override_backoff_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.taskFailureBackoffThreshold = 1;
+        config.collect.taskFailureBackoffMs = 10000;
+        config.collect.taskFailureBackoffMaxMs = 10000;
+        config.collect.realtimeTaskFailureBackoffMs = 500;
+        config.collect.realtimeTaskFailureBackoffMaxMs = 500;
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(0, 123);
+        client->failStart(10);
+
+        edge_gateway::Collector collector(config, store, client);
+        auto collected = collector.collectOnce(12000, false);
+        require(collected.executedTasks.size() == 2, "normal cycle should try both tasks");
+        require(client->readCount(10) == 1, "normal cycle should record first failed read");
+
+        collected = collector.collectOnce(12600, true);
+        require(collected.executedTasks.size() == 2, "focused cycle should ignore stale normal backoff after realtime interval");
+        require(client->readCount(10) == 2, "focused cycle should retry failed task without waiting normal backoff");
+
+        collected = collector.collectOnce(12700, false);
+        require(collected.executedTasks.size() == 1, "normal cycle should still honor long backoff");
+        require(client->readCount(10) == 2, "normal cycle should not retry during long backoff");
+    }
+    cleanupStore(storeName);
+}
+
 void verifyOfflineProbeOnlyRotatesTasks() {
     const std::string storeName = "gateway_collector_offline_probe_test";
     cleanupStore(storeName);
@@ -1117,6 +1149,7 @@ int main() {
         verifyRealtimeFocusedRespectsSlowIntervalPoints();
         verifyFailedTaskBackoffExtendsAfterRepeatedFailures();
         verifyRealtimeFocusedUsesShortTaskBackoff();
+        verifyRealtimeFocusedOverridesPreviousLongTaskBackoff();
         verifyOfflineProbeOnlyRotatesTasks();
         std::cout << "collector_partial_failure_test passed" << std::endl;
         return 0;

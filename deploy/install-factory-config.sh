@@ -661,7 +661,7 @@ with open(path, "r", encoding="utf-8") as fh:
 monitor = root.setdefault("systemMonitor", {})
 direct = monitor.setdefault("directMaintenance", {})
 listen_hosts = split_list(listen_raw) or split_list(direct.get("listenHosts")) or [str(direct.get("listenHost") or "192.168.1.250")]
-allowed_cidrs = split_list(cidrs_raw) or split_list(direct.get("allowedClientCidrs")) or ["192.168.1.0/24"]
+allowed_cidrs = split_list(cidrs_raw)
 direct["enabled"] = str(enabled_raw or "").strip().lower() in ("1", "y", "yes", "true", "on")
 direct["listenHost"] = listen_hosts[0]
 direct["listenHosts"] = listen_hosts
@@ -775,7 +775,7 @@ DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTIN
 DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
 DEFAULT_DIRECT_MAINTENANCE_ENABLED=$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")
 DEFAULT_DIRECT_LISTEN_HOSTS=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
-DEFAULT_DIRECT_ALLOWED_CIDRS=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}" "192.168.1.0/24")
+DEFAULT_DIRECT_ALLOWED_CIDRS=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")
 DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
 
 INIT_RUNTIME_MODE_VALUE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")

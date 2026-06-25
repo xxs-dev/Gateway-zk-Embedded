@@ -1,6 +1,7 @@
 #include "edge_gateway/point_store_router.hpp"
 
 #include <algorithm>
+#include <iostream>
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
@@ -29,6 +30,16 @@ std::string defaultInterfaceType(const DeviceConfig& config) {
         return "serial";
     }
     return config.protocol.type;
+}
+
+void logStoreReadFailure(const std::string& operation, const std::string& sharedMemoryName, const std::exception& ex) {
+    std::cerr << "point store router skipped shared memory "
+              << sharedMemoryName
+              << " during "
+              << operation
+              << ": "
+              << ex.what()
+              << std::endl;
 }
 
 }  // namespace
@@ -169,7 +180,13 @@ Optional<StoredPointValue> PointStoreRouter::getLatestByIndex(std::uint32_t inde
     if (store == nullptr) {
         return NullOpt;
     }
-    auto value = store->getLatestByIndex(index, nowMs);
+    Optional<StoredPointValue> value;
+    try {
+        value = store->getLatestByIndex(index, nowMs);
+    } catch (const std::exception& ex) {
+        logStoreReadFailure("getLatestByIndex", route->sharedMemoryName, ex);
+        return NullOpt;
+    }
     if (!value) {
         return NullOpt;
     }
@@ -194,7 +211,13 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
         if (storeIt == stores_.end() || storeIt->second == nullptr) {
             continue;
         }
-        auto values = storeIt->second->getLatestByIndexes(entry.second, nowMs);
+        std::vector<StoredPointValue> values;
+        try {
+            values = storeIt->second->getLatestByIndexes(entry.second, nowMs);
+        } catch (const std::exception& ex) {
+            logStoreReadFailure("getLatestByIndexes", entry.first, ex);
+            continue;
+        }
         for (auto& value : values) {
             result.push_back(enrich(std::move(value)));
         }
@@ -291,7 +314,16 @@ CommandSubmitResult PointStoreRouter::putLatestByIndex(PointValue value) {
 std::vector<PendingWriteCommand> PointStoreRouter::peekPendingWrites(std::size_t limit) const {
     std::vector<PendingWriteCommand> result;
     for (const auto& entry : stores_) {
-        auto items = entry.second->peekPendingWriteCommands(limit);
+        if (entry.second == nullptr) {
+            continue;
+        }
+        std::vector<PendingWriteCommand> items;
+        try {
+            items = entry.second->peekPendingWriteCommands(limit);
+        } catch (const std::exception& ex) {
+            logStoreReadFailure("peekPendingWrites", entry.first, ex);
+            continue;
+        }
         result.insert(result.end(), items.begin(), items.end());
         if (limit > 0 && result.size() >= limit) {
             result.resize(limit);
@@ -301,11 +333,34 @@ std::vector<PendingWriteCommand> PointStoreRouter::peekPendingWrites(std::size_t
     return result;
 }
 
+Optional<WritebackResultRecord> PointStoreRouter::getWritebackResult(
+    const PointStoreRoute& route,
+    const std::string& cmdId
+) const {
+    auto* store = storeForRoute(route);
+    if (store == nullptr) {
+        return NullOpt;
+    }
+    try {
+        return store->getWritebackResult(cmdId);
+    } catch (const std::exception& ex) {
+        logStoreReadFailure("getWritebackResult", route.sharedMemoryName, ex);
+        return NullOpt;
+    }
+}
+
 std::vector<MemoryStoreStats> PointStoreRouter::getStoreStats() const {
     std::vector<MemoryStoreStats> result;
     result.reserve(stores_.size());
     for (const auto& entry : stores_) {
-        result.push_back(entry.second->getStats());
+        if (entry.second == nullptr) {
+            continue;
+        }
+        try {
+            result.push_back(entry.second->getStats());
+        } catch (const std::exception& ex) {
+            logStoreReadFailure("getStoreStats", entry.first, ex);
+        }
     }
     std::sort(result.begin(), result.end(), [](const MemoryStoreStats& lhs, const MemoryStoreStats& rhs) {
         return lhs.sharedMemoryName < rhs.sharedMemoryName;

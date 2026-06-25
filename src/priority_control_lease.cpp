@@ -86,6 +86,14 @@ std::int64_t extractInt64Field(const std::string& text, const char* key, std::in
     }
 }
 
+std::uint32_t extractUInt32Field(const std::string& text, const char* key, std::uint32_t fallback) {
+    const auto value = extractInt64Field(text, key, static_cast<std::int64_t>(fallback));
+    if (value < 0) {
+        return fallback;
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
 std::string extractStringField(const std::string& text, const char* key) {
     const std::string needle = std::string("\"") + key + "\"";
     auto pos = text.find(needle);
@@ -153,21 +161,36 @@ bool PriorityControlLease::enabled() const {
     return !path_.empty();
 }
 
-bool PriorityControlLease::isBlocked(std::int64_t nowMs, const std::string& owner) const {
+Optional<PriorityControlLeaseState> PriorityControlLease::activeLease(std::int64_t nowMs) const {
     if (!enabled()) {
-        return false;
+        return NullOpt;
     }
     const auto text = readTextFile(path_, 16 * 1024);
     if (text.empty()) {
-        return false;
+        return NullOpt;
     }
     const auto expireAtMs = extractInt64Field(text, "expireAtMs", 0);
     if (expireAtMs <= nowMs) {
+        return NullOpt;
+    }
+
+    PriorityControlLeaseState state;
+    state.owner = extractStringField(text, "owner");
+    state.cmdId = extractStringField(text, "cmdId");
+    state.meterCode = extractStringField(text, "meterCode");
+    state.index = extractUInt32Field(text, "index", 0);
+    state.createdAtMs = extractInt64Field(text, "createdAtMs", 0);
+    state.expireAtMs = expireAtMs;
+    return state;
+}
+
+bool PriorityControlLease::isBlocked(std::int64_t nowMs, const std::string& owner) const {
+    const auto lease = activeLease(nowMs);
+    if (!lease) {
         return false;
     }
-    const auto leaseOwner = extractStringField(text, "owner");
     const auto currentOwner = owner.empty() ? owner_ : owner;
-    return leaseOwner.empty() || leaseOwner != currentOwner;
+    return lease->owner.empty() || lease->owner != currentOwner;
 }
 
 void PriorityControlLease::acquire(

@@ -47,6 +47,53 @@ std::string escapeJson(const std::string& value) {
     return out;
 }
 
+void applyWritebackResultToReply(
+    MqttCommandReply& reply,
+    const WritebackResultRecord& result,
+    const PointStoreRoute& route
+) {
+    reply.success = result.success;
+    reply.message = result.message.empty() ? (result.success ? "ok" : "writeback failed") : result.message;
+    reply.stage = result.stage;
+    reply.machineCode = route.machineCode;
+    reply.meterCode = route.meterCode;
+    reply.pointCode = route.pointCode;
+    reply.index = result.index;
+    reply.value = result.value;
+    reply.requestedAt = result.requestedAt;
+    reply.acceptedAt = result.acceptedAt;
+    reply.writeStartedAt = result.startedAt;
+    reply.writeCompletedAt = result.completedAt;
+    reply.queueDelayMs = result.queueDelayMs;
+    reply.deviceWriteMs = result.deviceWriteMs;
+    reply.edgeElapsedMs = result.edgeElapsedMs;
+    reply.totalElapsedMs = result.totalElapsedMs;
+    reply.verifyAttempted = result.verifyAttempted;
+    reply.verifyPassed = result.verifyPassed;
+    reply.highPriority = result.highPriority;
+    reply.ts = result.completedAt > 0 ? result.completedAt : reply.ts;
+}
+
+Optional<WritebackResultRecord> waitForWritebackResult(
+    const PointStoreRouter& router,
+    const PointStoreRoute& route,
+    const std::string& cmdId,
+    int timeoutMs
+) {
+    const auto deadline = currentTimeMs() + std::max(0, timeoutMs);
+    do {
+        auto result = router.getWritebackResult(route, cmdId);
+        if (result) {
+            return result;
+        }
+        if (timeoutMs <= 0 || currentTimeMs() >= deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    } while (true);
+    return NullOpt;
+}
+
 class FlatJsonReader {
 public:
     explicit FlatJsonReader(const std::string& text) : text_(text) {
@@ -160,6 +207,46 @@ public:
         return true;
     }
 
+    bool tryGetBool(const char* key, bool* out) const {
+        const auto pos = findKey(key);
+        if (pos == std::string::npos) {
+            return false;
+        }
+        auto cursor = skipWhitespace(pos);
+        if (text_.compare(cursor, 4, "true") == 0) {
+            *out = true;
+            return true;
+        }
+        if (text_.compare(cursor, 5, "false") == 0) {
+            *out = false;
+            return true;
+        }
+        if (cursor < text_.size() && text_[cursor] == '"') {
+            std::string textValue;
+            if (!tryGetString(key, &textValue)) {
+                return false;
+            }
+            std::transform(textValue.begin(), textValue.end(), textValue.begin(), [](unsigned char ch) {
+                return static_cast<char>(std::tolower(ch));
+            });
+            if (textValue == "true" || textValue == "1" || textValue == "yes" || textValue == "high") {
+                *out = true;
+                return true;
+            }
+            if (textValue == "false" || textValue == "0" || textValue == "no" || textValue == "normal") {
+                *out = false;
+                return true;
+            }
+            return false;
+        }
+        double numericValue = 0.0;
+        if (tryGetDouble(key, &numericValue)) {
+            *out = numericValue != 0.0;
+            return true;
+        }
+        return false;
+    }
+
 private:
     std::size_t findKey(const char* key) const {
         const std::string needle = std::string("\"") + key + "\"";
@@ -204,6 +291,12 @@ MqttCommandRequest parseCommandRequest(const std::string& payload) {
         request.source = "mqtt";
     }
     json.tryGetInt64("ts", &request.ts);
+    bool highPriority = false;
+    if (json.tryGetBool("highPriority", &highPriority) ||
+        json.tryGetBool("priority", &highPriority) ||
+        json.tryGetBool("priorityControl", &highPriority)) {
+        request.highPriority = highPriority;
+    }
     return request;
 }
 
@@ -907,6 +1000,7 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         reply.meterCode = request.meterCode;
         reply.pointCode = request.pointCode;
         reply.index = request.index;
+        reply.highPriority = request.highPriority;
         if (request.machineCode.empty()) {
             throw std::invalid_argument("machineCode is required");
         }
@@ -929,48 +1023,91 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         if (!route.writable) {
             throw std::invalid_argument("point write is disabled");
         }
+        const auto activePriorityLease = priorityControlLease_.activeLease(nowMs);
+        if (activePriorityLease && activePriorityLease->cmdId != request.cmdId) {
+            throw std::invalid_argument("priority control in progress");
+        }
         if (!admitCommand(route.meterCode, request.cmdId, nowMs)) {
             throw std::invalid_argument("command rate limit exceeded or duplicate cmdId");
         }
-        priorityControlLease_.acquire(
-            request.cmdId,
-            route.meterCode,
-            request.index,
-            nowMs,
-            driverConfig_.priorityControlLeaseTtlMs
-        );
+        if (request.highPriority) {
+            priorityControlLease_.acquire(
+                request.cmdId,
+                route.meterCode,
+                request.index,
+                nowMs,
+                driverConfig_.priorityControlLeaseTtlMs
+            );
+        }
         PendingWriteCommand command;
         command.cmdId = request.cmdId;
         command.index = request.index;
         command.value = request.value;
         command.source = request.source;
         command.ts = request.ts > 0 ? request.ts : nowMs;
+        command.acceptedAt = nowMs;
+        command.highPriority = request.highPriority;
         const auto submitResult = router_.submitWriteCommand(command);
         if (!submitResult.accepted) {
-            priorityControlLease_.release(request.cmdId);
+            if (request.highPriority) {
+                priorityControlLease_.release(request.cmdId);
+            }
             throw std::invalid_argument(submitResult.message);
         }
 
-        reply.success = true;
-        reply.message = "accepted";
         reply.machineCode = route.machineCode;
         reply.meterCode = route.meterCode;
         reply.pointCode = route.pointCode;
+        reply.value = request.value;
+        reply.requestedAt = command.ts;
+        reply.acceptedAt = command.acceptedAt;
         std::cout << "mqtt command accepted"
                   << " cmdId=" << reply.cmdId
                   << " index=" << reply.index
                   << " device=" << reply.meterCode
+                  << " highPriority=" << request.highPriority
                   << std::endl;
         publishStatusEvent(
             "command-accepted",
             nowMs,
             std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
                 R"(","index":)" + std::to_string(reply.index) +
-                R"(,"meterCode":")" + escapeJson(reply.meterCode) + R"(")"
+                R"(,"meterCode":")" + escapeJson(reply.meterCode) +
+                R"(","highPriority":)" + (request.highPriority ? "true" : "false")
         );
+        const auto storeRoute = router_.routeByIndex(request.index);
+        const auto writeback = storeRoute
+            ? waitForWritebackResult(
+                router_,
+                *storeRoute,
+                request.cmdId,
+                driverConfig_.controlResultWaitTimeoutMs
+            )
+            : NullOpt;
+        if (writeback) {
+            applyWritebackResultToReply(reply, *writeback, *storeRoute);
+            reply.highPriority = request.highPriority;
+        } else {
+            const auto timedOutAt = currentTimeMs();
+            reply.success = false;
+            reply.message = "writeback result timeout";
+            reply.stage = "writeback-timeout";
+            reply.ts = timedOutAt;
+            reply.edgeElapsedMs = std::max<std::int64_t>(0, timedOutAt - command.acceptedAt);
+            reply.totalElapsedMs = reply.edgeElapsedMs;
+            publishStatusEvent(
+                "command-writeback-timeout",
+                timedOutAt,
+                std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
+                    R"(","index":)" + std::to_string(reply.index) +
+                    R"(,"meterCode":")" + escapeJson(reply.meterCode) +
+                    R"(","totalElapsedMs":)" + std::to_string(reply.totalElapsedMs)
+            );
+        }
     } catch (const std::exception& ex) {
         reply.success = false;
         reply.message = ex.what();
+        reply.stage = "rejected";
         std::cerr << "mqtt command rejected"
                   << " cmdId=" << reply.cmdId
                   << " index=" << reply.index

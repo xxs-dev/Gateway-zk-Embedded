@@ -59,6 +59,7 @@ public:
         const std::string&,
         const MqttCommandReply&
     ) override {
+        commandReplyCount += 1;
     }
 
     void publishOtaReply(
@@ -92,6 +93,7 @@ public:
     std::vector<std::size_t> onDemandCounts;
     std::vector<std::string> statusPayloads;
     std::vector<int> pollTimeouts;
+    int commandReplyCount = 0;
 };
 
 struct ServiceFixture {
@@ -275,11 +277,12 @@ void testRealtimeSessionStopRequest() {
     cleanupFixture(fixture);
 }
 
-void testCommandRequestCreatesPriorityControlLease() {
-    auto fixture = makeFixture("command_lease", 10000, true);
+void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
+    auto fixture = makeFixture("command_no_lease", 10000, true);
     fixture.service.reset();
-    fixture.driverConfig.priorityControlLeaseFile = "/tmp/mqtt_driver_service_command_lease.json";
+    fixture.driverConfig.priorityControlLeaseFile = "/tmp/mqtt_driver_service_command_no_lease.json";
     fixture.driverConfig.priorityControlLeaseTtlMs = 30000;
+    fixture.driverConfig.controlResultWaitTimeoutMs = 0;
     std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
     fixture.service.reset(new MqttDriverService(
         fixture.mqttConfig,
@@ -290,7 +293,36 @@ void testCommandRequestCreatesPriorityControlLease() {
     ));
 
     fixture.publisher->incoming.push_back(commandRequest(
-        "{\"cmdId\":\"CMD_LEASE\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7}"
+        "{\"cmdId\":\"CMD_NORMAL\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7}"
+    ));
+    fixture.service->runScanOnce(1770000040000LL);
+    const auto lease = readFile(fixture.driverConfig.priorityControlLeaseFile);
+    require(lease.empty(), "normal command should not create priority lease");
+
+    const auto pending = fixture.store->peekPendingWriteCommands();
+    require(pending.size() == 1, "normal command should enqueue pending write");
+    require(pending.front().cmdId == "CMD_NORMAL", "normal pending write cmdId mismatch");
+    require(!pending.front().highPriority, "normal pending write should not be high priority");
+    cleanupFixture(fixture);
+}
+
+void testHighPriorityCommandRequestCreatesPriorityControlLease() {
+    auto fixture = makeFixture("command_lease", 10000, true);
+    fixture.service.reset();
+    fixture.driverConfig.priorityControlLeaseFile = "/tmp/mqtt_driver_service_command_lease.json";
+    fixture.driverConfig.priorityControlLeaseTtlMs = 30000;
+    fixture.driverConfig.controlResultWaitTimeoutMs = 0;
+    std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"CMD_LEASE\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7,\"highPriority\":true}"
     ));
     fixture.service->runScanOnce(1770000040000LL);
     const auto lease = readFile(fixture.driverConfig.priorityControlLeaseFile);
@@ -300,6 +332,42 @@ void testCommandRequestCreatesPriorityControlLease() {
     const auto pending = fixture.store->peekPendingWriteCommands();
     require(pending.size() == 1, "command should enqueue pending write");
     require(pending.front().cmdId == "CMD_LEASE", "pending write cmdId mismatch");
+    require(pending.front().highPriority, "pending write should be marked high priority");
+    cleanupFixture(fixture);
+}
+
+void testCommandRequestRejectedDuringActivePriorityControl() {
+    auto fixture = makeFixture("command_blocked_by_priority", 10000, true);
+    fixture.service.reset();
+    fixture.driverConfig.priorityControlLeaseFile = "/tmp/mqtt_driver_service_command_blocked_by_priority.json";
+    fixture.driverConfig.priorityControlLeaseTtlMs = 30000;
+    fixture.driverConfig.controlResultWaitTimeoutMs = 0;
+    std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    PriorityControlLease lease(fixture.driverConfig.priorityControlLeaseFile, "mqtt-driver");
+    lease.acquire("CMD_PRIORITY_ACTIVE", "METER_1", 1001, 1770000050000LL, 30000);
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"CMD_NORMAL_BLOCKED\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":8}"
+    ));
+    fixture.service->runScanOnce(1770000050100LL);
+
+    const auto pending = fixture.store->peekPendingWriteCommands();
+    require(pending.empty(), "normal command should not enqueue during active priority control");
+    bool rejected = false;
+    for (const auto& payload : fixture.publisher->statusPayloads) {
+        if (payload.find("priority control in progress") != std::string::npos) {
+            rejected = true;
+        }
+    }
+    require(rejected, "normal command should be rejected while priority control is active");
+    require(fixture.publisher->commandReplyCount == 1, "blocked command should still publish a reply");
     cleanupFixture(fixture);
 }
 
@@ -311,7 +379,9 @@ int main() {
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
-        testCommandRequestCreatesPriorityControlLease();
+        testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
+        testHighPriorityCommandRequestCreatesPriorityControlLease();
+        testCommandRequestRejectedDuringActivePriorityControl();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

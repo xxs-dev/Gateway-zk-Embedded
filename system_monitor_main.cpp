@@ -1,6 +1,7 @@
 #include <chrono>
 #include <algorithm>
 #include <csignal>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -85,6 +86,31 @@ void setProcessName(const std::string& name) {
 #endif
 }
 
+void setDefaultSharedMutexTimeout() {
+#ifndef _WIN32
+    if (std::getenv("GATEWAY_SHARED_MUTEX_LOCK_TIMEOUT_SEC") == nullptr) {
+        setenv("GATEWAY_SHARED_MUTEX_LOCK_TIMEOUT_SEC", "2", 0);
+    }
+#endif
+}
+
+void addStoreIfAvailable(
+    const std::string& name,
+    edge_gateway::PointStoreRouter& router,
+    std::vector<std::unique_ptr<edge_gateway::MemoryPointStore>>& stores
+) {
+    try {
+        stores.emplace_back(new edge_gateway::MemoryPointStore(name));
+        router.addStore(name, *stores.back());
+    } catch (const std::exception& ex) {
+        std::cerr << "system monitor skipped shared memory "
+                  << name
+                  << " during startup: "
+                  << ex.what()
+                  << std::endl;
+    }
+}
+
 class StdoutMqttDriverPublisher : public edge_gateway::IMqttDriverPublisher {
 public:
     void publishFullSnapshot(const std::string&, const std::vector<edge_gateway::StoredPointValue>&, const std::string&) override {}
@@ -121,6 +147,7 @@ int main(int argc, char* argv[]) {
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     setProcessName("modbus-sysm-" + sanitizeProcessToken(basenameOf(appConfigPath)));
+    setDefaultSharedMutexTimeout();
 
     DeviceIdentity identity;
     if (!appConfig.identityConfigFile.empty()) {
@@ -146,8 +173,7 @@ int main(int argc, char* argv[]) {
     std::vector<std::unique_ptr<edge_gateway::MemoryPointStore>> stores;
     stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
-        stores.emplace_back(new edge_gateway::MemoryPointStore(name));
-        router.addStore(name, *stores.back());
+        addStoreIfAvailable(name, router, stores);
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
     const auto machineCode = !identity.machineCode.empty()

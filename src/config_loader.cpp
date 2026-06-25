@@ -1579,6 +1579,11 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         0,
         3600000
     );
+    config.controlResultWaitTimeoutMs = boundedInt(
+        requireInt(object, "controlResultWaitTimeoutMs", config.controlResultWaitTimeoutMs),
+        0,
+        60000
+    );
     return config;
 }
 

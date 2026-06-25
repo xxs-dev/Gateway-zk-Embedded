@@ -1,13 +1,17 @@
 #include "edge_gateway/system_monitor_service.hpp"
 
 #include <cstdlib>
+#include <cstdint>
+#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <map>
 #include <memory>
+#include <pthread.h>
 #include <stdexcept>
 #include <string>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <vector>
@@ -74,6 +78,62 @@ void ensureDir(const std::string& path) {
         throw std::runtime_error("failed to create test dir: " + path);
     }
 }
+
+struct TestSharedStoreHeader {
+    std::uint32_t magic = 0;
+    std::uint32_t version = 0;
+    pthread_mutex_t mutex{};
+};
+
+class LockedSharedStore {
+public:
+    explicit LockedSharedStore(const std::string& storeName) {
+        auto normalized = storeName;
+        if (!normalized.empty() && normalized.front() != '/') {
+            normalized.insert(normalized.begin(), '/');
+        }
+        fd_ = shm_open(normalized.c_str(), O_RDWR, 0600);
+        if (fd_ < 0) {
+            throw std::runtime_error("failed to open test shared memory");
+        }
+        view_ = mmap(nullptr, sizeof(TestSharedStoreHeader), PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
+        if (view_ == MAP_FAILED) {
+            close(fd_);
+            fd_ = -1;
+            throw std::runtime_error("failed to map test shared memory");
+        }
+        auto* header = static_cast<TestSharedStoreHeader*>(view_);
+        if (pthread_mutex_lock(&header->mutex) != 0) {
+            munmap(view_, sizeof(TestSharedStoreHeader));
+            close(fd_);
+            view_ = nullptr;
+            fd_ = -1;
+            throw std::runtime_error("failed to lock test shared memory");
+        }
+        mutex_ = &header->mutex;
+    }
+
+    ~LockedSharedStore() {
+        if (mutex_ != nullptr) {
+            pthread_mutex_unlock(mutex_);
+            mutex_ = nullptr;
+        }
+        if (view_ != nullptr) {
+            munmap(view_, sizeof(TestSharedStoreHeader));
+        }
+        if (fd_ >= 0) {
+            close(fd_);
+        }
+    }
+
+    LockedSharedStore(const LockedSharedStore&) = delete;
+    LockedSharedStore& operator=(const LockedSharedStore&) = delete;
+
+private:
+    int fd_ = -1;
+    void* view_ = nullptr;
+    pthread_mutex_t* mutex_ = nullptr;
+};
 
 int jsonIntField(const std::string& payload, const std::string& key) {
     const std::string marker = "\"" + key + "\":";
@@ -218,7 +278,7 @@ int main() {
     for (int i = 0; i < 4; ++i) {
         const std::string path = root + "/chunk_" + std::to_string(i) + ".json";
         removeFileIfExists(path);
-        writeFile(path, std::string(8 * 1024, static_cast<char>('a' + i)));
+        writeFile(path, std::string(256 * 1024, static_cast<char>('a' + i)));
         chunkFiles.push_back(path);
     }
     auto chunkPublisher = std::make_shared<CapturingPublisher>();
@@ -308,6 +368,33 @@ int main() {
     require(leaseFile.find("\"meterCodes\":[\"METER_1\"]") != std::string::npos, "filtered monitor lease should include requested meter only");
     require(leaseFile.find("\"METER_2\"") == std::string::npos, "filtered monitor lease should not include unrelated meters");
     require(leaseFile.find("\"expireAtMs\":1770000040000") != std::string::npos, "filtered monitor lease should include expiry");
+
+    const std::string lockedStoreName = "system_monitor_service_locked_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(lockedStoreName);
+    MemoryPointStore lockedStore(lockedStoreName);
+    PointStoreRouter tolerantRouter;
+    tolerantRouter.addStore(storeName, store);
+    tolerantRouter.addStore(lockedStoreName, lockedStore);
+    tolerantRouter.addRoute(route);
+    PointStoreRoute lockedRoute;
+    lockedRoute.index = 2001;
+    lockedRoute.machineCode = "GW_TEST";
+    lockedRoute.meterCode = "LOCKED_METER";
+    lockedRoute.pointCode = "LOCKED_POINT";
+    lockedRoute.sharedMemoryName = lockedStoreName;
+    tolerantRouter.addRoute(lockedRoute);
+    {
+        setenv("GATEWAY_SHARED_MUTEX_LOCK_TIMEOUT_SEC", "1", 1);
+        LockedSharedStore lockedSegment(lockedStoreName);
+        const auto values = tolerantRouter.getAllLatest(1770000011000LL);
+        require(values.size() == 1, "locked store should be skipped without failing the whole snapshot");
+        require(values.front().index == 1001, "snapshot should retain values from healthy stores");
+        require(tolerantRouter.getLatestByIndex(2001, 1770000011000LL) == NullOpt, "single locked index should return empty");
+        require(tolerantRouter.peekPendingWrites().empty(), "locked pending writes should be skipped");
+        require(tolerantRouter.getStoreStats().size() == 1, "locked stats store should be skipped");
+        unsetenv("GATEWAY_SHARED_MUTEX_LOCK_TIMEOUT_SEC");
+    }
+    MemoryPointStore::cleanupOrphanedSegment(lockedStoreName);
 
     SystemMonitorConfig diagConfig;
     diagConfig.maxDiagOutputBytes = 256;

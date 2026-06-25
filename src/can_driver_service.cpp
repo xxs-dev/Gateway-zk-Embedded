@@ -30,6 +30,17 @@ namespace edge_gateway {
 
 namespace {
 
+std::int64_t nonNegativeDuration(std::int64_t endMs, std::int64_t startMs) {
+    if (endMs <= 0 || startMs <= 0 || endMs < startMs) {
+        return 0;
+    }
+    return endMs - startMs;
+}
+
+std::int64_t edgeTotalElapsed(const WritebackResultRecord& result) {
+    return std::max(result.edgeElapsedMs, result.queueDelayMs + result.deviceWriteMs);
+}
+
 std::string escapeJson(const std::string& value) {
     std::string out;
     out.reserve(value.size() + 8);
@@ -398,11 +409,34 @@ std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
 }
 
 std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
-    const auto commands = store_.drainPendingWriteCommands(config_.memoryStore.writebackBatchSize);
+    const auto activeLease = priorityControlLease_.activeLease(nowMsValue);
+    const auto commands = activeLease
+        ? store_.drainPendingWriteCommandsByCmdId(activeLease->cmdId, config_.memoryStore.writebackBatchSize)
+        : store_.drainPendingWriteCommands(config_.memoryStore.writebackBatchSize);
     std::size_t processed = 0;
     for (const auto& command : commands) {
+        const auto startedAt = nowMs();
+        const auto acceptedAt = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
+        WritebackResultRecord writebackResult;
+        writebackResult.cmdId = command.cmdId;
+        writebackResult.index = command.index;
+        writebackResult.value = command.value;
+        writebackResult.highPriority = command.highPriority;
+        writebackResult.requestedAt = command.ts;
+        writebackResult.acceptedAt = acceptedAt;
+        writebackResult.startedAt = startedAt;
+        writebackResult.queueDelayMs = nonNegativeDuration(startedAt, acceptedAt);
         const auto pointIt = indexToRuntimePoint_.find(command.index);
         if (pointIt == indexToRuntimePoint_.end()) {
+            const auto completedAt = nowMs();
+            writebackResult.completedAt = completedAt;
+            writebackResult.success = false;
+            writebackResult.message = "unknown-index";
+            writebackResult.stage = "writeback-skipped";
+            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            store_.recordWritebackResult(writebackResult);
             priorityControlLease_.release(command.cmdId);
             continue;
         }
@@ -448,9 +482,27 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
             );
+            const auto completedAt = nowMs();
+            writebackResult.completedAt = completedAt;
+            writebackResult.success = true;
+            writebackResult.message = "ok";
+            writebackResult.stage = "writeback-succeeded";
+            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            store_.recordWritebackResult(writebackResult);
             priorityControlLease_.release(command.cmdId);
             ++processed;
         } catch (const std::exception& ex) {
+            const auto completedAt = nowMs();
+            writebackResult.completedAt = completedAt;
+            writebackResult.success = false;
+            writebackResult.message = ex.what();
+            writebackResult.stage = "writeback-failed";
+            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-failed",
                 nowMsValue,

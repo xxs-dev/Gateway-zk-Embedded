@@ -69,6 +69,7 @@ public:
     CommandSubmitResult submitWriteCommand(const PendingWriteCommand& command);
     CommandSubmitResult putLatestByIndex(PointValue value);
     std::vector<PendingWriteCommand> peekPendingWrites(std::size_t limit = 0) const;
+    Optional<WritebackResultRecord> getWritebackResult(const PointStoreRoute& route, const std::string& cmdId) const;
     std::vector<MemoryStoreStats> getStoreStats() const;
 
 private:

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstring>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <mutex>
 #include <set>
@@ -30,17 +31,29 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::uint32_t kSharedStoreMagic = 0x4D505354;  // MPST
-constexpr std::uint32_t kSharedStoreVersion = 6;
+constexpr std::uint32_t kSharedStoreVersion = 7;
 constexpr std::size_t kMaxLatestSlots = 100000;
 constexpr std::size_t kMaxPendingWriteSlots = 4096;
+constexpr std::size_t kMaxWritebackResultSlots = 4096;
 constexpr std::size_t kMaxPersistentSlots = 20000;
 constexpr std::size_t kMaxPointUpdateSlots = 65536;
 constexpr std::size_t kMaxOwnerSlots = 64;
 constexpr std::size_t kMaxClaimSlots = 100000;
 constexpr std::size_t kCmdIdSize = 64;
 constexpr std::size_t kSourceSize = 32;
+constexpr std::size_t kWritebackMessageSize = 128;
+constexpr std::size_t kWritebackStageSize = 32;
 constexpr std::int64_t kOwnerLeaseMs = 30000;
 constexpr int kSharedMutexLockTimeoutSec = 30;
+
+int sharedMutexLockTimeoutSec() {
+    const char* raw = std::getenv("GATEWAY_SHARED_MUTEX_LOCK_TIMEOUT_SEC");
+    if (raw == nullptr || *raw == '\0') {
+        return kSharedMutexLockTimeoutSec;
+    }
+    const auto parsed = std::atoi(raw);
+    return parsed > 0 ? parsed : kSharedMutexLockTimeoutSec;
+}
 
 struct SharedLatestSlot {
     std::uint32_t index = 0;
@@ -58,10 +71,33 @@ struct SharedPendingWriteSlot {
     std::uint32_t index = 0;
     double value = 0.0;
     std::int64_t ts = 0;
+    std::int64_t acceptedAt = 0;
     char cmdId[kCmdIdSize] = {};
     char source[kSourceSize] = {};
     std::uint8_t occupied = 0;
-    std::uint8_t reserved[7] = {};
+    std::uint8_t highPriority = 0;
+    std::uint8_t reserved[6] = {};
+};
+
+struct SharedWritebackResultSlot {
+    std::uint64_t sequence = 0;
+    std::uint32_t index = 0;
+    double value = 0.0;
+    std::int64_t requestedAt = 0;
+    std::int64_t acceptedAt = 0;
+    std::int64_t startedAt = 0;
+    std::int64_t completedAt = 0;
+    std::int64_t queueDelayMs = 0;
+    std::int64_t deviceWriteMs = 0;
+    std::int64_t edgeElapsedMs = 0;
+    std::int64_t totalElapsedMs = 0;
+    char cmdId[kCmdIdSize] = {};
+    char message[kWritebackMessageSize] = {};
+    char stage[kWritebackStageSize] = {};
+    std::uint8_t success = 0;
+    std::uint8_t verifyAttempted = 0;
+    std::uint8_t verifyPassed = 0;
+    std::uint8_t occupied = 0;
 };
 
 struct SharedPersistentSlot {
@@ -106,11 +142,14 @@ struct SharedStoreHeader {
     std::uint32_t version = 0;
     pthread_mutex_t mutex{};
     std::uint64_t writeSequence = 0;
+    std::uint64_t writebackResultSequence = 0;
     std::uint64_t persistentSequence = 0;
     std::uint64_t pointUpdateSequence = 0;
     std::uint32_t latestCount = 0;
     std::uint32_t pendingWriteHead = 0;
     std::uint32_t pendingWriteTail = 0;
+    std::uint32_t writebackResultHead = 0;
+    std::uint32_t writebackResultTail = 0;
     std::uint32_t persistentHead = 0;
     std::uint32_t persistentTail = 0;
     std::uint32_t pointUpdateHead = 0;
@@ -121,11 +160,14 @@ struct SharedStoreHeader {
     std::uint32_t magic = 0;
     std::uint32_t version = 0;
     std::uint64_t writeSequence = 0;
+    std::uint64_t writebackResultSequence = 0;
     std::uint64_t persistentSequence = 0;
     std::uint64_t pointUpdateSequence = 0;
     std::uint32_t latestCount = 0;
     std::uint32_t pendingWriteHead = 0;
     std::uint32_t pendingWriteTail = 0;
+    std::uint32_t writebackResultHead = 0;
+    std::uint32_t writebackResultTail = 0;
     std::uint32_t persistentHead = 0;
     std::uint32_t persistentTail = 0;
     std::uint32_t pointUpdateHead = 0;
@@ -137,6 +179,7 @@ struct SharedStoreLayout {
     SharedStoreHeader header{};
     SharedLatestSlot latest[kMaxLatestSlots];
     SharedPendingWriteSlot pendingWrites[kMaxPendingWriteSlots];
+    SharedWritebackResultSlot writebackResults[kMaxWritebackResultSlots];
     SharedPersistentSlot persistent[kMaxPersistentSlots];
     SharedPointUpdateSlot pointUpdates[kMaxPointUpdateSlots];
     SharedOwnerSlot owners[kMaxOwnerSlots];
@@ -165,7 +208,7 @@ public:
     explicit SharedLockGuard(pthread_mutex_t* mutex) : mutex_(mutex) {
         timespec deadline{};
         clock_gettime(CLOCK_REALTIME, &deadline);
-        deadline.tv_sec += kSharedMutexLockTimeoutSec;
+        deadline.tv_sec += sharedMutexLockTimeoutSec();
 
         const auto rc = pthread_mutex_timedlock(mutex_, &deadline);
         if (rc == EOWNERDEAD) {
@@ -422,9 +465,11 @@ void pushPendingWrite(
     slot.index = command.index;
     slot.value = command.value;
     slot.ts = command.ts;
+    slot.acceptedAt = command.acceptedAt;
     copyString(slot.cmdId, kCmdIdSize, command.cmdId);
     copyString(slot.source, kSourceSize, command.source);
     slot.occupied = 1;
+    slot.highPriority = command.highPriority ? 1 : 0;
 
     layout->header.pendingWriteTail =
         (layout->header.pendingWriteTail + 1) % kMaxPendingWriteSlots;
@@ -433,7 +478,8 @@ void pushPendingWrite(
 std::vector<PendingWriteCommand> drainPendingWrites(
     SharedStoreLayout* layout,
     std::size_t limit,
-    const std::set<std::uint32_t>* allowedIndexes
+    const std::set<std::uint32_t>* allowedIndexes,
+    const std::string* requiredCmdId
 ) {
     std::vector<PendingWriteCommand> result;
     std::vector<SharedPendingWriteSlot> retained;
@@ -445,14 +491,20 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                 allowedIndexes == nullptr ||
                 allowedIndexes->empty() ||
                 allowedIndexes->find(slot.index) != allowedIndexes->end();
+            const auto slotCmdId = readString(slot.cmdId, kCmdIdSize);
+            const bool requiredCommand =
+                requiredCmdId == nullptr ||
+                (!requiredCmdId->empty() && slotCmdId == *requiredCmdId && slot.highPriority != 0);
             const bool underLimit = limit == 0 || result.size() < limit;
-            if (allowed && underLimit) {
+            if (allowed && requiredCommand && underLimit) {
                 result.push_back(PendingWriteCommand{
-                    readString(slot.cmdId, kCmdIdSize),
+                    slotCmdId,
                     slot.index,
                     slot.value,
                     readString(slot.source, kSourceSize),
-                    slot.ts
+                    slot.ts,
+                    slot.acceptedAt,
+                    slot.highPriority != 0
                 });
             } else {
                 retained.push_back(slot);
@@ -489,12 +541,80 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 slot.index,
                 slot.value,
                 readString(slot.source, kSourceSize),
-                slot.ts
+                slot.ts,
+                slot.acceptedAt,
+                slot.highPriority != 0
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;
     }
     return result;
+}
+
+void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord& result) {
+    auto& slot = layout->writebackResults[layout->header.writebackResultTail];
+    slot = SharedWritebackResultSlot{};
+    slot.sequence = ++layout->header.writebackResultSequence;
+    slot.index = result.index;
+    slot.value = result.value;
+    slot.requestedAt = result.requestedAt;
+    slot.acceptedAt = result.acceptedAt;
+    slot.startedAt = result.startedAt;
+    slot.completedAt = result.completedAt;
+    slot.queueDelayMs = result.queueDelayMs;
+    slot.deviceWriteMs = result.deviceWriteMs;
+    slot.edgeElapsedMs = result.edgeElapsedMs;
+    slot.totalElapsedMs = result.totalElapsedMs;
+    copyString(slot.cmdId, kCmdIdSize, result.cmdId);
+    copyString(slot.message, kWritebackMessageSize, result.message);
+    copyString(slot.stage, kWritebackStageSize, result.stage);
+    slot.success = result.success ? 1 : 0;
+    slot.verifyAttempted = result.verifyAttempted ? 1 : 0;
+    slot.verifyPassed = result.verifyPassed ? 1 : 0;
+    slot.occupied = 1;
+
+    layout->header.writebackResultTail =
+        (layout->header.writebackResultTail + 1) % kMaxWritebackResultSlots;
+    if (layout->header.writebackResultTail == layout->header.writebackResultHead) {
+        layout->header.writebackResultHead =
+            (layout->header.writebackResultHead + 1) % kMaxWritebackResultSlots;
+    }
+}
+
+Optional<WritebackResultRecord> findWritebackResult(
+    const SharedStoreLayout* layout,
+    const std::string& cmdId
+) {
+    if (cmdId.empty()) {
+        return NullOpt;
+    }
+    auto head = layout->header.writebackResultHead;
+    Optional<WritebackResultRecord> found = NullOpt;
+    while (head != layout->header.writebackResultTail) {
+        const auto& slot = layout->writebackResults[head];
+        if (slot.occupied && readString(slot.cmdId, kCmdIdSize) == cmdId) {
+            WritebackResultRecord result;
+            result.cmdId = readString(slot.cmdId, kCmdIdSize);
+            result.index = slot.index;
+            result.value = slot.value;
+            result.success = slot.success != 0;
+            result.message = readString(slot.message, kWritebackMessageSize);
+            result.stage = readString(slot.stage, kWritebackStageSize);
+            result.requestedAt = slot.requestedAt;
+            result.acceptedAt = slot.acceptedAt;
+            result.startedAt = slot.startedAt;
+            result.completedAt = slot.completedAt;
+            result.queueDelayMs = slot.queueDelayMs;
+            result.deviceWriteMs = slot.deviceWriteMs;
+            result.edgeElapsedMs = slot.edgeElapsedMs;
+            result.totalElapsedMs = slot.totalElapsedMs;
+            result.verifyAttempted = slot.verifyAttempted != 0;
+            result.verifyPassed = slot.verifyPassed != 0;
+            found = result;
+        }
+        head = (head + 1) % kMaxWritebackResultSlots;
+    }
+    return found;
 }
 
 std::uint64_t pushPersistentSample(
@@ -1463,7 +1583,30 @@ std::vector<PendingWriteCommand> MemoryPointStore::drainPendingWriteCommands(std
     SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
     auto* layout2 = layoutFrom(sharedView_);
-    return drainPendingWrites(layout2, limit, registeredIndexes.empty() ? nullptr : &registeredIndexes);
+    return drainPendingWrites(layout2, limit, registeredIndexes.empty() ? nullptr : &registeredIndexes, nullptr);
+}
+
+std::vector<PendingWriteCommand> MemoryPointStore::drainPendingWriteCommandsByCmdId(
+    const std::string& cmdId,
+    std::size_t limit
+) {
+    if (cmdId.empty()) {
+        return {};
+    }
+
+    ensureCurrentMapping();
+    std::set<std::uint32_t> registeredIndexes;
+    ReadLock lock(mutex_);
+    registeredIndexes = registeredIndexes_;
+
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    auto* layout2 = layoutFrom(sharedView_);
+    return drainPendingWrites(layout2, limit, registeredIndexes.empty() ? nullptr : &registeredIndexes, &cmdId);
 }
 
 std::vector<PendingWriteCommand> MemoryPointStore::peekPendingWriteCommands(std::size_t limit) const {
@@ -1477,6 +1620,40 @@ std::vector<PendingWriteCommand> MemoryPointStore::peekPendingWriteCommands(std:
 #endif
     const auto* layout2 = layoutFrom(sharedView_);
     return peekPendingWrites(layout2, limit);
+}
+
+void MemoryPointStore::recordWritebackResult(const WritebackResultRecord& result) {
+    if (result.cmdId.empty()) {
+        return;
+    }
+
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    auto* layout2 = layoutFrom(sharedView_);
+    pushWritebackResult(layout2, result);
+}
+
+Optional<WritebackResultRecord> MemoryPointStore::getWritebackResult(const std::string& cmdId) const {
+    if (cmdId.empty()) {
+        return NullOpt;
+    }
+
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    const auto* layout2 = layoutFrom(sharedView_);
+    return findWritebackResult(layout2, cmdId);
 }
 
 MemoryStoreStats MemoryPointStore::getStats() const {

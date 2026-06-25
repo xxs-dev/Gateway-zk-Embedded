@@ -247,8 +247,21 @@ std::string encodeCommandReplyJson(const MqttCommandReply& reply) {
         << ",\"meterCode\":\"" << escapeJson(reply.meterCode) << "\""
         << ",\"pointCode\":\"" << escapeJson(reply.pointCode) << "\""
         << ",\"index\":" << reply.index
+        << ",\"value\":" << reply.value
         << ",\"success\":" << (reply.success ? "true" : "false")
         << ",\"message\":\"" << escapeJson(reply.message) << "\""
+        << ",\"stage\":\"" << escapeJson(reply.stage) << "\""
+        << ",\"requestedAt\":" << reply.requestedAt
+        << ",\"acceptedAt\":" << reply.acceptedAt
+        << ",\"writeStartedAt\":" << reply.writeStartedAt
+        << ",\"writeCompletedAt\":" << reply.writeCompletedAt
+        << ",\"queueDelayMs\":" << reply.queueDelayMs
+        << ",\"deviceWriteMs\":" << reply.deviceWriteMs
+        << ",\"edgeElapsedMs\":" << reply.edgeElapsedMs
+        << ",\"totalElapsedMs\":" << reply.totalElapsedMs
+        << ",\"verifyAttempted\":" << (reply.verifyAttempted ? "true" : "false")
+        << ",\"verifyPassed\":" << (reply.verifyPassed ? "true" : "false")
+        << ",\"highPriority\":" << (reply.highPriority ? "true" : "false")
         << ",\"ts\":" << reply.ts
         << "}";
     return out.str();

@@ -28,7 +28,7 @@ private:
     void noteReadSuccess(std::int64_t nowMs);
     void noteReadFailure(std::int64_t nowMs);
     bool currentOnline() const;
-    bool shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowMs) const;
+    bool shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowMs, bool realtimeFocused = false) const;
     void noteTaskReadSuccess(const ReadTask& task);
     void noteTaskReadFailure(
         const ReadTask& task,
@@ -51,14 +51,16 @@ private:
     ) const;
     std::vector<ReadTask> expandBackedOffTasksBeforeBudget(
         const std::vector<ReadTask>& tasks,
-        std::int64_t nowMs
+        std::int64_t nowMs,
+        bool realtimeFocused
     ) const;
     std::vector<ReadTask> splitMixedPriorityTasks(const std::vector<ReadTask>& tasks) const;
     std::vector<ReadTask> limitToOfflineProbeTasks(const std::vector<ReadTask>& tasks) const;
     std::vector<ReadTask> limitToMeterTaskBudget(
         const std::vector<ReadTask>& tasks,
         std::int64_t nowMs,
-        int maxTasksPerCycle
+        int maxTasksPerCycle,
+        bool realtimeFocused = false
     ) const;
     std::int64_t taskOldestValueUpdateMs(const ReadTask& task) const;
     int pointPriority(const PointDefinition& point) const;
@@ -74,6 +76,7 @@ private:
     struct TaskFailureState {
         int consecutiveFailures = 0;
         std::int64_t backoffUntilMs = 0;
+        std::int64_t lastFailureMs = 0;
         std::string lastMessage;
         bool noResponse = false;
     };

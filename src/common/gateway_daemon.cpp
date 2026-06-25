@@ -39,6 +39,17 @@ std::int64_t nowMs() {
     ).count();
 }
 
+std::int64_t nonNegativeDuration(std::int64_t endMs, std::int64_t startMs) {
+    if (endMs <= 0 || startMs <= 0 || endMs < startMs) {
+        return 0;
+    }
+    return endMs - startMs;
+}
+
+std::int64_t edgeTotalElapsed(const WritebackResultRecord& result) {
+    return std::max(result.edgeElapsedMs, result.queueDelayMs + result.deviceWriteMs);
+}
+
 void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
     int remaining = std::max(0, intervalMs);
     while (running.load() && remaining > 0) {
@@ -345,12 +356,35 @@ std::size_t GatewayDaemon::flushPersistentOnce() {
 }
 
 std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
-    const auto commands = store_.drainPendingWriteCommands(config_.memoryStore.writebackBatchSize);
+    const auto activeLease = priorityControlLease_.activeLease(nowMsValue);
+    const auto commands = activeLease
+        ? store_.drainPendingWriteCommandsByCmdId(activeLease->cmdId, config_.memoryStore.writebackBatchSize)
+        : store_.drainPendingWriteCommands(config_.memoryStore.writebackBatchSize);
     std::size_t processed = 0;
     for (const auto& command : commands) {
+        const auto startedAt = nowMs();
+        const auto acceptedAt = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
+        WritebackResultRecord writebackResult;
+        writebackResult.cmdId = command.cmdId;
+        writebackResult.index = command.index;
+        writebackResult.value = command.value;
+        writebackResult.highPriority = command.highPriority;
+        writebackResult.requestedAt = command.ts;
+        writebackResult.acceptedAt = acceptedAt;
+        writebackResult.startedAt = startedAt;
+        writebackResult.queueDelayMs = nonNegativeDuration(startedAt, acceptedAt);
         const auto it = indexToRuntimeDevice_.find(command.index);
         if (it == indexToRuntimeDevice_.end()) {
             std::cerr << "writeback skipped index=" << command.index << " reason=unknown-index" << std::endl;
+            const auto completedAt = nowMs();
+            writebackResult.completedAt = completedAt;
+            writebackResult.success = false;
+            writebackResult.message = "unknown-index";
+            writebackResult.stage = "writeback-skipped";
+            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-skipped",
                 nowMsValue,
@@ -369,6 +403,17 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             );
             const auto& runtimeDevice = runtimeDevices_[it->second];
             if (!result.success) {
+                const auto completedAt = nowMs();
+                writebackResult.completedAt = completedAt;
+                writebackResult.success = false;
+                writebackResult.message = result.message;
+                writebackResult.stage = "writeback-failed";
+                writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+                writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+                writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+                writebackResult.verifyAttempted = result.verifyAttempted;
+                writebackResult.verifyPassed = result.verifyPassed;
+                store_.recordWritebackResult(writebackResult);
                 std::cerr << "writeback failed"
                           << " device=" << runtimeDevice.config.meterCode
                           << " slave=" << runtimeDevice.config.protocol.slave
@@ -387,15 +432,38 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             }
             ++processed;
             priorityControlLease_.release(command.cmdId);
+            const auto completedAt = nowMs();
+            writebackResult.completedAt = completedAt;
+            writebackResult.success = true;
+            writebackResult.message = result.message.empty() ? "ok" : result.message;
+            writebackResult.stage = "writeback-succeeded";
+            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            writebackResult.verifyAttempted = result.verifyAttempted;
+            writebackResult.verifyPassed = result.verifyPassed;
+            store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-succeeded",
                 nowMsValue,
                 std::string(R"("meterCode":")") + runtimeDevice.config.meterCode +
                     R"(","index":)" + std::to_string(command.index) +
-                    R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) +
+                    R"(","queueDelayMs":)" + std::to_string(writebackResult.queueDelayMs) +
+                    R"(,"deviceWriteMs":)" + std::to_string(writebackResult.deviceWriteMs) +
+                    R"(,"totalElapsedMs":)" + std::to_string(writebackResult.totalElapsedMs)
             );
         } catch (const std::exception& ex) {
             const auto& runtimeDevice = runtimeDevices_[it->second];
+            const auto completedAt = nowMs();
+            writebackResult.completedAt = completedAt;
+            writebackResult.success = false;
+            writebackResult.message = ex.what();
+            writebackResult.stage = "writeback-failed";
+            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
+            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
+            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            store_.recordWritebackResult(writebackResult);
             std::cerr << "writeback failed"
                       << " device=" << runtimeDevice.config.meterCode
                       << " slave=" << runtimeDevice.config.protocol.slave
@@ -537,9 +605,7 @@ void GatewayDaemon::writebackLoop() {
     while (running_.load()) {
         try {
             const auto ts = nowMs();
-            if (!priorityControlBlocked(ts)) {
-                processWritebackOnce(ts);
-            }
+            processWritebackOnce(ts);
         } catch (...) {
         }
         const auto remaining = static_cast<int>(nextDeadline - nowMs());
