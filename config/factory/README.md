@@ -90,6 +90,6 @@ MQTT 配置中只填写基础 topic。运行时边端会自动追加 `/<machineC
 
 `gateway-factory-defaults.tar.gz` 以边端仓库根目录生成的包为准。发布前必须确认以下三份 SHA256 一致：
 
-- 边端：`D:\workspace\Embedded\Gateway-zk\gateway-factory-defaults.tar.gz`
-- Windows 初始化内置包：`D:\workspace\CloudPlatform\idea\GatewayDesktop\src\GatewayDesktop.App\Assets\DeviceInit\gateway-factory-defaults.tar.gz`
-- 平台交付副本：`D:\workspace\CloudPlatform\idea\edge-gateway\config\deploy\gateway-factory-defaults.tar.gz`
+- 边端：`/Users/song/workspace/Embedded/Gateway-zk/gateway-factory-defaults.tar.gz`
+- 桌面初始化内置包：`/Users/song/workspace/CloudPlatform/idea/GatewayDesktop-Modern/src/GatewayDesktop.UI/Assets/DeviceInit/gateway-factory-defaults.tar.gz`
+- 平台交付副本：`/Users/song/workspace/CloudPlatform/idea/edge-gateway/config/deploy/gateway-factory-defaults.tar.gz`

@@ -67,7 +67,7 @@ dataStoreBases/
 - `ky-ems.service` 可正常启动。
 - `VarList.xml` 加载成功。
 - `KY-EMS-PointMap.example.json` 加载成功。
-- 当前二进制已同步到 Win 初始化包资源。
+- 当前二进制已同步到桌面初始化包资源。
 
 ## 5. 部署检查
 
