@@ -56,6 +56,7 @@ set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/ComputeEngine.dir/DependInfo.cmake"
   "CMakeFiles/SystemMonitor.dir/DependInfo.cmake"
   "CMakeFiles/LocalDisplay.dir/DependInfo.cmake"
+  "CMakeFiles/QtDisplayBridge.dir/DependInfo.cmake"
   "CMakeFiles/CameraService.dir/DependInfo.cmake"
   "CMakeFiles/stress_runner.dir/DependInfo.cmake"
   "CMakeFiles/dio_smoke_test.dir/DependInfo.cmake"

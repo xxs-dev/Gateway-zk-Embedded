@@ -66,16 +66,20 @@ private:
     int pointPriority(const PointDefinition& point) const;
     int taskPriority(const ReadTask& task) const;
     std::vector<std::uint16_t> executeReadTask(const ReadTask& task) const;
+    int taskFailureBackoffCycles(int consecutiveFailures, bool realtimeFocused) const;
 
     std::shared_ptr<IModbusClient> modbusClient_;
     std::unordered_map<std::uint32_t, int> pointFailureCounts_;
     int consecutiveSuccesses_ = 0;
     int consecutiveFailures_ = 0;
     bool online_ = false;
+    std::int64_t collectCycle_ = 0;
+    std::int64_t slaveNextAttemptCycle_ = 0;
     std::int64_t backoffUntilMs_ = 0;
     struct TaskFailureState {
         int consecutiveFailures = 0;
         std::int64_t backoffUntilMs = 0;
+        std::int64_t nextAttemptCycle = 0;
         std::int64_t lastFailureMs = 0;
         std::string lastMessage;
         bool noResponse = false;

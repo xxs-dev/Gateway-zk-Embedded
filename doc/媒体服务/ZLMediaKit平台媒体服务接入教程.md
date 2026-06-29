@@ -472,7 +472,7 @@ GET /api/camera/streams?machineCode=GW0001&appName=runtime/apps/camera-service.j
 - `flvUrl`: HTTP-FLV 播放地址。
 - `rtspUrl`: RTSP 播放地址。
 
-录像、截图接口还未实现，后续可继续接入：
+平台侧录像、截图封装接口当前尚未纳入页面操作；ZLMediaKit 原生 API 可按本文“录像和截图”章节手工调用。后续如需要在平台页面操作，可继续接入：
 
 ```http
 POST /api/media/zlm/record/start

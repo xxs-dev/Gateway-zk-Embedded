@@ -273,6 +273,19 @@ LocalDisplay/fast:
 .PHONY : LocalDisplay/fast
 
 #=============================================================================
+# Target rules for targets named QtDisplayBridge
+
+# Build rule for target.
+QtDisplayBridge: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 QtDisplayBridge
+.PHONY : QtDisplayBridge
+
+# fast build rule for target.
+QtDisplayBridge/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/build
+.PHONY : QtDisplayBridge/fast
+
+#=============================================================================
 # Target rules for targets named CameraService
 
 # Build rule for target.
@@ -771,6 +784,30 @@ mqtt_driver_main.s: mqtt_driver_main.cpp.s
 mqtt_driver_main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/MqttDriver.dir/build.make CMakeFiles/MqttDriver.dir/mqtt_driver_main.cpp.s
 .PHONY : mqtt_driver_main.cpp.s
+
+qt_display_bridge_main.o: qt_display_bridge_main.cpp.o
+.PHONY : qt_display_bridge_main.o
+
+# target to build an object file
+qt_display_bridge_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/qt_display_bridge_main.cpp.o
+.PHONY : qt_display_bridge_main.cpp.o
+
+qt_display_bridge_main.i: qt_display_bridge_main.cpp.i
+.PHONY : qt_display_bridge_main.i
+
+# target to preprocess a source file
+qt_display_bridge_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/qt_display_bridge_main.cpp.i
+.PHONY : qt_display_bridge_main.cpp.i
+
+qt_display_bridge_main.s: qt_display_bridge_main.cpp.s
+.PHONY : qt_display_bridge_main.s
+
+# target to generate assembly for a file
+qt_display_bridge_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/qt_display_bridge_main.cpp.s
+.PHONY : qt_display_bridge_main.cpp.s
 
 src/alarm_service.o: src/alarm_service.cpp.o
 .PHONY : src/alarm_service.o
@@ -2374,6 +2411,7 @@ help:
 	@echo "... LocalDisplay"
 	@echo "... ModbusRtu"
 	@echo "... MqttDriver"
+	@echo "... QtDisplayBridge"
 	@echo "... SystemMonitor"
 	@echo "... builtin_mqtt_driver_publisher_test"
 	@echo "... can_signal_codec_test"
@@ -2426,6 +2464,9 @@ help:
 	@echo "... mqtt_driver_main.o"
 	@echo "... mqtt_driver_main.i"
 	@echo "... mqtt_driver_main.s"
+	@echo "... qt_display_bridge_main.o"
+	@echo "... qt_display_bridge_main.i"
+	@echo "... qt_display_bridge_main.s"
 	@echo "... src/alarm_service.o"
 	@echo "... src/alarm_service.i"
 	@echo "... src/alarm_service.s"

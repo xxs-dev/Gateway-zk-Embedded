@@ -629,10 +629,18 @@ void normalizeCollectConfig(CollectConfig& config) {
     config.offlineFailureThreshold = std::max(1, config.offlineFailureThreshold);
     config.recoverySuccessThreshold = std::max(1, config.recoverySuccessThreshold);
     config.slaveFailureBackoffThreshold = std::max(1, config.slaveFailureBackoffThreshold);
+    config.slaveFailureBackoffCycles = std::max(0, config.slaveFailureBackoffCycles);
     config.slaveFailureBackoffMs = std::max(0, config.slaveFailureBackoffMs);
     config.taskFailureBackoffThreshold = std::max(1, config.taskFailureBackoffThreshold);
+    config.taskFailureBackoffCycles = std::max(0, config.taskFailureBackoffCycles);
+    config.taskFailureBackoffMaxCycles = std::max(config.taskFailureBackoffCycles, config.taskFailureBackoffMaxCycles);
     config.taskFailureBackoffMs = std::max(0, config.taskFailureBackoffMs);
     config.taskFailureBackoffMaxMs = std::max(config.taskFailureBackoffMs, config.taskFailureBackoffMaxMs);
+    config.realtimeTaskFailureBackoffCycles = std::max(0, config.realtimeTaskFailureBackoffCycles);
+    config.realtimeTaskFailureBackoffMaxCycles = std::max(
+        config.realtimeTaskFailureBackoffCycles,
+        config.realtimeTaskFailureBackoffMaxCycles
+    );
     config.realtimeTaskFailureBackoffMs = std::max(0, config.realtimeTaskFailureBackoffMs);
     config.realtimeTaskFailureBackoffMaxMs = std::max(
         config.realtimeTaskFailureBackoffMs,
@@ -1207,17 +1215,43 @@ CollectConfig parseCollect(const JsonValue* value) {
         "slaveFailureBackoffThreshold",
         config.slaveFailureBackoffThreshold
     );
+    config.cycleBackoffEnabled = requireBool(object, "cycleBackoffEnabled", config.cycleBackoffEnabled);
+    config.slaveFailureBackoffCycles = requireInt(
+        object,
+        "slaveFailureBackoffCycles",
+        config.slaveFailureBackoffCycles
+    );
     config.slaveFailureBackoffMs = requireInt(object, "slaveFailureBackoffMs", config.slaveFailureBackoffMs);
     config.taskFailureBackoffThreshold = requireInt(
         object,
         "taskFailureBackoffThreshold",
         config.taskFailureBackoffThreshold
     );
+    config.taskFailureBackoffCycles = requireInt(
+        object,
+        "taskFailureBackoffCycles",
+        config.taskFailureBackoffCycles
+    );
+    config.taskFailureBackoffMaxCycles = requireInt(
+        object,
+        "taskFailureBackoffMaxCycles",
+        config.taskFailureBackoffMaxCycles
+    );
     config.taskFailureBackoffMs = requireInt(object, "taskFailureBackoffMs", config.taskFailureBackoffMs);
     config.taskFailureBackoffMaxMs = requireInt(
         object,
         "taskFailureBackoffMaxMs",
         config.taskFailureBackoffMaxMs
+    );
+    config.realtimeTaskFailureBackoffCycles = requireInt(
+        object,
+        "realtimeTaskFailureBackoffCycles",
+        config.realtimeTaskFailureBackoffCycles
+    );
+    config.realtimeTaskFailureBackoffMaxCycles = requireInt(
+        object,
+        "realtimeTaskFailureBackoffMaxCycles",
+        config.realtimeTaskFailureBackoffMaxCycles
     );
     config.realtimeTaskFailureBackoffMs = requireInt(
         object,

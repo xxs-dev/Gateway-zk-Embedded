@@ -997,7 +997,7 @@ Java 生成 CAN 配置时：
 
 ## systemd 模板
 
-建议新增：
+当前已随部署脚本和初始化包安装：
 
 ```text
 /etc/systemd/system/can-driver@.service
@@ -1006,7 +1006,9 @@ Java 生成 CAN 配置时：
 服务命令：
 
 ```text
-/opt/modbus-gateway/bin/CanDriver --config /opt/modbus-gateway/config/runtime/devices/%i.json
+/opt/modbus-gateway/bin/CanDriver \
+  --config /opt/modbus-gateway/config/runtime/devices/%i.json \
+  --app-config /opt/modbus-gateway/config/runtime/apps/mqtt-service.json
 ```
 
 如果实例名为 `device_can0`：

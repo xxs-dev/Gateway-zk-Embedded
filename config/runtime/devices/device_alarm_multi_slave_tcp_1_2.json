@@ -13,7 +13,20 @@
   "collect": {
     "defaultIntervalMs": 5000,
     "batchOptimize": true,
-    "maxBatchRegisters": 120
+    "maxBatchRegisters": 120,
+    "slaveFailureBackoffThreshold": 3,
+    "cycleBackoffEnabled": true,
+    "slaveFailureBackoffCycles": 1,
+    "slaveFailureBackoffMs": 30000,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffCycles": 1,
+    "taskFailureBackoffMaxCycles": 4,
+    "taskFailureBackoffMs": 180000,
+    "taskFailureBackoffMaxMs": 900000,
+    "realtimeTaskFailureBackoffCycles": 1,
+    "realtimeTaskFailureBackoffMaxCycles": 2,
+    "realtimeTaskFailureBackoffMs": 5000,
+    "realtimeTaskFailureBackoffMaxMs": 30000
   },
   "memoryStore": {
     "enabled": true,

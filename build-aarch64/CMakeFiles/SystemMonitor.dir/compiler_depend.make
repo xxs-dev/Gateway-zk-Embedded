@@ -237,6 +237,7 @@ CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.o: /mnt/hgfs/
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/include/c++/6.3.1/bits/deque.tcc \
   /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp \
   /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/point_store_router.hpp \
+  /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/priority_control_lease.hpp \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/arpa/inet.h \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/netinet/in.h \
   /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/sys/socket.h \
@@ -554,6 +555,8 @@ CMakeFiles/SystemMonitor.dir/system_monitor_main.cpp.o: /mnt/hgfs/Embedded/Gatew
 /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/sys/socket.h:
 
 /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/usr/include/netinet/in.h:
+
+/mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/priority_control_lease.hpp:
 
 /mnt/hgfs/Embedded/Gateway-zk/include/edge_gateway/ota_service.hpp:
 

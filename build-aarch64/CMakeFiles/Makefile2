@@ -75,6 +75,7 @@ all: CMakeFiles/EventEngine.dir/all
 all: CMakeFiles/ComputeEngine.dir/all
 all: CMakeFiles/SystemMonitor.dir/all
 all: CMakeFiles/LocalDisplay.dir/all
+all: CMakeFiles/QtDisplayBridge.dir/all
 all: CMakeFiles/CameraService.dir/all
 all: CMakeFiles/stress_runner.dir/all
 all: CMakeFiles/dio_smoke_test.dir/all
@@ -114,6 +115,7 @@ clean: CMakeFiles/EventEngine.dir/clean
 clean: CMakeFiles/ComputeEngine.dir/clean
 clean: CMakeFiles/SystemMonitor.dir/clean
 clean: CMakeFiles/LocalDisplay.dir/clean
+clean: CMakeFiles/QtDisplayBridge.dir/clean
 clean: CMakeFiles/CameraService.dir/clean
 clean: CMakeFiles/stress_runner.dir/clean
 clean: CMakeFiles/dio_smoke_test.dir/clean
@@ -143,12 +145,12 @@ clean: CMakeFiles/system_monitor_service_test.dir/clean
 CMakeFiles/edge_gateway.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/edge_gateway.dir/build.make CMakeFiles/edge_gateway.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74 "Built target edge_gateway"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74 "Built target edge_gateway"
 .PHONY : CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/edge_gateway.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 42
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 41
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/edge_gateway.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/edge_gateway.dir/rule
@@ -174,7 +176,7 @@ CMakeFiles/ModbusRtu.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/ModbusRtu.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/ModbusRtu.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/ModbusRtu.dir/rule
@@ -200,7 +202,7 @@ CMakeFiles/Dlt645Driver.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/Dlt645Driver.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/Dlt645Driver.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/Dlt645Driver.dir/rule
@@ -226,7 +228,7 @@ CMakeFiles/DioDriver.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/DioDriver.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/DioDriver.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/DioDriver.dir/rule
@@ -252,7 +254,7 @@ CMakeFiles/CanDriver.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/CanDriver.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/CanDriver.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/CanDriver.dir/rule
@@ -273,7 +275,7 @@ CMakeFiles/CanDriver.dir/clean:
 CMakeFiles/IecDriver.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/IecDriver.dir/build.make CMakeFiles/IecDriver.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/IecDriver.dir/build.make CMakeFiles/IecDriver.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=12 "Built target IecDriver"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=11,12 "Built target IecDriver"
 .PHONY : CMakeFiles/IecDriver.dir/all
 
 # Build rule for subdir invocation for target.
@@ -304,7 +306,7 @@ CMakeFiles/pointctl.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/pointctl.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/pointctl.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/pointctl.dir/rule
@@ -330,7 +332,7 @@ CMakeFiles/MqttDriver.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/MqttDriver.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/MqttDriver.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/MqttDriver.dir/rule
@@ -351,12 +353,12 @@ CMakeFiles/MqttDriver.dir/clean:
 CMakeFiles/EventEngine.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/EventEngine.dir/build.make CMakeFiles/EventEngine.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/EventEngine.dir/build.make CMakeFiles/EventEngine.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=10,11 "Built target EventEngine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=10 "Built target EventEngine"
 .PHONY : CMakeFiles/EventEngine.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/EventEngine.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 42
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/EventEngine.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/EventEngine.dir/rule
@@ -382,7 +384,7 @@ CMakeFiles/ComputeEngine.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/ComputeEngine.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/ComputeEngine.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/ComputeEngine.dir/rule
@@ -403,12 +405,12 @@ CMakeFiles/ComputeEngine.dir/clean:
 CMakeFiles/SystemMonitor.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/SystemMonitor.dir/build.make CMakeFiles/SystemMonitor.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/SystemMonitor.dir/build.make CMakeFiles/SystemMonitor.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=19,20,21 "Built target SystemMonitor"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=21,22 "Built target SystemMonitor"
 .PHONY : CMakeFiles/SystemMonitor.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/SystemMonitor.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 45
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/SystemMonitor.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/SystemMonitor.dir/rule
@@ -434,7 +436,7 @@ CMakeFiles/LocalDisplay.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/LocalDisplay.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/LocalDisplay.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/LocalDisplay.dir/rule
@@ -449,6 +451,32 @@ CMakeFiles/LocalDisplay.dir/clean:
 .PHONY : CMakeFiles/LocalDisplay.dir/clean
 
 #=============================================================================
+# Target rules for target CMakeFiles/QtDisplayBridge.dir
+
+# All Build rule for target.
+CMakeFiles/QtDisplayBridge.dir/all: CMakeFiles/edge_gateway.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=19,20 "Built target QtDisplayBridge"
+.PHONY : CMakeFiles/QtDisplayBridge.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/QtDisplayBridge.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/QtDisplayBridge.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
+.PHONY : CMakeFiles/QtDisplayBridge.dir/rule
+
+# Convenience name for target.
+QtDisplayBridge: CMakeFiles/QtDisplayBridge.dir/rule
+.PHONY : QtDisplayBridge
+
+# clean rule for target.
+CMakeFiles/QtDisplayBridge.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/QtDisplayBridge.dir/build.make CMakeFiles/QtDisplayBridge.dir/clean
+.PHONY : CMakeFiles/QtDisplayBridge.dir/clean
+
+#=============================================================================
 # Target rules for target CMakeFiles/CameraService.dir
 
 # All Build rule for target.
@@ -460,7 +488,7 @@ CMakeFiles/CameraService.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/CameraService.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 42
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/CameraService.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/CameraService.dir/rule
@@ -486,7 +514,7 @@ CMakeFiles/stress_runner.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/stress_runner.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/stress_runner.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/stress_runner.dir/rule
@@ -507,12 +535,12 @@ CMakeFiles/stress_runner.dir/clean:
 CMakeFiles/dio_smoke_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/dio_smoke_test.dir/build.make CMakeFiles/dio_smoke_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/dio_smoke_test.dir/build.make CMakeFiles/dio_smoke_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=29,30 "Built target dio_smoke_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=31 "Built target dio_smoke_test"
 .PHONY : CMakeFiles/dio_smoke_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/dio_smoke_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 42
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/dio_smoke_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/dio_smoke_test.dir/rule
@@ -533,12 +561,12 @@ CMakeFiles/dio_smoke_test.dir/clean:
 CMakeFiles/can_signal_codec_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/can_signal_codec_test.dir/build.make CMakeFiles/can_signal_codec_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/can_signal_codec_test.dir/build.make CMakeFiles/can_signal_codec_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=24,25 "Built target can_signal_codec_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=25,26 "Built target can_signal_codec_test"
 .PHONY : CMakeFiles/can_signal_codec_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/can_signal_codec_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/can_signal_codec_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/can_signal_codec_test.dir/rule
@@ -559,12 +587,12 @@ CMakeFiles/can_signal_codec_test.dir/clean:
 CMakeFiles/iec_codec_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec_codec_test.dir/build.make CMakeFiles/iec_codec_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec_codec_test.dir/build.make CMakeFiles/iec_codec_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=78,79 "Built target iec_codec_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=79,80 "Built target iec_codec_test"
 .PHONY : CMakeFiles/iec_codec_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/iec_codec_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/iec_codec_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/iec_codec_test.dir/rule
@@ -585,12 +613,12 @@ CMakeFiles/iec_codec_test.dir/clean:
 CMakeFiles/iec104_client_integration_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec104_client_integration_test.dir/build.make CMakeFiles/iec104_client_integration_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/iec104_client_integration_test.dir/build.make CMakeFiles/iec104_client_integration_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=76,77 "Built target iec104_client_integration_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=77,78 "Built target iec104_client_integration_test"
 .PHONY : CMakeFiles/iec104_client_integration_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/iec104_client_integration_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/iec104_client_integration_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/iec104_client_integration_test.dir/rule
@@ -611,12 +639,12 @@ CMakeFiles/iec104_client_integration_test.dir/clean:
 CMakeFiles/config_loader_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/config_loader_test.dir/build.make CMakeFiles/config_loader_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/config_loader_test.dir/build.make CMakeFiles/config_loader_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=27,28 "Built target config_loader_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=29,30 "Built target config_loader_test"
 .PHONY : CMakeFiles/config_loader_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/config_loader_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/config_loader_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/config_loader_test.dir/rule
@@ -637,7 +665,7 @@ CMakeFiles/config_loader_test.dir/clean:
 CMakeFiles/collector_partial_failure_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/collector_partial_failure_test.dir/build.make CMakeFiles/collector_partial_failure_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/collector_partial_failure_test.dir/build.make CMakeFiles/collector_partial_failure_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=26 "Built target collector_partial_failure_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=27,28 "Built target collector_partial_failure_test"
 .PHONY : CMakeFiles/collector_partial_failure_test.dir/all
 
 # Build rule for subdir invocation for target.
@@ -663,7 +691,7 @@ CMakeFiles/collector_partial_failure_test.dir/clean:
 CMakeFiles/gateway_daemon_realtime_priority_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/gateway_daemon_realtime_priority_test.dir/build.make CMakeFiles/gateway_daemon_realtime_priority_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/gateway_daemon_realtime_priority_test.dir/build.make CMakeFiles/gateway_daemon_realtime_priority_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=75 "Built target gateway_daemon_realtime_priority_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=75,76 "Built target gateway_daemon_realtime_priority_test"
 .PHONY : CMakeFiles/gateway_daemon_realtime_priority_test.dir/all
 
 # Build rule for subdir invocation for target.
@@ -694,7 +722,7 @@ CMakeFiles/priority_control_lease_test.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/priority_control_lease_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/priority_control_lease_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/priority_control_lease_test.dir/rule
@@ -720,7 +748,7 @@ CMakeFiles/modbus_rtu_client_resync_test.dir/all: CMakeFiles/edge_gateway.dir/al
 
 # Build rule for subdir invocation for target.
 CMakeFiles/modbus_rtu_client_resync_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/modbus_rtu_client_resync_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/modbus_rtu_client_resync_test.dir/rule
@@ -741,12 +769,12 @@ CMakeFiles/modbus_rtu_client_resync_test.dir/clean:
 CMakeFiles/dlt645_client_interval_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/dlt645_client_interval_test.dir/build.make CMakeFiles/dlt645_client_interval_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/dlt645_client_interval_test.dir/build.make CMakeFiles/dlt645_client_interval_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=31,32 "Built target dlt645_client_interval_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=32,33 "Built target dlt645_client_interval_test"
 .PHONY : CMakeFiles/dlt645_client_interval_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/dlt645_client_interval_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/dlt645_client_interval_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/dlt645_client_interval_test.dir/rule
@@ -767,7 +795,7 @@ CMakeFiles/dlt645_client_interval_test.dir/clean:
 CMakeFiles/modbus_tcp_client_limit_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_tcp_client_limit_test.dir/build.make CMakeFiles/modbus_tcp_client_limit_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/modbus_tcp_client_limit_test.dir/build.make CMakeFiles/modbus_tcp_client_limit_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=88 "Built target modbus_tcp_client_limit_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=88,89 "Built target modbus_tcp_client_limit_test"
 .PHONY : CMakeFiles/modbus_tcp_client_limit_test.dir/all
 
 # Build rule for subdir invocation for target.
@@ -798,7 +826,7 @@ CMakeFiles/modbus_northbound_server_test.dir/all: CMakeFiles/edge_gateway.dir/al
 
 # Build rule for subdir invocation for target.
 CMakeFiles/modbus_northbound_server_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/modbus_northbound_server_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/modbus_northbound_server_test.dir/rule
@@ -824,7 +852,7 @@ CMakeFiles/memory_point_store_lifecycle_test.dir/all: CMakeFiles/edge_gateway.di
 
 # Build rule for subdir invocation for target.
 CMakeFiles/memory_point_store_lifecycle_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/memory_point_store_lifecycle_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/memory_point_store_lifecycle_test.dir/rule
@@ -845,12 +873,12 @@ CMakeFiles/memory_point_store_lifecycle_test.dir/clean:
 CMakeFiles/builtin_mqtt_driver_publisher_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build.make CMakeFiles/builtin_mqtt_driver_publisher_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build.make CMakeFiles/builtin_mqtt_driver_publisher_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=22,23 "Built target builtin_mqtt_driver_publisher_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=23,24 "Built target builtin_mqtt_driver_publisher_test"
 .PHONY : CMakeFiles/builtin_mqtt_driver_publisher_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/builtin_mqtt_driver_publisher_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/builtin_mqtt_driver_publisher_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/builtin_mqtt_driver_publisher_test.dir/rule
@@ -871,12 +899,12 @@ CMakeFiles/builtin_mqtt_driver_publisher_test.dir/clean:
 CMakeFiles/mqtt_driver_service_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mqtt_driver_service_test.dir/build.make CMakeFiles/mqtt_driver_service_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mqtt_driver_service_test.dir/build.make CMakeFiles/mqtt_driver_service_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=89,90 "Built target mqtt_driver_service_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=90 "Built target mqtt_driver_service_test"
 .PHONY : CMakeFiles/mqtt_driver_service_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/mqtt_driver_service_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 42
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/mqtt_driver_service_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/mqtt_driver_service_test.dir/rule
@@ -897,12 +925,12 @@ CMakeFiles/mqtt_driver_service_test.dir/clean:
 CMakeFiles/legacy_ems_test.dir/all: CMakeFiles/edge_gateway.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/legacy_ems_test.dir/build.make CMakeFiles/legacy_ems_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/legacy_ems_test.dir/build.make CMakeFiles/legacy_ems_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=80,81 "Built target legacy_ems_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles --progress-num=81 "Built target legacy_ems_test"
 .PHONY : CMakeFiles/legacy_ems_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/legacy_ems_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 42
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/legacy_ems_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/legacy_ems_test.dir/rule
@@ -928,7 +956,7 @@ CMakeFiles/ota_service_test.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/ota_service_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/ota_service_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/ota_service_test.dir/rule
@@ -954,7 +982,7 @@ CMakeFiles/system_monitor_service_test.dir/all: CMakeFiles/edge_gateway.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/system_monitor_service_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 44
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 43
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/system_monitor_service_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles 0
 .PHONY : CMakeFiles/system_monitor_service_test.dir/rule

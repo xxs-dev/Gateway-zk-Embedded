@@ -693,7 +693,7 @@ fi
 
 BASE_BINS="SystemMonitor MqttDriver pointctl"
 ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
-OPTIONAL_BINS="LocalDisplay CameraService stress_runner"
+OPTIONAL_BINS="LocalDisplay QtDisplayBridge CameraService stress_runner"
 if [ "$PACKAGE_PROFILE" = "base" ]; then
   REQUIRED_BINS="$BASE_BINS"
   OPTIONAL_BINS=""

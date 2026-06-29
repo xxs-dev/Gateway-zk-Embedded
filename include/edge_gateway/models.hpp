@@ -416,10 +416,16 @@ struct CollectConfig {
     int offlineFailureThreshold = 3;
     int recoverySuccessThreshold = 1;
     int slaveFailureBackoffThreshold = 3;
+    bool cycleBackoffEnabled = true;
+    int slaveFailureBackoffCycles = 1;
     int slaveFailureBackoffMs = 30000;
     int taskFailureBackoffThreshold = 1;
+    int taskFailureBackoffCycles = 1;
+    int taskFailureBackoffMaxCycles = 4;
     int taskFailureBackoffMs = 180000;
     int taskFailureBackoffMaxMs = 900000;
+    int realtimeTaskFailureBackoffCycles = 1;
+    int realtimeTaskFailureBackoffMaxCycles = 2;
     int realtimeTaskFailureBackoffMs = 5000;
     int realtimeTaskFailureBackoffMaxMs = 30000;
     int failureGoodValueGraceMs = 0;

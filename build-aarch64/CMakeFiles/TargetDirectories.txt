@@ -10,6 +10,7 @@
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/ComputeEngine.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/SystemMonitor.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/LocalDisplay.dir
+/mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/QtDisplayBridge.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/CameraService.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/stress_runner.dir
 /mnt/hgfs/Embedded/Gateway-zk/build-aarch64/CMakeFiles/dio_smoke_test.dir

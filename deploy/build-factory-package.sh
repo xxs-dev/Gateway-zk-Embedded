@@ -155,7 +155,7 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver pointctl"
   ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
-  OPTIONAL_BINS="LocalDisplay CameraService stress_runner"
+  OPTIONAL_BINS="LocalDisplay QtDisplayBridge CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then
     REQUIRED_BINS="$BASE_BINS"

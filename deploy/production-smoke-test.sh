@@ -177,7 +177,7 @@ runtime_package_profile() {
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
   base_bins="SystemMonitor MqttDriver pointctl"
-  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay CameraService pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay QtDisplayBridge CameraService pointctl"
   case "$profile" in
     base)
       printf '%s\n' $base_bins | unique_lines

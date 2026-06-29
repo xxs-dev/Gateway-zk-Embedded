@@ -78,6 +78,7 @@ Collector::Collector(
 
 CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     CollectCycleResult result;
+    ++collectCycle_;
     if (shouldSkipForBackoff(nowMs)) {
         publishDeviceOnlineStatus(currentOnline(), nowMs);
         return result;
@@ -278,6 +279,11 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     std::function<bool(const ReadTask&, bool, int)> executeAdaptiveTask;
     executeAdaptiveTask = [&](const ReadTask& task, bool recordPointFailures, int depth) {
         if (shouldSkipTaskForBackoff(task, nowMs, realtimeFocused)) {
+            if (config_.collect.cycleBackoffEnabled) {
+                ++skippedTasks;
+                (void)recordPointFailures;
+                return false;
+            }
             if (canAdaptiveSplitTask(task) && depth < config_.collect.adaptiveSplitMaxDepth) {
                 const auto state = taskFailureStates_.find(taskBackoffKey(task));
                 const bool parentNoResponse = state != taskFailureStates_.end() && state->second.noResponse;
@@ -382,12 +388,16 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
 }
 
 bool Collector::shouldSkipForBackoff(std::int64_t nowMs) const {
+    if (config_.collect.cycleBackoffEnabled) {
+        return slaveNextAttemptCycle_ > collectCycle_;
+    }
     return backoffUntilMs_ > 0 && nowMs < backoffUntilMs_;
 }
 
 void Collector::noteReadSuccess(std::int64_t nowMs) {
     (void)nowMs;
     consecutiveFailures_ = 0;
+    slaveNextAttemptCycle_ = 0;
     backoffUntilMs_ = 0;
     ++consecutiveSuccesses_;
     if (consecutiveSuccesses_ >= std::max(1, config_.collect.recoverySuccessThreshold)) {
@@ -401,9 +411,13 @@ void Collector::noteReadFailure(std::int64_t nowMs) {
     if (consecutiveFailures_ >= std::max(1, config_.collect.offlineFailureThreshold)) {
         online_ = false;
     }
-    if (config_.collect.slaveFailureBackoffMs > 0 &&
-        consecutiveFailures_ >= std::max(1, config_.collect.slaveFailureBackoffThreshold)) {
-        backoffUntilMs_ = nowMs + config_.collect.slaveFailureBackoffMs;
+    if (consecutiveFailures_ >= std::max(1, config_.collect.slaveFailureBackoffThreshold)) {
+        if (config_.collect.cycleBackoffEnabled) {
+            const auto skipCycles = std::max(0, config_.collect.slaveFailureBackoffCycles);
+            slaveNextAttemptCycle_ = collectCycle_ + static_cast<std::int64_t>(skipCycles) + 1;
+        } else if (config_.collect.slaveFailureBackoffMs > 0) {
+            backoffUntilMs_ = nowMs + config_.collect.slaveFailureBackoffMs;
+        }
     }
 }
 
@@ -415,6 +429,9 @@ bool Collector::shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowM
     const auto it = taskFailureStates_.find(taskBackoffKey(task));
     if (it == taskFailureStates_.end()) {
         return false;
+    }
+    if (config_.collect.cycleBackoffEnabled) {
+        return it->second.nextAttemptCycle > collectCycle_;
     }
     if (!realtimeFocused) {
         return it->second.backoffUntilMs > nowMs;
@@ -436,12 +453,6 @@ void Collector::noteTaskReadFailure(
     bool realtimeFocused,
     const std::string& message
 ) {
-    const auto backoffMs = realtimeFocused
-        ? config_.collect.realtimeTaskFailureBackoffMs
-        : config_.collect.taskFailureBackoffMs;
-    if (backoffMs <= 0) {
-        return;
-    }
     auto& state = taskFailureStates_[taskBackoffKey(task)];
     ++state.consecutiveFailures;
     state.lastFailureMs = nowMs;
@@ -451,8 +462,38 @@ void Collector::noteTaskReadFailure(
         " start=" + std::to_string(task.start) +
         " count=" + std::to_string(task.count);
     if (state.consecutiveFailures >= std::max(1, config_.collect.taskFailureBackoffThreshold)) {
-        state.backoffUntilMs = nowMs + taskFailureBackoffDurationMs(state.consecutiveFailures, realtimeFocused);
+        if (config_.collect.cycleBackoffEnabled) {
+            const auto skipCycles = taskFailureBackoffCycles(state.consecutiveFailures, realtimeFocused);
+            state.nextAttemptCycle = collectCycle_ + static_cast<std::int64_t>(skipCycles) + 1;
+        } else {
+            state.backoffUntilMs = nowMs + taskFailureBackoffDurationMs(state.consecutiveFailures, realtimeFocused);
+        }
     }
+}
+
+int Collector::taskFailureBackoffCycles(int consecutiveFailures, bool realtimeFocused) const {
+    const auto baseCycles = std::max(
+        0,
+        realtimeFocused
+            ? config_.collect.realtimeTaskFailureBackoffCycles
+            : config_.collect.taskFailureBackoffCycles
+    );
+    if (baseCycles <= 0) {
+        return 0;
+    }
+    const auto maxCycles = std::max(
+        baseCycles,
+        realtimeFocused
+            ? config_.collect.realtimeTaskFailureBackoffMaxCycles
+            : config_.collect.taskFailureBackoffMaxCycles
+    );
+    const auto threshold = std::max(1, config_.collect.taskFailureBackoffThreshold);
+    long long cycles = baseCycles;
+    const auto extraFailures = std::max(0, consecutiveFailures - threshold);
+    for (int i = 0; i < extraFailures && cycles < maxCycles; ++i) {
+        cycles = std::min<long long>(static_cast<long long>(maxCycles), cycles * 2LL);
+    }
+    return static_cast<int>(cycles);
 }
 
 int Collector::taskFailureBackoffDurationMs(int consecutiveFailures, bool realtimeFocused) const {
@@ -620,6 +661,10 @@ std::vector<ReadTask> Collector::expandBackedOffTasksBeforeBudget(
     expanded.reserve(tasks.size());
     for (const auto& task : tasks) {
         if (!shouldSkipTaskForBackoff(task, nowMs, realtimeFocused) || !canAdaptiveSplitTask(task)) {
+            expanded.push_back(task);
+            continue;
+        }
+        if (config_.collect.cycleBackoffEnabled) {
             expanded.push_back(task);
             continue;
         }
