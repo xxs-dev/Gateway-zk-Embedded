@@ -1,0 +1,555 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    KY-EMS 全局数据点配置文件
+    ========================================================================
+    参考 SmartSG 的 SmartSGConfig.xml 架构，以页面为单位配置数据源。
+    VarList : QRamRT 库的变量表路径，与可执行文件同目录
+    appDataIndex : VarList.xml 中定义的数据点索引；0 表示未接入
+    ========================================================================
+-->
+<KYEMSConfig>
+
+    <!-- VarList.xml 由嵌入式系统数采程序维护，与可执行文件放在同一目录 -->
+    <VarList path="VarList.xml"/>
+    <!-- PointMap 由当前网关工程导出；新画面优先用 meterCode+pointCode，index 仅作兜底 -->
+    <PointMap path="KY-EMS-PointMap.example.json"
+              appConfig="/opt/modbus-gateway/config/runtime/apps/mqtt-service.json"/>
+
+    <!-- ================================================================
+         DataTable 页面（数据曲线 + 数据报表）
+         16 条波形：台区P×4 + 储能P×4 + 台区Q×4 + 储能Q×4
+         ================================================================ -->
+    <DataTable>
+        <WaveformCache>
+            <SampleIntervalSec value="60"/>   <!-- 采集间隔（秒） -->
+            <MaxPoints value="1440"/>          <!-- 最大缓存点数 -->
+        </WaveformCache>
+
+        <Waves>
+            <!-- ── 台区有功 P（实线，左轴 kW）── -->
+            <Wave name="台区Pa" unit="kW" semanticRole="meter.grid.activePowerA" indexFallback="1036" color="#F9CC44" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPa"/>
+            <Wave name="台区Pb" unit="kW" semanticRole="meter.grid.activePowerB" indexFallback="1037" color="#129A37" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPb"/>
+            <Wave name="台区Pc" unit="kW" semanticRole="meter.grid.activePowerC" indexFallback="1038" color="#DD5353" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPc"/>
+            <Wave name="台区P"  unit="kW" semanticRole="meter.gridActivePower" indexFallback="1039" color="#20DBE9" penStyle="SolidLine" axis="left" checkbox="checkBoxTqP"/>
+
+            <!-- ── 储能有功 P（虚线，左轴 kW）── -->
+            <Wave name="储能Pa" unit="kW" semanticRole="meter.storage.activePowerA" indexFallback="1136" color="#F9CC44" penStyle="DashLine" axis="left" checkbox="checkBoxEnStorePa"/>
+            <Wave name="储能Pb" unit="kW" semanticRole="meter.storage.activePowerB" indexFallback="1137" color="#129A37" penStyle="DashLine" axis="left" checkbox="checkBoxEnStorePb"/>
+            <Wave name="储能Pc" unit="kW" semanticRole="meter.storage.activePowerC" indexFallback="1138" color="#DD5353" penStyle="DashLine" axis="left" checkbox="checkBoxEnStorePc"/>
+            <Wave name="储能P"  unit="kW" semanticRole="meter.storageActivePower" indexFallback="1139" color="#20DBE9" penStyle="DashLine" axis="left" checkbox="checkBoxEnStoreP"/>
+
+            <!-- ── 台区无功 Q（点线，右轴 kVar）── -->
+            <Wave name="台区Qa" unit="kVar" semanticRole="meter.grid.reactivePowerA" indexFallback="1040" color="#FF9626" penStyle="DotLine" axis="right" checkbox="checkBoxTqQa"/>
+            <Wave name="台区Qb" unit="kVar" semanticRole="meter.grid.reactivePowerB" indexFallback="1041" color="#84B723" penStyle="DotLine" axis="right" checkbox="checkBoxTqQb"/>
+            <Wave name="台区Qc" unit="kVar" semanticRole="meter.grid.reactivePowerC" indexFallback="1042" color="#CB2B88" penStyle="DotLine" axis="right" checkbox="checkBoxTqQc"/>
+            <Wave name="台区Q"  unit="kVar" semanticRole="meter.gridReactivePower" indexFallback="1043" color="#4087F1" penStyle="DotLine" axis="right" checkbox="checkBoxTqQ"/>
+
+            <!-- ── 储能无功 Q（点划线，右轴 kVar）── -->
+            <Wave name="储能Qa" unit="kVar" semanticRole="meter.storage.reactivePowerA" indexFallback="1140" color="#FF9626" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQa"/>
+            <Wave name="储能Qb" unit="kVar" semanticRole="meter.storage.reactivePowerB" indexFallback="1141" color="#84B723" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQb"/>
+            <Wave name="储能Qc" unit="kVar" semanticRole="meter.storage.reactivePowerC" indexFallback="1142" color="#CB2B88" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQc"/>
+            <Wave name="储能Q"  unit="kVar" semanticRole="meter.storageReactivePower" indexFallback="1143" color="#4087F1" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQ"/>
+        </Waves>
+    </DataTable>
+
+    <!-- ================================================================
+         FirstPage 首页（主监控页）
+         包含：能量统计 + 有功/无功功率 + 进度条
+         ================================================================ -->
+    <FirstPage>
+        <DataBindings>
+            <!-- ── 控制模式 ── -->
+            <Bind widget="CtlModeColor" type="image"  appDataIndex="0"
+                  value0Image=":/new/prefix1/Pictures/RingG.png"
+                  value1Image=":/new/prefix1/Pictures/RingR.png"/>  <!-- 控制模式颜色（0=自动绿/1=手动红） -->
+            <Bind widget="CtlModeText"  type="text"   appDataIndex="0" decimals="0"
+                  value0Text="自动" value1Text="手动"/>                <!-- 控制模式文本 -->
+
+            <!-- ── SOC 显示 ── -->
+            <Bind widget="SocData"     type="text" semanticRole="bms.soc" indexFallback="1569" decimals="1"/>  <!-- SOC 数值(%) -->
+            <Bind widget="SocLabel"    type="progress" semanticRole="bms.soc" indexFallback="1569" targetWidget="SocLabel" maxWidth="160" maxValue="100"/>  <!-- SOC 进度条(100%=160px) -->
+
+            <!-- ── 能量统计 ── -->
+            <Bind widget="CanChargeEnData_2"   semanticRole="bms.chargeEnergyAvailable" indexFallback="1590" decimals="2"/>  <!-- 可充电量(kWh) -->
+            <Bind widget="CanDisChargeEnData"  semanticRole="bms.dischargeEnergyAvailable" indexFallback="1591" decimals="2"/>  <!-- 可放电量(kWh) -->
+            <Bind widget="TotChargeEnData"     semanticRole="bms.chargeEnergyToday" indexFallback="1615" decimals="2"/>  <!-- 今日充电量(kWh) -->
+            <Bind widget="TotDisChargeEnData"  semanticRole="bms.dischargeEnergyToday" indexFallback="1616" decimals="2"/>  <!-- 今日放电量(kWh) -->
+            
+            <!-- ── 运行统计 ── -->
+            <Bind widget="SafyRunData" semanticRole="ems.safeRunDays" indexFallback="6" decimals="0"/>      <!-- 安全运行天数 -->
+            
+            <!-- ── 有功功率 ── -->
+            <Bind widget="EnStorePData" semanticRole="meter.storageActivePower" indexFallback="1139" unit="kW" decimals="1"/>      <!-- 储能有功功率(kW) -->
+            <Bind widget="tqPData" semanticRole="meter.gridActivePower" indexFallback="1039" unit="kW" decimals="1"/>      <!-- 台区有功功率(kW) -->
+            
+            <!-- ── 无功功率 ── -->
+            <Bind widget="EnStoreQData" semanticRole="meter.storageReactivePower" indexFallback="1143" unit="kVar" decimals="1"/>      <!-- 储能无功功率(kVar) -->
+            <Bind widget="tqQData" semanticRole="meter.gridReactivePower" indexFallback="1043" unit="kVar" decimals="1"/>      <!-- 台区无功功率(kVar) -->
+
+            <!-- ── 双向进度条（BilateralProgressBar，数值范围±100）── -->
+            <Bind widget="progBarEsP" type="bar" semanticRole="meter.storageActivePower" indexFallback="1139"/>   <!-- 储能有功功率进度条 -->
+            <Bind widget="progBarTqP" type="bar" semanticRole="meter.gridActivePower" indexFallback="1039"/>   <!-- 台区有功功率进度条 -->
+            <Bind widget="progBarEsQ" type="bar" semanticRole="meter.storageReactivePower" indexFallback="1143"/>   <!-- 储能无功功率进度条 -->
+            <Bind widget="progBarTqQ" type="bar" semanticRole="meter.gridReactivePower" indexFallback="1043"/>   <!-- 台区无功功率进度条 -->
+        </DataBindings>
+    </FirstPage>
+
+    <!-- ================================================================
+         MainPage_2 波形页（16条波形 + 数据绑定）
+         ================================================================ -->
+    <MainPage_2>
+        <Waves>
+            <!-- 与 DataTable 相同的 16 条波形配置 -->
+            <Wave name="台区Pa" unit="kW" semanticRole="meter.grid.activePowerA" indexFallback="1036" color="#F9CC44" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPa"/>
+            <Wave name="台区Pb" unit="kW" semanticRole="meter.grid.activePowerB" indexFallback="1037" color="#129A37" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPb"/>
+            <Wave name="台区Pc" unit="kW" semanticRole="meter.grid.activePowerC" indexFallback="1038" color="#DD5353" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPc"/>
+            <Wave name="台区P" unit="kW" semanticRole="meter.gridActivePower" indexFallback="1039" color="#20DBE9" penStyle="SolidLine" axis="left" checkbox="checkBoxTqP"/>
+            <Wave name="储能Pa" unit="kW" semanticRole="meter.storage.activePowerA" indexFallback="1136" color="#F9CC44" penStyle="DashLine" axis="left" checkbox="checkBoxEnStorePa"/>
+            <Wave name="储能Pb" unit="kW" semanticRole="meter.storage.activePowerB" indexFallback="1137" color="#129A37" penStyle="DashLine" axis="left" checkbox="checkBoxEnStorePb"/>
+            <Wave name="储能Pc" unit="kW" semanticRole="meter.storage.activePowerC" indexFallback="1138" color="#DD5353" penStyle="DashLine" axis="left" checkbox="checkBoxEnStorePc"/>
+            <Wave name="储能P" unit="kW" semanticRole="meter.storageActivePower" indexFallback="1139" color="#20DBE9" penStyle="DashLine" axis="left" checkbox="checkBoxEnStoreP"/>
+            <Wave name="台区Qa" unit="kVar" semanticRole="meter.grid.reactivePowerA" indexFallback="1040" color="#FF9626" penStyle="DotLine" axis="right" checkbox="checkBoxTqQa"/>
+            <Wave name="台区Qb" unit="kVar" semanticRole="meter.grid.reactivePowerB" indexFallback="1041" color="#84B723" penStyle="DotLine" axis="right" checkbox="checkBoxTqQb"/>
+            <Wave name="台区Qc" unit="kVar" semanticRole="meter.grid.reactivePowerC" indexFallback="1042" color="#CB2B88" penStyle="DotLine" axis="right" checkbox="checkBoxTqQc"/>
+            <Wave name="台区Q" unit="kVar" semanticRole="meter.gridReactivePower" indexFallback="1043" color="#4087F1" penStyle="DotLine" axis="right" checkbox="checkBoxTqQ"/>
+            <Wave name="储能Qa" unit="kVar" semanticRole="meter.storage.reactivePowerA" indexFallback="1140" color="#FF9626" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQa"/>
+            <Wave name="储能Qb" unit="kVar" semanticRole="meter.storage.reactivePowerB" indexFallback="1141" color="#84B723" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQb"/>
+            <Wave name="储能Qc" unit="kVar" semanticRole="meter.storage.reactivePowerC" indexFallback="1142" color="#CB2B88" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQc"/>
+            <Wave name="储能Q" unit="kVar" semanticRole="meter.storageReactivePower" indexFallback="1143" color="#4087F1" penStyle="DashDotLine" axis="right" checkbox="checkBoxEnStoreQ"/>
+        </Waves>
+        <DataBindings>
+            <!-- MainPage_2 波形页数据绑定，待实际接入 -->
+        </DataBindings>
+    </MainPage_2>
+
+    <!-- ================================================================
+         RunMon 运行监测页（系统概览）
+         包含：负载数据表 + PCS 功率 + PCS 电压
+         ================================================================ -->
+    <RunMon>
+        <DataBindings>
+            <!-- ── 负载数据 P(kW) ── -->
+            <Bind widget="label_16" semanticRole="meter.grid.activePowerA" indexFallback="1036" decimals="1"/>  <!-- P A相(kW) -->
+            <Bind widget="label_18" semanticRole="meter.grid.activePowerB" indexFallback="1037" decimals="1"/>  <!-- P B相(kW) -->
+            <Bind widget="label_20" semanticRole="meter.grid.activePowerC" indexFallback="1038" decimals="1"/>  <!-- P C相(kW) -->
+            <Bind widget="label_23" semanticRole="meter.gridActivePower" indexFallback="1039" decimals="1"/>  <!-- P 总(kW) -->
+            
+            <!-- ── 负载数据 Q(kVar) ── -->
+            <Bind widget="label_17" semanticRole="meter.grid.reactivePowerA" indexFallback="1040" decimals="1"/>  <!-- Q A相(kVar) -->
+            <Bind widget="label_21" semanticRole="meter.grid.reactivePowerB" indexFallback="1041" decimals="1"/>  <!-- Q B相(kVar) -->
+            <Bind widget="label_19" semanticRole="meter.grid.reactivePowerC" indexFallback="1042" decimals="1"/>  <!-- Q C相(kVar) -->
+            <Bind widget="label_22" semanticRole="meter.gridReactivePower" indexFallback="1043" decimals="1"/>  <!-- Q 总(kVar) -->
+            
+            <!-- ── PCS 有功功率 P(kW) ── -->
+            <Bind widget="label_25" semanticRole="pcs.activePowerA" indexFallback="1227" decimals="1"/>  <!-- P1(kW) -->
+            <Bind widget="label_29" semanticRole="pcs.activePowerB" indexFallback="1228" decimals="1"/>  <!-- P2(kW) -->
+            <Bind widget="label_32" semanticRole="pcs.activePowerC" indexFallback="1229" decimals="1"/>  <!-- P3(kW) -->
+            
+            <!-- ── PCS 无功功率 Q(kVar) ── -->
+            <Bind widget="label_40" semanticRole="pcs.reactivePowerA" indexFallback="1231" decimals="1"/>  <!-- Q1(kVar) -->
+            <Bind widget="label_35" semanticRole="pcs.reactivePowerB" indexFallback="1232" decimals="1"/>  <!-- Q2(kVar) -->
+            <Bind widget="label_37" semanticRole="pcs.reactivePowerC" indexFallback="1233" decimals="1"/>  <!-- Q3(kVar) -->
+            
+            <!-- ── PCS 电压 U(V) ── -->
+            <Bind widget="label_127" semanticRole="pcs.voltageA" indexFallback="1220" decimals="1"/>  <!-- U1(V) -->
+            <Bind widget="label_131" semanticRole="pcs.voltageB" indexFallback="1221" decimals="1"/>  <!-- U2(V) -->
+            <Bind widget="label_130" semanticRole="pcs.voltageC" indexFallback="1222" decimals="1"/>  <!-- U3(V) -->
+        </DataBindings>
+    </RunMon>
+
+    <!-- ================================================================
+         BmsMon BMS 监测页
+         显示 SOC/SOH 及电池状态指示灯
+         ================================================================ -->
+    <BmsMon>
+        <DataBindings>
+            <!-- ── 电池状态 ── -->
+            <Bind widget="label_Soc" semanticRole="bms.soc" indexFallback="1569" decimals="1"/>   <!-- SOC(%) -->
+            <Bind widget="label_Soh" semanticRole="bms.soh" indexFallback="1570" decimals="1"/>   <!-- SOH(%) -->
+
+            <!-- ── SOC/SOH 液位高度（100%对应270px）── -->
+            <Bind widget="SocColor" type="progress" semanticRole="bms.soc" indexFallback="1569" targetWidget="SocColor" maxHeight="270" maxValue="100"/>  <!-- SOC 液位条 -->
+            <Bind widget="SohColor" type="progress" semanticRole="bms.soh" indexFallback="1570" targetWidget="SohColor" maxHeight="270" maxValue="100"/>  <!-- SOH 液位条 -->
+
+            <!-- 顶部 BMS 系统状态：接触器位图先在 PointMap 中归一化 -->
+            <Bind widget="label_15" type="image" semanticRole="bms.contactorState" activeStates="PRECHARGING,ON"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle.png"/>
+            <Bind widget="label_16" semanticRole="bms.contactorState" decimals="0"
+                  valueMap="0=簇下电;1=预充中;2=簇上电;3=状态异常"/>
+
+            <!-- 电池状态灯只绑定标准枚举；厂家原始值由 PointMap.semanticValueMap 归一化 -->
+            <Bind widget="BatInit" type="image" semanticRole="bms.prechargeState" activeStates="STARTING,CONNECTING"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 电池初始化 -->
+            <Bind widget="BatReady" type="image" semanticRole="bms.runState" activeStates="NORMAL"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 电池就绪 -->
+            <Bind widget="BatCharge" type="image" semanticRole="bms.chargeDischargeState" activeStates="CHARGING"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 充电中 -->
+            <Bind widget="BatDischarge" type="image" semanticRole="bms.chargeDischargeState" activeStates="DISCHARGING"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 放电中 -->
+            <Bind widget="DisableCharge" type="image" semanticRole="bms.runState" activeStates="CHARGE_DISABLED"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 禁止充电 -->
+            <Bind widget="DisableDischarge" type="image" semanticRole="bms.runState" activeStates="DISCHARGE_DISABLED"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 禁止放电 -->
+            <Bind widget="BatDisableAll" type="image" semanticRole="bms.runState" activeStates="STANDBY,STOPPED"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 电池全部禁用 -->
+            <Bind widget="BatFault" type="image" semanticRole="bms.fault"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 电池故障 -->
+
+            <!-- ── 报警等级指示灯 ── -->
+            <Bind widget="AlarmLvl1" type="image" semanticRole="bms.alarm.level1" indexFallback="8197"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 一级报警 -->
+            <Bind widget="AlarmLvl2" type="image" semanticRole="bms.alarm.level2" indexFallback="8198"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 二级报警 -->
+            <Bind widget="AlarmLvl3" type="image" semanticRole="bms.alarm.level3" indexFallback="8199"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 三级报警 -->
+
+            <!-- ── 充放电统计数据 ── -->
+            <Bind widget="ChargeKwh" semanticRole="bms.chargeEnergyToday" indexFallback="1615" decimals="2"/>    <!-- 今日充电量(kWh) -->
+            <Bind widget="DischargeKwh" semanticRole="bms.dischargeEnergyToday" indexFallback="1616" decimals="2"/>    <!-- 今日放电量(kWh) -->
+            <Bind widget="LastCharge" semanticRole="bms.lastChargeEnergy" indexFallback="1588" decimals="2"/>    <!-- 上次充电(kWh) -->
+            <Bind widget="AddCharge" semanticRole="bms.chargeEnergyAvailable" indexFallback="1590" decimals="2"/>    <!-- 可充电量(kWh) -->
+            <Bind widget="LastDischarge" semanticRole="bms.lastDischargeEnergy" indexFallback="1589" decimals="2"/>    <!-- 上次放电(kWh) -->
+            <Bind widget="AddDischarge" semanticRole="bms.dischargeEnergyAvailable" indexFallback="1591" decimals="2"/>    <!-- 可放电量(kWh) -->
+        </DataBindings>
+    </BmsMon>
+
+    <!-- ================================================================
+         BmsRun BMS 运行详情页
+         包含：三级报警状态 + BMS 详细运行参数
+         ================================================================ -->
+    <BmsRun>
+        <DataBindings>
+            <!-- ── 三级报警状态（文本：正常/报警）── -->
+            <Bind widget="TotVoltStatus" semanticRole="bms.alarm.totalVoltage" decimals="0"/>   <!-- 总电压状态 -->
+            <Bind widget="SingleOverVoltStatus" semanticRole="bms.alarm.cellOverVoltage" decimals="0"/>   <!-- 单体过压状态 -->
+            <Bind widget="SingleUnderVoltStatus" semanticRole="bms.alarm.cellUnderVoltage" decimals="0"/>   <!-- 单体欠压状态 -->
+            <Bind widget="BatWorkTempStatus" semanticRole="bms.alarm.workTemperature" decimals="0"/>   <!-- 电池工作温度状态 -->
+            <Bind widget="SingleTempChange" semanticRole="bms.alarm.cellTemperatureRise" decimals="0"/>   <!-- 单体温升状态 -->
+            <Bind widget="SingleTempDiff" semanticRole="bms.alarm.cellTemperatureDifference" decimals="0"/>   <!-- 单体温差状态 -->
+            <Bind widget="SingleTemp" semanticRole="bms.alarm.cellTemperature" decimals="0"/>   <!-- 单体温度状态 -->
+            <Bind widget="IsolateMon" semanticRole="bms.alarm.insulation" decimals="0"/>   <!-- 绝缘监测状态 -->
+            <Bind widget="SocStatus" semanticRole="bms.alarm.soc" decimals="0"/>   <!-- SOC状态 -->
+            <Bind widget="SingleVoltDiff" semanticRole="bms.alarm.cellVoltageDifference" decimals="0"/>   <!-- 单体压差状态 -->
+            <Bind widget="SingleVoltChange" semanticRole="bms.alarm.cellVoltageChange" decimals="0"/>   <!-- 单体电压变化状态 -->
+
+            <!-- ── BMS 运行参数（数值显示）── -->
+            <Bind widget="TotVoltVal" semanticRole="bms.totalVoltage" indexFallback="1566" decimals="1"/>   <!-- 总电压(V) -->
+            <Bind widget="TotAmp" semanticRole="bms.totalCurrent" indexFallback="1567" decimals="1"/>   <!-- 总电流(A) -->
+            <Bind widget="PackNum" semanticRole="bms.packCount" indexFallback="333" decimals="0"/>   <!-- 电池包数量 -->
+            <Bind widget="CellNum" semanticRole="bms.cellCount" indexFallback="334" decimals="0"/>   <!-- 电芯数量 -->
+            <Bind widget="IsoVal" semanticRole="bms.insulation" indexFallback="1571" decimals="0"/>   <!-- 绝缘电阻(kΩ) -->
+            <Bind widget="PosIsoVal" semanticRole="bms.positiveInsulation" indexFallback="1621" decimals="0"/>   <!-- 正极绝缘电阻(kΩ) -->
+            <Bind widget="SingleVoltAvg" semanticRole="bms.averageVoltage" indexFallback="1572" decimals="3"/>  <!-- 单体平均电压(V) -->
+            <Bind widget="SingleMinTemp" semanticRole="bms.cell.minTemperature" indexFallback="1583" decimals="1"/>   <!-- 最低单体温度(℃) -->
+            <Bind widget="SingleMaxTemp" semanticRole="bms.cell.maxTemperature" indexFallback="1580" decimals="1"/>   <!-- 最高单体温度(℃) -->
+
+            <!-- ── BMS 单体极值参数（数值显示）── -->
+            <Bind widget="SingleMaxVolt" semanticRole="bms.cell.maxVoltage" indexFallback="1574" decimals="3"/>   <!-- 单体最高电压(V) -->
+            <Bind widget="SingleMinVolt" semanticRole="bms.cell.minVoltage" indexFallback="1577" decimals="3"/>   <!-- 单体最低电压(V) -->
+            <Bind widget="SingleMaxChargeI" semanticRole="bms.maxChargeCurrent" indexFallback="342" decimals="1"/>   <!-- 最大充电电流(A) -->
+            <Bind widget="SingleMaxVoltPos" semanticRole="bms.cell.maxVoltagePosition" indexFallback="1576" decimals="0"/>   <!-- 最高电压位置 -->
+            <Bind widget="SingleMinVoltPos" semanticRole="bms.cell.minVoltagePosition" indexFallback="1579" decimals="0"/>   <!-- 最低电压位置 -->
+            <Bind widget="SingleMaxTempPos" semanticRole="bms.cell.maxTemperaturePosition" indexFallback="1582" decimals="0"/>   <!-- 最高温度位置 -->
+            <Bind widget="SingleMinTempPos" semanticRole="bms.cell.minTemperaturePosition" indexFallback="1585" decimals="0"/>   <!-- 最低温度位置 -->
+            <Bind widget="SingleMaxDischargeI" semanticRole="bms.maxDischargeCurrent" indexFallback="347" decimals="1"/>   <!-- 最大放电电流(A) -->
+            <Bind widget="SingleTempAvg" semanticRole="bms.averageTemperature" indexFallback="1573" decimals="1"/>   <!-- 单体平均温度(℃) -->
+            <Bind widget="NegIsoVal" semanticRole="bms.negativeInsulation" indexFallback="1622" decimals="0"/>   <!-- 负极绝缘电阻(kΩ) -->
+
+            <!-- ── BMS 状态诊断（0=正常，非0=报警）── -->
+            <Bind widget="OverI" semanticRole="bms.alarm.overCurrent" indexFallback="350" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 过流保护 -->
+            <Bind widget="TotRelayPos" semanticRole="bms.relay.positive" indexFallback="351" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 总正继电器 -->
+            <Bind widget="TotRelayNeg" semanticRole="bms.relay.negative" indexFallback="352" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 总负继电器 -->
+            <Bind widget="RelayPreChg" semanticRole="bms.relay.precharge" indexFallback="353" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 预充继电器 -->
+            <Bind widget="RelayFan" semanticRole="bms.relay.fan" indexFallback="354" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 风扇继电器 -->
+            <Bind widget="RelaySleep" semanticRole="bms.relay.sleep" indexFallback="355" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 休眠继电器 -->
+            <Bind widget="Breaker" semanticRole="bms.breakerStatus" indexFallback="356" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 断路器 -->
+            <Bind widget="AfeStat" semanticRole="bms.afeStatus" indexFallback="357" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- AFE状态 -->
+            <Bind widget="TempSensorStat" semanticRole="bms.temperatureSensorStatus" indexFallback="358" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 温度传感器 -->
+            <Bind widget="MosAvgStat" semanticRole="bms.balanceMosStatus" indexFallback="359" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 均衡MOS -->
+            <Bind widget="MainPower" semanticRole="bms.mainPowerStatus" indexFallback="360" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 主控供电 -->
+            <Bind widget="SlavePower" semanticRole="bms.slavePowerStatus" indexFallback="361" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控供电 -->
+            <Bind widget="SlaveComm" semanticRole="bms.slaveCommunicationStatus" indexFallback="362" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控通讯 -->
+            <Bind widget="SlaveFan" semanticRole="bms.slaveFanStatus" indexFallback="363" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控风扇 -->
+            <Bind widget="MainProgram" semanticRole="bms.mainProgramStatus" indexFallback="364" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 主控程序 -->
+            <Bind widget="SlaveProgram" semanticRole="bms.slaveProgramStatus" indexFallback="365" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控程序 -->
+            <Bind widget="Eeprom" semanticRole="bms.eepromStatus" indexFallback="366" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- EEPROM -->
+            <Bind widget="CanComm" semanticRole="bms.canCommunicationStatus" indexFallback="367" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- CAN采集 -->
+            <Bind widget="PcsComm" semanticRole="pcs.com_status" indexFallback="368" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- PCS通讯 -->
+        </DataBindings>
+    </BmsRun>
+
+    <!-- ================================================================
+         PcsMon PCS 监测页
+         包含：运行模式/控制按钮 + 有功无功设定值
+         ================================================================ -->
+    <PcsMon>
+        <DataBindings>
+            <!-- ── PCS 运行状态 ── -->
+            <Bind widget="label_9" semanticRole="pcs.activePowerSetTotal" indexFallback="1313" decimals="1"/>   <!-- 手动有功设定值(kW) -->
+            <Bind widget="label_11" semanticRole="pcs.activePowerSetA" indexFallback="1318" decimals="1"/>   <!-- 有功设定 A相(kW) -->
+            <Bind widget="label_99" semanticRole="pcs.activePowerSetB" indexFallback="1319" decimals="1"/>   <!-- 有功设定 B相(kW) -->
+            <Bind widget="label_116" semanticRole="pcs.reactivePowerSetTotal" indexFallback="1314" decimals="1"/>   <!-- 手动无功设定值(kVar) -->
+            <Bind widget="label_12" semanticRole="pcs.reactivePowerSetA" indexFallback="1321" decimals="1"/>   <!-- 无功设定 A相(kVar) -->
+        </DataBindings>
+    </PcsMon>
+
+    <!-- ================================================================
+         IoMon IO 监测页（DI/DO 状态）
+         注：IO 状态以指示灯(Circle图片)表示，不使用数值 Bind
+         ================================================================ -->
+    <IoMon>
+        <DataBindings>
+            <!-- ── DI 输入指示灯（0=灰/1=绿）── -->
+            <Bind widget="QuickStopInput" type="image" semanticRole="safety.emergencyStop" indexFallback="992"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 急停输入 -->
+            <Bind widget="SurgeProInput" type="image" semanticRole="safety.surgeAction" indexFallback="993"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 浪涌保护 -->
+            <Bind widget="FloodInput" type="image" semanticRole="safety.waterIngress"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 水浸输入 -->
+            <Bind widget="AerosolInput" type="image" semanticRole="fire.aerosolAction" indexFallback="995"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 气溶胶 -->
+            <Bind widget="FrontDoorInput" type="image" semanticRole="door.frontOpen" indexFallback="996"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 前门输入 -->
+            <Bind widget="BackDoorInput" type="image" semanticRole="door.backOpen" indexFallback="997"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 后门输入 -->
+            <Bind widget="GridBreakerInput" type="image" semanticRole="grid.breakerClosed" indexFallback="998"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 电网断路器 -->
+
+            <!-- ── DO 输出指示灯（0=灰/1=绿）── -->
+            <Bind widget="RunOutput" type="image" semanticRole="io.runIndicator" indexFallback="984"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 运行输出 -->
+            <Bind widget="TripOutput" type="image" semanticRole="io.gridTripRelay" indexFallback="985"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 跳闸输出 -->
+            <Bind widget="FaultOutput" type="image" semanticRole="io.faultIndicator"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 故障输出 -->
+            <Bind widget="ChargeOutput" type="image" semanticRole="io.chargeIndicator" indexFallback="987"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 充电输出 -->
+            <Bind widget="DischargeOutput" type="image" semanticRole="io.dischargeIndicator" indexFallback="988"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 放电输出 -->
+            <Bind widget="HplcOutput" type="image" semanticRole="io.hplcRelay" indexFallback="990"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- HPLC输出 -->
+            <Bind widget="FanOutput" type="image" semanticRole="io.fanRelay" indexFallback="991"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value1Image=":/new/prefix1/Pictures/RunMonPics/Circle3.png"/>   <!-- 风扇输出 -->
+
+            <!-- ── DO 控制按钮对（点击写共享内存，每对共用同一 appDataIndex）── -->
+            <Bind widget="BtnAllOff"         type="button" appDataIndex="0" writeValue="0"/>   <!-- 批量控制尚未绑定，界面禁用 -->
+            <Bind widget="BtnAllOn"          type="button" appDataIndex="0" writeValue="1"/>   <!-- 批量控制尚未绑定，界面禁用 -->
+            <Bind widget="BtnRunOff" type="button" semanticRole="io.runIndicator" indexFallback="984" writeValue="0"/> <!-- 运行分断 -->
+            <Bind widget="BtnRunOn" type="button" semanticRole="io.runIndicator" indexFallback="984" writeValue="1"/> <!-- 运行闭合 -->
+            <Bind widget="BtnTripOff" type="button" semanticRole="io.gridTripRelay" indexFallback="985" writeValue="0"/>   <!-- 跳闸分断 -->
+            <Bind widget="BtnTripOn" type="button" semanticRole="io.gridTripRelay" indexFallback="985" writeValue="1"/>   <!-- 跳闸闭合 -->
+            <Bind widget="BtnFaultOff"       type="button" appDataIndex="0" writeValue="0"/>   <!-- 故障分断 -->
+            <Bind widget="BtnFaultOn"        type="button" appDataIndex="0" writeValue="1"/>   <!-- 故障闭合 -->
+            <Bind widget="BtnChargeOff" type="button" semanticRole="io.chargeIndicator" indexFallback="987" writeValue="0"/>   <!-- 充电分断 -->
+            <Bind widget="BtnChargeOn" type="button" semanticRole="io.chargeIndicator" indexFallback="987" writeValue="1"/>   <!-- 充电闭合 -->
+            <Bind widget="BtnDischargeOff" type="button" semanticRole="io.dischargeIndicator" indexFallback="988" writeValue="0"/>   <!-- 放电分断 -->
+            <Bind widget="BtnDischargeOn" type="button" semanticRole="io.dischargeIndicator" indexFallback="988" writeValue="1"/>   <!-- 放电闭合 -->
+            <Bind widget="pushButton_13" type="button" semanticRole="io.reserveRelay" indexFallback="989" writeValue="0"/>   <!-- 预留分断 -->
+            <Bind widget="pushButton_14" type="button" semanticRole="io.reserveRelay" indexFallback="989" writeValue="1"/>   <!-- 预留闭合 -->
+            <Bind widget="BtnHplcOff" type="button" semanticRole="io.hplcRelay" indexFallback="990" writeValue="0"/>   <!-- HPLC分断 -->
+            <Bind widget="BtnHplcOn" type="button" semanticRole="io.hplcRelay" indexFallback="990" writeValue="1"/>   <!-- HPLC闭合 -->
+            <Bind widget="BtnFanOff" type="button" semanticRole="io.fanRelay" indexFallback="991" writeValue="0"/>   <!-- 风扇分断 -->
+            <Bind widget="BtnFanOn" type="button" semanticRole="io.fanRelay" indexFallback="991" writeValue="1"/>   <!-- 风扇闭合 -->
+        </DataBindings>
+    </IoMon>
+
+    <!-- ================================================================
+         UpsMon UPS 监测页
+         包含：SOC/状态 + 遥测信息 + 故障/告警代码
+         ================================================================ -->
+    <UpsMon>
+        <DataBindings>
+            <!-- ── 电池状态 ── -->
+            <Bind widget="label_9"   appDataIndex="0" decimals="2" defaultValue="64.80"/>   <!-- SOC(%) -->
+            <Bind widget="label_38"  appDataIndex="0" decimals="0" defaultValue="0.0"/>     <!-- 运行状态(0=正常) -->
+            <Bind widget="label_41"  appDataIndex="0" decimals="0" defaultValue="56.0"/>    <!-- 剩余时间(min) -->
+            <Bind widget="label_43"  appDataIndex="0" decimals="2" defaultValue="35.55"/>   <!-- 电池温度(℃) -->
+            <!-- ── 遥测信息（左侧）── -->
+            <Bind widget="label_126" appDataIndex="0" decimals="2" defaultValue="220.20"/>  <!-- 输入电压(V) -->
+            <Bind widget="label_125" appDataIndex="0" decimals="2" defaultValue="220.01"/>  <!-- 输出电压(V) -->
+            <Bind widget="label_127" appDataIndex="0" decimals="2" defaultValue="50.02"/>   <!-- 输入频率(Hz) -->
+            <Bind widget="label_128" appDataIndex="0" decimals="2" defaultValue="49.99"/>   <!-- 输出频率(Hz) -->
+            <Bind widget="label_130" appDataIndex="0" decimals="2" defaultValue="50.22"/>   <!-- 输出电流(A) -->
+            <!-- ── 遥测信息（右侧）── -->
+            <Bind widget="label_132" appDataIndex="0" decimals="2" defaultValue="220.20"/>  <!-- 直流母线电压+(V) -->
+            <Bind widget="label_133" appDataIndex="0" decimals="2" defaultValue="220.20"/>  <!-- 直流母线电压-(V) -->
+            <Bind widget="label_134" appDataIndex="0" decimals="2" defaultValue="60.22"/>   <!-- 输出负载率(%) -->
+            <Bind widget="label_135" appDataIndex="0" decimals="2" defaultValue="30.22"/>   <!-- 电池电压(V) -->
+            <!-- ── 故障/告警代码 ── -->
+            <Bind widget="label_129" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 故障代码 -->
+            <Bind widget="label_136" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码01 -->
+            <Bind widget="label_143" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码03 -->
+            <Bind widget="label_138" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码02 -->
+            <Bind widget="label_142" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码04 -->
+        </DataBindings>
+    </UpsMon>
+
+    <!-- ================================================================
+         FireFight 消防页（动环监测）
+         包含：空调参数(左表) + 环境/消防参数(右表)
+         ================================================================ -->
+    <FireFight>
+        <DataBindings>
+            <!-- ── 空调参数（左表）── -->
+            <Bind widget="CondenserTubeTemp" semanticRole="liquidCooling.outletTemperature" indexFallback="131" decimals="1"/>   <!-- 出水温度(℃) -->
+            <Bind widget="EvapTubeTemp" semanticRole="liquidCooling.returnTemperature" indexFallback="132" decimals="1"/>   <!-- 回水温度(℃) -->
+            <Bind widget="StartCoolTemp" semanticRole="liquidCooling.setTemperature" indexFallback="166" decimals="1"/>   <!-- 温度设定值(℃) -->
+            <Bind widget="CoolHysTemp" semanticRole="liquidCooling.outletPressure" indexFallback="141" decimals="2"/>   <!-- 出水压力 -->
+            <Bind widget="StartHotTemp" semanticRole="liquidCooling.environmentTemperature" indexFallback="135" decimals="1"/>   <!-- 环境温度(℃) -->
+            <Bind widget="HotHysTemp" semanticRole="liquidCooling.returnPressure" indexFallback="142" decimals="2"/>   <!-- 回水压力 -->
+            <Bind widget="UnderTempAlarm" semanticRole="liquidCooling.controlMode" indexFallback="128" decimals="0"/>   <!-- 控制模式 -->
+            <Bind widget="OverTempAlarm" semanticRole="liquidCooling.fault" indexFallback="153" decimals="0"/>   <!-- 故障代码 -->
+            <!-- ── 环境/消防参数（右表）── -->
+            <Bind widget="RtnWindTemp" semanticRole="fireDetector.temperature" indexFallback="310101" decimals="1"/>   <!-- 探测器温度(℃) -->
+            <Bind widget="CabHum" semanticRole="dehumidifier.humidity" indexFallback="190" decimals="1"/>   <!-- 柜内湿度(%) -->
+            <Bind widget="SmokeDensity" semanticRole="fireDetector.smoke" indexFallback="310102" decimals="2"/>   <!-- 烟雾浓度 -->
+            <Bind widget="VocDensity" semanticRole="fireDetector.voc" indexFallback="310105" decimals="1"/>   <!-- VOC浓度(ppm) -->
+            <Bind widget="CoDensity" semanticRole="fireDetector.co" indexFallback="310103" decimals="1"/>   <!-- CO浓度(ppm) -->
+            <Bind widget="HydrDensity" semanticRole="fireDetector.h2" indexFallback="310104" decimals="1"/>   <!-- 氢气浓度(ppm) -->
+            <Bind widget="HydrRmvInterval" semanticRole="fire.hydrogenRemovalInterval" indexFallback="384" decimals="2"/>    <!-- 排氢间隔时间(小时) -->
+            <Bind widget="HydrRmvWorkTime" semanticRole="fire.hydrogenRemovalDuration" indexFallback="385" decimals="0"/>       <!-- 排氢工作时间(分钟) -->
+        </DataBindings>
+    </FireFight>
+
+    <!-- ================================================================
+         ChargeParam 充放电参数设置页
+         包含：5对 standalone 控件 + 2个定时充放电表格
+         ================================================================ -->
+    <ChargeParam>
+        <DataBindings>
+            <!-- ── 最大需量 ── -->
+            <Bind widget="MaxDmdSet"        type="input" appDataIndex="0"/>
+            <Bind widget="MaxDmdRead"       type="text"  appDataIndex="0" decimals="1"/>
+
+            <!-- ── 快充参数 ── -->
+            <Bind widget="FastChgKwSet"     type="input" appDataIndex="0"/>
+            <Bind widget="FastChgKwRead"    type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="FastChgSocSet"    type="input" appDataIndex="0"/>
+            <Bind widget="FastChgSocRead"   type="text"  appDataIndex="0" decimals="1"/>
+
+            <!-- ── 快放参数 ── -->
+            <Bind widget="FastDischgKwSet"  type="input" appDataIndex="0"/>
+            <Bind widget="FastDischgKwRead" type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="FastDischgSocSet" type="input" appDataIndex="0"/>
+            <Bind widget="FastDischgSocRead" type="text" appDataIndex="0" decimals="1"/>
+        </DataBindings>
+
+        <!-- ── 定时充放电表格 1（时刻 0~11）──
+             每表 5列：时刻H(0) | 功率当前值(1) | 功率修改值(2) | SOC当前值(3) | SOC修改值(4)
+             数据行 12 行（row 2~13） -->
+        <Table name="tableChargeParam_1" dataRows="12">
+            <Column col="1" baseIndex="226" semanticRolePattern="ems.schedule.hour%1.power.current"/>   <!-- 功率 当前值: 226~237 -->
+            <Column col="2" baseIndex="238" semanticRolePattern="ems.schedule.hour%1.power.set"/>   <!-- 功率 修改值: 238~249 -->
+            <Column col="3" baseIndex="250" semanticRolePattern="ems.schedule.hour%1.soc.current"/>   <!-- SOC 当前值: 250~261 -->
+            <Column col="4" baseIndex="262" semanticRolePattern="ems.schedule.hour%1.soc.set"/>   <!-- SOC 修改值: 262~273 -->
+        </Table>
+
+        <!-- ── 定时充放电表格 2（时刻 0~11）── -->
+        <Table name="tableChargeParam_2" dataRows="12">
+            <Column col="1" baseIndex="274" semanticRolePattern="ems.schedule.hour%1.power.current"/>   <!-- 功率 当前值: 274~285 -->
+            <Column col="2" baseIndex="286" semanticRolePattern="ems.schedule.hour%1.power.set"/>   <!-- 功率 修改值: 286~297 -->
+            <Column col="3" baseIndex="298" semanticRolePattern="ems.schedule.hour%1.soc.current"/>   <!-- SOC 当前值: 298~309 -->
+            <Column col="4" baseIndex="310" semanticRolePattern="ems.schedule.hour%1.soc.set"/>   <!-- SOC 修改值: 310~321 -->
+        </Table>
+    </ChargeParam>
+
+    <!-- ================================================================
+         DevParam 设备参数设置页
+         Set=QLineEdit(type=input,写共享内存)  Read=QLabel(type=text,读共享内存)
+         每对 Set/Read 共用同一 appDataIndex
+         ================================================================ -->
+    <DevParam>
+        <DataBindings>
+            <!-- ── 台区变压器 参数 ── -->
+            <Bind widget="TqRateKvaSet"     type="input" appDataIndex="0"/>
+            <Bind widget="RateKvaRead"      type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="MaxOverloadSet"   type="input" appDataIndex="0"/>
+            <Bind widget="MaxOverloadRead"  type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="UplimitSet"       type="input" appDataIndex="0"/>
+            <Bind widget="UplimitRead"      type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="LowlimitSet"      type="input" appDataIndex="0"/>
+            <Bind widget="LowlimitRead"     type="text"  appDataIndex="0" decimals="1"/>
+
+            <!-- ── PCS 参数 ── -->
+            <Bind widget="PcsRateKvaSet"    type="input" appDataIndex="0"/>
+            <Bind widget="PcsRateKvaRead"   type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="PcsMaxPSet"       type="input" appDataIndex="0"/>
+            <Bind widget="PcsMaxPRead"      type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="PGradSet"         type="input" appDataIndex="0"/>
+            <Bind widget="PGradRead"        type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="MaxQSet"          type="input" appDataIndex="0"/>
+            <Bind widget="MaxQRead"         type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="QGradSet"         type="input" appDataIndex="0"/>
+            <Bind widget="QGradRead"        type="text"  appDataIndex="0" decimals="1"/>
+
+            <!-- ── EMS参数 ── -->
+            <Bind widget="EmsAvgCntSet"     type="input" appDataIndex="0"/>
+            <Bind widget="EmsAvgCntRead"    type="text"  appDataIndex="0" decimals="0"/>
+
+            <!-- ── 温控参数 ── -->
+            <Bind widget="CoolStartTempSet" type="input" appDataIndex="0"/>
+            <Bind widget="CoolStartTempRead" type="text" appDataIndex="0" decimals="1"/>
+            <Bind widget="CoolHysSet"       type="input" appDataIndex="0"/>
+            <Bind widget="CoolHysRead"      type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="HotHysSet"        type="input" appDataIndex="0"/>
+            <Bind widget="HotHysRead"       type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="HotStartTempSet"  type="input" appDataIndex="0"/>
+            <Bind widget="HotStartTempRead" type="text"  appDataIndex="0" decimals="1"/>
+
+            <!-- ── BMS 参数 ── -->
+            <Bind widget="BmsRateKvaSet"       type="input" appDataIndex="0"/>
+            <Bind widget="BmsRateKvaRead"      type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="BmsPackNumSet"       type="input" appDataIndex="0"/>
+            <Bind widget="BmsPackNumRead"      type="text"  appDataIndex="0" decimals="0"/>
+            <Bind widget="CellNumSet"          type="input" appDataIndex="0"/>
+            <Bind widget="CellNumRead"         type="text"  appDataIndex="0" decimals="0"/>
+            <Bind widget="BmsMaxPowerSet"      type="input" appDataIndex="0"/>
+            <Bind widget="BmsMaxPowerRead"     type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="StopChargeSocSet"    type="input" appDataIndex="0"/>
+            <Bind widget="StopChargeSocRead"   type="text"  appDataIndex="0" decimals="1"/>
+            <Bind widget="StopDischargeSocSet" type="input" appDataIndex="0"/>
+            <Bind widget="StopDischargeSocRead" type="text" appDataIndex="0" decimals="1"/>
+        </DataBindings>
+    </DevParam>
+
+    <!-- ================================================================
+         SysInfo 系统信息页
+         注意：SysInfo 为字符串类型，appDataIndex=0 表示使用 defaultValue 文本
+         ================================================================ -->
+    <SysInfo>
+        <DataBindings>
+            <Bind widget="lblRow0Val"  appDataIndex="0" decimals="0" defaultValue="KY-ICS-QN012.01"/>             <!-- 软件版本 -->
+            <Bind widget="lblRow1Val"  appDataIndex="0" decimals="0" defaultValue="XL022503070010"/>              <!-- 控制器号 -->
+            <Bind widget="lblRow1Val_2" appDataIndex="0" decimals="0" defaultValue="移动/898604D21922C3027231"/>  <!-- 物联卡号 -->
+            <Bind widget="lblRow1Val_3" appDataIndex="0" decimals="0" defaultValue="40/--"/>                      <!-- 储能CT -->
+            <Bind widget="lblRow1Val_4" appDataIndex="0" decimals="0" defaultValue="80/--"/>                      <!-- 台区CT -->
+        </DataBindings>
+    </SysInfo>
+
+</KYEMSConfig>
