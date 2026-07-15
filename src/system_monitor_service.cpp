@@ -33,15 +33,16 @@ namespace edge_gateway {
 
 namespace {
 
-constexpr std::size_t kMaxConfigPullFiles = 256;
+constexpr std::size_t kMaxConfigPullFiles = 512;
 constexpr std::size_t kMaxConfigPullFileBytes = 5 * 1024 * 1024;
-constexpr std::size_t kMaxConfigPullTotalBytes = 16 * 1024 * 1024;
-constexpr std::size_t kMaxConfigPullReplyBytes = 24 * 1024 * 1024;
-constexpr std::size_t kMaxConfigApplyFiles = 64;
+constexpr std::size_t kMaxConfigPullTotalBytes = 48 * 1024 * 1024;
+constexpr std::size_t kMaxConfigPullReplyBytes = 96 * 1024 * 1024;
+constexpr std::size_t kMaxConfigApplyFiles = 512;
 
 struct ConfigApplyFile {
     std::string path;
     std::string content;
+    std::string encoding = "utf8";
 };
 
 class FlatJsonReader {
@@ -338,6 +339,66 @@ std::string readFileText(const std::string& path) {
     std::ostringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+std::string base64Encode(const std::string& bytes) {
+    static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((bytes.size() + 2) / 3) * 4);
+    for (std::size_t i = 0; i < bytes.size(); i += 3) {
+        const unsigned int b0 = static_cast<unsigned char>(bytes[i]);
+        const unsigned int b1 = i + 1 < bytes.size() ? static_cast<unsigned char>(bytes[i + 1]) : 0;
+        const unsigned int b2 = i + 2 < bytes.size() ? static_cast<unsigned char>(bytes[i + 2]) : 0;
+        out.push_back(table[(b0 >> 2) & 0x3F]);
+        out.push_back(table[((b0 << 4) | (b1 >> 4)) & 0x3F]);
+        out.push_back(i + 1 < bytes.size() ? table[((b1 << 2) | (b2 >> 6)) & 0x3F] : '=');
+        out.push_back(i + 2 < bytes.size() ? table[b2 & 0x3F] : '=');
+    }
+    return out;
+}
+
+int base64Value(char ch) {
+    if (ch >= 'A' && ch <= 'Z') {
+        return ch - 'A';
+    }
+    if (ch >= 'a' && ch <= 'z') {
+        return ch - 'a' + 26;
+    }
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0' + 52;
+    }
+    if (ch == '+') {
+        return 62;
+    }
+    if (ch == '/') {
+        return 63;
+    }
+    return -1;
+}
+
+std::string base64Decode(const std::string& text) {
+    std::string out;
+    int value = 0;
+    int bits = -8;
+    for (char ch : text) {
+        if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+            continue;
+        }
+        if (ch == '=') {
+            break;
+        }
+        const int digit = base64Value(ch);
+        if (digit < 0) {
+            throw std::runtime_error("invalid base64 content");
+        }
+        value = (value << 6) | digit;
+        bits += 6;
+        if (bits >= 0) {
+            out.push_back(static_cast<char>((value >> bits) & 0xFF));
+            bits -= 8;
+        }
+    }
+    return out;
 }
 
 int makeDir(const std::string& path) {
@@ -829,6 +890,165 @@ std::size_t findMatchingJsonToken(const std::string& text, std::size_t begin, ch
     return std::string::npos;
 }
 
+void addUniquePath(std::vector<std::string>& paths, const std::string& path) {
+    if (path.empty()) {
+        return;
+    }
+    if (std::find(paths.begin(), paths.end(), path) == paths.end()) {
+        paths.push_back(path);
+    }
+}
+
+bool endsWithIgnoreCase(const std::string& value, const std::string& suffix) {
+    if (value.size() < suffix.size()) {
+        return false;
+    }
+    return std::equal(suffix.rbegin(), suffix.rend(), value.rbegin(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+    });
+}
+
+bool isKyEmsSnapshotFile(const std::string& path) {
+    return endsWithIgnoreCase(path, ".ui") ||
+           endsWithIgnoreCase(path, ".qrc") ||
+           endsWithIgnoreCase(path, ".xml") ||
+           endsWithIgnoreCase(path, ".json") ||
+           endsWithIgnoreCase(path, ".csv") ||
+           endsWithIgnoreCase(path, ".png") ||
+           endsWithIgnoreCase(path, ".jpg") ||
+           endsWithIgnoreCase(path, ".jpeg") ||
+           endsWithIgnoreCase(path, ".bmp") ||
+           endsWithIgnoreCase(path, ".gif") ||
+           endsWithIgnoreCase(path, ".webp") ||
+           endsWithIgnoreCase(path, ".ico") ||
+           endsWithIgnoreCase(path, ".svg") ||
+           endsWithIgnoreCase(path, ".ttf") ||
+           endsWithIgnoreCase(path, ".otf");
+}
+
+bool isRuntimeLogicSnapshotFile(const std::string& path) {
+    auto normalized = path;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    return normalized.find("/config/runtime/logic/") != std::string::npos &&
+           endsWithIgnoreCase(normalized, ".json");
+}
+
+std::vector<std::string> logicRootsFromConfigFiles(const std::vector<std::string>& configFiles) {
+    std::vector<std::string> roots;
+    for (const auto& path : configFiles) {
+        auto normalized = path;
+        std::replace(normalized.begin(), normalized.end(), '\\', '/');
+        const auto marker = normalized.find("/config/runtime/");
+        if (marker == std::string::npos) {
+            continue;
+        }
+        const auto root = normalized.substr(0, marker) + "/config/runtime/logic";
+        addUniquePath(roots, root);
+    }
+    return roots;
+}
+
+bool isBase64SnapshotFile(const std::string& path) {
+    return (path.find("/ky-ems/") != std::string::npos ||
+            path.find("\\ky-ems\\") != std::string::npos) &&
+           isKyEmsSnapshotFile(path);
+}
+
+std::string jsonStringAfter(const std::string& text, const std::string& key, std::size_t start) {
+    if (start >= text.size()) {
+        return std::string();
+    }
+    const auto keyPattern = "\"" + key + "\"";
+    const auto keyPos = text.find(keyPattern, start);
+    if (keyPos == std::string::npos) {
+        return std::string();
+    }
+    const auto colonPos = text.find(':', keyPos + keyPattern.size());
+    if (colonPos == std::string::npos) {
+        return std::string();
+    }
+    auto valuePos = skipJsonWhitespace(text, colonPos + 1);
+    if (valuePos == std::string::npos || valuePos >= text.size() || text[valuePos] != '"') {
+        return std::string();
+    }
+    return parseJsonStringAt(text, valuePos);
+}
+
+std::string kyEmsHomeFromConfigFiles(const std::vector<std::string>& configFiles) {
+    for (const auto& path : configFiles) {
+        if (!isRegularFile(path)) {
+            continue;
+        }
+        try {
+            const auto appText = readFileText(path);
+            const auto localDisplayPos = appText.find("\"localDisplay\"");
+            if (localDisplayPos == std::string::npos) {
+                continue;
+            }
+            const auto qtRuntimePos = appText.find("\"qtRuntime\"", localDisplayPos);
+            if (qtRuntimePos == std::string::npos) {
+                continue;
+            }
+            const auto home = jsonStringAfter(appText, "home", qtRuntimePos);
+            if (!home.empty()) {
+                return home;
+            }
+        } catch (...) {
+            // 非 app 配置或临时不可读文件不影响配置快照。
+        }
+    }
+    return "/opt/modbus-gateway/ky-ems";
+}
+
+template <typename IncludeFile>
+void collectFilesRecursive(
+    std::vector<std::string>& files,
+    const std::string& root,
+    IncludeFile includeFile
+) {
+#ifndef _WIN32
+    DIR* handle = opendir(root.c_str());
+    if (handle == nullptr) {
+        return;
+    }
+    while (auto* entry = readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") {
+            continue;
+        }
+        const auto path = root + "/" + name;
+        struct stat st {};
+        if (stat(path.c_str(), &st) != 0) {
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            collectFilesRecursive(files, path, includeFile);
+        } else if (S_ISREG(st.st_mode) && includeFile(path)) {
+            addUniquePath(files, path);
+        }
+    }
+    closedir(handle);
+#else
+    (void)files;
+    (void)root;
+    (void)includeFile;
+#endif
+}
+
+std::vector<std::string> collectConfigSnapshotFiles(const std::vector<std::string>& configFiles) {
+    auto files = configFiles;
+    for (const auto& logicRoot : logicRootsFromConfigFiles(configFiles)) {
+        collectFilesRecursive(files, logicRoot, [](const std::string& path) {
+            return isRuntimeLogicSnapshotFile(path);
+        });
+    }
+    const auto kyEmsHome = kyEmsHomeFromConfigFiles(configFiles);
+    collectFilesRecursive(files, kyEmsHome, [](const std::string& path) {
+        return isKyEmsSnapshotFile(path);
+    });
+    return files;
+}
+
 std::vector<ConfigApplyFile> parseConfigApplyFiles(const std::string& payload) {
     auto pos = skipJsonWhitespace(payload, findJsonValue(payload, "files"));
     if (pos == std::string::npos || pos >= payload.size() || payload[pos] != '[') {
@@ -866,6 +1086,17 @@ std::vector<ConfigApplyFile> parseConfigApplyFiles(const std::string& payload) {
         }
         file.path = parseJsonStringAt(objectText, pathPos);
         file.content = parseJsonStringAt(objectText, contentPos);
+        auto encodingPos = skipJsonWhitespace(objectText, findJsonValue(objectText, "encoding"));
+        if (encodingPos != std::string::npos && encodingPos < objectText.size() && objectText[encodingPos] == '"') {
+            file.encoding = parseJsonStringAt(objectText, encodingPos);
+        }
+        if (file.encoding == "base64") {
+            file.content = base64Decode(file.content);
+        } else if (file.encoding.empty() || file.encoding == "utf8") {
+            file.encoding = "utf8";
+        } else {
+            throw std::runtime_error("unsupported config apply file encoding: " + file.path);
+        }
         if (file.path.empty()) {
             throw std::runtime_error("config apply file path is required");
         }
@@ -898,6 +1129,24 @@ bool containsPathSegment(std::string path, const std::string& segment) {
 
 void validateConfigContentForPath(const std::string& path, const std::string& content) {
     const auto name = baseName(path);
+    if (containsPathSegment(path, "/ky-ems/") && isKyEmsSnapshotFile(path)) {
+        return;
+    }
+    if (isRuntimeLogicSnapshotFile(path)) {
+        const auto valuePos = skipJsonWhitespace(content, 0);
+        if (valuePos == std::string::npos || valuePos >= content.size() || content[valuePos] != '{') {
+            throw std::runtime_error("runtime logic config must be a JSON object: " + path);
+        }
+        const auto objectEnd = findMatchingJsonToken(content, valuePos, '{', '}');
+        if (objectEnd == std::string::npos) {
+            throw std::runtime_error("runtime logic config JSON is malformed: " + path);
+        }
+        const auto trailing = skipJsonWhitespace(content, objectEnd + 1);
+        if (trailing != std::string::npos && trailing < content.size()) {
+            throw std::runtime_error("runtime logic config has trailing content: " + path);
+        }
+        return;
+    }
     if (containsPathSegment(path, "/devices/")) {
         (void)ConfigLoader::loadFromText(content);
         return;
@@ -1742,7 +1991,8 @@ std::string SystemMonitorService::buildConfigPullReply(const std::string& reques
     std::size_t emittedFiles = 0;
     std::size_t skippedFiles = 0;
     std::size_t totalBytes = 0;
-    for (const auto& path : configFiles_) {
+    const auto snapshotFiles = collectConfigSnapshotFiles(configFiles_);
+    for (const auto& path : snapshotFiles) {
         if (path.empty()) {
             continue;
         }
@@ -1767,13 +2017,16 @@ std::string SystemMonitorService::buildConfigPullReply(const std::string& reques
             continue;
         }
         totalBytes += content.size();
+        const auto encoding = isBase64SnapshotFile(path) ? std::string("base64") : std::string("utf8");
+        const auto encodedContent = encoding == "base64" ? base64Encode(content) : content;
         if (emittedFiles > 0) {
             reply << ",";
         }
         reply << "{\"path\":\"" << escapeJson(path)
               << "\",\"sizeBytes\":" << static_cast<long long>(content.size())
               << ",\"modifiedAtMs\":" << static_cast<long long>(modifiedAtMs(path))
-              << ",\"content\":\"" << escapeJson(content) << "\"}";
+              << ",\"encoding\":\"" << encoding << "\""
+              << ",\"content\":\"" << escapeJson(encodedContent) << "\"}";
         ++emittedFiles;
         if (reply.tellp() > static_cast<std::streampos>(kMaxConfigPullReplyBytes)) {
             throw std::runtime_error("config pull reply is too large");
@@ -1815,13 +2068,14 @@ std::string SystemMonitorService::buildConfigApplyReply(const std::string& paylo
     int appliedFiles = 0;
     std::ostringstream results;
     results << "[";
+    const auto allowedConfigFiles = collectConfigSnapshotFiles(configFiles_);
     for (std::size_t i = 0; i < files.size(); ++i) {
         const auto& file = files[i];
         bool success = true;
         bool changed = false;
         std::string message = "ok";
         try {
-            if (!isAllowedConfigPath(configFiles_, file.path)) {
+            if (!isAllowedConfigPath(allowedConfigFiles, file.path)) {
                 throw std::runtime_error("path is not allowed");
             }
             validateConfigContentForPath(file.path, file.content);
@@ -1893,7 +2147,8 @@ std::string SystemMonitorService::buildConfigFileOperationReply(
     if (requestId.empty()) {
         requestId = "CFG_" + operation + "_" + std::to_string(nowMs);
     }
-    if (!isAllowedConfigPath(configFiles_, path)) {
+    const auto allowedConfigFiles = collectConfigSnapshotFiles(configFiles_);
+    if (!isAllowedConfigPath(allowedConfigFiles, path)) {
         throw std::runtime_error("path is not allowed");
     }
 

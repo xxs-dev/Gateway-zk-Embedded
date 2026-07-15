@@ -14,6 +14,7 @@ namespace edge_gateway {
 
 struct PointStoreRoute {
     std::uint32_t index = 0;
+    std::uint32_t sourceIndex = 0;
     std::string machineCode;
     std::string meterCode;
     std::string pointCode;
@@ -21,10 +22,13 @@ struct PointStoreRoute {
     std::string interfaceType;
     std::string sharedMemoryName;
     std::string driverService;
+    bool derived = false;
     bool writable = false;
+    bool fullUpload = false;
     bool reportOnChange = false;
     bool isStore = false;
     int persistIntervalSec = 60;
+    ValueNormalizeConfig normalize;
 };
 
 struct CommandSubmitResult {
@@ -75,9 +79,19 @@ public:
 private:
     MemoryPointStore* storeForRoute(const PointStoreRoute& route) const;
     StoredPointValue enrich(StoredPointValue value) const;
+    Optional<PointStoreRoute> routeByPointCode(
+        const std::string& machineCode,
+        const std::string& meterCode,
+        const std::string& pointCode
+    ) const;
+    Optional<StoredPointValue> getRawLatestByRoute(const PointStoreRoute& route, std::int64_t nowMs) const;
+    Optional<StoredPointValue> getDerivedLatestByRoute(const PointStoreRoute& route, std::int64_t nowMs) const;
+    std::uint32_t allocateDerivedIndex(std::uint32_t configuredIndex);
+    void addNormalizeRoute(const PointStoreRoute& sourceRoute, const ValueNormalizeConfig& normalize);
 
     std::unordered_map<std::string, MemoryPointStore*> stores_;
     std::unordered_map<std::uint32_t, PointStoreRoute> routes_;
+    std::uint32_t nextDerivedIndex_ = 900000000U;
 };
 
 }  // namespace edge_gateway

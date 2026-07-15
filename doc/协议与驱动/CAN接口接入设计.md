@@ -22,11 +22,13 @@
 - `protocol.type=can_socketcan` 时，驱动使用 SocketCAN 收发 `can0` 到 `can3`。
 - `read.can` 支持按 `frameId`、标准帧/扩展帧、`byteOffset`、`bitOffset`、`bitLength`、大小端和倍率解析。
 - `write.can` 支持从共享内存 pending write 队列取写命令，并编码为 CAN 帧发送。
+- 顶层 `startupWrites[]` 已支持驱动启动自动写入。`CanDriver` 打开 SocketCAN 后按 `pointCode` 查找可写点，校验写入约束，发送 `write.can` 帧，并发布 `startup-write-succeeded`、`startup-write-failed` 或 `startup-write-skipped` 状态事件。
 - `gateway-services.sh` 已支持按 `deviceConfigFiles[]` 自动启动 `can-driver@device_canX.service`，未配置的 CAN 驱动不会启动。
 - 初始化安装包脚本和工厂包脚本已包含 `CanDriver` 与 `can-driver@.service`。
 - Java 多接口批量配置页面已支持 `can_socketcan`，可配置 CAN 接口参数、逻辑设备、在线帧和 CAN 点表。
 - 测点 Excel 模板已补充 CAN 读写字段；导入时如填写 `readCanFrameId` 或 `writeCanFrameId`，会生成 `read.can` 或 `write.can`。
 - 示例文件已新增 `config/examples/device_can0_example.json`。
+- Win 端通用设备点表模板已支持按协议文档生成 CAN 全量点位。正华同安复合探测器、优旦 BMS EMS CAN、盛弘 BMS-PCS CAN、华塑 BMS-PCS CAN2.0 模板会生成 `protocol.can`、`read.can`、`write.can`、`meters[].onlineFrameIds` 和必要的 `startupWrites`。正华同安复合探测器默认启动写入自动上传周期 `1s`，避免现场必须人工下发频率后设备才开始主动上报。
 
 已验证：
 
@@ -138,6 +140,17 @@ CAN 总线
   -> CAN 设备
 ```
 
+启动写入链路：
+
+```text
+CanDriver 启动
+  -> SocketCAN 接口配置并打开
+  -> 读取配置 startupWrites[]
+  -> 按 pointCode 定位可写点并校验范围
+  -> 按 write.can 编码发送启动参数帧
+  -> 发布 startup-write-* 状态事件
+```
+
 ## 配置文件命名
 
 CAN 设备配置文件固定按接口命名：
@@ -166,6 +179,7 @@ CAN 配置文件使用现有设备配置体系：
   "protocol": {},
   "collect": {},
   "memoryStore": {},
+  "startupWrites": [],
   "meters": []
 }
 ```
@@ -180,6 +194,7 @@ CAN 配置文件使用现有设备配置体系：
 | `protocol.can` | CAN 接口参数 |
 | `collect` | 驱动轮询、在线检查、写队列扫描参数 |
 | `memoryStore` | 统一共享内存配置 |
+| `startupWrites` | 驱动启动后自动执行的安全写入项，例如设置 CAN 设备自动上传周期 |
 | `meters` | CAN 总线上的逻辑设备分组 |
 
 ### `protocol.can`
@@ -417,6 +432,41 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
   }
 }
 ```
+
+## 启动写入 `startupWrites`
+
+部分 CAN 设备默认不会主动上报，必须先设置上传周期或订阅参数。为了避免现场每次重启后都要人工下发频率，CAN 配置支持顶层 `startupWrites[]`。
+
+```json
+{
+  "startupWrites": [
+    {
+      "pointCode": "fire_detector_auto_upload_period",
+      "meterCode": "CAN1_ZH_DET_001",
+      "value": 1,
+      "enabled": true,
+      "delayMs": 300,
+      "repeat": 2,
+      "repeatIntervalMs": 200,
+      "reason": "设置状态和实时数据自动上传周期为1秒"
+    }
+  ]
+}
+```
+
+执行规则：
+
+- `CanDriver` 完成接口配置、打开 socket、注册点表后执行启动写入。
+- `pointCode` 必填，`meterCode` 可选；不填 `meterCode` 时匹配当前配置里的同名点。
+- 目标点必须启用 `write.enable=true`，并通过写入上下限校验。
+- 写入使用该点的 `write.can` 编码，发送成功或失败都会发布状态事件。
+- `repeat` 用于提高启动参数写入成功率，生产建议保持 1 到 2 次。
+
+安全边界：
+
+- 启动写入只用于上传周期、状态订阅、采集开关等不会触发现场动作的参数。
+- 消防阀门控制、复位、PCS 功率下发等真实动作点不得默认加入 `startupWrites`。
+- 多字节告警策略类参数在没有整帧编辑器前，不建议拆成单字段自动写入，避免写一个字段时清零同帧其它参数。
 
 ### `read.can` 字段
 

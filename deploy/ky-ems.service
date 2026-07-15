@@ -1,0 +1,27 @@
+[Unit]
+Description=KY EMS Qt Local Display
+Requires=qt-display-bridge.service
+After=graphical.target qt-display-bridge.service
+Wants=graphical.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/modbus-gateway/ky-ems
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=QT_QPA_PLATFORM=xcb
+ExecStart=/opt/modbus-gateway/ky-ems/KY-EMS
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillSignal=SIGTERM
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

@@ -189,6 +189,10 @@ add_executable(memory_point_store_lifecycle_test tools/memory_point_store_lifecy
 target_link_libraries(memory_point_store_lifecycle_test PRIVATE edge_gateway)
 target_compile_options(memory_point_store_lifecycle_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(point_store_router_normalize_test tools/point_store_router_normalize_test.cpp)
+target_link_libraries(point_store_router_normalize_test PRIVATE edge_gateway)
+target_compile_options(point_store_router_normalize_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(builtin_mqtt_driver_publisher_test tools/builtin_mqtt_driver_publisher_test.cpp)
 target_link_libraries(builtin_mqtt_driver_publisher_test PRIVATE edge_gateway)
 target_compile_options(builtin_mqtt_driver_publisher_test PRIVATE -fdiagnostics-color=never)
@@ -200,6 +204,10 @@ target_compile_options(mqtt_driver_service_test PRIVATE -fdiagnostics-color=neve
 add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(EmsParityCheck tools/ems_parity_check.cpp)
+target_link_libraries(EmsParityCheck PRIVATE edge_gateway)
+target_compile_options(EmsParityCheck PRIVATE -fdiagnostics-color=never)
 
 add_executable(ota_service_test tools/ota_service_test.cpp)
 target_link_libraries(ota_service_test PRIVATE edge_gateway)

@@ -59,10 +59,12 @@
     <FirstPage>
         <DataBindings>
             <!-- ── 控制模式 ── -->
-            <Bind widget="CtlModeColor" type="image"  appDataIndex="0"
+            <Bind widget="CtlModeColor" type="image" semanticRole="ems.controlMode" indexFallback="1"
+                  meterCode="EMS_CORE" pointCode="ems_auto_mode"
                   value0Image=":/new/prefix1/Pictures/RingG.png"
                   value1Image=":/new/prefix1/Pictures/RingR.png"/>  <!-- 控制模式颜色（0=自动绿/1=手动红） -->
-            <Bind widget="CtlModeText"  type="text"   appDataIndex="0" decimals="0"
+            <Bind widget="CtlModeText" type="text" semanticRole="ems.controlMode" indexFallback="1"
+                  meterCode="EMS_CORE" pointCode="ems_auto_mode" decimals="0"
                   value0Text="自动" value1Text="手动"/>                <!-- 控制模式文本 -->
 
             <!-- ── SOC 显示 ── -->
@@ -83,8 +85,8 @@
             <Bind widget="tqPData" semanticRole="meter.gridActivePower" indexFallback="1039" unit="kW" decimals="1"/>      <!-- 台区有功功率(kW) -->
             
             <!-- ── 无功功率 ── -->
-            <Bind widget="EnStoreQData" semanticRole="meter.storageReactivePower" indexFallback="1143" unit="kVar" decimals="1"/>      <!-- 储能无功功率(kVar) -->
-            <Bind widget="tqQData" semanticRole="meter.gridReactivePower" indexFallback="1043" unit="kVar" decimals="1"/>      <!-- 台区无功功率(kVar) -->
+            <Bind widget="EnStorePData_2" semanticRole="meter.storageReactivePower" indexFallback="1143" unit="kVar" decimals="1"/>      <!-- 储能无功功率(kVar) -->
+            <Bind widget="tqPData_2" semanticRole="meter.gridReactivePower" indexFallback="1043" unit="kVar" decimals="1"/>      <!-- 台区无功功率(kVar) -->
 
             <!-- ── 双向进度条（BilateralProgressBar，数值范围±100）── -->
             <Bind widget="progBarEsP" type="bar" semanticRole="meter.storageActivePower" indexFallback="1139"/>   <!-- 储能有功功率进度条 -->

@@ -839,7 +839,7 @@ int main(int argc, char* argv[]) {
     stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
         std::unique_ptr<MemoryPointStore> store(new MemoryPointStore(name));
-        router.addStore(name, *store);
+        router.addStore(name, store.get());
         stores.push_back(std::move(store));
     }
 
@@ -860,4 +860,3 @@ int main(int argc, char* argv[]) {
     }
     return app.exec();
 }
-     

@@ -17,6 +17,15 @@
   },
   "localDisplay": {
     "enabled": true,
+    "renderer": "nativeQt",
+    "qtRuntime": {
+      "serviceName": "ky-ems.service",
+      "home": "/opt/modbus-gateway/ky-ems",
+      "binary": "/opt/modbus-gateway/ky-ems/KY-EMS",
+      "layoutFile": "/opt/modbus-gateway/ky-ems/KY-EMS-Config.xml",
+      "pointMapFile": "/opt/modbus-gateway/ky-ems/KY-EMS-PointMap.example.json",
+      "varListFile": "/opt/modbus-gateway/ky-ems/VarList.xml"
+    },
     "refreshIntervalMs": 1000,
     "maxPointsPerFrame": 500,
     "showOnlyConfiguredPoints": false,
@@ -27,11 +36,17 @@
       {
         "screenCode": "overview",
         "title": "EMS 概览",
+        "layout": {
+          "type": "emsDashboard",
+          "columns": 12,
+          "rowHeight": 64,
+          "gap": 12
+        },
         "widgets": [
           {
-            "id": "ems_power",
-            "type": "pointTable",
-            "title": "EMS 关键点",
+            "id": "ems_dashboard",
+            "type": "emsDashboard",
+            "title": "EMS 概览",
             "bind": {
               "indexes": [
                 1039,

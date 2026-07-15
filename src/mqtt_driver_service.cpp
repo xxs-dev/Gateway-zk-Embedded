@@ -531,6 +531,20 @@ MqttDriverService::MqttDriverService(
             pointFullUploadIndexes.end()
         );
     }
+    std::vector<std::uint32_t> routedFullUploadIndexes;
+    for (const auto& entry : router_.routes()) {
+        if (entry.second.fullUpload) {
+            routedFullUploadIndexes.push_back(entry.first);
+        }
+    }
+    if (!routedFullUploadIndexes.empty()) {
+        driverConfig_.publishAllOnFull = false;
+        driverConfig_.fullUploadIndexes.insert(
+            driverConfig_.fullUploadIndexes.end(),
+            routedFullUploadIndexes.begin(),
+            routedFullUploadIndexes.end()
+        );
+    }
     std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
     driverConfig_.fullUploadIndexes.erase(
         std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
@@ -571,6 +585,20 @@ MqttDriverService::MqttDriverService(
             driverConfig_.fullUploadIndexes.end(),
             pointFullUploadIndexes.begin(),
             pointFullUploadIndexes.end()
+        );
+    }
+    std::vector<std::uint32_t> routedFullUploadIndexes;
+    for (const auto& entry : router_.routes()) {
+        if (entry.second.fullUpload) {
+            routedFullUploadIndexes.push_back(entry.first);
+        }
+    }
+    if (!routedFullUploadIndexes.empty()) {
+        driverConfig_.publishAllOnFull = false;
+        driverConfig_.fullUploadIndexes.insert(
+            driverConfig_.fullUploadIndexes.end(),
+            routedFullUploadIndexes.begin(),
+            routedFullUploadIndexes.end()
         );
     }
     std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());

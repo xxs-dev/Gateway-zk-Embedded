@@ -54,6 +54,8 @@ private:
     void configureInterface() const;
     void openSocket();
     void closeSocket();
+    void runStartupWrites();
+    bool sendCanWrite(const PointDefinition& point, double value);
     void receiveLoop();
     void writebackLoop();
     void persistLoop();

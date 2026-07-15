@@ -1,0 +1,39 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "wsl-aarch64-local",
+      "displayName": "WSL aarch64 local",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-aarch64-local",
+      "toolchainFile": "${sourceDir}/.vscode/toolchains/aarch64-linux-gnu-local.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_COLOR_DIAGNOSTICS": "OFF"
+      }
+    },
+    {
+      "name": "remote-aarch64-cross",
+      "displayName": "Remote aarch64 cross toolchain",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-aarch64-cross",
+      "toolchainFile": "${sourceDir}/toolchains/aarch64-linux-gnu.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_COLOR_DIAGNOSTICS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "wsl-aarch64-local",
+      "configurePreset": "wsl-aarch64-local"
+    },
+    {
+      "name": "remote-aarch64-cross",
+      "configurePreset": "remote-aarch64-cross"
+    }
+  ]
+}

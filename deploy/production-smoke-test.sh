@@ -177,7 +177,7 @@ runtime_package_profile() {
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
   base_bins="SystemMonitor MqttDriver pointctl"
-  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay QtDisplayBridge CameraService pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
   case "$profile" in
     base)
       printf '%s\n' $base_bins | unique_lines
@@ -648,6 +648,7 @@ check_services() {
       'local-display@*.service' \
       'local-display-qt@*.service' \
       'local-kiosk@*.service' \
+      'ky-ems.service' \
       'camera-service@*.service' \
       'mqtt-driver@*.service' \
       'system-monitor@*.service' \
@@ -663,6 +664,7 @@ check_services() {
       'local-display@*.service' \
       'local-display-qt@*.service' \
       'local-kiosk@*.service' \
+      'ky-ems.service' \
       'camera-service@*.service' \
       'mqtt-driver@*.service' \
       'system-monitor@*.service' \
@@ -681,7 +683,7 @@ check_services() {
       pass "no unexpected enabled gateway units"
     fi
     rm -f "$active_units_file" "$enabled_units_file"
-    failed_units=$(systemctl --failed --no-legend 2>/dev/null | grep -E 'modbus|dlt645|dio|can-driver|mqtt|event-engine|system-monitor|local-display|camera-service|gateway-services' || true)
+    failed_units=$(systemctl --failed --no-legend 2>/dev/null | grep -E 'modbus|dlt645|dio|can-driver|mqtt|event-engine|system-monitor|local-display|local-kiosk|ky-ems|camera-service|gateway-services' || true)
     if [ -n "$failed_units" ]; then
       fail "gateway related failed systemd units detected"
       echo "$failed_units" >&2

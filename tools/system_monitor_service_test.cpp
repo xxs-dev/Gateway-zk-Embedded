@@ -243,7 +243,11 @@ int main() {
     removeFileIfExists(medium);
     removeFileIfExists(large);
     removeFileIfExists(root + "/missing.json");
-    writeFile(small, "{\"ok\":true}\n");
+    writeFile(
+        small,
+        std::string("{\"ok\":true,\"localDisplay\":{\"qtRuntime\":{\"home\":\"") +
+            root + "/ky-ems-empty\"}}}\n"
+    );
     writeFile(medium, std::string(512 * 1024 + 1, 'm'));
     writeFile(large, std::string(5 * 1024 * 1024 + 1, 'x'));
 
@@ -274,6 +278,36 @@ int main() {
     require(reply.find("large.json") == std::string::npos, "large config should be skipped");
     require(reply.find("missing.json") == std::string::npos, "missing config should be skipped");
 
+    const std::string runtimeRoot = root + "/config/runtime";
+    const std::string runtimeApps = runtimeRoot + "/apps";
+    const std::string runtimeLogic = runtimeRoot + "/logic";
+    ensureDir(root + "/config");
+    ensureDir(root + "/config/runtime");
+    ensureDir(runtimeApps);
+    ensureDir(runtimeLogic);
+    const std::string runtimeAppConfig = runtimeApps + "/monitor-service.json";
+    const std::string runtimeGraph = runtimeLogic + "/shuntong_ems_graph.json";
+    writeFile(runtimeAppConfig, "{\"computeEngine\":{\"enabled\":false,\"rules\":[]}}\n");
+    writeFile(runtimeGraph, "{\"graphCode\":\"test-graph\",\"nodes\":[{\"id\":\"pcs_writeback\",\"type\":\"pcsWriteback\",\"enabled\":true}]}\n");
+    auto logicPublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService logicService(SystemMonitorConfig{}, mqtt, logicPublisher, "GW_TEST", std::vector<std::string>{runtimeAppConfig});
+    request.payload = "{\"requestId\":\"REQ_LOGIC\",\"machineCode\":\"GW_TEST\"}";
+    logicPublisher->incoming.push_back(request);
+    logicService.runOnce(1770000000500LL);
+    const std::string logicReply = configPullReplyPayload(*logicPublisher, mqtt.configPullReplyTopic);
+    require(logicReply.find(runtimeGraph) != std::string::npos, "runtime logic graph should be included in config pull");
+    require(logicReply.find("test-graph") != std::string::npos, "runtime logic graph content should be included");
+
+    MqttIncomingMessage logicApplyRequest;
+    logicApplyRequest.type = MqttIncomingType::ConfigApplyRequest;
+    logicApplyRequest.payload =
+        std::string("{\"requestId\":\"REQ_LOGIC_APPLY\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"files\":[{\"path\":\"") +
+        runtimeGraph +
+        "\",\"encoding\":\"utf8\",\"content\":\"{\\\"graphCode\\\":\\\"updated-graph\\\",\\\"nodes\\\":[]}\\n\"}]}";
+    logicPublisher->incoming.push_back(logicApplyRequest);
+    logicService.runOnce(1770000000600LL);
+    require(readFile(runtimeGraph).find("updated-graph") != std::string::npos, "runtime logic graph should be writable through config apply");
+
     std::vector<std::string> chunkFiles;
     for (int i = 0; i < 4; ++i) {
         const std::string path = root + "/chunk_" + std::to_string(i) + ".json";
@@ -294,6 +328,50 @@ int main() {
         }
     }
     require(sawChunkedReply, "expected chunked reply payload");
+
+    const std::string kyEmsRoot = root + "/ky-ems";
+    const std::string kyEmsPictures = kyEmsRoot + "/Pictures";
+    ensureDir(kyEmsRoot);
+    ensureDir(kyEmsPictures);
+    const std::string kyEmsAppConfig = root + "/ky_ems_app.json";
+    const std::string kyEmsImage = kyEmsPictures + "/main.png";
+    removeFileIfExists(kyEmsAppConfig);
+    removeFileIfExists(kyEmsImage);
+    writeFile(
+        kyEmsAppConfig,
+        std::string("{\"localDisplay\":{\"qtRuntime\":{\"home\":\"") + kyEmsRoot + "\"}}}"
+    );
+    writeFile(kyEmsImage, std::string("\x01\x02\x03\x04", 4));
+    MqttConfig kyEmsMqtt;
+    kyEmsMqtt.configPullReplyTopic = "kyems/config/reply";
+    kyEmsMqtt.configApplyReplyTopic = "kyems/config/apply/reply";
+    auto kyEmsPublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService kyEmsService(
+        SystemMonitorConfig{},
+        kyEmsMqtt,
+        kyEmsPublisher,
+        "GW_TEST",
+        std::vector<std::string>{kyEmsAppConfig}
+    );
+    request.payload = "{\"requestId\":\"REQ_KYEMS\",\"machineCode\":\"GW_TEST\"}";
+    kyEmsPublisher->incoming.push_back(request);
+    kyEmsService.runOnce(1770000001500LL);
+    const std::string kyEmsReply = configPullReplyPayload(*kyEmsPublisher, kyEmsMqtt.configPullReplyTopic);
+    require(kyEmsReply.find(kyEmsImage) != std::string::npos, "KY-EMS image should be included");
+    require(kyEmsReply.find("\"encoding\":\"base64\"") != std::string::npos, "KY-EMS image should be base64 encoded");
+    require(kyEmsReply.find("\"content\":\"AQIDBA==\"") != std::string::npos, "KY-EMS image bytes should be encoded");
+
+    MqttIncomingMessage applyRequest;
+    applyRequest.type = MqttIncomingType::ConfigApplyRequest;
+    applyRequest.payload =
+        std::string("{\"requestId\":\"REQ_KYEMS_APPLY\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"files\":[{\"path\":\"") +
+        kyEmsImage +
+        "\",\"encoding\":\"base64\",\"content\":\"BQYHCA==\"}]}";
+    kyEmsPublisher->incoming.push_back(applyRequest);
+    kyEmsService.runOnce(1770000001600LL);
+    require(readFile(kyEmsImage) == std::string("\x05\x06\x07\x08", 4), "KY-EMS image should be written as binary");
+    const std::string applyReply = lastPayloadForTopic(*kyEmsPublisher, kyEmsMqtt.configApplyReplyTopic);
+    require(applyReply.find("\"success\":true") != std::string::npos, "KY-EMS image apply should succeed");
 
     const std::string storeName = "system_monitor_service_test_" + std::to_string(getpid());
     MemoryPointStore::cleanupOrphanedSegment(storeName);

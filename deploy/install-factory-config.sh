@@ -286,6 +286,34 @@ install_optional_binary() {
   install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
 }
 
+install_ky_ems_payload() {
+  required="${1:-0}"
+  src=""
+  for candidate in \
+    "$PACKAGE_ROOT/ky-ems" \
+    "$SOURCE_ROOT/ky-ems" \
+    "$DEFAULT_SOURCE_ROOT/ky-ems" \
+    "$ROOT_DIR/ky-ems" \
+    "$SCRIPT_DIR/ky-ems" \
+    "$SCRIPT_DIR/../ky-ems"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ] && [ -f "$candidate/KY-EMS" ]; then
+      src="$candidate"
+      break
+    fi
+  done
+  if [ -z "$src" ]; then
+    if [ "$required" = "1" ]; then
+      echo "required KY-EMS payload missing: ky-ems/KY-EMS" >&2
+      exit 2
+    fi
+    echo "optional KY-EMS payload missing: ky-ems/KY-EMS, skip" >&2
+    return 0
+  fi
+  mkdir -p "$GATEWAY_HOME/ky-ems"
+  cp -a "$src"/. "$GATEWAY_HOME/ky-ems"/
+  chmod +x "$GATEWAY_HOME/ky-ems/KY-EMS" 2>/dev/null || true
+}
+
 manifest_profile() {
   manifest="$1"
   [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
@@ -692,8 +720,8 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
 fi
 
 BASE_BINS="SystemMonitor MqttDriver pointctl"
-ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
-OPTIONAL_BINS="LocalDisplay QtDisplayBridge CameraService stress_runner"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
+OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
 if [ "$PACKAGE_PROFILE" = "base" ]; then
   REQUIRED_BINS="$BASE_BINS"
   OPTIONAL_BINS=""
@@ -707,6 +735,11 @@ elif [ "$PACKAGE_PROFILE" = "project" ]; then
 else
   REQUIRED_BINS="$ALL_BINS"
 fi
+case " $REQUIRED_BINS " in
+  *" KY-EMS "*)
+    REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS QtDisplayBridge | unique_words | tr '\n' ' ')
+    ;;
+esac
 
 echo "install package profile: $PACKAGE_PROFILE"
 if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
@@ -714,10 +747,18 @@ if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
 fi
 
 for bin in $REQUIRED_BINS; do
-  install_required_binary "$bin"
+  if [ "$bin" = "KY-EMS" ]; then
+    install_ky_ems_payload 1
+  else
+    install_required_binary "$bin"
+  fi
 done
 for bin in $OPTIONAL_BINS; do
-  install_optional_binary "$bin"
+  if [ "$bin" = "KY-EMS" ]; then
+    install_ky_ems_payload 0
+  else
+    install_optional_binary "$bin"
+  fi
 done
 
 install_required_deploy_file "gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
@@ -849,6 +890,8 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
   install_deploy_file_if_exists "local-display@.service" "/etc/systemd/system/local-display@.service"
   install_deploy_file_if_exists "local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
+  install_deploy_file_if_exists "qt-display-bridge.service" "/etc/systemd/system/qt-display-bridge.service"
+  install_deploy_file_if_exists "ky-ems.service" "/etc/systemd/system/ky-ems.service"
   install_deploy_file_if_exists "camera-service@.service" "/etc/systemd/system/camera-service@.service"
   install_deploy_file_if_exists "system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
   install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"

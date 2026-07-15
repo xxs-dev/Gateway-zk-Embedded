@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "1.2.0",
+  "graphCode": "generic-node-example",
+  "nodes": [
+    {
+      "id": "net_power",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          { "index": 1039 },
+          { "index": 1139 }
+        ],
+        "outputIndex": 700010
+      }
+    },
+    {
+      "id": "bounded_power",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          { "index": 700010 }
+        ],
+        "lower": -100,
+        "upper": 100,
+        "outputIndex": 700011
+      }
+    },
+    {
+      "id": "power_rate_limit",
+      "type": "rateLimit",
+      "enabled": true,
+      "params": {
+        "inputIndex": 700011,
+        "outputIndex": 700013,
+        "risePerSecond": 10,
+        "fallPerSecond": 20,
+        "minValue": -100,
+        "maxValue": 100,
+        "initialValue": 0
+      }
+    },
+    {
+      "id": "power_direction",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "leftIndex": 700013,
+        "operator": "gt",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": -1,
+        "outputIndex": 700012
+      }
+    },
+    {
+      "id": "pcs_control_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          { "name": "PCS 通讯正常", "index": 1399, "operator": "eq", "value": 1 },
+          { "name": "远程控制允许", "index": 700040, "operator": "eq", "value": 1 }
+        ],
+        "outputIndex": 700041
+      }
+    },
+    {
+      "id": "pcs_writeback_shadow",
+      "type": "pcsWriteback",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "permitIndex": 700041,
+        "permitValue": 1,
+        "permitTolerance": 0.000001,
+        "comStatusIndex": 1399,
+        "paInput": 627,
+        "pbInput": 628,
+        "pcInput": 629,
+        "qaInput": 630,
+        "qbInput": 631,
+        "qcInput": 632,
+        "pControlAIndex": 1318,
+        "pControlBIndex": 1319,
+        "pControlCIndex": 1320,
+        "qControlAIndex": 1321,
+        "qControlBIndex": 1322,
+        "qControlCIndex": 1323
+      }
+    },
+    {
+      "id": "generic_control_write_shadow",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 700011,
+        "targetIndex": 700050,
+        "minValue": -100,
+        "maxValue": 100,
+        "deadband": 0.1,
+        "permitIndex": 700041,
+        "permitValue": 1,
+        "permitTolerance": 0.000001,
+        "highPriority": false
+      }
+    },
+    {
+      "id": "pcs_active_power_feedback",
+      "type": "feedbackVerify",
+      "enabled": true,
+      "params": {
+        "targetIndex": 627,
+        "feedbackIndex": 1318,
+        "tolerance": 1,
+        "targetChangeTolerance": 0.01,
+        "timeoutMs": 5000,
+        "outputIndex": 700042
+      }
+    }
+  ],
+  "edges": [
+    { "from": "net_power", "to": "bounded_power" },
+    { "from": "bounded_power", "to": "power_rate_limit" },
+    { "from": "power_rate_limit", "to": "power_direction" },
+    { "from": "power_direction", "to": "pcs_control_gate" },
+    { "from": "pcs_control_gate", "to": "pcs_writeback_shadow" },
+    { "from": "pcs_writeback_shadow", "to": "generic_control_write_shadow" },
+    { "from": "generic_control_write_shadow", "to": "pcs_active_power_feedback" }
+  ]
+}

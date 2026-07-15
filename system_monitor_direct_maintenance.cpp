@@ -45,14 +45,14 @@ std::atomic<bool> g_running{true};
 
 constexpr const char* kFixedMaintenancePasswordSha256 =
     "5c2358ee05dbd6bc6d52939f51a45c315533ad9191eecf1631fd788ec8ab76b3";
-constexpr std::size_t kMaxConfigSnapshotFiles = 256;
+constexpr std::size_t kMaxConfigSnapshotFiles = 512;
 constexpr std::size_t kMaxConfigSnapshotFileBytes = 5 * 1024 * 1024;
-constexpr std::size_t kMaxConfigSnapshotTotalBytes = 16 * 1024 * 1024;
-constexpr std::size_t kMaxConfigSnapshotReplyBytes = 24 * 1024 * 1024;
-constexpr std::size_t kMaxConfigApplyFiles = 64;
+constexpr std::size_t kMaxConfigSnapshotTotalBytes = 48 * 1024 * 1024;
+constexpr std::size_t kMaxConfigSnapshotReplyBytes = 96 * 1024 * 1024;
+constexpr std::size_t kMaxConfigApplyFiles = 512;
 constexpr std::size_t kMaxBatchControlCommands = 128;
 constexpr std::size_t kMaxDiagOutputBytes = 64 * 1024;
-constexpr std::size_t kMaxHttpRequestBytes = 24 * 1024 * 1024;
+constexpr std::size_t kMaxHttpRequestBytes = 96 * 1024 * 1024;
 
 void handleSignal(int) {
     g_running = false;
@@ -65,13 +65,63 @@ std::int64_t nowMs() {
 }
 
 std::string readFile(const std::string& path) {
-    std::ifstream input(path);
+    std::ifstream input(path, std::ios::in | std::ios::binary);
     if (!input.is_open()) {
         return "";
     }
     std::stringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+std::string base64Encode(const std::string& bytes) {
+    static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((bytes.size() + 2) / 3) * 4);
+    for (std::size_t i = 0; i < bytes.size(); i += 3) {
+        const unsigned int b0 = static_cast<unsigned char>(bytes[i]);
+        const unsigned int b1 = i + 1 < bytes.size() ? static_cast<unsigned char>(bytes[i + 1]) : 0;
+        const unsigned int b2 = i + 2 < bytes.size() ? static_cast<unsigned char>(bytes[i + 2]) : 0;
+        out.push_back(table[(b0 >> 2) & 0x3F]);
+        out.push_back(table[((b0 << 4) | (b1 >> 4)) & 0x3F]);
+        out.push_back(i + 1 < bytes.size() ? table[((b1 << 2) | (b2 >> 6)) & 0x3F] : '=');
+        out.push_back(i + 2 < bytes.size() ? table[b2 & 0x3F] : '=');
+    }
+    return out;
+}
+
+int base64Value(char ch) {
+    if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+    if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+    if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+    if (ch == '+') return 62;
+    if (ch == '/') return 63;
+    return -1;
+}
+
+std::string base64Decode(const std::string& text) {
+    std::string out;
+    int value = 0;
+    int bits = -8;
+    for (char ch : text) {
+        if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+            continue;
+        }
+        if (ch == '=') {
+            break;
+        }
+        const int digit = base64Value(ch);
+        if (digit < 0) {
+            throw std::runtime_error("invalid base64 content");
+        }
+        value = (value << 6) | digit;
+        bits += 6;
+        if (bits >= 0) {
+            out.push_back(static_cast<char>((value >> bits) & 0xFF));
+            bits -= 8;
+        }
+    }
+    return out;
 }
 
 std::string dirnameOf(const std::string& path) {
@@ -353,6 +403,27 @@ std::string jsonString(const std::string& text, const std::string& key, const st
     return value.empty() ? fallback : value;
 }
 
+std::string jsonStringAfter(const std::string& text, const std::string& key, std::size_t start, const std::string& fallback = "") {
+    if (start >= text.size()) {
+        return fallback;
+    }
+    const auto keyPattern = "\"" + key + "\"";
+    const auto keyPos = text.find(keyPattern, start);
+    if (keyPos == std::string::npos) {
+        return fallback;
+    }
+    const auto colonPos = text.find(':', keyPos + keyPattern.size());
+    if (colonPos == std::string::npos) {
+        return fallback;
+    }
+    auto valuePos = colonPos + 1;
+    while (valuePos < text.size() && std::isspace(static_cast<unsigned char>(text[valuePos])) != 0) {
+        ++valuePos;
+    }
+    const auto value = parseJsonStringAt(text, valuePos);
+    return value.empty() ? fallback : value;
+}
+
 bool jsonBool(const std::string& text, const std::string& key, bool fallback) {
     const auto pos = findJsonValue(text, key);
     if (pos == std::string::npos) {
@@ -509,6 +580,8 @@ bool constantTimeEquals(const std::string& a, const std::string& b) {
 }
 
 std::string response(int code, const std::string& status, const std::string& body);
+std::size_t skipWhitespace(const std::string& text, std::size_t pos);
+std::size_t findMatchingJsonToken(const std::string& text, std::size_t begin, char openToken, char closeToken);
 
 using SystemMonitorDirectMaintenanceConfig = edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig;
 
@@ -531,6 +604,7 @@ struct AuthState {
 struct ConfigApplyFile {
     std::string path;
     std::string content;
+    std::string encoding = "utf8";
 };
 
 struct DirectControlCommand {
@@ -865,11 +939,128 @@ void collectConfigFilesFromAppConfig(std::vector<std::string>& files, const std:
     }
 }
 
+bool endsWithIgnoreCase(const std::string& value, const std::string& suffix) {
+    if (value.size() < suffix.size()) {
+        return false;
+    }
+    return std::equal(suffix.rbegin(), suffix.rend(), value.rbegin(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+    });
+}
+
+bool isKyEmsSnapshotFile(const std::string& path) {
+    return endsWithIgnoreCase(path, ".ui") ||
+           endsWithIgnoreCase(path, ".qrc") ||
+           endsWithIgnoreCase(path, ".xml") ||
+           endsWithIgnoreCase(path, ".json") ||
+           endsWithIgnoreCase(path, ".csv") ||
+           endsWithIgnoreCase(path, ".png") ||
+           endsWithIgnoreCase(path, ".jpg") ||
+           endsWithIgnoreCase(path, ".jpeg") ||
+           endsWithIgnoreCase(path, ".bmp") ||
+           endsWithIgnoreCase(path, ".gif") ||
+           endsWithIgnoreCase(path, ".webp") ||
+           endsWithIgnoreCase(path, ".ico") ||
+           endsWithIgnoreCase(path, ".svg") ||
+           endsWithIgnoreCase(path, ".ttf") ||
+           endsWithIgnoreCase(path, ".otf");
+}
+
+bool isRuntimeLogicSnapshotFile(const std::string& path) {
+    auto normalized = path;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    return normalized.find("/config/runtime/logic/") != std::string::npos &&
+           endsWithIgnoreCase(normalized, ".json");
+}
+
+std::vector<std::string> logicRootsFromConfigFiles(const std::vector<std::string>& configFiles) {
+    std::vector<std::string> roots;
+    for (const auto& path : configFiles) {
+        auto normalized = path;
+        std::replace(normalized.begin(), normalized.end(), '\\', '/');
+        const auto marker = normalized.find("/config/runtime/");
+        if (marker == std::string::npos) {
+            continue;
+        }
+        addUniquePath(roots, normalized.substr(0, marker) + "/config/runtime/logic");
+    }
+    return roots;
+}
+
+bool isBase64SnapshotFile(const std::string& path) {
+    return (path.find("/ky-ems/") != std::string::npos ||
+            path.find("\\ky-ems\\") != std::string::npos) &&
+           isKyEmsSnapshotFile(path);
+}
+
+std::string kyEmsHomeFromConfig(const SystemMonitorDirectMaintenanceConfig& config) {
+    try {
+        const auto appText = readFile(config.appConfigFile);
+        const auto localDisplayPos = appText.find("\"localDisplay\"");
+        if (localDisplayPos != std::string::npos) {
+            const auto qtRuntimePos = appText.find("\"qtRuntime\"", localDisplayPos);
+            if (qtRuntimePos != std::string::npos) {
+                const auto home = jsonStringAfter(appText, "home", qtRuntimePos);
+                if (!home.empty()) {
+                    return home;
+                }
+            }
+        }
+    } catch (...) {
+        // localDisplay 未配置时回落到生产默认目录。
+    }
+    return "/opt/modbus-gateway/ky-ems";
+}
+
+template <typename IncludeFile>
+void collectFilesRecursive(
+    std::vector<std::string>& files,
+    const std::string& root,
+    IncludeFile includeFile
+) {
+#ifndef _WIN32
+    DIR* handle = ::opendir(root.c_str());
+    if (handle == nullptr) {
+        return;
+    }
+    while (auto* entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") {
+            continue;
+        }
+        const auto path = root + "/" + name;
+        struct stat st {};
+        if (::stat(path.c_str(), &st) != 0) {
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            collectFilesRecursive(files, path, includeFile);
+        } else if (S_ISREG(st.st_mode) && includeFile(path)) {
+            addUniquePath(files, path);
+        }
+    }
+    ::closedir(handle);
+#else
+    (void)files;
+    (void)root;
+    (void)includeFile;
+#endif
+}
+
 std::vector<std::string> collectConfigSnapshotFiles(const SystemMonitorDirectMaintenanceConfig& config) {
     std::vector<std::string> files;
     addUniquePath(files, config.identityConfigFile);
     collectConfigFilesFromAppConfig(files, config.appConfigFile);
     collectConfigFilesFromAppConfig(files, config.otaAppConfigFile);
+    for (const auto& logicRoot : logicRootsFromConfigFiles(files)) {
+        collectFilesRecursive(files, logicRoot, [](const std::string& path) {
+            return isRuntimeLogicSnapshotFile(path);
+        });
+    }
+    const auto kyEmsHome = kyEmsHomeFromConfig(config);
+    collectFilesRecursive(files, kyEmsHome, [](const std::string& path) {
+        return isKyEmsSnapshotFile(path);
+    });
     return files;
 }
 
@@ -1016,6 +1207,24 @@ bool isAllowedConfigPath(const SystemMonitorDirectMaintenanceConfig& config, con
 void validateConfigContentForPath(const SystemMonitorDirectMaintenanceConfig& config, const std::string& path, const std::string& content) {
     const auto normalized = path;
     const auto name = baseNameOf(path);
+    if (containsPathSegment(normalized, "/ky-ems/") && isKyEmsSnapshotFile(path)) {
+        return;
+    }
+    if (isRuntimeLogicSnapshotFile(path)) {
+        const auto valuePos = skipWhitespace(content, 0);
+        if (valuePos == std::string::npos || valuePos >= content.size() || content[valuePos] != '{') {
+            throw std::runtime_error("runtime logic config must be a JSON object: " + path);
+        }
+        const auto objectEnd = findMatchingJsonToken(content, valuePos, '{', '}');
+        if (objectEnd == std::string::npos) {
+            throw std::runtime_error("runtime logic config JSON is malformed: " + path);
+        }
+        const auto trailing = skipWhitespace(content, objectEnd + 1);
+        if (trailing != std::string::npos && trailing < content.size()) {
+            throw std::runtime_error("runtime logic config has trailing content: " + path);
+        }
+        return;
+    }
     if (containsPathSegment(normalized, "/devices/")) {
         (void)edge_gateway::ConfigLoader::loadFromText(content);
         return;
@@ -1123,6 +1332,10 @@ std::vector<ConfigApplyFile> parseConfigApplyFiles(const std::string& body) {
         ConfigApplyFile file;
         file.path = jsonString(objectText, "path");
         file.content = jsonString(objectText, "content");
+        file.encoding = jsonString(objectText, "encoding", "utf8");
+        if (file.encoding == "base64") {
+            file.content = base64Decode(file.content);
+        }
         if (file.path.empty()) {
             throw std::runtime_error("config apply file path is required");
         }
@@ -1701,13 +1914,16 @@ std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& confi
             continue;
         }
         totalBytes += content.size();
+        const auto encoding = isBase64SnapshotFile(path) ? std::string("base64") : std::string("utf8");
+        const auto encodedContent = encoding == "base64" ? base64Encode(content) : content;
         if (emittedFiles > 0) {
             out << ",";
         }
         out << "{\"path\":\"" << jsonEscape(path)
             << "\",\"sizeBytes\":" << static_cast<long long>(content.size())
             << ",\"modifiedAtMs\":" << static_cast<long long>(modifiedAtMs(path))
-            << ",\"content\":\"" << jsonEscape(content) << "\"}";
+            << ",\"encoding\":\"" << encoding << "\""
+            << ",\"content\":\"" << jsonEscape(encodedContent) << "\"}";
         ++emittedFiles;
         if (out.tellp() > static_cast<std::streampos>(kMaxConfigSnapshotReplyBytes)) {
             throw std::runtime_error("config snapshot reply is too large");

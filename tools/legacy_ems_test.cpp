@@ -9,8 +9,10 @@
 #include <functional>
 #include <iostream>
 #include <cstdio>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/compute_engine_service.hpp"
@@ -581,6 +583,83 @@ int main() {
         });
 
         writeTextFile(
+            "graph_ems_unsupported_schema_test.json",
+            R"json({
+  "schemaVersion": "2.0.0",
+  "graphCode": "unsupported_schema",
+  "nodes": [],
+  "edges": []
+})json"
+        );
+        requireThrowsWithMessage("only major version 1 is supported", []() {
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_unsupported_schema_test.json");
+        });
+
+        writeTextFile(
+            "graph_ems_limits_test.json",
+            R"json({
+  "schemaVersion": "1.3.0",
+  "graphCode": "limits",
+  "limits": { "maxNodes": 1, "maxEdges": 1 },
+  "nodes": [
+    { "id": "one", "type": "pointInput" },
+    { "id": "two", "type": "pointInput" }
+  ],
+  "edges": []
+})json"
+        );
+        requireThrowsWithMessage("node count exceeds maxNodes", []() {
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_limits_test.json");
+        });
+
+        writeTextFile(
+            "graph_ems_invalid_formula_test.json",
+            R"json({
+  "schemaVersion": "1.1.0",
+  "graphCode": "invalid_formula",
+  "nodes": [
+    {
+      "id": "unsafe_formula",
+      "type": "formula",
+      "params": {
+        "operation": "runScript",
+        "inputs": [{ "value": 1 }],
+        "outputIndex": 700020
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        requireThrowsWithMessage("formula node has unsupported operation", []() {
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_invalid_formula_test.json");
+        });
+
+        writeTextFile(
+            "graph_ems_invalid_switch_index_test.json",
+            R"json({
+  "schemaVersion": "1.1.0",
+  "graphCode": "invalid_switch_index",
+  "nodes": [
+    {
+      "id": "invalid_switch",
+      "type": "switch",
+      "params": {
+        "conditionIndex": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "outputIndex": 700021
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        requireThrowsWithMessage("conditionIndex must be a positive uint32 index", []() {
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_invalid_switch_index_test.json");
+        });
+
+        writeTextFile(
             "graph_ems_cycle_test.json",
             R"json({
   "schemaVersion": "1.0.0",
@@ -643,6 +722,855 @@ int main() {
         require(static_cast<bool>(graphAvgPa), "graph meterAverage output missing");
         requireNear(graphAvgPa->value, 30.0, 0.0001, "graph meterAverage output mismatch");
 
+        writeTextFile(
+            "graph_ems_generic_nodes_test.json",
+            R"json({
+  "schemaVersion": "1.1.0",
+  "graphCode": "generic_nodes",
+  "nodes": [
+    {
+      "id": "net_power",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          { "index": 700001 },
+          { "index": 700002 }
+        ],
+        "outputIndex": 700010
+      }
+    },
+    {
+      "id": "bounded_power",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          { "index": 700010 }
+        ],
+        "lower": -50,
+        "upper": 50,
+        "outputIndex": 700011
+      }
+    },
+    {
+      "id": "power_direction",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "leftIndex": 700011,
+        "operator": "gt",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": -1,
+        "outputIndex": 700012
+      }
+    }
+  ],
+  "edges": [
+    { "from": "net_power", "to": "bounded_power" },
+    { "from": "bounded_power", "to": "power_direction" }
+  ]
+})json"
+        );
+        const auto genericConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_generic_nodes");
+        edge_gateway::PointStoreRouter genericRouter;
+        cleanupStoreSegment(genericConfig.memoryStore);
+        edge_gateway::MemoryPointStore genericStore(genericConfig.memoryStore);
+        genericRouter.addStore(genericConfig.memoryStore.sharedMemoryName, genericStore);
+        genericRouter.addRoutesFromDeviceConfigs({genericConfig}, genericConfig.memoryStore.sharedMemoryName);
+        addRouteIfMissing(genericRouter, 700001, "GENERIC_GRID_POWER", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700002, "GENERIC_STORAGE_POWER", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700010, "GENERIC_NET_POWER", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700011, "GENERIC_BOUNDED_POWER", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700012, "GENERIC_POWER_DIRECTION", genericConfig.memoryStore.sharedMemoryName, false);
+        edge_gateway::LegacyEmsEngine genericSeedEngine(runtimeCatalog, genericRouter);
+        genericSeedEngine.set(700001, 120.0, 1155);
+        genericSeedEngine.set(700002, 20.0, 1155);
+        edge_gateway::GraphEmsEngine genericEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_generic_nodes_test.json"),
+            genericRouter,
+            600000
+        );
+        const auto genericResult = genericEngine.runOnce(1155);
+        require(genericResult.errors.empty(), "generic graph nodes should execute without errors");
+        require(genericResult.latestWrites == 3, "generic graph nodes should write three outputs");
+        const auto genericNetPower = genericRouter.getLatestByIndex(700010, 1155);
+        const auto genericBoundedPower = genericRouter.getLatestByIndex(700011, 1155);
+        const auto genericDirection = genericRouter.getLatestByIndex(700012, 1155);
+        require(static_cast<bool>(genericNetPower), "formula subtract output missing");
+        require(static_cast<bool>(genericBoundedPower), "formula clamp output missing");
+        require(static_cast<bool>(genericDirection), "switch output missing");
+        requireNear(genericNetPower->value, 100.0, 0.0001, "formula subtract output mismatch");
+        requireNear(genericBoundedPower->value, 50.0, 0.0001, "formula clamp output mismatch");
+        requireNear(genericDirection->value, 1.0, 0.0001, "switch output mismatch");
+
+        writeTextFile(
+            "graph_ems_modular_math_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "modular_math",
+  "nodes": [
+    {
+      "id": "square",
+      "type": "formula",
+      "params": {
+        "operation": "square",
+        "inputs": [{ "index": 700001 }],
+        "outputIndex": 700013
+      }
+    },
+    {
+      "id": "sqrt",
+      "type": "formula",
+      "params": {
+        "operation": "sqrt",
+        "inputs": [{ "index": 700013 }],
+        "outputIndex": 700014
+      }
+    },
+    {
+      "id": "missing_default",
+      "type": "formula",
+      "params": {
+        "operation": "add",
+        "inputs": [{ "index": 799999, "defaultValue": 5 }, { "value": 2 }],
+        "outputIndex": 700016
+      }
+    },
+    {
+      "id": "safe_divide_zero",
+      "type": "formula",
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [{ "value": 10 }, { "value": 0 }],
+        "zeroDivisorValue": -1,
+        "outputIndex": 700021
+      }
+    },
+    {
+      "id": "window",
+      "type": "windowAggregate",
+      "params": {
+        "operation": "average",
+        "inputIndex": 700001,
+        "outputIndex": 700015,
+        "windowSize": 3
+      }
+    }
+  ],
+  "edges": [
+    { "from": "square", "to": "sqrt" }
+  ]
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700013, "GENERIC_SQUARE", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700014, "GENERIC_SQRT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700015, "GENERIC_WINDOW", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700016, "GENERIC_DEFAULT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700021, "GENERIC_SAFE_DIVIDE", genericConfig.memoryStore.sharedMemoryName, false);
+        genericSeedEngine.set(700001, 10.0, 1160);
+        edge_gateway::GraphEmsEngine modularMathEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_modular_math_test.json"),
+            genericRouter,
+            600000
+        );
+        modularMathEngine.runOnce(1160);
+        requireNear(genericRouter.getLatestByIndex(700014, 1160)->value, 10.0, 0.0001, "sqrt(square(x)) mismatch");
+        requireNear(genericRouter.getLatestByIndex(700016, 1160)->value, 7.0, 0.0001, "formula default input mismatch");
+        requireNear(genericRouter.getLatestByIndex(700021, 1160)->value, -1.0, 0.0001, "safeDivide zero fallback mismatch");
+        requireNear(genericRouter.getLatestByIndex(700015, 1160)->value, 10.0, 0.0001, "window first sample mismatch");
+        genericSeedEngine.set(700001, 20.0, 1161);
+        modularMathEngine.runOnce(1161);
+        requireNear(genericRouter.getLatestByIndex(700015, 1161)->value, 15.0, 0.0001, "window second sample mismatch");
+        genericSeedEngine.set(700001, 40.0, 1162);
+        modularMathEngine.runOnce(1162);
+        requireNear(genericRouter.getLatestByIndex(700015, 1162)->value, 70.0 / 3.0, 0.0001, "window third sample mismatch");
+        genericSeedEngine.set(700001, 80.0, 1163);
+        modularMathEngine.runOnce(1163);
+        requireNear(genericRouter.getLatestByIndex(700015, 1163)->value, 140.0 / 3.0, 0.0001, "window rolling sample mismatch");
+
+        writeTextFile(
+            "graph_ems_schedule_select_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "schedule_select",
+  "nodes": [
+    {
+      "id": "clock_hour",
+      "type": "timeSource",
+      "params": {
+        "component": "hour",
+        "outputIndex": 700022
+      }
+    },
+    {
+      "id": "clock_minute",
+      "type": "timeSource",
+      "params": { "component": "minute", "outputIndex": 700023 }
+    },
+    {
+      "id": "clock_second",
+      "type": "timeSource",
+      "params": { "component": "second", "outputIndex": 700024 }
+    },
+    {
+      "id": "clock_minute_of_day",
+      "type": "timeSource",
+      "params": { "component": "minuteOfDay", "outputIndex": 700025 }
+    },
+    {
+      "id": "clock_weekday",
+      "type": "timeSource",
+      "params": { "component": "weekday", "outputIndex": 700026 }
+    },
+    {
+      "id": "day_schedule",
+      "type": "scheduleSelect",
+      "params": {
+        "scheduleCurve": [
+          { "hour": 0, "power": 0, "targetSoc": 70, "mode": 0 },
+          { "hour": 5, "power": 45, "targetSoc": 80, "mode": 1 }
+        ],
+        "powerOutputIndex": 700017,
+        "socOutputIndex": 700018,
+        "modeOutputIndex": 700019
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700017, "SCHEDULE_POWER", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700018, "SCHEDULE_SOC", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700019, "SCHEDULE_MODE", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700022, "CLOCK_HOUR", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700023, "CLOCK_MINUTE", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700024, "CLOCK_SECOND", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700025, "CLOCK_MINUTE_OF_DAY", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700026, "CLOCK_WEEKDAY", genericConfig.memoryStore.sharedMemoryName, false);
+        edge_gateway::GraphEmsEngine scheduleSelectEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_schedule_select_test.json"),
+            genericRouter,
+            600000
+        );
+        setTestTimezone("UTC");
+        const auto timeSourceTestMs = 5LL * 3600000LL + 6LL * 60000LL + 7LL * 1000LL;
+        const auto scheduleSelectResult = scheduleSelectEngine.runOnce(timeSourceTestMs);
+        require(scheduleSelectResult.errors.empty(), "scheduleSelect should execute without errors");
+        requireNear(genericRouter.getLatestByIndex(700017, timeSourceTestMs)->value, 45.0, 0.0001, "schedule power mismatch");
+        requireNear(genericRouter.getLatestByIndex(700018, timeSourceTestMs)->value, 80.0, 0.0001, "schedule SOC mismatch");
+        requireNear(genericRouter.getLatestByIndex(700019, timeSourceTestMs)->value, 1.0, 0.0001, "schedule mode mismatch");
+        requireNear(genericRouter.getLatestByIndex(700022, timeSourceTestMs)->value, 5.0, 0.0001, "timeSource hour mismatch");
+        requireNear(genericRouter.getLatestByIndex(700023, timeSourceTestMs)->value, 6.0, 0.0001, "timeSource minute mismatch");
+        requireNear(genericRouter.getLatestByIndex(700024, timeSourceTestMs)->value, 7.0, 0.0001, "timeSource second mismatch");
+        requireNear(genericRouter.getLatestByIndex(700025, timeSourceTestMs)->value, 306.0, 0.0001, "timeSource minuteOfDay mismatch");
+        requireNear(genericRouter.getLatestByIndex(700026, timeSourceTestMs)->value, 4.0, 0.0001, "timeSource weekday mismatch");
+
+        writeTextFile(
+            "graph_ems_modular_power_test.json",
+            R"json({
+  "schemaVersion": "1.0.0",
+  "graphCode": "modular_power",
+  "nodes": [
+    {
+      "id": "arbiter",
+      "type": "phaseArbiter",
+      "params": {
+        "activeBaseIndexes": [700101, 700102, 700103],
+        "reactiveBaseIndexes": [700104, 700105, 700106],
+        "activeOutputIndexes": [700121, 700122, 700123],
+        "reactiveOutputIndexes": [700124, 700125, 700126],
+        "candidates": [
+          { "name": "charge", "target": "active", "merge": "stronger", "direction": "positive", "totalIndex": 700107 },
+          { "name": "balance", "target": "active", "merge": "add", "direction": "any", "indexes": [700108, 700109, 700110] }
+        ]
+      }
+    },
+    {
+      "id": "constraints",
+      "type": "powerConstraint",
+      "params": {
+        "activeInputIndexes": [700121, 700122, 700123],
+        "reactiveInputIndexes": [700124, 700125, 700126],
+        "activeOutputIndexes": [700141, 700142, 700143],
+        "reactiveOutputIndexes": [700144, 700145, 700146],
+        "activeAbsLimitIndex": 700130,
+        "reactiveAbsLimitIndex": 700131,
+        "apparentTotalLimitIndex": 700132,
+        "positiveTotalLimitIndex": 700133,
+        "negativeTotalLimitIndex": 700134,
+        "stateIndex": 700135,
+        "stateUpperIndex": 700136,
+        "stateLowerIndex": 700137
+      }
+    }
+  ],
+  "edges": [{ "from": "arbiter", "to": "constraints" }]
+})json"
+        );
+        for (std::uint32_t index = 700101; index <= 700146; ++index) {
+            addRouteIfMissing(genericRouter, index, "MODULAR_POWER_" + std::to_string(index), genericConfig.memoryStore.sharedMemoryName, false);
+        }
+        genericSeedEngine.set(700101, 10.0, 19000000);
+        genericSeedEngine.set(700102, 5.0, 19000000);
+        genericSeedEngine.set(700103, 15.0, 19000000);
+        genericSeedEngine.set(700104, 2.0, 19000000);
+        genericSeedEngine.set(700105, 3.0, 19000000);
+        genericSeedEngine.set(700106, 4.0, 19000000);
+        genericSeedEngine.set(700107, 60.0, 19000000);
+        genericSeedEngine.set(700108, -2.0, 19000000);
+        genericSeedEngine.set(700109, 3.0, 19000000);
+        genericSeedEngine.set(700110, 0.0, 19000000);
+        genericSeedEngine.set(700130, 20.0, 19000000);
+        genericSeedEngine.set(700131, 10.0, 19000000);
+        genericSeedEngine.set(700132, 300.0, 19000000);
+        genericSeedEngine.set(700133, 30.0, 19000000);
+        genericSeedEngine.set(700134, 30.0, 19000000);
+        genericSeedEngine.set(700135, 50.0, 19000000);
+        genericSeedEngine.set(700136, 95.0, 19000000);
+        genericSeedEngine.set(700137, 10.0, 19000000);
+        edge_gateway::GraphEmsEngine modularPowerEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_modular_power_test.json"),
+            genericRouter,
+            600000
+        );
+        const auto modularPowerResult = modularPowerEngine.runOnce(19000000);
+        require(modularPowerResult.errors.empty(), "modular power chain should execute without errors");
+        requireNear(genericRouter.getLatestByIndex(700141, 19000000)->value, 18.0 * 30.0 / 58.0, 0.0001, "modular PA limit mismatch");
+        requireNear(genericRouter.getLatestByIndex(700142, 19000000)->value, 20.0 * 30.0 / 58.0, 0.0001, "modular PB limit mismatch");
+        requireNear(genericRouter.getLatestByIndex(700143, 19000000)->value, 20.0 * 30.0 / 58.0, 0.0001, "modular PC limit mismatch");
+        requireNear(genericRouter.getLatestByIndex(700144, 19000000)->value, 2.0, 0.0001, "modular QA mismatch");
+
+        writeTextFile(
+            "graph_ems_division_by_zero_test.json",
+            R"json({
+  "schemaVersion": "1.1.0",
+  "graphCode": "division_by_zero",
+  "nodes": [
+    {
+      "id": "unsafe_divide",
+      "type": "formula",
+      "params": {
+        "operation": "divide",
+        "inputs": [
+          { "value": 10 },
+          { "value": 0 }
+        ],
+        "outputIndex": 700020
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700020, "GENERIC_DIVIDE_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        edge_gateway::GraphEmsEngine divisionByZeroEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_division_by_zero_test.json"),
+            genericRouter,
+            600000
+        );
+        const auto divisionByZeroResult = divisionByZeroEngine.runOnce(1156);
+        require(divisionByZeroResult.errors.size() == 1, "formula division by zero should report one node error");
+        require(
+            divisionByZeroResult.errors[0].find("formula division by zero") != std::string::npos,
+            "formula division by zero error message mismatch"
+        );
+        require(!genericRouter.getLatestByIndex(700020, 1156), "formula division by zero must not produce output");
+
+        writeTextFile(
+            "graph_ems_feedback_verify_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "feedback_verify",
+  "nodes": [
+    {
+      "id": "pcs_active_power_feedback",
+      "type": "feedbackVerify",
+      "params": {
+        "targetIndex": 700030,
+        "feedbackIndex": 700031,
+        "tolerance": 0.5,
+        "targetChangeTolerance": 0.01,
+        "timeoutMs": 1000,
+        "outputIndex": 700032
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700030, "PCS_POWER_TARGET", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700031, "PCS_POWER_FEEDBACK", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700032, "PCS_POWER_VERIFY_STATUS", genericConfig.memoryStore.sharedMemoryName, false);
+        const std::string feedbackStateFile = "graph_ems_feedback_verify_state_test.json";
+        removeFileIfExists(feedbackStateFile);
+        genericSeedEngine.set(700030, 10.0, 1200);
+        genericSeedEngine.set(700031, 8.0, 1200);
+        edge_gateway::GraphEmsEngine feedbackVerifyEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_feedback_verify_test.json"),
+            genericRouter,
+            600000,
+            feedbackStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        const auto feedbackWaitingResult = feedbackVerifyEngine.runOnce(1200);
+        require(feedbackWaitingResult.errors.empty(), "feedback verify waiting run should not report errors");
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 1200)->value,
+            0.0,
+            0.0001,
+            "feedback verify should wait before timeout"
+        );
+
+        genericSeedEngine.set(700031, 9.6, 1300);
+        feedbackVerifyEngine.runOnce(1300);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 1300)->value,
+            1.0,
+            0.0001,
+            "feedback verify should pass within tolerance"
+        );
+
+        genericSeedEngine.set(700030, 12.0, 1400);
+        feedbackVerifyEngine.runOnce(1400);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 1400)->value,
+            0.0,
+            0.0001,
+            "feedback verify target change should reset timeout"
+        );
+        feedbackVerifyEngine.runOnce(1800);
+        edge_gateway::GraphEmsEngine restartedFeedbackVerifyEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_feedback_verify_test.json"),
+            genericRouter,
+            600000,
+            feedbackStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        restartedFeedbackVerifyEngine.runOnce(5000);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 5000)->value,
+            0.0,
+            0.0001,
+            "feedback verify restart should preserve elapsed waiting time"
+        );
+        restartedFeedbackVerifyEngine.runOnce(5599);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 5599)->value,
+            0.0,
+            0.0001,
+            "feedback verify restart should retain the remaining timeout"
+        );
+        restartedFeedbackVerifyEngine.runOnce(5600);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 5600)->value,
+            -1.0,
+            0.0001,
+            "feedback verify restart should report timeout after the remaining duration"
+        );
+
+        genericSeedEngine.set(700031, 12.0, 5601);
+        restartedFeedbackVerifyEngine.runOnce(5601);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 5601)->value,
+            1.0,
+            0.0001,
+            "feedback verify should recover after feedback reaches target"
+        );
+        restartedFeedbackVerifyEngine.runOnce(605602);
+        requireNear(
+            genericRouter.getLatestByIndex(700032, 605602)->value,
+            -2.0,
+            0.0001,
+            "feedback verify stale inputs should report invalid status"
+        );
+
+        writeTextFile(
+            "graph_ems_control_write_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "control_write",
+  "nodes": [
+    {
+      "id": "generic_control_write",
+      "type": "controlWrite",
+      "params": {
+        "submitWrites": true,
+        "inputIndex": 700034,
+        "targetIndex": 700035,
+        "minValue": -50,
+        "maxValue": 50,
+        "deadband": 0.1,
+        "permitIndex": 700033,
+        "permitValue": 1,
+        "valueMode": "truncate",
+        "highPriority": true
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700033, "GENERIC_CONTROL_PERMIT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700034, "GENERIC_CONTROL_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700035, "GENERIC_CONTROL_TARGET", genericConfig.memoryStore.sharedMemoryName, true);
+        genericSeedEngine.set(700033, 0.0, 602500);
+        genericSeedEngine.set(700034, 25.8, 602500);
+        edge_gateway::GraphEmsEngine controlWriteEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_control_write_test.json"),
+            genericRouter,
+            600000
+        );
+        const auto deniedGenericWrite = controlWriteEngine.runOnce(602500);
+        require(deniedGenericWrite.errors.empty(), "denied generic control write should not report errors");
+        require(deniedGenericWrite.deviceWrites == 0, "permit must block generic control write");
+        require(genericRouter.peekPendingWrites(8).empty(), "denied generic control write must not enter queue");
+
+        genericSeedEngine.set(700033, 1.0, 602501);
+        const auto acceptedGenericWrite = controlWriteEngine.runOnce(602501);
+        const auto genericPendingWrites = genericRouter.peekPendingWrites(8);
+        require(acceptedGenericWrite.errors.empty(), "accepted generic control write should not report errors");
+        require(acceptedGenericWrite.deviceWrites == 1, "generic control write should submit one command");
+        require(genericPendingWrites.size() == 1, "generic control write queue size mismatch");
+        require(genericPendingWrites[0].index == 700035, "generic control write target index mismatch");
+        requireNear(genericPendingWrites[0].value, 25.0, 0.0001, "generic control write target truncation mismatch");
+        require(genericPendingWrites[0].highPriority, "generic control write high priority flag missing");
+
+        const auto duplicateGenericWrite = controlWriteEngine.runOnce(602502);
+        require(duplicateGenericWrite.deviceWrites == 0, "duplicate generic control write must be skipped");
+        require(genericRouter.peekPendingWrites(8).size() == 1, "duplicate generic write must not grow queue");
+
+        genericSeedEngine.set(700034, 60.0, 602503);
+        const auto outOfRangeGenericWrite = controlWriteEngine.runOnce(602503);
+        require(outOfRangeGenericWrite.errors.size() == 1, "out-of-range generic control write should report error");
+        require(
+            outOfRangeGenericWrite.errors[0].find("outside configured bounds") != std::string::npos,
+            "out-of-range generic control write error mismatch"
+        );
+        require(genericRouter.peekPendingWrites(8).size() == 1, "out-of-range generic write must not enter queue");
+
+        writeTextFile(
+            "graph_ems_rate_limit_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "rate_limit",
+  "nodes": [
+    {
+      "id": "pcs_power_rate_limit",
+      "type": "rateLimit",
+      "params": {
+        "inputIndex": 700036,
+        "outputIndex": 700037,
+        "risePerSecond": 10,
+        "fallPerSecond": 20,
+        "minValue": -50,
+        "maxValue": 50,
+        "initialValue": 0
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700036, "RATE_LIMIT_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700037, "RATE_LIMIT_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        genericSeedEngine.set(700036, 30.0, 603000);
+        edge_gateway::GraphEmsEngine rateLimitEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_rate_limit_test.json"),
+            genericRouter,
+            600000
+        );
+        rateLimitEngine.runOnce(603000);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 603000)->value,
+            0.0,
+            0.0001,
+            "rate limit first run should use initial value"
+        );
+        rateLimitEngine.runOnce(603500);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 603500)->value,
+            5.0,
+            0.0001,
+            "rate limit rise after half second mismatch"
+        );
+        rateLimitEngine.runOnce(604500);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 604500)->value,
+            15.0,
+            0.0001,
+            "rate limit rise after one second mismatch"
+        );
+
+        genericSeedEngine.set(700036, -30.0, 604500);
+        rateLimitEngine.runOnce(604500);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 604500)->value,
+            15.0,
+            0.0001,
+            "rate limit must not move when no time elapsed"
+        );
+        rateLimitEngine.runOnce(605000);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 605000)->value,
+            5.0,
+            0.0001,
+            "rate limit fall after half second mismatch"
+        );
+        rateLimitEngine.runOnce(607000);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 607000)->value,
+            -30.0,
+            0.0001,
+            "rate limit fall should stop at target"
+        );
+
+        genericSeedEngine.set(700036, 60.0, 607001);
+        const auto outOfRangeRateLimit = rateLimitEngine.runOnce(607001);
+        require(outOfRangeRateLimit.errors.size() == 1, "out-of-range rate limit input should report error");
+        require(
+            outOfRangeRateLimit.errors[0].find("outside configured bounds") != std::string::npos,
+            "out-of-range rate limit error mismatch"
+        );
+
+        genericSeedEngine.set(700036, 30.0, 607100);
+        edge_gateway::GraphEmsEngine restartedRateLimitEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_rate_limit_test.json"),
+            genericRouter,
+            600000
+        );
+        restartedRateLimitEngine.runOnce(607100);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 607100)->value,
+            -30.0,
+            0.0001,
+            "restarted rate limit should resume existing output"
+        );
+        restartedRateLimitEngine.runOnce(607600);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 607600)->value,
+            -25.0,
+            0.0001,
+            "restarted rate limit rise mismatch"
+        );
+
+        writeTextFile(
+            "graph_ems_boolean_filters_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "boolean_filters",
+  "nodes": [
+    {
+      "id": "soc_hysteresis",
+      "type": "hysteresis",
+      "params": {
+        "inputIndex": 700038,
+        "outputIndex": 700039,
+        "lowThreshold": 20,
+        "highThreshold": 30,
+        "initialState": false
+      }
+    },
+    {
+      "id": "remote_mode_debounce",
+      "type": "debounce",
+      "params": {
+        "inputIndex": 700043,
+        "outputIndex": 700044,
+        "onDelayMs": 100,
+        "offDelayMs": 200,
+        "initialState": false
+      }
+    },
+    {
+      "id": "inverted_hysteresis_fail_safe",
+      "type": "hysteresis",
+      "params": {
+        "inputIndex": 700045,
+        "outputIndex": 700046,
+        "lowThreshold": 20,
+        "highThreshold": 30,
+        "initialState": false,
+        "invert": true
+      }
+    },
+    {
+      "id": "inverted_debounce_fail_safe",
+      "type": "debounce",
+      "params": {
+        "inputIndex": 700047,
+        "outputIndex": 700048,
+        "onDelayMs": 0,
+        "offDelayMs": 0,
+        "initialState": false,
+        "invert": true
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700038, "HYSTERESIS_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700039, "HYSTERESIS_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700043, "DEBOUNCE_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700044, "DEBOUNCE_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700045, "INVERTED_HYSTERESIS_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700046, "INVERTED_HYSTERESIS_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700047, "INVERTED_DEBOUNCE_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700048, "INVERTED_DEBOUNCE_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        const std::string booleanFilterStateFile = "graph_ems_boolean_filters_state_test.json";
+        removeFileIfExists(booleanFilterStateFile);
+        genericSeedEngine.set(700038, 25.0, 608000);
+        genericSeedEngine.set(700043, 0.0, 608000);
+        edge_gateway::GraphEmsEngine booleanFilterEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_boolean_filters_test.json"),
+            genericRouter,
+            600000,
+            booleanFilterStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        booleanFilterEngine.runOnce(608000);
+        requireNear(genericRouter.getLatestByIndex(700039, 608000)->value, 0.0, 0.0001, "hysteresis initial state mismatch");
+        requireNear(
+            genericRouter.getLatestByIndex(700046, 608000)->value,
+            0.0,
+            0.0001,
+            "inverted hysteresis must fail safe to zero when input is missing"
+        );
+        requireNear(
+            genericRouter.getLatestByIndex(700048, 608000)->value,
+            0.0,
+            0.0001,
+            "inverted debounce must fail safe to zero when input is missing"
+        );
+        genericSeedEngine.set(700038, 35.0, 608001);
+        booleanFilterEngine.runOnce(608001);
+        requireNear(genericRouter.getLatestByIndex(700039, 608001)->value, 1.0, 0.0001, "hysteresis high threshold mismatch");
+        genericSeedEngine.set(700038, 25.0, 608002);
+        booleanFilterEngine.runOnce(608002);
+        requireNear(genericRouter.getLatestByIndex(700039, 608002)->value, 1.0, 0.0001, "hysteresis band should retain state");
+        genericSeedEngine.set(700038, 15.0, 608003);
+        booleanFilterEngine.runOnce(608003);
+        requireNear(genericRouter.getLatestByIndex(700039, 608003)->value, 0.0, 0.0001, "hysteresis low threshold mismatch");
+
+        genericSeedEngine.set(700043, 1.0, 608010);
+        booleanFilterEngine.runOnce(608010);
+        booleanFilterEngine.runOnce(608060);
+        edge_gateway::GraphEmsEngine restartedBooleanFilterEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_boolean_filters_test.json"),
+            genericRouter,
+            600000,
+            booleanFilterStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        restartedBooleanFilterEngine.runOnce(700000);
+        restartedBooleanFilterEngine.runOnce(700049);
+        requireNear(genericRouter.getLatestByIndex(700044, 700049)->value, 0.0, 0.0001, "debounce on delay should hold false");
+        restartedBooleanFilterEngine.runOnce(700050);
+        requireNear(genericRouter.getLatestByIndex(700044, 700050)->value, 1.0, 0.0001, "debounce restart should retain on-delay progress");
+        genericSeedEngine.set(700043, 0.0, 700060);
+        restartedBooleanFilterEngine.runOnce(700060);
+        restartedBooleanFilterEngine.runOnce(700160);
+        edge_gateway::GraphEmsEngine secondRestartedBooleanFilterEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_boolean_filters_test.json"),
+            genericRouter,
+            600000,
+            booleanFilterStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        secondRestartedBooleanFilterEngine.runOnce(800000);
+        secondRestartedBooleanFilterEngine.runOnce(800099);
+        requireNear(genericRouter.getLatestByIndex(700044, 800099)->value, 1.0, 0.0001, "debounce restart should retain off-delay progress");
+        secondRestartedBooleanFilterEngine.runOnce(800100);
+        requireNear(genericRouter.getLatestByIndex(700044, 800100)->value, 0.0, 0.0001, "debounce restart off-delay mismatch");
+
+        writeTextFile(
+            "graph_ems_sequence_test.json",
+            R"json({
+  "schemaVersion": "1.3.0",
+  "graphCode": "sequence",
+  "nodes": [
+    {
+      "id": "charge_discharge_sequence",
+      "type": "sequence",
+      "params": {
+        "initialState": 0,
+        "stateOutputIndex": 700047,
+        "states": [
+          { "id": 0, "name": "待机" },
+          { "id": 1, "name": "放电" },
+          { "id": 2, "name": "充电" },
+          { "id": 3, "name": "完成" }
+        ],
+        "transitions": [
+          {
+            "from": 0,
+            "to": 1,
+            "name": "启动",
+            "minDurationMs": 100,
+            "conditions": [{ "index": 700045, "operator": "eq", "value": 1 }]
+          },
+          {
+            "from": 1,
+            "to": 2,
+            "name": "放电到下限",
+            "minDurationMs": 200,
+            "conditions": [{ "index": 700046, "operator": "lte", "value": 20 }]
+          },
+          {
+            "from": 2,
+            "to": 3,
+            "name": "充电到上限",
+            "conditions": [{ "index": 700046, "operator": "gte", "value": 95 }]
+          }
+        ]
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 700045, "SEQUENCE_START", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700046, "SEQUENCE_SOC", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 700047, "SEQUENCE_STATE", genericConfig.memoryStore.sharedMemoryName, false);
+        const std::string sequenceStateFile = "graph_ems_sequence_state_test.json";
+        removeFileIfExists(sequenceStateFile);
+        genericSeedEngine.set(700045, 1.0, 609000);
+        genericSeedEngine.set(700046, 50.0, 609000);
+        edge_gateway::GraphEmsEngine sequenceEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_sequence_test.json"),
+            genericRouter,
+            600000,
+            sequenceStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        sequenceEngine.runOnce(609000);
+        requireNear(genericRouter.getLatestByIndex(700047, 609000)->value, 0.0, 0.0001, "sequence initial state mismatch");
+        sequenceEngine.runOnce(609099);
+        requireNear(genericRouter.getLatestByIndex(700047, 609099)->value, 0.0, 0.0001, "sequence minimum duration should hold idle");
+        sequenceEngine.runOnce(609100);
+        requireNear(genericRouter.getLatestByIndex(700047, 609100)->value, 1.0, 0.0001, "sequence start transition mismatch");
+
+        genericSeedEngine.set(700046, 20.0, 609200);
+        sequenceEngine.runOnce(609250);
+        edge_gateway::GraphEmsEngine restartedSequenceEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_sequence_test.json"),
+            genericRouter,
+            600000,
+            sequenceStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        restartedSequenceEngine.runOnce(710049);
+        requireNear(genericRouter.getLatestByIndex(700047, 710049)->value, 1.0, 0.0001, "sequence restart should retain minimum-duration progress");
+        restartedSequenceEngine.runOnce(710099);
+        requireNear(genericRouter.getLatestByIndex(700047, 710099)->value, 2.0, 0.0001, "sequence restart transition mismatch");
+        genericSeedEngine.set(700046, 95.0, 710100);
+        restartedSequenceEngine.runOnce(710100);
+        requireNear(genericRouter.getLatestByIndex(700047, 710100)->value, 3.0, 0.0001, "sequence completion transition mismatch");
+
         const auto graphServiceConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_service");
         edge_gateway::PointStoreRouter graphServiceRouter;
         cleanupStoreSegment(graphServiceConfig.memoryStore);
@@ -663,6 +1591,8 @@ int main() {
         graphServiceRule.trigger.intervalMs = 1;
         graphServiceRule.script.type = "graphEms";
         graphServiceRule.script.graphFile = "graph_ems_meter_average_test.json";
+        graphServiceRule.script.graphStateFile = "graph_ems_service_state_test.json";
+        removeFileIfExists(graphServiceRule.script.graphStateFile);
 
         edge_gateway::ComputeEngineConfig graphServiceComputeConfig;
         graphServiceComputeConfig.enabled = true;
@@ -718,6 +1648,8 @@ int main() {
         graphProfileRule.trigger.intervalMs = 1;
         graphProfileRule.script.type = "graphEms";
         graphProfileRule.script.graphFile = "graph_ems_profile_test.json";
+        graphProfileRule.script.graphStateFile = "graph_ems_profile_state_test.json";
+        removeFileIfExists(graphProfileRule.script.graphStateFile);
         graphProfileRule.script.graphProfile = {{"Meter_TQ", "0"}};
 
         edge_gateway::ComputeEngineConfig graphProfileComputeConfig;
@@ -800,6 +1732,8 @@ int main() {
         graphOptionalRule.trigger.intervalMs = 1;
         graphOptionalRule.script.type = "graphEms";
         graphOptionalRule.script.graphFile = "graph_ems_optional_profile_test.json";
+        graphOptionalRule.script.graphStateFile = "graph_ems_optional_state_test.json";
+        removeFileIfExists(graphOptionalRule.script.graphStateFile);
         graphOptionalRule.script.graphProfile = {{"PCS_MODEL", "3"}};
 
         edge_gateway::ComputeEngineConfig graphOptionalComputeConfig;
@@ -843,6 +1777,8 @@ int main() {
         edge_gateway::ComputeRuleConfig graphOptionalEnabledRule = graphOptionalRule;
         graphOptionalEnabledRule.ruleCode = "graph_ems_optional_enabled_rule";
         graphOptionalEnabledRule.script.graphProfile = {{"UPS_MODEL", "1"}};
+        graphOptionalEnabledRule.script.graphStateFile = "graph_ems_optional_enabled_state_test.json";
+        removeFileIfExists(graphOptionalEnabledRule.script.graphStateFile);
 
         edge_gateway::ComputeEngineConfig graphOptionalEnabledComputeConfig;
         graphOptionalEnabledComputeConfig.enabled = true;
@@ -1707,6 +2643,120 @@ int main() {
         }
 
         writeTextFile(
+            "graph_ems_control_gate_writeback_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "control_gate_writeback",
+  "nodes": [
+    {
+      "id": "pcs_control_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          { "index": 1399, "operator": "eq", "value": 1 },
+          { "index": 700040, "operator": "eq", "value": 1 }
+        ],
+        "outputIndex": 700041
+      }
+    },
+    {
+      "id": "pcs_writeback",
+      "type": "pcsWriteback",
+      "enabled": true,
+      "params": {
+        "submitWrites": true,
+        "permitIndex": 700041,
+        "permitValue": 1,
+        "paInput": 627,
+        "pbInput": 628,
+        "pcInput": 629,
+        "qaInput": 630,
+        "qbInput": 631,
+        "qcInput": 632,
+        "comStatusIndex": 1399,
+        "pControlAIndex": 1318,
+        "pControlBIndex": 1319,
+        "pControlCIndex": 1320,
+        "qControlAIndex": 1321,
+        "qControlBIndex": 1322,
+        "qControlCIndex": 1323
+      }
+    }
+  ],
+  "edges": [
+    { "from": "pcs_control_gate", "to": "pcs_writeback" }
+  ]
+})json"
+        );
+        const auto controlGateConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_control_gate");
+        edge_gateway::PointStoreRouter controlGateRouter;
+        cleanupStoreSegment(controlGateConfig.memoryStore);
+        edge_gateway::MemoryPointStore controlGateStore(controlGateConfig.memoryStore);
+        controlGateRouter.addStore(controlGateConfig.memoryStore.sharedMemoryName, controlGateStore);
+        controlGateRouter.addRoutesFromDeviceConfigs(
+            {controlGateConfig},
+            controlGateConfig.memoryStore.sharedMemoryName
+        );
+        addRouteIfMissing(
+            controlGateRouter,
+            700040,
+            "PCS_REMOTE_MODE",
+            controlGateConfig.memoryStore.sharedMemoryName,
+            false
+        );
+        addRouteIfMissing(
+            controlGateRouter,
+            700041,
+            "PCS_CONTROL_PERMIT",
+            controlGateConfig.memoryStore.sharedMemoryName,
+            false
+        );
+        edge_gateway::LegacyEmsEngine controlGateSeedEngine(runtimeCatalog, controlGateRouter);
+        controlGateSeedEngine.set(1399, 1.0, 1196);
+        controlGateSeedEngine.set(700040, 0.0, 1196);
+        controlGateSeedEngine.set(627, 12.0, 1196);
+        controlGateSeedEngine.set(628, 0.0, 1196);
+        controlGateSeedEngine.set(629, 0.0, 1196);
+        controlGateSeedEngine.set(630, 0.0, 1196);
+        controlGateSeedEngine.set(631, 0.0, 1196);
+        controlGateSeedEngine.set(632, 0.0, 1196);
+        edge_gateway::GraphEmsEngine controlGateEngine(
+            edge_gateway::GraphEmsConfig::loadFromFile("graph_ems_control_gate_writeback_test.json"),
+            controlGateRouter,
+            600000
+        );
+        const auto deniedControlResult = controlGateEngine.runOnce(1196);
+        const auto deniedPermit = controlGateRouter.getLatestByIndex(700041, 1196);
+        require(deniedControlResult.errors.empty(), "control gate denied run should not report errors");
+        require(static_cast<bool>(deniedPermit), "control gate denied output missing");
+        requireNear(deniedPermit->value, 0.0, 0.0001, "control gate should deny when remote mode is off");
+        require(controlGateRouter.peekPendingWrites(8).empty(), "denied control gate must block PCS writes");
+
+        controlGateSeedEngine.set(700040, 1.0, 1197);
+        const auto permittedControlResult = controlGateEngine.runOnce(1197);
+        const auto permittedValue = controlGateRouter.getLatestByIndex(700041, 1197);
+        const auto permittedWrites = controlGateRouter.peekPendingWrites(8);
+        require(permittedControlResult.errors.empty(), "control gate permitted run should not report errors");
+        require(static_cast<bool>(permittedValue), "control gate permitted output missing");
+        requireNear(permittedValue->value, 1.0, 0.0001, "control gate should permit when all conditions pass");
+        require(permittedWrites.size() == 1, "permitted control gate should submit one non-zero PCS write");
+        require(permittedWrites[0].index == 1318, "permitted control gate PCS write index mismatch");
+        requireNear(permittedWrites[0].value, 12.0, 0.0001, "permitted control gate PCS write value mismatch");
+
+        const auto pendingBeforeStale = controlGateRouter.peekPendingWrites(8).size();
+        const auto staleControlResult = controlGateEngine.runOnce(701198);
+        const auto stalePermit = controlGateRouter.getLatestByIndex(700041, 701198);
+        require(staleControlResult.errors.empty(), "stale control gate run should fail closed without node errors");
+        require(static_cast<bool>(stalePermit), "stale control gate output missing");
+        requireNear(stalePermit->value, 0.0, 0.0001, "stale control gate inputs must refresh permit to zero");
+        require(
+            controlGateRouter.peekPendingWrites(8).size() == pendingBeforeStale,
+            "stale control gate inputs must not submit additional PCS writes"
+        );
+
+        writeTextFile(
             "graph_ems_pcs_solve_submit_writes_test.json",
             R"json({
   "schemaVersion": "1.0.0",
@@ -2353,6 +3403,32 @@ int main() {
         requireNear(graphStateReaderRouter.getLatestByIndex(627, 1230)->value, 5.0, 0.0001, "restored PCS_PA_OUT mismatch");
         require(graphStateReaderRouter.peekPendingWrites(1).empty(), "graph EMS state restore should not submit device writes");
 
+        const std::string corruptStateFile = "graph_ems_corrupt_state_test.json";
+        writeTextFile(corruptStateFile, "{invalid-json");
+        edge_gateway::GraphEmsEngine corruptStateEngine(
+            graphStateConfig,
+            graphStateReaderRouter,
+            600000,
+            corruptStateFile,
+            {{"stateSaveIntervalMs", "0"}}
+        );
+        const auto corruptStateResult = corruptStateEngine.runOnce(1235);
+        bool reportedRestoreError = false;
+        for (const auto& error : corruptStateResult.errors) {
+            if (error.find("restoreState:") != std::string::npos) {
+                reportedRestoreError = true;
+            }
+        }
+        require(reportedRestoreError, "corrupt graph state should report a restoreState error");
+        std::ifstream repairedStateInput(corruptStateFile.c_str(), std::ios::in | std::ios::binary);
+        std::stringstream repairedStateBuffer;
+        repairedStateBuffer << repairedStateInput.rdbuf();
+        require(
+            repairedStateBuffer.str().find("\"schemaVersion\": \"1.0.0\"") != std::string::npos,
+            "corrupt graph state should be replaced with a valid state document"
+        );
+        removeFileIfExists(corruptStateFile);
+
         const std::string graphStateDir = "tmp/graph_ems_state_dir";
         const std::string graphStateFileInDir = graphStateDir + "/graph_ems_state.json";
         removeFileIfExists(graphStateFileInDir);
@@ -2372,6 +3448,22 @@ int main() {
         }
         std::ifstream graphStateDirInput(graphStateFileInDir.c_str(), std::ios::in | std::ios::binary);
         require(graphStateDirInput.is_open(), "graph EMS state file should be created in subdirectory");
+        std::stringstream firstStateBuffer;
+        firstStateBuffer << graphStateDirInput.rdbuf();
+        graphStateDirInput.close();
+        require(firstStateBuffer.str().find("\"savedAt\": 1240") != std::string::npos, "graph EMS first state timestamp mismatch");
+        graphStateDirEngine.runOnce(1241);
+        std::ifstream throttledStateInput(graphStateFileInDir.c_str(), std::ios::in | std::ios::binary);
+        std::stringstream throttledStateBuffer;
+        throttledStateBuffer << throttledStateInput.rdbuf();
+        require(throttledStateBuffer.str().find("\"savedAt\": 1240") != std::string::npos, "graph EMS state writes should be throttled");
+        graphStateDirEngine.runOnce(6240);
+        std::ifstream refreshedStateInput(graphStateFileInDir.c_str(), std::ios::in | std::ios::binary);
+        std::stringstream refreshedStateBuffer;
+        refreshedStateBuffer << refreshedStateInput.rdbuf();
+        require(refreshedStateBuffer.str().find("\"savedAt\": 6240") != std::string::npos, "graph EMS state should refresh after throttle interval");
+        std::ifstream temporaryStateInput((graphStateFileInDir + ".tmp").c_str(), std::ios::in | std::ios::binary);
+        require(!temporaryStateInput.is_open(), "graph EMS atomic state replacement must not leave a temporary file");
 
         const auto shuntongGraphTemplate = edge_gateway::GraphEmsConfig::loadFromFile(
             "config/examples/shuntong_ems_graph.json"
@@ -2389,6 +3481,224 @@ int main() {
         require(hasGraphNode("ph"), "shuntong graph missing ph");
         require(hasGraphNode("power_solve"), "shuntong graph missing power_solve");
         require(hasGraphNode("pcs_writeback"), "shuntong graph missing pcs_writeback");
+
+        const auto modularGraphTemplate = edge_gateway::GraphEmsConfig::loadFromFile(
+            "config/examples/shuntong_ems_modular_graph.json"
+        );
+        const std::set<std::string> modularNodeTypes = {
+            "formula", "timeSource", "windowAggregate", "scheduleSelect", "phaseArbiter",
+            "powerConstraint", "switch", "controlGate", "controlWrite", "sequence"
+        };
+        require(modularGraphTemplate.nodes.size() > 300, "modular shuntong graph should contain expanded algorithm nodes");
+        for (const auto& node : modularGraphTemplate.nodes) {
+            require(
+                modularNodeTypes.find(node.type) != modularNodeTypes.end(),
+                "modular shuntong graph contains a legacy or unsupported node: " + node.type
+            );
+        }
+        edge_gateway::DeviceIdentity modularIdentity;
+        const auto modularVirtualConfig = edge_gateway::ConfigLoader::loadFromFile(
+            "config/examples/device_ems_modular_virtual.json",
+            modularIdentity
+        );
+        require(
+            modularVirtualConfig.memoryStore.sharedMemoryName == "gateway_point_store_ems_virtual",
+            "modular virtual point config should use the EMS virtual shared memory"
+        );
+
+        auto modularCycleConfig = modularVirtualConfig;
+        modularCycleConfig.memoryStore.sharedMemoryName = "legacy_ems_test_store_modular_cycle";
+        cleanupStoreSegment(modularCycleConfig.memoryStore);
+        edge_gateway::MemoryPointStore modularCycleStore(modularCycleConfig.memoryStore);
+        edge_gateway::PointStoreRouter modularCycleRouter;
+        modularCycleRouter.addStore(modularCycleConfig.memoryStore.sharedMemoryName, modularCycleStore);
+        modularCycleRouter.addRoutesFromDeviceConfigs(
+            {modularCycleConfig},
+            modularCycleConfig.memoryStore.sharedMemoryName
+        );
+        addRouteIfMissing(
+            modularCycleRouter,
+            1570,
+            "stack_soc",
+            modularCycleConfig.memoryStore.sharedMemoryName,
+            false
+        );
+        edge_gateway::LegacyEmsEngine modularCycleSeedEngine(runtimeCatalog, modularCycleRouter);
+        edge_gateway::GraphEmsEngine modularCycleEngine(
+            modularGraphTemplate,
+            modularCycleRouter,
+            600000,
+            std::string(),
+            {
+                {"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"},
+                {"BMS_MODEL", "2"}, {"CHARGE_DISCHARGE_TEST", "1"}
+            }
+        );
+        const auto verifyCycle = [&](double soc, double expectedPhase, double expectedPower, std::int64_t ts) {
+            modularCycleSeedEngine.set(1570, soc, ts);
+            const auto result = modularCycleEngine.runOnce(ts);
+            require(result.errors.empty(), "full modular graph cycle run should not report node errors");
+            const auto phase = modularCycleRouter.getLatestByIndex(17, ts);
+            const auto phasePower = modularCycleRouter.getLatestByIndex(615, ts);
+            const auto totalPower = modularCycleRouter.getLatestByIndex(618, ts);
+            require(static_cast<bool>(phase), "full modular graph cycle phase output missing");
+            require(static_cast<bool>(phasePower), "full modular graph cycle phase-A output missing");
+            require(static_cast<bool>(totalPower), "full modular graph cycle total output missing");
+            requireNear(
+                phase->value,
+                expectedPhase,
+                0.0001,
+                "full modular graph cycle phase mismatch soc=" + std::to_string(soc) +
+                    " expected=" + std::to_string(expectedPhase) +
+                    " actual=" + std::to_string(phase->value)
+            );
+            requireNear(
+                phasePower->value,
+                expectedPower,
+                0.0001,
+                "full modular graph cycle phase-A power mismatch actual=" + std::to_string(phasePower->value)
+            );
+            requireNear(
+                totalPower->value,
+                std::abs(expectedPower) * 3.0,
+                0.0001,
+                "full modular graph cycle total power mismatch actual=" + std::to_string(totalPower->value)
+            );
+        };
+        verifyCycle(80.0, 1.0, -10.0, 1200);
+        verifyCycle(20.0, 2.0, 10.0, 1210);
+        verifyCycle(50.0, 2.0, 10.0, 1220);
+        verifyCycle(95.0, 1.0, -10.0, 1230);
+
+        const auto runModularProfileScenario = [&] (
+            const std::string& name,
+            const std::unordered_map<std::string, std::string>& profile,
+            const std::function<void(
+                edge_gateway::LegacyEmsEngine&,
+                edge_gateway::GraphEmsEngine&,
+                edge_gateway::PointStoreRouter&
+            )>& scenario
+        ) {
+            auto physicalConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_modular_" + name);
+            auto virtualConfig = modularVirtualConfig;
+            virtualConfig.memoryStore.sharedMemoryName = physicalConfig.memoryStore.sharedMemoryName;
+            cleanupStoreSegment(physicalConfig.memoryStore);
+            edge_gateway::MemoryPointStore store(physicalConfig.memoryStore);
+            edge_gateway::PointStoreRouter scenarioRouter;
+            scenarioRouter.addStore(physicalConfig.memoryStore.sharedMemoryName, store);
+            scenarioRouter.addRoutesFromDeviceConfigs(
+                {physicalConfig},
+                physicalConfig.memoryStore.sharedMemoryName
+            );
+            addRouteIfMissing(
+                scenarioRouter,
+                156,
+                "avg_window",
+                physicalConfig.memoryStore.sharedMemoryName,
+                false
+            );
+            for (const auto& meter : virtualConfig.meters) {
+                for (const auto& point : meter.points) {
+                    if (point.index >= 700000U) {
+                        addRouteIfMissing(
+                            scenarioRouter,
+                            point.index,
+                            point.pointCode,
+                            physicalConfig.memoryStore.sharedMemoryName,
+                            false
+                        );
+                    }
+                }
+            }
+            edge_gateway::LegacyEmsEngine seedEngine(runtimeCatalog, scenarioRouter);
+            edge_gateway::GraphEmsEngine graphEngine(
+                modularGraphTemplate,
+                scenarioRouter,
+                600000,
+                std::string(),
+                profile
+            );
+            scenario(seedEngine, graphEngine, scenarioRouter);
+        };
+
+        runModularProfileScenario(
+            "tq_off",
+            {{"Meter_TQ", "0"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}},
+            [](edge_gateway::LegacyEmsEngine& seed, edge_gateway::GraphEmsEngine& engine,
+               edge_gateway::PointStoreRouter& scenarioRouter) {
+                seed.set(156, 1.0, 2000);
+                seed.set(1036, 30.0, 2000);
+                const auto result = engine.runOnce(2000);
+                require(result.errors.empty(), "modular Meter_TQ=0 run reported errors");
+                const auto value = scenarioRouter.getLatestByIndex(209, 2000);
+                require(!value || value->ts != 2000, "modular Meter_TQ=0 should skip TQ average outputs");
+            }
+        );
+        runModularProfileScenario(
+            "cn_off",
+            {{"Meter_TQ", "1"}, {"Meter_CN", "0"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}},
+            [](edge_gateway::LegacyEmsEngine& seed, edge_gateway::GraphEmsEngine& engine,
+               edge_gateway::PointStoreRouter& scenarioRouter) {
+                seed.set(156, 1.0, 2100);
+                seed.set(1136, 18.0, 2100);
+                const auto result = engine.runOnce(2100);
+                require(result.errors.empty(), "modular Meter_CN=0 run reported errors");
+                const auto value = scenarioRouter.getLatestByIndex(259, 2100);
+                require(!value || value->ts != 2100, "modular Meter_CN=0 should skip CN average outputs");
+            }
+        );
+        runModularProfileScenario(
+            "bw",
+            {{"Meter_TQ", "1"}, {"Meter_CN", "0"}, {"Meter_BW", "1"}, {"Meter_FH", "0"}, {"BMS_MODEL", "2"}},
+            [](edge_gateway::LegacyEmsEngine& seed, edge_gateway::GraphEmsEngine& engine,
+               edge_gateway::PointStoreRouter& scenarioRouter) {
+                seed.set(156, 1.0, 2200);
+                seed.set(1036, 30.0, 2200);
+                seed.set(4537, 8.0, 2200);
+                const auto result = engine.runOnce(2200);
+                require(result.errors.empty(), "modular Meter_BW=1 run reported errors");
+                const auto tqValue = scenarioRouter.getLatestByIndex(209, 2200);
+                const auto bwValue = scenarioRouter.getLatestByIndex(700034, 2200);
+                require(static_cast<bool>(tqValue), "modular Meter_BW=1 TQ average prerequisite missing");
+                require(static_cast<bool>(bwValue), "modular Meter_BW=1 BW average prerequisite missing");
+                const auto value = scenarioRouter.getLatestByIndex(309, 2200);
+                require(static_cast<bool>(value), "modular Meter_BW=1 FH output missing");
+                requireNear(value->value, 22.0, 0.0001, "modular Meter_BW=1 FH output mismatch");
+            }
+        );
+        runModularProfileScenario(
+            "fh_direct",
+            {{"Meter_TQ", "1"}, {"Meter_CN", "1"}, {"Meter_BW", "0"}, {"Meter_FH", "1"}, {"BMS_MODEL", "2"}},
+            [](edge_gateway::LegacyEmsEngine& seed, edge_gateway::GraphEmsEngine& engine,
+               edge_gateway::PointStoreRouter& scenarioRouter) {
+                seed.set(309, 42.0, 2300);
+                seed.set(1036, 30.0, 2300);
+                seed.set(1136, 8.0, 2300);
+                const auto result = engine.runOnce(2400);
+                require(result.errors.empty(), "modular Meter_FH=1 run reported errors");
+                const auto value = scenarioRouter.getLatestByIndex(309, 2400);
+                require(static_cast<bool>(value), "modular Meter_FH=1 physical FH output missing");
+                requireNear(value->value, 42.0, 0.0001, "modular Meter_FH=1 must not overwrite physical FH data");
+                require(value->ts == 2300, "modular Meter_FH=1 should preserve physical FH timestamp");
+            }
+        );
+        runModularProfileScenario(
+            "bms3",
+            {{"Meter_TQ", "0"}, {"Meter_CN", "0"}, {"Meter_BW", "0"}, {"Meter_FH", "0"}, {"BMS_MODEL", "3"}},
+            [](edge_gateway::LegacyEmsEngine& seed, edge_gateway::GraphEmsEngine& engine,
+               edge_gateway::PointStoreRouter& scenarioRouter) {
+                seed.set(1586, 1200.0, 2500);
+                seed.set(1587, 900.0, 2500);
+                seed.set(398, 1000.0, 2500);
+                seed.set(399, 850.0, 2500);
+                const auto result = engine.runOnce(2500);
+                require(result.errors.empty(), "modular BMS_MODEL=3 run reported errors");
+                requireNear(scenarioRouter.getLatestByIndex(1615, 2500)->value, 200.0, 0.0001,
+                            "modular BMS_MODEL=3 charge energy mismatch");
+                requireNear(scenarioRouter.getLatestByIndex(1616, 2500)->value, 50.0, 0.0001,
+                            "modular BMS_MODEL=3 discharge energy mismatch");
+            }
+        );
 
         addRouteIfMissing(router, 156, "avg_window", deviceConfig.memoryStore.sharedMemoryName, false);
         engine.set(156, 2.0, 1200);

@@ -1,0 +1,8014 @@
+{
+  "schemaVersion": "1.2.0",
+  "graphCode": "shuntong-default-modular",
+  "limits": {
+    "maxNodes": 512,
+    "maxEdges": 1024
+  },
+  "nodes": [
+    {
+      "id": "tq_average_201",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1030,
+        "outputIndex": 201,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_202",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1031,
+        "outputIndex": 202,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_203",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1032,
+        "outputIndex": 203,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_209",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1036,
+        "outputIndex": 209,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_210",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1037,
+        "outputIndex": 210,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_211",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1038,
+        "outputIndex": 211,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_212",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1039,
+        "outputIndex": 212,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_213",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1040,
+        "outputIndex": 213,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_214",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1041,
+        "outputIndex": 214,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_215",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1042,
+        "outputIndex": 215,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_average_216",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1043,
+        "outputIndex": 216,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cn_average_251",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1130,
+        "outputIndex": 251,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_252",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1131,
+        "outputIndex": 252,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_253",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1132,
+        "outputIndex": 253,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_259",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1136,
+        "outputIndex": 259,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_260",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1137,
+        "outputIndex": 260,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_261",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1138,
+        "outputIndex": 261,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_262",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1139,
+        "outputIndex": 262,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_263",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1140,
+        "outputIndex": 263,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_264",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1141,
+        "outputIndex": 264,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_265",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1142,
+        "outputIndex": 265,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "cn_average_266",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 1143,
+        "outputIndex": 266,
+        "windowSizeIndex": 156,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "tq_p0_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 209
+          }
+        ],
+        "outputIndex": 700000,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_q0_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 213
+          }
+        ],
+        "outputIndex": 700001,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s0_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700000
+          },
+          {
+            "index": 700001
+          }
+        ],
+        "outputIndex": 700002,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700002
+          }
+        ],
+        "outputIndex": 217,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_cos0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 209
+          },
+          {
+            "index": 217
+          }
+        ],
+        "outputIndex": 221,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_p1_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 210
+          }
+        ],
+        "outputIndex": 700003,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_q1_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 214
+          }
+        ],
+        "outputIndex": 700004,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s1_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700003
+          },
+          {
+            "index": 700004
+          }
+        ],
+        "outputIndex": 700005,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700005
+          }
+        ],
+        "outputIndex": 218,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_cos1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 210
+          },
+          {
+            "index": 218
+          }
+        ],
+        "outputIndex": 222,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_p2_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 211
+          }
+        ],
+        "outputIndex": 700006,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_q2_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 215
+          }
+        ],
+        "outputIndex": 700007,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s2_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700006
+          },
+          {
+            "index": 700007
+          }
+        ],
+        "outputIndex": 700008,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700008
+          }
+        ],
+        "outputIndex": 219,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_cos2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 211
+          },
+          {
+            "index": 219
+          }
+        ],
+        "outputIndex": 223,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_p3_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 212
+          }
+        ],
+        "outputIndex": 700009,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_q3_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 216
+          }
+        ],
+        "outputIndex": 700010,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s3_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700009
+          },
+          {
+            "index": 700010
+          }
+        ],
+        "outputIndex": 700011,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_s3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700011
+          }
+        ],
+        "outputIndex": 220,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_cos3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 212
+          },
+          {
+            "index": 220
+          }
+        ],
+        "outputIndex": 224,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_phase_max",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 209
+          },
+          {
+            "index": 210
+          },
+          {
+            "index": 211
+          }
+        ],
+        "outputIndex": 700012,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_phase_min",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 209
+          },
+          {
+            "index": 210
+          },
+          {
+            "index": 211
+          }
+        ],
+        "outputIndex": 700013,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_phase_spread",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700012
+          },
+          {
+            "index": 700013
+          }
+        ],
+        "outputIndex": 700014,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_balance_ratio",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 700014
+          },
+          {
+            "index": 212
+          }
+        ],
+        "outputIndex": 700015,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_balance_scaled",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700015
+          },
+          {
+            "value": 300.0
+          }
+        ],
+        "outputIndex": 700016,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "tq_balance",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700016
+          }
+        ],
+        "outputIndex": 225,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "fh_cn_p0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 209
+          },
+          {
+            "index": 259
+          }
+        ],
+        "outputIndex": 309,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 213
+          },
+          {
+            "index": 263
+          }
+        ],
+        "outputIndex": 313,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 210
+          },
+          {
+            "index": 260
+          }
+        ],
+        "outputIndex": 310,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 214
+          },
+          {
+            "index": 264
+          }
+        ],
+        "outputIndex": 314,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 211
+          },
+          {
+            "index": 261
+          }
+        ],
+        "outputIndex": 311,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 215
+          },
+          {
+            "index": 265
+          }
+        ],
+        "outputIndex": 315,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 212
+          },
+          {
+            "index": 262
+          }
+        ],
+        "outputIndex": 312,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 216
+          },
+          {
+            "index": 266
+          }
+        ],
+        "outputIndex": 316,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p0_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 309
+          }
+        ],
+        "outputIndex": 700017,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q0_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 313
+          }
+        ],
+        "outputIndex": 700018,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s0_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700017
+          },
+          {
+            "index": 700018
+          }
+        ],
+        "outputIndex": 700019,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700019
+          }
+        ],
+        "outputIndex": 317,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_cos0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 309
+          },
+          {
+            "index": 317
+          }
+        ],
+        "outputIndex": 321,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p1_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 310
+          }
+        ],
+        "outputIndex": 700020,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q1_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 314
+          }
+        ],
+        "outputIndex": 700021,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s1_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700020
+          },
+          {
+            "index": 700021
+          }
+        ],
+        "outputIndex": 700022,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700022
+          }
+        ],
+        "outputIndex": 318,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_cos1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 310
+          },
+          {
+            "index": 318
+          }
+        ],
+        "outputIndex": 322,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p2_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700023,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q2_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 315
+          }
+        ],
+        "outputIndex": 700024,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s2_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700023
+          },
+          {
+            "index": 700024
+          }
+        ],
+        "outputIndex": 700025,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700025
+          }
+        ],
+        "outputIndex": 319,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_cos2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 311
+          },
+          {
+            "index": 319
+          }
+        ],
+        "outputIndex": 323,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_p3_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 312
+          }
+        ],
+        "outputIndex": 700026,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_q3_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 316
+          }
+        ],
+        "outputIndex": 700027,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s3_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700026
+          },
+          {
+            "index": 700027
+          }
+        ],
+        "outputIndex": 700028,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_s3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700028
+          }
+        ],
+        "outputIndex": 320,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_cos3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 312
+          },
+          {
+            "index": 320
+          }
+        ],
+        "outputIndex": 324,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_phase_max",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 309
+          },
+          {
+            "index": 310
+          },
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700029,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_phase_min",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 309
+          },
+          {
+            "index": 310
+          },
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700030,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_phase_spread",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700029
+          },
+          {
+            "index": 700030
+          }
+        ],
+        "outputIndex": 700031,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_balance_ratio",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 700031
+          },
+          {
+            "index": 312
+          }
+        ],
+        "outputIndex": 700032,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_balance_scaled",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700032
+          },
+          {
+            "value": 300.0
+          }
+        ],
+        "outputIndex": 700033,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_cn_balance",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700033
+          }
+        ],
+        "outputIndex": 325,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN",
+        "profileDisabledKey": "Meter_BW",
+        "profileDisabledKey2": "Meter_FH"
+      }
+    },
+    {
+      "id": "bw_average_0",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4537,
+        "outputIndex": 700034,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_1",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4538,
+        "outputIndex": 700035,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_2",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4539,
+        "outputIndex": 700036,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_3",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4536,
+        "outputIndex": 700037,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_4",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4541,
+        "outputIndex": 700038,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_5",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4542,
+        "outputIndex": 700039,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_6",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4543,
+        "outputIndex": 700040,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "bw_average_7",
+      "type": "windowAggregate",
+      "enabled": true,
+      "params": {
+        "operation": "average",
+        "inputIndex": 4540,
+        "outputIndex": 700041,
+        "windowSizeIndex": 156,
+        "optionalProfileKey": "Meter_BW"
+      }
+    },
+    {
+      "id": "fh_bw_p0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 209
+          },
+          {
+            "index": 700034
+          }
+        ],
+        "outputIndex": 309,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 213
+          },
+          {
+            "index": 700038
+          }
+        ],
+        "outputIndex": 313,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 210
+          },
+          {
+            "index": 700035
+          }
+        ],
+        "outputIndex": 310,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 214
+          },
+          {
+            "index": 700039
+          }
+        ],
+        "outputIndex": 314,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 211
+          },
+          {
+            "index": 700036
+          }
+        ],
+        "outputIndex": 311,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 215
+          },
+          {
+            "index": 700040
+          }
+        ],
+        "outputIndex": 315,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 212
+          },
+          {
+            "index": 700037
+          }
+        ],
+        "outputIndex": 312,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 216
+          },
+          {
+            "index": 700041
+          }
+        ],
+        "outputIndex": 316,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p0_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 309
+          }
+        ],
+        "outputIndex": 700042,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q0_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 313
+          }
+        ],
+        "outputIndex": 700043,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s0_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700042
+          },
+          {
+            "index": 700043
+          }
+        ],
+        "outputIndex": 700044,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700044
+          }
+        ],
+        "outputIndex": 317,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_cos0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 309
+          },
+          {
+            "index": 317
+          }
+        ],
+        "outputIndex": 321,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p1_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 310
+          }
+        ],
+        "outputIndex": 700045,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q1_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 314
+          }
+        ],
+        "outputIndex": 700046,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s1_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700045
+          },
+          {
+            "index": 700046
+          }
+        ],
+        "outputIndex": 700047,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700047
+          }
+        ],
+        "outputIndex": 318,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_cos1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 310
+          },
+          {
+            "index": 318
+          }
+        ],
+        "outputIndex": 322,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p2_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700048,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q2_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 315
+          }
+        ],
+        "outputIndex": 700049,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s2_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700048
+          },
+          {
+            "index": 700049
+          }
+        ],
+        "outputIndex": 700050,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700050
+          }
+        ],
+        "outputIndex": 319,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_cos2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 311
+          },
+          {
+            "index": 319
+          }
+        ],
+        "outputIndex": 323,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_p3_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 312
+          }
+        ],
+        "outputIndex": 700051,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_q3_square",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "square",
+        "inputs": [
+          {
+            "index": 316
+          }
+        ],
+        "outputIndex": 700052,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s3_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700051
+          },
+          {
+            "index": 700052
+          }
+        ],
+        "outputIndex": 700053,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_s3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "sqrt",
+        "inputs": [
+          {
+            "index": 700053
+          }
+        ],
+        "outputIndex": 320,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_cos3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 312
+          },
+          {
+            "index": 320
+          }
+        ],
+        "outputIndex": 324,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_phase_max",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 309
+          },
+          {
+            "index": 310
+          },
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700054,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_phase_min",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 309
+          },
+          {
+            "index": 310
+          },
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700055,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_phase_spread",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700054
+          },
+          {
+            "index": 700055
+          }
+        ],
+        "outputIndex": 700056,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_balance_ratio",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 700056
+          },
+          {
+            "index": 312
+          }
+        ],
+        "outputIndex": 700057,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_balance_scaled",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700057
+          },
+          {
+            "value": 300.0
+          }
+        ],
+        "outputIndex": 700058,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "fh_bw_balance",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700058
+          }
+        ],
+        "outputIndex": 325,
+        "profileKey": "Meter_TQ",
+        "optionalProfileKey": "Meter_BW",
+        "profileDisabledKey": "Meter_FH"
+      }
+    },
+    {
+      "id": "bms_charge_kw_allow",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 1566
+          },
+          {
+            "index": 1556
+          },
+          {
+            "value": 0.001
+          }
+        ],
+        "outputIndex": 1552
+      }
+    },
+    {
+      "id": "bms_discharge_kw_allow",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 1566
+          },
+          {
+            "index": 1557
+          },
+          {
+            "value": 0.001
+          }
+        ],
+        "outputIndex": 1553
+      }
+    },
+    {
+      "id": "bms_charge_kwh_today",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 1586
+          },
+          {
+            "index": 398
+          }
+        ],
+        "outputIndex": 1615,
+        "profileIntValue2": 3,
+        "profileIntKey": "BMS_MODEL",
+        "profileIntValue": 1
+      }
+    },
+    {
+      "id": "bms_discharge_kwh_today",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 1587
+          },
+          {
+            "index": 399
+          }
+        ],
+        "outputIndex": 1616,
+        "profileIntValue2": 3,
+        "profileIntKey": "BMS_MODEL",
+        "profileIntValue": 1
+      }
+    },
+    {
+      "id": "cos_target_acos",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "acos",
+        "inputs": [
+          {
+            "index": 514
+          }
+        ],
+        "outputIndex": 700059,
+        "invalidPolicy": "skip",
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_tan",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "tan",
+        "inputs": [
+          {
+            "index": 700059
+          }
+        ],
+        "outputIndex": 700060,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q0_signed",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700060
+          },
+          {
+            "index": 209
+          }
+        ],
+        "outputIndex": 700061,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700061
+          }
+        ],
+        "outputIndex": 505,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q0_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 505
+          }
+        ],
+        "outputIndex": 700062,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q0_positive_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 213
+          },
+          {
+            "index": 505
+          }
+        ],
+        "outputIndex": 700063,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q0_negative_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 213
+          },
+          {
+            "index": 505
+          }
+        ],
+        "outputIndex": 700064,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q0_negative_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700065,
+        "leftIndex": 213,
+        "operator": "lt",
+        "rightIndex": 700062,
+        "trueIndex": 700064,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q0_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 601,
+        "leftIndex": 213,
+        "operator": "gt",
+        "rightIndex": 505,
+        "trueIndex": 700063,
+        "falseIndex": 700065,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q1_signed",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700060
+          },
+          {
+            "index": 210
+          }
+        ],
+        "outputIndex": 700066,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700066
+          }
+        ],
+        "outputIndex": 506,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q1_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 506
+          }
+        ],
+        "outputIndex": 700067,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q1_positive_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 214
+          },
+          {
+            "index": 506
+          }
+        ],
+        "outputIndex": 700068,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q1_negative_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 214
+          },
+          {
+            "index": 506
+          }
+        ],
+        "outputIndex": 700069,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q1_negative_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700070,
+        "leftIndex": 214,
+        "operator": "lt",
+        "rightIndex": 700067,
+        "trueIndex": 700069,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q1_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 602,
+        "leftIndex": 214,
+        "operator": "gt",
+        "rightIndex": 506,
+        "trueIndex": 700068,
+        "falseIndex": 700070,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q2_signed",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700060
+          },
+          {
+            "index": 211
+          }
+        ],
+        "outputIndex": 700071,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700071
+          }
+        ],
+        "outputIndex": 507,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q2_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 507
+          }
+        ],
+        "outputIndex": 700072,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q2_positive_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 215
+          },
+          {
+            "index": 507
+          }
+        ],
+        "outputIndex": 700073,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q2_negative_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 215
+          },
+          {
+            "index": 507
+          }
+        ],
+        "outputIndex": 700074,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q2_negative_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700075,
+        "leftIndex": 215,
+        "operator": "lt",
+        "rightIndex": 700072,
+        "trueIndex": 700074,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_q2_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 603,
+        "leftIndex": 215,
+        "operator": "gt",
+        "rightIndex": 507,
+        "trueIndex": 700073,
+        "falseIndex": 700075,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_target_q3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 505
+          },
+          {
+            "index": 506
+          },
+          {
+            "index": 507
+          }
+        ],
+        "outputIndex": 508,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_output_q0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 601
+          }
+        ],
+        "outputIndex": 700076,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_output_q1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 602
+          }
+        ],
+        "outputIndex": 700077,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_output_q2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 603
+          }
+        ],
+        "outputIndex": 700078,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_output_q3",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700076
+          },
+          {
+            "index": 700077
+          },
+          {
+            "index": 700078
+          }
+        ],
+        "outputIndex": 604,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "cos_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 8,
+        "leftIndex": 604,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "voltage_negative_grad",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700079,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "voltage_negative_pmax",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 535
+          }
+        ],
+        "outputIndex": 700080,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase0_high",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700081,
+        "leftIndex": 251,
+        "operator": "gt",
+        "rightIndex": 545,
+        "trueIndex": 533,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase0_raw",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700082,
+        "leftIndex": 251,
+        "operator": "lt",
+        "rightIndex": 544,
+        "trueIndex": 700079,
+        "falseIndex": 700081,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          {
+            "index": 700082
+          }
+        ],
+        "outputIndex": 605,
+        "upper": 0,
+        "lowerIndex": 700080,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase0_low",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700083,
+        "leftIndex": 251,
+        "operator": "lt",
+        "rightIndex": 546,
+        "trueIndex": 700079,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase0_raw",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700084,
+        "leftIndex": 251,
+        "operator": "gt",
+        "rightIndex": 547,
+        "trueIndex": 533,
+        "falseIndex": 700083,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase0",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          {
+            "index": 700084
+          }
+        ],
+        "outputIndex": 609,
+        "upperIndex": 535,
+        "lower": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase1_high",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700085,
+        "leftIndex": 252,
+        "operator": "gt",
+        "rightIndex": 545,
+        "trueIndex": 533,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase1_raw",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700086,
+        "leftIndex": 252,
+        "operator": "lt",
+        "rightIndex": 544,
+        "trueIndex": 700079,
+        "falseIndex": 700085,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          {
+            "index": 700086
+          }
+        ],
+        "outputIndex": 606,
+        "upper": 0,
+        "lowerIndex": 700080,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase1_low",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700087,
+        "leftIndex": 252,
+        "operator": "lt",
+        "rightIndex": 546,
+        "trueIndex": 700079,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase1_raw",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700088,
+        "leftIndex": 252,
+        "operator": "gt",
+        "rightIndex": 547,
+        "trueIndex": 533,
+        "falseIndex": 700087,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase1",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          {
+            "index": 700088
+          }
+        ],
+        "outputIndex": 610,
+        "upperIndex": 535,
+        "lower": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase2_high",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700089,
+        "leftIndex": 253,
+        "operator": "gt",
+        "rightIndex": 545,
+        "trueIndex": 533,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase2_raw",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700090,
+        "leftIndex": 253,
+        "operator": "lt",
+        "rightIndex": 544,
+        "trueIndex": 700079,
+        "falseIndex": 700089,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          {
+            "index": 700090
+          }
+        ],
+        "outputIndex": 607,
+        "upper": 0,
+        "lowerIndex": 700080,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase2_low",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700091,
+        "leftIndex": 253,
+        "operator": "lt",
+        "rightIndex": 546,
+        "trueIndex": 700079,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase2_raw",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700092,
+        "leftIndex": 253,
+        "operator": "gt",
+        "rightIndex": 547,
+        "trueIndex": 533,
+        "falseIndex": 700091,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase2",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "clamp",
+        "inputs": [
+          {
+            "index": 700092
+          }
+        ],
+        "outputIndex": 611,
+        "upperIndex": 535,
+        "lower": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 605
+          }
+        ],
+        "outputIndex": 700093,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 609
+          }
+        ],
+        "outputIndex": 700094,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 606
+          }
+        ],
+        "outputIndex": 700095,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 610
+          }
+        ],
+        "outputIndex": 700096,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_phase2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 607
+          }
+        ],
+        "outputIndex": 700097,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_phase2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 611
+          }
+        ],
+        "outputIndex": 700098,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_total",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700093
+          },
+          {
+            "index": 700095
+          },
+          {
+            "index": 700097
+          }
+        ],
+        "outputIndex": 608,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_total",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700094
+          },
+          {
+            "index": 700096
+          },
+          {
+            "index": 700098
+          }
+        ],
+        "outputIndex": 612,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "lv_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 10,
+        "leftIndex": 608,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "hv_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 12,
+        "leftIndex": 612,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_CN"
+      }
+    },
+    {
+      "id": "charge_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 1570,
+            "operator": "lt",
+            "valueIndex": 452
+          },
+          {
+            "index": 451,
+            "operator": "ne",
+            "value": 0
+          }
+        ],
+        "outputIndex": 14,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "charge_available",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 453
+          },
+          {
+            "index": 312
+          }
+        ],
+        "outputIndex": 700099,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "charge_available_positive",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700099
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700100,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "charge_limited",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700100
+          },
+          {
+            "index": 451
+          }
+        ],
+        "outputIndex": 700101,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "charge_limit_enable",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700102,
+        "leftIndex": 454,
+        "operator": "eq",
+        "rightValue": 1,
+        "trueIndex": 700101,
+        "falseIndex": 451,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "charge_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 613,
+        "conditionIndex": 14,
+        "trueIndex": 700102,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 1570,
+            "operator": "gt",
+            "valueIndex": 456
+          },
+          {
+            "index": 455,
+            "operator": "ne",
+            "value": 0
+          }
+        ],
+        "outputIndex": 16,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_available",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 457
+          },
+          {
+            "index": 312
+          }
+        ],
+        "outputIndex": 700103,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_available_positive",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700103
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700104,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_limited",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700104
+          },
+          {
+            "index": 455
+          }
+        ],
+        "outputIndex": 700105,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_limited_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 700105
+          }
+        ],
+        "outputIndex": 700106,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_default_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 455
+          }
+        ],
+        "outputIndex": 700107,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_limit_enable",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700108,
+        "leftIndex": 458,
+        "operator": "eq",
+        "rightValue": 1,
+        "trueIndex": 700106,
+        "falseIndex": 700107,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "discharge_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 614,
+        "conditionIndex": 16,
+        "trueIndex": 700108,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "schedule_select",
+      "type": "scheduleSelect",
+      "enabled": true,
+      "params": {
+        "scheduleCurve": [
+          {
+            "hour": 0,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 1,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 2,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 3,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 4,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 5,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 6,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 7,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 8,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 9,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 10,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 11,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 12,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 13,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 14,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 15,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 16,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 17,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 18,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 19,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 20,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 21,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 22,
+            "power": 0,
+            "targetSoc": 80
+          },
+          {
+            "hour": 23,
+            "power": 0,
+            "targetSoc": 80
+          }
+        ],
+        "powerOutputIndex": 461,
+        "socOutputIndex": 462,
+        "modeOutputIndex": 700109,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_power_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 461
+          }
+        ],
+        "outputIndex": 700110,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_limit_minus_one",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700110
+          },
+          {
+            "value": 1.0
+          }
+        ],
+        "outputIndex": 700111,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_vmin_minus_one",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 464
+          },
+          {
+            "value": 1.0
+          }
+        ],
+        "outputIndex": 700112,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_vmax_plus_one",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 463
+          },
+          {
+            "value": 1.0
+          }
+        ],
+        "outputIndex": 700113,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_double_grad",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 533
+          },
+          {
+            "value": 2.0
+          }
+        ],
+        "outputIndex": 700114,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 461,
+            "operator": "gt",
+            "value": 0
+          },
+          {
+            "index": 1570,
+            "operator": "lt",
+            "valueIndex": 462
+          }
+        ],
+        "outputIndex": 700115,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 461,
+            "operator": "lt",
+            "value": 0
+          },
+          {
+            "index": 1570,
+            "operator": "gt",
+            "valueIndex": 462
+          }
+        ],
+        "outputIndex": 700116,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_0_previous",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 615,
+            "defaultValue": 0.0
+          }
+        ],
+        "outputIndex": 700117,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_1_previous",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 616,
+            "defaultValue": 0.0
+          }
+        ],
+        "outputIndex": 700118,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_2_previous",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 617,
+            "defaultValue": 0.0
+          }
+        ],
+        "outputIndex": 700119,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_total_previous",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 618,
+            "defaultValue": 0.0
+          }
+        ],
+        "outputIndex": 700120,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_increment",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700117,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700121,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_voltage",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700122,
+        "leftIndex": 251,
+        "operator": "gt",
+        "rightIndex": 464,
+        "trueIndex": 700121,
+        "falseIndex": 700117,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_ramp",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700123,
+        "leftIndex": 700120,
+        "operator": "lt",
+        "rightIndex": 700111,
+        "trueIndex": 700122,
+        "falseIndex": 700117,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_increment",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700117,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700124,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_voltage",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700125,
+        "leftIndex": 251,
+        "operator": "lt",
+        "rightIndex": 463,
+        "trueIndex": 700124,
+        "falseIndex": 700117,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_ramp",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700126,
+        "leftIndex": 700120,
+        "operator": "lt",
+        "rightIndex": 700111,
+        "trueIndex": 700125,
+        "falseIndex": 700117,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_0_positive_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700117,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 700114
+          }
+        ],
+        "outputIndex": 700127,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_0_positive",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700127
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700128,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_0_negative_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700117,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 700114
+          }
+        ],
+        "outputIndex": 700129,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_0_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700129
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700130,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_0_negative_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700131,
+        "leftIndex": 700117,
+        "operator": "lt",
+        "rightValue": 0,
+        "trueIndex": 700130,
+        "falseIndex": 700117,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_0",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700132,
+        "leftIndex": 700117,
+        "operator": "gt",
+        "rightValue": 0,
+        "trueIndex": 700128,
+        "falseIndex": 700131,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_increment",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700118,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700133,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_voltage",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700134,
+        "leftIndex": 252,
+        "operator": "gt",
+        "rightIndex": 464,
+        "trueIndex": 700133,
+        "falseIndex": 700118,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_ramp",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700135,
+        "leftIndex": 700120,
+        "operator": "lt",
+        "rightIndex": 700111,
+        "trueIndex": 700134,
+        "falseIndex": 700118,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_increment",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700118,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700136,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_voltage",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700137,
+        "leftIndex": 252,
+        "operator": "lt",
+        "rightIndex": 463,
+        "trueIndex": 700136,
+        "falseIndex": 700118,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_ramp",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700138,
+        "leftIndex": 700120,
+        "operator": "lt",
+        "rightIndex": 700111,
+        "trueIndex": 700137,
+        "falseIndex": 700118,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_1_positive_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700118,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 700114
+          }
+        ],
+        "outputIndex": 700139,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_1_positive",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700139
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700140,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_1_negative_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700118,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 700114
+          }
+        ],
+        "outputIndex": 700141,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_1_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700141
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700142,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_1_negative_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700143,
+        "leftIndex": 700118,
+        "operator": "lt",
+        "rightValue": 0,
+        "trueIndex": 700142,
+        "falseIndex": 700118,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_1",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700144,
+        "leftIndex": 700118,
+        "operator": "gt",
+        "rightValue": 0,
+        "trueIndex": 700140,
+        "falseIndex": 700143,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_increment",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700119,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700145,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_voltage",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700146,
+        "leftIndex": 253,
+        "operator": "gt",
+        "rightIndex": 464,
+        "trueIndex": 700145,
+        "falseIndex": 700119,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_ramp",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700147,
+        "leftIndex": 700120,
+        "operator": "lt",
+        "rightIndex": 700111,
+        "trueIndex": 700146,
+        "falseIndex": 700119,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_increment",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700119,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700148,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_voltage",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700149,
+        "leftIndex": 253,
+        "operator": "lt",
+        "rightIndex": 463,
+        "trueIndex": 700148,
+        "falseIndex": 700119,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_ramp",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700150,
+        "leftIndex": 700120,
+        "operator": "lt",
+        "rightIndex": 700111,
+        "trueIndex": 700149,
+        "falseIndex": 700119,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_2_positive_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700119,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 700114
+          }
+        ],
+        "outputIndex": 700151,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_2_positive",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700151
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700152,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_2_negative_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700119,
+            "defaultValue": 0.0
+          },
+          {
+            "index": 700114
+          }
+        ],
+        "outputIndex": 700153,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_2_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700153
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700154,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_2_negative_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700155,
+        "leftIndex": 700119,
+        "operator": "lt",
+        "rightValue": 0,
+        "trueIndex": 700154,
+        "falseIndex": 700119,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_decay_2",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700156,
+        "leftIndex": 700119,
+        "operator": "gt",
+        "rightValue": 0,
+        "trueIndex": 700152,
+        "falseIndex": 700155,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_provisional_0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700123
+          }
+        ],
+        "outputIndex": 700159,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_provisional_1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700135
+          }
+        ],
+        "outputIndex": 700160,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_provisional_2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700147
+          }
+        ],
+        "outputIndex": 700161,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_provisional_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700159
+          },
+          {
+            "index": 700160
+          },
+          {
+            "index": 700161
+          }
+        ],
+        "outputIndex": 700157,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_provisional_0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700126
+          }
+        ],
+        "outputIndex": 700162,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_provisional_1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700138
+          }
+        ],
+        "outputIndex": 700163,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_provisional_2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700150
+          }
+        ],
+        "outputIndex": 700164,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_provisional_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700162
+          },
+          {
+            "index": 700163
+          },
+          {
+            "index": 700164
+          }
+        ],
+        "outputIndex": 700158,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_third_limit",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700110
+          },
+          {
+            "value": 0.3333
+          }
+        ],
+        "outputIndex": 700165,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_negative_third_limit",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 700165
+          }
+        ],
+        "outputIndex": 700166,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_cap",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700167,
+        "leftIndex": 700157,
+        "operator": "gt",
+        "rightIndex": 700110,
+        "trueIndex": 700165,
+        "falseIndex": 700123,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_low_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700167
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700168,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_low_clamp",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700168
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700169,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_0_low_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700170,
+        "leftIndex": 251,
+        "operator": "lt",
+        "rightIndex": 700112,
+        "trueIndex": 700169,
+        "falseIndex": 700167,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_cap",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700171,
+        "leftIndex": 700158,
+        "operator": "gt",
+        "rightIndex": 700110,
+        "trueIndex": 700166,
+        "falseIndex": 700126,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_high_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700171
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700172,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_high_clamp",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700172
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700173,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_0_high_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700174,
+        "leftIndex": 251,
+        "operator": "gt",
+        "rightIndex": 700113,
+        "trueIndex": 700173,
+        "falseIndex": 700171,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_0_discharge_or_decay",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700175,
+        "conditionIndex": 700116,
+        "trueIndex": 700174,
+        "falseIndex": 700132,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_0_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 615,
+        "conditionIndex": 700115,
+        "trueIndex": 700170,
+        "falseIndex": 700175,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_cap",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700176,
+        "leftIndex": 700157,
+        "operator": "gt",
+        "rightIndex": 700110,
+        "trueIndex": 700165,
+        "falseIndex": 700135,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_low_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700176
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700177,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_low_clamp",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700177
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700178,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_1_low_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700179,
+        "leftIndex": 252,
+        "operator": "lt",
+        "rightIndex": 700112,
+        "trueIndex": 700178,
+        "falseIndex": 700176,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_cap",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700180,
+        "leftIndex": 700158,
+        "operator": "gt",
+        "rightIndex": 700110,
+        "trueIndex": 700166,
+        "falseIndex": 700138,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_high_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700180
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700181,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_high_clamp",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700181
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700182,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_1_high_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700183,
+        "leftIndex": 252,
+        "operator": "gt",
+        "rightIndex": 700113,
+        "trueIndex": 700182,
+        "falseIndex": 700180,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_1_discharge_or_decay",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700184,
+        "conditionIndex": 700116,
+        "trueIndex": 700183,
+        "falseIndex": 700144,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_1_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 616,
+        "conditionIndex": 700115,
+        "trueIndex": 700179,
+        "falseIndex": 700184,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_cap",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700185,
+        "leftIndex": 700157,
+        "operator": "gt",
+        "rightIndex": 700110,
+        "trueIndex": 700165,
+        "falseIndex": 700147,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_low_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700185
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700186,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_low_clamp",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 700186
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700187,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_charge_2_low_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700188,
+        "leftIndex": 253,
+        "operator": "lt",
+        "rightIndex": 700112,
+        "trueIndex": 700187,
+        "falseIndex": 700185,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_cap",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700189,
+        "leftIndex": 700158,
+        "operator": "gt",
+        "rightIndex": 700110,
+        "trueIndex": 700166,
+        "falseIndex": 700150,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_high_raw",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700189
+          },
+          {
+            "index": 533
+          }
+        ],
+        "outputIndex": 700190,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_high_clamp",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 700190
+          },
+          {
+            "value": 0.0
+          }
+        ],
+        "outputIndex": 700191,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_discharge_2_high_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700192,
+        "leftIndex": 253,
+        "operator": "gt",
+        "rightIndex": 700113,
+        "trueIndex": 700191,
+        "falseIndex": 700189,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_2_discharge_or_decay",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700193,
+        "conditionIndex": 700116,
+        "trueIndex": 700192,
+        "falseIndex": 700156,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_2_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 617,
+        "conditionIndex": 700115,
+        "trueIndex": 700188,
+        "falseIndex": 700193,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_output_0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 615
+          }
+        ],
+        "outputIndex": 700194,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_output_1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 616
+          }
+        ],
+        "outputIndex": 700195,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_output_2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 617
+          }
+        ],
+        "outputIndex": 700196,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_output_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700194
+          },
+          {
+            "index": 700195
+          },
+          {
+            "index": 700196
+          }
+        ],
+        "outputIndex": 618,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "schedule_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 18,
+        "leftIndex": 618,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "cycle_phase_sequence",
+      "type": "sequence",
+      "enabled": true,
+      "params": {
+        "stateOutputIndex": 17,
+        "initialState": 1,
+        "evaluateOnInitialize": true,
+        "states": [
+          {
+            "id": 1,
+            "name": "放电"
+          },
+          {
+            "id": 2,
+            "name": "充电"
+          }
+        ],
+        "transitions": [
+          {
+            "from": 1,
+            "to": 2,
+            "name": "放电至下限",
+            "minDurationMs": 0,
+            "conditions": [
+              {
+                "index": 1570,
+                "operator": "lte",
+                "value": 20.0
+              }
+            ]
+          },
+          {
+            "from": 2,
+            "to": 1,
+            "name": "充电至上限",
+            "minDurationMs": 0,
+            "conditions": [
+              {
+                "index": 1570,
+                "operator": "gte",
+                "value": 95.0
+              }
+            ]
+          }
+        ],
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_0_magnitude",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "value": 10.0
+          }
+        ],
+        "outputIndex": 700197,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_0_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 700197
+          }
+        ],
+        "outputIndex": 700198,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_0_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 615,
+        "leftIndex": 17,
+        "operator": "eq",
+        "rightValue": 1,
+        "trueIndex": 700198,
+        "falseIndex": 700197,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_1_magnitude",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "value": 10.0
+          }
+        ],
+        "outputIndex": 700199,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_1_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 700199
+          }
+        ],
+        "outputIndex": 700200,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_1_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 616,
+        "leftIndex": 17,
+        "operator": "eq",
+        "rightValue": 1,
+        "trueIndex": 700200,
+        "falseIndex": 700199,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_2_magnitude",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "value": 10.0
+          }
+        ],
+        "outputIndex": 700201,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_2_negative",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 700201
+          }
+        ],
+        "outputIndex": 700202,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_phase_2_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 617,
+        "leftIndex": 17,
+        "operator": "eq",
+        "rightValue": 1,
+        "trueIndex": 700202,
+        "falseIndex": 700201,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_output_0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 615
+          }
+        ],
+        "outputIndex": 700203,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_output_1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 616
+          }
+        ],
+        "outputIndex": 700204,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_output_2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 617
+          }
+        ],
+        "outputIndex": 700205,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_output_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700203
+          },
+          {
+            "index": 700204
+          },
+          {
+            "index": 700205
+          }
+        ],
+        "outputIndex": 618,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "cycle_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 18,
+        "leftIndex": 618,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
+      }
+    },
+    {
+      "id": "local_hour",
+      "type": "timeSource",
+      "enabled": true,
+      "params": {
+        "component": "hour",
+        "outputIndex": 700206,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_time_gate",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 700206,
+            "operator": "gte",
+            "valueIndex": 581
+          },
+          {
+            "index": 700206,
+            "operator": "lte",
+            "valueIndex": 583
+          }
+        ],
+        "outputIndex": 700207,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_0_surplus",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 457
+          },
+          {
+            "index": 309
+          }
+        ],
+        "outputIndex": 700208,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_0_available",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700209,
+        "leftIndex": 309,
+        "operator": "lte",
+        "rightIndex": 457,
+        "trueIndex": 700208,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_0_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 619,
+        "conditionIndex": 700207,
+        "trueIndex": 700209,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_1_surplus",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 457
+          },
+          {
+            "index": 310
+          }
+        ],
+        "outputIndex": 700210,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_1_available",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700211,
+        "leftIndex": 310,
+        "operator": "lte",
+        "rightIndex": 457,
+        "trueIndex": 700210,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_1_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 620,
+        "conditionIndex": 700207,
+        "trueIndex": 700211,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_2_surplus",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 457
+          },
+          {
+            "index": 311
+          }
+        ],
+        "outputIndex": 700212,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_2_available",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700213,
+        "leftIndex": 311,
+        "operator": "lte",
+        "rightIndex": 457,
+        "trueIndex": 700212,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_2_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 621,
+        "conditionIndex": 700207,
+        "trueIndex": 700213,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_output_0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 619
+          }
+        ],
+        "outputIndex": 700214,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_output_1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 620
+          }
+        ],
+        "outputIndex": 700215,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_output_2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 621
+          }
+        ],
+        "outputIndex": 700216,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_output_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700214
+          },
+          {
+            "index": 700215
+          },
+          {
+            "index": 700216
+          }
+        ],
+        "outputIndex": 622,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "solar_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 22,
+        "leftIndex": 622,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_0_combined",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 209
+          },
+          {
+            "index": 259
+          }
+        ],
+        "outputIndex": 565,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_1_combined",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 210
+          },
+          {
+            "index": 260
+          }
+        ],
+        "outputIndex": 566,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_2_combined",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 211
+          },
+          {
+            "index": 261
+          }
+        ],
+        "outputIndex": 567,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_allowed_numerator",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 562
+          },
+          {
+            "index": 212
+          }
+        ],
+        "outputIndex": 700217,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_allowed",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 700217
+          },
+          {
+            "value": 300.0
+          }
+        ],
+        "outputIndex": 700218,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_max",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "max",
+        "inputs": [
+          {
+            "index": 565
+          },
+          {
+            "index": 566
+          },
+          {
+            "index": 567
+          }
+        ],
+        "outputIndex": 700219,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_min",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "min",
+        "inputs": [
+          {
+            "index": 565
+          },
+          {
+            "index": 566
+          },
+          {
+            "index": 567
+          }
+        ],
+        "outputIndex": 700220,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_spread",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700219
+          },
+          {
+            "index": 700220
+          }
+        ],
+        "outputIndex": 700221,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_ratio",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 700221
+          },
+          {
+            "index": 212
+          }
+        ],
+        "outputIndex": 700222,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_scaled",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "multiply",
+        "inputs": [
+          {
+            "index": 700222
+          },
+          {
+            "value": 300.0
+          }
+        ],
+        "outputIndex": 700223,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_percent",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 700223
+          }
+        ],
+        "outputIndex": 564,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_excess",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "subtract",
+        "inputs": [
+          {
+            "index": 700221
+          },
+          {
+            "index": 700218
+          }
+        ],
+        "outputIndex": 700224,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_set_value",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "safeDivide",
+        "inputs": [
+          {
+            "index": 700224
+          },
+          {
+            "value": 2.0
+          }
+        ],
+        "outputIndex": 700225,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_negative_set_value",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "negate",
+        "inputs": [
+          {
+            "index": 700225
+          }
+        ],
+        "outputIndex": 700226,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_max_flag_0",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 565,
+            "operator": "eq",
+            "valueIndex": 700219
+          }
+        ],
+        "outputIndex": 700227,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_min_flag_0",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 565,
+            "operator": "eq",
+            "valueIndex": 700220
+          }
+        ],
+        "outputIndex": 700228,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_max_flag_1",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 566,
+            "operator": "eq",
+            "valueIndex": 700219
+          },
+          {
+            "index": 565,
+            "operator": "ne",
+            "valueIndex": 700219
+          }
+        ],
+        "outputIndex": 700229,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_min_flag_1",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 566,
+            "operator": "eq",
+            "valueIndex": 700220
+          },
+          {
+            "index": 565,
+            "operator": "ne",
+            "valueIndex": 700220
+          }
+        ],
+        "outputIndex": 700230,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_max_flag_2",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 567,
+            "operator": "eq",
+            "valueIndex": 700219
+          },
+          {
+            "index": 565,
+            "operator": "ne",
+            "valueIndex": 700219
+          },
+          {
+            "index": 566,
+            "operator": "ne",
+            "valueIndex": 700219
+          }
+        ],
+        "outputIndex": 700231,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_min_flag_2",
+      "type": "controlGate",
+      "enabled": true,
+      "params": {
+        "combine": "all",
+        "conditions": [
+          {
+            "index": 567,
+            "operator": "eq",
+            "valueIndex": 700220
+          },
+          {
+            "index": 565,
+            "operator": "ne",
+            "valueIndex": 700220
+          },
+          {
+            "index": 566,
+            "operator": "ne",
+            "valueIndex": 700220
+          }
+        ],
+        "outputIndex": 700232,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_enabled",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700233,
+        "leftIndex": 700221,
+        "operator": "gt",
+        "rightIndex": 700218,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_0_max_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700234,
+        "conditionIndex": 700227,
+        "trueIndex": 700225,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_0_min_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700235,
+        "conditionIndex": 700228,
+        "trueIndex": 700226,
+        "falseIndex": 700234,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_0_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 623,
+        "conditionIndex": 700233,
+        "trueIndex": 700235,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_1_max_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700236,
+        "conditionIndex": 700229,
+        "trueIndex": 700225,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_1_min_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700237,
+        "conditionIndex": 700230,
+        "trueIndex": 700226,
+        "falseIndex": 700236,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_1_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 624,
+        "conditionIndex": 700233,
+        "trueIndex": 700237,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_2_max_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700238,
+        "conditionIndex": 700231,
+        "trueIndex": 700225,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_2_min_select",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 700239,
+        "conditionIndex": 700232,
+        "trueIndex": 700226,
+        "falseIndex": 700238,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_phase_2_output",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 625,
+        "conditionIndex": 700233,
+        "trueIndex": 700239,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_output_0_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 623
+          }
+        ],
+        "outputIndex": 700241,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_output_1_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 624
+          }
+        ],
+        "outputIndex": 700242,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_output_2_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 625
+          }
+        ],
+        "outputIndex": 700243,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_output_sum",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700241
+          },
+          {
+            "index": 700242
+          },
+          {
+            "index": 700243
+          }
+        ],
+        "outputIndex": 700240,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "balance_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 20,
+        "leftIndex": 700240,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ",
+        "profileKey2": "Meter_CN"
+      }
+    },
+    {
+      "id": "override_active_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 590
+          }
+        ],
+        "outputIndex": 700244,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "override_reactive_abs",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "abs",
+        "inputs": [
+          {
+            "index": 591
+          }
+        ],
+        "outputIndex": 700245,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "override_total",
+      "type": "formula",
+      "enabled": true,
+      "params": {
+        "operation": "add",
+        "inputs": [
+          {
+            "index": 700244
+          },
+          {
+            "index": 700245
+          }
+        ],
+        "outputIndex": 700246,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "override_run",
+      "type": "switch",
+      "enabled": true,
+      "params": {
+        "outputIndex": 26,
+        "leftIndex": 700246,
+        "operator": "ne",
+        "rightValue": 0,
+        "trueValue": 1,
+        "falseValue": 0,
+        "profileKey": "Meter_TQ"
+      }
+    },
+    {
+      "id": "power_arbiter",
+      "type": "phaseArbiter",
+      "enabled": true,
+      "params": {
+        "activeBaseIndexes": [
+          615,
+          616,
+          617
+        ],
+        "reactiveBaseIndexes": [
+          601,
+          602,
+          603
+        ],
+        "activeOutputIndexes": [
+          700247,
+          700248,
+          700249
+        ],
+        "reactiveOutputIndexes": [
+          700250,
+          700251,
+          700252
+        ],
+        "candidates": [
+          {
+            "name": "charge",
+            "target": "active",
+            "merge": "stronger",
+            "direction": "positive",
+            "totalIndex": 613
+          },
+          {
+            "name": "discharge",
+            "target": "active",
+            "merge": "stronger",
+            "direction": "negative",
+            "totalIndex": 614
+          },
+          {
+            "name": "low_voltage",
+            "target": "active",
+            "merge": "min",
+            "direction": "negative",
+            "indexes": [
+              605,
+              606,
+              607
+            ]
+          },
+          {
+            "name": "high_voltage",
+            "target": "active",
+            "merge": "max",
+            "direction": "positive",
+            "indexes": [
+              609,
+              610,
+              611
+            ]
+          },
+          {
+            "name": "solar",
+            "target": "active",
+            "merge": "max",
+            "direction": "positive",
+            "indexes": [
+              619,
+              620,
+              621
+            ]
+          },
+          {
+            "name": "phase_balance",
+            "target": "active",
+            "merge": "add",
+            "direction": "any",
+            "indexes": [
+              623,
+              624,
+              625
+            ]
+          }
+        ],
+        "override": {
+          "enableIndex": 26,
+          "enableValue": 1,
+          "activeTotalIndex": 590,
+          "reactiveTotalIndex": 591
+        }
+      }
+    },
+    {
+      "id": "power_constraints",
+      "type": "powerConstraint",
+      "enabled": true,
+      "params": {
+        "activeInputIndexes": [
+          700247,
+          700248,
+          700249
+        ],
+        "reactiveInputIndexes": [
+          700250,
+          700251,
+          700252
+        ],
+        "activeOutputIndexes": [
+          627,
+          628,
+          629
+        ],
+        "reactiveOutputIndexes": [
+          630,
+          631,
+          632
+        ],
+        "loadIndexes": [
+          309,
+          310,
+          311
+        ],
+        "positiveLimitEnableIndex": 454,
+        "positiveLimitIndex": 453,
+        "negativeLimitEnableIndex": 458,
+        "negativeLimitIndex": 457,
+        "reserveEnableIndex": 23,
+        "reserveMarginIndex": 588,
+        "reserveRunOutputIndex": 24,
+        "activeAbsLimitIndex": 535,
+        "reactiveAbsLimitIndex": 504,
+        "apparentTotalLimitIndex": 151,
+        "positiveTotalLimitIndex": 1552,
+        "negativeTotalLimitIndex": 1553,
+        "stateIndex": 1570,
+        "stateUpperIndex": 161,
+        "stateLowerIndex": 162,
+        "lowStateClearReactive": true,
+        "lowStateClearIndexes": [
+          8,
+          10
+        ],
+        "highStateClearIndexes": [
+          12,
+          22
+        ]
+      }
+    },
+    {
+      "id": "pcs_control_write_0",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 627,
+        "targetIndex": 1318,
+        "valueMode": "truncate",
+        "minValue": -1000000000,
+        "maxValue": 1000000000,
+        "permitIndex": 1399,
+        "permitValue": 1
+      }
+    },
+    {
+      "id": "pcs_control_write_1",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 628,
+        "targetIndex": 1319,
+        "valueMode": "truncate",
+        "minValue": -1000000000,
+        "maxValue": 1000000000,
+        "permitIndex": 1399,
+        "permitValue": 1
+      }
+    },
+    {
+      "id": "pcs_control_write_2",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 629,
+        "targetIndex": 1320,
+        "valueMode": "truncate",
+        "minValue": -1000000000,
+        "maxValue": 1000000000,
+        "permitIndex": 1399,
+        "permitValue": 1
+      }
+    },
+    {
+      "id": "pcs_control_write_3",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 630,
+        "targetIndex": 1321,
+        "valueMode": "truncate",
+        "minValue": -1000000000,
+        "maxValue": 1000000000,
+        "permitIndex": 1399,
+        "permitValue": 1
+      }
+    },
+    {
+      "id": "pcs_control_write_4",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 631,
+        "targetIndex": 1322,
+        "valueMode": "truncate",
+        "minValue": -1000000000,
+        "maxValue": 1000000000,
+        "permitIndex": 1399,
+        "permitValue": 1
+      }
+    },
+    {
+      "id": "pcs_control_write_5",
+      "type": "controlWrite",
+      "enabled": true,
+      "params": {
+        "submitWrites": false,
+        "inputIndex": 632,
+        "targetIndex": 1323,
+        "valueMode": "truncate",
+        "minValue": -1000000000,
+        "maxValue": 1000000000,
+        "permitIndex": 1399,
+        "permitValue": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "tq_average_201",
+      "to": "tq_average_202"
+    },
+    {
+      "from": "tq_average_202",
+      "to": "tq_average_203"
+    },
+    {
+      "from": "tq_average_203",
+      "to": "tq_average_209"
+    },
+    {
+      "from": "tq_average_209",
+      "to": "tq_average_210"
+    },
+    {
+      "from": "tq_average_210",
+      "to": "tq_average_211"
+    },
+    {
+      "from": "tq_average_211",
+      "to": "tq_average_212"
+    },
+    {
+      "from": "tq_average_212",
+      "to": "tq_average_213"
+    },
+    {
+      "from": "tq_average_213",
+      "to": "tq_average_214"
+    },
+    {
+      "from": "tq_average_214",
+      "to": "tq_average_215"
+    },
+    {
+      "from": "tq_average_215",
+      "to": "tq_average_216"
+    },
+    {
+      "from": "tq_average_216",
+      "to": "cn_average_251"
+    },
+    {
+      "from": "cn_average_251",
+      "to": "cn_average_252"
+    },
+    {
+      "from": "cn_average_252",
+      "to": "cn_average_253"
+    },
+    {
+      "from": "cn_average_253",
+      "to": "cn_average_259"
+    },
+    {
+      "from": "cn_average_259",
+      "to": "cn_average_260"
+    },
+    {
+      "from": "cn_average_260",
+      "to": "cn_average_261"
+    },
+    {
+      "from": "cn_average_261",
+      "to": "cn_average_262"
+    },
+    {
+      "from": "cn_average_262",
+      "to": "cn_average_263"
+    },
+    {
+      "from": "cn_average_263",
+      "to": "cn_average_264"
+    },
+    {
+      "from": "cn_average_264",
+      "to": "cn_average_265"
+    },
+    {
+      "from": "cn_average_265",
+      "to": "cn_average_266"
+    },
+    {
+      "from": "cn_average_266",
+      "to": "tq_p0_square"
+    },
+    {
+      "from": "tq_p0_square",
+      "to": "tq_q0_square"
+    },
+    {
+      "from": "tq_q0_square",
+      "to": "tq_s0_sum"
+    },
+    {
+      "from": "tq_s0_sum",
+      "to": "tq_s0"
+    },
+    {
+      "from": "tq_s0",
+      "to": "tq_cos0"
+    },
+    {
+      "from": "tq_cos0",
+      "to": "tq_p1_square"
+    },
+    {
+      "from": "tq_p1_square",
+      "to": "tq_q1_square"
+    },
+    {
+      "from": "tq_q1_square",
+      "to": "tq_s1_sum"
+    },
+    {
+      "from": "tq_s1_sum",
+      "to": "tq_s1"
+    },
+    {
+      "from": "tq_s1",
+      "to": "tq_cos1"
+    },
+    {
+      "from": "tq_cos1",
+      "to": "tq_p2_square"
+    },
+    {
+      "from": "tq_p2_square",
+      "to": "tq_q2_square"
+    },
+    {
+      "from": "tq_q2_square",
+      "to": "tq_s2_sum"
+    },
+    {
+      "from": "tq_s2_sum",
+      "to": "tq_s2"
+    },
+    {
+      "from": "tq_s2",
+      "to": "tq_cos2"
+    },
+    {
+      "from": "tq_cos2",
+      "to": "tq_p3_square"
+    },
+    {
+      "from": "tq_p3_square",
+      "to": "tq_q3_square"
+    },
+    {
+      "from": "tq_q3_square",
+      "to": "tq_s3_sum"
+    },
+    {
+      "from": "tq_s3_sum",
+      "to": "tq_s3"
+    },
+    {
+      "from": "tq_s3",
+      "to": "tq_cos3"
+    },
+    {
+      "from": "tq_cos3",
+      "to": "tq_phase_max"
+    },
+    {
+      "from": "tq_phase_max",
+      "to": "tq_phase_min"
+    },
+    {
+      "from": "tq_phase_min",
+      "to": "tq_phase_spread"
+    },
+    {
+      "from": "tq_phase_spread",
+      "to": "tq_balance_ratio"
+    },
+    {
+      "from": "tq_balance_ratio",
+      "to": "tq_balance_scaled"
+    },
+    {
+      "from": "tq_balance_scaled",
+      "to": "tq_balance"
+    },
+    {
+      "from": "tq_balance",
+      "to": "fh_cn_p0"
+    },
+    {
+      "from": "fh_cn_p0",
+      "to": "fh_cn_q0"
+    },
+    {
+      "from": "fh_cn_q0",
+      "to": "fh_cn_p1"
+    },
+    {
+      "from": "fh_cn_p1",
+      "to": "fh_cn_q1"
+    },
+    {
+      "from": "fh_cn_q1",
+      "to": "fh_cn_p2"
+    },
+    {
+      "from": "fh_cn_p2",
+      "to": "fh_cn_q2"
+    },
+    {
+      "from": "fh_cn_q2",
+      "to": "fh_cn_p3"
+    },
+    {
+      "from": "fh_cn_p3",
+      "to": "fh_cn_q3"
+    },
+    {
+      "from": "fh_cn_q3",
+      "to": "fh_cn_p0_square"
+    },
+    {
+      "from": "fh_cn_p0_square",
+      "to": "fh_cn_q0_square"
+    },
+    {
+      "from": "fh_cn_q0_square",
+      "to": "fh_cn_s0_sum"
+    },
+    {
+      "from": "fh_cn_s0_sum",
+      "to": "fh_cn_s0"
+    },
+    {
+      "from": "fh_cn_s0",
+      "to": "fh_cn_cos0"
+    },
+    {
+      "from": "fh_cn_cos0",
+      "to": "fh_cn_p1_square"
+    },
+    {
+      "from": "fh_cn_p1_square",
+      "to": "fh_cn_q1_square"
+    },
+    {
+      "from": "fh_cn_q1_square",
+      "to": "fh_cn_s1_sum"
+    },
+    {
+      "from": "fh_cn_s1_sum",
+      "to": "fh_cn_s1"
+    },
+    {
+      "from": "fh_cn_s1",
+      "to": "fh_cn_cos1"
+    },
+    {
+      "from": "fh_cn_cos1",
+      "to": "fh_cn_p2_square"
+    },
+    {
+      "from": "fh_cn_p2_square",
+      "to": "fh_cn_q2_square"
+    },
+    {
+      "from": "fh_cn_q2_square",
+      "to": "fh_cn_s2_sum"
+    },
+    {
+      "from": "fh_cn_s2_sum",
+      "to": "fh_cn_s2"
+    },
+    {
+      "from": "fh_cn_s2",
+      "to": "fh_cn_cos2"
+    },
+    {
+      "from": "fh_cn_cos2",
+      "to": "fh_cn_p3_square"
+    },
+    {
+      "from": "fh_cn_p3_square",
+      "to": "fh_cn_q3_square"
+    },
+    {
+      "from": "fh_cn_q3_square",
+      "to": "fh_cn_s3_sum"
+    },
+    {
+      "from": "fh_cn_s3_sum",
+      "to": "fh_cn_s3"
+    },
+    {
+      "from": "fh_cn_s3",
+      "to": "fh_cn_cos3"
+    },
+    {
+      "from": "fh_cn_cos3",
+      "to": "fh_cn_phase_max"
+    },
+    {
+      "from": "fh_cn_phase_max",
+      "to": "fh_cn_phase_min"
+    },
+    {
+      "from": "fh_cn_phase_min",
+      "to": "fh_cn_phase_spread"
+    },
+    {
+      "from": "fh_cn_phase_spread",
+      "to": "fh_cn_balance_ratio"
+    },
+    {
+      "from": "fh_cn_balance_ratio",
+      "to": "fh_cn_balance_scaled"
+    },
+    {
+      "from": "fh_cn_balance_scaled",
+      "to": "fh_cn_balance"
+    },
+    {
+      "from": "fh_cn_balance",
+      "to": "bw_average_0"
+    },
+    {
+      "from": "bw_average_0",
+      "to": "bw_average_1"
+    },
+    {
+      "from": "bw_average_1",
+      "to": "bw_average_2"
+    },
+    {
+      "from": "bw_average_2",
+      "to": "bw_average_3"
+    },
+    {
+      "from": "bw_average_3",
+      "to": "bw_average_4"
+    },
+    {
+      "from": "bw_average_4",
+      "to": "bw_average_5"
+    },
+    {
+      "from": "bw_average_5",
+      "to": "bw_average_6"
+    },
+    {
+      "from": "bw_average_6",
+      "to": "bw_average_7"
+    },
+    {
+      "from": "bw_average_7",
+      "to": "fh_bw_p0"
+    },
+    {
+      "from": "fh_bw_p0",
+      "to": "fh_bw_q0"
+    },
+    {
+      "from": "fh_bw_q0",
+      "to": "fh_bw_p1"
+    },
+    {
+      "from": "fh_bw_p1",
+      "to": "fh_bw_q1"
+    },
+    {
+      "from": "fh_bw_q1",
+      "to": "fh_bw_p2"
+    },
+    {
+      "from": "fh_bw_p2",
+      "to": "fh_bw_q2"
+    },
+    {
+      "from": "fh_bw_q2",
+      "to": "fh_bw_p3"
+    },
+    {
+      "from": "fh_bw_p3",
+      "to": "fh_bw_q3"
+    },
+    {
+      "from": "fh_bw_q3",
+      "to": "fh_bw_p0_square"
+    },
+    {
+      "from": "fh_bw_p0_square",
+      "to": "fh_bw_q0_square"
+    },
+    {
+      "from": "fh_bw_q0_square",
+      "to": "fh_bw_s0_sum"
+    },
+    {
+      "from": "fh_bw_s0_sum",
+      "to": "fh_bw_s0"
+    },
+    {
+      "from": "fh_bw_s0",
+      "to": "fh_bw_cos0"
+    },
+    {
+      "from": "fh_bw_cos0",
+      "to": "fh_bw_p1_square"
+    },
+    {
+      "from": "fh_bw_p1_square",
+      "to": "fh_bw_q1_square"
+    },
+    {
+      "from": "fh_bw_q1_square",
+      "to": "fh_bw_s1_sum"
+    },
+    {
+      "from": "fh_bw_s1_sum",
+      "to": "fh_bw_s1"
+    },
+    {
+      "from": "fh_bw_s1",
+      "to": "fh_bw_cos1"
+    },
+    {
+      "from": "fh_bw_cos1",
+      "to": "fh_bw_p2_square"
+    },
+    {
+      "from": "fh_bw_p2_square",
+      "to": "fh_bw_q2_square"
+    },
+    {
+      "from": "fh_bw_q2_square",
+      "to": "fh_bw_s2_sum"
+    },
+    {
+      "from": "fh_bw_s2_sum",
+      "to": "fh_bw_s2"
+    },
+    {
+      "from": "fh_bw_s2",
+      "to": "fh_bw_cos2"
+    },
+    {
+      "from": "fh_bw_cos2",
+      "to": "fh_bw_p3_square"
+    },
+    {
+      "from": "fh_bw_p3_square",
+      "to": "fh_bw_q3_square"
+    },
+    {
+      "from": "fh_bw_q3_square",
+      "to": "fh_bw_s3_sum"
+    },
+    {
+      "from": "fh_bw_s3_sum",
+      "to": "fh_bw_s3"
+    },
+    {
+      "from": "fh_bw_s3",
+      "to": "fh_bw_cos3"
+    },
+    {
+      "from": "fh_bw_cos3",
+      "to": "fh_bw_phase_max"
+    },
+    {
+      "from": "fh_bw_phase_max",
+      "to": "fh_bw_phase_min"
+    },
+    {
+      "from": "fh_bw_phase_min",
+      "to": "fh_bw_phase_spread"
+    },
+    {
+      "from": "fh_bw_phase_spread",
+      "to": "fh_bw_balance_ratio"
+    },
+    {
+      "from": "fh_bw_balance_ratio",
+      "to": "fh_bw_balance_scaled"
+    },
+    {
+      "from": "fh_bw_balance_scaled",
+      "to": "fh_bw_balance"
+    },
+    {
+      "from": "fh_bw_balance",
+      "to": "bms_charge_kw_allow"
+    },
+    {
+      "from": "bms_charge_kw_allow",
+      "to": "bms_discharge_kw_allow"
+    },
+    {
+      "from": "bms_discharge_kw_allow",
+      "to": "bms_charge_kwh_today"
+    },
+    {
+      "from": "bms_charge_kwh_today",
+      "to": "bms_discharge_kwh_today"
+    },
+    {
+      "from": "bms_discharge_kwh_today",
+      "to": "cos_target_acos"
+    },
+    {
+      "from": "cos_target_acos",
+      "to": "cos_target_tan"
+    },
+    {
+      "from": "cos_target_tan",
+      "to": "cos_target_q0_signed"
+    },
+    {
+      "from": "cos_target_q0_signed",
+      "to": "cos_target_q0"
+    },
+    {
+      "from": "cos_target_q0",
+      "to": "cos_target_q0_negative"
+    },
+    {
+      "from": "cos_target_q0_negative",
+      "to": "cos_q0_positive_raw"
+    },
+    {
+      "from": "cos_q0_positive_raw",
+      "to": "cos_q0_negative_raw"
+    },
+    {
+      "from": "cos_q0_negative_raw",
+      "to": "cos_q0_negative_select"
+    },
+    {
+      "from": "cos_q0_negative_select",
+      "to": "cos_q0_select"
+    },
+    {
+      "from": "cos_q0_select",
+      "to": "cos_target_q1_signed"
+    },
+    {
+      "from": "cos_target_q1_signed",
+      "to": "cos_target_q1"
+    },
+    {
+      "from": "cos_target_q1",
+      "to": "cos_target_q1_negative"
+    },
+    {
+      "from": "cos_target_q1_negative",
+      "to": "cos_q1_positive_raw"
+    },
+    {
+      "from": "cos_q1_positive_raw",
+      "to": "cos_q1_negative_raw"
+    },
+    {
+      "from": "cos_q1_negative_raw",
+      "to": "cos_q1_negative_select"
+    },
+    {
+      "from": "cos_q1_negative_select",
+      "to": "cos_q1_select"
+    },
+    {
+      "from": "cos_q1_select",
+      "to": "cos_target_q2_signed"
+    },
+    {
+      "from": "cos_target_q2_signed",
+      "to": "cos_target_q2"
+    },
+    {
+      "from": "cos_target_q2",
+      "to": "cos_target_q2_negative"
+    },
+    {
+      "from": "cos_target_q2_negative",
+      "to": "cos_q2_positive_raw"
+    },
+    {
+      "from": "cos_q2_positive_raw",
+      "to": "cos_q2_negative_raw"
+    },
+    {
+      "from": "cos_q2_negative_raw",
+      "to": "cos_q2_negative_select"
+    },
+    {
+      "from": "cos_q2_negative_select",
+      "to": "cos_q2_select"
+    },
+    {
+      "from": "cos_q2_select",
+      "to": "cos_target_q3"
+    },
+    {
+      "from": "cos_target_q3",
+      "to": "cos_output_q0_abs"
+    },
+    {
+      "from": "cos_output_q0_abs",
+      "to": "cos_output_q1_abs"
+    },
+    {
+      "from": "cos_output_q1_abs",
+      "to": "cos_output_q2_abs"
+    },
+    {
+      "from": "cos_output_q2_abs",
+      "to": "cos_output_q3"
+    },
+    {
+      "from": "cos_output_q3",
+      "to": "cos_run"
+    },
+    {
+      "from": "cos_run",
+      "to": "voltage_negative_grad"
+    },
+    {
+      "from": "voltage_negative_grad",
+      "to": "voltage_negative_pmax"
+    },
+    {
+      "from": "voltage_negative_pmax",
+      "to": "lv_phase0_high"
+    },
+    {
+      "from": "lv_phase0_high",
+      "to": "lv_phase0_raw"
+    },
+    {
+      "from": "lv_phase0_raw",
+      "to": "lv_phase0"
+    },
+    {
+      "from": "lv_phase0",
+      "to": "hv_phase0_low"
+    },
+    {
+      "from": "hv_phase0_low",
+      "to": "hv_phase0_raw"
+    },
+    {
+      "from": "hv_phase0_raw",
+      "to": "hv_phase0"
+    },
+    {
+      "from": "hv_phase0",
+      "to": "lv_phase1_high"
+    },
+    {
+      "from": "lv_phase1_high",
+      "to": "lv_phase1_raw"
+    },
+    {
+      "from": "lv_phase1_raw",
+      "to": "lv_phase1"
+    },
+    {
+      "from": "lv_phase1",
+      "to": "hv_phase1_low"
+    },
+    {
+      "from": "hv_phase1_low",
+      "to": "hv_phase1_raw"
+    },
+    {
+      "from": "hv_phase1_raw",
+      "to": "hv_phase1"
+    },
+    {
+      "from": "hv_phase1",
+      "to": "lv_phase2_high"
+    },
+    {
+      "from": "lv_phase2_high",
+      "to": "lv_phase2_raw"
+    },
+    {
+      "from": "lv_phase2_raw",
+      "to": "lv_phase2"
+    },
+    {
+      "from": "lv_phase2",
+      "to": "hv_phase2_low"
+    },
+    {
+      "from": "hv_phase2_low",
+      "to": "hv_phase2_raw"
+    },
+    {
+      "from": "hv_phase2_raw",
+      "to": "hv_phase2"
+    },
+    {
+      "from": "hv_phase2",
+      "to": "lv_phase0_abs"
+    },
+    {
+      "from": "lv_phase0_abs",
+      "to": "hv_phase0_abs"
+    },
+    {
+      "from": "hv_phase0_abs",
+      "to": "lv_phase1_abs"
+    },
+    {
+      "from": "lv_phase1_abs",
+      "to": "hv_phase1_abs"
+    },
+    {
+      "from": "hv_phase1_abs",
+      "to": "lv_phase2_abs"
+    },
+    {
+      "from": "lv_phase2_abs",
+      "to": "hv_phase2_abs"
+    },
+    {
+      "from": "hv_phase2_abs",
+      "to": "lv_total"
+    },
+    {
+      "from": "lv_total",
+      "to": "hv_total"
+    },
+    {
+      "from": "hv_total",
+      "to": "lv_run"
+    },
+    {
+      "from": "lv_run",
+      "to": "hv_run"
+    },
+    {
+      "from": "hv_run",
+      "to": "charge_gate"
+    },
+    {
+      "from": "charge_gate",
+      "to": "charge_available"
+    },
+    {
+      "from": "charge_available",
+      "to": "charge_available_positive"
+    },
+    {
+      "from": "charge_available_positive",
+      "to": "charge_limited"
+    },
+    {
+      "from": "charge_limited",
+      "to": "charge_limit_enable"
+    },
+    {
+      "from": "charge_limit_enable",
+      "to": "charge_output"
+    },
+    {
+      "from": "charge_output",
+      "to": "discharge_gate"
+    },
+    {
+      "from": "discharge_gate",
+      "to": "discharge_available"
+    },
+    {
+      "from": "discharge_available",
+      "to": "discharge_available_positive"
+    },
+    {
+      "from": "discharge_available_positive",
+      "to": "discharge_limited"
+    },
+    {
+      "from": "discharge_limited",
+      "to": "discharge_limited_negative"
+    },
+    {
+      "from": "discharge_limited_negative",
+      "to": "discharge_default_negative"
+    },
+    {
+      "from": "discharge_default_negative",
+      "to": "discharge_limit_enable"
+    },
+    {
+      "from": "discharge_limit_enable",
+      "to": "discharge_output"
+    },
+    {
+      "from": "discharge_output",
+      "to": "schedule_select"
+    },
+    {
+      "from": "schedule_select",
+      "to": "schedule_power_abs"
+    },
+    {
+      "from": "schedule_power_abs",
+      "to": "schedule_limit_minus_one"
+    },
+    {
+      "from": "schedule_limit_minus_one",
+      "to": "schedule_vmin_minus_one"
+    },
+    {
+      "from": "schedule_vmin_minus_one",
+      "to": "schedule_vmax_plus_one"
+    },
+    {
+      "from": "schedule_vmax_plus_one",
+      "to": "schedule_double_grad"
+    },
+    {
+      "from": "schedule_double_grad",
+      "to": "schedule_charge_gate"
+    },
+    {
+      "from": "schedule_charge_gate",
+      "to": "schedule_discharge_gate"
+    },
+    {
+      "from": "schedule_discharge_gate",
+      "to": "schedule_0_previous"
+    },
+    {
+      "from": "schedule_0_previous",
+      "to": "schedule_1_previous"
+    },
+    {
+      "from": "schedule_1_previous",
+      "to": "schedule_2_previous"
+    },
+    {
+      "from": "schedule_2_previous",
+      "to": "schedule_total_previous"
+    },
+    {
+      "from": "schedule_total_previous",
+      "to": "schedule_charge_0_increment"
+    },
+    {
+      "from": "schedule_charge_0_increment",
+      "to": "schedule_charge_0_voltage"
+    },
+    {
+      "from": "schedule_charge_0_voltage",
+      "to": "schedule_charge_0_ramp"
+    },
+    {
+      "from": "schedule_charge_0_ramp",
+      "to": "schedule_discharge_0_increment"
+    },
+    {
+      "from": "schedule_discharge_0_increment",
+      "to": "schedule_discharge_0_voltage"
+    },
+    {
+      "from": "schedule_discharge_0_voltage",
+      "to": "schedule_discharge_0_ramp"
+    },
+    {
+      "from": "schedule_discharge_0_ramp",
+      "to": "schedule_decay_0_positive_raw"
+    },
+    {
+      "from": "schedule_decay_0_positive_raw",
+      "to": "schedule_decay_0_positive"
+    },
+    {
+      "from": "schedule_decay_0_positive",
+      "to": "schedule_decay_0_negative_raw"
+    },
+    {
+      "from": "schedule_decay_0_negative_raw",
+      "to": "schedule_decay_0_negative"
+    },
+    {
+      "from": "schedule_decay_0_negative",
+      "to": "schedule_decay_0_negative_select"
+    },
+    {
+      "from": "schedule_decay_0_negative_select",
+      "to": "schedule_decay_0"
+    },
+    {
+      "from": "schedule_decay_0",
+      "to": "schedule_charge_1_increment"
+    },
+    {
+      "from": "schedule_charge_1_increment",
+      "to": "schedule_charge_1_voltage"
+    },
+    {
+      "from": "schedule_charge_1_voltage",
+      "to": "schedule_charge_1_ramp"
+    },
+    {
+      "from": "schedule_charge_1_ramp",
+      "to": "schedule_discharge_1_increment"
+    },
+    {
+      "from": "schedule_discharge_1_increment",
+      "to": "schedule_discharge_1_voltage"
+    },
+    {
+      "from": "schedule_discharge_1_voltage",
+      "to": "schedule_discharge_1_ramp"
+    },
+    {
+      "from": "schedule_discharge_1_ramp",
+      "to": "schedule_decay_1_positive_raw"
+    },
+    {
+      "from": "schedule_decay_1_positive_raw",
+      "to": "schedule_decay_1_positive"
+    },
+    {
+      "from": "schedule_decay_1_positive",
+      "to": "schedule_decay_1_negative_raw"
+    },
+    {
+      "from": "schedule_decay_1_negative_raw",
+      "to": "schedule_decay_1_negative"
+    },
+    {
+      "from": "schedule_decay_1_negative",
+      "to": "schedule_decay_1_negative_select"
+    },
+    {
+      "from": "schedule_decay_1_negative_select",
+      "to": "schedule_decay_1"
+    },
+    {
+      "from": "schedule_decay_1",
+      "to": "schedule_charge_2_increment"
+    },
+    {
+      "from": "schedule_charge_2_increment",
+      "to": "schedule_charge_2_voltage"
+    },
+    {
+      "from": "schedule_charge_2_voltage",
+      "to": "schedule_charge_2_ramp"
+    },
+    {
+      "from": "schedule_charge_2_ramp",
+      "to": "schedule_discharge_2_increment"
+    },
+    {
+      "from": "schedule_discharge_2_increment",
+      "to": "schedule_discharge_2_voltage"
+    },
+    {
+      "from": "schedule_discharge_2_voltage",
+      "to": "schedule_discharge_2_ramp"
+    },
+    {
+      "from": "schedule_discharge_2_ramp",
+      "to": "schedule_decay_2_positive_raw"
+    },
+    {
+      "from": "schedule_decay_2_positive_raw",
+      "to": "schedule_decay_2_positive"
+    },
+    {
+      "from": "schedule_decay_2_positive",
+      "to": "schedule_decay_2_negative_raw"
+    },
+    {
+      "from": "schedule_decay_2_negative_raw",
+      "to": "schedule_decay_2_negative"
+    },
+    {
+      "from": "schedule_decay_2_negative",
+      "to": "schedule_decay_2_negative_select"
+    },
+    {
+      "from": "schedule_decay_2_negative_select",
+      "to": "schedule_decay_2"
+    },
+    {
+      "from": "schedule_decay_2",
+      "to": "schedule_charge_provisional_0_abs"
+    },
+    {
+      "from": "schedule_charge_provisional_0_abs",
+      "to": "schedule_charge_provisional_1_abs"
+    },
+    {
+      "from": "schedule_charge_provisional_1_abs",
+      "to": "schedule_charge_provisional_2_abs"
+    },
+    {
+      "from": "schedule_charge_provisional_2_abs",
+      "to": "schedule_charge_provisional_sum"
+    },
+    {
+      "from": "schedule_charge_provisional_sum",
+      "to": "schedule_discharge_provisional_0_abs"
+    },
+    {
+      "from": "schedule_discharge_provisional_0_abs",
+      "to": "schedule_discharge_provisional_1_abs"
+    },
+    {
+      "from": "schedule_discharge_provisional_1_abs",
+      "to": "schedule_discharge_provisional_2_abs"
+    },
+    {
+      "from": "schedule_discharge_provisional_2_abs",
+      "to": "schedule_discharge_provisional_sum"
+    },
+    {
+      "from": "schedule_discharge_provisional_sum",
+      "to": "schedule_third_limit"
+    },
+    {
+      "from": "schedule_third_limit",
+      "to": "schedule_negative_third_limit"
+    },
+    {
+      "from": "schedule_negative_third_limit",
+      "to": "schedule_charge_0_cap"
+    },
+    {
+      "from": "schedule_charge_0_cap",
+      "to": "schedule_charge_0_low_raw"
+    },
+    {
+      "from": "schedule_charge_0_low_raw",
+      "to": "schedule_charge_0_low_clamp"
+    },
+    {
+      "from": "schedule_charge_0_low_clamp",
+      "to": "schedule_charge_0_low_select"
+    },
+    {
+      "from": "schedule_charge_0_low_select",
+      "to": "schedule_discharge_0_cap"
+    },
+    {
+      "from": "schedule_discharge_0_cap",
+      "to": "schedule_discharge_0_high_raw"
+    },
+    {
+      "from": "schedule_discharge_0_high_raw",
+      "to": "schedule_discharge_0_high_clamp"
+    },
+    {
+      "from": "schedule_discharge_0_high_clamp",
+      "to": "schedule_discharge_0_high_select"
+    },
+    {
+      "from": "schedule_discharge_0_high_select",
+      "to": "schedule_0_discharge_or_decay"
+    },
+    {
+      "from": "schedule_0_discharge_or_decay",
+      "to": "schedule_0_output"
+    },
+    {
+      "from": "schedule_0_output",
+      "to": "schedule_charge_1_cap"
+    },
+    {
+      "from": "schedule_charge_1_cap",
+      "to": "schedule_charge_1_low_raw"
+    },
+    {
+      "from": "schedule_charge_1_low_raw",
+      "to": "schedule_charge_1_low_clamp"
+    },
+    {
+      "from": "schedule_charge_1_low_clamp",
+      "to": "schedule_charge_1_low_select"
+    },
+    {
+      "from": "schedule_charge_1_low_select",
+      "to": "schedule_discharge_1_cap"
+    },
+    {
+      "from": "schedule_discharge_1_cap",
+      "to": "schedule_discharge_1_high_raw"
+    },
+    {
+      "from": "schedule_discharge_1_high_raw",
+      "to": "schedule_discharge_1_high_clamp"
+    },
+    {
+      "from": "schedule_discharge_1_high_clamp",
+      "to": "schedule_discharge_1_high_select"
+    },
+    {
+      "from": "schedule_discharge_1_high_select",
+      "to": "schedule_1_discharge_or_decay"
+    },
+    {
+      "from": "schedule_1_discharge_or_decay",
+      "to": "schedule_1_output"
+    },
+    {
+      "from": "schedule_1_output",
+      "to": "schedule_charge_2_cap"
+    },
+    {
+      "from": "schedule_charge_2_cap",
+      "to": "schedule_charge_2_low_raw"
+    },
+    {
+      "from": "schedule_charge_2_low_raw",
+      "to": "schedule_charge_2_low_clamp"
+    },
+    {
+      "from": "schedule_charge_2_low_clamp",
+      "to": "schedule_charge_2_low_select"
+    },
+    {
+      "from": "schedule_charge_2_low_select",
+      "to": "schedule_discharge_2_cap"
+    },
+    {
+      "from": "schedule_discharge_2_cap",
+      "to": "schedule_discharge_2_high_raw"
+    },
+    {
+      "from": "schedule_discharge_2_high_raw",
+      "to": "schedule_discharge_2_high_clamp"
+    },
+    {
+      "from": "schedule_discharge_2_high_clamp",
+      "to": "schedule_discharge_2_high_select"
+    },
+    {
+      "from": "schedule_discharge_2_high_select",
+      "to": "schedule_2_discharge_or_decay"
+    },
+    {
+      "from": "schedule_2_discharge_or_decay",
+      "to": "schedule_2_output"
+    },
+    {
+      "from": "schedule_2_output",
+      "to": "schedule_output_0_abs"
+    },
+    {
+      "from": "schedule_output_0_abs",
+      "to": "schedule_output_1_abs"
+    },
+    {
+      "from": "schedule_output_1_abs",
+      "to": "schedule_output_2_abs"
+    },
+    {
+      "from": "schedule_output_2_abs",
+      "to": "schedule_output_sum"
+    },
+    {
+      "from": "schedule_output_sum",
+      "to": "schedule_run"
+    },
+    {
+      "from": "schedule_run",
+      "to": "cycle_phase_sequence"
+    },
+    {
+      "from": "cycle_phase_sequence",
+      "to": "cycle_phase_0_magnitude"
+    },
+    {
+      "from": "cycle_phase_0_magnitude",
+      "to": "cycle_phase_0_negative"
+    },
+    {
+      "from": "cycle_phase_0_negative",
+      "to": "cycle_phase_0_output"
+    },
+    {
+      "from": "cycle_phase_0_output",
+      "to": "cycle_phase_1_magnitude"
+    },
+    {
+      "from": "cycle_phase_1_magnitude",
+      "to": "cycle_phase_1_negative"
+    },
+    {
+      "from": "cycle_phase_1_negative",
+      "to": "cycle_phase_1_output"
+    },
+    {
+      "from": "cycle_phase_1_output",
+      "to": "cycle_phase_2_magnitude"
+    },
+    {
+      "from": "cycle_phase_2_magnitude",
+      "to": "cycle_phase_2_negative"
+    },
+    {
+      "from": "cycle_phase_2_negative",
+      "to": "cycle_phase_2_output"
+    },
+    {
+      "from": "cycle_phase_2_output",
+      "to": "cycle_output_0_abs"
+    },
+    {
+      "from": "cycle_output_0_abs",
+      "to": "cycle_output_1_abs"
+    },
+    {
+      "from": "cycle_output_1_abs",
+      "to": "cycle_output_2_abs"
+    },
+    {
+      "from": "cycle_output_2_abs",
+      "to": "cycle_output_sum"
+    },
+    {
+      "from": "cycle_output_sum",
+      "to": "cycle_run"
+    },
+    {
+      "from": "cycle_run",
+      "to": "local_hour"
+    },
+    {
+      "from": "local_hour",
+      "to": "solar_time_gate"
+    },
+    {
+      "from": "solar_time_gate",
+      "to": "solar_0_surplus"
+    },
+    {
+      "from": "solar_0_surplus",
+      "to": "solar_0_available"
+    },
+    {
+      "from": "solar_0_available",
+      "to": "solar_0_output"
+    },
+    {
+      "from": "solar_0_output",
+      "to": "solar_1_surplus"
+    },
+    {
+      "from": "solar_1_surplus",
+      "to": "solar_1_available"
+    },
+    {
+      "from": "solar_1_available",
+      "to": "solar_1_output"
+    },
+    {
+      "from": "solar_1_output",
+      "to": "solar_2_surplus"
+    },
+    {
+      "from": "solar_2_surplus",
+      "to": "solar_2_available"
+    },
+    {
+      "from": "solar_2_available",
+      "to": "solar_2_output"
+    },
+    {
+      "from": "solar_2_output",
+      "to": "solar_output_0_abs"
+    },
+    {
+      "from": "solar_output_0_abs",
+      "to": "solar_output_1_abs"
+    },
+    {
+      "from": "solar_output_1_abs",
+      "to": "solar_output_2_abs"
+    },
+    {
+      "from": "solar_output_2_abs",
+      "to": "solar_output_sum"
+    },
+    {
+      "from": "solar_output_sum",
+      "to": "solar_run"
+    },
+    {
+      "from": "solar_run",
+      "to": "balance_phase_0_combined"
+    },
+    {
+      "from": "balance_phase_0_combined",
+      "to": "balance_phase_1_combined"
+    },
+    {
+      "from": "balance_phase_1_combined",
+      "to": "balance_phase_2_combined"
+    },
+    {
+      "from": "balance_phase_2_combined",
+      "to": "balance_allowed_numerator"
+    },
+    {
+      "from": "balance_allowed_numerator",
+      "to": "balance_allowed"
+    },
+    {
+      "from": "balance_allowed",
+      "to": "balance_max"
+    },
+    {
+      "from": "balance_max",
+      "to": "balance_min"
+    },
+    {
+      "from": "balance_min",
+      "to": "balance_spread"
+    },
+    {
+      "from": "balance_spread",
+      "to": "balance_ratio"
+    },
+    {
+      "from": "balance_ratio",
+      "to": "balance_scaled"
+    },
+    {
+      "from": "balance_scaled",
+      "to": "balance_percent"
+    },
+    {
+      "from": "balance_percent",
+      "to": "balance_excess"
+    },
+    {
+      "from": "balance_excess",
+      "to": "balance_set_value"
+    },
+    {
+      "from": "balance_set_value",
+      "to": "balance_negative_set_value"
+    },
+    {
+      "from": "balance_negative_set_value",
+      "to": "balance_max_flag_0"
+    },
+    {
+      "from": "balance_max_flag_0",
+      "to": "balance_min_flag_0"
+    },
+    {
+      "from": "balance_min_flag_0",
+      "to": "balance_max_flag_1"
+    },
+    {
+      "from": "balance_max_flag_1",
+      "to": "balance_min_flag_1"
+    },
+    {
+      "from": "balance_min_flag_1",
+      "to": "balance_max_flag_2"
+    },
+    {
+      "from": "balance_max_flag_2",
+      "to": "balance_min_flag_2"
+    },
+    {
+      "from": "balance_min_flag_2",
+      "to": "balance_enabled"
+    },
+    {
+      "from": "balance_enabled",
+      "to": "balance_phase_0_max_select"
+    },
+    {
+      "from": "balance_phase_0_max_select",
+      "to": "balance_phase_0_min_select"
+    },
+    {
+      "from": "balance_phase_0_min_select",
+      "to": "balance_phase_0_output"
+    },
+    {
+      "from": "balance_phase_0_output",
+      "to": "balance_phase_1_max_select"
+    },
+    {
+      "from": "balance_phase_1_max_select",
+      "to": "balance_phase_1_min_select"
+    },
+    {
+      "from": "balance_phase_1_min_select",
+      "to": "balance_phase_1_output"
+    },
+    {
+      "from": "balance_phase_1_output",
+      "to": "balance_phase_2_max_select"
+    },
+    {
+      "from": "balance_phase_2_max_select",
+      "to": "balance_phase_2_min_select"
+    },
+    {
+      "from": "balance_phase_2_min_select",
+      "to": "balance_phase_2_output"
+    },
+    {
+      "from": "balance_phase_2_output",
+      "to": "balance_output_0_abs"
+    },
+    {
+      "from": "balance_output_0_abs",
+      "to": "balance_output_1_abs"
+    },
+    {
+      "from": "balance_output_1_abs",
+      "to": "balance_output_2_abs"
+    },
+    {
+      "from": "balance_output_2_abs",
+      "to": "balance_output_sum"
+    },
+    {
+      "from": "balance_output_sum",
+      "to": "balance_run"
+    },
+    {
+      "from": "balance_run",
+      "to": "override_active_abs"
+    },
+    {
+      "from": "override_active_abs",
+      "to": "override_reactive_abs"
+    },
+    {
+      "from": "override_reactive_abs",
+      "to": "override_total"
+    },
+    {
+      "from": "override_total",
+      "to": "override_run"
+    },
+    {
+      "from": "override_run",
+      "to": "power_arbiter"
+    },
+    {
+      "from": "power_arbiter",
+      "to": "power_constraints"
+    },
+    {
+      "from": "power_constraints",
+      "to": "pcs_control_write_0"
+    },
+    {
+      "from": "pcs_control_write_0",
+      "to": "pcs_control_write_1"
+    },
+    {
+      "from": "pcs_control_write_1",
+      "to": "pcs_control_write_2"
+    },
+    {
+      "from": "pcs_control_write_2",
+      "to": "pcs_control_write_3"
+    },
+    {
+      "from": "pcs_control_write_3",
+      "to": "pcs_control_write_4"
+    },
+    {
+      "from": "pcs_control_write_4",
+      "to": "pcs_control_write_5"
+    }
+  ]
+}

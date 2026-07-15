@@ -210,6 +210,7 @@ allowed_clean_roots = (
     "/opt/modbus-gateway/config/runtime/apps",
     "/opt/modbus-gateway/config/runtime/logic",
     "/opt/modbus-gateway/config/runtime/tls",
+    "/opt/modbus-gateway/ky-ems",
 )
 
 allowed_bin_targets = {
@@ -232,6 +233,7 @@ allowed_systemd_targets = {
     "/etc/systemd/system/event-engine@.service",
     "/etc/systemd/system/local-display@.service",
     "/etc/systemd/system/local-kiosk@.service",
+    "/etc/systemd/system/ky-ems.service",
     "/etc/systemd/system/camera-service@.service",
     "/etc/systemd/system/mqtt-driver@.service",
     "/etc/systemd/system/system-monitor@.service",
@@ -240,6 +242,7 @@ allowed_systemd_targets = {
 
 allowed_exact_services = (
     "gateway-services.service",
+    "ky-ems.service",
 )
 
 allowed_service_prefixes = (
@@ -269,6 +272,8 @@ def safe_child_path(path, root):
 def is_safe_target(dst):
     normalized = os.path.abspath(dst)
     if safe_child_path(normalized, "/opt/modbus-gateway/config"):
+        return True
+    if safe_child_path(normalized, "/opt/modbus-gateway/ky-ems"):
         return True
     if safe_child_path(normalized, "/opt/modbus-gateway/bin"):
         return normalized in allowed_bin_targets
@@ -419,7 +424,7 @@ fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
   case "\$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
     *)
       echo "[$TIMESTAMP] [ota-apply] skip unsafe restart service \$service" >> "$LOG_FILE"
       continue

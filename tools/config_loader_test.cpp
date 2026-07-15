@@ -189,6 +189,57 @@ void verifyNorthboundConfig() {
     require(config.points.front().northbound.stalePolicy == "zero", "northbound stale policy should parse");
 }
 
+void verifyPointNormalizeConfig() {
+    const auto config = edge_gateway::ConfigLoader::loadFromText(
+        "{"
+        "\"schemaVersion\":\"1.1.0\","
+        "\"machineCode\":\"GW_TEST\","
+        "\"meterCode\":\"PCS_1\","
+        "\"deviceName\":\"PCS\","
+        "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1},"
+        "\"points\":[{"
+        "\"index\":1001,"
+        "\"pointCode\":\"PCS_VENDOR_RUN_STATE\","
+        "\"name\":\"vendor state\","
+        "\"fullUpload\":true,"
+        "\"read\":{\"enable\":true,\"dataType\":\"uint16\"},"
+        "\"normalize\":{"
+        "\"enabled\":true,"
+        "\"type\":\"enum\","
+        "\"targetIndex\":910001,"
+        "\"targetPointCode\":\"PCS_RUN_STATE_STD\","
+        "\"targetSemanticRole\":\"pcs.runState\","
+        "\"targetName\":\"运行状态\","
+        "\"unknownValue\":255,"
+        "\"unknownLabel\":\"未知\","
+        "\"mappings\":["
+        "{\"rawValue\":1,\"rawLabel\":\"停止\",\"standardValue\":0,\"standardLabel\":\"停机\"},"
+        "{\"rawValue\":\"2\",\"rawLabel\":\"待机\",\"standardValue\":1,\"standardLabel\":\"待机\"}"
+        "],"
+        "\"faultRules\":["
+        "{\"sourcePointCode\":\"PCS_FAULT\",\"triggerValue\":\"1\",\"standardValue\":3,\"standardLabel\":\"故障\"}"
+        "]"
+        "}"
+        "}],"
+        "\"meters\":[]"
+        "}"
+    );
+
+    require(config.points.size() == 1, "normalize point should parse");
+    const auto& normalize = config.points.front().normalize;
+    require(normalize.enabled, "normalize enabled should parse");
+    require(normalize.type == "enum", "normalize type should parse");
+    require(normalize.targetIndex == 910001, "normalize target index should parse");
+    require(normalize.targetPointCode == "PCS_RUN_STATE_STD", "normalize target pointCode should parse");
+    require(normalize.targetSemanticRole == "pcs.runState", "normalize semantic role should parse");
+    require(normalize.unknownValue == 255.0, "normalize unknown value should parse");
+    require(normalize.mappings.size() == 2, "normalize mappings should parse");
+    require(normalize.mappings.front().rawValue == "1", "numeric raw value should parse as string");
+    require(normalize.mappings.back().standardValue == 1.0, "standard value should parse");
+    require(normalize.faultRules.size() == 1, "normalize fault rules should parse");
+    require(normalize.faultRules.front().sourcePointCode == "PCS_FAULT", "fault source point should parse");
+}
+
 }  // namespace
 
 int main() {
@@ -237,6 +288,7 @@ int main() {
 
     verifyDeviceCollectBackgroundTaskConfig();
     verifyNorthboundConfig();
+    verifyPointNormalizeConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

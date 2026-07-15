@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -507,6 +508,39 @@ public:
         return value;
     }
 
+    void clearWriteFlags() {
+        if (shm_ == nullptr) {
+            return;
+        }
+        shm_->dataUpdateFlag.store(0);
+        for (int i = 0; i < kLegacyShmUpdateFlagWords; ++i) {
+            shm_->dataIndexFlag[i].store(0);
+        }
+    }
+
+    std::vector<int> drainChangedPhysicalIndexes() {
+        std::vector<int> result;
+        if (shm_ == nullptr || shm_->dataUpdateFlag.exchange(0) == 0) {
+            return result;
+        }
+        for (int word = 0; word < kLegacyShmUpdateFlagWords; ++word) {
+            const auto flags = static_cast<std::uint32_t>(shm_->dataIndexFlag[word].exchange(0));
+            if (flags == 0) {
+                continue;
+            }
+            for (int bit = 0; bit < 32; ++bit) {
+                if ((flags & (1U << bit)) == 0) {
+                    continue;
+                }
+                const int physicalIndex = word * 32 + bit;
+                if (physicalIndex < kLegacyShmWordSize) {
+                    result.push_back(physicalIndex);
+                }
+            }
+        }
+        return result;
+    }
+
 private:
     void initSharedMemory() {
         pthread_rwlockattr_t rwlockAttr;
@@ -545,6 +579,83 @@ private:
     int shmid_ = -1;
     LegacySharedMemory* shm_ = nullptr;
 };
+
+void appendDirectRouteMappings(
+    std::vector<Mapping>& mappings,
+    const edge_gateway::PointStoreRouter& router
+) {
+    std::set<int> appIndexes;
+    int nextPhysical = kBridgePhysicalIndexBase;
+    for (const auto& mapping : mappings) {
+        appIndexes.insert(mapping.appIndex);
+        nextPhysical = std::max(nextPhysical, mapping.physicalIndex + 1);
+    }
+
+    auto indexes = router.allIndexes();
+    std::sort(indexes.begin(), indexes.end());
+    for (const auto index : indexes) {
+        if (index == 0 || index > static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+            continue;
+        }
+        const auto appIndex = static_cast<int>(index);
+        if (appIndexes.find(appIndex) != appIndexes.end()) {
+            continue;
+        }
+        if (nextPhysical >= kLegacyShmWordSize) {
+            std::cerr << "qt display bridge legacy capacity reached; mapped "
+                      << mappings.size() << " points" << std::endl;
+            break;
+        }
+        auto mapping = mapDirect(appIndex, index, 0.0);
+        mapping.physicalIndex = nextPhysical++;
+        mappings.push_back(std::move(mapping));
+        appIndexes.insert(appIndex);
+    }
+}
+
+void submitLegacyWrites(
+    const std::vector<int>& changedPhysicalIndexes,
+    const std::unordered_map<int, const Mapping*>& mappingByPhysical,
+    LegacyQramWriter& writer,
+    edge_gateway::PointStoreRouter& router
+) {
+    for (const auto physicalIndex : changedPhysicalIndexes) {
+        const auto mappingIt = mappingByPhysical.find(physicalIndex);
+        if (mappingIt == mappingByPhysical.end()) {
+            continue;
+        }
+        const auto& mapping = *mappingIt->second;
+        if (mapping.mode != "direct" || mapping.sourceIndexes.size() != 1) {
+            std::cerr << "qt display write rejected: appDataIndex=" << mapping.appIndex
+                      << " is not a direct point mapping" << std::endl;
+            continue;
+        }
+        const auto sourceIndex = mapping.sourceIndexes.front();
+        const auto route = router.routeByIndex(sourceIndex);
+        if (!route || !route->writable) {
+            std::cerr << "qt display write rejected: index=" << sourceIndex
+                      << " is not writable" << std::endl;
+            continue;
+        }
+
+        edge_gateway::PendingWriteCommand command;
+        command.cmdId = "qt-local-" + std::to_string(nowMs()) + "-" + std::to_string(sourceIndex);
+        command.index = sourceIndex;
+        command.value = writer.read(physicalIndex);
+        command.source = "qt-local-display";
+        command.ts = nowMs();
+        command.highPriority = false;
+        const auto submitted = router.submitWriteCommand(command);
+        if (!submitted.accepted) {
+            std::cerr << "qt display write submit failed: index=" << sourceIndex
+                      << " message=" << submitted.message << std::endl;
+        } else {
+            std::cout << "qt display write accepted: index=" << sourceIndex
+                      << " value=" << command.value
+                      << " cmdId=" << command.cmdId << std::endl;
+        }
+    }
+}
 
 bool goodValue(const edge_gateway::StoredPointValue& value) {
     return value.quality == 1 && !value.stale;
@@ -626,16 +737,30 @@ int main(int argc, char* argv[]) {
     setProcessName("qt_disp_bridge");
 
     try {
+        auto context = createRouterContext(appConfigPath);
         auto mappings = buildMappings();
+        appendDirectRouteMappings(mappings, context->router);
         writeVarList(varListPath, mappings);
 
-        auto context = createRouterContext(appConfigPath);
         LegacyQramWriter writer;
         writer.initialize();
+        // 丢弃上一次进程遗留的写标志，避免服务重启时误下发旧命令。
+        writer.clearWriteFlags();
+
+        std::unordered_map<int, const Mapping*> mappingByPhysical;
+        for (const auto& mapping : mappings) {
+            mappingByPhysical[mapping.physicalIndex] = &mapping;
+        }
 
         std::size_t iteration = 0;
         do {
             const auto ts = nowMs();
+            submitLegacyWrites(
+                writer.drainChangedPhysicalIndexes(),
+                mappingByPhysical,
+                writer,
+                context->router
+            );
             for (const auto& mapping : mappings) {
                 const auto value = resolveMappingValue(mapping, context->router, ts);
                 writer.write(mapping.physicalIndex, value);

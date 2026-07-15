@@ -109,6 +109,33 @@ struct ModbusNorthboundMappingConfig {
     std::string stalePolicy = "exception";
 };
 
+struct ValueNormalizeMapping {
+    std::string rawValue;
+    std::string rawLabel;
+    double standardValue = 0.0;
+    std::string standardLabel;
+};
+
+struct ValueNormalizeFaultRule {
+    std::string sourcePointCode;
+    std::string triggerValue;
+    double standardValue = 0.0;
+    std::string standardLabel;
+};
+
+struct ValueNormalizeConfig {
+    bool enabled = false;
+    std::string type = "enum";
+    std::uint32_t targetIndex = 0;
+    std::string targetPointCode;
+    std::string targetSemanticRole;
+    std::string targetName;
+    double unknownValue = 255.0;
+    std::string unknownLabel = "unknown";
+    std::vector<ValueNormalizeMapping> mappings;
+    std::vector<ValueNormalizeFaultRule> faultRules;
+};
+
 struct PointDefinition {
     std::uint32_t index = 0;
     std::string pointCode;
@@ -128,6 +155,18 @@ struct PointDefinition {
     ModbusNorthboundMappingConfig northbound;
     std::vector<AlarmRuleConfig> alarms;
     std::unordered_map<std::string, std::string> valueMap;
+    ValueNormalizeConfig normalize;
+};
+
+struct StartupWriteConfig {
+    std::string pointCode;
+    std::string meterCode;
+    double value = 0.0;
+    bool enabled = true;
+    int delayMs = 0;
+    int repeat = 1;
+    int repeatIntervalMs = 100;
+    std::string reason;
 };
 
 struct PointValue {
@@ -810,6 +849,7 @@ struct LocalDisplayWidgetConfig {
     std::vector<std::uint32_t> pointIndexes;
     std::vector<std::string> columns;
     std::string valueFormat = "number";
+    double progressMaxValue = 100.0;
     LocalDisplayWidgetGridConfig grid;
 };
 
@@ -961,6 +1001,7 @@ struct DeviceConfig {
     MqttDriverConfig mqttDriver;
     std::vector<PointDefinition> points;
     std::vector<LogicalDeviceConfig> meters;
+    std::vector<StartupWriteConfig> startupWrites;
 };
 
 struct ReadTaskPoint {

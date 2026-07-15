@@ -154,8 +154,8 @@ fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver pointctl"
-  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor pointctl"
-  OPTIONAL_BINS="LocalDisplay QtDisplayBridge CameraService stress_runner"
+  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
+  OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then
     REQUIRED_BINS="$BASE_BINS"
@@ -169,7 +169,19 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
     REQUIRED_BINS=$(printf '%s\n' $BASE_BINS $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_words | tr '\n' ' ')
     OPTIONAL_BINS=""
   fi
+  case " $REQUIRED_BINS " in
+    *" KY-EMS "*)
+      REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS QtDisplayBridge | unique_words | tr '\n' ' ')
+      ;;
+  esac
   for bin in $REQUIRED_BINS; do
+    if [ "$bin" = "KY-EMS" ]; then
+      [ -d "$ROOT_DIR/ky-ems" ] && [ -f "$ROOT_DIR/ky-ems/KY-EMS" ] || {
+        echo "required KY-EMS payload missing: ky-ems/KY-EMS" >&2
+        exit 2
+      }
+      continue
+    fi
     if [ ! -f "$ROOT_DIR/build-aarch64/$bin" ]; then
       echo "required factory binary missing: build-aarch64/$bin" >&2
       exit 2
@@ -177,6 +189,7 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
     cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
   done
   for bin in $OPTIONAL_BINS; do
+    [ "$bin" = "KY-EMS" ] && continue
     [ -f "$ROOT_DIR/build-aarch64/$bin" ] && cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
   done
   if [ ! -f "$TMP_DIR/gateway-factory-defaults/edge-package-manifest.json" ]; then
@@ -185,6 +198,11 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
 else
   echo "build-aarch64 directory not found; cross compile before packaging" >&2
   exit 2
+fi
+
+if [ -d "$ROOT_DIR/ky-ems" ]; then
+  mkdir -p "$TMP_DIR/gateway-factory-defaults/ky-ems"
+  cp -a "$ROOT_DIR/ky-ems"/. "$TMP_DIR/gateway-factory-defaults/ky-ems"/
 fi
 
 mkdir -p "$(dirname "$OUT")"

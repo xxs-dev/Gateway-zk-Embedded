@@ -1,14 +1,15 @@
 [Unit]
 Description=KY EMS legacy Qt display data bridge
-After=gateway-services.service
+PartOf=ky-ems.service
+Before=ky-ems.service
 
 [Service]
 Type=simple
-ExecStart=/opt/modbus-gateway/bin/QtDisplayBridge --app-config /opt/modbus-gateway/config/runtime/apps/mqtt-service.json --var-list /root/VarList.xml --interval-ms 1000
+ExecStart=/opt/modbus-gateway/bin/QtDisplayBridge --app-config /opt/modbus-gateway/config/runtime/apps/mqtt-service.json --var-list /opt/modbus-gateway/ky-ems/VarList.xml --interval-ms 500
 Restart=always
 RestartSec=3
-StandardOutput=append:/var/log/apps/qt-display-bridge.log
-StandardError=append:/var/log/apps/qt-display-bridge.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target

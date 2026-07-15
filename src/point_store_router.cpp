@@ -1,6 +1,9 @@
 #include "edge_gateway/point_store_router.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <unordered_set>
@@ -42,6 +45,52 @@ void logStoreReadFailure(const std::string& operation, const std::string& shared
               << std::endl;
 }
 
+std::string trimAscii(const std::string& value) {
+    const auto begin = std::find_if(value.begin(), value.end(), [](unsigned char ch) {
+        return std::isspace(ch) == 0;
+    });
+    const auto end = std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) {
+        return std::isspace(ch) == 0;
+    }).base();
+    if (begin >= end) {
+        return {};
+    }
+    return std::string(begin, end);
+}
+
+std::string lowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool parseStrictDouble(const std::string& value, double& result) {
+    const auto trimmed = trimAscii(value);
+    if (trimmed.empty()) {
+        return false;
+    }
+    char* end = nullptr;
+    const char* start = trimmed.c_str();
+    result = std::strtod(start, &end);
+    return end != start && end != nullptr && *end == '\0' && std::isfinite(result);
+}
+
+bool valueMatches(double actual, const std::string& expected) {
+    double expectedNumber = 0.0;
+    if (parseStrictDouble(expected, expectedNumber)) {
+        return std::fabs(actual - expectedNumber) <= 1e-9;
+    }
+    const auto normalized = lowerAscii(trimAscii(expected));
+    if (normalized == "true" || normalized == "on" || normalized == "yes") {
+        return std::fabs(actual - 1.0) <= 1e-9;
+    }
+    if (normalized == "false" || normalized == "off" || normalized == "no") {
+        return std::fabs(actual) <= 1e-9;
+    }
+    return false;
+}
+
 }  // namespace
 
 void PointStoreRouter::addStore(const std::string& sharedMemoryName, MemoryPointStore& store) {
@@ -75,6 +124,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
                 for (const auto& point : points) {
                     PointStoreRoute route;
                     route.index = point.index;
+                    route.sourceIndex = point.index;
                     route.machineCode = config.machineCode;
                     route.meterCode = device.meterCode;
                     route.pointCode = point.pointCode;
@@ -82,10 +132,13 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
                     route.interfaceType = interfaceType;
                     route.sharedMemoryName = sharedMemoryName;
                     route.writable = point.write.enable;
+                    route.fullUpload = point.fullUpload;
                     route.reportOnChange = point.reportOnChange;
                     route.isStore = point.isStore;
                     route.persistIntervalSec = point.persistIntervalSec;
+                    route.normalize = point.normalize;
                     addRoute(route);
+                    addNormalizeRoute(route, point.normalize);
                 }
                 ++meterIndex;
             }
@@ -94,6 +147,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
         for (const auto& point : config.points) {
             PointStoreRoute route;
             route.index = point.index;
+            route.sourceIndex = point.index;
             route.machineCode = config.machineCode;
             route.meterCode = config.meterCode;
             route.pointCode = point.pointCode;
@@ -101,10 +155,13 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
             route.interfaceType = interfaceType;
             route.sharedMemoryName = sharedMemoryName;
             route.writable = point.write.enable;
+            route.fullUpload = point.fullUpload;
             route.reportOnChange = point.reportOnChange;
             route.isStore = point.isStore;
             route.persistIntervalSec = point.persistIntervalSec;
+            route.normalize = point.normalize;
             addRoute(route);
+            addNormalizeRoute(route, point.normalize);
         }
     }
 }
@@ -125,6 +182,7 @@ void PointStoreRouter::addRoutesFromCameraServiceConfig(
         }
         PointStoreRoute route;
         route.index = index;
+        route.sourceIndex = index;
         route.machineCode = machineCode;
         route.meterCode = camera.cameraCode;
         route.pointCode = pointCode;
@@ -176,21 +234,10 @@ Optional<StoredPointValue> PointStoreRouter::getLatestByIndex(std::uint32_t inde
     if (!route) {
         return NullOpt;
     }
-    auto* store = storeForRoute(*route);
-    if (store == nullptr) {
-        return NullOpt;
+    if (route->derived) {
+        return getDerivedLatestByRoute(*route, nowMs);
     }
-    Optional<StoredPointValue> value;
-    try {
-        value = store->getLatestByIndex(index, nowMs);
-    } catch (const std::exception& ex) {
-        logStoreReadFailure("getLatestByIndex", route->sharedMemoryName, ex);
-        return NullOpt;
-    }
-    if (!value) {
-        return NullOpt;
-    }
-    return enrich(*value);
+    return getRawLatestByRoute(*route, nowMs);
 }
 
 std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
@@ -198,10 +245,15 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
     std::int64_t nowMs
 ) const {
     std::unordered_map<std::string, std::vector<std::uint32_t>> grouped;
+    std::vector<PointStoreRoute> derivedRoutes;
     for (const auto index : indexes) {
         const auto route = routeByIndex(index);
         if (route) {
-            grouped[route->sharedMemoryName].push_back(index);
+            if (route->derived) {
+                derivedRoutes.push_back(*route);
+            } else {
+                grouped[route->sharedMemoryName].push_back(index);
+            }
         }
     }
 
@@ -220,6 +272,12 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
         }
         for (auto& value : values) {
             result.push_back(enrich(std::move(value)));
+        }
+    }
+    for (const auto& route : derivedRoutes) {
+        auto value = getDerivedLatestByRoute(route, nowMs);
+        if (value) {
+            result.push_back(*value);
         }
     }
     std::sort(result.begin(), result.end(), [](const StoredPointValue& lhs, const StoredPointValue& rhs) {
@@ -295,6 +353,10 @@ CommandSubmitResult PointStoreRouter::putLatestByIndex(PointValue value) {
         return result;
     }
     result.route = *route;
+    if (route->derived) {
+        result.message = "derived point is read-only";
+        return result;
+    }
     auto* store = storeForRoute(*route);
     if (store == nullptr) {
         result.message = "target shared memory not found: " + route->sharedMemoryName;
@@ -389,6 +451,137 @@ MemoryPointStore* PointStoreRouter::storeForRoute(const PointStoreRoute& route) 
         return nullptr;
     }
     return it->second;
+}
+
+Optional<PointStoreRoute> PointStoreRouter::routeByPointCode(
+    const std::string& machineCode,
+    const std::string& meterCode,
+    const std::string& pointCode
+) const {
+    Optional<PointStoreRoute> fallback;
+    for (const auto& entry : routes_) {
+        const auto& route = entry.second;
+        if (route.machineCode != machineCode || route.meterCode != meterCode || route.pointCode != pointCode) {
+            continue;
+        }
+        if (!route.derived) {
+            return route;
+        }
+        fallback = route;
+    }
+    return fallback;
+}
+
+Optional<StoredPointValue> PointStoreRouter::getRawLatestByRoute(
+    const PointStoreRoute& route,
+    std::int64_t nowMs
+) const {
+    auto* store = storeForRoute(route);
+    if (store == nullptr) {
+        return NullOpt;
+    }
+    Optional<StoredPointValue> value;
+    try {
+        value = store->getLatestByIndex(route.index, nowMs);
+    } catch (const std::exception& ex) {
+        logStoreReadFailure("getLatestByIndex", route.sharedMemoryName, ex);
+        return NullOpt;
+    }
+    if (!value) {
+        return NullOpt;
+    }
+    return enrich(*value);
+}
+
+Optional<StoredPointValue> PointStoreRouter::getDerivedLatestByRoute(
+    const PointStoreRoute& route,
+    std::int64_t nowMs
+) const {
+    const auto sourceRoute = routeByIndex(route.sourceIndex);
+    if (!sourceRoute || sourceRoute->derived) {
+        return NullOpt;
+    }
+    const auto sourceValue = getRawLatestByRoute(*sourceRoute, nowMs);
+    if (!sourceValue) {
+        return NullOpt;
+    }
+
+    StoredPointValue result = *sourceValue;
+    result.index = route.index;
+    result.machineCode = route.machineCode;
+    result.meterCode = route.meterCode;
+    result.pointCode = route.pointCode;
+
+    if (sourceValue->quality == 1 && !sourceValue->stale) {
+        for (const auto& rule : route.normalize.faultRules) {
+            const auto faultRoute = routeByPointCode(route.machineCode, route.meterCode, rule.sourcePointCode);
+            if (!faultRoute || faultRoute->index == route.index) {
+                continue;
+            }
+            const auto faultValue = faultRoute->derived
+                ? getDerivedLatestByRoute(*faultRoute, nowMs)
+                : getRawLatestByRoute(*faultRoute, nowMs);
+            if (!faultValue || faultValue->quality != 1 || faultValue->stale) {
+                continue;
+            }
+            if (valueMatches(faultValue->value, rule.triggerValue)) {
+                result.value = rule.standardValue;
+                return result;
+            }
+        }
+    }
+
+    for (const auto& mapping : route.normalize.mappings) {
+        if (valueMatches(sourceValue->value, mapping.rawValue)) {
+            result.value = mapping.standardValue;
+            return result;
+        }
+    }
+
+    result.value = route.normalize.unknownValue;
+    return result;
+}
+
+std::uint32_t PointStoreRouter::allocateDerivedIndex(std::uint32_t configuredIndex) {
+    if (configuredIndex != 0 && routes_.find(configuredIndex) == routes_.end()) {
+        return configuredIndex;
+    }
+    while (nextDerivedIndex_ != 0 && routes_.find(nextDerivedIndex_) != routes_.end()) {
+        ++nextDerivedIndex_;
+    }
+    if (nextDerivedIndex_ == 0) {
+        throw std::runtime_error("derived point index range exhausted");
+    }
+    return nextDerivedIndex_++;
+}
+
+void PointStoreRouter::addNormalizeRoute(
+    const PointStoreRoute& sourceRoute,
+    const ValueNormalizeConfig& normalize
+) {
+    if (!normalize.enabled) {
+        return;
+    }
+    const auto type = lowerAscii(trimAscii(normalize.type));
+    if (!type.empty() && type != "enum") {
+        return;
+    }
+    const auto targetPointCode = normalize.targetPointCode.empty()
+        ? normalize.targetSemanticRole
+        : normalize.targetPointCode;
+    if (targetPointCode.empty()) {
+        return;
+    }
+
+    PointStoreRoute route = sourceRoute;
+    route.index = allocateDerivedIndex(normalize.targetIndex);
+    route.sourceIndex = sourceRoute.index;
+    route.pointCode = targetPointCode;
+    route.derived = true;
+    route.writable = false;
+    route.isStore = false;
+    route.normalize = normalize;
+    addRoute(route);
 }
 
 StoredPointValue PointStoreRouter::enrich(StoredPointValue value) const {

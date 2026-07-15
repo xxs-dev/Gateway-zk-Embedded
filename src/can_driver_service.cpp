@@ -196,6 +196,7 @@ void CanDriverService::start() {
         std::string(R"("interfaceName":")") + escapeJson(config_.protocol.can.interfaceName) +
             R"(","sharedMemory":")" + escapeJson(config_.memoryStore.sharedMemoryName) + R"(")"
     );
+    runStartupWrites();
     receiveThread_ = std::thread(&CanDriverService::receiveLoop, this);
     writebackThread_ = std::thread(&CanDriverService::writebackLoop, this);
     persistThread_ = std::thread(&CanDriverService::persistLoop, this);
@@ -444,37 +445,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
         const auto& point = runtimePoint.point;
         try {
             validateWriteValue(point, command.value);
-            const auto encoded = CanSignalCodec::encode(command.value, point.write);
-#ifndef _WIN32
-            if (socketFd_ < 0) {
-                openSocket();
-            }
-            if (!config_.protocol.can.fdEnabled && encoded.payload.size() > CAN_MAX_DLEN) {
-                throw std::invalid_argument("classic CAN payload must be <= 8 bytes");
-            }
-            if (config_.protocol.can.fdEnabled || encoded.payload.size() > CAN_MAX_DLEN) {
-                canfd_frame frame{};
-                frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);
-                frame.len = static_cast<__u8>(encoded.payload.size());
-                std::memcpy(frame.data, encoded.payload.data(), encoded.payload.size());
-                if (write(socketFd_, &frame, sizeof(frame)) != CANFD_MTU) {
-                    throw std::runtime_error("failed to send CAN-FD frame");
-                }
-            } else {
-                can_frame frame{};
-                frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);
-                if (encoded.remoteRequest) {
-                    frame.can_id |= CAN_RTR_FLAG;
-                }
-                frame.can_dlc = static_cast<__u8>(encoded.payload.size());
-                std::memcpy(frame.data, encoded.payload.data(), encoded.payload.size());
-                if (write(socketFd_, &frame, sizeof(frame)) != CAN_MTU) {
-                    throw std::runtime_error("failed to send CAN frame");
-                }
-            }
-#else
-            throw std::runtime_error("SocketCAN is not supported on Windows");
-#endif
+            sendCanWrite(point, command.value);
             publishStatusEvent(
                 "writeback-succeeded",
                 nowMsValue,
@@ -520,6 +491,101 @@ std::size_t CanDriverService::flushPersistentOnce() {
     const auto samples = store_.drainPersistentSamples();
     sqliteWriter_.writeSamples(samples);
     return samples.size();
+}
+
+void CanDriverService::runStartupWrites() {
+    if (config_.startupWrites.empty()) {
+        return;
+    }
+
+    for (const auto& item : config_.startupWrites) {
+        if (!item.enabled || item.pointCode.empty()) {
+            continue;
+        }
+
+        const auto pointIt = std::find_if(
+            runtimePoints_.begin(),
+            runtimePoints_.end(),
+            [&](const RuntimePoint& runtimePoint) {
+                const auto& device = runtimeDevices_[runtimePoint.deviceIndex];
+                return runtimePoint.point.pointCode == item.pointCode &&
+                    (item.meterCode.empty() || device.config.meterCode == item.meterCode);
+            }
+        );
+        if (pointIt == runtimePoints_.end()) {
+            publishStatusEvent(
+                "startup-write-skipped",
+                nowMs(),
+                std::string(R"("pointCode":")") + escapeJson(item.pointCode) +
+                    R"(","message":"point-not-found")"
+            );
+            continue;
+        }
+
+        if (item.delayMs > 0) {
+            sleepInterruptibly(running_, item.delayMs);
+        }
+
+        for (int attempt = 0; attempt < std::max(1, item.repeat) && running_.load(); ++attempt) {
+            try {
+                validateWriteValue(pointIt->point, item.value);
+                sendCanWrite(pointIt->point, item.value);
+                publishStatusEvent(
+                    "startup-write-succeeded",
+                    nowMs(),
+                    std::string(R"("pointCode":")") + escapeJson(item.pointCode) +
+                        R"(","value":)" + std::to_string(item.value) +
+                        R"(,"reason":")" + escapeJson(item.reason) + R"(")"
+                );
+            } catch (const std::exception& ex) {
+                publishStatusEvent(
+                    "startup-write-failed",
+                    nowMs(),
+                    std::string(R"("pointCode":")") + escapeJson(item.pointCode) +
+                        R"(","message":")" + escapeJson(ex.what()) + R"(")"
+                );
+            }
+
+            if (attempt + 1 < std::max(1, item.repeat) && item.repeatIntervalMs > 0) {
+                sleepInterruptibly(running_, item.repeatIntervalMs);
+            }
+        }
+    }
+}
+
+bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) {
+    const auto encoded = CanSignalCodec::encode(value, point.write);
+#ifndef _WIN32
+    if (socketFd_ < 0) {
+        openSocket();
+    }
+    if (!config_.protocol.can.fdEnabled && encoded.payload.size() > CAN_MAX_DLEN) {
+        throw std::invalid_argument("classic CAN payload must be <= 8 bytes");
+    }
+    if (config_.protocol.can.fdEnabled || encoded.payload.size() > CAN_MAX_DLEN) {
+        canfd_frame frame{};
+        frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);
+        frame.len = static_cast<__u8>(encoded.payload.size());
+        std::memcpy(frame.data, encoded.payload.data(), encoded.payload.size());
+        if (write(socketFd_, &frame, sizeof(frame)) != CANFD_MTU) {
+            throw std::runtime_error("failed to send CAN-FD frame");
+        }
+    } else {
+        can_frame frame{};
+        frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);
+        if (encoded.remoteRequest) {
+            frame.can_id |= CAN_RTR_FLAG;
+        }
+        frame.can_dlc = static_cast<__u8>(encoded.payload.size());
+        std::memcpy(frame.data, encoded.payload.data(), encoded.payload.size());
+        if (write(socketFd_, &frame, sizeof(frame)) != CAN_MTU) {
+            throw std::runtime_error("failed to send CAN frame");
+        }
+    }
+#else
+    throw std::runtime_error("SocketCAN is not supported on Windows");
+#endif
+    return true;
 }
 
 void CanDriverService::updateOnlineStatus(std::int64_t nowMsValue) {

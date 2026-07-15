@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
@@ -711,6 +712,21 @@ std::unordered_map<std::string, std::string> parseStringMap(const JsonValue* val
     return result;
 }
 
+std::string jsonScalarToString(const JsonValue& value) {
+    if (value.isString()) {
+        return value.asString();
+    }
+    if (value.isNumber()) {
+        std::ostringstream out;
+        out << value.asNumber();
+        return out.str();
+    }
+    if (value.isBool()) {
+        return value.asBool() ? "true" : "false";
+    }
+    return {};
+}
+
 CachePolicy parseCachePolicy(const JsonValue* value) {
     CachePolicy policy;
     if (value == nullptr || value->isNull()) {
@@ -892,6 +908,84 @@ AlarmRuleConfig parseAlarmRule(const JsonValue& value) {
     return rule;
 }
 
+ValueNormalizeMapping parseNormalizeMapping(const JsonValue& value) {
+    ValueNormalizeMapping mapping;
+    const auto& object = value.asObject();
+    if (const auto* rawValue = findValue(object, "rawValue")) {
+        mapping.rawValue = jsonScalarToString(*rawValue);
+    }
+    mapping.rawLabel = requireString(object, "rawLabel", mapping.rawLabel);
+    mapping.standardValue = requireDouble(object, "standardValue", mapping.standardValue);
+    mapping.standardLabel = requireString(object, "standardLabel", mapping.standardLabel);
+    return mapping;
+}
+
+ValueNormalizeFaultRule parseNormalizeFaultRule(const JsonValue& value) {
+    ValueNormalizeFaultRule rule;
+    const auto& object = value.asObject();
+    rule.sourcePointCode = requireString(object, "sourcePointCode", rule.sourcePointCode);
+    if (const auto* triggerValue = findValue(object, "triggerValue")) {
+        rule.triggerValue = jsonScalarToString(*triggerValue);
+    }
+    rule.standardValue = requireDouble(object, "standardValue", rule.standardValue);
+    rule.standardLabel = requireString(object, "standardLabel", rule.standardLabel);
+    return rule;
+}
+
+ValueNormalizeConfig parseValueNormalizeConfig(const JsonValue* value) {
+    ValueNormalizeConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.type = requireString(object, "type", config.type);
+    config.targetIndex = static_cast<std::uint32_t>(std::max(0, requireInt(object, "targetIndex", 0)));
+    config.targetPointCode = requireString(object, "targetPointCode", config.targetPointCode);
+    config.targetSemanticRole = requireString(object, "targetSemanticRole", config.targetSemanticRole);
+    config.targetName = requireString(object, "targetName", config.targetName);
+    config.unknownValue = requireDouble(object, "unknownValue", config.unknownValue);
+    config.unknownLabel = requireString(object, "unknownLabel", config.unknownLabel);
+
+    if (const auto* mappings = value->find("mappings")) {
+        for (const auto& item : mappings->asArray().values) {
+            auto mapping = parseNormalizeMapping(*item);
+            if (!mapping.rawValue.empty()) {
+                config.mappings.push_back(std::move(mapping));
+            }
+        }
+    }
+    if (config.mappings.empty()) {
+        if (const auto* map = value->find("map")) {
+            for (const auto& entry : map->asObject().values) {
+                ValueNormalizeMapping mapping;
+                mapping.rawValue = entry.key;
+                if (entry.value->isObject()) {
+                    const auto& mapValue = entry.value->asObject();
+                    mapping.rawLabel = requireString(mapValue, "rawLabel", mapping.rawLabel);
+                    mapping.standardValue = requireDouble(mapValue, "standardValue", mapping.standardValue);
+                    mapping.standardLabel = requireString(mapValue, "standardLabel", mapping.standardLabel);
+                } else if (entry.value->isNumber()) {
+                    mapping.standardValue = entry.value->asNumber();
+                } else if (entry.value->isString()) {
+                    mapping.standardLabel = entry.value->asString();
+                }
+                config.mappings.push_back(std::move(mapping));
+            }
+        }
+    }
+
+    if (const auto* rules = value->find("faultRules")) {
+        for (const auto& item : rules->asArray().values) {
+            auto rule = parseNormalizeFaultRule(*item);
+            if (!rule.sourcePointCode.empty() && !rule.triggerValue.empty()) {
+                config.faultRules.push_back(std::move(rule));
+            }
+        }
+    }
+    return config;
+}
+
 PointDefinition parsePointDefinition(const JsonValue& value) {
     PointDefinition point;
     const auto& object = value.asObject();
@@ -910,6 +1004,37 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     point.tags = parseStringArray(value.find("tags"));
     point.read = parseReadSpec(value.find("read"));
     point.write = parseWriteSpec(value.find("write"));
+    const auto topLevelDataType = requireString(object, "dataType", "");
+    if (!topLevelDataType.empty()) {
+        if (point.read.dataType.empty()) {
+            point.read.dataType = topLevelDataType;
+        }
+        if (point.write.dataType.empty()) {
+            point.write.dataType = topLevelDataType;
+        }
+    }
+    const auto topLevelUnit = requireString(object, "unit", "");
+    if (!topLevelUnit.empty() && point.read.unit.empty()) {
+        point.read.unit = topLevelUnit;
+    }
+    if (const auto* scale = value.find("scale")) {
+        const auto parsedScale = scale->asNumber();
+        if (std::abs(point.read.scale - 1.0) < 1e-12) {
+            point.read.scale = parsedScale;
+        }
+        if (std::abs(point.write.scale - 1.0) < 1e-12) {
+            point.write.scale = parsedScale;
+        }
+    }
+    if (const auto* offset = value.find("offset")) {
+        const auto parsedOffset = offset->asNumber();
+        if (std::abs(point.read.offset) < 1e-12) {
+            point.read.offset = parsedOffset;
+        }
+        if (std::abs(point.write.offset) < 1e-12) {
+            point.write.offset = parsedOffset;
+        }
+    }
     point.northbound = parseNorthboundMapping(value.find("northbound"), point.read);
     if (const auto* forward = value.find("forward")) {
         point.northbound = parseNorthboundMapping(forward, point.read);
@@ -920,7 +1045,22 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
         }
     }
     point.valueMap = parseStringMap(value.find("valueMap"));
+    point.normalize = parseValueNormalizeConfig(value.find("normalize"));
     return point;
+}
+
+StartupWriteConfig parseStartupWriteConfig(const JsonValue& value) {
+    StartupWriteConfig config;
+    const auto& object = value.asObject();
+    config.pointCode = requireString(object, "pointCode", config.pointCode);
+    config.meterCode = requireString(object, "meterCode", config.meterCode);
+    config.value = requireDouble(object, "value", config.value);
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.delayMs = std::max(0, requireInt(object, "delayMs", config.delayMs));
+    config.repeat = std::max(1, requireInt(object, "repeat", config.repeat));
+    config.repeatIntervalMs = std::max(0, requireInt(object, "repeatIntervalMs", config.repeatIntervalMs));
+    config.reason = requireString(object, "reason", config.reason);
+    return config;
 }
 
 std::string canonicalFourRemoteCategory(const std::string& key) {
@@ -2028,6 +2168,10 @@ LocalDisplayWidgetConfig parseLocalDisplayWidgetConfig(const JsonValue& value) {
     }
     config.columns = parseStringArray(value.find("columns"));
     config.valueFormat = requireString(object, "valueFormat", config.valueFormat);
+    config.progressMaxValue = requireDouble(object, "progressMaxValue", config.progressMaxValue);
+    if (const auto* progress = value.find("progress")) {
+        config.progressMaxValue = requireDouble(progress->asObject(), "maxValue", config.progressMaxValue);
+    }
     if (const auto* position = value.find("position")) {
         config.grid = parseLocalDisplayWidgetPositionConfig(position);
     } else {
@@ -2561,6 +2705,11 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
         }
     }
     appendPointGroups(root, config.points);
+    if (const auto* startupWrites = root.find("startupWrites")) {
+        for (const auto& item : startupWrites->asArray().values) {
+            config.startupWrites.push_back(parseStartupWriteConfig(*item));
+        }
+    }
     return config;
 }
 
