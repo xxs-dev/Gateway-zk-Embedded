@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "projectMode": "ems",
-  "runtimeMode": "ems",
+  "runtimeMode": "agc_avc",
   "deviceType": "agc_avc",
   "deviceCode": "AGC_AVC_CORE",
   "deviceName": "AGC/AVC 控制器",

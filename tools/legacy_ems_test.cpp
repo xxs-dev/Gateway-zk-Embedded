@@ -526,12 +526,28 @@ int main() {
         require(emsModeAppConfig.runtimeMode == "ems", "runtimeMode ems not parsed");
 
         writeTextFile(
+            "agc_avc_runtime_mode_app_config_test.json",
+            R"json({
+  "runtimeMode": "agc_avc",
+  "agcAvc": {
+    "enabled": true,
+    "shadowMode": true,
+    "submitWrites": false
+  }
+})json"
+        );
+        const auto agcAvcModeAppConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(
+            "agc_avc_runtime_mode_app_config_test.json"
+        );
+        require(agcAvcModeAppConfig.runtimeMode == "agc_avc", "runtimeMode agc_avc not parsed");
+
+        writeTextFile(
             "graph_ems_invalid_runtime_mode_app_config_test.json",
             R"json({
   "runtimeMode": "invalid"
 })json"
         );
-        requireThrowsWithMessage("runtimeMode must be gateway or ems", []() {
+        requireThrowsWithMessage("runtimeMode must be gateway, ems or agc_avc", []() {
             edge_gateway::ConfigLoader::loadAppConfigFromFile("graph_ems_invalid_runtime_mode_app_config_test.json");
         });
 

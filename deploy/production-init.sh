@@ -7,6 +7,7 @@ if [ -z "${INIT_PROMPT:-}" ] && [ -n "${prompt:-}" ]; then
   INIT_PROMPT="$prompt"
 fi
 INIT_PACKAGE="${INIT_PACKAGE:-${FACTORY_PACKAGE:-$SCRIPT_DIR/gateway-factory-defaults.tar.gz}}"
+INIT_RUNTIME_PACKAGE="${INIT_RUNTIME_PACKAGE:-}"
 if [ -n "${package:-}" ]; then
   INIT_PACKAGE="$package"
 fi
@@ -22,6 +23,9 @@ INIT_TLS_GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
 INIT_TLS_FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
 INIT_TLS_CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
 INIT_TLS_CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-}"
+INIT_TLS_CA_SOURCE="${INIT_TLS_CA_SOURCE:-}"
+INIT_TLS_CERT_SOURCE="${INIT_TLS_CERT_SOURCE:-}"
+INIT_TLS_KEY_SOURCE="${INIT_TLS_KEY_SOURCE:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
 INIT_PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
 INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
@@ -41,8 +45,9 @@ Options:
   --manual, --prompt              Prompt for machineCode, MQTT, TLS and startup settings
   --auto, --no-prompt             Do not prompt; use arguments/env/defaults
   --package FILE                  Factory package path
+  --runtime-package FILE          AGC/AVC runtime overlay package; required for agc_avc mode
   --gateway-home DIR              Gateway install directory; defaults to /opt/modbus-gateway
-  --runtime-mode MODE             Runtime mode: gateway or ems; defaults to gateway
+  --runtime-mode MODE             Runtime mode: gateway, ems or agc_avc; defaults to gateway
   --package-profile PROFILE       Driver package profile: base, project or full
   --manifest FILE                 Edge package manifest for project profile
   --machine-code CODE             Device machineCode
@@ -53,6 +58,9 @@ Options:
   --tls-ca-file FILE              MQTT TLS CA path on the device
   --tls-cert-file FILE            MQTT TLS client cert path on the device
   --tls-key-file FILE             MQTT TLS client key path on the device
+  --tls-ca-source FILE            Win-signed CA source file uploaded by the client
+  --tls-cert-source FILE          Win-signed client certificate source file uploaded by the client
+  --tls-key-source FILE           Win-signed client private key source file uploaded by the client
   --tls-platform-url URL          Platform base URL for TLS enrollment
   --tls-token TOKEN               TLS enrollment token
   --tls-validity-days DAYS        Requested client certificate validity days
@@ -74,12 +82,13 @@ Options:
   -h, --help                      Show help
 
 Environment variables with the same meaning are also supported:
-  INIT_PROMPT INIT_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
+  INIT_PROMPT INIT_PACKAGE INIT_RUNTIME_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
   INIT_PACKAGE_PROFILE INIT_EDGE_PACKAGE_MANIFEST
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
   INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
   INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
+  INIT_TLS_CA_SOURCE INIT_TLS_CERT_SOURCE INIT_TLS_KEY_SOURCE
   INIT_DIRECT_MAINTENANCE_ENABLED INIT_DIRECT_LISTEN_HOSTS INIT_DIRECT_ALLOWED_CIDRS
 EOF
 }
@@ -97,6 +106,11 @@ while [ "$#" -gt 0 ]; do
     --package)
       [ "$#" -ge 2 ] || { echo "--package requires a value" >&2; exit 2; }
       INIT_PACKAGE="$2"
+      shift 2
+      ;;
+    --runtime-package)
+      [ "$#" -ge 2 ] || { echo "--runtime-package requires a value" >&2; exit 2; }
+      INIT_RUNTIME_PACKAGE="$2"
       shift 2
       ;;
     --gateway-home)
@@ -160,6 +174,21 @@ while [ "$#" -gt 0 ]; do
     --tls-key-file)
       [ "$#" -ge 2 ] || { echo "--tls-key-file requires a value" >&2; exit 2; }
       INIT_MQTT_KEY_FILE="$2"
+      shift 2
+      ;;
+    --tls-ca-source)
+      [ "$#" -ge 2 ] || { echo "--tls-ca-source requires a value" >&2; exit 2; }
+      INIT_TLS_CA_SOURCE="$2"
+      shift 2
+      ;;
+    --tls-cert-source)
+      [ "$#" -ge 2 ] || { echo "--tls-cert-source requires a value" >&2; exit 2; }
+      INIT_TLS_CERT_SOURCE="$2"
+      shift 2
+      ;;
+    --tls-key-source)
+      [ "$#" -ge 2 ] || { echo "--tls-key-source requires a value" >&2; exit 2; }
+      INIT_TLS_KEY_SOURCE="$2"
       shift 2
       ;;
     --tls-platform-url)
@@ -262,6 +291,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     package=*|INIT_PACKAGE=*)
       INIT_PACKAGE="${1#*=}"
+      shift
+      ;;
+    runtime_package=*|INIT_RUNTIME_PACKAGE=*)
+      INIT_RUNTIME_PACKAGE="${1#*=}"
       shift
       ;;
     gateway_home=*|GATEWAY_HOME=*)
@@ -460,8 +493,9 @@ normalize_runtime_mode() {
   case "$value" in
     ""|gateway) printf 'gateway\n' ;;
     ems) printf 'ems\n' ;;
+    agc_avc|agc-avc) printf 'agc_avc\n' ;;
     *)
-      echo "invalid runtime mode: $1 (expected gateway or ems)" >&2
+      echo "invalid runtime mode: $1 (expected gateway, ems or agc_avc)" >&2
       exit 2
       ;;
   esac
@@ -492,6 +526,8 @@ mode, runtime_dir = sys.argv[1:3]
 apps_dir = os.path.join(runtime_dir, "apps")
 devices_dir = os.path.join(runtime_dir, "devices")
 ems_virtual_name = "device_ems_virtual.json"
+agc_virtual_name = "device_agc_avc_virtual.json"
+agc_app_name = "agc-avc-service.json"
 
 
 def read_json(path):
@@ -515,6 +551,11 @@ def is_ems_virtual_ref(value):
     return text == ems_virtual_name or text.endswith("/" + ems_virtual_name)
 
 
+def is_agc_virtual_ref(value):
+    text = str(value or "").replace("\\", "/").strip()
+    return text == agc_virtual_name or text.endswith("/" + agc_virtual_name)
+
+
 def is_graph_ems_rule(rule):
     script = (rule or {}).get("script", {})
     if not isinstance(script, dict):
@@ -531,22 +572,45 @@ for name in sorted(os.listdir(apps_dir)):
     if not isinstance(root, dict):
         continue
     root["runtimeMode"] = mode
-    if mode == "gateway":
+    if mode != "ems":
         files = root.get("deviceConfigFiles")
         if isinstance(files, list):
             root["deviceConfigFiles"] = [item for item in files if not is_ems_virtual_ref(item)]
         compute = root.get("computeEngine")
         if isinstance(compute, dict) and isinstance(compute.get("rules"), list):
             compute["rules"] = [rule for rule in compute["rules"] if not is_graph_ems_rule(rule)]
+    if mode != "agc_avc":
+        files = root.get("deviceConfigFiles")
+        if isinstance(files, list):
+            root["deviceConfigFiles"] = [item for item in files if not is_agc_virtual_ref(item)]
+    elif name == agc_app_name:
+        agc = root.setdefault("agcAvc", {})
+        agc["enabled"] = True
+        agc["shadowMode"] = True
+        agc["submitWrites"] = False
     write_json(path, root)
 
-if mode == "gateway":
+if mode != "ems":
     ems_device = os.path.join(devices_dir, ems_virtual_name)
     try:
         os.remove(ems_device)
     except FileNotFoundError:
         pass
+if mode != "agc_avc":
+    for path in (
+        os.path.join(apps_dir, agc_app_name),
+        os.path.join(devices_dir, agc_virtual_name),
+    ):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 PY
+
+  if [ "$runtime_mode" != "agc_avc" ]; then
+    rm -f "$GATEWAY_HOME/bin/AgcAvcController"
+    rm -f /etc/systemd/system/agc-avc@.service
+  fi
 }
 
 json_tls_bool_value() {
@@ -584,16 +648,53 @@ require_file() {
   fi
 }
 
+install_win_signed_tls_bundle() {
+  if [ -z "${INIT_TLS_CA_SOURCE:-}" ] && [ -z "${INIT_TLS_CERT_SOURCE:-}" ] && [ -z "${INIT_TLS_KEY_SOURCE:-}" ]; then
+    return 1
+  fi
+  if [ -z "${INIT_TLS_CA_SOURCE:-}" ] || [ -z "${INIT_TLS_CERT_SOURCE:-}" ] || [ -z "${INIT_TLS_KEY_SOURCE:-}" ]; then
+    echo "Win-signed TLS install requires ca/cert/key source files together" >&2
+    exit 2
+  fi
+  if [ -z "${INIT_MQTT_CA_FILE:-}" ] || [ -z "${INIT_MQTT_CERT_FILE:-}" ] || [ -z "${INIT_MQTT_KEY_FILE:-}" ]; then
+    echo "Win-signed TLS install requires ca/cert/key destination files" >&2
+    exit 2
+  fi
+
+  require_file "$INIT_TLS_CA_SOURCE" "Win-signed TLS CA source"
+  require_file "$INIT_TLS_CERT_SOURCE" "Win-signed TLS certificate source"
+  require_file "$INIT_TLS_KEY_SOURCE" "Win-signed TLS private key source"
+
+  mkdir -p "$(dirname "$INIT_MQTT_CA_FILE")" "$(dirname "$INIT_MQTT_CERT_FILE")" "$(dirname "$INIT_MQTT_KEY_FILE")"
+  cp "$INIT_TLS_CA_SOURCE" "$INIT_MQTT_CA_FILE"
+  cp "$INIT_TLS_CERT_SOURCE" "$INIT_MQTT_CERT_FILE"
+  cp "$INIT_TLS_KEY_SOURCE" "$INIT_MQTT_KEY_FILE"
+  chmod 644 "$INIT_MQTT_CA_FILE" "$INIT_MQTT_CERT_FILE" 2>/dev/null || true
+  chmod 600 "$INIT_MQTT_KEY_FILE" 2>/dev/null || true
+  rm -f "$INIT_TLS_CA_SOURCE" "$INIT_TLS_CERT_SOURCE" "$INIT_TLS_KEY_SOURCE" 2>/dev/null || true
+  echo "windows signed tls ca: $INIT_MQTT_CA_FILE"
+  echo "windows signed tls certificate: $INIT_MQTT_CERT_FILE"
+  echo "windows signed tls private key: $INIT_MQTT_KEY_FILE"
+  echo "windows signed tls temp files cleaned"
+  return 0
+}
+
 if ! command -v tar >/dev/null 2>&1; then
   echo "tar command not found" >&2
   exit 1
 fi
 
 require_file "$INIT_PACKAGE" "init package"
+if [ -n "$INIT_RUNTIME_PACKAGE" ]; then
+  require_file "$INIT_RUNTIME_PACKAGE" "runtime package"
+fi
 
 rm -rf "$INIT_WORK_DIR"
 mkdir -p "$INIT_WORK_DIR"
 tar -xzf "$INIT_PACKAGE" -C "$INIT_WORK_DIR"
+if [ -n "$INIT_RUNTIME_PACKAGE" ]; then
+  tar -xzf "$INIT_RUNTIME_PACKAGE" -C "$INIT_WORK_DIR"
+fi
 PACKAGE_ROOT=$(find_package_root) || {
   echo "factory package root not found after extract: $INIT_PACKAGE" >&2
   exit 1
@@ -663,6 +764,10 @@ if is_interactive_init; then
 fi
 
 export INIT_RUNTIME_MODE="$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-$DEFAULT_RUNTIME_MODE}")"
+if [ "$INIT_RUNTIME_MODE" = "agc_avc" ] && [ -z "$INIT_RUNTIME_PACKAGE" ]; then
+  echo "agc_avc runtime mode requires --runtime-package" >&2
+  exit 2
+fi
 export INIT_MACHINE_CODE="${INIT_MACHINE_CODE:-$DEFAULT_MACHINE_CODE}"
 export INIT_MQTT_BROKER="${INIT_MQTT_BROKER:-$DEFAULT_MQTT_BROKER}"
 export INIT_MQTT_USERNAME="${INIT_MQTT_USERNAME:-$DEFAULT_MQTT_USERNAME}"
@@ -676,6 +781,9 @@ export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:
 
 tls_requested=0
 if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] || truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
+  tls_requested=1
+fi
+if [ -n "${INIT_TLS_CA_SOURCE:-}" ] || [ -n "${INIT_TLS_CERT_SOURCE:-}" ] || [ -n "${INIT_TLS_KEY_SOURCE:-}" ]; then
   tls_requested=1
 fi
 if truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
@@ -723,43 +831,48 @@ if [ "$tls_requested" -eq 1 ]; then
     echo "INIT_MACHINE_CODE is required for TLS enrollment" >&2
     exit 2
   fi
-  TLS_ENROLL_SCRIPT="$DEPLOY_DIR/gateway-tls-enroll.sh"
-  if [ ! -f "$TLS_ENROLL_SCRIPT" ]; then
-    TLS_ENROLL_SCRIPT="$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
-  fi
-  require_file "$TLS_ENROLL_SCRIPT" "TLS enrollment script"
 
-  set -- --machine-code "$INIT_MACHINE_CODE"
-  if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
-    set -- "$@" --generate-root-ca --ca-validity-days "$INIT_TLS_CA_VALIDITY_DAYS"
-    if [ -n "${INIT_TLS_CA_SUBJECT:-}" ]; then
-      set -- "$@" --ca-subject "$INIT_TLS_CA_SUBJECT"
+  if install_win_signed_tls_bundle; then
+    :
+  else
+    TLS_ENROLL_SCRIPT="$DEPLOY_DIR/gateway-tls-enroll.sh"
+    if [ ! -f "$TLS_ENROLL_SCRIPT" ]; then
+      TLS_ENROLL_SCRIPT="$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
     fi
-    if truthy "${INIT_TLS_FORCE_ROOT_CA:-0}"; then
-      set -- "$@" --force-root-ca
+    require_file "$TLS_ENROLL_SCRIPT" "TLS enrollment script"
+
+    set -- --machine-code "$INIT_MACHINE_CODE"
+    if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
+      set -- "$@" --generate-root-ca --ca-validity-days "$INIT_TLS_CA_VALIDITY_DAYS"
+      if [ -n "${INIT_TLS_CA_SUBJECT:-}" ]; then
+        set -- "$@" --ca-subject "$INIT_TLS_CA_SUBJECT"
+      fi
+      if truthy "${INIT_TLS_FORCE_ROOT_CA:-0}"; then
+        set -- "$@" --force-root-ca
+      fi
     fi
-  fi
-  if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
-    if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
-      echo "TLS enrollment requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
+    if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+      if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
+        echo "TLS enrollment requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
+        exit 2
+      fi
+      set -- "$@" --platform-url "$INIT_TLS_PLATFORM_URL" --token "$INIT_TLS_ENROLLMENT_TOKEN"
+    elif truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
+      echo "MQTT TLS requested but platform enrollment URL/token is empty" >&2
       exit 2
     fi
-    set -- "$@" --platform-url "$INIT_TLS_PLATFORM_URL" --token "$INIT_TLS_ENROLLMENT_TOKEN"
-  elif truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
-    echo "MQTT TLS requested but platform enrollment URL/token is empty" >&2
-    exit 2
-  fi
-  if [ -n "$INIT_TLS_VALIDITY_DAYS" ]; then
-    set -- "$@" --validity-days "$INIT_TLS_VALIDITY_DAYS"
-  fi
-  if truthy "$INIT_TLS_UPDATE_LOCAL_APP"; then
-    set -- "$@" --update-local-app
-  fi
-  if truthy "$INIT_TLS_FORCE_KEY"; then
-    set -- "$@" --force-key
-  fi
+    if [ -n "$INIT_TLS_VALIDITY_DAYS" ]; then
+      set -- "$@" --validity-days "$INIT_TLS_VALIDITY_DAYS"
+    fi
+    if truthy "$INIT_TLS_UPDATE_LOCAL_APP"; then
+      set -- "$@" --update-local-app
+    fi
+    if truthy "$INIT_TLS_FORCE_KEY"; then
+      set -- "$@" --force-key
+    fi
 
-  GATEWAY_HOME="$GATEWAY_HOME" sh "$TLS_ENROLL_SCRIPT" "$@"
+    GATEWAY_HOME="$GATEWAY_HOME" sh "$TLS_ENROLL_SCRIPT" "$@"
+  fi
 fi
 
 if truthy "$INIT_START_SERVICES"; then

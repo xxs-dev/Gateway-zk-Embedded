@@ -15,6 +15,7 @@ PUBLISH=0
 PACKAGE=0
 PACKAGE_PROFILE="${PACKAGE_PROFILE:-full}"
 PACKAGE_OUT="${PACKAGE_OUT:-$ROOT_DIR/gateway-factory-defaults.tar.gz}"
+AGC_AVC_PACKAGE_OUT="${AGC_AVC_PACKAGE_OUT:-$ROOT_DIR/gateway-agc-avc-runtime.tar.gz}"
 MANIFEST=""
 CLEAN=0
 
@@ -53,6 +54,7 @@ Options:
   --profile PROFILE     Factory package profile: base, project, full
   --manifest FILE       Manifest for project package profile
   --out FILE            Factory package output path
+  --agc-avc-out FILE    AGC/AVC runtime overlay output path
   -h, --help            Show this help
 
 When no target is supplied, production targets are built. The script does not
@@ -98,6 +100,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --out)
       PACKAGE_OUT="${2:-}"
+      shift 2
+      ;;
+    --agc-avc-out)
+      AGC_AVC_PACKAGE_OUT="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -169,8 +175,11 @@ if [ "$PUBLISH" = "1" ]; then
   mkdir -p "$ROOT_DIR/build-aarch64"
   for bin in "${PRODUCTION_TARGETS[@]}"; do
     if [ -f "$BUILD_DIR/$bin" ]; then
-      cp -f "$BUILD_DIR/$bin" "$ROOT_DIR/build-aarch64/$bin"
-      "$STRIP_TOOL" --strip-unneeded "$ROOT_DIR/build-aarch64/$bin"
+      stripped="$BUILD_DIR/.published-$bin"
+      cp -f "$BUILD_DIR/$bin" "$stripped"
+      "$STRIP_TOOL" --strip-unneeded "$stripped"
+      cp -f "$stripped" "$ROOT_DIR/build-aarch64/$bin"
+      rm -f "$stripped"
       chmod +x "$ROOT_DIR/build-aarch64/$bin"
     fi
   done
@@ -183,4 +192,5 @@ if [ "$PACKAGE" = "1" ]; then
     args+=("--manifest" "$MANIFEST")
   fi
   sh "$ROOT_DIR/deploy/build-factory-package.sh" "${args[@]}"
+  sh "$ROOT_DIR/deploy/build-agc-avc-runtime-package.sh" "$AGC_AVC_PACKAGE_OUT"
 fi

@@ -415,7 +415,7 @@ void testAgcAvcConfigParsing() {
     const std::string path = "/tmp/agc_avc_config_loader_test.json";
     std::ofstream output(path.c_str(), std::ios::out | std::ios::trunc);
     output << R"JSON({
-      "runtimeMode": "ems",
+      "runtimeMode": "agc_avc",
       "agcAvc": {
         "enabled": true,
         "shadowMode": true,

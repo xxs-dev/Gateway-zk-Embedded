@@ -1,5 +1,5 @@
 {
-  "runtimeMode": "ems",
+  "runtimeMode": "agc_avc",
   "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
   "deviceConfigFiles": [
     "/opt/modbus-gateway/config/runtime/devices/device_agc_avc_virtual.json"

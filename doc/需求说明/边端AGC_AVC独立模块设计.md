@@ -422,7 +422,7 @@ abs(Q_cmd) <= min(ratedReactivePowerKvar, dynamicReactivePowerKvar)
 ```json
 {
   "schemaVersion": "1.0.0",
-  "runtimeMode": "ems",
+  "runtimeMode": "agc_avc",
   "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
   "deviceConfigFiles": [],
   "agcAvc": {
@@ -740,8 +740,9 @@ PCS 实际 P/Q、SOC、温度、状态和并网点反馈继续使用原采集点
 
 - `CMakeLists.txt`：增加 `AgcAvcController` 目标。
 - `deploy/agc-avc@.service`：独立 systemd 实例。
-- `deploy/gateway-services.sh`：读取 `agc-avc-service.json`，仅在 `agcAvc.enabled=true` 时启动。
-- 工厂包：携带二进制、service 和关闭状态的模板，不默认运行。
+- `deploy/gateway-services.sh`：读取 `agc-avc-service.json`，仅在 `runtimeMode=agc_avc` 且 `agcAvc.enabled=true` 时启动。
+- 通用工厂包：不携带 AGC/AVC 二进制、service 或配置，`gateway/ems` 初始化不会上传这些文件。
+- AGC/AVC 运行模式包：`gateway-agc-avc-runtime.tar.gz` 只携带控制器、service、应用配置和虚拟点配置；仅选择 `agc_avc` 模式时叠加安装。
 - OTA：允许单独替换 AGC/AVC 二进制和配置，也可随整包升级。
 
 停止顺序应先停止 AGC/AVC，再停止采集驱动；启动顺序应先启动采集驱动，确认共享内存可读后再启动 AGC/AVC。

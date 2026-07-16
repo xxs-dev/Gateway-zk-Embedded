@@ -80,7 +80,11 @@ import sys
 with open(sys.argv[1], "r", encoding="utf-8") as fh:
     data = json.load(fh)
 
-items = data.get("requiredDrivers") or data.get("components") or []
+items = []
+for key in ("requiredDrivers", "components", "runtimeComponents"):
+    value = data.get(key) or []
+    if isinstance(value, list):
+        items.extend(value)
 seen = set()
 for item in items:
     if isinstance(item, str):
@@ -137,6 +141,8 @@ mkdir -p "$TMP_DIR/gateway-factory-defaults/config"
 
 cp -a "$ROOT_DIR/config/factory" "$TMP_DIR/gateway-factory-defaults/config/factory"
 rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/apps/direct-agent.json"
+rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/apps/agc-avc-service.json"
+rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/devices/device_agc_avc_virtual.json"
 if [ -d "$ROOT_DIR/config/templates" ]; then
   cp -a "$ROOT_DIR/config/templates" "$TMP_DIR/gateway-factory-defaults/config/templates"
 fi
@@ -151,13 +157,15 @@ if [ -d "$ROOT_DIR/deploy" ]; then
   for file in "$ROOT_DIR/deploy"/*; do
     name=$(basename "$file")
     [ "$name" = "direct-agent@.service" ] && continue
+    [ "$name" = "agc-avc@.service" ] && continue
+    [ "$name" = "build-agc-avc-runtime-package.sh" ] && continue
     [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
   done
 fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver pointctl"
-  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine AgcAvcController EmsParityCheck SystemMonitor pointctl"
+  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
   OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then

@@ -28,7 +28,7 @@
 
 ## 默认运行模式
 
-`deploy/production-init.sh` 和 `deploy/install-factory-config.sh` 默认按 `runtimeMode=gateway` 初始化生产设备。网关模式会把所有 app 配置写为 `runtimeMode: "gateway"`，并从 `deviceConfigFiles[]` 中移除 `device_ems_virtual.json`，同时移除 `graphEms` / `shuntong_ems_graph.json` 规则，避免非 EMS 项目被平台和边端误判为 EMS。
+`deploy/production-init.sh` 和 `deploy/install-factory-config.sh` 支持 `gateway`、`ems`、`agc_avc` 三种互斥运行模式，默认使用 `gateway`。非 EMS 模式会移除 EMS 虚拟点和 Graph EMS 规则；非 AGC/AVC 模式会移除 AGC/AVC 应用、虚拟点、二进制和 service，避免旧文件残留导致误启动。
 
 需要 EMS 项目时必须显式指定：
 
@@ -36,6 +36,16 @@
 sh deploy/production-init.sh --runtime-mode ems
 INIT_RUNTIME_MODE=ems sh deploy/install-factory-config.sh
 ```
+
+需要 AGC/AVC 项目时必须同时指定模式和独立运行模式包：
+
+```sh
+sh deploy/production-init.sh \
+  --runtime-mode agc_avc \
+  --runtime-package /home/gateway-agc-avc-runtime.tar.gz
+```
+
+通用 `gateway-factory-defaults.tar.gz` 不包含任何 AGC/AVC 文件；附加包由 `deploy/build-agc-avc-runtime-package.sh` 单独生成。
 
 批量初始化时可在 `deploy/devices.csv` 最后一列填写 `ems`；不填则默认 `gateway`。
 

@@ -348,7 +348,11 @@ import sys
 with open(sys.argv[1], "r", encoding="utf-8") as fh:
     data = json.load(fh)
 
-items = data.get("requiredDrivers") or data.get("components") or []
+items = []
+for key in ("requiredDrivers", "components", "runtimeComponents"):
+    value = data.get(key) or []
+    if isinstance(value, list):
+        items.extend(value)
 seen = set()
 for item in items:
     if isinstance(item, str):
@@ -552,8 +556,9 @@ normalize_runtime_mode() {
   case "$value" in
     ""|gateway) printf 'gateway\n' ;;
     ems) printf 'ems\n' ;;
+    agc_avc|agc-avc) printf 'agc_avc\n' ;;
     *)
-      echo "invalid runtime mode: $1 (expected gateway or ems)" >&2
+      echo "invalid runtime mode: $1 (expected gateway, ems or agc_avc)" >&2
       exit 2
       ;;
   esac
@@ -576,6 +581,8 @@ mode, runtime_dir = sys.argv[1:3]
 apps_dir = os.path.join(runtime_dir, "apps")
 devices_dir = os.path.join(runtime_dir, "devices")
 ems_virtual_name = "device_ems_virtual.json"
+agc_virtual_name = "device_agc_avc_virtual.json"
+agc_app_name = "agc-avc-service.json"
 
 
 def read_json(path):
@@ -599,6 +606,11 @@ def is_ems_virtual_ref(value):
     return text == ems_virtual_name or text.endswith("/" + ems_virtual_name)
 
 
+def is_agc_virtual_ref(value):
+    text = str(value or "").replace("\\", "/").strip()
+    return text == agc_virtual_name or text.endswith("/" + agc_virtual_name)
+
+
 def is_graph_ems_rule(rule):
     script = (rule or {}).get("script", {})
     if not isinstance(script, dict):
@@ -615,22 +627,45 @@ for name in sorted(os.listdir(apps_dir)):
     if not isinstance(root, dict):
         continue
     root["runtimeMode"] = mode
-    if mode == "gateway":
+    if mode != "ems":
         files = root.get("deviceConfigFiles")
         if isinstance(files, list):
             root["deviceConfigFiles"] = [item for item in files if not is_ems_virtual_ref(item)]
         compute = root.get("computeEngine")
         if isinstance(compute, dict) and isinstance(compute.get("rules"), list):
             compute["rules"] = [rule for rule in compute["rules"] if not is_graph_ems_rule(rule)]
+    if mode != "agc_avc":
+        files = root.get("deviceConfigFiles")
+        if isinstance(files, list):
+            root["deviceConfigFiles"] = [item for item in files if not is_agc_virtual_ref(item)]
+    elif name == agc_app_name:
+        agc = root.setdefault("agcAvc", {})
+        agc["enabled"] = True
+        agc["shadowMode"] = True
+        agc["submitWrites"] = False
     write_json(path, root)
 
-if mode == "gateway":
+if mode != "ems":
     ems_device = os.path.join(devices_dir, ems_virtual_name)
     try:
         os.remove(ems_device)
     except FileNotFoundError:
         pass
+if mode != "agc_avc":
+    for path in (
+        os.path.join(apps_dir, agc_app_name),
+        os.path.join(devices_dir, agc_virtual_name),
+    ):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 PY
+
+  if [ "$runtime_mode" != "agc_avc" ]; then
+    rm -f "$GATEWAY_HOME/bin/AgcAvcController"
+    rm -f /etc/systemd/system/agc-avc@.service
+  fi
 }
 
 apply_runtime_identity_and_mqtt() {
@@ -720,8 +755,16 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
 fi
 
 BASE_BINS="SystemMonitor MqttDriver pointctl"
-ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine AgcAvcController EmsParityCheck SystemMonitor pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
+INSTALL_RUNTIME_MODE="${INIT_RUNTIME_MODE:-}"
+if [ -z "$INSTALL_RUNTIME_MODE" ] && [ -f "$FACTORY_DIR/runtime/apps/agc-avc-service.json" ]; then
+  INSTALL_RUNTIME_MODE="agc_avc"
+fi
+INSTALL_RUNTIME_MODE=$(normalize_runtime_mode "${INSTALL_RUNTIME_MODE:-gateway}")
+if [ "$INSTALL_RUNTIME_MODE" = "agc_avc" ]; then
+  ALL_BINS="$ALL_BINS AgcAvcController"
+fi
 if [ "$PACKAGE_PROFILE" = "base" ]; then
   REQUIRED_BINS="$BASE_BINS"
   OPTIONAL_BINS=""
@@ -734,6 +777,9 @@ elif [ "$PACKAGE_PROFILE" = "project" ]; then
   OPTIONAL_BINS=""
 else
   REQUIRED_BINS="$ALL_BINS"
+fi
+if [ "$INSTALL_RUNTIME_MODE" = "agc_avc" ]; then
+  REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS AgcAvcController | unique_words | tr '\n' ' ')
 fi
 case " $REQUIRED_BINS " in
   *" KY-EMS "*)
@@ -888,7 +934,9 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
   install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
   install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
-  install_deploy_file_if_exists "agc-avc@.service" "/etc/systemd/system/agc-avc@.service"
+  if [ "$INIT_RUNTIME_MODE_VALUE" = "agc_avc" ]; then
+    install_deploy_file_if_exists "agc-avc@.service" "/etc/systemd/system/agc-avc@.service"
+  fi
   install_deploy_file_if_exists "local-display@.service" "/etc/systemd/system/local-display@.service"
   install_deploy_file_if_exists "local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
   install_deploy_file_if_exists "qt-display-bridge.service" "/etc/systemd/system/qt-display-bridge.service"

@@ -3017,8 +3017,10 @@ AppConfig parseAppConfig(const std::string& text) {
     const auto root = JsonParser(text).parse();
     AppConfig config;
     config.runtimeMode = requireString(root.asObject(), "runtimeMode", config.runtimeMode);
-    if (config.runtimeMode != "gateway" && config.runtimeMode != "ems") {
-        throw std::invalid_argument("app config runtimeMode must be gateway or ems");
+    if (config.runtimeMode != "gateway" &&
+        config.runtimeMode != "ems" &&
+        config.runtimeMode != "agc_avc") {
+        throw std::invalid_argument("app config runtimeMode must be gateway, ems or agc_avc");
     }
     config.identityConfigFile = requireString(root.asObject(), "identityConfigFile", config.identityConfigFile);
     config.deviceConfigFiles = parseStringArray(root.find("deviceConfigFiles"));

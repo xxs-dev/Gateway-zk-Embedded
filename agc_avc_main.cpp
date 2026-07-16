@@ -66,6 +66,9 @@ int main(int argc, char* argv[]) {
     try {
         setProcessName();
         const auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+        if (appConfig.runtimeMode != "agc_avc") {
+            throw std::invalid_argument("AgcAvcController requires runtimeMode=agc_avc");
+        }
         DeviceIdentity identity;
         if (!appConfig.identityConfigFile.empty()) {
             identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);

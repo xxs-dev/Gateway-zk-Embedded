@@ -126,11 +126,12 @@ sh deploy/install-factory-config.sh
 - `GATEWAY_HOME=/opt/modbus-gateway` 指定边端安装目录
 - `DEFAULT_SOURCE_ROOT=/home/gateway-factory` 指定出厂默认包目录
 - `SOURCE_ROOT=/home/gateway-factory` 显式指定本次初始化使用的源目录
-- `INIT_RUNTIME_MODE=gateway|ems` 指定运行模式，默认 `gateway`
+- `INIT_RUNTIME_MODE=gateway|ems|agc_avc` 指定运行模式，默认 `gateway`
+- `INIT_RUNTIME_PACKAGE=/path/gateway-agc-avc-runtime.tar.gz` 指定 AGC/AVC 独立运行模式包；仅 `agc_avc` 模式需要
 - `START_SERVICES=0` 只安装配置，不启动服务
 - `RESET_SHM=1` 停服务后清理旧共享内存，再恢复出厂配置
 
-初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时会把运行 app 配置里的 `clientId` 同步为该 `machineCode`。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；只有 EMS 项目才传 `INIT_RUNTIME_MODE=ems`。
+初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时会把运行 app 配置里的 `clientId` 同步为该 `machineCode`。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；EMS 项目传 `ems`，AGC/AVC 项目传 `agc_avc` 并同时提供独立运行模式包。
 
 日常运维入口：
 

@@ -138,7 +138,11 @@ try:
         data = json.load(fh)
 except Exception:
     raise SystemExit(0)
-items = data.get("requiredDrivers") or data.get("components") or []
+items = []
+for key in ("requiredDrivers", "components", "runtimeComponents"):
+    value = data.get(key) or []
+    if isinstance(value, list):
+        items.extend(value)
 seen = set()
 for item in items:
     if isinstance(item, str):
@@ -177,7 +181,10 @@ runtime_package_profile() {
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
   base_bins="SystemMonitor MqttDriver pointctl"
-  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine AgcAvcController EmsParityCheck SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
+  if [ "$(app_runtime_mode "$APP_CONFIG")" = "agc_avc" ]; then
+    full_bins="$full_bins AgcAvcController"
+  fi
   case "$profile" in
     base)
       printf '%s\n' $base_bins | unique_lines
@@ -257,27 +264,40 @@ check_runtime_mode() {
     cfg=${item%%:*}
     mode=${item#*:}
     case "$mode" in
-      gateway|ems) pass "$(basename "$cfg") runtimeMode: $mode" ;;
-      *) fail "$(basename "$cfg") runtimeMode must be gateway or ems, actual: $mode" ;;
+      gateway|ems|agc_avc) pass "$(basename "$cfg") runtimeMode: $mode" ;;
+      *) fail "$(basename "$cfg") runtimeMode must be gateway, ems or agc_avc, actual: $mode" ;;
     esac
   done
   if [ "$mqtt_mode" != "$monitor_mode" ]; then
     fail "mqtt-service and monitor-service runtimeMode mismatch: $mqtt_mode vs $monitor_mode"
     return
   fi
-  if [ "$mqtt_mode" = "gateway" ]; then
+  if [ "$mqtt_mode" != "ems" ]; then
     for cfg in "$APP_CONFIG" "$MONITOR_CONFIG"; do
       if extract_device_files "$cfg" | grep -q 'device_ems_virtual\.json'; then
-        fail "$(basename "$cfg") gateway mode must not reference device_ems_virtual.json"
+        fail "$(basename "$cfg") $mqtt_mode mode must not reference device_ems_virtual.json"
       else
-        pass "$(basename "$cfg") gateway mode has no EMS virtual device reference"
+        pass "$(basename "$cfg") $mqtt_mode mode has no EMS virtual device reference"
       fi
       if app_has_ems_graph_rule "$cfg"; then
-        fail "$(basename "$cfg") gateway mode must not include graphEms rules"
+        fail "$(basename "$cfg") $mqtt_mode mode must not include graphEms rules"
       else
-        pass "$(basename "$cfg") gateway mode has no graphEms rules"
+        pass "$(basename "$cfg") $mqtt_mode mode has no graphEms rules"
       fi
     done
+  fi
+  if [ "$mqtt_mode" = "agc_avc" ]; then
+    if [ -f "$GATEWAY_HOME/config/runtime/apps/agc-avc-service.json" ] &&
+       [ -f "$GATEWAY_HOME/config/runtime/devices/device_agc_avc_virtual.json" ]; then
+      pass "agc_avc mode configuration files"
+    else
+      fail "agc_avc mode requires its app and virtual device configuration"
+    fi
+  elif [ -e "$GATEWAY_HOME/config/runtime/apps/agc-avc-service.json" ] ||
+       [ -e "$GATEWAY_HOME/config/runtime/devices/device_agc_avc_virtual.json" ]; then
+    fail "$mqtt_mode mode must not retain AGC/AVC runtime configuration"
+  else
+    pass "$mqtt_mode mode has no AGC/AVC runtime configuration"
   fi
 }
 

@@ -61,6 +61,9 @@ AgcAvcCommandMailboxRuntime appendSiblingAgcAvcRuntime(
     } catch (...) {
         return runtime;
     }
+    if (app.runtimeMode != "agc_avc") {
+        return runtime;
+    }
     runtime.configured = true;
     runtime.enabled = app.agcAvc.enabled;
     runtime.shadowMode = app.agcAvc.shadowMode;

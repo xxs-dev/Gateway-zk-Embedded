@@ -422,7 +422,10 @@ if os.path.isfile(agc_avc_path):
     try:
         with open(agc_avc_path, "r", encoding="utf-8") as fh:
             app = json.load(fh)
-        agc_avc_enabled = bool_value((app.get("agcAvc", {}) or {}).get("enabled"), False)
+        agc_avc_enabled = (
+            str(app.get("runtimeMode") or "").strip().lower() == "agc_avc"
+            and bool_value((app.get("agcAvc", {}) or {}).get("enabled"), False)
+        )
     except Exception:
         agc_avc_enabled = False
     if agc_avc_enabled:
