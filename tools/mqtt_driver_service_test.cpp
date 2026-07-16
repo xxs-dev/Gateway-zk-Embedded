@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -57,9 +58,10 @@ public:
 
     void publishCommandReply(
         const std::string&,
-        const MqttCommandReply&
+        const MqttCommandReply& reply
     ) override {
         commandReplyCount += 1;
+        commandReplies.push_back(reply);
     }
 
     void publishOtaReply(
@@ -94,6 +96,7 @@ public:
     std::vector<std::string> statusPayloads;
     std::vector<int> pollTimeouts;
     int commandReplyCount = 0;
+    std::vector<MqttCommandReply> commandReplies;
 };
 
 struct ServiceFixture {
@@ -371,6 +374,47 @@ void testCommandRequestRejectedDuringActivePriorityControl() {
     cleanupFixture(fixture);
 }
 
+void testAgcAvcCommandMailboxCommitsLatestWithoutWriteback() {
+    auto fixture = makeFixture("agc_avc_mailbox", 10000);
+    fixture.service.reset();
+    PointStoreRoute mailboxRoute;
+    mailboxRoute.index = 720010;
+    mailboxRoute.machineCode = "GW_TEST";
+    mailboxRoute.meterCode = "AGC_AVC_CORE";
+    mailboxRoute.pointCode = "agc_dispatch_p";
+    mailboxRoute.sharedMemoryName = fixture.shmName;
+    mailboxRoute.commandMailbox = true;
+    fixture.router.addRoute(mailboxRoute);
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+    AgcAvcCommandMailboxRuntime policy;
+    policy.configured = true;
+    policy.enabled = true;
+    policy.shadowMode = true;
+    policy.submitWrites = false;
+    policy.sequenceIndex = 720011;
+    policy.commandIndexes = {720010, 720011};
+    fixture.service->setAgcAvcCommandMailboxRuntime(policy);
+
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"AGC_SHADOW_1_720010\",\"machineCode\":\"GW_TEST\",\"meterCode\":\"AGC_AVC_CORE\",\"pointCode\":\"agc_dispatch_p\",\"index\":720010,\"value\":25,\"source\":\"gateway-desktop-agc-avc-shadow-test\"}"
+    ));
+    fixture.service->runScanOnce(1770000060000LL);
+
+    require(fixture.store->peekPendingWriteCommands().empty(), "AGC/AVC mailbox must not enqueue a device writeback");
+    const auto latest = fixture.router.getLatestByIndex(720010, 1770000060001LL);
+    require(latest && std::abs(latest->value - 25.0) < 1e-9, "AGC/AVC mailbox should commit the latest command value");
+    require(fixture.publisher->commandReplies.size() == 1, "AGC/AVC mailbox should reply immediately");
+    require(fixture.publisher->commandReplies.front().success, "AGC/AVC mailbox reply should be successful");
+    require(fixture.publisher->commandReplies.front().stage == "mailbox-committed", "AGC/AVC mailbox reply stage mismatch");
+    cleanupFixture(fixture);
+}
+
 }  // namespace
 
 int main() {
@@ -382,6 +426,7 @@ int main() {
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
         testCommandRequestRejectedDuringActivePriorityControl();
+        testAgcAvcCommandMailboxCommitsLatestWithoutWriteback();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

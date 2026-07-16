@@ -230,6 +230,7 @@ allowed_systemd_targets = {
     "/etc/systemd/system/dio-driver@.service",
     "/etc/systemd/system/can-driver@.service",
     "/etc/systemd/system/compute-engine@.service",
+    "/etc/systemd/system/agc-avc@.service",
     "/etc/systemd/system/event-engine@.service",
     "/etc/systemd/system/local-display@.service",
     "/etc/systemd/system/local-kiosk@.service",
@@ -251,6 +252,7 @@ allowed_service_prefixes = (
     "dio-driver@",
     "can-driver@",
     "compute-engine@",
+    "agc-avc@",
     "event-engine@",
     "local-display@",
     "local-kiosk@",
@@ -424,7 +426,7 @@ fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
   case "\$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
     *)
       echo "[$TIMESTAMP] [ota-apply] skip unsafe restart service \$service" >> "$LOG_FILE"
       continue

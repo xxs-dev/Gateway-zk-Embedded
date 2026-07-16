@@ -627,6 +627,7 @@ struct MqttDriverConfig {
     std::vector<std::uint32_t> fullUploadIndexes;
     std::vector<MqttAlarmRule> alarmRules;
     std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
+    std::string powerControlOwnershipFile = "/opt/modbus-gateway/run/power-control-owner.json";
     int priorityControlLeaseTtlMs = 30000;
     int commandRateWindowMs = 10000;
     int commandRateMaxPerWindow = 20;
@@ -705,6 +706,193 @@ struct ComputeEngineConfig {
     std::int64_t defaultOutputTtlMs = 600000;
     std::size_t maxWritesPerScan = 100;
     std::vector<ComputeRuleConfig> rules;
+};
+
+struct AgcAvcPointRefConfig {
+    std::string source = "sharedLatest";
+    std::string semanticRole;
+    std::string machineCode;
+    std::string meterCode;
+    std::string pointCode;
+    std::uint32_t index = 0;
+    bool required = false;
+};
+
+struct AgcAvcCapabilityValueConfig {
+    double commissionedLimit = 0.0;
+    AgcAvcPointRefConfig sourcePoint;
+    bool hasSourcePoint = false;
+    std::string combinePolicy = "min";
+    std::string stalePolicy = "useCommissionedLimit";
+};
+
+struct AgcAvcStationLimitsConfig {
+    double ratedActivePowerKw = 0.0;
+    double ratedApparentPowerKva = 0.0;
+    double maxImportPowerKw = 0.0;
+    double maxExportPowerKw = 0.0;
+    double maxReactivePowerKvar = 0.0;
+    double transformerRatedKva = 0.0;
+};
+
+struct AgcAvcOwnershipConfig {
+    std::string scope = "pcs-power";
+    std::string leaseFile = "/opt/modbus-gateway/run/power-control-owner.json";
+    int ttlMs = 3000;
+    int heartbeatMs = 500;
+};
+
+struct AgcAvcInterlockConfig {
+    AgcAvcPointRefConfig remoteEnable;
+    AgcAvcPointRefConfig emergencyStop;
+    AgcAvcPointRefConfig fireAlarm;
+};
+
+struct AgcLoopConfig {
+    bool enabled = true;
+    std::string mode = "pccClosedLoop";
+    AgcAvcPointRefConfig target;
+    AgcAvcPointRefConfig commandSequence;
+    AgcAvcPointRefConfig commandTimestamp;
+    AgcAvcPointRefConfig pccActivePower;
+    AgcAvcPointRefConfig frequency;
+    double deadbandKw = 1.0;
+    double kp = 0.0;
+    double ki = 0.0;
+    double integralMinKw = -1000.0;
+    double integralMaxKw = 1000.0;
+    double minKw = -100.0;
+    double maxKw = 100.0;
+    double riseKwPerSec = 20.0;
+    double fallKwPerSec = 20.0;
+    bool frequencyDroopEnabled = false;
+    double nominalHz = 50.0;
+    double kwPerHz = 0.0;
+    double droopLimitKw = 0.0;
+};
+
+struct AvcLoopConfig {
+    bool enabled = true;
+    std::string defaultMode = "reactivePower";
+    AgcAvcPointRefConfig mode;
+    AgcAvcPointRefConfig targetQ;
+    AgcAvcPointRefConfig targetVoltage;
+    AgcAvcPointRefConfig targetPowerFactor;
+    AgcAvcPointRefConfig pccReactivePower;
+    AgcAvcPointRefConfig pccVoltage;
+    AgcAvcPointRefConfig pccPowerFactor;
+    double deadbandKvar = 1.0;
+    double voltageDeadbandV = 1.0;
+    double kpQ = 0.0;
+    double kiQ = 0.0;
+    double integralMinKvar = -1000.0;
+    double integralMaxKvar = 1000.0;
+    double kpV = 0.0;
+    double kiV = 0.0;
+    double minKvar = -100.0;
+    double maxKvar = 100.0;
+    double riseKvarPerSec = 20.0;
+    double fallKvarPerSec = 20.0;
+};
+
+struct AgcAvcPcsPointConfig {
+    AgcAvcPointRefConfig online;
+    AgcAvcPointRefConfig ready;
+    AgcAvcPointRefConfig soc;
+    AgcAvcPointRefConfig actualP;
+    AgcAvcPointRefConfig actualQ;
+    AgcAvcPointRefConfig chargeAllowed;
+    AgcAvcPointRefConfig dischargeAllowed;
+    AgcAvcPointRefConfig availableChargeKw;
+    AgcAvcPointRefConfig availableDischargeKw;
+    AgcAvcPointRefConfig dynamicReactiveLimitKvar;
+    AgcAvcPointRefConfig temperature;
+    std::vector<AgcAvcPointRefConfig> acVoltage;
+    std::vector<AgcAvcPointRefConfig> acCurrent;
+    std::vector<AgcAvcPointRefConfig> activeTargets;
+    std::vector<AgcAvcPointRefConfig> reactiveTargets;
+};
+
+struct AgcAvcPcsConfig {
+    std::string machineCode;
+    std::string meterCode;
+    bool enabled = true;
+    std::string deviceType = "storagePcs";
+    double weight = 1.0;
+    std::string capacityScope = "deviceTotal";
+    AgcAvcCapabilityValueConfig ratedActivePowerKw;
+    AgcAvcCapabilityValueConfig ratedApparentPowerKva;
+    double ratedReactivePowerKvar = 0.0;
+    double maxChargePowerKw = 0.0;
+    double maxDischargePowerKw = 0.0;
+    double minStableChargePowerKw = 0.0;
+    double minStableDischargePowerKw = 0.0;
+    double socDischargeStopPercent = 5.0;
+    double socDischargeDeratePercent = 10.0;
+    double socChargeDeratePercent = 90.0;
+    double socChargeStopPercent = 95.0;
+    double temperatureDerateStartC = 0.0;
+    double temperatureStopC = 0.0;
+    double currentDerateStartPercent = 0.0;
+    double currentStopPercent = 0.0;
+    double ratedAcVoltageV = 0.0;
+    double ratedAcCurrentA = 0.0;
+    int phaseCount = 3;
+    std::string setpointType = "absoluteKw";
+    double riseKwPerSec = 20.0;
+    double fallKwPerSec = 20.0;
+    double riseKvarPerSec = 20.0;
+    double fallKvarPerSec = 20.0;
+    bool fallbackToStaticLimit = false;
+    double writeDeadbandKw = 0.1;
+    double writeDeadbandKvar = 0.1;
+    int minWriteIntervalMs = 200;
+    int feedbackTimeoutMs = 5000;
+    double feedbackToleranceKw = 2.0;
+    double feedbackToleranceKvar = 2.0;
+    AgcAvcPcsPointConfig points;
+};
+
+struct AgcAvcOutputConfig {
+    AgcAvcPointRefConfig state;
+    AgcAvcPointRefConfig ownershipState;
+    AgcAvcPointRefConfig agcEffectiveTarget;
+    AgcAvcPointRefConfig agcError;
+    AgcAvcPointRefConfig avcEffectiveTarget;
+    AgcAvcPointRefConfig avcError;
+    AgcAvcPointRefConfig availableActivePower;
+    AgcAvcPointRefConfig availableReactivePower;
+    AgcAvcPointRefConfig unservedActivePower;
+    AgcAvcPointRefConfig unservedReactivePower;
+    AgcAvcPointRefConfig lastCommandStatus;
+    AgcAvcPointRefConfig lastWriteStatus;
+    AgcAvcPointRefConfig consecutiveWriteFailures;
+};
+
+struct AgcAvcConfig {
+    bool enabled = false;
+    bool shadowMode = true;
+    bool submitWrites = false;
+    int cycleMs = 200;
+    int avcCycleMs = 500;
+    int commandTimeoutMs = 5000;
+    int inputMaxAgeMs = 1500;
+    int resumeDelayMs = 2000;
+    int writeResultTimeoutMs = 5000;
+    int maxConsecutiveWriteFailures = 3;
+    std::string signConvention = "positiveDischarge";
+    std::string reactiveSignConvention = "positiveInductive";
+    std::string pqPriority = "activePowerFirst";
+    std::vector<std::string> sharedMemoryNames;
+    std::string outputSharedMemoryName = "gateway_point_store_agc_avc";
+    std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
+    AgcAvcStationLimitsConfig stationLimits;
+    AgcAvcOwnershipConfig ownership;
+    AgcAvcInterlockConfig interlocks;
+    AgcLoopConfig agc;
+    AvcLoopConfig avc;
+    std::vector<AgcAvcPcsConfig> pcs;
+    AgcAvcOutputConfig outputs;
 };
 
 struct OtaStorageMinioConfig {
@@ -981,6 +1169,7 @@ struct AppConfig {
     AlarmStoreConfig alarmStore;
     EventEngineConfig eventEngine;
     ComputeEngineConfig computeEngine;
+    AgcAvcConfig agcAvc;
     OtaConfig ota;
     RealtimeConfig realtime;
     SystemMonitorConfig systemMonitor;

@@ -86,6 +86,7 @@
     "fullUploadJsonFormat": "compactArray",
     "fullUploadIndexes": [],
     "priorityControlLeaseFile": "/opt/modbus-gateway/run/priority-control.json",
+    "powerControlOwnershipFile": "/opt/modbus-gateway/run/power-control-owner.json",
     "priorityControlLeaseTtlMs": 30000
   },
   "alarmStore": {

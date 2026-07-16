@@ -517,6 +517,7 @@ MqttDriverService::MqttDriverService(
         route.meterCode = entry.second.meterCode;
         route.pointCode = entry.second.pointCode;
         route.writable = entry.second.writable;
+        route.commandMailbox = entry.second.commandMailbox;
         pointRoutes_.emplace(entry.first, route);
     }
     for (const auto& config : deviceConfigs) {
@@ -612,12 +613,17 @@ MqttDriverService::MqttDriverService(
         route.meterCode = entry.second.meterCode;
         route.pointCode = entry.second.pointCode;
         route.writable = entry.second.writable;
+        route.commandMailbox = entry.second.commandMailbox;
         pointRoutes_.emplace(entry.first, route);
     }
 }
 
 MqttDriverService::~MqttDriverService() {
     stop();
+}
+
+void MqttDriverService::setAgcAvcCommandMailboxRuntime(AgcAvcCommandMailboxRuntime runtime) {
+    agcAvcCommandMailbox_ = std::move(runtime);
 }
 
 void MqttDriverService::start() {
@@ -1048,8 +1054,45 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         if (!request.pointCode.empty() && request.pointCode != route.pointCode) {
             throw std::invalid_argument("pointCode mismatch");
         }
-        if (!route.writable) {
+        const bool commandMailbox = route.commandMailbox;
+        if (!route.writable && !commandMailbox) {
             throw std::invalid_argument("point write is disabled");
+        }
+        if (commandMailbox) {
+            if (!agcAvcCommandMailbox_.contains(request.index)) {
+                throw std::invalid_argument("AGC/AVC command mailbox is not configured for this index");
+            }
+            if (!agcAvcCommandMailbox_.allowsSource(request.source)) {
+                throw std::invalid_argument("AGC/AVC command mailbox rejected the source or current runtime mode");
+            }
+            if (request.highPriority) {
+                throw std::invalid_argument("AGC/AVC command mailbox does not accept high-priority device writes");
+            }
+            PendingWriteCommand mailboxCommand;
+            mailboxCommand.cmdId = request.cmdId;
+            mailboxCommand.index = request.index;
+            mailboxCommand.value = request.value;
+            mailboxCommand.source = request.source;
+            mailboxCommand.ts = request.ts > 0 ? request.ts : nowMs;
+            mailboxCommand.acceptedAt = nowMs;
+            const auto submitted = router_.submitCommandMailbox(mailboxCommand);
+            if (!submitted.accepted) {
+                throw std::invalid_argument(submitted.message);
+            }
+            reply.machineCode = route.machineCode;
+            reply.meterCode = route.meterCode;
+            reply.pointCode = route.pointCode;
+            reply.value = request.value;
+            reply.success = true;
+            reply.message = submitted.message;
+            reply.stage = "mailbox-committed";
+            reply.requestedAt = mailboxCommand.ts;
+            reply.acceptedAt = nowMs;
+            reply.writeStartedAt = nowMs;
+            reply.writeCompletedAt = nowMs;
+            reply.ts = nowMs;
+            publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
+            return;
         }
         const auto activePriorityLease = priorityControlLease_.activeLease(nowMs);
         if (activePriorityLease && activePriorityLease->cmdId != request.cmdId) {

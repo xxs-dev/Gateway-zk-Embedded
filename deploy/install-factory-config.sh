@@ -720,7 +720,7 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
 fi
 
 BASE_BINS="SystemMonitor MqttDriver pointctl"
-ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine AgcAvcController EmsParityCheck SystemMonitor pointctl"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
 if [ "$PACKAGE_PROFILE" = "base" ]; then
   REQUIRED_BINS="$BASE_BINS"
@@ -888,6 +888,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
   install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
   install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
+  install_deploy_file_if_exists "agc-avc@.service" "/etc/systemd/system/agc-avc@.service"
   install_deploy_file_if_exists "local-display@.service" "/etc/systemd/system/local-display@.service"
   install_deploy_file_if_exists "local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
   install_deploy_file_if_exists "qt-display-bridge.service" "/etc/systemd/system/qt-display-bridge.service"

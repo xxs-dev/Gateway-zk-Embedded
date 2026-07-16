@@ -9,6 +9,7 @@ BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build-aarch64-cross}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 TOOLCHAIN_FILE="${TOOLCHAIN_FILE:-$ROOT_DIR/toolchains/aarch64-linux-gnu.cmake}"
 TOOLCHAIN_BIN="${TOOLCHAIN_BIN:-/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin}"
+STRIP_TOOL="${STRIP_TOOL:-aarch64-linux-gnu-strip}"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 PUBLISH=0
 PACKAGE=0
@@ -26,6 +27,8 @@ PRODUCTION_TARGETS=(
   MqttDriver
   EventEngine
   ComputeEngine
+  AgcAvcController
+  EmsParityCheck
   SystemMonitor
   LocalDisplay
   QtDisplayBridge
@@ -133,6 +136,10 @@ if ! command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
   echo "aarch64-linux-gnu-g++ not found; expected toolchain at: $TOOLCHAIN_BIN" >&2
   exit 2
 fi
+if ! command -v "$STRIP_TOOL" >/dev/null 2>&1; then
+  echo "AArch64 strip tool not found: $STRIP_TOOL" >&2
+  exit 2
+fi
 
 if [ "${#targets[@]}" -eq 0 ]; then
   targets=("${PRODUCTION_TARGETS[@]}")
@@ -163,6 +170,7 @@ if [ "$PUBLISH" = "1" ]; then
   for bin in "${PRODUCTION_TARGETS[@]}"; do
     if [ -f "$BUILD_DIR/$bin" ]; then
       cp -f "$BUILD_DIR/$bin" "$ROOT_DIR/build-aarch64/$bin"
+      "$STRIP_TOOL" --strip-unneeded "$ROOT_DIR/build-aarch64/$bin"
       chmod +x "$ROOT_DIR/build-aarch64/$bin"
     fi
   done

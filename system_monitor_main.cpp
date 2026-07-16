@@ -14,6 +14,7 @@
 #endif
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
+#include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -153,11 +154,12 @@ int main(int argc, char* argv[]) {
     if (!appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
-    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
+    auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
     std::vector<std::string> sharedMemoryNames = appConfig.mqttDriver.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);
     }
+    appendSiblingAgcAvcRuntime(appConfigPath, identity, deviceConfigs, sharedMemoryNames);
     std::unordered_set<std::string> seen(sharedMemoryNames.begin(), sharedMemoryNames.end());
     for (const auto& config : deviceConfigs) {
         const auto& name = config.memoryStore.sharedMemoryName;
@@ -170,6 +172,7 @@ int main(int argc, char* argv[]) {
         sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
     }
     edge_gateway::PointStoreRouter router;
+    router.setPowerControlOwnershipFile(appConfig.mqttDriver.powerControlOwnershipFile, "system-monitor");
     std::vector<std::unique_ptr<edge_gateway::MemoryPointStore>> stores;
     stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
@@ -197,6 +200,16 @@ int main(int argc, char* argv[]) {
     addUniquePath(configFiles, appConfigPath);
     for (const auto& appFile : discoverSiblingAppConfigFiles(appConfigPath)) {
         addUniquePath(configFiles, appFile);
+        try {
+            const auto siblingApp = ConfigLoader::loadAppConfigFromFile(appFile);
+            addUniquePath(configFiles, siblingApp.identityConfigFile);
+            for (const auto& file : siblingApp.deviceConfigFiles) {
+                addUniquePath(configFiles, file);
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "system monitor skipped sibling app dependencies "
+                      << appFile << ": " << ex.what() << std::endl;
+        }
     }
     for (const auto& file : appConfig.deviceConfigFiles) {
         addUniquePath(configFiles, file);

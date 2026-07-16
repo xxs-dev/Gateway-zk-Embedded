@@ -1,0 +1,84 @@
+{
+  "runtimeMode": "ems",
+  "identityConfigFile": "/opt/modbus-gateway/config/runtime/device_identity.json",
+  "deviceConfigFiles": [
+    "/opt/modbus-gateway/config/runtime/devices/device_agc_avc_virtual.json"
+  ],
+  "agcAvc": {
+    "enabled": false,
+    "shadowMode": true,
+    "submitWrites": false,
+    "cycleMs": 200,
+    "avcCycleMs": 500,
+    "commandTimeoutMs": 5000,
+    "inputMaxAgeMs": 1500,
+    "resumeDelayMs": 2000,
+    "writeResultTimeoutMs": 5000,
+    "maxConsecutiveWriteFailures": 3,
+    "signConvention": "positiveDischarge",
+    "reactiveSignConvention": "positiveInductive",
+    "pqPriority": "activePowerFirst",
+    "sharedMemoryNames": ["gateway_point_store", "gateway_point_store_agc_avc"],
+    "outputSharedMemoryName": "gateway_point_store_agc_avc",
+    "priorityControlLeaseFile": "/opt/modbus-gateway/run/priority-control.json",
+    "stationLimits": {
+      "ratedActivePowerKw": 100,
+      "ratedApparentPowerKva": 110,
+      "maxImportPowerKw": 100,
+      "maxExportPowerKw": 100,
+      "maxReactivePowerKvar": 60,
+      "transformerRatedKva": 125
+    },
+    "ownership": {
+      "scope": "pcs-power",
+      "leaseFile": "/opt/modbus-gateway/run/power-control-owner.json",
+      "ttlMs": 3000,
+      "heartbeatMs": 500
+    },
+    "interlocks": {},
+    "agc": {
+      "enabled": true,
+      "mode": "pccClosedLoop",
+      "deadbandKw": 1,
+      "kp": 0.2,
+      "ki": 0,
+      "integralMinKw": -100,
+      "integralMaxKw": 100,
+      "minKw": -100,
+      "maxKw": 100,
+      "riseKwPerSec": 20,
+      "fallKwPerSec": 20,
+      "frequencyDroop": {"enabled": false, "nominalHz": 50, "kwPerHz": 100, "limitKw": 20}
+    },
+    "avc": {
+      "enabled": true,
+      "defaultMode": "reactivePower",
+      "deadbandKvar": 1,
+      "voltageDeadbandV": 1,
+      "kpQ": 0.2,
+      "kiQ": 0,
+      "kpV": 1,
+      "kiV": 0,
+      "minKvar": -60,
+      "maxKvar": 60,
+      "riseKvarPerSec": 20,
+      "fallKvarPerSec": 20
+    },
+    "pcs": [],
+    "outputs": {
+      "state": {"source": "sharedVirtual", "semanticRole": "agcAvc.state", "index": 720050},
+      "ownershipState": {"source": "sharedVirtual", "semanticRole": "agcAvc.ownershipState", "index": 720060},
+      "agcEffectiveTarget": {"source": "sharedVirtual", "semanticRole": "agc.effectiveTarget", "index": 720051},
+      "agcError": {"source": "sharedVirtual", "semanticRole": "agc.error", "index": 720052},
+      "avcEffectiveTarget": {"source": "sharedVirtual", "semanticRole": "avc.effectiveTarget", "index": 720053},
+      "avcError": {"source": "sharedVirtual", "semanticRole": "avc.error", "index": 720054},
+      "availableActivePower": {"source": "sharedVirtual", "semanticRole": "agcAvc.availableActivePower", "index": 720055},
+      "availableReactivePower": {"source": "sharedVirtual", "semanticRole": "agcAvc.availableReactivePower", "index": 720056},
+      "unservedActivePower": {"source": "sharedVirtual", "semanticRole": "agcAvc.unservedActivePower", "index": 720057},
+      "unservedReactivePower": {"source": "sharedVirtual", "semanticRole": "agcAvc.unservedReactivePower", "index": 720058},
+      "lastCommandStatus": {"source": "sharedVirtual", "semanticRole": "agcAvc.lastCommandStatus", "index": 720059},
+      "lastWriteStatus": {"source": "sharedVirtual", "semanticRole": "agcAvc.lastWriteStatus", "index": 720061},
+      "consecutiveWriteFailures": {"source": "sharedVirtual", "semanticRole": "agcAvc.consecutiveWriteFailures", "index": 720062}
+    }
+  }
+}

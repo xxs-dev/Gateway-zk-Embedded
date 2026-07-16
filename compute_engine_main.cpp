@@ -147,6 +147,7 @@ int main(int argc, char* argv[]) {
     }
 
     PointStoreRouter router;
+    router.setPowerControlOwnershipFile(appConfig.mqttDriver.powerControlOwnershipFile, "compute-engine");
     std::vector<std::unique_ptr<MemoryPointStore>> stores;
     stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {

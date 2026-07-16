@@ -1733,6 +1733,11 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         "priorityControlLeaseFile",
         config.priorityControlLeaseFile
     );
+    config.powerControlOwnershipFile = requireString(
+        object,
+        "powerControlOwnershipFile",
+        config.powerControlOwnershipFile
+    );
     config.priorityControlLeaseTtlMs = boundedInt(
         requireInt(object, "priorityControlLeaseTtlMs", config.priorityControlLeaseTtlMs),
         1000,
@@ -1860,6 +1865,254 @@ ComputeRuleConfig parseComputeRuleConfig(const JsonValue& value, const ComputeEn
         }
     }
     config.script = parseComputeScriptConfig(value.find("script"));
+    return config;
+}
+
+AgcAvcPointRefConfig parseAgcAvcPointRef(
+    const JsonValue* value,
+    const std::string& defaultSource = "sharedLatest",
+    bool defaultRequired = false
+) {
+    AgcAvcPointRefConfig config;
+    config.source = defaultSource;
+    config.required = defaultRequired;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    if (value->isNumber()) {
+        config.index = static_cast<std::uint32_t>(value->asNumber());
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.source = requireString(object, "source", config.source);
+    config.semanticRole = requireString(object, "semanticRole", config.semanticRole);
+    config.machineCode = requireString(object, "machineCode", config.machineCode);
+    config.meterCode = requireString(object, "meterCode", config.meterCode);
+    config.pointCode = requireString(object, "pointCode", config.pointCode);
+    config.index = static_cast<std::uint32_t>(requireSize(object, "index", config.index));
+    config.required = requireBool(object, "required", config.required);
+    return config;
+}
+
+std::vector<AgcAvcPointRefConfig> parseAgcAvcPointRefs(
+    const JsonValue* value,
+    const std::string& defaultSource
+) {
+    std::vector<AgcAvcPointRefConfig> result;
+    if (value == nullptr || value->isNull()) {
+        return result;
+    }
+    for (const auto& item : value->asArray().values) {
+        result.push_back(parseAgcAvcPointRef(item.get(), defaultSource));
+    }
+    return result;
+}
+
+AgcAvcCapabilityValueConfig parseAgcAvcCapabilityValue(const JsonValue* value) {
+    AgcAvcCapabilityValueConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    if (value->isNumber()) {
+        config.commissionedLimit = value->asNumber();
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.commissionedLimit = requireDouble(object, "commissionedLimit", config.commissionedLimit);
+    if (const auto* sourcePoint = value->find("sourcePoint")) {
+        config.sourcePoint = parseAgcAvcPointRef(sourcePoint, "sharedLatest");
+        config.hasSourcePoint = config.sourcePoint.index != 0;
+    }
+    config.combinePolicy = requireString(object, "combinePolicy", config.combinePolicy);
+    config.stalePolicy = requireString(object, "stalePolicy", config.stalePolicy);
+    return config;
+}
+
+AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
+    AgcAvcConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.shadowMode = requireBool(object, "shadowMode", config.shadowMode);
+    config.submitWrites = requireBool(object, "submitWrites", config.submitWrites);
+    config.cycleMs = requireInt(object, "cycleMs", config.cycleMs);
+    config.avcCycleMs = requireInt(object, "avcCycleMs", config.avcCycleMs);
+    config.commandTimeoutMs = requireInt(object, "commandTimeoutMs", config.commandTimeoutMs);
+    config.inputMaxAgeMs = requireInt(object, "inputMaxAgeMs", config.inputMaxAgeMs);
+    config.resumeDelayMs = requireInt(object, "resumeDelayMs", config.resumeDelayMs);
+    config.writeResultTimeoutMs = requireInt(object, "writeResultTimeoutMs", config.writeResultTimeoutMs);
+    config.maxConsecutiveWriteFailures = requireInt(
+        object,
+        "maxConsecutiveWriteFailures",
+        config.maxConsecutiveWriteFailures
+    );
+    config.signConvention = requireString(object, "signConvention", config.signConvention);
+    config.reactiveSignConvention = requireString(object, "reactiveSignConvention", config.reactiveSignConvention);
+    config.pqPriority = requireString(object, "pqPriority", config.pqPriority);
+    config.sharedMemoryNames = parseStringArray(value->find("sharedMemoryNames"));
+    config.outputSharedMemoryName = requireString(object, "outputSharedMemoryName", config.outputSharedMemoryName);
+    config.priorityControlLeaseFile = requireString(
+        object,
+        "priorityControlLeaseFile",
+        config.priorityControlLeaseFile
+    );
+    if (const auto* stationLimits = value->find("stationLimits")) {
+        const auto& limits = stationLimits->asObject();
+        config.stationLimits.ratedActivePowerKw = requireDouble(limits, "ratedActivePowerKw", 0.0);
+        config.stationLimits.ratedApparentPowerKva = requireDouble(limits, "ratedApparentPowerKva", 0.0);
+        config.stationLimits.maxImportPowerKw = requireDouble(limits, "maxImportPowerKw", 0.0);
+        config.stationLimits.maxExportPowerKw = requireDouble(limits, "maxExportPowerKw", 0.0);
+        config.stationLimits.maxReactivePowerKvar = requireDouble(limits, "maxReactivePowerKvar", 0.0);
+        config.stationLimits.transformerRatedKva = requireDouble(limits, "transformerRatedKva", 0.0);
+    }
+
+    if (const auto* ownership = value->find("ownership")) {
+        const auto& ownershipObject = ownership->asObject();
+        config.ownership.scope = requireString(ownershipObject, "scope", config.ownership.scope);
+        config.ownership.leaseFile = requireString(ownershipObject, "leaseFile", config.ownership.leaseFile);
+        config.ownership.ttlMs = requireInt(ownershipObject, "ttlMs", config.ownership.ttlMs);
+        config.ownership.heartbeatMs = requireInt(ownershipObject, "heartbeatMs", config.ownership.heartbeatMs);
+    }
+
+    if (const auto* interlocks = value->find("interlocks")) {
+        config.interlocks.remoteEnable = parseAgcAvcPointRef(interlocks->find("remoteEnable"), "sharedLatest", true);
+        config.interlocks.emergencyStop = parseAgcAvcPointRef(interlocks->find("emergencyStop"), "sharedLatest", true);
+        config.interlocks.fireAlarm = parseAgcAvcPointRef(interlocks->find("fireAlarm"), "sharedLatest", true);
+    }
+
+    if (const auto* agc = value->find("agc")) {
+        const auto& agcObject = agc->asObject();
+        config.agc.enabled = requireBool(agcObject, "enabled", config.agc.enabled);
+        config.agc.mode = requireString(agcObject, "mode", config.agc.mode);
+        config.agc.target = parseAgcAvcPointRef(agc->find("target"), "sharedCommand", true);
+        config.agc.commandSequence = parseAgcAvcPointRef(agc->find("commandSequence"), "sharedCommand", true);
+        config.agc.commandTimestamp = parseAgcAvcPointRef(agc->find("commandTimestamp"), "sharedCommand", true);
+        config.agc.pccActivePower = parseAgcAvcPointRef(agc->find("pccActivePower"), "sharedLatest", true);
+        config.agc.frequency = parseAgcAvcPointRef(agc->find("frequency"), "sharedLatest", false);
+        config.agc.deadbandKw = requireDouble(agcObject, "deadbandKw", config.agc.deadbandKw);
+        config.agc.kp = requireDouble(agcObject, "kp", config.agc.kp);
+        config.agc.ki = requireDouble(agcObject, "ki", config.agc.ki);
+        config.agc.integralMinKw = requireDouble(agcObject, "integralMinKw", config.agc.integralMinKw);
+        config.agc.integralMaxKw = requireDouble(agcObject, "integralMaxKw", config.agc.integralMaxKw);
+        config.agc.minKw = requireDouble(agcObject, "minKw", config.agc.minKw);
+        config.agc.maxKw = requireDouble(agcObject, "maxKw", config.agc.maxKw);
+        config.agc.riseKwPerSec = requireDouble(agcObject, "riseKwPerSec", config.agc.riseKwPerSec);
+        config.agc.fallKwPerSec = requireDouble(agcObject, "fallKwPerSec", config.agc.fallKwPerSec);
+        if (const auto* droop = agc->find("frequencyDroop")) {
+            const auto& droopObject = droop->asObject();
+            config.agc.frequencyDroopEnabled = requireBool(droopObject, "enabled", false);
+            config.agc.nominalHz = requireDouble(droopObject, "nominalHz", config.agc.nominalHz);
+            config.agc.kwPerHz = requireDouble(droopObject, "kwPerHz", config.agc.kwPerHz);
+            config.agc.droopLimitKw = requireDouble(droopObject, "limitKw", config.agc.droopLimitKw);
+        }
+    }
+
+    if (const auto* avc = value->find("avc")) {
+        const auto& avcObject = avc->asObject();
+        config.avc.enabled = requireBool(avcObject, "enabled", config.avc.enabled);
+        config.avc.defaultMode = requireString(avcObject, "defaultMode", config.avc.defaultMode);
+        config.avc.mode = parseAgcAvcPointRef(avc->find("mode"), "sharedCommand", false);
+        config.avc.targetQ = parseAgcAvcPointRef(avc->find("targetQ"), "sharedCommand", false);
+        config.avc.targetVoltage = parseAgcAvcPointRef(avc->find("targetVoltage"), "sharedCommand", false);
+        config.avc.targetPowerFactor = parseAgcAvcPointRef(avc->find("targetPowerFactor"), "sharedCommand", false);
+        config.avc.pccReactivePower = parseAgcAvcPointRef(avc->find("pccReactivePower"), "sharedLatest", true);
+        config.avc.pccVoltage = parseAgcAvcPointRef(avc->find("pccVoltage"), "sharedLatest", false);
+        config.avc.pccPowerFactor = parseAgcAvcPointRef(avc->find("pccPowerFactor"), "sharedLatest", false);
+        config.avc.deadbandKvar = requireDouble(avcObject, "deadbandKvar", config.avc.deadbandKvar);
+        config.avc.voltageDeadbandV = requireDouble(avcObject, "voltageDeadbandV", config.avc.voltageDeadbandV);
+        config.avc.kpQ = requireDouble(avcObject, "kpQ", config.avc.kpQ);
+        config.avc.kiQ = requireDouble(avcObject, "kiQ", config.avc.kiQ);
+        config.avc.integralMinKvar = requireDouble(avcObject, "integralMinKvar", config.avc.integralMinKvar);
+        config.avc.integralMaxKvar = requireDouble(avcObject, "integralMaxKvar", config.avc.integralMaxKvar);
+        config.avc.kpV = requireDouble(avcObject, "kpV", config.avc.kpV);
+        config.avc.kiV = requireDouble(avcObject, "kiV", config.avc.kiV);
+        config.avc.minKvar = requireDouble(avcObject, "minKvar", config.avc.minKvar);
+        config.avc.maxKvar = requireDouble(avcObject, "maxKvar", config.avc.maxKvar);
+        config.avc.riseKvarPerSec = requireDouble(avcObject, "riseKvarPerSec", config.avc.riseKvarPerSec);
+        config.avc.fallKvarPerSec = requireDouble(avcObject, "fallKvarPerSec", config.avc.fallKvarPerSec);
+    }
+
+    if (const auto* pcsValues = value->find("pcs")) {
+        for (const auto& item : pcsValues->asArray().values) {
+            const auto& pcsObject = item->asObject();
+            AgcAvcPcsConfig pcs;
+            pcs.machineCode = requireString(pcsObject, "machineCode", pcs.machineCode);
+            pcs.meterCode = requireString(pcsObject, "meterCode", pcs.meterCode);
+            pcs.enabled = requireBool(pcsObject, "enabled", pcs.enabled);
+            pcs.deviceType = requireString(pcsObject, "deviceType", pcs.deviceType);
+            pcs.weight = requireDouble(pcsObject, "weight", pcs.weight);
+            pcs.capacityScope = requireString(pcsObject, "capacityScope", pcs.capacityScope);
+            pcs.ratedActivePowerKw = parseAgcAvcCapabilityValue(item->find("ratedActivePowerKw"));
+            pcs.ratedApparentPowerKva = parseAgcAvcCapabilityValue(item->find("ratedApparentPowerKva"));
+            pcs.ratedReactivePowerKvar = requireDouble(pcsObject, "ratedReactivePowerKvar", pcs.ratedReactivePowerKvar);
+            pcs.maxChargePowerKw = requireDouble(pcsObject, "maxChargePowerKw", pcs.maxChargePowerKw);
+            pcs.maxDischargePowerKw = requireDouble(pcsObject, "maxDischargePowerKw", pcs.maxDischargePowerKw);
+            pcs.minStableChargePowerKw = requireDouble(pcsObject, "minStableChargePowerKw", pcs.minStableChargePowerKw);
+            pcs.minStableDischargePowerKw = requireDouble(pcsObject, "minStableDischargePowerKw", pcs.minStableDischargePowerKw);
+            pcs.socDischargeStopPercent = requireDouble(pcsObject, "socDischargeStopPercent", pcs.socDischargeStopPercent);
+            pcs.socDischargeDeratePercent = requireDouble(pcsObject, "socDischargeDeratePercent", pcs.socDischargeDeratePercent);
+            pcs.socChargeDeratePercent = requireDouble(pcsObject, "socChargeDeratePercent", pcs.socChargeDeratePercent);
+            pcs.socChargeStopPercent = requireDouble(pcsObject, "socChargeStopPercent", pcs.socChargeStopPercent);
+            pcs.temperatureDerateStartC = requireDouble(pcsObject, "temperatureDerateStartC", pcs.temperatureDerateStartC);
+            pcs.temperatureStopC = requireDouble(pcsObject, "temperatureStopC", pcs.temperatureStopC);
+            pcs.currentDerateStartPercent = requireDouble(pcsObject, "currentDerateStartPercent", pcs.currentDerateStartPercent);
+            pcs.currentStopPercent = requireDouble(pcsObject, "currentStopPercent", pcs.currentStopPercent);
+            pcs.ratedAcVoltageV = requireDouble(pcsObject, "ratedAcVoltageV", pcs.ratedAcVoltageV);
+            pcs.ratedAcCurrentA = requireDouble(pcsObject, "ratedAcCurrentA", pcs.ratedAcCurrentA);
+            pcs.phaseCount = requireInt(pcsObject, "phaseCount", pcs.phaseCount);
+            pcs.setpointType = requireString(pcsObject, "setpointType", pcs.setpointType);
+            pcs.riseKwPerSec = requireDouble(pcsObject, "riseKwPerSec", pcs.riseKwPerSec);
+            pcs.fallKwPerSec = requireDouble(pcsObject, "fallKwPerSec", pcs.fallKwPerSec);
+            pcs.riseKvarPerSec = requireDouble(pcsObject, "riseKvarPerSec", pcs.riseKvarPerSec);
+            pcs.fallKvarPerSec = requireDouble(pcsObject, "fallKvarPerSec", pcs.fallKvarPerSec);
+            pcs.fallbackToStaticLimit = requireBool(pcsObject, "fallbackToStaticLimit", pcs.fallbackToStaticLimit);
+            pcs.writeDeadbandKw = requireDouble(pcsObject, "writeDeadbandKw", pcs.writeDeadbandKw);
+            pcs.writeDeadbandKvar = requireDouble(pcsObject, "writeDeadbandKvar", pcs.writeDeadbandKvar);
+            pcs.minWriteIntervalMs = requireInt(pcsObject, "minWriteIntervalMs", pcs.minWriteIntervalMs);
+            pcs.feedbackTimeoutMs = requireInt(pcsObject, "feedbackTimeoutMs", pcs.feedbackTimeoutMs);
+            pcs.feedbackToleranceKw = requireDouble(pcsObject, "feedbackToleranceKw", pcs.feedbackToleranceKw);
+            pcs.feedbackToleranceKvar = requireDouble(pcsObject, "feedbackToleranceKvar", pcs.feedbackToleranceKvar);
+            if (const auto* points = item->find("points")) {
+                pcs.points.online = parseAgcAvcPointRef(points->find("online"), "sharedLatest", true);
+                pcs.points.ready = parseAgcAvcPointRef(points->find("ready"), "sharedLatest", true);
+                pcs.points.soc = parseAgcAvcPointRef(points->find("soc"), "sharedLatest", pcs.deviceType != "gridTieInverter");
+                pcs.points.actualP = parseAgcAvcPointRef(points->find("actualP"), "sharedLatest", true);
+                pcs.points.actualQ = parseAgcAvcPointRef(points->find("actualQ"), "sharedLatest", true);
+                pcs.points.chargeAllowed = parseAgcAvcPointRef(points->find("chargeAllowed"), "sharedLatest", pcs.deviceType != "gridTieInverter");
+                pcs.points.dischargeAllowed = parseAgcAvcPointRef(points->find("dischargeAllowed"), "sharedLatest", pcs.deviceType != "gridTieInverter");
+                pcs.points.availableChargeKw = parseAgcAvcPointRef(points->find("availableChargeKw"), "sharedLatest", false);
+                pcs.points.availableDischargeKw = parseAgcAvcPointRef(points->find("availableDischargeKw"), "sharedLatest", false);
+                pcs.points.dynamicReactiveLimitKvar = parseAgcAvcPointRef(points->find("dynamicReactiveLimitKvar"), "sharedLatest", false);
+                pcs.points.temperature = parseAgcAvcPointRef(points->find("temperature"), "sharedLatest", false);
+                pcs.points.acVoltage = parseAgcAvcPointRefs(points->find("acVoltage"), "sharedLatest");
+                pcs.points.acCurrent = parseAgcAvcPointRefs(points->find("acCurrent"), "sharedLatest");
+                pcs.points.activeTargets = parseAgcAvcPointRefs(points->find("activeTargets"), "sharedWriteback");
+                pcs.points.reactiveTargets = parseAgcAvcPointRefs(points->find("reactiveTargets"), "sharedWriteback");
+            }
+            config.pcs.push_back(std::move(pcs));
+        }
+    }
+
+    if (const auto* outputs = value->find("outputs")) {
+        config.outputs.state = parseAgcAvcPointRef(outputs->find("state"), "sharedVirtual");
+        config.outputs.ownershipState = parseAgcAvcPointRef(outputs->find("ownershipState"), "sharedVirtual");
+        config.outputs.agcEffectiveTarget = parseAgcAvcPointRef(outputs->find("agcEffectiveTarget"), "sharedVirtual");
+        config.outputs.agcError = parseAgcAvcPointRef(outputs->find("agcError"), "sharedVirtual");
+        config.outputs.avcEffectiveTarget = parseAgcAvcPointRef(outputs->find("avcEffectiveTarget"), "sharedVirtual");
+        config.outputs.avcError = parseAgcAvcPointRef(outputs->find("avcError"), "sharedVirtual");
+        config.outputs.availableActivePower = parseAgcAvcPointRef(outputs->find("availableActivePower"), "sharedVirtual");
+        config.outputs.availableReactivePower = parseAgcAvcPointRef(outputs->find("availableReactivePower"), "sharedVirtual");
+        config.outputs.unservedActivePower = parseAgcAvcPointRef(outputs->find("unservedActivePower"), "sharedVirtual");
+        config.outputs.unservedReactivePower = parseAgcAvcPointRef(outputs->find("unservedReactivePower"), "sharedVirtual");
+        config.outputs.lastCommandStatus = parseAgcAvcPointRef(outputs->find("lastCommandStatus"), "sharedVirtual");
+        config.outputs.lastWriteStatus = parseAgcAvcPointRef(outputs->find("lastWriteStatus"), "sharedVirtual");
+        config.outputs.consecutiveWriteFailures = parseAgcAvcPointRef(
+            outputs->find("consecutiveWriteFailures"),
+            "sharedVirtual"
+        );
+    }
     return config;
 }
 
@@ -2774,6 +3027,7 @@ AppConfig parseAppConfig(const std::string& text) {
     config.alarmStore = parseAlarmStoreConfig(root.find("alarmStore"));
     config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
     config.computeEngine = parseComputeEngineConfig(root.find("computeEngine"));
+    config.agcAvc = parseAgcAvcConfig(root.find("agcAvc"));
     config.ota = parseOtaConfig(root.find("ota"));
     config.realtime = parseRealtimeConfig(root.find("realtime"));
     config.systemMonitor = parseSystemMonitorConfig(root.find("systemMonitor"));

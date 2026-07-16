@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectMode": "ems",
+  "runtimeMode": "ems",
+  "deviceType": "agc_avc",
+  "deviceCode": "AGC_AVC_CORE",
+  "deviceName": "AGC/AVC 控制器",
+  "protocol": {"type": "agc_avc_virtual"},
+  "collect": {"defaultIntervalMs": 200, "batchOptimize": false, "maxBatchRegisters": 1},
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_point_store_agc_avc",
+    "maxLatestPoints": 1000,
+    "maxPendingWrites": 256,
+    "maxPersistentSamples": 2000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_agc_avc.db",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 200,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "AGC_AVC_CORE",
+      "deviceCode": "AGC_AVC_CORE",
+      "deviceType": "agc_avc",
+      "deviceName": "AGC/AVC 控制器",
+      "enabled": true,
+      "points": [
+        {"index": 720010, "pointCode": "agc_dispatch_p", "name": "AGC 调度有功目标", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kW", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720011, "pointCode": "agc_command_sequence", "name": "AGC 指令序号", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "uint64", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720012, "pointCode": "agc_command_timestamp", "name": "AGC 指令时间", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "uint64", "unit": "ms", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720020, "pointCode": "avc_mode", "name": "AVC 控制模式", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "valueMap": {"0": "无功", "1": "电压", "2": "功率因数"}, "read": {"enable": false, "dataType": "uint16", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720021, "pointCode": "avc_dispatch_q", "name": "AVC 调度无功目标", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kvar", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720022, "pointCode": "avc_dispatch_voltage", "name": "AVC 调度电压目标", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "V", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720023, "pointCode": "avc_dispatch_pf", "name": "AVC 调度功率因数目标", "category": "command", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "cachePolicy": {"storeLatest": true, "ttlMs": 600000}}, "write": {"enable": false}},
+        {"index": 720050, "pointCode": "agc_avc_state", "name": "AGC/AVC 运行状态", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "valueMap": {"0": "停用", "1": "待机", "2": "运行", "3": "降级", "4": "高优先级暂停", "5": "平滑归零", "6": "故障保护"}, "read": {"enable": false, "dataType": "uint16", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720051, "pointCode": "agc_effective_target", "name": "AGC 有效有功目标", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kW", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720052, "pointCode": "agc_error", "name": "AGC 有功误差", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kW", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720053, "pointCode": "avc_effective_target", "name": "AVC 有效无功目标", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kvar", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720054, "pointCode": "avc_error", "name": "AVC 控制误差", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720055, "pointCode": "available_active_power", "name": "当前可用有功能力", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kW", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720056, "pointCode": "available_reactive_power", "name": "当前可用无功能力", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kvar", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720057, "pointCode": "unserved_active_power", "name": "未满足有功目标", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kW", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720058, "pointCode": "unserved_reactive_power", "name": "未满足无功目标", "category": "computed", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "float64", "unit": "kvar", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720059, "pointCode": "last_command_status", "name": "最近调度指令状态", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "uint16", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720060, "pointCode": "power_control_ownership", "name": "功率控制权状态", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "uint16", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720061, "pointCode": "last_write_status", "name": "最近写回状态", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "valueMap": {"-1": "失败", "0": "无结果", "1": "成功"}, "read": {"enable": false, "dataType": "int16", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}},
+        {"index": 720062, "pointCode": "consecutive_write_failures", "name": "连续写回失败次数", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": false, "dataType": "uint16", "cachePolicy": {"storeLatest": true, "ttlMs": 2000}}, "write": {"enable": false}}
+      ]
+    }
+  ]
+}

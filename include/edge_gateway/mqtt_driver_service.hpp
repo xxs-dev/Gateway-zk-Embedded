@@ -15,6 +15,7 @@
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
+#include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -49,6 +50,7 @@ public:
 
     void start();
     void stop();
+    void setAgcAvcCommandMailboxRuntime(AgcAvcCommandMailboxRuntime runtime);
     bool isRunning() const;
 
     void runScanOnce(std::int64_t nowMs);
@@ -62,6 +64,7 @@ private:
         std::string meterCode;
         std::string pointCode;
         bool writable = false;
+        bool commandMailbox = false;
     };
     struct RealtimeSession {
         std::string machineCode;
@@ -131,6 +134,7 @@ private:
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
     std::unordered_map<std::string, std::int64_t> recentCommandIds_;
+    AgcAvcCommandMailboxRuntime agcAvcCommandMailbox_;
     std::atomic<bool> running_{false};
     std::atomic<bool> otaInProgress_{false};
     std::mutex otaMutex_;

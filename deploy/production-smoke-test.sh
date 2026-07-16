@@ -177,7 +177,7 @@ runtime_package_profile() {
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
   base_bins="SystemMonitor MqttDriver pointctl"
-  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine AgcAvcController EmsParityCheck SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
   case "$profile" in
     base)
       printf '%s\n' $base_bins | unique_lines
@@ -644,6 +644,7 @@ check_services() {
       'dio-driver@*.service' \
       'can-driver@*.service' \
       'compute-engine@*.service' \
+      'agc-avc@*.service' \
       'event-engine@*.service' \
       'local-display@*.service' \
       'local-display-qt@*.service' \
@@ -660,6 +661,7 @@ check_services() {
       'dio-driver@*.service' \
       'can-driver@*.service' \
       'compute-engine@*.service' \
+      'agc-avc@*.service' \
       'event-engine@*.service' \
       'local-display@*.service' \
       'local-display-qt@*.service' \

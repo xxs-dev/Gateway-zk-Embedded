@@ -132,6 +132,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
                     route.interfaceType = interfaceType;
                     route.sharedMemoryName = sharedMemoryName;
                     route.writable = point.write.enable;
+                    route.commandMailbox = config.protocol.type == "agc_avc_virtual" && point.category == "command";
                     route.fullUpload = point.fullUpload;
                     route.reportOnChange = point.reportOnChange;
                     route.isStore = point.isStore;
@@ -155,6 +156,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
             route.interfaceType = interfaceType;
             route.sharedMemoryName = sharedMemoryName;
             route.writable = point.write.enable;
+            route.commandMailbox = config.protocol.type == "agc_avc_virtual" && point.category == "command";
             route.fullUpload = point.fullUpload;
             route.reportOnChange = point.reportOnChange;
             route.isStore = point.isStore;
@@ -325,6 +327,12 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteComma
         return result;
     }
     result.route = *route;
+    const auto commandTime = command.ts > 0 ? command.ts : command.acceptedAt;
+    if (!command.highPriority && powerControlOwnership_ &&
+        powerControlOwnership_->isBlocked(command.index, command.source, commandTime)) {
+        result.message = "power control target is owned by another controller";
+        return result;
+    }
     if (!route->writable) {
         result.message = "point write is disabled";
         return result;
@@ -342,6 +350,45 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteComma
     }
     result.accepted = true;
     result.message = "write command routed";
+    return result;
+}
+
+CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCommand& command) {
+    CommandSubmitResult result;
+    const auto route = routeByIndex(command.index);
+    if (!route) {
+        result.message = "command mailbox index not found";
+        return result;
+    }
+    result.route = *route;
+    if (!route->commandMailbox) {
+        result.message = "target is not an AGC/AVC command mailbox point";
+        return result;
+    }
+    auto* store = storeForRoute(*route);
+    if (store == nullptr) {
+        result.message = "target shared memory not found: " + route->sharedMemoryName;
+        return result;
+    }
+    PointValue value;
+    value.index = route->index;
+    value.machineCode = route->machineCode;
+    value.meterCode = route->meterCode;
+    value.pointCode = route->pointCode;
+    value.category = "command";
+    value.value = command.value;
+    value.quality = 1;
+    value.qualityMsg = command.source.empty() ? "command-mailbox" : command.source;
+    value.ts = command.ts > 0 ? command.ts : command.acceptedAt;
+    value.expireAt = value.ts + 600000;
+    try {
+        store->putLatest(value);
+    } catch (const std::exception& ex) {
+        result.message = ex.what();
+        return result;
+    }
+    result.accepted = true;
+    result.message = "command mailbox value committed";
     return result;
 }
 
@@ -443,6 +490,10 @@ void PointStoreRouter::addRoute(const PointStoreRoute& route) {
             " incoming=" + route.machineCode + "/" + route.meterCode + "/" + route.pointCode
         );
     }
+}
+
+void PointStoreRouter::setPowerControlOwnershipFile(const std::string& path, const std::string& owner) {
+    powerControlOwnership_.reset(path.empty() ? nullptr : new PowerControlOwnership(path, owner));
 }
 
 MemoryPointStore* PointStoreRouter::storeForRoute(const PointStoreRoute& route) const {

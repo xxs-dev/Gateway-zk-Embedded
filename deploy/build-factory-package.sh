@@ -136,6 +136,7 @@ rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR/gateway-factory-defaults/config"
 
 cp -a "$ROOT_DIR/config/factory" "$TMP_DIR/gateway-factory-defaults/config/factory"
+rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/apps/direct-agent.json"
 if [ -d "$ROOT_DIR/config/templates" ]; then
   cp -a "$ROOT_DIR/config/templates" "$TMP_DIR/gateway-factory-defaults/config/templates"
 fi
@@ -148,13 +149,15 @@ fi
 if [ -d "$ROOT_DIR/deploy" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/deploy"
   for file in "$ROOT_DIR/deploy"/*; do
-    [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$(basename "$file")"
+    name=$(basename "$file")
+    [ "$name" = "direct-agent@.service" ] && continue
+    [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
   done
 fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver pointctl"
-  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
+  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine AgcAvcController EmsParityCheck SystemMonitor pointctl"
   OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then

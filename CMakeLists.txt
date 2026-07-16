@@ -9,6 +9,9 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 option(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS "Enable function/data section GC for smaller edge binaries" ON)
 
 add_library(edge_gateway
+    src/agc_avc_controller.cpp
+    src/agc_avc_command_mailbox.cpp
+    src/agc_avc_service.cpp
     src/alarm_service.cpp
     src/can_driver_service.cpp
     src/can_signal_codec.cpp
@@ -46,6 +49,7 @@ add_library(edge_gateway
     src/modbus_codec.cpp
     src/posix_serial_port.cpp
     src/point_store_router.cpp
+    src/power_control_ownership.cpp
     src/priority_control_lease.cpp
     src/read_task_planner.cpp
     src/sqlite_sample_writer.cpp
@@ -100,6 +104,10 @@ target_compile_options(EventEngine PRIVATE -fdiagnostics-color=never)
 add_executable(ComputeEngine compute_engine_main.cpp)
 target_link_libraries(ComputeEngine PRIVATE edge_gateway)
 target_compile_options(ComputeEngine PRIVATE -fdiagnostics-color=never)
+
+add_executable(AgcAvcController agc_avc_main.cpp)
+target_link_libraries(AgcAvcController PRIVATE edge_gateway)
+target_compile_options(AgcAvcController PRIVATE -fdiagnostics-color=never)
 
 add_executable(SystemMonitor system_monitor_main.cpp system_monitor_direct_maintenance.cpp)
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)
@@ -168,6 +176,10 @@ target_compile_options(gateway_daemon_realtime_priority_test PRIVATE -fdiagnosti
 add_executable(priority_control_lease_test tools/priority_control_lease_test.cpp)
 target_link_libraries(priority_control_lease_test PRIVATE edge_gateway)
 target_compile_options(priority_control_lease_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(agc_avc_controller_test tools/agc_avc_controller_test.cpp)
+target_link_libraries(agc_avc_controller_test PRIVATE edge_gateway)
+target_compile_options(agc_avc_controller_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(modbus_rtu_client_resync_test tools/modbus_rtu_client_resync_test.cpp)
 target_link_libraries(modbus_rtu_client_resync_test PRIVATE edge_gateway)

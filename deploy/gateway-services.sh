@@ -7,6 +7,7 @@ APP_DIR="$BASE_DIR/config/runtime/apps"
 MQTT_APP_NAME="${MQTT_APP_NAME:-mqtt-service}"
 MONITOR_APP_NAME="${MONITOR_APP_NAME:-monitor-service}"
 CAMERA_APP_NAME="${CAMERA_APP_NAME:-camera-service}"
+AGC_AVC_APP_NAME="${AGC_AVC_APP_NAME:-agc-avc-service}"
 
 stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
@@ -21,6 +22,7 @@ stop_units() {
         'can-driver@*.service' \
         'iec-driver@*.service' \
         'compute-engine@*.service' \
+        'agc-avc@*.service' \
         'event-engine@*.service' \
         'local-display@*.service' \
         'local-display-qt@*.service' \
@@ -39,6 +41,7 @@ stop_units() {
         'can-driver@*.service' \
         'iec-driver@*.service' \
         'compute-engine@*.service' \
+        'agc-avc@*.service' \
         'event-engine@*.service' \
         'local-display@*.service' \
         'local-display-qt@*.service' \
@@ -64,7 +67,7 @@ stop_units() {
 }
 
 desired_units() {
-  python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" "$CAMERA_APP_NAME" <<'PY'
+  python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" "$CAMERA_APP_NAME" "$AGC_AVC_APP_NAME" <<'PY'
 import json
 import glob
 import os
@@ -72,7 +75,7 @@ import subprocess
 import sys
 from urllib.parse import urlparse
 
-device_dir, app_dir, mqtt_app_name, monitor_app_name, camera_app_name = sys.argv[1:6]
+device_dir, app_dir, mqtt_app_name, monitor_app_name, camera_app_name, agc_avc_app_name = sys.argv[1:7]
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(device_dir)))
 emitted_units = set()
 stunnel_units_by_endpoint = {}
@@ -413,6 +416,17 @@ camera_path = app_path(camera_app_name)
 if os.path.isfile(camera_path) and camera_service_enabled(camera_path):
     emit_unit(stunnel_unit_for_app(camera_path))
     emit_unit(f"camera-service@{camera_app_name}.service")
+
+agc_avc_path = app_path(agc_avc_app_name)
+if os.path.isfile(agc_avc_path):
+    try:
+        with open(agc_avc_path, "r", encoding="utf-8") as fh:
+            app = json.load(fh)
+        agc_avc_enabled = bool_value((app.get("agcAvc", {}) or {}).get("enabled"), False)
+    except Exception:
+        agc_avc_enabled = False
+    if agc_avc_enabled:
+        emit_unit(f"agc-avc@{os.path.splitext(os.path.basename(agc_avc_path))[0]}.service")
 
 PY
 }

@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
@@ -623,6 +624,7 @@ struct RealtimeContext {
     std::vector<edge_gateway::DeviceConfig> deviceConfigs;
     std::vector<std::unique_ptr<edge_gateway::MemoryPointStore>> stores;
     edge_gateway::PointStoreRouter router;
+    edge_gateway::AgcAvcCommandMailboxRuntime agcAvcCommandMailbox;
 };
 
 edge_gateway::Optional<edge_gateway::WritebackResultRecord> waitForWritebackResult(
@@ -667,6 +669,10 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
     using namespace edge_gateway;
     std::unique_ptr<RealtimeContext> context(new RealtimeContext());
     context->appConfig = ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
+    context->router.setPowerControlOwnershipFile(
+        context->appConfig.mqttDriver.powerControlOwnershipFile,
+        "system-monitor"
+    );
 
     edge_gateway::DeviceIdentity identity;
     if (!context->appConfig.identityConfigFile.empty()) {
@@ -678,6 +684,12 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
     if (sharedMemoryNames.empty() && !context->appConfig.mqttDriver.sharedMemoryName.empty()) {
         sharedMemoryNames.push_back(context->appConfig.mqttDriver.sharedMemoryName);
     }
+    context->agcAvcCommandMailbox = appendSiblingAgcAvcRuntime(
+        config.appConfigFile,
+        identity,
+        context->deviceConfigs,
+        sharedMemoryNames
+    );
     std::unordered_set<std::string> seen(sharedMemoryNames.begin(), sharedMemoryNames.end());
     for (const auto& deviceConfig : context->deviceConfigs) {
         const auto& name = deviceConfig.memoryStore.sharedMemoryName;
@@ -930,6 +942,15 @@ void collectConfigFilesFromAppConfig(std::vector<std::string>& files, const std:
     addUniquePath(files, appConfigPath);
     for (const auto& sibling : discoverSiblingAppConfigFiles(appConfigPath)) {
         addUniquePath(files, sibling);
+        try {
+            const auto siblingApp = edge_gateway::ConfigLoader::loadAppConfigFromFile(sibling);
+            addUniquePath(files, siblingApp.identityConfigFile);
+            for (const auto& file : siblingApp.deviceConfigFiles) {
+                addUniquePath(files, file);
+            }
+        } catch (...) {
+            // A malformed unrelated sibling must not block export of the active project.
+        }
     }
 
     const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(appConfigPath);
@@ -2000,21 +2021,6 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
             if (!item.pointCode.empty() && item.pointCode != route->pointCode) {
                 throw std::runtime_error("pointCode mismatch");
             }
-            const auto activePriorityLease = priorityLease.activeLease(nowMs());
-            if (activePriorityLease && activePriorityLease->cmdId != item.cmdId) {
-                throw std::runtime_error("priority control in progress");
-            }
-
-            if (item.highPriority) {
-                priorityLease.acquire(
-                    item.cmdId,
-                    route->meterCode,
-                    item.index,
-                    nowMs(),
-                    context->appConfig.mqttDriver.priorityControlLeaseTtlMs
-                );
-            }
-
             edge_gateway::PendingWriteCommand command;
             command.cmdId = item.cmdId;
             command.index = item.index;
@@ -2024,32 +2030,69 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
             command.acceptedAt = nowMs();
             command.highPriority = item.highPriority;
             acceptedAt = command.acceptedAt;
-            const auto submitResult = context->router.submitWriteCommand(command);
-            if (!submitResult.accepted) {
-                if (item.highPriority) {
-                    priorityLease.release(item.cmdId);
+            if (route->commandMailbox) {
+                if (!context->agcAvcCommandMailbox.contains(item.index)) {
+                    throw std::runtime_error("AGC/AVC command mailbox is not configured for this index");
                 }
-                throw std::runtime_error(submitResult.message);
-            }
-
-            route = submitResult.route;
-            writeback = waitForWritebackResult(
-                context->router,
-                *route,
-                item.cmdId,
-                context->appConfig.mqttDriver.controlResultWaitTimeoutMs
-            );
-            if (writeback) {
-                success = writeback->success;
-                message = writeback->message.empty() ? (success ? "ok" : "writeback failed") : writeback->message;
-                stage = writeback->stage;
-                writeback->highPriority = item.highPriority;
-                itemTs = writeback->completedAt > 0 ? writeback->completedAt : nowMs();
-            } else {
+                if (command.source.find("agc-avc-shadow-test") == std::string::npos) {
+                    throw std::runtime_error("direct maintenance only permits AGC/AVC shadow-test command injection");
+                }
+                if (!context->agcAvcCommandMailbox.allowsSource(command.source)) {
+                    throw std::runtime_error("AGC/AVC command mailbox rejected the source or current runtime mode");
+                }
+                if (item.highPriority) {
+                    throw std::runtime_error("AGC/AVC command mailbox does not accept high-priority device writes");
+                }
+                const auto submitResult = context->router.submitCommandMailbox(command);
+                if (!submitResult.accepted) {
+                    throw std::runtime_error(submitResult.message);
+                }
+                route = submitResult.route;
+                success = true;
+                message = submitResult.message;
+                stage = "mailbox-committed";
                 itemTs = nowMs();
-                success = false;
-                message = "writeback result timeout";
-                stage = "writeback-timeout";
+            } else {
+                const auto activePriorityLease = priorityLease.activeLease(nowMs());
+                if (activePriorityLease && activePriorityLease->cmdId != item.cmdId) {
+                    throw std::runtime_error("priority control in progress");
+                }
+                if (item.highPriority) {
+                    priorityLease.acquire(
+                        item.cmdId,
+                        route->meterCode,
+                        item.index,
+                        nowMs(),
+                        context->appConfig.mqttDriver.priorityControlLeaseTtlMs
+                    );
+                }
+                const auto submitResult = context->router.submitWriteCommand(command);
+                if (!submitResult.accepted) {
+                    if (item.highPriority) {
+                        priorityLease.release(item.cmdId);
+                    }
+                    throw std::runtime_error(submitResult.message);
+                }
+
+                route = submitResult.route;
+                writeback = waitForWritebackResult(
+                    context->router,
+                    *route,
+                    item.cmdId,
+                    context->appConfig.mqttDriver.controlResultWaitTimeoutMs
+                );
+                if (writeback) {
+                    success = writeback->success;
+                    message = writeback->message.empty() ? (success ? "ok" : "writeback failed") : writeback->message;
+                    stage = writeback->stage;
+                    writeback->highPriority = item.highPriority;
+                    itemTs = writeback->completedAt > 0 ? writeback->completedAt : nowMs();
+                } else {
+                    itemTs = nowMs();
+                    success = false;
+                    message = "writeback result timeout";
+                    stage = "writeback-timeout";
+                }
             }
             if (success) {
                 ++accepted;

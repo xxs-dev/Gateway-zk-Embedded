@@ -12,6 +12,7 @@
 #endif
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
+#include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
@@ -234,7 +235,14 @@ int main(int argc, char* argv[]) {
     if (!appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
-    const auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
+    auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
+    std::vector<std::string> agcAvcSharedMemoryNames;
+    const auto agcAvcCommandMailbox = appendSiblingAgcAvcRuntime(
+        appConfigPath,
+        identity,
+        deviceConfigs,
+        agcAvcSharedMemoryNames
+    );
     std::string topicMachineCode = identity.machineCode;
     for (const auto& config : deviceConfigs) {
         if (config.machineCode.empty()) {
@@ -255,6 +263,11 @@ int main(int argc, char* argv[]) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);
     }
     std::unordered_set<std::string> seenSharedMemoryNames(sharedMemoryNames.begin(), sharedMemoryNames.end());
+    for (const auto& name : agcAvcSharedMemoryNames) {
+        if (!name.empty() && seenSharedMemoryNames.insert(name).second) {
+            sharedMemoryNames.push_back(name);
+        }
+    }
     for (const auto& config : deviceConfigs) {
         const auto& name = config.memoryStore.sharedMemoryName;
         if (!name.empty() && seenSharedMemoryNames.insert(name).second) {
@@ -280,6 +293,7 @@ int main(int argc, char* argv[]) {
         addCameraStatusIndex(camera.statusPointIndexes.errorCode);
     }
     PointStoreRouter router;
+    router.setPowerControlOwnershipFile(appConfig.mqttDriver.powerControlOwnershipFile, "mqtt-driver");
     std::vector<std::unique_ptr<MemoryPointStore>> stores;
     stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
@@ -311,6 +325,7 @@ int main(int argc, char* argv[]) {
         std::move(eventOutbox),
         std::move(otaService)
     );
+    service.setAgcAvcCommandMailboxRuntime(agcAvcCommandMailbox);
 
     if (once) {
         service.publishOnDemandNow(pullIndexes, nowMs());

@@ -9,6 +9,7 @@
 #include "edge_gateway/compat.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/power_control_ownership.hpp"
 
 namespace edge_gateway {
 
@@ -24,6 +25,7 @@ struct PointStoreRoute {
     std::string driverService;
     bool derived = false;
     bool writable = false;
+    bool commandMailbox = false;
     bool fullUpload = false;
     bool reportOnChange = false;
     bool isStore = false;
@@ -49,6 +51,7 @@ public:
         const std::string& machineCode
     );
     void addRoute(const PointStoreRoute& route);
+    void setPowerControlOwnershipFile(const std::string& path, const std::string& owner);
 
     Optional<PointStoreRoute> routeByIndex(std::uint32_t index) const;
     const std::unordered_map<std::uint32_t, PointStoreRoute>& routes() const;
@@ -71,6 +74,7 @@ public:
     ) const;
 
     CommandSubmitResult submitWriteCommand(const PendingWriteCommand& command);
+    CommandSubmitResult submitCommandMailbox(const PendingWriteCommand& command);
     CommandSubmitResult putLatestByIndex(PointValue value);
     std::vector<PendingWriteCommand> peekPendingWrites(std::size_t limit = 0) const;
     Optional<WritebackResultRecord> getWritebackResult(const PointStoreRoute& route, const std::string& cmdId) const;
@@ -92,6 +96,7 @@ private:
     std::unordered_map<std::string, MemoryPointStore*> stores_;
     std::unordered_map<std::uint32_t, PointStoreRoute> routes_;
     std::uint32_t nextDerivedIndex_ = 900000000U;
+    std::unique_ptr<PowerControlOwnership> powerControlOwnership_;
 };
 
 }  // namespace edge_gateway
