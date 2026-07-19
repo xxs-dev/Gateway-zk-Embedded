@@ -307,6 +307,7 @@ OtaRequest parseOtaRequest(const std::string& payload) {
         throw std::invalid_argument("ota jobId is required");
     }
     json.tryGetString("machineCode", &request.machineCode);
+    json.tryGetString("packageType", &request.packageType);
     if (!json.tryGetString("artifactUrl", &request.artifactUrl) || request.artifactUrl.empty()) {
         throw std::invalid_argument("ota artifactUrl is required");
     }

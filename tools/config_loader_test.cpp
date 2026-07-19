@@ -284,6 +284,34 @@ void verifyLocalDisplayStateBindingConfig() {
     require(widget.pointIndexes.size() == 2, "state condition indexes should join display read indexes");
 }
 
+void verifyLocalDisplayScadaConfig() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+      "localDisplay": {
+        "enabled": true,
+        "scada": {
+          "enabled": true,
+          "projectDirectory": "/opt/modbus-gateway/scada/releases/site-a-1.0.0",
+          "packageFile": "/opt/modbus-gateway/scada/site-a-1.0.0.kyscada",
+          "nodeId": "edge-a",
+          "autoReload": false
+        }
+      }
+    })JSON";
+    output.close();
+
+    const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).localDisplay.scada;
+    std::remove(path.c_str());
+    require(config.enabled, "local display SCADA should parse enabled");
+    require(
+        config.projectDirectory == "/opt/modbus-gateway/scada/releases/site-a-1.0.0",
+        "local display SCADA project directory should parse"
+    );
+    require(config.nodeId == "edge-a", "local display SCADA nodeId should parse");
+    require(!config.autoReload, "local display SCADA autoReload should parse");
+}
+
 }  // namespace
 
 int main() {
@@ -334,6 +362,7 @@ int main() {
     verifyNorthboundConfig();
     verifyPointNormalizeConfig();
     verifyLocalDisplayStateBindingConfig();
+    verifyLocalDisplayScadaConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

@@ -170,12 +170,40 @@ case "$ARTIFACT_NAME" in
     validate_archive_entries "$WORK_DIR/$ARTIFACT_NAME" zip
     unzip -oq "$WORK_DIR/$ARTIFACT_NAME" -d "$WORK_DIR"
     ;;
+  *.kyscada)
+    validate_archive_entries "$WORK_DIR/$ARTIFACT_NAME" zip
+    ;;
   *.bin|*.img)
     :
     ;;
   *)
     echo "[$TIMESTAMP] [ota-apply] unsupported package type: $ARTIFACT_NAME" | tee -a "$LOG_FILE" >&2
     exit 4
+    ;;
+esac
+
+case "$ARTIFACT_NAME" in
+  *.kyscada)
+    INSTALLER="/opt/modbus-gateway/bin/install-scada-project.sh"
+    IDENTITY_FILE="/opt/modbus-gateway/config/runtime/device_identity.json"
+    [ -x "$INSTALLER" ] || { echo "[$TIMESTAMP] [ota-apply] SCADA installer is missing" >&2; exit 4; }
+    [ -f "$IDENTITY_FILE" ] || { echo "[$TIMESTAMP] [ota-apply] device identity is missing" >&2; exit 4; }
+    MACHINE_CODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("machineCode", ""))' "$IDENTITY_FILE")"
+    [ -n "$MACHINE_CODE" ] || { echo "[$TIMESTAMP] [ota-apply] machineCode is empty" >&2; exit 4; }
+    "$INSTALLER" --package "$WORK_DIR/$ARTIFACT_NAME" --machine-code "$MACHINE_CODE" --restart
+    {
+      echo "jobId=$JOB_ID"
+      echo "version=$VERSION"
+      echo "artifact=$ARTIFACT_PATH"
+      echo "backupDir=$JOB_BACKUP_DIR"
+      echo "backupArtifact=$BACKUP_ARTIFACT"
+      echo "workDir=$WORK_DIR"
+      echo "appliedAt=$TIMESTAMP"
+      echo "packageType=scada"
+    } > "$STATE_FILE"
+    echo "$VERSION" > "$STAGING_DIR/applied_version.txt"
+    echo "[$TIMESTAMP] [ota-apply] SCADA success jobId=$JOB_ID version=$VERSION" | tee -a "$LOG_FILE"
+    exit 0
     ;;
 esac
 
@@ -221,6 +249,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/production-smoke-test.sh",
     "/opt/modbus-gateway/bin/ota-apply.sh",
     "/opt/modbus-gateway/bin/ota-rollback.sh",
+    "/opt/modbus-gateway/bin/install-scada-project.sh",
 }
 
 allowed_systemd_targets = {

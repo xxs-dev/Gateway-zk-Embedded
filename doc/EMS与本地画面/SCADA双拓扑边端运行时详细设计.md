@@ -25,11 +25,14 @@
 
 ```text
 include/edge_gateway/scada_models.hpp
+include/edge_gateway/scada_project_loader.hpp
+include/edge_gateway/scada_runtime_map.hpp
 src/scada_project_loader.cpp
-src/scada_tag_resolver.cpp
 src/scada_runtime_map.cpp
-src/scada_control_policy.cpp
-tools/scada_project_test.cpp
+local_display_qt_scada_scene.hpp
+local_display_qt_scada_scene.cpp
+tools/scada_runtime_test.cpp
+tools/scada_install_test.sh
 ```
 
 Qt 层与核心解析分离：
@@ -37,14 +40,15 @@ Qt 层与核心解析分离：
 ```text
 SCADA Core（无 Qt）
   -> ScadaProjectLoader
-  -> ScadaTagResolver
+  -> ScadaRuntimeResolver
+  -> ScadaRuntimeMap
   -> PointStoreRouter
-  -> ScadaCommandDispatcher
+  -> PendingWriteCommand
 
 Qt Runtime
-  -> ScadaSceneView
-  -> ScadaWidgetItem
-  -> VisibleTagSubscription
+  -> ScadaQtSceneRuntime
+  -> QGraphicsScene / QGraphicsItem
+  -> 当前页面可见 Tag 集合
 ```
 
 无 Qt 核心必须能在 x64 主机测试中完整运行，Qt 渲染在交叉编译机和测试边端验收。
@@ -53,9 +57,9 @@ Qt Runtime
 
 ```text
 /opt/modbus-gateway/scada/
-  active -> versions/1.0.0
-  versions/
-    1.0.0/
+  current -> releases/<projectId>-<version>-<timestamp>
+  releases/
+    <projectId>-<version>-<timestamp>/
       manifest.json
       topology.json
       nodes.json
@@ -64,12 +68,12 @@ Qt Runtime
       screens/
       symbols/
       assets/
-  staging/
   backup/
+    monitor-service-<timestamp>.json
   status.json
 ```
 
-升级通过 `active` 符号链接原子切换。健康检查失败时恢复旧链接。
+安装时先解压到 `releases/.<发布名>.staging`，校验和解压完成后改名为正式 release，再通过 `current.new -> current` 原子切换。健康检查失败时恢复旧链接和 `monitor-service.json` 备份。
 
 ## 5. 配置入口
 
@@ -81,18 +85,16 @@ Qt Runtime
     "renderer": "scadaQt",
     "scada": {
       "enabled": true,
-      "packageFile": "/opt/modbus-gateway/scada/active/project.kyscada",
-      "projectDir": "/opt/modbus-gateway/scada/active",
-      "runtimeMode": "integrated",
-      "entryScreen": "overview",
-      "refreshIntervalMs": 200,
-      "maxVisibleTags": 2000
+      "packageFile": "",
+      "projectDirectory": "/opt/modbus-gateway/scada/current",
+      "nodeId": "edge-001",
+      "autoReload": true
     }
   }
 }
 ```
 
-上位机模式保留同一配置段，但 `runtimeMode=upperComputer` 且不启动 Qt 本地画面。
+`install-scada-project.sh` 根据包内 `topology.mode` 和 `manifest.packageRole` 决定 `enabled`。一体化主工程启用 Qt 本地画面；上位机节点子包关闭本地画面，只保留节点运行映射和安全配置。
 
 ## 6. Tag 解析
 
@@ -165,6 +167,8 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 - runtime-map 或策略变化才重载对应核心服务。
 - 驱动配置未变化时不得重启采集驱动。
 
+当前安装脚本在一体化主工程发布时只选择 `ky-ems.service`，若不存在则尝试 `local-display@monitor-service.service`。它不会无条件重启 `gateway-services.service`。
+
 ## 11. 兼容
 
 过渡阶段支持从 `.kyscada` 编译输出：
@@ -189,3 +193,36 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 - 上位机断线安全策略测试。
 - 1920x1080 Qt 截图对比和 500 Tag 性能测试。
 - OTA staging、原子切换和回滚测试。
+
+## 13. 当前实现与边界
+
+截至 2026-07-19 已完成：
+
+- Schema 2.0 工程目录加载和结构检查。
+- 节点、Tag、页面、状态规则和 runtime-map 解析。
+- 运行地址重复、可写属性不一致、无效比较符等发布前阻断。
+- 按当前页面绑定批量读取 PointStore。
+- 可写 Tag 通过 `PointStoreRouter` 进入统一待写队列，只读 Tag 被拒绝。
+- Qt Scene 读取工程页面，在 `KY-EMS` 中直接刷新共享内存数据。
+- `.kyscada` 安装包大小、ZIP 路径、符号链接、必需文件、machineCode、schema 和 SHA-256 校验。
+- release staging、`current` 原子切换、局部服务重启和失败回滚。
+- MQTT OTA 的 `packageType=scada` 分支和独立 `.kyscada` 文件命名。
+
+仍需后续专项验收：
+
+- 多节点上位机断链后的 `hold/zeroPower/stop` 全链路现场验证。
+- 500 个动态 Tag 的 1920x1080 长稳性能与截图差异基准。
+- SCADA 告警、历史趋势和权限模型的完整 Qt 运行态交互。
+
+## 14. 2026-07-19 实机验证
+
+- 测试边端：`192.168.22.16 / COMM202600999`。
+- 当前 release：`/opt/modbus-gateway/scada/releases/comm202600999-scada-acceptance-1.0.1-acceptance-20260719160309`。
+- 新 `MqttDriver`、`SystemMonitor` 和 `KY-EMS` 已部署测试机。
+- `mqtt-service.runtimeMode` 已与仓库和 `monitor-service` 一致设为 `ems`；MQTT broker 未修改。
+- MQTT 双 TLS 已建立，关键服务 `active`，`NRestarts=0`。
+- `scada_runtime_test`、`config_loader_test`、`ota_service_test`、`system_monitor_service_test` 和 `scada_install_test.sh` 通过。
+- 冒烟测试：`pass=76 warn=2 fail=0`；warning 为 IMEI 为空和 identity 文件权限提示。
+- Index `984` 当前值质量正常，控制队列无遗留命令。
+
+本次没有部署 `10.126.126.*` 生产设备。

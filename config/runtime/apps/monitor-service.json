@@ -201,6 +201,13 @@
   "localDisplay": {
     "enabled": false,
     "renderer": "webkit",
+    "scada": {
+      "enabled": false,
+      "projectDirectory": "/opt/modbus-gateway/scada/current",
+      "packageFile": "",
+      "nodeId": "",
+      "autoReload": true
+    },
     "bindHost": "127.0.0.1",
     "port": 18080,
     "refreshIntervalMs": 1000,

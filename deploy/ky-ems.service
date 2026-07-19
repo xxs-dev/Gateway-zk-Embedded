@@ -14,7 +14,7 @@ Environment=DISPLAY=:0
 Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=QT_QPA_PLATFORM=xcb
-ExecStart=/opt/modbus-gateway/ky-ems/KY-EMS
+ExecStart=/opt/modbus-gateway/ky-ems/KY-EMS --app-config /opt/modbus-gateway/config/runtime/apps/monitor-service.json
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15

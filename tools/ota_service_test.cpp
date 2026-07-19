@@ -114,6 +114,33 @@ int main() {
     require(containsText(markerPath, "backupDir=/tmp/gateway-ota-marker/backup/JOB_MARKER_001"), "version marker should include job backup dir");
     require(containsText(markerPath, "workDir=/tmp/gateway-ota-marker/staging/JOB_MARKER_001"), "version marker should include work dir");
 
+    OtaConfig scadaConfig = markerConfig;
+    scadaConfig.downloadDir = "/tmp/gateway-ota-scada/downloads";
+    scadaConfig.stagingDir = "/tmp/gateway-ota-scada/staging";
+    scadaConfig.backupDir = "/tmp/gateway-ota-scada/backup";
+    scadaConfig.applyScript = "/tmp/gateway-ota-scada/apply-ok.sh";
+    OtaService scadaService(scadaConfig);
+    OtaRequest scadaRequest;
+    scadaRequest.jobId = "JOB_SCADA_001";
+    scadaRequest.version = "2.1.0";
+    scadaRequest.packageType = "scada";
+    scadaRequest.artifactUrl = "/tmp/gateway-ota-scada/source.kyscada";
+    {
+        std::system("rm -rf /tmp/gateway-ota-scada");
+        std::system("mkdir -p /tmp/gateway-ota-scada");
+        std::ofstream artifact(scadaRequest.artifactUrl.c_str(), std::ios::binary | std::ios::trunc);
+        artifact << "payload";
+        std::ofstream script(scadaConfig.applyScript.c_str(), std::ios::trunc);
+        script << "#!/bin/sh\nexit 0\n";
+    }
+    OtaReply scadaReply;
+    OtaStatus scadaStatus;
+    scadaService.execute(scadaRequest, "GW_TEST", 1770000000000LL, &scadaReply, &scadaStatus, nullptr);
+    require(std::ifstream("/tmp/gateway-ota-scada/downloads/2.1.0.kyscada").good(),
+            "SCADA artifact should retain the kyscada extension");
+    require(!std::ifstream("/tmp/gateway-ota-scada/downloads/source.kyscada").good(),
+            "SCADA artifact should use the versioned file name");
+
     OtaConfig mismatchConfig;
     mismatchConfig.enabled = true;
     mismatchConfig.downloadDir = "/tmp/gateway-ota-mismatch/downloads";

@@ -240,7 +240,7 @@ check_runtime_files() {
   for bin in $(required_runtime_binaries); do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
-  for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh; do
+  for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh; do
     exec_exists "$BIN_DIR/$script" "$script"
   done
 }
@@ -775,6 +775,7 @@ check_disk_and_permissions() {
 check_ota() {
   echo "== ota =="
   exec_exists "$BIN_DIR/ota-apply.sh" "ota-apply.sh"
+  exec_exists "$BIN_DIR/install-scada-project.sh" "install-scada-project.sh"
   exec_exists "$BIN_DIR/ota-rollback.sh" "ota-rollback.sh"
   retention=$(json_number "$APP_CONFIG" retentionCount)
   if [ -n "$retention" ]; then

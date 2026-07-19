@@ -310,6 +310,7 @@ struct MqttCommandReply {
 struct OtaRequest {
     std::string jobId;
     std::string machineCode;
+    std::string packageType;
     std::string artifactUrl;
     std::string version;
     std::string sha256;
@@ -1109,6 +1110,14 @@ struct LocalDisplayViewTemplateConfig {
     int refreshIntervalMs = 1000;
 };
 
+struct LocalDisplayScadaConfig {
+    bool enabled = false;
+    std::string projectDirectory = "/opt/modbus-gateway/scada/current";
+    std::string packageFile;
+    std::string nodeId;
+    bool autoReload = true;
+};
+
 struct LocalDisplayConfig {
     bool enabled = false;
     std::string bindHost = "127.0.0.1";
@@ -1121,6 +1130,7 @@ struct LocalDisplayConfig {
     std::vector<LocalDisplayScreenConfig> screens;
     LocalDisplayLayoutConfig layout;
     LocalDisplayViewTemplateConfig viewTemplate;
+    LocalDisplayScadaConfig scada;
 };
 
 struct CameraVideoConfig {

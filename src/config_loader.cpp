@@ -2585,6 +2585,20 @@ LocalDisplayViewTemplateConfig parseLocalDisplayViewTemplateConfig(const JsonVal
     return config;
 }
 
+LocalDisplayScadaConfig parseLocalDisplayScadaConfig(const JsonValue* value) {
+    LocalDisplayScadaConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.projectDirectory = requireString(object, "projectDirectory", config.projectDirectory);
+    config.packageFile = requireString(object, "packageFile", config.packageFile);
+    config.nodeId = requireString(object, "nodeId", config.nodeId);
+    config.autoReload = requireBool(object, "autoReload", config.autoReload);
+    return config;
+}
+
 LocalDisplayConfig parseLocalDisplayConfig(const JsonValue* value) {
     LocalDisplayConfig config;
     if (value == nullptr || value->isNull()) {
@@ -2614,6 +2628,7 @@ LocalDisplayConfig parseLocalDisplayConfig(const JsonValue* value) {
     }
     config.layout = parseLocalDisplayLayoutConfig(value->find("layout"));
     config.viewTemplate = parseLocalDisplayViewTemplateConfig(value->find("viewTemplate"));
+    config.scada = parseLocalDisplayScadaConfig(value->find("scada"));
     return config;
 }
 

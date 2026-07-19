@@ -887,6 +887,7 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
 edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
     edge_gateway::OtaRequest request;
     request.jobId = jsonString(body, "jobId", "DIRECT_OTA_" + std::to_string(nowMs()));
+    request.packageType = jsonString(body, "packageType", "full");
     request.artifactUrl = jsonString(body, "artifactUrl");
     request.version = jsonString(body, "version");
     request.sha256 = jsonString(body, "sha256");
@@ -2203,8 +2204,8 @@ std::string startOtaJob(const SystemMonitorDirectMaintenanceConfig& config, cons
     }
 
     auto request = parseOtaRequest(body);
-    const auto packageType = jsonString(body, "packageType", "full");
-    if (packageType != "full" && packageType != "config") {
+    const auto packageType = request.packageType.empty() ? std::string("full") : request.packageType;
+    if (packageType != "full" && packageType != "config" && packageType != "scada") {
         return response(400, "Bad Request", "{\"success\":false,\"message\":\"unsupported packageType\"}");
     }
 
@@ -2338,7 +2339,7 @@ std::string handleRequest(
         return response(
             200,
             "OK",
-            "{\"supportedPackageTypes\":[\"config\",\"full\"],\"directUpload\":false,\"message\":\"full OTA job can be started from an artifact URL with the maintenance password\"}"
+            "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"],\"directUpload\":false,\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}"
         );
     }
     if (method == "GET" && path == "/api/v1/ota/status") {
@@ -2652,6 +2653,12 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
                 }
                 break;
             }
+
+            timeval clientTimeout{};
+            clientTimeout.tv_sec = 10;
+            clientTimeout.tv_usec = 0;
+            ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &clientTimeout, sizeof(clientTimeout));
+            ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &clientTimeout, sizeof(clientTimeout));
 
             if (!isClientAllowed(config, clientAddr)) {
                 const auto peer = sockaddrToString(clientAddr);
