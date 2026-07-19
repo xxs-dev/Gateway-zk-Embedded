@@ -2402,6 +2402,67 @@ std::vector<std::uint32_t> parseUInt32Array(const JsonValue* value) {
     return result;
 }
 
+LocalDisplayStateVisualConfig parseLocalDisplayStateVisualConfig(const JsonValue* value) {
+    LocalDisplayStateVisualConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.code = requireString(object, "code", config.code);
+    config.label = requireString(object, "label", config.label);
+    config.color = requireString(object, "color", config.color);
+    config.image = requireString(object, "image", config.image);
+    return config;
+}
+
+LocalDisplayStateConditionConfig parseLocalDisplayStateConditionConfig(const JsonValue& value) {
+    LocalDisplayStateConditionConfig config;
+    const auto& object = value.asObject();
+    config.meterCode = requireString(object, "meterCode", config.meterCode);
+    config.pointCode = requireString(object, "pointCode", config.pointCode);
+    config.pointName = requireString(object, "pointName", config.pointName);
+    config.index = static_cast<std::uint32_t>(requireSize(object, "index", config.index));
+    if (config.index == 0) {
+        config.index = static_cast<std::uint32_t>(requireSize(object, "indexFallback", config.index));
+    }
+    config.semanticRole = requireString(object, "semanticRole", config.semanticRole);
+    config.comparison = requireString(object, "operator", config.comparison);
+    config.value = requireString(object, "value", config.value);
+    return config;
+}
+
+LocalDisplayStateBindingConfig parseLocalDisplayStateBindingConfig(const JsonValue* value) {
+    LocalDisplayStateBindingConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.labelWidget = requireString(object, "labelWidget", config.labelWidget);
+    config.defaultState = parseLocalDisplayStateVisualConfig(value->find("defaultState"));
+    if (const auto* states = value->find("states")) {
+        for (const auto& item : states->asArray().values) {
+            LocalDisplayStateRuleConfig state;
+            const auto& stateObject = item->asObject();
+            state.code = requireString(stateObject, "code", state.code);
+            state.label = requireString(stateObject, "label", state.label);
+            state.color = requireString(stateObject, "color", state.color);
+            state.image = requireString(stateObject, "image", state.image);
+            state.priority = requireInt(stateObject, "priority", state.priority);
+            state.match = requireString(stateObject, "match", state.match);
+            if (const auto* conditions = item->find("conditions")) {
+                for (const auto& condition : conditions->asArray().values) {
+                    state.conditions.push_back(parseLocalDisplayStateConditionConfig(*condition));
+                }
+            }
+            config.states.push_back(std::move(state));
+        }
+    }
+    std::stable_sort(config.states.begin(), config.states.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.priority > rhs.priority;
+    });
+    return config;
+}
+
 LocalDisplayWidgetConfig parseLocalDisplayWidgetConfig(const JsonValue& value) {
     LocalDisplayWidgetConfig config;
     const auto& object = value.asObject();
@@ -2424,6 +2485,15 @@ LocalDisplayWidgetConfig parseLocalDisplayWidgetConfig(const JsonValue& value) {
     config.progressMaxValue = requireDouble(object, "progressMaxValue", config.progressMaxValue);
     if (const auto* progress = value.find("progress")) {
         config.progressMaxValue = requireDouble(progress->asObject(), "maxValue", config.progressMaxValue);
+    }
+    config.stateBinding = parseLocalDisplayStateBindingConfig(value.find("stateBinding"));
+    for (const auto& state : config.stateBinding.states) {
+        for (const auto& condition : state.conditions) {
+            if (condition.index > 0 &&
+                std::find(config.pointIndexes.begin(), config.pointIndexes.end(), condition.index) == config.pointIndexes.end()) {
+                config.pointIndexes.push_back(condition.index);
+            }
+        }
     }
     if (const auto* position = value.find("position")) {
         config.grid = parseLocalDisplayWidgetPositionConfig(position);

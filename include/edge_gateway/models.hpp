@@ -1028,6 +1028,39 @@ struct LocalDisplayWidgetGridConfig {
     int colSpan = 1;
 };
 
+struct LocalDisplayStateVisualConfig {
+    std::string code = "UNKNOWN";
+    std::string label = "未知";
+    std::string color = "#AAB3BD";
+    std::string image;
+};
+
+struct LocalDisplayStateConditionConfig {
+    std::string meterCode;
+    std::string pointCode;
+    std::string pointName;
+    std::uint32_t index = 0;
+    std::string semanticRole;
+    std::string comparison = "eq";
+    std::string value;
+};
+
+struct LocalDisplayStateRuleConfig {
+    std::string code;
+    std::string label;
+    std::string color = "#AAB3BD";
+    std::string image;
+    int priority = 0;
+    std::string match = "all";
+    std::vector<LocalDisplayStateConditionConfig> conditions;
+};
+
+struct LocalDisplayStateBindingConfig {
+    std::string labelWidget;
+    LocalDisplayStateVisualConfig defaultState;
+    std::vector<LocalDisplayStateRuleConfig> states;
+};
+
 struct LocalDisplayWidgetConfig {
     std::string id;
     std::string type = "valueCard";
@@ -1038,6 +1071,7 @@ struct LocalDisplayWidgetConfig {
     std::vector<std::string> columns;
     std::string valueFormat = "number";
     double progressMaxValue = 100.0;
+    LocalDisplayStateBindingConfig stateBinding;
     LocalDisplayWidgetGridConfig grid;
 };
 

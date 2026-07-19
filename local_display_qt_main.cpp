@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
@@ -73,6 +75,13 @@ void setProcessName(const std::string& name) {
 
 QString qs(const std::string& value) {
     return QString::fromStdString(value);
+}
+
+std::string lowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
 }
 
 QString formatValue(double value) {
@@ -694,6 +703,120 @@ private:
         return "";
     }
 
+    const DisplayPoint* findStatePoint(
+        const edge_gateway::LocalDisplayStateConditionConfig& condition,
+        const std::unordered_map<std::uint32_t, const DisplayPoint*>& pointByIndex
+    ) const {
+        if (condition.index > 0) {
+            const auto direct = pointByIndex.find(condition.index);
+            if (direct != pointByIndex.end()) {
+                return direct->second;
+            }
+        }
+        for (const auto& item : pointByIndex) {
+            const auto* point = item.second;
+            if (point == nullptr) {
+                continue;
+            }
+            if (!condition.meterCode.empty() && !condition.pointCode.empty() &&
+                point->meta.meterCode == condition.meterCode && point->meta.pointCode == condition.pointCode) {
+                return point;
+            }
+        }
+        return nullptr;
+    }
+
+    static bool parseNumber(const std::string& text, double& value) {
+        char* end = nullptr;
+        value = std::strtod(text.c_str(), &end);
+        return end != text.c_str() && end != nullptr && *end == '\0';
+    }
+
+    static bool numericEquals(double lhs, double rhs) {
+        return std::fabs(lhs - rhs) <= 1e-9 * std::max({1.0, std::fabs(lhs), std::fabs(rhs)});
+    }
+
+    static bool conditionMatches(double actual, const edge_gateway::LocalDisplayStateConditionConfig& condition) {
+        const auto comparison = lowerCopy(condition.comparison);
+        if (comparison == "in" || comparison == "notin") {
+            bool found = false;
+            std::stringstream stream(condition.value);
+            std::string item;
+            while (std::getline(stream, item, ',')) {
+                double expected = 0.0;
+                if (parseNumber(item, expected) && numericEquals(actual, expected)) {
+                    found = true;
+                    break;
+                }
+            }
+            return comparison == "in" ? found : !found;
+        }
+
+        double expected = 0.0;
+        if (!parseNumber(condition.value, expected)) {
+            return false;
+        }
+        if (comparison == "eq") return numericEquals(actual, expected);
+        if (comparison == "ne") return !numericEquals(actual, expected);
+        if (comparison == "gt") return actual > expected;
+        if (comparison == "ge") return actual > expected || numericEquals(actual, expected);
+        if (comparison == "lt") return actual < expected;
+        if (comparison == "le") return actual < expected || numericEquals(actual, expected);
+        return false;
+    }
+
+    const edge_gateway::LocalDisplayStateRuleConfig* evaluateState(
+        const edge_gateway::LocalDisplayStateBindingConfig& binding,
+        const std::unordered_map<std::uint32_t, const DisplayPoint*>& pointByIndex
+    ) const {
+        for (const auto& state : binding.states) {
+            if (state.conditions.empty()) {
+                continue;
+            }
+            const bool matchAny = lowerCopy(state.match) == "any";
+            bool matched = !matchAny;
+            for (const auto& condition : state.conditions) {
+                const auto* point = findStatePoint(condition, pointByIndex);
+                const bool current = point != nullptr && point->hasValue && point->value.quality == 1 && !point->value.stale &&
+                    conditionMatches(point->value.value, condition);
+                if (matchAny && current) {
+                    matched = true;
+                    break;
+                }
+                if (!matchAny && !current) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return &state;
+            }
+        }
+        return nullptr;
+    }
+
+    void refreshStateWidget(
+        RuntimeWidget& widget,
+        const std::unordered_map<std::uint32_t, const DisplayPoint*>& pointByIndex
+    ) {
+        const auto* state = evaluateState(widget.config.stateBinding, pointByIndex);
+        const auto label = state == nullptr ? widget.config.stateBinding.defaultState.label : state->label;
+        const auto code = state == nullptr ? widget.config.stateBinding.defaultState.code : state->code;
+        const auto color = state == nullptr ? widget.config.stateBinding.defaultState.color : state->color;
+        const auto image = state == nullptr ? widget.config.stateBinding.defaultState.image : state->image;
+        widget.valueLabel->setText(qs(label.empty() ? code : label));
+        if (!image.empty()) {
+            widget.valueLabel->setStyleSheet("border-image:url(" + qs(image) + ");padding:8px;");
+        } else {
+            widget.valueLabel->setStyleSheet(
+                "color:#ffffff;background-color:" + qs(color.empty() ? "#AAB3BD" : color) +
+                ";border-radius:8px;padding:8px;");
+        }
+        if (widget.subLabel != nullptr) {
+            widget.subLabel->setText(qs(code));
+        }
+    }
+
     void refreshLayoutWidgets(const std::vector<DisplayPoint>& points) {
         std::unordered_map<std::uint32_t, const DisplayPoint*> pointByIndex;
         for (const auto& point : points) {
@@ -702,6 +825,10 @@ private:
 
         for (auto& widget : runtimeWidgets_) {
             if (widget.valueLabel != nullptr) {
+                if (!widget.config.stateBinding.states.empty()) {
+                    refreshStateWidget(widget, pointByIndex);
+                    continue;
+                }
                 const auto index = widget.config.pointIndex > 0
                     ? widget.config.pointIndex
                     : (widget.config.pointIndexes.empty() ? 0 : widget.config.pointIndexes.front());
@@ -839,7 +966,7 @@ int main(int argc, char* argv[]) {
     stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
         std::unique_ptr<MemoryPointStore> store(new MemoryPointStore(name));
-        router.addStore(name, store.get());
+        router.addStore(name, *store);
         stores.push_back(std::move(store));
     }
 

@@ -27,6 +27,7 @@ stop_units() {
         'local-display@*.service' \
         'local-display-qt@*.service' \
         'qt-display-bridge.service' \
+        'gateway-network-failover.service' \
         'local-kiosk@*.service' \
         'ky-ems.service' \
         'system-monitor@*.service' \
@@ -46,6 +47,7 @@ stop_units() {
         'local-display@*.service' \
         'local-display-qt@*.service' \
         'qt-display-bridge.service' \
+        'gateway-network-failover.service' \
         'local-kiosk@*.service' \
         'ky-ems.service' \
         'system-monitor@*.service' \
@@ -53,7 +55,7 @@ stop_units() {
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'
-    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
+    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service" || $0 == "gateway-network-failover.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
   )
   [ -z "$units" ] && return 0
   # Stop all instances together so OTA/config switching is bounded by the slowest
@@ -387,6 +389,10 @@ if os.path.isfile(monitor_path):
         with open(monitor_path, "r", encoding="utf-8") as fh:
             app = json.load(fh)
         system_monitor_enabled = bool(app.get("systemMonitor", {}).get("enabled", False))
+        route_failover_enabled = bool_value(
+            (((app.get("systemMonitor", {}) or {}).get("cellular", {}) or {}).get("routeFailover", {}) or {}).get("enabled"),
+            False,
+        )
         local_display = app.get("localDisplay", {}) or {}
         local_display_enabled = bool_value(local_display.get("enabled"), False)
         local_display_renderer = str(local_display.get("renderer") or local_display.get("mode") or "webkit").strip().lower()
@@ -396,6 +402,7 @@ if os.path.isfile(monitor_path):
         kiosk_require_display = bool_value(kiosk.get("requireDisplayConnected"), True)
     except Exception:
         system_monitor_enabled = False
+        route_failover_enabled = False
         local_display_enabled = False
         local_display_native_qt = False
         kiosk_enabled = False
@@ -403,6 +410,8 @@ if os.path.isfile(monitor_path):
     if system_monitor_enabled:
         emit_unit(stunnel_unit_for_app(monitor_path))
         emit_unit(f"system-monitor@{monitor_app_name}.service")
+    if route_failover_enabled:
+        emit_unit("gateway-network-failover.service")
     if local_display_enabled and local_display_native_qt:
         emit_unit("ky-ems.service")
     elif local_display_enabled:

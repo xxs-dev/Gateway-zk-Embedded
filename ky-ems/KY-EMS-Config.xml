@@ -62,7 +62,16 @@
             <Bind widget="CtlModeColor" type="image" semanticRole="ems.controlMode" indexFallback="1"
                   meterCode="EMS_CORE" pointCode="ems_auto_mode"
                   value0Image=":/new/prefix1/Pictures/RingG.png"
-                  value1Image=":/new/prefix1/Pictures/RingR.png"/>  <!-- 控制模式颜色（0=自动绿/1=手动红） -->
+                  value1Image=":/new/prefix1/Pictures/RingR.png">
+                <StateRules labelWidget="CtlModeText" defaultCode="UNKNOWN" defaultLabel="未知" defaultColor="#AAB3BD" defaultImage="">
+                    <State code="MANUAL" label="手动" color="#D64545" image=":/new/prefix1/Pictures/RingR.png" priority="100" match="all">
+                        <Condition meterCode="EMS_CORE" pointCode="ems_auto_mode" indexFallback="1" semanticRole="ems.controlMode" operator="eq" value="1"/>
+                    </State>
+                    <State code="AUTO" label="自动" color="#2F9D78" image=":/new/prefix1/Pictures/RingG.png" priority="90" match="all">
+                        <Condition meterCode="EMS_CORE" pointCode="ems_auto_mode" indexFallback="1" semanticRole="ems.controlMode" operator="eq" value="0"/>
+                    </State>
+                </StateRules>
+            </Bind>  <!-- 控制模式：灯色与文字由同一组多状态规则驱动 -->
             <Bind widget="CtlModeText" type="text" semanticRole="ems.controlMode" indexFallback="1"
                   meterCode="EMS_CORE" pointCode="ems_auto_mode" decimals="0"
                   value0Text="自动" value1Text="手动"/>                <!-- 控制模式文本 -->

@@ -1,0 +1,28 @@
+# Runtime JSON overrides the fallback values below when this file exists.
+RUNTIME_CONFIG_FILE=/opt/modbus-gateway/config/runtime/apps/monitor-service.json
+FAILOVER_ENABLED=true
+PREFER_CELLULAR=true
+
+# 4G interface and gateway assigned by the cellular modem.
+CELLULAR_INTERFACE=usb0
+CELLULAR_GATEWAY=192.168.43.1
+
+# Wired interface must already have a valid default route from DHCP or static config.
+WIRED_INTERFACE=ens1
+WIRED_INTERFACES="ens1 auto"
+WIRED_ROUTE_METRIC=50
+WIRED_STANDBY_ROUTE_METRIC=200
+
+# Public endpoint used only for the 4G health probe.
+PROBE_HOST=223.5.5.5
+PROBE_PORT=53
+PROBE_TIMEOUT_SEC=4
+CHECK_INTERVAL_SEC=15
+
+# Avoid route flapping on short packet loss.
+FAILURE_THRESHOLD=3
+RECOVERY_THRESHOLD=2
+
+# Lower metric means higher route priority.
+CELLULAR_ROUTE_METRIC=10
+FALLBACK_ROUTE_METRIC=600

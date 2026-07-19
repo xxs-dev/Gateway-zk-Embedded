@@ -240,6 +240,50 @@ void verifyPointNormalizeConfig() {
     require(normalize.faultRules.front().sourcePointCode == "PCS_FAULT", "fault source point should parse");
 }
 
+void verifyLocalDisplayStateBindingConfig() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+      "localDisplay": {
+        "enabled": true,
+        "layout": {
+          "pages": [{
+            "pageCode": "overview",
+            "widgets": [{
+              "id": "battery_state",
+              "type": "statusLamp",
+              "stateBinding": {
+                "labelWidget": "BatteryStateText",
+                "defaultState": { "code": "UNKNOWN", "label": "unknown", "color": "#AAB3BD" },
+                "states": [
+                  {
+                    "code": "RUNNING", "label": "running", "color": "#2F9D78", "priority": 50, "match": "all",
+                    "conditions": [{ "meterCode": "BMS_1", "pointCode": "run", "index": 1454, "operator": "in", "value": "1,2" }]
+                  },
+                  {
+                    "code": "FAULT", "label": "fault", "color": "#D64545", "priority": 100, "match": "any",
+                    "conditions": [{ "meterCode": "BMS_1", "pointCode": "fault", "index": 1453, "operator": "eq", "value": "1" }]
+                  }
+                ]
+              }
+            }]
+          }]
+        }
+      }
+    })JSON";
+    output.close();
+
+    const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).localDisplay;
+    std::remove(path.c_str());
+    require(config.layout.pages.size() == 1, "local display page should parse");
+    const auto& widget = config.layout.pages.front().widgets.front();
+    require(widget.stateBinding.labelWidget == "BatteryStateText", "state label widget should parse");
+    require(widget.stateBinding.states.size() == 2, "state rules should parse");
+    require(widget.stateBinding.states.front().code == "FAULT", "state rules should sort by descending priority");
+    require(widget.stateBinding.states.front().conditions.front().comparison == "eq", "state comparison should parse");
+    require(widget.pointIndexes.size() == 2, "state condition indexes should join display read indexes");
+}
+
 }  // namespace
 
 int main() {
@@ -289,6 +333,7 @@ int main() {
     verifyDeviceCollectBackgroundTaskConfig();
     verifyNorthboundConfig();
     verifyPointNormalizeConfig();
+    verifyLocalDisplayStateBindingConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

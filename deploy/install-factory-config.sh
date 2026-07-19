@@ -814,6 +814,10 @@ install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/inst
 install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
+if [ ! -f /etc/default/gateway-network-failover ]; then
+  install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"
+fi
 install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
@@ -944,6 +948,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "camera-service@.service" "/etc/systemd/system/camera-service@.service"
   install_deploy_file_if_exists "system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
   install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
+  install_deploy_file_if_exists "gateway-network-failover.service" "/etc/systemd/system/gateway-network-failover.service"
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
     mkdir -p /etc/systemd/system.conf.d
     install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"

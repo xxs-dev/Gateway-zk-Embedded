@@ -1,0 +1,14 @@
+[Unit]
+Description=Gateway 4G and wired network failover
+After=network-online.target gateway-cellular.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/modbus-gateway/bin/gateway-network-failover.sh run
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

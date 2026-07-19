@@ -159,7 +159,28 @@
         "/dev/ttyUSB3",
         "/dev/ttyUSB*",
         "/dev/cdc-wdm*"
-      ]
+      ],
+      "routeFailover": {
+        "enabled": true,
+        "preferCellular": true,
+        "cellularInterface": "usb0",
+        "cellularGateway": "192.168.43.1",
+        "wiredInterface": "ens1",
+        "wiredInterfaces": [
+          "ens1",
+          "auto"
+        ],
+        "wiredRouteMetric": 50,
+        "wiredStandbyRouteMetric": 200,
+        "probeHost": "223.5.5.5",
+        "probePort": 53,
+        "probeTimeoutSec": 4,
+        "checkIntervalSec": 15,
+        "failureThreshold": 3,
+        "recoveryThreshold": 2,
+        "cellularRouteMetric": 10,
+        "fallbackRouteMetric": 600
+      }
     },
     "directMaintenance": {
       "enabled": true,
