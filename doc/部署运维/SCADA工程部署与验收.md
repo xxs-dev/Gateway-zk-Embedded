@@ -116,14 +116,17 @@ readlink -f /opt/modbus-gateway/scada/current
 
 - 设备：`192.168.22.16 / COMM202600999`。
 - 当前 release：`comm202600999-scada-acceptance-1.0.1-acceptance-20260719160309`。
-- `MqttDriver`：725,568 bytes，SHA-256 `f78029f2ac7712be46be25d32990f04f568c453924bd1402b0cd9dc6aae3decf`。
-- `SystemMonitor`：1,108,168 bytes，SHA-256 `f551c3890f285f4bc87da322c2876ca587adfad1b4cce243271ea232a0a24a69`。
+- `MqttDriver`：725,872 bytes，SHA-256 `cbd6ba571c8622f1008c9780ce3cd79ad3b17648e13db310524b786688c87ae5`。
+- `SystemMonitor`：1,115,936 bytes，SHA-256 `3b0911500b54116367f0edc3942069fce286aabf8fbc21deca6913cbf8194a56`。
 - `KY-EMS`：685,912 bytes，SHA-256 `cf3d4fa7337078876a6e72da88977bdd2208edc2be706f597be32bbd497f2642`。
 - MQTT broker 保持 `ssl://kygate.kyxn.net:8883`，双 TLS 连接正常。
-- 最终主动 MQTT 冒烟结果 `pass=74 warn=4 fail=0`，关键服务 `active` 且 `NRestarts=0`。
-- 4 个 warning 为 IMEI 为空，以及 mqtt、monitor、identity 三个 JSON 权限偏宽；不影响功能验收，但正式投产前应收紧到 600/640。
+- 最终主动 MQTT 冒烟结果 `pass=77 warn=1 fail=0`，关键服务 `active` 且 `NRestarts=0`。
+- 唯一 warning 为测试机 IMEI 为空；mqtt、monitor、identity 三个 JSON 权限已收紧为 `640`。
 - 直连实时快照返回 1,001 点，并生成 machineCode 匹配的上位机租约文件。
 - 边端 22 个 C++ 测试、`scada_install_test.sh` 和 `scada_rollback_test.sh` 全部通过。
-- 安全链 aarch64 测试在测试机通过；当前一体化工程不会执行上位机失联动作。
+- 安全链 ARM64 测试和真实断链测试均通过。测试使用可写 DIO Index `984`，安全目标值与当前值同为 `1`，避免改变现场输出。
+- 控制队列序号为 `7 -> 8 -> 8 -> 9`：首次断链动作只执行一次，同一失联周期不重复；旧租约控制被拒绝且未写队列，新鲜租约控制写入成功并通过回读校验。
+- 断链动作持有 `scada-offline-safety` 高优先级租约；新鲜租约控制设备写入 51ms、总耗时 554ms。
 - 60 秒观察前后 SystemMonitor、MqttDriver、KY-EMS 的 PID 不变；SystemMonitor 与 MqttDriver 均存在到 broker `:8883` 的已建立连接。
+- 测试结束后已恢复原一体化 release，并清理测试工程、控制租约、临时报文和远端备份；Index `984` 保持 `value=1 quality=1`。
 - 只验证测试机，没有部署 `10.126.126.*` 生产设备。

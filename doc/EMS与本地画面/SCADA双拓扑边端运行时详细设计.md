@@ -228,7 +228,7 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 
 仍需后续专项验收：
 
-- 多节点上位机真实断链后的明确安全动作与恢复全链路现场验证。
+- 多节点上位机 72 小时长稳、同时断链与分批恢复的现场验证。
 - 500 个动态 Tag 的 1920x1080 长稳性能与截图差异基准。
 - SCADA 告警、历史趋势和权限模型的完整 Qt 运行态交互。
 
@@ -247,10 +247,14 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 
 ## 15. 2026-07-20 上位机安全链验证
 
-- `MqttDriver` SHA-256：`f78029f2ac7712be46be25d32990f04f568c453924bd1402b0cd9dc6aae3decf`。
-- `SystemMonitor` SHA-256：`f551c3890f285f4bc87da322c2876ca587adfad1b4cce243271ea232a0a24a69`。
+- `MqttDriver`：725,872 bytes，SHA-256 `cbd6ba571c8622f1008c9780ce3cd79ad3b17648e13db310524b786688c87ae5`。
+- `SystemMonitor`：1,115,936 bytes，SHA-256 `3b0911500b54116367f0edc3942069fce286aabf8fbc21deca6913cbf8194a56`。
+- 出厂包：5,160,839 bytes，SHA-256 `40034547e53ed511937c564e261583f24646a045a1c91e7130c0d26b8797453a`；包内二进制与仓库产物哈希一致，且不含 DirectAgent 或 AGC/AVC 独立运行模式。
 - 直连实时快照返回 1,001 点，并成功更新 machineCode 为 `COMM202600999` 的租约文件。
 - 60 秒观察前后 SystemMonitor、MqttDriver、KY-EMS 的 PID 不变，三者 `NRestarts=0`。
 - SystemMonitor 与 MqttDriver 均有到 broker `:8883` 的已建立连接；broker 仍为 `ssl://kygate.kyxn.net:8883`。
-- 主动 MQTT 冒烟结果 `pass=74 warn=4 fail=0`；边端 22 个 C++ 测试、SCADA 安装与回滚脚本测试全部通过。
-- 当前工程是 `integrated`，因此不会触发上位机失联安全动作；真实断链动作测试必须使用明确安全测试点另行执行。
+- 最终主动 MQTT 冒烟结果 `pass=77 warn=1 fail=0`，唯一 warning 为测试机 IMEI 为空；mqtt、monitor、identity 三个配置文件权限已收紧为 `640`。
+- 边端 22 个 C++ 测试、ARM64 安全链测试、SCADA 安装与回滚脚本测试全部通过。
+- 使用可写 DIO Index `984` 完成真实断链测试，安全目标值取当前值 `1`，因此不会改变现场输出。控制队列序号变化为 `7 -> 8 -> 8 -> 9`：断链安全动作只入队一次，同一失联周期不重复入队，恢复新鲜租约后人工控制再入队一次。
+- 安全动作持有 `scada-offline-safety` 高优先级租约，租约记录包含本次 `cmdId`、表计和 Index；旧租约控制返回 HTTP 400 且未写队列，新鲜租约控制返回 HTTP 200，设备写入 51ms、回读校验通过、总耗时 554ms。
+- 测试完成后恢复原一体化 SCADA release，Index `984` 保持 `value=1 quality=1`，控制租约、测试工程、临时报文和远端备份均已清理；没有部署 `10.126.126.*`。

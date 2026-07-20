@@ -115,6 +115,8 @@ void verifyTimeoutTriggersExplicitActionOnce() {
         config.projectDirectory = project;
         config.leaseFile = lease;
         config.reloadIntervalMs = 1000;
+        config.priorityControlLeaseFile = root + "/run/priority-control.json";
+        config.priorityControlLeaseTtlMs = 5000;
         edge_gateway::ScadaUpperComputerSafetyMonitor monitor(config, "COMM202600999", router);
 
         const auto armed = monitor.runOnce(1000);
@@ -127,6 +129,12 @@ void verifyTimeoutTriggersExplicitActionOnce() {
         require(pending.size() == 1, "offline safety action should enqueue exactly once");
         require(pending.front().index == 101 && pending.front().value == 0.0, "offline safety action route/value mismatch");
         require(pending.front().highPriority, "offline safety action must preserve high priority");
+        edge_gateway::PriorityControlLease priorityLease(config.priorityControlLeaseFile, "test");
+        const auto activeLease = priorityLease.activeLease(2001);
+        require(static_cast<bool>(activeLease), "offline safety action did not acquire priority control lease");
+        require(activeLease->owner == "scada-offline-safety", "offline safety priority lease owner mismatch");
+        require(activeLease->cmdId == pending.front().cmdId, "offline safety priority lease command mismatch");
+        require(activeLease->index == pending.front().index, "offline safety priority lease index mismatch");
 
         const auto repeated = monitor.runOnce(2500);
         require(!repeated.triggered && repeated.completed, "completed safety action was submitted twice");

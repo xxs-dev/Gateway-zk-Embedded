@@ -220,7 +220,19 @@ int main(int argc, char* argv[]) {
     } else {
         publisher = std::make_shared<StdoutMqttDriverPublisher>();
     }
-    SystemMonitorService service(appConfig.systemMonitor, appConfig.mqtt, publisher, machineCode, configFiles, &router);
+    auto monitorConfig = appConfig.systemMonitor;
+    monitorConfig.scadaUpperComputerSafety.priorityControlLeaseFile =
+        appConfig.mqttDriver.priorityControlLeaseFile;
+    monitorConfig.scadaUpperComputerSafety.priorityControlLeaseTtlMs =
+        appConfig.mqttDriver.priorityControlLeaseTtlMs;
+    SystemMonitorService service(
+        std::move(monitorConfig),
+        appConfig.mqtt,
+        publisher,
+        machineCode,
+        configFiles,
+        &router
+    );
 
     if (once) {
         const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(

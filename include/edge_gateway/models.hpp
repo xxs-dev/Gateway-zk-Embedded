@@ -951,6 +951,8 @@ struct SystemMonitorConfig {
         std::string projectDirectory = "/opt/modbus-gateway/scada/current";
         std::string leaseFile = "/opt/modbus-gateway/run/scada-upper-computer-lease.json";
         int reloadIntervalMs = 5000;
+        std::string priorityControlLeaseFile;
+        int priorityControlLeaseTtlMs = 30000;
     };
 
     struct CellularConfig {

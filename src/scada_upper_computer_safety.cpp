@@ -89,7 +89,10 @@ ScadaUpperComputerSafetyMonitor::ScadaUpperComputerSafetyMonitor(
     SystemMonitorConfig::ScadaUpperComputerSafetyConfig config,
     std::string machineCode,
     PointStoreRouter& router
-) : config_(std::move(config)), machineCode_(std::move(machineCode)), router_(router) {
+) : config_(std::move(config)),
+    machineCode_(std::move(machineCode)),
+    router_(router),
+    priorityControlLease_(config_.priorityControlLeaseFile, "scada-offline-safety") {
 }
 
 void ScadaUpperComputerSafetyMonitor::writeHeartbeat(
@@ -176,6 +179,12 @@ ScadaSafetyEvaluation ScadaUpperComputerSafetyMonitor::runOnce(std::int64_t nowM
     ScadaRuntimeMap runtime(*project_, machineCode_, router_);
     for (const auto& action : actions) {
         if (acceptedActions_.count(action.actionId) != 0) continue;
+        const auto resolved = runtime.resolver().resolveTag(action.tagId);
+        if (!resolved) {
+            result.actions.push_back({action.actionId, action.tagId, false, "SCADA tag not found"});
+            result.triggered = true;
+            break;
+        }
         PendingWriteCommand command;
         command.cmdId = "SCADA_OFFLINE_" + action.actionId + "_" + std::to_string(nowMs);
         command.value = action.value;
@@ -183,9 +192,28 @@ ScadaSafetyEvaluation ScadaUpperComputerSafetyMonitor::runOnce(std::int64_t nowM
         command.ts = nowMs;
         command.acceptedAt = nowMs;
         command.highPriority = action.highPriority;
+        if (command.highPriority) {
+            const auto activeLease = priorityControlLease_.activeLease(nowMs);
+            if (activeLease && activeLease->owner == "scada-offline-safety") {
+                result.message = "previous offline safety action is still in progress";
+                return result;
+            }
+            priorityControlLease_.acquire(
+                command.cmdId,
+                resolved->tag.meterCode,
+                resolved->mapping.index,
+                nowMs,
+                config_.priorityControlLeaseTtlMs
+            );
+        }
         const auto submitted = runtime.submitWrite(action.tagId, command);
         result.actions.push_back({action.actionId, action.tagId, submitted.accepted, submitted.message});
-        if (submitted.accepted) acceptedActions_.insert(action.actionId);
+        if (submitted.accepted) {
+            acceptedActions_.insert(action.actionId);
+        } else if (command.highPriority) {
+            priorityControlLease_.release(command.cmdId);
+        }
+        break;
     }
     result.triggered = !result.actions.empty();
     completed_ = acceptedActions_.size() == actions.size();

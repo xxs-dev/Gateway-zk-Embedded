@@ -8,6 +8,7 @@
 
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/scada_models.hpp"
 
 namespace edge_gateway {
@@ -52,6 +53,7 @@ private:
     SystemMonitorConfig::ScadaUpperComputerSafetyConfig config_;
     std::string machineCode_;
     PointStoreRouter& router_;
+    PriorityControlLease priorityControlLease_;
     std::unique_ptr<ScadaProject> project_;
     std::int64_t lastReloadAtMs_ = 0;
     std::int64_t activatedAtMs_ = 0;
