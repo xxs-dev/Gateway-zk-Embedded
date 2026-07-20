@@ -21,6 +21,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QDir>
+#include <QFileInfo>
 #include <QFont>
 #include <QFrame>
 #include <QGraphicsEllipseItem>
@@ -31,6 +32,9 @@
 #include <QGraphicsScene>
 #include <QGraphicsTextItem>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
@@ -40,6 +44,8 @@
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTimer>
+#include <QTextDocument>
+#include <QTextOption>
 #include <QVBoxLayout>
 
 namespace {
@@ -63,15 +69,23 @@ QString formatNumber(double value) {
 }
 
 bool isProgressType(const std::string& type) {
-    return type == "progressBar" || type == "batterySoc" || type == "bilateralProgress";
+    return type == "progressBar" || type == "batterySoc" || type == "bilateralProgress" || type == "qtFillProgress";
 }
 
 bool isTrendType(const std::string& type) {
-    return type == "trend" || type == "realtimeTrend" || type == "lineChart";
+    return type == "trend" || type == "realtimeTrend" || type == "lineChart" || type == "qtChart";
 }
 
 bool isButtonType(const std::string& type) {
     return type == "qtButton" || type == "button";
+}
+
+bool isQtNativeTextType(const std::string& type) {
+    return type == "qtLabel" || type == "qtFrame" || type == "qtInput" || type == "qtCheckBox";
+}
+
+bool isQtNativeVisualType(const std::string& type) {
+    return type.size() >= 2 && type[0] == 'q' && type[1] == 't';
 }
 
 bool isControlAction(const std::string& type) {
@@ -172,10 +186,22 @@ void ScadaSceneView::buildScene() {
                 static_cast<int>(std::round(geometry.width())),
                 static_cast<int>(std::round(geometry.height()))
             );
-            button->setStyleSheet(
-                "QPushButton{background:#17384A;color:#F3F8FA;border:1px solid #2C6078;font-size:16px;}"
-                "QPushButton:pressed{background:#0D2734;}"
-            );
+            const auto transparent = property(widget, "qtTransparent") == "true";
+            const auto textColor = property(widget, "qtTextColor").empty() ? "#F3F8FA" : property(widget, "qtTextColor");
+            const auto backgroundColor = property(widget, "qtBackgroundColor").empty() ? "#17384A" : property(widget, "qtBackgroundColor");
+            QString style = QStringLiteral("QPushButton{color:%1;border:%2;background:%3;font-size:%4px;}")
+                .arg(QString::fromStdString(textColor))
+                .arg(transparent ? QStringLiteral("none") : QStringLiteral("1px solid #2C6078"))
+                .arg(transparent ? QStringLiteral("transparent") : QString::fromStdString(backgroundColor))
+                .arg(static_cast<int>(numericProperty(widget, "qtFontSize", 16.0)));
+            if (!imageReference.empty()) {
+                const auto imagePath = QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
+                if (QFileInfo::exists(imagePath)) {
+                    style += QStringLiteral("QPushButton{border-image:url(\"%1\");}").arg(imagePath);
+                }
+            }
+            style += QStringLiteral("QPushButton:pressed{background:#0D2734;}");
+            button->setStyleSheet(style);
             if (widget.action.type != "none" && !widget.action.type.empty()) {
                 const auto action = widget.action;
                 QObject::connect(button, &QPushButton::clicked, this, [this, action]() {
@@ -188,21 +214,45 @@ void ScadaSceneView::buildScene() {
             continue;
         }
 
-        const auto background = colorOr(property(widget, "qtBackgroundColor"), "#102A38");
-        auto* panel = scene_->addRect(geometry, QPen(QColor("#275165"), 1), QBrush(background));
+        const auto qtNativeText = isQtNativeTextType(widget.type);
+        const auto legacyQtWidget = !property(widget, "qtClass").empty();
+        const auto qtNativeVisual = isQtNativeVisualType(widget.type) || legacyQtWidget;
+        const auto qtFillProgress = widget.type == "qtFillProgress";
+        const auto legacyQtProgress = isProgressType(widget.type) && legacyQtWidget;
+        const auto alarmTable = widget.type == "alarmTable";
+        const auto background = colorOr(
+            property(widget, "qtBackgroundColor"),
+            qtNativeVisual ? "transparent" : "#102A38"
+        );
+        auto* panel = scene_->addRect(
+            geometry,
+            alarmTable
+                ? QPen(QColor("#2C6078"), 1)
+                : qtNativeVisual
+                    ? QPen(Qt::NoPen)
+                    : QPen(QColor("#275165"), 1),
+            (qtFillProgress || legacyQtProgress)
+                ? QBrush(Qt::NoBrush)
+                : alarmTable
+                    ? QBrush(QColor("#071A2D"))
+                    : QBrush(background)
+        );
         panel->setZValue(widget.zIndex);
 
-        auto* title = scene_->addText(QString::fromStdString(widget.title));
-        title->setDefaultTextColor(QColor("#9BB0BB"));
-        title->setFont(QFont(QStringLiteral("Microsoft YaHei"), 11));
-        title->setPos(geometry.x() + 12, geometry.y() + 7);
-        title->setZValue(widget.zIndex + 0.2);
+        if (!qtNativeVisual) {
+            auto* title = scene_->addText(QString::fromStdString(widget.title));
+            title->setDefaultTextColor(QColor("#9BB0BB"));
+            title->setFont(QFont(QStringLiteral("Microsoft YaHei"), 11));
+            title->setPos(geometry.x() + 12, geometry.y() + 7);
+            title->setZValue(widget.zIndex + 0.2);
+        }
 
         RuntimeWidget runtimeWidget;
         runtimeWidget.type = widget.type;
         runtimeWidget.action = widget.action;
         runtimeWidget.panel = panel;
         runtimeWidget.defaultColor = background.name().toStdString();
+        runtimeWidget.defaultImage = imageReference;
         runtimeWidget.progressMax = numericProperty(widget, "progressMaxValue", 100.0);
         runtimeWidget.trendMaxPoints = std::max(2, static_cast<int>(numericProperty(widget, "chartMaxPoints", 120.0)));
         for (const auto& binding : widget.bindings) {
@@ -234,6 +284,7 @@ void ScadaSceneView::buildScene() {
             rule.code = sourceRule.code;
             rule.label = sourceRule.label;
             rule.color = sourceRule.color;
+            rule.image = sourceRule.image;
             rule.priority = sourceRule.priority;
             rule.matchAny = sourceRule.match == "any";
             bool complete = true;
@@ -283,67 +334,160 @@ void ScadaSceneView::buildScene() {
             runtimeWidget.indexes.end()
         );
 
-        runtimeWidget.valueText = scene_->addText(runtimeWidget.indexes.empty()
-            ? QString::fromStdString(property(widget, "qtText"))
-            : QStringLiteral("--"));
-        runtimeWidget.valueText->setDefaultTextColor(colorOr(property(widget, "qtTextColor"), "#F3F8FA"));
-        runtimeWidget.valueText->setFont(QFont(
-            QStringLiteral("Microsoft YaHei"),
-            static_cast<int>(numericProperty(widget, "qtFontSize", 18.0)),
-            QFont::DemiBold
+        const auto hideNativeValue = legacyQtProgress || widget.type == "qtChart";
+        runtimeWidget.valueText = scene_->addText(hideNativeValue
+            ? QString()
+            : runtimeWidget.indexes.empty()
+                ? QString::fromStdString(property(widget, "qtText"))
+                : QStringLiteral("--"));
+        runtimeWidget.valueText->setDefaultTextColor(alarmTable
+            ? QColor("#E8F0F2")
+            : colorOr(property(widget, "qtTextColor"), "#F3F8FA"));
+        QFont valueFont(QStringLiteral("Microsoft YaHei"));
+        valueFont.setPixelSize(std::max(1, static_cast<int>(std::round(
+            alarmTable ? 16.0 : numericProperty(widget, "qtFontSize", qtNativeText ? 14.0 : 18.0)
+        ))));
+        valueFont.setWeight(property(widget, "qtFontWeight") == "Bold" ? QFont::Bold : QFont::Normal);
+        runtimeWidget.valueText->setFont(valueFont);
+        runtimeWidget.valueText->document()->setDocumentMargin(0);
+        QTextOption textOption = runtimeWidget.valueText->document()->defaultTextOption();
+        textOption.setWrapMode(QTextOption::NoWrap);
+        const auto textAlignment = property(widget, "qtTextAlignment");
+        textOption.setAlignment(textAlignment == "Center"
+            ? Qt::AlignHCenter
+            : textAlignment == "Right"
+                ? Qt::AlignRight
+                : Qt::AlignLeft);
+        runtimeWidget.valueText->document()->setDefaultTextOption(textOption);
+        runtimeWidget.valueText->setTextWidth(std::max(
+            1.0,
+            geometry.width() - (alarmTable ? 36.0 : qtNativeText ? 0.0 : 24.0)
         ));
-        runtimeWidget.valueText->setTextWidth(std::max(20.0, geometry.width() - 24.0));
-        runtimeWidget.valueText->setPos(geometry.x() + 12, geometry.y() + std::min(38.0, geometry.height() * 0.42));
+        runtimeWidget.valueText->setPos(
+            geometry.x() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : 12.0),
+            geometry.y() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : std::min(38.0, geometry.height() * 0.42))
+        );
         runtimeWidget.valueText->setZValue(widget.zIndex + 0.3);
+        runtimeWidget.valueText->setVisible(!hideNativeValue);
 
         if (widget.type == "statusLamp" || widget.type == "statusCard") {
-            const auto size = std::max(14.0, std::min(32.0, geometry.height() * 0.24));
-            runtimeWidget.statusLamp = scene_->addEllipse(
-                geometry.right() - size - 14,
-                geometry.y() + 12,
-                size,
-                size,
-                QPen(Qt::NoPen),
-                QBrush(QColor("#71808A"))
-            );
-            runtimeWidget.statusLamp->setZValue(widget.zIndex + 0.4);
+            const auto imagePath = imageReference.empty()
+                ? QString()
+                : QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
+            QPixmap pixmap(imagePath);
+            if (!pixmap.isNull()) {
+                runtimeWidget.stateImage = scene_->addPixmap(pixmap.scaled(
+                    static_cast<int>(std::round(geometry.width())),
+                    static_cast<int>(std::round(geometry.height())),
+                    Qt::IgnoreAspectRatio,
+                    Qt::SmoothTransformation
+                ));
+                runtimeWidget.stateImage->setPos(geometry.topLeft());
+                runtimeWidget.stateImage->setZValue(widget.zIndex + 0.4);
+                runtimeWidget.panel->setBrush(Qt::NoBrush);
+                runtimeWidget.valueText->setVisible(false);
+            } else {
+                const auto size = std::max(14.0, std::min(32.0, geometry.height() * 0.24));
+                runtimeWidget.statusLamp = scene_->addEllipse(
+                    geometry.right() - size - 14,
+                    geometry.y() + 12,
+                    size,
+                    size,
+                    QPen(Qt::NoPen),
+                    QBrush(QColor("#71808A"))
+                );
+                runtimeWidget.statusLamp->setZValue(widget.zIndex + 0.4);
+            }
         }
 
         if (isProgressType(widget.type)) {
-            runtimeWidget.progressX = geometry.x() + 12;
-            runtimeWidget.progressWidth = std::max(1.0, geometry.width() - 24);
-            runtimeWidget.progressHeight = std::max(8.0, std::min(20.0, geometry.height() * 0.16));
-            runtimeWidget.progressY = geometry.bottom() - runtimeWidget.progressHeight - 12;
+            runtimeWidget.progressVertical = property(widget, "progressOrientation") == "vertical";
+            runtimeWidget.progressX = legacyQtProgress ? geometry.x() : geometry.x() + 12;
+            runtimeWidget.progressY = legacyQtProgress
+                ? geometry.y()
+                : geometry.bottom() - std::max(8.0, std::min(20.0, geometry.height() * 0.16)) - 12;
+            runtimeWidget.progressWidth = legacyQtProgress
+                ? std::max(1.0, geometry.width())
+                : std::max(1.0, geometry.width() - 24);
+            runtimeWidget.progressHeight = legacyQtProgress
+                ? std::max(1.0, geometry.height())
+                : std::max(8.0, std::min(20.0, geometry.height() * 0.16));
             auto* track = scene_->addRect(
                 runtimeWidget.progressX,
                 runtimeWidget.progressY,
                 runtimeWidget.progressWidth,
                 runtimeWidget.progressHeight,
                 QPen(Qt::NoPen),
-                QBrush(QColor("#263D48"))
+                qtFillProgress ? QBrush(Qt::NoBrush) : QBrush(colorOr(property(widget, "qtBackgroundColor"), "#263D48"))
             );
             track->setZValue(widget.zIndex + 0.2);
+            const auto fillColor = qtFillProgress
+                ? colorOr(property(widget, "qtBackgroundColor"), "#20DBE9")
+                : QColor("#20DBE9");
             runtimeWidget.progressFill = scene_->addRect(
                 runtimeWidget.progressX,
-                runtimeWidget.progressY,
-                0,
-                runtimeWidget.progressHeight,
+                runtimeWidget.progressVertical
+                    ? runtimeWidget.progressY + runtimeWidget.progressHeight
+                    : runtimeWidget.progressY,
+                runtimeWidget.progressVertical ? runtimeWidget.progressWidth : 0,
+                runtimeWidget.progressVertical ? 0 : runtimeWidget.progressHeight,
                 QPen(Qt::NoPen),
-                QBrush(QColor("#20DBE9"))
+                QBrush(fillColor)
             );
             runtimeWidget.progressFill->setZValue(widget.zIndex + 0.3);
         }
 
         if (isTrendType(widget.type)) {
-            runtimeWidget.chartX = geometry.x() + 12;
-            runtimeWidget.chartY = geometry.y() + 42;
-            runtimeWidget.chartWidth = std::max(1.0, geometry.width() - 24);
-            runtimeWidget.chartHeight = std::max(1.0, geometry.height() - 56);
-            runtimeWidget.trendPath = scene_->addPath(QPainterPath(), QPen(QColor("#20DBE9"), 2));
-            runtimeWidget.trendPath->setZValue(widget.zIndex + 0.4);
-            runtimeWidget.valueText->setVisible(false);
+            const auto legacyChart = widget.type == "qtChart";
+            runtimeWidget.chartX = geometry.x() + (legacyChart ? 36 : 12);
+            runtimeWidget.chartY = geometry.y() + (legacyChart ? 30 : 42);
+            runtimeWidget.chartWidth = std::max(
+                1.0,
+                geometry.width() * (legacyChart ? 0.76 : 1.0) - (legacyChart ? 54 : 24)
+            );
+            runtimeWidget.chartHeight = std::max(1.0, geometry.height() - (legacyChart ? 60 : 56));
+            QPen gridPen(QColor("#1C506B"), 1, Qt::DashLine);
+            for (int line = 0; line <= 10; ++line) {
+                const auto x = runtimeWidget.chartX + runtimeWidget.chartWidth * static_cast<double>(line) / 10.0;
+                auto* grid = scene_->addLine(x, runtimeWidget.chartY, x, runtimeWidget.chartY + runtimeWidget.chartHeight, gridPen);
+                grid->setZValue(widget.zIndex + 0.1);
+            }
+            for (int line = 0; line <= 5; ++line) {
+                const auto y = runtimeWidget.chartY + runtimeWidget.chartHeight * static_cast<double>(line) / 5.0;
+                auto* grid = scene_->addLine(runtimeWidget.chartX, y, runtimeWidget.chartX + runtimeWidget.chartWidth, y, gridPen);
+                grid->setZValue(widget.zIndex + 0.1);
+            }
+            std::unordered_map<std::uint32_t, QColor> seriesColors;
+            const auto seriesDocument = QJsonDocument::fromJson(
+                QString::fromStdString(property(widget, "chartSeriesJson")).toUtf8()
+            );
+            if (seriesDocument.isArray()) {
+                for (const auto& item : seriesDocument.array()) {
+                    const auto object = item.toObject();
+                    const auto index = static_cast<std::uint32_t>(object.value(QStringLiteral("index")).toInt());
+                    const auto color = QColor(object.value(QStringLiteral("color")).toString());
+                    if (index > 0 && color.isValid()) seriesColors[index] = color;
+                }
+            }
+            static const char* fallbackColors[] = {"#F9CC44", "#129A37", "#EF5350", "#FF9626", "#20DBE9", "#CB2B88"};
+            std::size_t seriesIndex = 0;
+            for (const auto index : runtimeWidget.indexes) {
+                RuntimeTrendSeries series;
+                series.index = index;
+                const auto colorIt = seriesColors.find(index);
+                const auto color = colorIt == seriesColors.end()
+                    ? QColor(fallbackColors[seriesIndex % 6])
+                    : colorIt->second;
+                series.path = scene_->addPath(QPainterPath(), QPen(color, 2));
+                series.path->setZValue(widget.zIndex + 0.4 + static_cast<double>(seriesIndex) * 0.001);
+                runtimeWidget.trendSeries.push_back(series);
+                ++seriesIndex;
+            }
         }
-        runtimeWidgets_.push_back(runtimeWidget);
+        if (!runtimeWidget.indexes.empty() || !runtimeWidget.stateRules.empty() ||
+            !runtimeWidget.alarms.empty() || isTrendType(widget.type) || widget.type == "alarmTable") {
+            runtimeWidgets_.push_back(runtimeWidget);
+        }
     }
     fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
 }
@@ -365,12 +509,23 @@ void ScadaSceneView::refresh(std::int64_t now) {
     for (auto& widget : runtimeWidgets_) {
         if (widget.type == "alarmTable") {
             QStringList active;
+            int serial = 1;
             for (const auto& alarm : widget.alarms) {
                 if (conditionMatches(alarm.condition, byIndex)) {
-                    active.push_back(QString::fromStdString("[" + alarm.severity + "] " + alarm.label));
+                    const auto current = byIndex.find(alarm.condition.index);
+                    active.push_back(QStringLiteral("%1    %2    %3    %4    %5    %6")
+                        .arg(serial++)
+                        .arg(QString::fromUtf8("实时报警"))
+                        .arg(QString::fromStdString(alarm.label))
+                        .arg(QString::fromStdString(alarm.severity))
+                        .arg(current == byIndex.end() ? QStringLiteral("--") : formatNumber(current->second.value))
+                        .arg(QString::fromStdString(alarm.condition.expected)));
                 }
             }
-            const auto text = active.empty() ? QStringLiteral("No active alarms") : active.join(QStringLiteral("\n"));
+            const auto header = QString::fromUtf8("序号    报警类型    报警描述    报警级别    当前值    报警值");
+            const auto text = header + QStringLiteral("\n\n") + (active.empty()
+                ? QString::fromUtf8("暂无活动告警")
+                : active.join(QStringLiteral("\n")));
             if (text.toStdString() != widget.lastText) {
                 widget.valueText->setPlainText(text);
                 widget.lastText = text.toStdString();
@@ -397,12 +552,22 @@ void ScadaSceneView::refresh(std::int64_t now) {
             const auto ratio = !good || widget.progressMax <= 0
                 ? 0.0
                 : std::max(0.0, std::min(1.0, value->second.value / widget.progressMax));
-            widget.progressFill->setRect(
-                widget.progressX,
-                widget.progressY,
-                widget.progressWidth * ratio,
-                widget.progressHeight
-            );
+            if (widget.progressVertical) {
+                const auto filledHeight = widget.progressHeight * ratio;
+                widget.progressFill->setRect(
+                    widget.progressX,
+                    widget.progressY + widget.progressHeight - filledHeight,
+                    widget.progressWidth,
+                    filledHeight
+                );
+            } else {
+                widget.progressFill->setRect(
+                    widget.progressX,
+                    widget.progressY,
+                    widget.progressWidth * ratio,
+                    widget.progressHeight
+                );
+            }
         }
         refreshState(widget, byIndex);
         refreshTrend(widget, byIndex);
@@ -542,10 +707,27 @@ void ScadaSceneView::refreshState(
         : colorOr(matched->color, "#AAB3BD");
     if (widget.panel != nullptr) widget.panel->setBrush(color);
     if (widget.statusLamp != nullptr) widget.statusLamp->setBrush(matched == nullptr ? QColor("#71808A") : color);
+    if (widget.stateImage != nullptr) {
+        const auto imageReference = matched == nullptr ? widget.defaultImage : matched->image;
+        if (!imageReference.empty()) {
+            const auto imagePath = QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
+            QPixmap pixmap(imagePath);
+            if (!pixmap.isNull()) {
+                widget.stateImage->setPixmap(pixmap.scaled(
+                    static_cast<int>(std::round(widget.stateImage->boundingRect().width())),
+                    static_cast<int>(std::round(widget.stateImage->boundingRect().height())),
+                    Qt::IgnoreAspectRatio,
+                    Qt::SmoothTransformation
+                ));
+            }
+        }
+    }
     if (widget.type == "statusLamp" || widget.type == "statusCard") {
-        const auto label = matched != nullptr && !matched->label.empty() ? matched->label : std::string("--");
-        widget.valueText->setPlainText(QString::fromStdString(label));
-        widget.lastText = label;
+        if (widget.stateImage == nullptr) {
+            const auto label = matched != nullptr && !matched->label.empty() ? matched->label : std::string("--");
+            widget.valueText->setPlainText(QString::fromStdString(label));
+            widget.lastText = label;
+        }
     }
 }
 
@@ -553,39 +735,47 @@ void ScadaSceneView::refreshTrend(
     RuntimeWidget& widget,
     const std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue>& values
 ) {
-    if (widget.trendPath == nullptr || widget.indexes.empty()) return;
-    const auto current = values.find(widget.indexes.front());
-    if (current == values.end() || current->second.quality != 1 || current->second.stale || current->second.ts <= 0) return;
-    if (current->second.ts != widget.lastSampleTs) {
-        widget.lastSampleTs = current->second.ts;
-        widget.trendSamples.push_back(std::make_pair(current->second.ts, current->second.value));
-        while (static_cast<int>(widget.trendSamples.size()) > widget.trendMaxPoints) widget.trendSamples.pop_front();
-    }
-    if (widget.trendSamples.size() < 2) return;
-
+    if (widget.trendSeries.empty()) return;
     double minimum = std::numeric_limits<double>::max();
     double maximum = std::numeric_limits<double>::lowest();
-    for (const auto& sample : widget.trendSamples) {
-        minimum = std::min(minimum, sample.second);
-        maximum = std::max(maximum, sample.second);
+    bool hasRenderableSeries = false;
+    for (auto& series : widget.trendSeries) {
+        const auto current = values.find(series.index);
+        if (current != values.end() && current->second.quality == 1 && !current->second.stale && current->second.ts > 0 &&
+            current->second.ts != series.lastSampleTs) {
+            series.lastSampleTs = current->second.ts;
+            series.samples.push_back(std::make_pair(current->second.ts, current->second.value));
+            while (static_cast<int>(series.samples.size()) > widget.trendMaxPoints) series.samples.pop_front();
+        }
+        if (series.samples.size() < 2) continue;
+        hasRenderableSeries = true;
+        for (const auto& sample : series.samples) {
+            minimum = std::min(minimum, sample.second);
+            maximum = std::max(maximum, sample.second);
+        }
     }
+    if (!hasRenderableSeries) return;
     if (std::fabs(maximum - minimum) < 1e-9) {
         minimum -= 1.0;
         maximum += 1.0;
     }
 
-    QPainterPath path;
-    const auto count = widget.trendSamples.size();
-    std::size_t index = 0;
-    for (const auto& sample : widget.trendSamples) {
-        const auto x = widget.chartX + widget.chartWidth * static_cast<double>(index) / static_cast<double>(count - 1);
-        const auto ratio = (sample.second - minimum) / (maximum - minimum);
-        const auto y = widget.chartY + widget.chartHeight * (1.0 - ratio);
-        if (index == 0) path.moveTo(x, y);
-        else path.lineTo(x, y);
-        ++index;
+    for (auto& series : widget.trendSeries) {
+        QPainterPath path;
+        const auto count = series.samples.size();
+        std::size_t index = 0;
+        for (const auto& sample : series.samples) {
+            const auto x = count < 2
+                ? widget.chartX
+                : widget.chartX + widget.chartWidth * static_cast<double>(index) / static_cast<double>(count - 1);
+            const auto ratio = (sample.second - minimum) / (maximum - minimum);
+            const auto y = widget.chartY + widget.chartHeight * (1.0 - ratio);
+            if (index == 0) path.moveTo(x, y);
+            else path.lineTo(x, y);
+            ++index;
+        }
+        if (series.path != nullptr) series.path->setPath(path);
     }
-    widget.trendPath->setPath(path);
 }
 
 void ScadaSceneView::resizeEvent(QResizeEvent* event) {

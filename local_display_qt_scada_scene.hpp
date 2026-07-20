@@ -17,6 +17,7 @@
 
 class QGraphicsEllipseItem;
 class QGraphicsPathItem;
+class QGraphicsPixmapItem;
 class QGraphicsRectItem;
 class QGraphicsScene;
 class QGraphicsTextItem;
@@ -51,6 +52,7 @@ private:
         std::string code;
         std::string label;
         std::string color;
+        std::string image;
         int priority = 0;
         bool matchAny = false;
         std::vector<RuntimeCondition> conditions;
@@ -62,9 +64,17 @@ private:
         RuntimeCondition condition;
     };
 
+    struct RuntimeTrendSeries {
+        std::uint32_t index = 0;
+        QGraphicsPathItem* path = nullptr;
+        std::int64_t lastSampleTs = 0;
+        std::deque<std::pair<std::int64_t, double>> samples;
+    };
+
     struct RuntimeWidget {
         std::string type;
         std::string defaultColor;
+        std::string defaultImage;
         edge_gateway::ScadaWidgetAction action;
         std::vector<std::uint32_t> indexes;
         std::vector<RuntimeStateRule> stateRules;
@@ -73,19 +83,19 @@ private:
         QGraphicsTextItem* valueText = nullptr;
         QGraphicsRectItem* progressFill = nullptr;
         QGraphicsEllipseItem* statusLamp = nullptr;
-        QGraphicsPathItem* trendPath = nullptr;
+        QGraphicsPixmapItem* stateImage = nullptr;
+        std::vector<RuntimeTrendSeries> trendSeries;
         double progressX = 0.0;
         double progressY = 0.0;
         double progressWidth = 0.0;
         double progressHeight = 0.0;
         double progressMax = 100.0;
+        bool progressVertical = false;
         double chartX = 0.0;
         double chartY = 0.0;
         double chartWidth = 0.0;
         double chartHeight = 0.0;
         int trendMaxPoints = 120;
-        std::int64_t lastSampleTs = 0;
-        std::deque<std::pair<std::int64_t, double>> trendSamples;
         std::string lastText;
         std::string lastVisualCode;
     };

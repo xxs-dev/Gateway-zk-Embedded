@@ -130,3 +130,14 @@ readlink -f /opt/modbus-gateway/scada/current
 - 60 秒观察前后 SystemMonitor、MqttDriver、KY-EMS 的 PID 不变；SystemMonitor 与 MqttDriver 均存在到 broker `:8883` 的已建立连接。
 - 测试结束后已恢复原一体化 release，并清理测试工程、控制租约、临时报文和远端备份；Index `984` 保持 `value=1 quality=1`。
 - 只验证测试机，没有部署 `10.126.126.*` 生产设备。
+
+## 9. 2026-07-20 旧 EMS 全量工程验证
+
+- 工程包：`ky-ems-COMM202600999-1.0.0.kyscada`，5,478,167 bytes，SHA-256 `1c990348c1b1cc74110570657ebbd4b34e6e6a993ab09deb55a9f5127efe9072`。
+- 工程内容：15 页、1,595 图元、1,158 Tag、57 图片资源。
+- 当前 release：`/opt/modbus-gateway/scada/releases/ky-ems-COMM202600999-1.0.0-20260720125210`。
+- `KY-EMS` 兼容路径内运行统一 Qt SCADA 程序，711,288 bytes，SHA-256 `5ad3f2c23ab6c6a6d47a358b46e2e99e921786d80f0d2283f7bb63e7e991bec6`。
+- 15 个页面已通过 X11 自动点击逐页截图；故障预警页显示告警表空状态，数据报表和实时曲线保留实际绑定且不写入 mock 数据。
+- `ky-ems.service` 为 `active`、`NRestarts=0`；MQTT broker 保持 `ssl://kygate.kyxn.net:8883`。
+- DIO Index `984` 为 `value=1 quality=1`；主设备通讯点当前无有效值，页面显示 `--` 属于真实状态。
+- 本轮只部署 `192.168.22.16 / COMM202600999`，没有部署 `10.126.126.*`。

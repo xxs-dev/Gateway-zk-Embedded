@@ -2,14 +2,15 @@
 
 ## 1. 当前定位
 
-当前生产本地界面以独立 `KY-EMS` Qt 工程为准：
+当前生产本地界面使用边端仓库内的统一 Qt SCADA 运行时：
 
-- 源码目录：`D:\workspace\Embedded\KY-EMS`
+- 源码入口：`local_display_qt_ems_main.cpp`、`local_display_qt_scada_scene.cpp`
 - 边端运行目录：`/opt/modbus-gateway/ky-ems`
 - systemd 服务：`ky-ems.service`
+- 工程目录：`/opt/modbus-gateway/scada/current`
 - 编译教程：[192.168.22.11边端交叉编译教程.md](../交叉编译教程/192.168.22.11边端交叉编译教程.md)
 
-边端仓库中的 `LocalDisplayQtEms` 只是早期 POC 和点位浏览方案，不再作为当前生产 EMS 画面的主入口。完整 EMS 画面迁移、打包和初始化包嵌入都以 `KY-EMS` 工程为准。
+二进制文件名和服务名继续使用 `KY-EMS`/`ky-ems.service` 以兼容既有部署脚本，但页面、Tag、资源和跳转的唯一运行输入已经改为 `.kyscada`。旧独立 Qt 工程只作为迁移源，不再作为生产编辑源。
 
 ## 2. 数据绑定
 
@@ -19,10 +20,10 @@
 KY-EMS-Config.xml widget + appDataIndex -> QRamRT::GetItemValue(appDataIndex)
 ```
 
-当前迁移目标是：
+当前生产链路是：
 
 ```text
-meterCode + pointCode -> KY-EMS-PointMap.json -> 当前共享内存 index -> 界面控件
+.kyscada Tag -> runtime-map -> PointStoreRouter -> 当前共享内存 index -> Qt SCADA 图元
 ```
 
 兼容顺序：
@@ -48,42 +49,38 @@ PC 模拟构建可保留默认值用于界面布局验收，但不得将这些�
 
 ## 3. 运行文件
 
-当前 `ky-ems` 目录应包含：
+当前运行文件包括：
 
 ```text
-KY-EMS
-KY-EMS-Config.xml
-KY-EMS-PointMap.example.json
-VarList.xml
-dataStoreBases/
+/opt/modbus-gateway/ky-ems/KY-EMS
+/opt/modbus-gateway/scada/current/manifest.json
+/opt/modbus-gateway/scada/current/screens/*.json
+/opt/modbus-gateway/scada/current/tags.json
+/opt/modbus-gateway/scada/current/runtime-map.json
+/opt/modbus-gateway/scada/current/assets/**
 ```
 
-其中：
-
-- `KY-EMS`：全志 aarch64 Qt 可执行文件。
-- `KY-EMS-Config.xml`：界面控件绑定配置。
-- `KY-EMS-PointMap.example.json`：当前工程点位映射。
-- `VarList.xml`：旧工程兼容入口。
+`KY-EMS-Config.xml`、PointMap 和 VarList 仍作为 Windows 转换器的旧工程输入，不是已启用 SCADA 模式时的运行必需文件。
 
 ## 4. 当前已验证版本
 
-2026-07-16 已验证：
+2026-07-20 已验证：
 
 - 编译机：`192.168.22.11`
 - 运行测试机：`192.168.22.16`
-- 二进制大小：`8852280` 字节
-- SHA256：`34a64a4d8cdc3d4cb0a11a8fb13a120525ce6f7704c34d68337410f85e961969`
+- 二进制大小：`711288` 字节
+- SHA256：`5ad3f2c23ab6c6a6d47a358b46e2e99e921786d80f0d2283f7bb63e7e991bec6`
 
 验证结果：
 
 - `ky-ems.service` 可正常启动。
-- `VarList.xml` 加载成功。
-- `KY-EMS-PointMap.example.json` 加载成功。
+- 完整 15 页 `.kyscada` 工程加载成功，包含 1,595 个图元、1,158 个 Tag 和 57 个资源。
 - 当前二进制已同步到桌面初始化包资源。
-- `192.168.22.16` 上 `ky-ems.service` 和 `qt-display-bridge.service` 均为 `active`。
+- `192.168.22.16` 上 `ky-ems.service` 为 `active`、`NRestarts=0`。
 - 多状态规则已在 `192.168.22.16` 用真实共享内存读取链路验证，日志确认 `CtlModeColor -> TEST_OK / 状态规则验证 / #2F9D78`；测试后恢复原项目 XML，仅保留已验证二进制。
 - 顶部导航、运行监测二级导航、BMS 内部页签、报警/报表切换、参数设置以及首页功率曲线往返均已实机点击验证。
-- 嵌入式报警页不再生成伪报警；未接入真实报警源时实时和历史报警均为空表。
+- 告警页不生成伪报警；未接入活动告警时显示“暂无活动告警”。
+- 数据报表和实时曲线保留 16 条曲线绑定；对应点没有真实值时只显示空网格，不填充演示数据。
 - 修复 `qt-display-bridge.service` 与 `gateway-services.service` 的启动顺序环；完整网关服务重启实测耗时 `18.35s`。
 - 重建损坏的 `gateway_point_store_ems_virtual` 后，Compute、Event、MQTT、Qt Bridge 和 KY-EMS 顺序启动，跨越原超时窗口后重启计数均为 `0`。
 
