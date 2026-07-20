@@ -112,13 +112,18 @@ readlink -f /opt/modbus-gateway/scada/current
 
 禁止删除当前 release。不要在服务运行时清理共享内存，也不要用清理 SCADA release 的方式处理采集故障。
 
-## 8. 2026-07-19 验证记录
+## 8. 2026-07-20 验证记录
 
 - 设备：`192.168.22.16 / COMM202600999`。
 - 当前 release：`comm202600999-scada-acceptance-1.0.1-acceptance-20260719160309`。
-- `MqttDriver`：716,000 bytes，SHA-256 `708c4687f469412ee1d3a6d7f99cf448771093d544d2d2db6f27aec83810b103`。
-- `SystemMonitor`：881,456 bytes，SHA-256 `a3e20f76175212fa859d798dd69ea5683e78d416f182c6f97047e099287c8e8f`。
+- `MqttDriver`：725,568 bytes，SHA-256 `f78029f2ac7712be46be25d32990f04f568c453924bd1402b0cd9dc6aae3decf`。
+- `SystemMonitor`：1,108,168 bytes，SHA-256 `f551c3890f285f4bc87da322c2876ca587adfad1b4cce243271ea232a0a24a69`。
 - `KY-EMS`：685,912 bytes，SHA-256 `cf3d4fa7337078876a6e72da88977bdd2208edc2be706f597be32bbd497f2642`。
 - MQTT broker 保持 `ssl://kygate.kyxn.net:8883`，双 TLS 连接正常。
-- 冒烟结果 `pass=76 warn=2 fail=0`，关键服务 `active` 且 `NRestarts=0`。
+- 最终主动 MQTT 冒烟结果 `pass=74 warn=4 fail=0`，关键服务 `active` 且 `NRestarts=0`。
+- 4 个 warning 为 IMEI 为空，以及 mqtt、monitor、identity 三个 JSON 权限偏宽；不影响功能验收，但正式投产前应收紧到 600/640。
+- 直连实时快照返回 1,001 点，并生成 machineCode 匹配的上位机租约文件。
+- 边端 22 个 C++ 测试、`scada_install_test.sh` 和 `scada_rollback_test.sh` 全部通过。
+- 安全链 aarch64 测试在测试机通过；当前一体化工程不会执行上位机失联动作。
+- 60 秒观察前后 SystemMonitor、MqttDriver、KY-EMS 的 PID 不变；SystemMonitor 与 MqttDriver 均存在到 broker `:8883` 的已建立连接。
 - 只验证测试机，没有部署 `10.126.126.*` 生产设备。

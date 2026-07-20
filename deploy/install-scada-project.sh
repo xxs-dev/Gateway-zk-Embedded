@@ -7,6 +7,7 @@ MACHINE_CODE=""
 SCADA_ROOT="/opt/modbus-gateway/scada"
 DRY_RUN=0
 RESTART=0
+STATE_FILE=""
 
 usage() {
     cat <<'EOF'
@@ -15,6 +16,7 @@ Usage: install-scada-project.sh --package FILE --machine-code CODE [options]
   --scada-root DIR    release root; default /opt/modbus-gateway/scada
   --dry-run           validate only
   --restart           restart only the configured local SCADA display service
+  --state-file FILE   write rollback metadata after successful activation
 EOF
 }
 
@@ -26,6 +28,7 @@ while [ "$#" -gt 0 ]; do
         --scada-root) SCADA_ROOT="${2:-}"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         --restart) RESTART=1; shift ;;
+        --state-file) STATE_FILE="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -40,6 +43,13 @@ case "$SCADA_ROOT" in
     *) echo "--scada-root must be an absolute path" >&2; exit 2 ;;
 esac
 [ "$SCADA_ROOT" != "/" ] || { echo "--scada-root may not be /" >&2; exit 2; }
+if [ -n "$STATE_FILE" ]; then
+    case "$STATE_FILE" in
+        /*) ;;
+        *) echo "--state-file must be an absolute path" >&2; exit 2 ;;
+    esac
+    [ "$STATE_FILE" != "/" ] || { echo "--state-file may not be /" >&2; exit 2; }
+fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 2; }
 
 META_FILE="$(mktemp /tmp/gateway-scada-meta.XXXXXX)"
@@ -159,10 +169,12 @@ STAGING="$SCADA_ROOT/releases/.${RELEASE_NAME}.staging"
 RELEASE="$SCADA_ROOT/releases/$RELEASE_NAME"
 CONFIG_BACKUP="$SCADA_ROOT/backup/monitor-service-${STAMP}.json"
 OLD_TARGET=""
+OLD_TARGET_RESOLVED=""
 [ ! -e "$STAGING" ] || { echo "staging directory already exists: $STAGING" >&2; exit 1; }
 [ ! -e "$RELEASE" ] || { echo "release directory already exists: $RELEASE" >&2; exit 1; }
 if [ -L "$SCADA_ROOT/current" ]; then
     OLD_TARGET="$(readlink "$SCADA_ROOT/current")"
+    OLD_TARGET_RESOLVED="$(readlink -f "$SCADA_ROOT/current")"
 fi
 
 rollback() {
@@ -256,6 +268,25 @@ if [ "$RESTART" -eq 1 ] && [ "$LOCAL_SCADA" = "true" ]; then
     SECOND_PID="$(systemctl show "$SCADA_SERVICE" -p MainPID --value)"
     systemctl is-active --quiet "$SCADA_SERVICE"
     [ "$SECOND_PID" = "$FIRST_PID" ] || { echo "local SCADA service restarted during health check" >&2; exit 1; }
+fi
+
+if [ -n "$STATE_FILE" ]; then
+    STATE_DIR="$(dirname "$STATE_FILE")"
+    mkdir -p "$STATE_DIR"
+    STATE_TMP="${STATE_FILE}.tmp.$$"
+    umask 077
+    {
+        echo "scadaRoot=$SCADA_ROOT"
+        echo "scadaPreviousTarget=$OLD_TARGET_RESOLVED"
+        echo "scadaCurrentTarget=$RELEASE"
+        echo "scadaConfigBackup=$CONFIG_BACKUP"
+        echo "scadaAppConfig=$APP_CONFIG"
+        echo "scadaService=$SCADA_SERVICE"
+        echo "scadaNodeId=$NODE_ID"
+        echo "scadaProjectId=$PROJECT_ID"
+        echo "scadaVersion=$VERSION"
+    } > "$STATE_TMP"
+    mv "$STATE_TMP" "$STATE_FILE"
 fi
 
 trap - EXIT INT TERM

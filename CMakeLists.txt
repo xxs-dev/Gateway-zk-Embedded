@@ -54,6 +54,8 @@ add_library(edge_gateway
     src/read_task_planner.cpp
     src/scada_project_loader.cpp
     src/scada_runtime_map.cpp
+    src/scada_control_lease.cpp
+    src/scada_upper_computer_safety.cpp
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
     src/sysfs_gpio_port.cpp
@@ -210,6 +212,10 @@ target_compile_options(point_store_router_normalize_test PRIVATE -fdiagnostics-c
 add_executable(scada_runtime_test tools/scada_runtime_test.cpp)
 target_link_libraries(scada_runtime_test PRIVATE edge_gateway)
 target_compile_options(scada_runtime_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(scada_upper_computer_safety_test tools/scada_upper_computer_safety_test.cpp)
+target_link_libraries(scada_upper_computer_safety_test PRIVATE edge_gateway)
+target_compile_options(scada_upper_computer_safety_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(builtin_mqtt_driver_publisher_test tools/builtin_mqtt_driver_publisher_test.cpp)
 target_link_libraries(builtin_mqtt_driver_publisher_test PRIVATE edge_gateway)

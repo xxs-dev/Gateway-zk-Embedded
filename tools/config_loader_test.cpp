@@ -312,6 +312,33 @@ void verifyLocalDisplayScadaConfig() {
     require(!config.autoReload, "local display SCADA autoReload should parse");
 }
 
+void verifyScadaUpperComputerSafetyConfig() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+      "systemMonitor": {
+        "scadaUpperComputerSafety": {
+          "enabled": true,
+          "projectDirectory": "/srv/scada/current",
+          "leaseFile": "/run/scada-upper.lease",
+          "reloadIntervalMs": 2500
+        },
+        "directMaintenance": { "enabled": true }
+      }
+    })JSON";
+    output.close();
+
+    const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).systemMonitor;
+    std::remove(path.c_str());
+    require(config.scadaUpperComputerSafety.enabled, "SCADA upper-computer safety should parse enabled");
+    require(config.scadaUpperComputerSafety.projectDirectory == "/srv/scada/current", "SCADA project directory should parse");
+    require(config.scadaUpperComputerSafety.leaseFile == "/run/scada-upper.lease", "SCADA lease file should parse");
+    require(config.scadaUpperComputerSafety.reloadIntervalMs == 2500, "SCADA reload interval should parse");
+    require(config.directMaintenance.scadaUpperComputerSafetyEnabled, "direct maintenance should share SCADA safety enablement");
+    require(config.directMaintenance.scadaUpperComputerLeaseFile == "/run/scada-upper.lease", "direct maintenance should share SCADA lease file");
+    require(config.directMaintenance.scadaUpperComputerProjectDirectory == "/srv/scada/current", "direct maintenance should share SCADA project directory");
+}
+
 }  // namespace
 
 int main() {
@@ -363,6 +390,7 @@ int main() {
     verifyPointNormalizeConfig();
     verifyLocalDisplayStateBindingConfig();
     verifyLocalDisplayScadaConfig();
+    verifyScadaUpperComputerSafetyConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

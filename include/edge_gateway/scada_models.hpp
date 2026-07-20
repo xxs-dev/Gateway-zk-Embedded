@@ -27,6 +27,14 @@ struct ScadaManifest {
     std::string packageRole = "project";
 };
 
+struct ScadaOfflineSafetyAction {
+    std::string actionId;
+    std::string nodeId;
+    std::string tagId;
+    double value = 0.0;
+    bool highPriority = true;
+};
+
 struct ScadaTopology {
     ScadaDeploymentMode mode = ScadaDeploymentMode::Integrated;
     std::string scadaHost = "edge";
@@ -36,7 +44,8 @@ struct ScadaTopology {
     bool retainLocalSafetyRules = true;
     bool requireFreshLeaseForControl = true;
     int offlineTimeoutMs = 10000;
-    std::string offlineAction = "zeroPower";
+    std::string offlineAction = "executeConfiguredActions";
+    std::vector<ScadaOfflineSafetyAction> safetyActions;
 };
 
 struct ScadaNode {

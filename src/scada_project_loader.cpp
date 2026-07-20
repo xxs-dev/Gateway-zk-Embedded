@@ -410,6 +410,18 @@ ScadaTopology parseTopology(const JsonValue& root) {
         result.requireFreshLeaseForControl = boolValue(*policy, "requireFreshLeaseForControl", true);
         result.offlineTimeoutMs = static_cast<int>(numberValue(*policy, "timeoutMs", result.offlineTimeoutMs));
         result.offlineAction = stringValue(*policy, "action", result.offlineAction);
+        if (const auto* actions = policy->find("safetyActions")) {
+            for (const auto& item : requireType(actions, JsonValue::Type::Array, "safetyActions").arrayValue) {
+                requireType(&item, JsonValue::Type::Object, "safety action");
+                ScadaOfflineSafetyAction action;
+                action.actionId = stringValue(item, "actionId");
+                action.nodeId = stringValue(item, "nodeId");
+                action.tagId = stringValue(item, "tagId");
+                action.value = numberValue(item, "value", 0.0);
+                action.highPriority = boolValue(item, "highPriority", true);
+                result.safetyActions.push_back(std::move(action));
+            }
+        }
     }
     return result;
 }
@@ -688,6 +700,17 @@ void ScadaProjectLoader::validate(const ScadaProject& project) {
         !project.topology.retainLocalSafetyRules) {
         throw std::runtime_error("upper-computer SCADA must retain edge safety rules");
     }
+    if (project.topology.mode == ScadaDeploymentMode::UpperComputer) {
+        if (project.topology.offlineTimeoutMs < 1000 || project.topology.offlineTimeoutMs > 600000) {
+            throw std::runtime_error("upper-computer SCADA offline timeout is out of range");
+        }
+        if (project.topology.offlineAction != "executeConfiguredActions") {
+            throw std::runtime_error("upper-computer SCADA requires explicit offline safety actions");
+        }
+        if (project.topology.safetyActions.empty()) {
+            throw std::runtime_error("upper-computer SCADA has no offline safety action");
+        }
+    }
 
     std::unordered_set<std::string> nodeIds;
     std::unordered_set<std::string> machineCodes;
@@ -729,6 +752,32 @@ void ScadaProjectLoader::validate(const ScadaProject& project) {
     for (const auto& item : tags) {
         if (mappedTags.count(item.first) == 0 && item.second->indexFallback == 0) {
             throw std::runtime_error("SCADA tag has no runtime mapping: " + item.first);
+        }
+    }
+
+    if (project.topology.mode == ScadaDeploymentMode::UpperComputer) {
+        std::unordered_set<std::string> actionIds;
+        for (const auto& action : project.topology.safetyActions) {
+            if (!stableId(action.actionId) || !actionIds.insert(action.actionId).second) {
+                throw std::runtime_error("invalid or duplicate SCADA offline safety action: " + action.actionId);
+            }
+            const auto key = tagKey(action.nodeId, action.tagId);
+            const auto tag = tags.find(key);
+            if (tag == tags.end()) {
+                throw std::runtime_error("SCADA offline safety action references unknown tag: " + key);
+            }
+            if (tag->second->access == ScadaTagAccess::Read) {
+                throw std::runtime_error("SCADA offline safety action targets read-only tag: " + key);
+            }
+            const auto mapping = std::find_if(project.runtimeMappings.begin(), project.runtimeMappings.end(), [&](const ScadaRuntimeMapping& item) {
+                return item.nodeId == action.nodeId && item.tagId == action.tagId;
+            });
+            if (mapping == project.runtimeMappings.end() || !mapping->writable) {
+                throw std::runtime_error("SCADA offline safety action has no writable runtime mapping: " + key);
+            }
+            if (!std::isfinite(action.value)) {
+                throw std::runtime_error("SCADA offline safety action value is not finite: " + action.actionId);
+            }
         }
     }
 

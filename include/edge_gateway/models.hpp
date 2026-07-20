@@ -946,6 +946,13 @@ struct RealtimeConfig {
 };
 
 struct SystemMonitorConfig {
+    struct ScadaUpperComputerSafetyConfig {
+        bool enabled = false;
+        std::string projectDirectory = "/opt/modbus-gateway/scada/current";
+        std::string leaseFile = "/opt/modbus-gateway/run/scada-upper-computer-lease.json";
+        int reloadIntervalMs = 5000;
+    };
+
     struct CellularConfig {
         bool enabled = true;
         int probeIntervalMs = 5000;
@@ -982,6 +989,9 @@ struct SystemMonitorConfig {
         std::string otaAppConfigFile = "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json";
         std::string authStateFile = "/opt/modbus-gateway/config/runtime/monitor-direct-maintenance-state.json";
         std::string otaStatusFile = "/opt/modbus-gateway/ota/monitor-direct-maintenance-status.jsonl";
+        std::string scadaUpperComputerLeaseFile = "/opt/modbus-gateway/run/scada-upper-computer-lease.json";
+        std::string scadaUpperComputerProjectDirectory = "/opt/modbus-gateway/scada/current";
+        bool scadaUpperComputerSafetyEnabled = false;
         int maxRealtimePoints = 2000;
     };
 
@@ -1009,6 +1019,7 @@ struct SystemMonitorConfig {
       };
       CellularConfig cellular;
       DirectMaintenanceConfig directMaintenance;
+      ScadaUpperComputerSafetyConfig scadaUpperComputerSafety;
   };
 
 struct LocalDisplayGroupConfig {

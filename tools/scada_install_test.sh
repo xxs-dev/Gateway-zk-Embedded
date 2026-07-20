@@ -6,6 +6,7 @@ SOURCE="$ROOT/source"
 PACKAGE="$ROOT/site-a.kyscada"
 APP_CONFIG="$ROOT/monitor.json"
 SCADA_ROOT="$ROOT/runtime"
+STATE_FILE="$ROOT/install-state.txt"
 INSTALLER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/deploy/install-scada-project.sh"
 
 cleanup() {
@@ -74,20 +75,26 @@ sh "$INSTALLER" \
     --package "$PACKAGE" \
     --machine-code COMM202600999 \
     --app-config "$APP_CONFIG" \
-    --scada-root "$SCADA_ROOT"
+    --scada-root "$SCADA_ROOT" \
+    --state-file "$STATE_FILE"
 
 [ -L "$SCADA_ROOT/current" ]
 [ -f "$SCADA_ROOT/current/manifest.json" ]
-python3 - "$APP_CONFIG" "$SCADA_ROOT/current" <<'PY'
+[ -f "$STATE_FILE" ]
+python3 - "$APP_CONFIG" "$SCADA_ROOT/current" "$STATE_FILE" <<'PY'
 import json
 import sys
 
-path, expected_directory = sys.argv[1:]
+path, expected_directory, state_path = sys.argv[1:]
 with open(path, "r", encoding="utf-8") as source:
     scada = json.load(source)["localDisplay"]["scada"]
 assert scada["enabled"] is True
 assert scada["nodeId"] == "edge-a"
 assert scada["projectDirectory"] == expected_directory
+state = dict(line.rstrip("\n").split("=", 1) for line in open(state_path, encoding="utf-8") if "=" in line)
+assert state["scadaRoot"] == expected_directory.rsplit("/current", 1)[0]
+assert state["scadaCurrentTarget"] == str(__import__("pathlib").Path(expected_directory).resolve())
+assert state["scadaVersion"] == "1.0.0"
 PY
 
 echo "scada_install_test passed"

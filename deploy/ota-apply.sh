@@ -186,11 +186,18 @@ case "$ARTIFACT_NAME" in
   *.kyscada)
     INSTALLER="/opt/modbus-gateway/bin/install-scada-project.sh"
     IDENTITY_FILE="/opt/modbus-gateway/config/runtime/device_identity.json"
+    SCADA_INSTALL_STATE="$WORK_DIR/scada-install-state.txt"
+    printf '%s\n' 'packageType=scada' > "$WORK_DIR/package-type.txt"
     [ -x "$INSTALLER" ] || { echo "[$TIMESTAMP] [ota-apply] SCADA installer is missing" >&2; exit 4; }
     [ -f "$IDENTITY_FILE" ] || { echo "[$TIMESTAMP] [ota-apply] device identity is missing" >&2; exit 4; }
     MACHINE_CODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("machineCode", ""))' "$IDENTITY_FILE")"
     [ -n "$MACHINE_CODE" ] || { echo "[$TIMESTAMP] [ota-apply] machineCode is empty" >&2; exit 4; }
-    "$INSTALLER" --package "$WORK_DIR/$ARTIFACT_NAME" --machine-code "$MACHINE_CODE" --restart
+    "$INSTALLER" \
+      --package "$WORK_DIR/$ARTIFACT_NAME" \
+      --machine-code "$MACHINE_CODE" \
+      --restart \
+      --state-file "$SCADA_INSTALL_STATE"
+    [ -f "$SCADA_INSTALL_STATE" ] || { echo "[$TIMESTAMP] [ota-apply] SCADA install state is missing" >&2; exit 4; }
     {
       echo "jobId=$JOB_ID"
       echo "version=$VERSION"
@@ -200,6 +207,7 @@ case "$ARTIFACT_NAME" in
       echo "workDir=$WORK_DIR"
       echo "appliedAt=$TIMESTAMP"
       echo "packageType=scada"
+      cat "$SCADA_INSTALL_STATE"
     } > "$STATE_FILE"
     echo "$VERSION" > "$STAGING_DIR/applied_version.txt"
     echo "[$TIMESTAMP] [ota-apply] SCADA success jobId=$JOB_ID version=$VERSION" | tee -a "$LOG_FILE"

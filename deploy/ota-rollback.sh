@@ -73,10 +73,114 @@ RESTORE_LIST="$STAGING_DIR/rollback_${JOB_ID}_restored.txt"
 RESTART_FILE="$STAGING_DIR/rollback_${JOB_ID}_restart_services.txt"
 RESTORE_BACKUP_DIR="$BACKUP_DIR"
 WORK_DIR="$STAGING_DIR/$JOB_ID"
+REQUEST_WORK_DIR="$WORK_DIR"
 
 mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
 
 echo "[$TIMESTAMP] [ota-rollback] start jobId=$JOB_ID version=$VERSION artifact=$ARTIFACT_PATH" | tee -a "$LOG_FILE"
+
+state_value() {
+  key="$1"
+  path="$2"
+  awk -F= -v wanted="$key" '$1 == wanted { sub(/^[^=]*=/, ""); print; exit }' "$path"
+}
+
+rollback_scada() {
+  state_path="$1"
+  scada_root="$(state_value scadaRoot "$state_path")"
+  previous_target="$(state_value scadaPreviousTarget "$state_path")"
+  current_target="$(state_value scadaCurrentTarget "$state_path")"
+  config_backup="$(state_value scadaConfigBackup "$state_path")"
+  app_config="$(state_value scadaAppConfig "$state_path")"
+  scada_service="$(state_value scadaService "$state_path")"
+
+  require_safe_dir "scadaRoot" "$scada_root"
+  require_safe_dir "scadaPreviousTarget" "$previous_target"
+  require_safe_dir "scadaCurrentTarget" "$current_target"
+  require_safe_dir "scadaConfigBackup" "$config_backup"
+  require_safe_dir "scadaAppConfig" "$app_config"
+  case "$previous_target" in "$scada_root"/releases/*) ;; *) echo "[ota-rollback] unsafe previous SCADA target" >&2; return 1 ;; esac
+  case "$current_target" in "$scada_root"/releases/*) ;; *) echo "[ota-rollback] unsafe current SCADA target" >&2; return 1 ;; esac
+  case "$config_backup" in "$scada_root"/backup/*) ;; *) echo "[ota-rollback] unsafe SCADA config backup" >&2; return 1 ;; esac
+  [ -d "$previous_target" ] || { echo "[ota-rollback] previous SCADA release is missing: $previous_target" >&2; return 1; }
+  [ -d "$current_target" ] || { echo "[ota-rollback] current SCADA release is missing: $current_target" >&2; return 1; }
+  [ -f "$config_backup" ] || { echo "[ota-rollback] SCADA config backup is missing: $config_backup" >&2; return 1; }
+  [ -f "$app_config" ] || { echo "[ota-rollback] SCADA app config is missing: $app_config" >&2; return 1; }
+  active_target="$(readlink -f "$scada_root/current" 2>/dev/null || true)"
+  [ "$active_target" = "$current_target" ] || {
+    echo "[ota-rollback] active SCADA release changed; expected $current_target, got $active_target" >&2
+    return 1
+  }
+  if [ -n "$scada_service" ] && ! safe_service_name "$scada_service"; then
+    echo "[ota-rollback] unsafe SCADA service: $scada_service" >&2
+    return 1
+  fi
+
+  config_before="$REQUEST_WORK_DIR/scada-config-before-rollback.json"
+  cp -p "$app_config" "$config_before"
+  ln -sfn "releases/$(basename "$previous_target")" "$scada_root/current.rollback"
+  mv -Tf "$scada_root/current.rollback" "$scada_root/current"
+  if ! cp -p "$config_backup" "$app_config"; then
+    ln -sfn "releases/$(basename "$current_target")" "$scada_root/current.restore"
+    mv -Tf "$scada_root/current.restore" "$scada_root/current"
+    cp -p "$config_before" "$app_config" || true
+    return 1
+  fi
+
+  if [ -n "$scada_service" ] && command -v systemctl >/dev/null 2>&1; then
+    if ! systemctl restart "$scada_service" || ! systemctl is-active --quiet "$scada_service"; then
+      ln -sfn "releases/$(basename "$current_target")" "$scada_root/current.restore"
+      mv -Tf "$scada_root/current.restore" "$scada_root/current"
+      cp -p "$config_before" "$app_config" || true
+      systemctl restart "$scada_service" >/dev/null 2>&1 || true
+      echo "[ota-rollback] SCADA service failed after rollback; restored current release" >&2
+      return 1
+    fi
+  fi
+
+  previous_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("packageVersion", ""))' "$previous_target/manifest.json")"
+  require_safe_id "previous SCADA version" "$previous_version"
+  printf '%s\n' "$previous_version" > "$STAGING_DIR/applied_version.txt"
+  {
+    echo "jobId=$JOB_ID"
+    echo "version=$previous_version"
+    echo "packageType=scada"
+    echo "rolledBackFromVersion=$VERSION"
+    echo "scadaRoot=$scada_root"
+    echo "scadaCurrentTarget=$previous_target"
+    echo "scadaPreviousTarget=$current_target"
+    echo "scadaAppConfig=$app_config"
+    echo "scadaConfigBackup=$config_before"
+    echo "scadaService=$scada_service"
+  } > "${STATE_FILE}.tmp"
+  mv "${STATE_FILE}.tmp" "$STATE_FILE"
+  {
+    echo "jobId=$JOB_ID"
+    echo "rollbackFromVersion=$VERSION"
+    echo "activeVersion=$previous_version"
+    echo "packageType=scada"
+    echo "rollbackAt=$TIMESTAMP"
+    echo "scadaPreviousTarget=$previous_target"
+  } > "$ROLLBACK_MARK"
+  echo "[$TIMESTAMP] [ota-rollback] SCADA success jobId=$JOB_ID activeVersion=$previous_version" | tee -a "$LOG_FILE"
+}
+
+if [ -f "$REQUEST_WORK_DIR/package-type.txt" ] && grep -qx 'packageType=scada' "$REQUEST_WORK_DIR/package-type.txt"; then
+  SCADA_INSTALL_STATE="$REQUEST_WORK_DIR/scada-install-state.txt"
+  if [ ! -f "$SCADA_INSTALL_STATE" ]; then
+    {
+      echo "jobId=$JOB_ID"
+      echo "rollbackFromVersion=$VERSION"
+      echo "packageType=scada"
+      echo "rollbackAt=$TIMESTAMP"
+      echo "message=installer failed before activation state was written; installer rollback already handled"
+    } > "$ROLLBACK_MARK"
+    echo "[$TIMESTAMP] [ota-rollback] SCADA installer already restored the previous release" | tee -a "$LOG_FILE"
+    exit 0
+  fi
+  rollback_scada "$SCADA_INSTALL_STATE"
+  exit 0
+fi
 
 if [ -f "$STATE_FILE" ]; then
   cp "$STATE_FILE" "$ROLLBACK_MARK"

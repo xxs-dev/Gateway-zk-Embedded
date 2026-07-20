@@ -2252,6 +2252,21 @@ SystemMonitorConfig::DirectMaintenanceConfig parseDirectMaintenanceConfig(
     config.otaAppConfigFile = requireString(object, "otaAppConfigFile", config.otaAppConfigFile);
     config.authStateFile = requireString(object, "authStateFile", config.authStateFile);
     config.otaStatusFile = requireString(object, "otaStatusFile", config.otaStatusFile);
+    config.scadaUpperComputerLeaseFile = requireString(
+        object,
+        "scadaUpperComputerLeaseFile",
+        config.scadaUpperComputerLeaseFile
+    );
+    config.scadaUpperComputerSafetyEnabled = requireBool(
+        object,
+        "scadaUpperComputerSafetyEnabled",
+        config.scadaUpperComputerSafetyEnabled
+    );
+    config.scadaUpperComputerProjectDirectory = requireString(
+        object,
+        "scadaUpperComputerProjectDirectory",
+        config.scadaUpperComputerProjectDirectory
+    );
     config.maxRealtimePoints = requireInt(object, "maxRealtimePoints", config.maxRealtimePoints);
     return config;
 }
@@ -2284,6 +2299,29 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
         "realtimeMeterLeaseFile",
         config.realtimeMeterLeaseFile
     );
+    if (const auto* safety = value->find("scadaUpperComputerSafety")) {
+        const auto& safetyObject = safety->asObject();
+        config.scadaUpperComputerSafety.enabled = requireBool(
+            safetyObject,
+            "enabled",
+            config.scadaUpperComputerSafety.enabled
+        );
+        config.scadaUpperComputerSafety.projectDirectory = requireString(
+            safetyObject,
+            "projectDirectory",
+            config.scadaUpperComputerSafety.projectDirectory
+        );
+        config.scadaUpperComputerSafety.leaseFile = requireString(
+            safetyObject,
+            "leaseFile",
+            config.scadaUpperComputerSafety.leaseFile
+        );
+        config.scadaUpperComputerSafety.reloadIntervalMs = boundedInt(
+            requireInt(safetyObject, "reloadIntervalMs", config.scadaUpperComputerSafety.reloadIntervalMs),
+            1000,
+            60000
+        );
+    }
     config.allowedCommands = parseStringArray(value->find("allowedCommands"));
     if (config.allowedCommands.empty()) {
         config.allowedCommands = SystemMonitorConfig().allowedCommands;
@@ -2310,6 +2348,9 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
         }
     }
     config.directMaintenance = parseDirectMaintenanceConfig(value->find("directMaintenance"), value);
+    config.directMaintenance.scadaUpperComputerLeaseFile = config.scadaUpperComputerSafety.leaseFile;
+    config.directMaintenance.scadaUpperComputerProjectDirectory = config.scadaUpperComputerSafety.projectDirectory;
+    config.directMaintenance.scadaUpperComputerSafetyEnabled = config.scadaUpperComputerSafety.enabled;
     return config;
 }
 

@@ -32,7 +32,8 @@ public:
         MemoryPointStore& store,
         std::shared_ptr<IMqttDriverPublisher> publisher,
         std::unique_ptr<MqttEventOutbox> eventOutbox = nullptr,
-        std::unique_ptr<OtaService> otaService = nullptr
+        std::unique_ptr<OtaService> otaService = nullptr,
+        SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig = {}
     );
     MqttDriverService(
         MqttConfig mqttConfig,
@@ -41,7 +42,8 @@ public:
         PointStoreRouter& router,
         std::shared_ptr<IMqttDriverPublisher> publisher,
         std::unique_ptr<MqttEventOutbox> eventOutbox = nullptr,
-        std::unique_ptr<OtaService> otaService = nullptr
+        std::unique_ptr<OtaService> otaService = nullptr,
+        SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig = {}
     );
     ~MqttDriverService();
 
@@ -121,6 +123,7 @@ private:
     std::unique_ptr<MqttEventOutbox> eventOutbox_;
     std::unique_ptr<OtaService> otaService_;
     PriorityControlLease priorityControlLease_;
+    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig_;
     std::unordered_set<std::string> machineCodes_;
     std::unordered_map<std::uint32_t, PointRoute> pointRoutes_;
     std::int64_t lastFullUploadMs_ = 0;

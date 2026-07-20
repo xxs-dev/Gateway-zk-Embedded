@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/scada_control_lease.hpp"
 
 namespace edge_gateway {
 
@@ -500,7 +501,8 @@ MqttDriverService::MqttDriverService(
     MemoryPointStore& store,
     std::shared_ptr<IMqttDriverPublisher> publisher,
     std::unique_ptr<MqttEventOutbox> eventOutbox,
-    std::unique_ptr<OtaService> otaService
+    std::unique_ptr<OtaService> otaService,
+    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig
 ) : mqttConfig_(std::move(mqttConfig)),
     driverConfig_(std::move(driverConfig)),
     ownedRouter_(new PointStoreRouter()),
@@ -508,7 +510,8 @@ MqttDriverService::MqttDriverService(
     publisher_(std::move(publisher)),
     eventOutbox_(std::move(eventOutbox)),
     otaService_(std::move(otaService)),
-    priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver") {
+    priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver"),
+    scadaSafetyConfig_(std::move(scadaSafetyConfig)) {
     router_.addStore(driverConfig_.sharedMemoryName, store);
     router_.addRoutesFromDeviceConfigs(deviceConfigs, driverConfig_.sharedMemoryName);
 
@@ -565,7 +568,8 @@ MqttDriverService::MqttDriverService(
     PointStoreRouter& router,
     std::shared_ptr<IMqttDriverPublisher> publisher,
     std::unique_ptr<MqttEventOutbox> eventOutbox,
-    std::unique_ptr<OtaService> otaService
+    std::unique_ptr<OtaService> otaService,
+    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig
 ) : mqttConfig_(std::move(mqttConfig)),
     driverConfig_(std::move(driverConfig)),
     ownedRouter_(nullptr),
@@ -573,7 +577,8 @@ MqttDriverService::MqttDriverService(
     publisher_(std::move(publisher)),
     eventOutbox_(std::move(eventOutbox)),
     otaService_(std::move(otaService)),
-    priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver") {
+    priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver"),
+    scadaSafetyConfig_(std::move(scadaSafetyConfig)) {
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
     }
@@ -1038,6 +1043,17 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         reply.highPriority = request.highPriority;
         if (request.machineCode.empty()) {
             throw std::invalid_argument("machineCode is required");
+        }
+        if (scadaSafetyConfig_.enabled && request.source.rfind("scada-windows:", 0) == 0) {
+            std::string leaseMessage;
+            if (!ScadaControlLease::isFresh(
+                    scadaSafetyConfig_.projectDirectory,
+                    scadaSafetyConfig_.leaseFile,
+                    request.machineCode,
+                    nowMs,
+                    &leaseMessage)) {
+                throw std::invalid_argument(leaseMessage);
+            }
         }
 
         const auto routeIt = pointRoutes_.find(request.index);

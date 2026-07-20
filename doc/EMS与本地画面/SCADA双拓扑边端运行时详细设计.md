@@ -131,6 +131,7 @@ unit
 - SystemMonitor 根据订阅租约读取 Tag。
 - 直连链路按 nodeId 返回值、质量和时间，不发送业务中文名称。
 - MQTT 实时监控只在租约存在时发送；全量 Topic 保持独立周期。
+- 直连实时快照和 MQTT 实时订阅都会原子更新 `/opt/modbus-gateway/run/scada-upper-computer-lease.json`。
 
 ## 8. 控制写回
 
@@ -142,6 +143,8 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 
 禁止 Qt Runtime 直接修改共享内存值伪造设备响应。
 
+Windows 上位机控制必须使用 `scada-windows:` 来源前缀。直连和 MQTT 控制入口只对该来源检查 SCADA 租约；普通维护、边端 EMS 和 AGC/AVC 继续使用各自现有控制边界。控制入口失败后由调用方返回结果，不允许自动换通道重发。
+
 ## 9. 离线安全
 
 上位机模式必须配置：
@@ -150,14 +153,25 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 {
   "upperComputerOfflinePolicy": {
     "timeoutMs": 10000,
-    "action": "zeroPower",
+    "action": "executeConfiguredActions",
     "retainLocalSafetyRules": true,
-    "requireFreshLeaseForControl": true
+    "requireFreshLeaseForControl": true,
+    "safetyActions": [
+      {
+        "actionId": "pcs-active-power-zero",
+        "nodeId": "edge-a",
+        "tagId": "pcs-active-power-setpoint",
+        "value": 0,
+        "highPriority": true
+      }
+    ]
   }
 }
 ```
 
-支持动作：`hold`、`zeroPower`、`stop`。消防和急停规则不允许被上位机离线策略关闭。
+每个动作必须明确配置 `actionId + nodeId + tagId + value`，目标 Tag 和运行映射都必须可写。边端不根据 PCS、功率语义或设备类型猜测控制点。节点子包只携带本节点动作；消防和急停规则不允许被上位机离线策略关闭。
+
+SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装瞬间误动作。心跳超时后，动作通过现有共享内存写回队列提交，默认使用高优先级。同一失联周期中，已经被队列接受的动作不重复提交；收到新心跳或工程版本变化后才开始新的周期。
 
 ## 10. 服务编排
 
@@ -191,12 +205,13 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 - 多共享内存批量读取测试。
 - 可写点、只读点和高优先级控制测试。
 - 上位机断线安全策略测试。
+- 上位机租约来源隔离、同周期动作去重和节点动作裁剪测试。
 - 1920x1080 Qt 截图对比和 500 Tag 性能测试。
 - OTA staging、原子切换和回滚测试。
 
 ## 13. 当前实现与边界
 
-截至 2026-07-19 已完成：
+截至 2026-07-20 已完成：
 
 - Schema 2.0 工程目录加载和结构检查。
 - 节点、Tag、页面、状态规则和 runtime-map 解析。
@@ -207,10 +222,13 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 - `.kyscada` 安装包大小、ZIP 路径、符号链接、必需文件、machineCode、schema 和 SHA-256 校验。
 - release staging、`current` 原子切换、局部服务重启和失败回滚。
 - MQTT OTA 的 `packageType=scada` 分支和独立 `.kyscada` 文件命名。
+- SystemMonitor 上位机心跳监测、明确安全动作提交和同一失联周期去重。
+- 直连实时快照与 MQTT 实时订阅续租；两个控制入口统一检查 `scada-windows:` 新鲜租约。
+- `MqttDriver` 使用轻量租约解析，不链接完整 SCADA 工程解析器。
 
 仍需后续专项验收：
 
-- 多节点上位机断链后的 `hold/zeroPower/stop` 全链路现场验证。
+- 多节点上位机真实断链后的明确安全动作与恢复全链路现场验证。
 - 500 个动态 Tag 的 1920x1080 长稳性能与截图差异基准。
 - SCADA 告警、历史趋势和权限模型的完整 Qt 运行态交互。
 
@@ -226,3 +244,13 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 - Index `984` 当前值质量正常，控制队列无遗留命令。
 
 本次没有部署 `10.126.126.*` 生产设备。
+
+## 15. 2026-07-20 上位机安全链验证
+
+- `MqttDriver` SHA-256：`f78029f2ac7712be46be25d32990f04f568c453924bd1402b0cd9dc6aae3decf`。
+- `SystemMonitor` SHA-256：`f551c3890f285f4bc87da322c2876ca587adfad1b4cce243271ea232a0a24a69`。
+- 直连实时快照返回 1,001 点，并成功更新 machineCode 为 `COMM202600999` 的租约文件。
+- 60 秒观察前后 SystemMonitor、MqttDriver、KY-EMS 的 PID 不变，三者 `NRestarts=0`。
+- SystemMonitor 与 MqttDriver 均有到 broker `:8883` 的已建立连接；broker 仍为 `ssl://kygate.kyxn.net:8883`。
+- 主动 MQTT 冒烟结果 `pass=74 warn=4 fail=0`；边端 22 个 C++ 测试、SCADA 安装与回滚脚本测试全部通过。
+- 当前工程是 `integrated`，因此不会触发上位机失联安全动作；真实断链动作测试必须使用明确安全测试点另行执行。

@@ -1655,6 +1655,13 @@ SystemMonitorService::SystemMonitorService(
     if (!publisher_) {
         throw std::invalid_argument("system monitor publisher is required");
     }
+    if (router_ != nullptr) {
+        scadaSafetyMonitor_.reset(new ScadaUpperComputerSafetyMonitor(
+            monitorConfig_.scadaUpperComputerSafety,
+            machineCode_,
+            *router_
+        ));
+    }
 }
 
 SystemMonitorService::~SystemMonitorService() {
@@ -1686,6 +1693,24 @@ bool SystemMonitorService::isRunning() const {
 
 void SystemMonitorService::runOnce(std::int64_t nowMs) {
     processIncomingMessages(nowMs);
+    if (scadaSafetyMonitor_) {
+        const auto safety = scadaSafetyMonitor_->runOnce(nowMs);
+        if (safety.triggered) {
+            std::ostringstream details;
+            details << "\"completed\":" << (safety.completed ? "true" : "false")
+                    << ",\"message\":\"" << escapeJson(safety.message) << "\""
+                    << ",\"actions\":[";
+            for (std::size_t i = 0; i < safety.actions.size(); ++i) {
+                if (i > 0) details << ",";
+                details << "{\"actionId\":\"" << escapeJson(safety.actions[i].actionId)
+                        << "\",\"tagId\":\"" << escapeJson(safety.actions[i].tagId)
+                        << "\",\"accepted\":" << (safety.actions[i].accepted ? "true" : "false")
+                        << ",\"message\":\"" << escapeJson(safety.actions[i].message) << "\"}";
+            }
+            details << "]";
+            publishStatusEvent("scada-offline-safety", nowMs, details.str());
+        }
+    }
     if (hasActiveLease(nowMs)) {
         const int pointIntervalMs = effectiveIntervalMs(nowMs);
         if (lastPointSnapshotMs_ == 0 || nowMs - lastPointSnapshotMs_ >= pointIntervalMs) {
@@ -1781,6 +1806,13 @@ void SystemMonitorService::handleMonitorRequest(const std::string& payload, std:
     if (action == "unsubscribe") {
         leases_.erase(sessionId);
     } else {
+        if (monitorConfig_.scadaUpperComputerSafety.enabled) {
+            ScadaUpperComputerSafetyMonitor::writeHeartbeat(
+                monitorConfig_.scadaUpperComputerSafety.leaseFile,
+                machineCode_,
+                nowMs
+            );
+        }
         MonitorLease lease;
         lease.sessionId = sessionId;
         lease.meterCode = meterCode;

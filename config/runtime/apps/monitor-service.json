@@ -128,6 +128,12 @@
     "diagEnabled": true,
     "configPullChunkBytes": 131072,
     "realtimeMeterLeaseFile": "/opt/modbus-gateway/run/realtime-meter-leases.json",
+    "scadaUpperComputerSafety": {
+      "enabled": true,
+      "projectDirectory": "/opt/modbus-gateway/scada/current",
+      "leaseFile": "/opt/modbus-gateway/run/scada-upper-computer-lease.json",
+      "reloadIntervalMs": 5000
+    },
     "allowedCommands": [
       "uptime",
       "free_m",
