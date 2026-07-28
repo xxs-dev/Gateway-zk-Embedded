@@ -1,39 +1,163 @@
 {
-  "schemaVersion": "1.2.0",
+  "schemaVersion": "2.0.0",
   "graphCode": "generic-node-example",
+  "displayName": "generic-node-example",
+  "description": "由既有策略迁移；保存后原路径即为可编辑、可发布、可执行的 V2 策略。",
+  "compile": {
+    "maxNodes": 256,
+    "maxEdges": 512,
+    "virtualIndexStart": 700000,
+    "virtualIndexEnd": 799999,
+    "requireKnownWriteTargets": false,
+    "preserveImportedBehavior": true
+  },
   "nodes": [
     {
       "id": "net_power",
       "type": "formula",
+      "typeVersion": "1.0.0",
+      "displayName": "通用计算",
       "enabled": true,
-      "params": {
+      "order": 0,
+      "groupId": "",
+      "parameters": {
         "operation": "subtract",
         "inputs": [
-          { "index": 1039 },
-          { "index": 1139 }
+          {
+            "index": 1039
+          },
+          {
+            "index": 1139
+          }
         ],
         "outputIndex": 700010
+      },
+      "ports": [
+        {
+          "id": "inputs_0_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/inputs/0/index",
+          "binding": {
+            "kind": "point",
+            "index": 1039,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "inputs_1_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/inputs/1/index",
+          "binding": {
+            "kind": "point",
+            "index": 1139,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "outputindex",
+          "displayName": "outputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700010,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 440,
+        "y": 80,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "bounded_power",
       "type": "formula",
+      "typeVersion": "1.0.0",
+      "displayName": "通用计算",
       "enabled": true,
-      "params": {
+      "order": 1,
+      "groupId": "",
+      "parameters": {
         "operation": "clamp",
         "inputs": [
-          { "index": 700010 }
+          {
+            "index": 700010
+          }
         ],
         "lower": -100,
         "upper": 100,
         "outputIndex": 700011
+      },
+      "ports": [
+        {
+          "id": "inputs_0_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/inputs/0/index",
+          "binding": {
+            "kind": "point",
+            "index": 700010,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "outputindex",
+          "displayName": "outputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700011,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 440,
+        "y": 300,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "power_rate_limit",
       "type": "rateLimit",
+      "typeVersion": "1.0.0",
+      "displayName": "变化速率限制",
       "enabled": true,
-      "params": {
+      "order": 2,
+      "groupId": "",
+      "parameters": {
         "inputIndex": 700011,
         "outputIndex": 700013,
         "risePerSecond": 10,
@@ -41,39 +165,197 @@
         "minValue": -100,
         "maxValue": 100,
         "initialValue": 0
+      },
+      "ports": [
+        {
+          "id": "inputindex",
+          "displayName": "inputIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/inputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700011,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "outputindex",
+          "displayName": "outputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700013,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 800,
+        "y": 80,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "power_direction",
       "type": "switch",
+      "typeVersion": "1.0.0",
+      "displayName": "条件选择",
       "enabled": true,
-      "params": {
+      "order": 3,
+      "groupId": "",
+      "parameters": {
         "leftIndex": 700013,
         "operator": "gt",
         "rightValue": 0,
         "trueValue": 1,
         "falseValue": -1,
         "outputIndex": 700012
+      },
+      "ports": [
+        {
+          "id": "leftindex",
+          "displayName": "leftIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/leftIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700013,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "outputindex",
+          "displayName": "outputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700012,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 800,
+        "y": 300,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "pcs_control_gate",
       "type": "controlGate",
+      "typeVersion": "1.0.0",
+      "displayName": "控制联锁",
       "enabled": true,
-      "params": {
+      "order": 4,
+      "groupId": "",
+      "parameters": {
         "combine": "all",
         "conditions": [
-          { "name": "PCS 通讯正常", "index": 1399, "operator": "eq", "value": 1 },
-          { "name": "远程控制允许", "index": 700040, "operator": "eq", "value": 1 }
+          {
+            "name": "PCS 通讯正常",
+            "index": 1399,
+            "operator": "eq",
+            "value": 1
+          },
+          {
+            "name": "远程控制允许",
+            "index": 700040,
+            "operator": "eq",
+            "value": 1
+          }
         ],
         "outputIndex": 700041
+      },
+      "ports": [
+        {
+          "id": "conditions_0_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/conditions/0/index",
+          "binding": {
+            "kind": "point",
+            "index": 1399,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "conditions_1_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/conditions/1/index",
+          "binding": {
+            "kind": "point",
+            "index": 700040,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "outputindex",
+          "displayName": "outputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700041,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 1520,
+        "y": 80,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "pcs_writeback_shadow",
       "type": "pcsWriteback",
+      "typeVersion": "1.0.0",
+      "displayName": "PCS 写回",
       "enabled": true,
-      "params": {
+      "order": 5,
+      "groupId": "",
+      "parameters": {
         "submitWrites": false,
         "permitIndex": 700041,
         "permitValue": 1,
@@ -91,13 +373,153 @@
         "qControlAIndex": 1321,
         "qControlBIndex": 1322,
         "qControlCIndex": 1323
+      },
+      "ports": [
+        {
+          "id": "permitindex",
+          "displayName": "permitIndex",
+          "direction": "input",
+          "valueType": "boolean",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/permitIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700041,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "comstatusindex",
+          "displayName": "comStatusIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/comStatusIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1399,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "pcontrolaindex",
+          "displayName": "pControlAIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/pControlAIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1318,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "pcontrolbindex",
+          "displayName": "pControlBIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/pControlBIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1319,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "pcontrolcindex",
+          "displayName": "pControlCIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/pControlCIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1320,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "qcontrolaindex",
+          "displayName": "qControlAIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/qControlAIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1321,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "qcontrolbindex",
+          "displayName": "qControlBIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/qControlBIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1322,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "qcontrolcindex",
+          "displayName": "qControlCIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/qControlCIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1323,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 1880,
+        "y": 80,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "generic_control_write_shadow",
       "type": "controlWrite",
+      "typeVersion": "1.0.0",
+      "displayName": "控制执行",
       "enabled": true,
-      "params": {
+      "order": 6,
+      "groupId": "",
+      "parameters": {
         "submitWrites": false,
         "inputIndex": 700011,
         "targetIndex": 700050,
@@ -108,29 +530,202 @@
         "permitValue": 1,
         "permitTolerance": 0.000001,
         "highPriority": false
+      },
+      "ports": [
+        {
+          "id": "inputindex",
+          "displayName": "inputIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/inputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700011,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "targetindex",
+          "displayName": "targetIndex",
+          "direction": "target",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/targetIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700050,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "permitindex",
+          "displayName": "permitIndex",
+          "direction": "input",
+          "valueType": "boolean",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/permitIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700041,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 1880,
+        "y": 300,
+        "width": 280,
+        "height": 180
       }
     },
     {
       "id": "pcs_active_power_feedback",
       "type": "feedbackVerify",
+      "typeVersion": "1.0.0",
+      "displayName": "反馈校验",
       "enabled": true,
-      "params": {
+      "order": 7,
+      "groupId": "",
+      "parameters": {
         "targetIndex": 627,
         "feedbackIndex": 1318,
         "tolerance": 1,
         "targetChangeTolerance": 0.01,
         "timeoutMs": 5000,
         "outputIndex": 700042
+      },
+      "ports": [
+        {
+          "id": "targetindex",
+          "displayName": "targetIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/targetIndex",
+          "binding": {
+            "kind": "point",
+            "index": 627,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "feedbackindex",
+          "displayName": "feedbackIndex",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/feedbackIndex",
+          "binding": {
+            "kind": "point",
+            "index": 1318,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "outputindex",
+          "displayName": "outputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700042,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 1880,
+        "y": 520,
+        "width": 280,
+        "height": 180
       }
     }
   ],
-  "edges": [
-    { "from": "net_power", "to": "bounded_power" },
-    { "from": "bounded_power", "to": "power_rate_limit" },
-    { "from": "power_rate_limit", "to": "power_direction" },
-    { "from": "power_direction", "to": "pcs_control_gate" },
-    { "from": "pcs_control_gate", "to": "pcs_writeback_shadow" },
-    { "from": "pcs_writeback_shadow", "to": "generic_control_write_shadow" },
-    { "from": "generic_control_write_shadow", "to": "pcs_active_power_feedback" }
-  ]
+  "links": [
+    {
+      "id": "edge_0000_outputindex_inputs_0_index",
+      "kind": "data",
+      "fromNodeId": "net_power",
+      "fromPortId": "outputindex",
+      "toNodeId": "bounded_power",
+      "toPortId": "inputs_0_index",
+      "inferred": true
+    },
+    {
+      "id": "edge_0001_outputindex_inputindex",
+      "kind": "data",
+      "fromNodeId": "bounded_power",
+      "fromPortId": "outputindex",
+      "toNodeId": "power_rate_limit",
+      "toPortId": "inputindex",
+      "inferred": true
+    },
+    {
+      "id": "edge_0002_outputindex_leftindex",
+      "kind": "data",
+      "fromNodeId": "power_rate_limit",
+      "fromPortId": "outputindex",
+      "toNodeId": "power_direction",
+      "toPortId": "leftindex",
+      "inferred": true
+    },
+    {
+      "id": "edge_0003",
+      "kind": "dependency",
+      "fromNodeId": "power_direction",
+      "fromPortId": "",
+      "toNodeId": "pcs_control_gate",
+      "toPortId": "",
+      "inferred": false
+    },
+    {
+      "id": "edge_0004_outputindex_permitindex",
+      "kind": "data",
+      "fromNodeId": "pcs_control_gate",
+      "fromPortId": "outputindex",
+      "toNodeId": "pcs_writeback_shadow",
+      "toPortId": "permitindex",
+      "inferred": true
+    },
+    {
+      "id": "edge_0005",
+      "kind": "dependency",
+      "fromNodeId": "pcs_writeback_shadow",
+      "fromPortId": "",
+      "toNodeId": "generic_control_write_shadow",
+      "toPortId": "",
+      "inferred": false
+    },
+    {
+      "id": "edge_0006",
+      "kind": "dependency",
+      "fromNodeId": "generic_control_write_shadow",
+      "fromPortId": "",
+      "toNodeId": "pcs_active_power_feedback",
+      "toPortId": "",
+      "inferred": false
+    }
+  ],
+  "groups": []
 }

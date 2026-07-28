@@ -2,4 +2,5 @@
 *.service text eol=lf
 *.conf text eol=lf
 *.py text eol=lf
+*.logic.json text eol=lf
 *.tar.gz binary

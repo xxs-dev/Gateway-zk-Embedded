@@ -211,8 +211,8 @@ Options parseOptions(int argc, char* argv[]) {
                 << "  --app-config FILE   App config containing legacyEms and graphEms rules\n"
                 << "  --legacy-rule CODE  Select a legacyEms rule by ruleCode\n"
                 << "  --graph-rule CODE   Select a graphEms rule by ruleCode\n"
-                << "  --baseline-graph FILE Compare this existing graph against --candidate-graph\n"
-                << "  --candidate-graph FILE Candidate modular graph for graph-to-graph comparison\n"
+                << "  --baseline-graph FILE Legacy V1 migration baseline\n"
+                << "  --candidate-graph FILE Executable V2 candidate for graph-to-graph comparison\n"
                 << "  --indexes CSV       Output indexes to compare\n"
                 << "  --tolerance VALUE   Absolute numeric tolerance, default 0.001\n"
                 << "  --point INDEX=VALUE Add or override one input snapshot value; repeatable\n"
@@ -475,7 +475,7 @@ int main(int argc, char* argv[]) {
         if (graphToGraph) {
             baselineSource = options.baselineGraphFile;
             candidateSource = options.candidateGraphFile;
-            baselineGraph = GraphEmsConfig::loadFromFile(baselineSource);
+            baselineGraph = GraphEmsConfig::loadLegacyV1ForMigration(baselineSource);
             candidateGraph = GraphEmsConfig::loadFromFile(candidateSource);
             baselineFingerprint = fileFingerprint(baselineSource);
             candidateFingerprint = fileFingerprint(candidateSource);

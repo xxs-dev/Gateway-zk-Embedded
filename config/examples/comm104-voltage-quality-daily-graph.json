@@ -1,0 +1,1551 @@
+{
+  "compile": {
+    "maxEdges": 512,
+    "maxNodes": 256,
+    "preserveImportedBehavior": false,
+    "requireKnownWriteTargets": false,
+    "virtualIndexEnd": 710221,
+    "virtualIndexStart": 710000
+  },
+  "description": "由既有策略迁移；保存后原路径即为可编辑、可发布、可执行的 V2 策略。",
+  "displayName": "comm104-low-voltage-quality-daily",
+  "graphCode": "comm104-low-voltage-quality-daily",
+  "groups": [],
+  "links": [],
+  "nodes": [
+    {
+      "displayName": "电压合格率",
+      "enabled": true,
+      "groupId": "",
+      "id": "grid-voltage-quality",
+      "layout": {
+        "height": 180,
+        "width": 280,
+        "x": 440,
+        "y": 80
+      },
+      "order": 0,
+      "parameters": {
+        "completedDayAvailabilityRateOutputIndex": 710020,
+        "completedDayInvalidMinutesOutputIndex": 710018,
+        "completedDayKeyOutputIndex": 710015,
+        "completedDayMonitoredMinutesOutputIndex": 710016,
+        "completedDayOverlimitMinutesOutputIndex": 710017,
+        "completedDayPassOutputIndex": 710021,
+        "completedDayQualifiedRateOutputIndex": 710019,
+        "dayAvailabilityRateOutputIndex": 710013,
+        "dayInvalidMinutesOutputIndex": 710011,
+        "dayKeyOutputIndex": 710008,
+        "dayMonitoredMinutesOutputIndex": 710009,
+        "dayOverlimitMinutesOutputIndex": 710010,
+        "dayPassOutputIndex": 710014,
+        "dayQualifiedRateOutputIndex": 710012,
+        "inputIndexes": [
+          1030,
+          1031,
+          1032,
+          1053,
+          1054,
+          1055
+        ],
+        "minimumCoveragePercent": 90,
+        "minuteAverageOutputIndexes": [
+          710000,
+          710001,
+          710002,
+          710003,
+          710004,
+          710005
+        ],
+        "minuteSampleCoverageOutputIndex": 710007,
+        "minuteStatusOutputIndex": 710006,
+        "nominalVoltages": [
+          220,
+          220,
+          220,
+          380,
+          380,
+          380
+        ],
+        "passThresholdPercent": 95,
+        "sampleIntervalMs": 200,
+        "standard": "GB/T 12325"
+      },
+      "ports": [
+        {
+          "binding": {
+            "constant": null,
+            "index": 1030,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[0]",
+          "id": "inputindexes_0",
+          "required": true,
+          "runtimePath": "/inputIndexes/0",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1031,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[1]",
+          "id": "inputindexes_1",
+          "required": true,
+          "runtimePath": "/inputIndexes/1",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1032,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[2]",
+          "id": "inputindexes_2",
+          "required": true,
+          "runtimePath": "/inputIndexes/2",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1053,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[3]",
+          "id": "inputindexes_3",
+          "required": true,
+          "runtimePath": "/inputIndexes/3",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1054,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[4]",
+          "id": "inputindexes_4",
+          "required": true,
+          "runtimePath": "/inputIndexes/4",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1055,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[5]",
+          "id": "inputindexes_5",
+          "required": true,
+          "runtimePath": "/inputIndexes/5",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710000,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[0]",
+          "id": "minuteaverageoutputindexes_0",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/0",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710001,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[1]",
+          "id": "minuteaverageoutputindexes_1",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/1",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710002,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[2]",
+          "id": "minuteaverageoutputindexes_2",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/2",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710003,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[3]",
+          "id": "minuteaverageoutputindexes_3",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/3",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710004,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[4]",
+          "id": "minuteaverageoutputindexes_4",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/4",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710005,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[5]",
+          "id": "minuteaverageoutputindexes_5",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/5",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710006,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteStatusOutputIndex",
+          "id": "minutestatusoutputindex",
+          "required": true,
+          "runtimePath": "/minuteStatusOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710007,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteSampleCoverageOutputIndex",
+          "id": "minutesamplecoverageoutputindex",
+          "required": true,
+          "runtimePath": "/minuteSampleCoverageOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710008,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayKeyOutputIndex",
+          "id": "daykeyoutputindex",
+          "required": true,
+          "runtimePath": "/dayKeyOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710009,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayMonitoredMinutesOutputIndex",
+          "id": "daymonitoredminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayMonitoredMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710010,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayOverlimitMinutesOutputIndex",
+          "id": "dayoverlimitminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayOverlimitMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710011,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayInvalidMinutesOutputIndex",
+          "id": "dayinvalidminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayInvalidMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710012,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayQualifiedRateOutputIndex",
+          "id": "dayqualifiedrateoutputindex",
+          "required": true,
+          "runtimePath": "/dayQualifiedRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710013,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayAvailabilityRateOutputIndex",
+          "id": "dayavailabilityrateoutputindex",
+          "required": true,
+          "runtimePath": "/dayAvailabilityRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710014,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayPassOutputIndex",
+          "id": "daypassoutputindex",
+          "required": true,
+          "runtimePath": "/dayPassOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710015,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayKeyOutputIndex",
+          "id": "completeddaykeyoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayKeyOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710016,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayMonitoredMinutesOutputIndex",
+          "id": "completeddaymonitoredminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayMonitoredMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710017,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayOverlimitMinutesOutputIndex",
+          "id": "completeddayoverlimitminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayOverlimitMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710018,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayInvalidMinutesOutputIndex",
+          "id": "completeddayinvalidminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayInvalidMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710019,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayQualifiedRateOutputIndex",
+          "id": "completeddayqualifiedrateoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayQualifiedRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710020,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayAvailabilityRateOutputIndex",
+          "id": "completeddayavailabilityrateoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayAvailabilityRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710021,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayPassOutputIndex",
+          "id": "completeddaypassoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayPassOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        }
+      ],
+      "type": "voltageQualification",
+      "typeVersion": "1.0.0"
+    },
+    {
+      "displayName": "电压合格率",
+      "enabled": true,
+      "groupId": "",
+      "id": "storage-voltage-quality",
+      "layout": {
+        "height": 180,
+        "width": 280,
+        "x": 440,
+        "y": 300
+      },
+      "order": 1,
+      "parameters": {
+        "completedDayAvailabilityRateOutputIndex": 710120,
+        "completedDayInvalidMinutesOutputIndex": 710118,
+        "completedDayKeyOutputIndex": 710115,
+        "completedDayMonitoredMinutesOutputIndex": 710116,
+        "completedDayOverlimitMinutesOutputIndex": 710117,
+        "completedDayPassOutputIndex": 710121,
+        "completedDayQualifiedRateOutputIndex": 710119,
+        "dayAvailabilityRateOutputIndex": 710113,
+        "dayInvalidMinutesOutputIndex": 710111,
+        "dayKeyOutputIndex": 710108,
+        "dayMonitoredMinutesOutputIndex": 710109,
+        "dayOverlimitMinutesOutputIndex": 710110,
+        "dayPassOutputIndex": 710114,
+        "dayQualifiedRateOutputIndex": 710112,
+        "inputIndexes": [
+          1130,
+          1131,
+          1132,
+          1153,
+          1154,
+          1155
+        ],
+        "minimumCoveragePercent": 90,
+        "minuteAverageOutputIndexes": [
+          710100,
+          710101,
+          710102,
+          710103,
+          710104,
+          710105
+        ],
+        "minuteSampleCoverageOutputIndex": 710107,
+        "minuteStatusOutputIndex": 710106,
+        "nominalVoltages": [
+          220,
+          220,
+          220,
+          380,
+          380,
+          380
+        ],
+        "passThresholdPercent": 95,
+        "sampleIntervalMs": 200,
+        "standard": "GB/T 12325"
+      },
+      "ports": [
+        {
+          "binding": {
+            "constant": null,
+            "index": 1130,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[0]",
+          "id": "inputindexes_0",
+          "required": true,
+          "runtimePath": "/inputIndexes/0",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1131,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[1]",
+          "id": "inputindexes_1",
+          "required": true,
+          "runtimePath": "/inputIndexes/1",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1132,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[2]",
+          "id": "inputindexes_2",
+          "required": true,
+          "runtimePath": "/inputIndexes/2",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1153,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[3]",
+          "id": "inputindexes_3",
+          "required": true,
+          "runtimePath": "/inputIndexes/3",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1154,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[4]",
+          "id": "inputindexes_4",
+          "required": true,
+          "runtimePath": "/inputIndexes/4",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 1155,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[5]",
+          "id": "inputindexes_5",
+          "required": true,
+          "runtimePath": "/inputIndexes/5",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710100,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[0]",
+          "id": "minuteaverageoutputindexes_0",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/0",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710101,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[1]",
+          "id": "minuteaverageoutputindexes_1",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/1",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710102,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[2]",
+          "id": "minuteaverageoutputindexes_2",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/2",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710103,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[3]",
+          "id": "minuteaverageoutputindexes_3",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/3",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710104,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[4]",
+          "id": "minuteaverageoutputindexes_4",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/4",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710105,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[5]",
+          "id": "minuteaverageoutputindexes_5",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/5",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710106,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteStatusOutputIndex",
+          "id": "minutestatusoutputindex",
+          "required": true,
+          "runtimePath": "/minuteStatusOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710107,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteSampleCoverageOutputIndex",
+          "id": "minutesamplecoverageoutputindex",
+          "required": true,
+          "runtimePath": "/minuteSampleCoverageOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710108,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayKeyOutputIndex",
+          "id": "daykeyoutputindex",
+          "required": true,
+          "runtimePath": "/dayKeyOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710109,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayMonitoredMinutesOutputIndex",
+          "id": "daymonitoredminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayMonitoredMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710110,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayOverlimitMinutesOutputIndex",
+          "id": "dayoverlimitminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayOverlimitMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710111,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayInvalidMinutesOutputIndex",
+          "id": "dayinvalidminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayInvalidMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710112,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayQualifiedRateOutputIndex",
+          "id": "dayqualifiedrateoutputindex",
+          "required": true,
+          "runtimePath": "/dayQualifiedRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710113,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayAvailabilityRateOutputIndex",
+          "id": "dayavailabilityrateoutputindex",
+          "required": true,
+          "runtimePath": "/dayAvailabilityRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710114,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayPassOutputIndex",
+          "id": "daypassoutputindex",
+          "required": true,
+          "runtimePath": "/dayPassOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710115,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayKeyOutputIndex",
+          "id": "completeddaykeyoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayKeyOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710116,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayMonitoredMinutesOutputIndex",
+          "id": "completeddaymonitoredminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayMonitoredMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710117,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayOverlimitMinutesOutputIndex",
+          "id": "completeddayoverlimitminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayOverlimitMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710118,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayInvalidMinutesOutputIndex",
+          "id": "completeddayinvalidminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayInvalidMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710119,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayQualifiedRateOutputIndex",
+          "id": "completeddayqualifiedrateoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayQualifiedRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710120,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayAvailabilityRateOutputIndex",
+          "id": "completeddayavailabilityrateoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayAvailabilityRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710121,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayPassOutputIndex",
+          "id": "completeddaypassoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayPassOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        }
+      ],
+      "type": "voltageQualification",
+      "typeVersion": "1.0.0"
+    },
+    {
+      "displayName": "电压合格率",
+      "enabled": true,
+      "groupId": "",
+      "id": "load-voltage-quality",
+      "layout": {
+        "height": 180,
+        "width": 280,
+        "x": 440,
+        "y": 520
+      },
+      "order": 2,
+      "parameters": {
+        "completedDayAvailabilityRateOutputIndex": 710220,
+        "completedDayInvalidMinutesOutputIndex": 710218,
+        "completedDayKeyOutputIndex": 710215,
+        "completedDayMonitoredMinutesOutputIndex": 710216,
+        "completedDayOverlimitMinutesOutputIndex": 710217,
+        "completedDayPassOutputIndex": 710221,
+        "completedDayQualifiedRateOutputIndex": 710219,
+        "dayAvailabilityRateOutputIndex": 710213,
+        "dayInvalidMinutesOutputIndex": 710211,
+        "dayKeyOutputIndex": 710208,
+        "dayMonitoredMinutesOutputIndex": 710209,
+        "dayOverlimitMinutesOutputIndex": 710210,
+        "dayPassOutputIndex": 710214,
+        "dayQualifiedRateOutputIndex": 710212,
+        "inputIndexes": [
+          9030,
+          9031,
+          9032,
+          9053,
+          9054,
+          9055
+        ],
+        "minimumCoveragePercent": 90,
+        "minuteAverageOutputIndexes": [
+          710200,
+          710201,
+          710202,
+          710203,
+          710204,
+          710205
+        ],
+        "minuteSampleCoverageOutputIndex": 710207,
+        "minuteStatusOutputIndex": 710206,
+        "nominalVoltages": [
+          220,
+          220,
+          220,
+          380,
+          380,
+          380
+        ],
+        "passThresholdPercent": 95,
+        "sampleIntervalMs": 200,
+        "standard": "GB/T 12325"
+      },
+      "ports": [
+        {
+          "binding": {
+            "constant": null,
+            "index": 9030,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[0]",
+          "id": "inputindexes_0",
+          "required": true,
+          "runtimePath": "/inputIndexes/0",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 9031,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[1]",
+          "id": "inputindexes_1",
+          "required": true,
+          "runtimePath": "/inputIndexes/1",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 9032,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[2]",
+          "id": "inputindexes_2",
+          "required": true,
+          "runtimePath": "/inputIndexes/2",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 9053,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[3]",
+          "id": "inputindexes_3",
+          "required": true,
+          "runtimePath": "/inputIndexes/3",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 9054,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[4]",
+          "id": "inputindexes_4",
+          "required": true,
+          "runtimePath": "/inputIndexes/4",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 9055,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "input",
+          "displayName": "inputIndexes[5]",
+          "id": "inputindexes_5",
+          "required": true,
+          "runtimePath": "/inputIndexes/5",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710200,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[0]",
+          "id": "minuteaverageoutputindexes_0",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/0",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710201,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[1]",
+          "id": "minuteaverageoutputindexes_1",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/1",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710202,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[2]",
+          "id": "minuteaverageoutputindexes_2",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/2",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710203,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[3]",
+          "id": "minuteaverageoutputindexes_3",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/3",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710204,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[4]",
+          "id": "minuteaverageoutputindexes_4",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/4",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710205,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteAverageOutputIndexes[5]",
+          "id": "minuteaverageoutputindexes_5",
+          "required": true,
+          "runtimePath": "/minuteAverageOutputIndexes/5",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710206,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteStatusOutputIndex",
+          "id": "minutestatusoutputindex",
+          "required": true,
+          "runtimePath": "/minuteStatusOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710207,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "minuteSampleCoverageOutputIndex",
+          "id": "minutesamplecoverageoutputindex",
+          "required": true,
+          "runtimePath": "/minuteSampleCoverageOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710208,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayKeyOutputIndex",
+          "id": "daykeyoutputindex",
+          "required": true,
+          "runtimePath": "/dayKeyOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710209,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayMonitoredMinutesOutputIndex",
+          "id": "daymonitoredminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayMonitoredMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710210,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayOverlimitMinutesOutputIndex",
+          "id": "dayoverlimitminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayOverlimitMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710211,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayInvalidMinutesOutputIndex",
+          "id": "dayinvalidminutesoutputindex",
+          "required": true,
+          "runtimePath": "/dayInvalidMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710212,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayQualifiedRateOutputIndex",
+          "id": "dayqualifiedrateoutputindex",
+          "required": true,
+          "runtimePath": "/dayQualifiedRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710213,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayAvailabilityRateOutputIndex",
+          "id": "dayavailabilityrateoutputindex",
+          "required": true,
+          "runtimePath": "/dayAvailabilityRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710214,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "dayPassOutputIndex",
+          "id": "daypassoutputindex",
+          "required": true,
+          "runtimePath": "/dayPassOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710215,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayKeyOutputIndex",
+          "id": "completeddaykeyoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayKeyOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710216,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayMonitoredMinutesOutputIndex",
+          "id": "completeddaymonitoredminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayMonitoredMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710217,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayOverlimitMinutesOutputIndex",
+          "id": "completeddayoverlimitminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayOverlimitMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710218,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayInvalidMinutesOutputIndex",
+          "id": "completeddayinvalidminutesoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayInvalidMinutesOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710219,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayQualifiedRateOutputIndex",
+          "id": "completeddayqualifiedrateoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayQualifiedRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710220,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayAvailabilityRateOutputIndex",
+          "id": "completeddayavailabilityrateoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayAvailabilityRateOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        },
+        {
+          "binding": {
+            "constant": null,
+            "index": 710221,
+            "kind": "point",
+            "pointCode": "",
+            "semanticRole": ""
+          },
+          "direction": "output",
+          "displayName": "completedDayPassOutputIndex",
+          "id": "completeddaypassoutputindex",
+          "required": true,
+          "runtimePath": "/completedDayPassOutputIndex",
+          "unit": "",
+          "valueType": "number"
+        }
+      ],
+      "type": "voltageQualification",
+      "typeVersion": "1.0.0"
+    }
+  ],
+  "schemaVersion": "2.0.0"
+}

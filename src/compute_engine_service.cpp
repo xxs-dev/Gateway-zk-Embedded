@@ -477,6 +477,15 @@ ComputeEngineService::ComputeEngineService(
 ) : config_(std::move(config)),
     router_(router),
     running_(false) {
+    for (const auto& rule : config_.rules) {
+        if (rule.script.type == "legacyEms") {
+            throw std::invalid_argument(
+                "production ComputeEngine no longer supports legacyEms rule '" +
+                safeRuleCode(rule) +
+                "'; migrate the referenced strategy to schemaVersion 2.x in GatewayDesktop"
+            );
+        }
+    }
 }
 
 ComputeEngineService::~ComputeEngineService() {
@@ -586,24 +595,6 @@ void ComputeEngineService::evaluateRule(
     const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
     std::int64_t nowMs
 ) {
-    if (rule.script.type == "legacyEms") {
-        try {
-            const auto result = legacyEngineFor(rule).runOnce(nowMs);
-            if (result.deviceWrites > 0 && result.deviceWrites > config_.maxWritesPerScan) {
-                std::cerr << "legacy EMS write count exceeded maxWritesPerScan"
-                          << " rule=" << safeRuleCode(rule)
-                          << " writes=" << result.deviceWrites
-                          << std::endl;
-            }
-        } catch (const std::exception& ex) {
-            std::cerr << "legacy EMS rule failed"
-                      << " rule=" << safeRuleCode(rule)
-                      << " error=" << ex.what()
-                      << std::endl;
-        }
-        return;
-    }
-
     if (rule.script.type == "graphEms") {
         try {
             const auto result = graphEmsEngineFor(rule).runOnce(nowMs);
@@ -721,30 +712,6 @@ void ComputeEngineService::evaluateRule(
     }
 }
 
-LegacyEmsEngine& ComputeEngineService::legacyEngineFor(const ComputeRuleConfig& rule) {
-    const auto key = safeRuleCode(rule);
-    auto it = legacyStates_.find(key);
-    if (it != legacyStates_.end()) {
-        return *it->second->engine;
-    }
-
-    auto state = std::unique_ptr<LegacyRuntimeState>(new LegacyRuntimeState());
-    state->catalog = LegacyEmsPointCatalog::loadFromFiles(
-        rule.script.legacyGlListFile,
-        rule.script.legacyVarListFile,
-        rule.script.legacyEncoding.empty() ? std::string("gbk") : rule.script.legacyEncoding
-    );
-    state->engine.reset(new LegacyEmsEngine(
-        state->catalog,
-        router_,
-        config_.defaultOutputTtlMs,
-        rule.script.legacyProfile
-    ));
-    auto* engine = state->engine.get();
-    legacyStates_[key] = std::move(state);
-    return *engine;
-}
-
 GraphEmsEngine& ComputeEngineService::graphEmsEngineFor(const ComputeRuleConfig& rule) {
     const auto key = safeRuleCode(rule);
     auto it = graphEmsStates_.find(key);
@@ -758,6 +725,12 @@ GraphEmsEngine& ComputeEngineService::graphEmsEngineFor(const ComputeRuleConfig&
 
     auto state = std::unique_ptr<GraphEmsRuntimeState>(new GraphEmsRuntimeState());
     state->config = GraphEmsConfig::loadFromFile(rule.script.graphFile);
+    for (const auto& warning : state->config.loadWarnings) {
+        std::cerr << "graph EMS V2 migration warning"
+                  << " rule=" << key
+                  << " warning=" << warning
+                  << std::endl;
+    }
     const auto stateFile = rule.script.graphStateFile.empty()
         ? std::string("/opt/modbus-gateway/data/graph_ems_state_") + filesystemSafeName(key) + ".json"
         : rule.script.graphStateFile;

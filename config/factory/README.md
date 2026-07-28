@@ -18,11 +18,15 @@
 - `runtime/apps/mqtt-service.json`：第三方 MQTT 转发、事件、OTA 配置。
 - `runtime/apps/monitor-service.json`：主站监测、诊断、配置拉取、本地画面配置。
 - `runtime/apps/camera-service.json`：摄像头推流配置，出厂默认关闭。
-- `runtime/logic/shuntong_ems_graph.json`：舜通 EMS 图形化逻辑模板，量产初始化为网关模式时会保留模板文件但不会加入运行规则。
+- `runtime/logic/shuntong_ems_graph.json`：舜通 EMS 图形化逻辑模板，当前为 V2 单文件，包含 487 个执行节点、489 条有类型源链接，折叠 `pointInput` 后形成 486 条运行依赖；量产初始化为网关模式时会保留模板文件但不会加入运行规则。
 - `runtime/devices/device_slave_ttySP1.json`：`/dev/ttySP1` Modbus RTU 示例。
 - `runtime/devices/device_slave_ttySP2.json`：`/dev/ttySP2` Modbus RTU 示例。
 - `runtime/devices/device_dio.json`：本机 18 路 DI、8 路 DO 示例。
-- `runtime/devices/device_ems_virtual.json`：EMS 本体虚拟点模板，提供模式、状态、计划曲线和中间变量点位；`name`、`pointCode`、`legacyVarName` 分别表示展示名称、平台测点编码和旧舜通实际变量名。量产初始化为网关模式时会从运行目录删除该文件和引用。
+- `runtime/devices/device_ems_virtual.json`：EMS 本体虚拟点模板，共 622 点，其中 351 个 `700000+` 点仅供模块图内部路由；提供模式、状态、计划曲线、强制满充和中间变量点位。`name`、`pointCode`、`legacyVarName` 分别表示展示名称、平台测点编码和旧舜通实际变量名。量产初始化为网关模式时会从运行目录删除该文件和引用。
+
+舜通模板中的普通 PCS 六路写回默认 `submitWrites=false`。`STATION_LIMIT_V2`、`CHARGE_DISCHARGE_TEST`、`PCS_ENERGY_SAVING`、`LIQUID_COOLING_ENERGY_SAVING` 和 `PCS_AUTO_RESET` 在出厂 app Profile 中均为 `0`。强制满充还必须由虚拟点 `29` 明确使能；仅配置日期 `168/169` 不会启动控制。
+
+该模板由 V1 等价迁移而来，`compile.preserveImportedBehavior=true`。CN/BW 与 schedule/cycle 的 profile 互斥分支保留原 output index；边端加载时会输出重复 index、节点及 order 告警。若 profile 配置错误导致互斥关系失效，同一周期可能发生后执行节点覆盖前值，部署前必须核对 `graphProfile`。
 - `runtime/devices/device_can0.json`：CAN SocketCAN 示例模板，默认不加入运行时引用。
 - `config/examples/device_can0_example.json`：同一 CAN 示例的联调样例文件。
 

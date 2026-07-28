@@ -1,0 +1,5910 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectMode": "ems",
+  "runtimeMode": "ems",
+  "deviceType": "ems",
+  "deviceCode": "EMS_CORE",
+  "deviceName": "EMS 本体",
+  "protocol": {
+    "type": "ems_virtual",
+    "slave": 1,
+    "transport": {
+      "serialPort": "",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 1000
+    },
+    "tcp": {
+      "host": "127.0.0.1",
+      "port": 0,
+      "connectTimeoutMs": 1000,
+      "timeoutMs": 1000
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ems_virtual",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ems_virtual.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "EMS_CORE",
+      "deviceCode": "EMS_CORE",
+      "deviceType": "ems",
+      "deviceName": "EMS 本体",
+      "enabled": true,
+      "slave": 1,
+      "points": [
+        {
+          "index": 1,
+          "pointCode": "ems_auto_mode",
+          "name": "EMS 自动模式",
+          "desc": "EMS 本体虚拟点 / EMS 自动模式",
+          "category": "setting",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "auto_mode",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 2,
+          "pointCode": "ems_fault_reset",
+          "name": "EMS 故障复归",
+          "desc": "EMS 本体虚拟点 / EMS 故障复归",
+          "category": "setting",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "fault_reset",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 3,
+          "pointCode": "ems_remote_enable",
+          "name": "EMS 远程使能",
+          "desc": "EMS 本体虚拟点 / EMS 远程使能",
+          "category": "setting",
+          "address": 3,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "remote_enable",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 8,
+          "pointCode": "ems_cos_run",
+          "name": "无功补偿运行",
+          "desc": "EMS 本体虚拟点 / 无功补偿运行",
+          "category": "status",
+          "address": 8,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "cos_run",
+          "legacyVarName": "H_CL_COS_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 10,
+          "pointCode": "ems_lv_run",
+          "name": "低压补偿运行",
+          "desc": "EMS 本体虚拟点 / 低压补偿运行",
+          "category": "status",
+          "address": 10,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "lv_run",
+          "legacyVarName": "H_CL_LV_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 12,
+          "pointCode": "ems_hv_run",
+          "name": "高压补偿运行",
+          "desc": "EMS 本体虚拟点 / 高压补偿运行",
+          "category": "status",
+          "address": 12,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "hv_run",
+          "legacyVarName": "H_CL_HV_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 14,
+          "pointCode": "ems_charge_run",
+          "name": "手动充电运行",
+          "desc": "EMS 本体虚拟点 / 手动充电运行",
+          "category": "status",
+          "address": 14,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "manual_charge_run",
+          "legacyVarName": "H_CL_CD_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 16,
+          "pointCode": "ems_discharge_run",
+          "name": "手动放电运行",
+          "desc": "EMS 本体虚拟点 / 手动放电运行",
+          "category": "status",
+          "address": 16,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "manual_discharge_run",
+          "legacyVarName": "H_CL_FD_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 17,
+          "pointCode": "ems_charge_discharge_cycle_phase",
+          "name": "充放电测试阶段",
+          "desc": "EMS 本体虚拟点 / 充放电测试阶段，1=放电，2=充电",
+          "category": "status",
+          "address": 17,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "charge_discharge_cycle_phase",
+          "legacyVarName": "EMS_CD_CYCLE_PHASE",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 18,
+          "pointCode": "ems_schedule_run",
+          "name": "计划曲线运行",
+          "desc": "EMS 本体虚拟点 / 计划曲线运行",
+          "category": "status",
+          "address": 18,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "schedule_curve_run",
+          "legacyVarName": "H_CL_DS_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 20,
+          "pointCode": "ems_phase_balance_run",
+          "name": "三相平衡运行",
+          "desc": "EMS 本体虚拟点 / 三相平衡运行",
+          "category": "status",
+          "address": 20,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "phase_balance_run",
+          "legacyVarName": "H_CL_PH_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 22,
+          "pointCode": "ems_pv_charge_run",
+          "name": "光伏优先充电运行",
+          "desc": "EMS 本体虚拟点 / 光伏优先充电运行",
+          "category": "status",
+          "address": 22,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "pv_charge_run",
+          "legacyVarName": "H_CL_GF_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 23,
+          "pointCode": "ems_reserve_capacity_enable",
+          "name": "动态增容使能",
+          "desc": "EMS 本体虚拟点 / 动态增容使能",
+          "category": "setting",
+          "address": 23,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "reserve_capacity_enable",
+          "legacyVarName": "H_CL_ZR_EN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 24,
+          "pointCode": "ems_reserve_capacity_run",
+          "name": "动态增容运行",
+          "desc": "EMS 本体虚拟点 / 动态增容运行",
+          "category": "status",
+          "address": 24,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "reserve_capacity_run",
+          "legacyVarName": "H_CL_ZR_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 25,
+          "pointCode": "ems_controller_override_enable",
+          "name": "受控模式使能",
+          "desc": "EMS 本体虚拟点 / 受控模式使能",
+          "category": "setting",
+          "address": 25,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "controller_override_enable",
+          "legacyVarName": "H_CL_SK_EN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 26,
+          "pointCode": "ems_controller_override_run",
+          "name": "受控模式运行",
+          "desc": "EMS 本体虚拟点 / 受控模式运行",
+          "category": "status",
+          "address": 26,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "controller_override_run",
+          "legacyVarName": "H_CL_SK_RUN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 151,
+          "pointCode": "ems_pcs_s3_max",
+          "name": "PCS 总视在功率上限",
+          "desc": "EMS 本体虚拟点 / PCS 总视在功率上限",
+          "category": "setting",
+          "address": 151,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "pcs_s3_max",
+          "legacyVarName": "H_PCS_ED_S",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 156,
+          "pointCode": "ems_meter_average_window",
+          "name": "电表平均窗口",
+          "desc": "EMS 本体虚拟点 / 电表平均窗口",
+          "category": "setting",
+          "address": 156,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "meter_average_window",
+          "legacyVarName": "H_EMS_avg_num",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 161,
+          "pointCode": "ems_bms_soc_max",
+          "name": "BMS SOC 上限",
+          "desc": "EMS 本体虚拟点 / BMS SOC 上限",
+          "category": "setting",
+          "address": 161,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "bms_soc_max",
+          "legacyVarName": "H_BOX_SOC_max",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 162,
+          "pointCode": "ems_bms_soc_min",
+          "name": "BMS SOC 下限",
+          "desc": "EMS 本体虚拟点 / BMS SOC 下限",
+          "category": "setting",
+          "address": 162,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "bms_soc_min",
+          "legacyVarName": "H_BOX_SOC_min",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 201,
+          "pointCode": "H_TQ_avg_UA",
+          "name": "台区平均A相电压",
+          "desc": "EMS 本体虚拟点 / 台区平均A相电压",
+          "category": "telemetry",
+          "address": 201,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_UA",
+          "legacyVarName": "H_TQ_avg_UA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 202,
+          "pointCode": "H_TQ_avg_UB",
+          "name": "台区平均B相电压",
+          "desc": "EMS 本体虚拟点 / 台区平均B相电压",
+          "category": "telemetry",
+          "address": 202,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_UB",
+          "legacyVarName": "H_TQ_avg_UB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 203,
+          "pointCode": "H_TQ_avg_UC",
+          "name": "台区平均C相电压",
+          "desc": "EMS 本体虚拟点 / 台区平均C相电压",
+          "category": "telemetry",
+          "address": 203,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_UC",
+          "legacyVarName": "H_TQ_avg_UC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 209,
+          "pointCode": "H_TQ_avg_PA",
+          "name": "台区平均A相有功",
+          "desc": "EMS 本体虚拟点 / 台区平均A相有功",
+          "category": "telemetry",
+          "address": 209,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_PA",
+          "legacyVarName": "H_TQ_avg_PA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 210,
+          "pointCode": "H_TQ_avg_PB",
+          "name": "台区平均B相有功",
+          "desc": "EMS 本体虚拟点 / 台区平均B相有功",
+          "category": "telemetry",
+          "address": 210,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_PB",
+          "legacyVarName": "H_TQ_avg_PB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 211,
+          "pointCode": "H_TQ_avg_PC",
+          "name": "台区平均C相有功",
+          "desc": "EMS 本体虚拟点 / 台区平均C相有功",
+          "category": "telemetry",
+          "address": 211,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_PC",
+          "legacyVarName": "H_TQ_avg_PC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 212,
+          "pointCode": "H_TQ_avg_P3",
+          "name": "台区平均总有功",
+          "desc": "EMS 本体虚拟点 / 台区平均总有功",
+          "category": "telemetry",
+          "address": 212,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_P3",
+          "legacyVarName": "H_TQ_avg_P3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 213,
+          "pointCode": "H_TQ_avg_QA",
+          "name": "台区平均A相无功",
+          "desc": "EMS 本体虚拟点 / 台区平均A相无功",
+          "category": "telemetry",
+          "address": 213,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_QA",
+          "legacyVarName": "H_TQ_avg_QA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 214,
+          "pointCode": "H_TQ_avg_QB",
+          "name": "台区平均B相无功",
+          "desc": "EMS 本体虚拟点 / 台区平均B相无功",
+          "category": "telemetry",
+          "address": 214,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_QB",
+          "legacyVarName": "H_TQ_avg_QB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 215,
+          "pointCode": "H_TQ_avg_QC",
+          "name": "台区平均C相无功",
+          "desc": "EMS 本体虚拟点 / 台区平均C相无功",
+          "category": "telemetry",
+          "address": 215,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_QC",
+          "legacyVarName": "H_TQ_avg_QC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 216,
+          "pointCode": "H_TQ_avg_Q3",
+          "name": "台区平均总无功",
+          "desc": "EMS 本体虚拟点 / 台区平均总无功",
+          "category": "telemetry",
+          "address": 216,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_TQ_avg_Q3",
+          "legacyVarName": "H_TQ_avg_Q3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 251,
+          "pointCode": "H_CN_avg_UA",
+          "name": "储能平均A相电压",
+          "desc": "EMS 本体虚拟点 / 储能平均A相电压",
+          "category": "telemetry",
+          "address": 251,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_UA",
+          "legacyVarName": "H_CN_avg_UA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 252,
+          "pointCode": "H_CN_avg_UB",
+          "name": "储能平均B相电压",
+          "desc": "EMS 本体虚拟点 / 储能平均B相电压",
+          "category": "telemetry",
+          "address": 252,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_UB",
+          "legacyVarName": "H_CN_avg_UB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 253,
+          "pointCode": "H_CN_avg_UC",
+          "name": "储能平均C相电压",
+          "desc": "EMS 本体虚拟点 / 储能平均C相电压",
+          "category": "telemetry",
+          "address": 253,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_UC",
+          "legacyVarName": "H_CN_avg_UC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 259,
+          "pointCode": "H_CN_avg_PA",
+          "name": "储能平均A相有功",
+          "desc": "EMS 本体虚拟点 / 储能平均A相有功",
+          "category": "telemetry",
+          "address": 259,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_PA",
+          "legacyVarName": "H_CN_avg_PA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 260,
+          "pointCode": "H_CN_avg_PB",
+          "name": "储能平均B相有功",
+          "desc": "EMS 本体虚拟点 / 储能平均B相有功",
+          "category": "telemetry",
+          "address": 260,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_PB",
+          "legacyVarName": "H_CN_avg_PB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 261,
+          "pointCode": "H_CN_avg_PC",
+          "name": "储能平均C相有功",
+          "desc": "EMS 本体虚拟点 / 储能平均C相有功",
+          "category": "telemetry",
+          "address": 261,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_PC",
+          "legacyVarName": "H_CN_avg_PC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 262,
+          "pointCode": "H_CN_avg_P3",
+          "name": "储能平均总有功",
+          "desc": "EMS 本体虚拟点 / 储能平均总有功",
+          "category": "telemetry",
+          "address": 262,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_P3",
+          "legacyVarName": "H_CN_avg_P3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 263,
+          "pointCode": "H_CN_avg_QA",
+          "name": "储能平均A相无功",
+          "desc": "EMS 本体虚拟点 / 储能平均A相无功",
+          "category": "telemetry",
+          "address": 263,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_QA",
+          "legacyVarName": "H_CN_avg_QA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 264,
+          "pointCode": "H_CN_avg_QB",
+          "name": "储能平均B相无功",
+          "desc": "EMS 本体虚拟点 / 储能平均B相无功",
+          "category": "telemetry",
+          "address": 264,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_QB",
+          "legacyVarName": "H_CN_avg_QB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 265,
+          "pointCode": "H_CN_avg_QC",
+          "name": "储能平均C相无功",
+          "desc": "EMS 本体虚拟点 / 储能平均C相无功",
+          "category": "telemetry",
+          "address": 265,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_QC",
+          "legacyVarName": "H_CN_avg_QC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 266,
+          "pointCode": "H_CN_avg_Q3",
+          "name": "储能平均总无功",
+          "desc": "EMS 本体虚拟点 / 储能平均总无功",
+          "category": "telemetry",
+          "address": 266,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_CN_avg_Q3",
+          "legacyVarName": "H_CN_avg_Q3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 309,
+          "pointCode": "H_FH_avg_PA",
+          "name": "负荷平均A相有功",
+          "desc": "EMS 本体虚拟点 / 负荷平均A相有功",
+          "category": "telemetry",
+          "address": 309,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_PA",
+          "legacyVarName": "H_FH_avg_PA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 310,
+          "pointCode": "H_FH_avg_PB",
+          "name": "负荷平均B相有功",
+          "desc": "EMS 本体虚拟点 / 负荷平均B相有功",
+          "category": "telemetry",
+          "address": 310,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_PB",
+          "legacyVarName": "H_FH_avg_PB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 311,
+          "pointCode": "H_FH_avg_PC",
+          "name": "负荷平均C相有功",
+          "desc": "EMS 本体虚拟点 / 负荷平均C相有功",
+          "category": "telemetry",
+          "address": 311,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_PC",
+          "legacyVarName": "H_FH_avg_PC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 312,
+          "pointCode": "H_FH_avg_P3",
+          "name": "负荷平均总有功",
+          "desc": "EMS 本体虚拟点 / 负荷平均总有功",
+          "category": "telemetry",
+          "address": 312,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_P3",
+          "legacyVarName": "H_FH_avg_P3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 313,
+          "pointCode": "H_FH_avg_QA",
+          "name": "负荷平均A相无功",
+          "desc": "EMS 本体虚拟点 / 负荷平均A相无功",
+          "category": "telemetry",
+          "address": 313,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_QA",
+          "legacyVarName": "H_FH_avg_QA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 314,
+          "pointCode": "H_FH_avg_QB",
+          "name": "负荷平均B相无功",
+          "desc": "EMS 本体虚拟点 / 负荷平均B相无功",
+          "category": "telemetry",
+          "address": 314,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_QB",
+          "legacyVarName": "H_FH_avg_QB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 315,
+          "pointCode": "H_FH_avg_QC",
+          "name": "负荷平均C相无功",
+          "desc": "EMS 本体虚拟点 / 负荷平均C相无功",
+          "category": "telemetry",
+          "address": 315,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_QC",
+          "legacyVarName": "H_FH_avg_QC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 316,
+          "pointCode": "H_FH_avg_Q3",
+          "name": "负荷平均总无功",
+          "desc": "EMS 本体虚拟点 / 负荷平均总无功",
+          "category": "telemetry",
+          "address": 316,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_Q3",
+          "legacyVarName": "H_FH_avg_Q3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 317,
+          "pointCode": "H_FH_avg_SA",
+          "name": "负荷平均A相视在功率",
+          "desc": "EMS 本体虚拟点 / 负荷平均A相视在功率",
+          "category": "telemetry",
+          "address": 317,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_SA",
+          "legacyVarName": "H_FH_avg_SA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 318,
+          "pointCode": "H_FH_avg_SB",
+          "name": "负荷平均B相视在功率",
+          "desc": "EMS 本体虚拟点 / 负荷平均B相视在功率",
+          "category": "telemetry",
+          "address": 318,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_SB",
+          "legacyVarName": "H_FH_avg_SB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 319,
+          "pointCode": "H_FH_avg_SC",
+          "name": "负荷平均C相视在功率",
+          "desc": "EMS 本体虚拟点 / 负荷平均C相视在功率",
+          "category": "telemetry",
+          "address": 319,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_SC",
+          "legacyVarName": "H_FH_avg_SC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 320,
+          "pointCode": "H_FH_avg_S3",
+          "name": "负荷平均总视在功率",
+          "desc": "EMS 本体虚拟点 / 负荷平均总视在功率",
+          "category": "telemetry",
+          "address": 320,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_S3",
+          "legacyVarName": "H_FH_avg_S3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 321,
+          "pointCode": "H_FH_avg_COSA",
+          "name": "负荷平均A相功率因数",
+          "desc": "EMS 本体虚拟点 / 负荷平均A相功率因数",
+          "category": "telemetry",
+          "address": 321,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_COSA",
+          "legacyVarName": "H_FH_avg_COSA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 322,
+          "pointCode": "H_FH_avg_COSB",
+          "name": "负荷平均B相功率因数",
+          "desc": "EMS 本体虚拟点 / 负荷平均B相功率因数",
+          "category": "telemetry",
+          "address": 322,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_COSB",
+          "legacyVarName": "H_FH_avg_COSB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 323,
+          "pointCode": "H_FH_avg_COSC",
+          "name": "负荷平均C相功率因数",
+          "desc": "EMS 本体虚拟点 / 负荷平均C相功率因数",
+          "category": "telemetry",
+          "address": 323,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_COSC",
+          "legacyVarName": "H_FH_avg_COSC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 324,
+          "pointCode": "H_FH_avg_COS3",
+          "name": "负荷平均总功率因数",
+          "desc": "EMS 本体虚拟点 / 负荷平均总功率因数",
+          "category": "telemetry",
+          "address": 324,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_COS3",
+          "legacyVarName": "H_FH_avg_COS3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 325,
+          "pointCode": "H_FH_avg_P_BPH",
+          "name": "负荷平均有功三相不平衡率",
+          "desc": "EMS 本体虚拟点 / 负荷平均有功三相不平衡率",
+          "category": "telemetry",
+          "address": 325,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "H_FH_avg_P_BPH",
+          "legacyVarName": "H_FH_avg_P_BPH",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 398,
+          "pointCode": "ems_bms_charge_kwh_zero",
+          "name": "BMS 充电电量日初值",
+          "desc": "EMS 本体虚拟点 / BMS 充电电量日初值",
+          "category": "setting",
+          "address": 398,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "bms_charge_kwh_zero",
+          "legacyVarName": "VAR_ADDR_STACK_CHARGE_KWH_0SAVE",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 399,
+          "pointCode": "ems_bms_discharge_kwh_zero",
+          "name": "BMS 放电电量日初值",
+          "desc": "EMS 本体虚拟点 / BMS 放电电量日初值",
+          "category": "setting",
+          "address": 399,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "bms_discharge_kwh_zero",
+          "legacyVarName": "VAR_ADDR_STACK_DISCHARGE_KWH_0SAVE",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 451,
+          "pointCode": "ems_manual_charge_power",
+          "name": "手动充电目标功率",
+          "desc": "EMS 本体虚拟点 / 手动充电目标功率",
+          "category": "setting",
+          "address": 451,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "manual_charge_power",
+          "legacyVarName": "H_CL_CD_target_P",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 452,
+          "pointCode": "ems_manual_charge_soc",
+          "name": "手动充电目标 SOC",
+          "desc": "EMS 本体虚拟点 / 手动充电目标 SOC",
+          "category": "setting",
+          "address": 452,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "manual_charge_soc",
+          "legacyVarName": "H_CL_CD_target_SOC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 453,
+          "pointCode": "ems_positive_power_limit",
+          "name": "正向功率限制值",
+          "desc": "EMS 本体虚拟点 / 正向功率限制值",
+          "category": "setting",
+          "address": 453,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "positive_power_limit",
+          "legacyVarName": "H_CL_TQ_PXZ_pos_Value",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 454,
+          "pointCode": "ems_positive_power_limit_enable",
+          "name": "正向功率限制使能",
+          "desc": "EMS 本体虚拟点 / 正向功率限制使能",
+          "category": "setting",
+          "address": 454,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "positive_power_limit_enable",
+          "legacyVarName": "H_CL_TQ_PXZ_pos_EN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 455,
+          "pointCode": "ems_manual_discharge_power",
+          "name": "手动放电目标功率",
+          "desc": "EMS 本体虚拟点 / 手动放电目标功率",
+          "category": "setting",
+          "address": 455,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "manual_discharge_power",
+          "legacyVarName": "H_CL_FD_target_P",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 456,
+          "pointCode": "ems_manual_discharge_soc",
+          "name": "手动放电目标 SOC",
+          "desc": "EMS 本体虚拟点 / 手动放电目标 SOC",
+          "category": "setting",
+          "address": 456,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "manual_discharge_soc",
+          "legacyVarName": "H_CL_FD_target_SOC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 457,
+          "pointCode": "ems_negative_power_limit",
+          "name": "反送功率限制值",
+          "desc": "EMS 本体虚拟点 / 反送功率限制值",
+          "category": "setting",
+          "address": 457,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "negative_power_limit",
+          "legacyVarName": "H_CL_TQ_PXZ_neg_Value",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 458,
+          "pointCode": "ems_negative_power_limit_enable",
+          "name": "反送功率限制使能",
+          "desc": "EMS 本体虚拟点 / 反送功率限制使能",
+          "category": "setting",
+          "address": 458,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "negative_power_limit_enable",
+          "legacyVarName": "H_CL_TQ_PXZ_neg_EN",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 461,
+          "pointCode": "ems_schedule_power_now",
+          "name": "当前计划功率",
+          "desc": "EMS 本体虚拟点 / 当前计划功率",
+          "category": "telemetry",
+          "address": 461,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "schedule_power_now",
+          "legacyVarName": "H_CL_DS_Power_now",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 462,
+          "pointCode": "ems_schedule_soc_now",
+          "name": "当前计划 SOC",
+          "desc": "EMS 本体虚拟点 / 当前计划 SOC",
+          "category": "telemetry",
+          "address": 462,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "schedule_soc_now",
+          "legacyVarName": "H_CL_DS_SOC_now",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 463,
+          "pointCode": "ems_schedule_v_max",
+          "name": "计划曲线放电电压上限",
+          "desc": "EMS 本体虚拟点 / 计划曲线放电电压上限",
+          "category": "setting",
+          "address": 463,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "schedule_v_max",
+          "legacyVarName": "H_CL_DS_EN_Vmax",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 464,
+          "pointCode": "ems_schedule_v_min",
+          "name": "计划曲线充电电压下限",
+          "desc": "EMS 本体虚拟点 / 计划曲线充电电压下限",
+          "category": "setting",
+          "address": 464,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "schedule_v_min",
+          "legacyVarName": "H_CL_DS_EN_Vmin",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 504,
+          "pointCode": "ems_pcs_q_max",
+          "name": "PCS 单相无功上限",
+          "desc": "EMS 本体虚拟点 / PCS 单相无功上限",
+          "category": "setting",
+          "address": 504,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "pcs_q_max",
+          "legacyVarName": "H_CL_Q_max",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 505,
+          "pointCode": "ems_target_qa",
+          "name": "目标 A 相无功",
+          "desc": "EMS 本体虚拟点 / 目标 A 相无功",
+          "category": "telemetry",
+          "address": 505,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "target_qa",
+          "legacyVarName": "H_CL_Q_target_Qa",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 506,
+          "pointCode": "ems_target_qb",
+          "name": "目标 B 相无功",
+          "desc": "EMS 本体虚拟点 / 目标 B 相无功",
+          "category": "telemetry",
+          "address": 506,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "target_qb",
+          "legacyVarName": "H_CL_Q_target_Qb",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 507,
+          "pointCode": "ems_target_qc",
+          "name": "目标 C 相无功",
+          "desc": "EMS 本体虚拟点 / 目标 C 相无功",
+          "category": "telemetry",
+          "address": 507,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "target_qc",
+          "legacyVarName": "H_CL_Q_target_Qc",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 508,
+          "pointCode": "ems_target_q3",
+          "name": "目标总无功",
+          "desc": "EMS 本体虚拟点 / 目标总无功",
+          "category": "telemetry",
+          "address": 508,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "target_q3",
+          "legacyVarName": "H_CL_Q_target_Q3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 514,
+          "pointCode": "ems_target_cos",
+          "name": "目标功率因数",
+          "desc": "EMS 本体虚拟点 / 目标功率因数",
+          "category": "setting",
+          "address": 514,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "target_cos",
+          "legacyVarName": "H_CL_COS_target",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 533,
+          "pointCode": "ems_power_step",
+          "name": "功率调节步长",
+          "desc": "EMS 本体虚拟点 / 功率调节步长",
+          "category": "setting",
+          "address": 533,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "power_step",
+          "legacyVarName": "H_CL_P_Grad",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 535,
+          "pointCode": "ems_pcs_p_max",
+          "name": "PCS 单相有功上限",
+          "desc": "EMS 本体虚拟点 / PCS 单相有功上限",
+          "category": "setting",
+          "address": 535,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "pcs_p_max",
+          "legacyVarName": "H_CL_P_max",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 544,
+          "pointCode": "ems_lv_low",
+          "name": "低压补偿下限",
+          "desc": "EMS 本体虚拟点 / 低压补偿下限",
+          "category": "setting",
+          "address": 544,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "lv_low",
+          "legacyVarName": "H_CL_LV_Low",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 545,
+          "pointCode": "ems_lv_high",
+          "name": "低压补偿上限",
+          "desc": "EMS 本体虚拟点 / 低压补偿上限",
+          "category": "setting",
+          "address": 545,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "lv_high",
+          "legacyVarName": "H_CL_LV_Up",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 546,
+          "pointCode": "ems_hv_low",
+          "name": "高压补偿下限",
+          "desc": "EMS 本体虚拟点 / 高压补偿下限",
+          "category": "setting",
+          "address": 546,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "hv_low",
+          "legacyVarName": "H_CL_HV_Low",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 547,
+          "pointCode": "ems_hv_high",
+          "name": "高压补偿上限",
+          "desc": "EMS 本体虚拟点 / 高压补偿上限",
+          "category": "setting",
+          "address": 547,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "hv_high",
+          "legacyVarName": "H_CL_HV_Up",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 562,
+          "pointCode": "ems_phase_balance_percent",
+          "name": "三相不平衡允许比例",
+          "desc": "EMS 本体虚拟点 / 三相不平衡允许比例",
+          "category": "setting",
+          "address": 562,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "phase_balance_percent",
+          "legacyVarName": "H_CL_BPH_Per",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 564,
+          "pointCode": "ems_phase_balance_value",
+          "name": "三相不平衡率",
+          "desc": "EMS 本体虚拟点 / 三相不平衡率",
+          "category": "telemetry",
+          "address": 564,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "phase_balance_value",
+          "legacyVarName": "H_TQ_CN_avg_P_BPH",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "%",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 565,
+          "pointCode": "ems_tq_cn_pa",
+          "name": "台区储能 A 相功率差",
+          "desc": "EMS 本体虚拟点 / 台区储能 A 相功率差",
+          "category": "telemetry",
+          "address": 565,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "tq_cn_pa",
+          "legacyVarName": "H_TQ_CN_avg_PA",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 566,
+          "pointCode": "ems_tq_cn_pb",
+          "name": "台区储能 B 相功率差",
+          "desc": "EMS 本体虚拟点 / 台区储能 B 相功率差",
+          "category": "telemetry",
+          "address": 566,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "tq_cn_pb",
+          "legacyVarName": "H_TQ_CN_avg_PB",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 567,
+          "pointCode": "ems_tq_cn_pc",
+          "name": "台区储能 C 相功率差",
+          "desc": "EMS 本体虚拟点 / 台区储能 C 相功率差",
+          "category": "telemetry",
+          "address": 567,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "tq_cn_pc",
+          "legacyVarName": "H_TQ_CN_avg_PC",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 581,
+          "pointCode": "ems_pv_charge_start_hour",
+          "name": "光伏优先充电开始小时",
+          "desc": "EMS 本体虚拟点 / 光伏优先充电开始小时",
+          "category": "setting",
+          "address": 581,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "pv_charge_start_hour",
+          "legacyVarName": "H_CL_GF_Charge_start_time",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "h",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 583,
+          "pointCode": "ems_pv_charge_end_hour",
+          "name": "光伏优先充电结束小时",
+          "desc": "EMS 本体虚拟点 / 光伏优先充电结束小时",
+          "category": "setting",
+          "address": 583,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "pv_charge_end_hour",
+          "legacyVarName": "H_CL_GF_Charge_end_time",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "h",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 588,
+          "pointCode": "ems_reserve_capacity_power",
+          "name": "动态增容保留功率",
+          "desc": "EMS 本体虚拟点 / 动态增容保留功率",
+          "category": "setting",
+          "address": 588,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "reserve_capacity_power",
+          "legacyVarName": "H_CL_ZR_P1",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 590,
+          "pointCode": "ems_controller_override_p3",
+          "name": "受控总有功功率",
+          "desc": "EMS 本体虚拟点 / 受控总有功功率",
+          "category": "setting",
+          "address": 590,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "controller_override_p3",
+          "legacyVarName": "H_CL_SK_P3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 591,
+          "pointCode": "ems_controller_override_q3",
+          "name": "受控总无功功率",
+          "desc": "EMS 本体虚拟点 / 受控总无功功率",
+          "category": "setting",
+          "address": 591,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "controller_override_q3",
+          "legacyVarName": "H_CL_SK_Q3",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "setting",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 601,
+          "pointCode": "OUT_QA_COS",
+          "name": "无功补偿A相输出",
+          "desc": "EMS 本体虚拟点 / 无功补偿A相输出",
+          "category": "telemetry",
+          "address": 601,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_QA_COS",
+          "legacyVarName": "OUT_QA_COS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 602,
+          "pointCode": "OUT_QB_COS",
+          "name": "无功补偿B相输出",
+          "desc": "EMS 本体虚拟点 / 无功补偿B相输出",
+          "category": "telemetry",
+          "address": 602,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_QB_COS",
+          "legacyVarName": "OUT_QB_COS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 603,
+          "pointCode": "OUT_QC_COS",
+          "name": "无功补偿C相输出",
+          "desc": "EMS 本体虚拟点 / 无功补偿C相输出",
+          "category": "telemetry",
+          "address": 603,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_QC_COS",
+          "legacyVarName": "OUT_QC_COS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 604,
+          "pointCode": "OUT_Q3_COS",
+          "name": "无功补偿总输出",
+          "desc": "EMS 本体虚拟点 / 无功补偿总输出",
+          "category": "telemetry",
+          "address": 604,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_Q3_COS",
+          "legacyVarName": "OUT_Q3_COS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 605,
+          "pointCode": "OUT_PA_LV",
+          "name": "低压补偿A相有功输出",
+          "desc": "EMS 本体虚拟点 / 低压补偿A相有功输出",
+          "category": "telemetry",
+          "address": 605,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PA_LV",
+          "legacyVarName": "OUT_PA_LV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 606,
+          "pointCode": "OUT_PB_LV",
+          "name": "低压补偿B相有功输出",
+          "desc": "EMS 本体虚拟点 / 低压补偿B相有功输出",
+          "category": "telemetry",
+          "address": 606,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PB_LV",
+          "legacyVarName": "OUT_PB_LV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 607,
+          "pointCode": "OUT_PC_LV",
+          "name": "低压补偿C相有功输出",
+          "desc": "EMS 本体虚拟点 / 低压补偿C相有功输出",
+          "category": "telemetry",
+          "address": 607,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PC_LV",
+          "legacyVarName": "OUT_PC_LV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 608,
+          "pointCode": "OUT_P3_LV",
+          "name": "低压补偿总有功输出",
+          "desc": "EMS 本体虚拟点 / 低压补偿总有功输出",
+          "category": "telemetry",
+          "address": 608,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_P3_LV",
+          "legacyVarName": "OUT_P3_LV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 609,
+          "pointCode": "OUT_PA_HV",
+          "name": "高压补偿A相有功输出",
+          "desc": "EMS 本体虚拟点 / 高压补偿A相有功输出",
+          "category": "telemetry",
+          "address": 609,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PA_HV",
+          "legacyVarName": "OUT_PA_HV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 610,
+          "pointCode": "OUT_PB_HV",
+          "name": "高压补偿B相有功输出",
+          "desc": "EMS 本体虚拟点 / 高压补偿B相有功输出",
+          "category": "telemetry",
+          "address": 610,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PB_HV",
+          "legacyVarName": "OUT_PB_HV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 611,
+          "pointCode": "OUT_PC_HV",
+          "name": "高压补偿C相有功输出",
+          "desc": "EMS 本体虚拟点 / 高压补偿C相有功输出",
+          "category": "telemetry",
+          "address": 611,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PC_HV",
+          "legacyVarName": "OUT_PC_HV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 612,
+          "pointCode": "OUT_P3_HV",
+          "name": "高压补偿总有功输出",
+          "desc": "EMS 本体虚拟点 / 高压补偿总有功输出",
+          "category": "telemetry",
+          "address": 612,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_P3_HV",
+          "legacyVarName": "OUT_P3_HV",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 613,
+          "pointCode": "OUT_P3_CD",
+          "name": "手动充电总有功输出",
+          "desc": "EMS 本体虚拟点 / 手动充电总有功输出",
+          "category": "telemetry",
+          "address": 613,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_P3_CD",
+          "legacyVarName": "OUT_P3_CD",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 614,
+          "pointCode": "OUT_P3_FD",
+          "name": "手动放电总有功输出",
+          "desc": "EMS 本体虚拟点 / 手动放电总有功输出",
+          "category": "telemetry",
+          "address": 614,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_P3_FD",
+          "legacyVarName": "OUT_P3_FD",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 615,
+          "pointCode": "OUT_PA_DS",
+          "name": "定时充放电A相有功输出",
+          "desc": "EMS 本体虚拟点 / 定时充放电A相有功输出",
+          "category": "telemetry",
+          "address": 615,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PA_DS",
+          "legacyVarName": "OUT_PA_DS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 616,
+          "pointCode": "OUT_PB_DS",
+          "name": "定时充放电B相有功输出",
+          "desc": "EMS 本体虚拟点 / 定时充放电B相有功输出",
+          "category": "telemetry",
+          "address": 616,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PB_DS",
+          "legacyVarName": "OUT_PB_DS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 617,
+          "pointCode": "OUT_PC_DS",
+          "name": "定时充放电C相有功输出",
+          "desc": "EMS 本体虚拟点 / 定时充放电C相有功输出",
+          "category": "telemetry",
+          "address": 617,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PC_DS",
+          "legacyVarName": "OUT_PC_DS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 618,
+          "pointCode": "OUT_P3_DS",
+          "name": "定时充放电总有功输出",
+          "desc": "EMS 本体虚拟点 / 定时充放电总有功输出",
+          "category": "telemetry",
+          "address": 618,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_P3_DS",
+          "legacyVarName": "OUT_P3_DS",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 619,
+          "pointCode": "OUT_PA_GF",
+          "name": "光伏模式A相有功输出",
+          "desc": "EMS 本体虚拟点 / 光伏模式A相有功输出",
+          "category": "telemetry",
+          "address": 619,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PA_GF",
+          "legacyVarName": "OUT_PA_GF",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 620,
+          "pointCode": "OUT_PB_GF",
+          "name": "光伏模式B相有功输出",
+          "desc": "EMS 本体虚拟点 / 光伏模式B相有功输出",
+          "category": "telemetry",
+          "address": 620,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PB_GF",
+          "legacyVarName": "OUT_PB_GF",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 621,
+          "pointCode": "OUT_PC_GF",
+          "name": "光伏模式C相有功输出",
+          "desc": "EMS 本体虚拟点 / 光伏模式C相有功输出",
+          "category": "telemetry",
+          "address": 621,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PC_GF",
+          "legacyVarName": "OUT_PC_GF",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 622,
+          "pointCode": "OUT_P3_GF",
+          "name": "光伏模式总有功输出",
+          "desc": "EMS 本体虚拟点 / 光伏模式总有功输出",
+          "category": "telemetry",
+          "address": 622,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_P3_GF",
+          "legacyVarName": "OUT_P3_GF",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 623,
+          "pointCode": "OUT_PA_PH",
+          "name": "三相平衡A相有功输出",
+          "desc": "EMS 本体虚拟点 / 三相平衡A相有功输出",
+          "category": "telemetry",
+          "address": 623,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PA_PH",
+          "legacyVarName": "OUT_PA_PH",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 624,
+          "pointCode": "OUT_PB_PH",
+          "name": "三相平衡B相有功输出",
+          "desc": "EMS 本体虚拟点 / 三相平衡B相有功输出",
+          "category": "telemetry",
+          "address": 624,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PB_PH",
+          "legacyVarName": "OUT_PB_PH",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 625,
+          "pointCode": "OUT_PC_PH",
+          "name": "三相平衡C相有功输出",
+          "desc": "EMS 本体虚拟点 / 三相平衡C相有功输出",
+          "category": "telemetry",
+          "address": 625,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "OUT_PC_PH",
+          "legacyVarName": "OUT_PC_PH",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 627,
+          "pointCode": "PCS_PA_OUT",
+          "name": "PCS A相有功输出",
+          "desc": "EMS 本体虚拟点 / PCS A相有功输出",
+          "category": "telemetry",
+          "address": 627,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "PCS_PA_OUT",
+          "legacyVarName": "PCS_PA_OUT",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 628,
+          "pointCode": "PCS_PB_OUT",
+          "name": "PCS B相有功输出",
+          "desc": "EMS 本体虚拟点 / PCS B相有功输出",
+          "category": "telemetry",
+          "address": 628,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "PCS_PB_OUT",
+          "legacyVarName": "PCS_PB_OUT",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 629,
+          "pointCode": "PCS_PC_OUT",
+          "name": "PCS C相有功输出",
+          "desc": "EMS 本体虚拟点 / PCS C相有功输出",
+          "category": "telemetry",
+          "address": 629,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "PCS_PC_OUT",
+          "legacyVarName": "PCS_PC_OUT",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 630,
+          "pointCode": "PCS_QA_OUT",
+          "name": "PCS A相无功输出",
+          "desc": "EMS 本体虚拟点 / PCS A相无功输出",
+          "category": "telemetry",
+          "address": 630,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "PCS_QA_OUT",
+          "legacyVarName": "PCS_QA_OUT",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 631,
+          "pointCode": "PCS_QB_OUT",
+          "name": "PCS B相无功输出",
+          "desc": "EMS 本体虚拟点 / PCS B相无功输出",
+          "category": "telemetry",
+          "address": 631,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "PCS_QB_OUT",
+          "legacyVarName": "PCS_QB_OUT",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 632,
+          "pointCode": "PCS_QC_OUT",
+          "name": "PCS C相无功输出",
+          "desc": "EMS 本体虚拟点 / PCS C相无功输出",
+          "category": "telemetry",
+          "address": 632,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "PCS_QC_OUT",
+          "legacyVarName": "PCS_QC_OUT",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kvar",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 1552,
+          "pointCode": "VAR_ADDR_STACK_CHARGE_KW_ALLOW",
+          "name": "堆最大允许充电功率",
+          "desc": "EMS 本体虚拟点 / 堆最大允许充电功率",
+          "category": "telemetry",
+          "address": 1552,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "VAR_ADDR_STACK_CHARGE_KW_ALLOW",
+          "legacyVarName": "VAR_ADDR_STACK_CHARGE_KW_ALLOW",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 1553,
+          "pointCode": "VAR_ADDR_STACK_DISCHARGE_KW_ALLOW",
+          "name": "堆最大允许放电功率",
+          "desc": "EMS 本体虚拟点 / 堆最大允许放电功率",
+          "category": "telemetry",
+          "address": 1553,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "VAR_ADDR_STACK_DISCHARGE_KW_ALLOW",
+          "legacyVarName": "VAR_ADDR_STACK_DISCHARGE_KW_ALLOW",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 1615,
+          "pointCode": "VAR_ADDR_STACK_CHARGE_KWH_TODAY",
+          "name": "堆今日充电量",
+          "desc": "EMS 本体虚拟点 / 堆今日充电量",
+          "category": "telemetry",
+          "address": 1615,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "VAR_ADDR_STACK_CHARGE_KWH_TODAY",
+          "legacyVarName": "VAR_ADDR_STACK_CHARGE_KWH_TODAY",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        },
+        {
+          "index": 1616,
+          "pointCode": "VAR_ADDR_STACK_DISCHARGE_KWH_TODAY",
+          "name": "堆今日放电量",
+          "desc": "EMS 本体虚拟点 / 堆今日放电量",
+          "category": "telemetry",
+          "address": 1616,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 0,
+          "deviceType": "ems",
+          "deviceCode": "EMS_CORE",
+          "pointRole": "VAR_ADDR_STACK_DISCHARGE_KWH_TODAY",
+          "legacyVarName": "VAR_ADDR_STACK_DISCHARGE_KWH_TODAY",
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 1,
+            "dataType": "float64",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": false,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "tags": [
+            "ems_virtual",
+            "runtime",
+            "change",
+            "full_upload"
+          ]
+        }
+      ]
+    }
+  ]
+}

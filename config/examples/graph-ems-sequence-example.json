@@ -1,19 +1,45 @@
 {
-  "schemaVersion": "1.3.0",
+  "schemaVersion": "2.0.0",
   "graphCode": "charge-discharge-sequence-example",
+  "displayName": "charge-discharge-sequence-example",
+  "description": "由既有策略迁移；保存后原路径即为可编辑、可发布、可执行的 V2 策略。",
+  "compile": {
+    "maxNodes": 256,
+    "maxEdges": 512,
+    "virtualIndexStart": 700000,
+    "virtualIndexEnd": 799999,
+    "requireKnownWriteTargets": false,
+    "preserveImportedBehavior": true
+  },
   "nodes": [
     {
       "id": "charge_discharge_sequence",
       "type": "sequence",
+      "typeVersion": "1.0.0",
+      "displayName": "顺序状态机",
       "enabled": true,
-      "params": {
+      "order": 0,
+      "groupId": "",
+      "parameters": {
         "initialState": 0,
         "stateOutputIndex": 700047,
         "states": [
-          { "id": 0, "name": "待机" },
-          { "id": 1, "name": "放电" },
-          { "id": 2, "name": "充电" },
-          { "id": 3, "name": "完成" }
+          {
+            "id": 0,
+            "name": "待机"
+          },
+          {
+            "id": 1,
+            "name": "放电"
+          },
+          {
+            "id": 2,
+            "name": "充电"
+          },
+          {
+            "id": 3,
+            "name": "完成"
+          }
         ],
         "transitions": [
           {
@@ -21,7 +47,11 @@
             "to": 1,
             "name": "启动测试",
             "conditions": [
-              { "index": 700045, "operator": "eq", "value": 1 }
+              {
+                "index": 700045,
+                "operator": "eq",
+                "value": 1
+              }
             ]
           },
           {
@@ -30,7 +60,11 @@
             "name": "达到放电深度",
             "minDurationMs": 1000,
             "conditions": [
-              { "index": 1570, "operator": "lte", "value": 20 }
+              {
+                "index": 1570,
+                "operator": "lte",
+                "value": 20
+              }
             ]
           },
           {
@@ -39,12 +73,89 @@
             "name": "达到充电深度",
             "minDurationMs": 1000,
             "conditions": [
-              { "index": 1570, "operator": "gte", "value": 95 }
+              {
+                "index": 1570,
+                "operator": "gte",
+                "value": 95
+              }
             ]
           }
         ]
+      },
+      "ports": [
+        {
+          "id": "stateoutputindex",
+          "displayName": "stateOutputIndex",
+          "direction": "output",
+          "valueType": "state",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/stateOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 700047,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "transitions_0_conditions_0_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/transitions/0/conditions/0/index",
+          "binding": {
+            "kind": "point",
+            "index": 700045,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "transitions_1_conditions_0_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/transitions/1/conditions/0/index",
+          "binding": {
+            "kind": "point",
+            "index": 1570,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "transitions_2_conditions_0_index",
+          "displayName": "index",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/transitions/2/conditions/0/index",
+          "binding": {
+            "kind": "point",
+            "index": 1570,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        }
+      ],
+      "layout": {
+        "x": 800,
+        "y": 80,
+        "width": 280,
+        "height": 180
       }
     }
   ],
-  "edges": []
+  "links": [],
+  "groups": []
 }

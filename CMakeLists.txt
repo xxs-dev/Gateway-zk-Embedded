@@ -229,6 +229,14 @@ add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(graph_ems_voltage_quality_test tools/graph_ems_voltage_quality_test.cpp)
+target_link_libraries(graph_ems_voltage_quality_test PRIVATE edge_gateway)
+target_compile_options(graph_ems_voltage_quality_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(graph_ems_v2_loader_test tools/graph_ems_v2_loader_test.cpp)
+target_link_libraries(graph_ems_v2_loader_test PRIVATE edge_gateway)
+target_compile_options(graph_ems_v2_loader_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(EmsParityCheck tools/ems_parity_check.cpp)
 target_link_libraries(EmsParityCheck PRIVATE edge_gateway)
 target_compile_options(EmsParityCheck PRIVATE -fdiagnostics-color=never)

@@ -57,9 +57,10 @@ Also inspect shared memory with the existing point tools when relevant.
 
 ## EMS Rules
 
-- `legacyEms` and `graphEms` can coexist for shadow comparison.
-- Keep `pcsWriteback.submitWrites=false` for shadow mode.
-- Enable writes only after graph output is verified against legacy logic.
+- Production `ComputeEngine` only accepts `graphEms` backed by one executable `schemaVersion=2.x` file.
+- `legacyEms` is restricted to Windows one-time migration, `EmsParityCheck`, and isolated regression tests; never add it to a production app config.
+- Run V1/V2 shadow comparison through `EmsParityCheck` with isolated stores, not by enabling both rule types in one production service.
+- Keep `pcsWriteback.submitWrites=false` during candidate verification. Enable writes only after V2 output is verified against the isolated baseline.
 - Runtime state belongs under `/opt/modbus-gateway/data`, not in config OTA packages.
 - Graph templates should keep profile-controlled branches explicit:
   - `Meter_TQ`

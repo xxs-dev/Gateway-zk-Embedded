@@ -14,7 +14,6 @@
 
 #include "edge_gateway/compute_engine_service.hpp"
 #include "edge_gateway/config_loader.hpp"
-#include "edge_gateway/legacy_ems_point_catalog.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 
@@ -72,16 +71,6 @@ std::string outputPointCode(const edge_gateway::ComputeRuleConfig& rule, const e
 
 bool latestOutputMode(const std::string& mode) {
     return mode.empty() || mode == "latestOnly" || mode == "both";
-}
-
-std::string legacyPointCode(const edge_gateway::LegacyEmsPoint& point) {
-    if (!point.name.empty()) {
-        return point.name;
-    }
-    if (!point.desc.empty()) {
-        return point.desc;
-    }
-    return "legacy_var_" + std::to_string(point.index);
 }
 
 }  // namespace
@@ -156,37 +145,6 @@ int main(int argc, char* argv[]) {
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
     router.addRoutesFromCameraServiceConfig(appConfig.cameraService, machineCode);
-
-    for (const auto& rule : appConfig.computeEngine.rules) {
-        if (rule.script.type != "legacyEms") {
-            continue;
-        }
-        const auto catalog = LegacyEmsPointCatalog::loadFromFiles(
-            rule.script.legacyGlListFile,
-            rule.script.legacyVarListFile,
-            rule.script.legacyEncoding.empty() ? std::string("gbk") : rule.script.legacyEncoding
-        );
-        for (const auto& point : catalog.points()) {
-            if (point.index == 0 || router.routeByIndex(point.index)) {
-                continue;
-            }
-            PointStoreRoute route;
-            route.index = point.index;
-            route.machineCode = machineCode;
-            route.meterCode = point.source == LegacyEmsPointSource::Global ? "LEGACY_GL" : "LEGACY_VAR";
-            route.pointCode = legacyPointCode(point);
-            route.interfaceCode = "legacy-ems";
-            route.interfaceType = "compute";
-            route.sharedMemoryName = appConfig.computeEngine.outputDefaultSharedMemoryName.empty()
-                ? std::string("gateway_point_store")
-                : appConfig.computeEngine.outputDefaultSharedMemoryName;
-            route.writable = false;
-            route.reportOnChange = true;
-            route.isStore = false;
-            route.persistIntervalSec = 60;
-            router.addRoute(route);
-        }
-    }
 
     for (const auto& rule : appConfig.computeEngine.rules) {
         for (const auto& output : rule.outputs) {
