@@ -22,6 +22,7 @@
 
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
+#include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
@@ -2363,10 +2364,23 @@ std::string handleRequest(
         }
     }
     if (method == "GET" && path == "/api/v1/ota/capabilities") {
+        std::ostringstream payload;
+        payload << "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]"
+                << ",\"directUpload\":false"
+                << ",\"emsLogic\":{\"editorSourceSchema\":\""
+                << edge_gateway::GraphEmsRuntimeCapabilities::editorSourceSchema()
+                << "\",\"runtimeSchema\":\""
+                << edge_gateway::GraphEmsRuntimeCapabilities::runtimeSchema()
+                << "\",\"compilerContract\":\""
+                << edge_gateway::GraphEmsRuntimeCapabilities::compilerContract()
+                << "\",\"executesEditorSource\":"
+                << (edge_gateway::GraphEmsRuntimeCapabilities::executesEditorSource() ? "true" : "false")
+                << "}"
+                << ",\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}";
         return response(
             200,
             "OK",
-            "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"],\"directUpload\":false,\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}"
+            payload.str()
         );
     }
     if (method == "GET" && path == "/api/v1/ota/status") {

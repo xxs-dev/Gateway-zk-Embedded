@@ -10,6 +10,13 @@
 
 namespace edge_gateway {
 
+struct GraphEmsRuntimeCapabilities {
+    static constexpr const char* runtimeSchema() { return "1.x"; }
+    static constexpr const char* editorSourceSchema() { return "2.x"; }
+    static constexpr const char* compilerContract() { return "GatewayDesktop.EmsLogicCompilerV2/1.x"; }
+    static constexpr bool executesEditorSource() { return false; }
+};
+
 struct GraphEmsNodeConfig {
     std::string id;
     std::string type;

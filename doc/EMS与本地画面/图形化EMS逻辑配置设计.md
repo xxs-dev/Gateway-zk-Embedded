@@ -110,7 +110,7 @@ App 配置增加一种脚本类型：
 
 策略图是版本化 JSON。平台端只生成受支持的节点类型，边端严格校验。
 
-当前边端只接受 `schemaVersion=1.x`。根级 `limits.maxNodes/maxEdges` 默认 256/512，允许的硬上限为 1024/4096；超过配置或硬上限会拒绝加载。节点参数、重复 ID、未知节点、边引用和有向环同样在加载期拒绝。
+当前边端执行器只接受 `schemaVersion=1.x`。Windows 类型化逻辑编辑器 V2 保存的 `schemaVersion=2.x` 是编辑源图，必须先编译为 GraphEms v1；边端不会扫描或执行 `runtime/logic/design/*.logic.json`。根级 `limits.maxNodes/maxEdges` 默认 256/512，允许的硬上限为 1024/4096；超过配置或硬上限会拒绝加载。节点参数、重复 ID、未知节点、边引用和有向环同样在加载期拒绝。
 
 ```json
 {
