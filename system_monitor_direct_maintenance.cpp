@@ -2364,23 +2364,10 @@ std::string handleRequest(
         }
     }
     if (method == "GET" && path == "/api/v1/ota/capabilities") {
-        std::ostringstream payload;
-        payload << "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]"
-                << ",\"directUpload\":false"
-                << ",\"emsLogic\":{\"editorSourceSchema\":\""
-                << edge_gateway::GraphEmsRuntimeCapabilities::editorSourceSchema()
-                << "\",\"runtimeSchema\":\""
-                << edge_gateway::GraphEmsRuntimeCapabilities::runtimeSchema()
-                << "\",\"compilerContract\":\""
-                << edge_gateway::GraphEmsRuntimeCapabilities::compilerContract()
-                << "\",\"executesEditorSource\":"
-                << (edge_gateway::GraphEmsRuntimeCapabilities::executesEditorSource() ? "true" : "false")
-                << "}"
-                << ",\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}";
         return response(
             200,
             "OK",
-            payload.str()
+            edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson()
         );
     }
     if (method == "GET" && path == "/api/v1/ota/status") {
@@ -2745,6 +2732,23 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
 
 namespace edge_gateway {
 namespace system_monitor_direct_maintenance {
+
+std::string otaCapabilitiesJson() {
+    std::ostringstream payload;
+    payload << "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]"
+            << ",\"directUpload\":false"
+            << ",\"emsLogic\":{\"editorSourceSchema\":\""
+            << GraphEmsRuntimeCapabilities::editorSourceSchema()
+            << "\",\"runtimeSchema\":\""
+            << GraphEmsRuntimeCapabilities::runtimeSchema()
+            << "\",\"compilerContract\":\""
+            << GraphEmsRuntimeCapabilities::compilerContract()
+            << "\",\"executesEditorSource\":"
+            << (GraphEmsRuntimeCapabilities::executesEditorSource() ? "true" : "false")
+            << "}"
+            << ",\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}";
+    return payload.str();
+}
 
 void requestStop() {
     g_running = false;

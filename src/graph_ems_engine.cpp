@@ -51,8 +51,70 @@ std::string directoryOf(const std::string& path) {
     return pos == std::string::npos ? std::string() : path.substr(0, pos);
 }
 
-std::string graphCmdId(std::uint32_t index, std::int64_t nowMs) {
-    return "GRAPH_EMS_" + std::to_string(index) + "_" + std::to_string(nowMs);
+std::string base36(std::uint64_t value) {
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    std::string result;
+    do {
+        result.push_back(digits[value % 36]);
+        value /= 36;
+    } while (value != 0);
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+std::uint32_t commandTokenHash(const std::string& value) {
+    std::uint32_t hash = 2166136261U;
+    for (const auto ch : value) {
+        hash ^= static_cast<unsigned char>(ch);
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
+std::string commandToken(std::string value) {
+    if (value.empty()) {
+        value = "unknown";
+    }
+    for (auto& ch : value) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c) == 0 && ch != '_' && ch != '-') {
+            ch = '_';
+        }
+    }
+    return value;
+}
+
+std::string hex32(std::uint32_t value) {
+    static const char digits[] = "0123456789abcdef";
+    std::string result(8, '0');
+    for (int i = 7; i >= 0; --i) {
+        result[static_cast<std::size_t>(i)] = digits[value & 0x0fU];
+        value >>= 4U;
+    }
+    return result;
+}
+
+std::string graphCmdId(
+    const std::string& ruleCode,
+    const std::string& nodeId,
+    std::uint32_t index,
+    std::int64_t nowMs,
+    std::uint64_t sequence
+) {
+    auto rule = commandToken(ruleCode);
+    auto node = commandToken(nodeId);
+    const auto identityHash = hex32(commandTokenHash(ruleCode + "\x1f" + nodeId));
+    const auto suffix = "_" + identityHash + "_" + base36(index) + "_" +
+        base36(nowMs > 0 ? static_cast<std::uint64_t>(nowMs) : 0U) + "_" + base36(sequence);
+    constexpr std::size_t maxStoredLength = 63;
+    const std::string prefix = "GRAPH_EMS_";
+    const std::size_t fixedLength = prefix.size() + 1 + suffix.size();
+    const std::size_t tokenBudget = fixedLength < maxStoredLength ? maxStoredLength - fixedLength : 2;
+    const std::size_t ruleLength = std::max<std::size_t>(1, (tokenBudget + 1) / 2);
+    const std::size_t nodeLength = std::max<std::size_t>(1, tokenBudget - std::min(tokenBudget, ruleLength));
+    rule.resize(std::min(rule.size(), ruleLength));
+    node.resize(std::min(node.size(), nodeLength));
+    return prefix + rule + "_" + node + suffix;
 }
 
 bool directoryExists(const std::string& path) {
@@ -2226,7 +2288,7 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
         std::numeric_limits<std::uint32_t>::max(),
         "compile"
     );
-    const auto preserveImportedBehavior = boolValue(compile, "preserveImportedBehavior", false);
+    config.preserveImportedBehavior = boolValue(compile, "preserveImportedBehavior", false);
     if (virtualIndexEnd < virtualIndexStart) {
         throw std::runtime_error("compile.virtualIndexEnd must be greater than or equal to virtualIndexStart");
     }
@@ -2310,7 +2372,7 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
                         " (order=" + std::to_string(node.order) + ")";
                     const auto existingOwner = producedIndexOwners.find(port.index);
                     if (existingOwner != producedIndexOwners.end()) {
-                        if (!preserveImportedBehavior) {
+                        if (!config.preserveImportedBehavior) {
                             throw std::runtime_error(
                                 "V2 graph contains duplicate executable output indexes: " +
                                 std::to_string(port.index)
@@ -2327,13 +2389,23 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
                     }
                 }
                 if (port.direction == "target" && !targetIndexes.insert(port.index).second) {
-                    if (!preserveImportedBehavior) {
+                    if (!config.preserveImportedBehavior) {
                         throw std::runtime_error("V2 graph contains duplicate device target indexes");
                     }
                     config.loadWarnings.push_back(
                         "preserveImportedBehavior allowed duplicate device target index " +
                         std::to_string(port.index) + " at " + node.runtime.id + "." + port.id
                     );
+                }
+                if (node.runtime.enabled &&
+                    (port.direction == "output" || port.direction == "target")) {
+                    GraphEmsIndexClaim claim;
+                    claim.index = port.index;
+                    claim.nodeId = node.runtime.id;
+                    claim.portId = port.id;
+                    claim.kind = port.direction;
+                    claim.order = node.order;
+                    config.indexClaims.push_back(std::move(claim));
                 }
                 materializeRuntimeParameter(node.runtime.params, port.parameterKey, std::to_string(port.index));
             }
@@ -2387,7 +2459,7 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
             throw std::runtime_error("link " + linkId + " must connect output to input");
         }
         if (!compatibleV2Ports(*source->second, *target->second)) {
-            if (!preserveImportedBehavior) {
+            if (!config.preserveImportedBehavior) {
                 throw std::runtime_error("link " + linkId + " connects incompatible port types or units");
             }
             config.loadWarnings.push_back(
@@ -2487,12 +2559,14 @@ GraphEmsEngine::GraphEmsEngine(
     PointStoreRouter& router,
     std::int64_t defaultTtlMs,
     std::string stateFile,
-    std::unordered_map<std::string, std::string> profile
+    std::unordered_map<std::string, std::string> profile,
+    std::string ruleCode
 ) : config_(std::move(config)),
     router_(router),
     defaultTtlMs_(defaultTtlMs),
     stateFile_(std::move(stateFile)),
-    profile_(std::move(profile)) {
+    profile_(std::move(profile)),
+    ruleCode_(ruleCode.empty() ? config_.graphCode : std::move(ruleCode)) {
     executionOrder_ = executionOrder(config_);
 
     std::set<std::uint32_t> indexes;
@@ -2519,7 +2593,12 @@ GraphEmsEngine::GraphEmsEngine(
 }
 
 GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
+    return runOnce(nowMs, std::numeric_limits<std::size_t>::max());
+}
+
+GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites) {
     GraphEmsRunResult result;
+    maxDeviceWritesThisRun_ = maxDeviceWrites;
     if (!stateRestored_) {
         try {
             restoreState(nowMs);
@@ -5328,17 +5407,18 @@ bool GraphEmsEngine::runControlWrite(
     }
 
     PendingWriteCommand pending;
-    pending.cmdId = graphCmdId(targetIndex, nowMs);
     pending.index = targetIndex;
     pending.value = commandValue;
     pending.source = "graph-ems";
     pending.ts = nowMs;
     pending.highPriority = paramBool(node, "highPriority", false);
-    const auto routed = router_.submitWriteCommand(pending);
+    const auto routed = submitDeviceWrite(node, std::move(pending), result);
     if (!routed.accepted) {
+        if (routed.message == "maxWritesPerScan reached before submit") {
+            return false;
+        }
         throw std::runtime_error("controlWrite rejected: " + routed.message);
     }
-    ++result.deviceWrites;
     return true;
 }
 
@@ -5970,18 +6050,36 @@ bool GraphEmsEngine::submitPcsWritebackCommands(
         }
 
         PendingWriteCommand pending;
-        pending.cmdId = graphCmdId(command.outputIndex, nowMs);
         pending.index = command.outputIndex;
         pending.value = targetDouble;
         pending.source = "graph-ems";
         pending.ts = nowMs;
-        const auto routed = router_.submitWriteCommand(pending);
+        const auto routed = submitDeviceWrite(node, std::move(pending), result);
         if (routed.accepted) {
-            ++result.deviceWrites;
             submitted = true;
         }
     }
     return submitted;
+}
+
+CommandSubmitResult GraphEmsEngine::submitDeviceWrite(
+    const GraphEmsNodeConfig& node,
+    PendingWriteCommand command,
+    GraphEmsRunResult& result
+) {
+    if (result.deviceWrites >= maxDeviceWritesThisRun_) {
+        CommandSubmitResult rejected;
+        rejected.message = "maxWritesPerScan reached before submit";
+        ++result.deviceWritesSkipped;
+        result.writeLimitReached = true;
+        return rejected;
+    }
+    command.cmdId = graphCmdId(ruleCode_, node.id, command.index, command.ts, ++commandSequence_);
+    const auto routed = router_.submitWriteCommand(command);
+    if (routed.accepted) {
+        ++result.deviceWrites;
+    }
+    return routed;
 }
 
 }  // namespace edge_gateway

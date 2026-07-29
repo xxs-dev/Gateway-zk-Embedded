@@ -5,7 +5,8 @@ param(
     [string]$VirtualSource = "config/examples/device_ems_virtual_base.json",
     [string]$VirtualOutput = "config/examples/device_ems_modular_virtual.json",
     [string]$RuntimeVirtualOutput = "config/factory/runtime/devices/device_ems_virtual.json",
-    [string]$IndexRemapFile = ""
+    [string]$IndexRemapFile = "",
+    [string]$CompatibilityOutput = "config/examples/shuntong_ems_graph.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -1661,8 +1662,10 @@ if ($duplicateOutputs.Count -gt 0) {
     Write-Warning "Preserving imported duplicate executable output indexes: $($duplicateOutputs.Name -join ', ')"
 }
 $json = $result | ConvertTo-Json -Depth 100
-[System.IO.File]::WriteAllText((Join-Path (Get-Location) $Output), $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-[System.IO.File]::WriteAllText((Join-Path (Get-Location) $RuntimeOutput), $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+$graphOutputs = @($Output, $CompatibilityOutput, $RuntimeOutput) | Select-Object -Unique
+foreach ($graphOutput in $graphOutputs) {
+    [System.IO.File]::WriteAllText((Join-Path (Get-Location) $graphOutput), $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
 
 $virtualConfig = Get-Content -Raw -LiteralPath $VirtualSource | ConvertFrom-Json
 $virtualMeter = @($virtualConfig.meters)[0]
@@ -1741,6 +1744,15 @@ $semanticPoints = @(
     @(167, "ems_liquid_target_temperature", "液冷目标温度", "liquid_target_temperature", "H_JN_YL_TEM", "℃", "setting", $true),
     @(168, "ems_force_full_charge_date_1", "强制满充日期一", "force_full_charge_date_1", "H_CL_Charge2Full_Date1", "日", "setting", $true),
     @(169, "ems_force_full_charge_date_2", "强制满充日期二", "force_full_charge_date_2", "H_CL_Charge2Full_Date2", "日", "setting", $true),
+    @(217, "H_TQ_avg_SA", "台区平均A相视在功率", "H_TQ_avg_SA", "H_TQ_avg_SA", "kVA", "telemetry", $false),
+    @(218, "H_TQ_avg_SB", "台区平均B相视在功率", "H_TQ_avg_SB", "H_TQ_avg_SB", "kVA", "telemetry", $false),
+    @(219, "H_TQ_avg_SC", "台区平均C相视在功率", "H_TQ_avg_SC", "H_TQ_avg_SC", "kVA", "telemetry", $false),
+    @(220, "H_TQ_avg_S3", "台区平均总视在功率", "H_TQ_avg_S3", "H_TQ_avg_S3", "kVA", "telemetry", $false),
+    @(221, "H_TQ_avg_COSA", "台区平均A相功率因数", "H_TQ_avg_COSA", "H_TQ_avg_COSA", "", "telemetry", $false),
+    @(222, "H_TQ_avg_COSB", "台区平均B相功率因数", "H_TQ_avg_COSB", "H_TQ_avg_COSB", "", "telemetry", $false),
+    @(223, "H_TQ_avg_COSC", "台区平均C相功率因数", "H_TQ_avg_COSC", "H_TQ_avg_COSC", "", "telemetry", $false),
+    @(224, "H_TQ_avg_COS3", "台区平均总功率因数", "H_TQ_avg_COS3", "H_TQ_avg_COS3", "", "telemetry", $false),
+    @(225, "H_TQ_avg_P_BPH", "台区平均有功三相不平衡率", "H_TQ_avg_P_BPH", "H_TQ_avg_P_BPH", "%", "telemetry", $false),
     @(471, "ems_station_fixed_positive_enable", "台区固定正向限制使能", "station_fixed_positive_enable", "H_CL_TQ_PXZ_pos_EN", "", "setting", $true),
     @(472, "ems_station_fixed_positive_power", "台区固定正向限制功率", "station_fixed_positive_power", "H_CL_TQ_PXZ_pos_Value", "kW", "setting", $true),
     @(473, "ems_station_fixed_negative_enable", "台区固定反向限制使能", "station_fixed_negative_enable", "H_CL_TQ_PXZ_neg_EN", "", "setting", $true),
@@ -1865,6 +1877,7 @@ $virtualJson = $virtualConfig | ConvertTo-Json -Depth 100
 [System.IO.File]::WriteAllText((Join-Path (Get-Location) $VirtualOutput), $virtualJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 [System.IO.File]::WriteAllText((Join-Path (Get-Location) $RuntimeVirtualOutput), $virtualJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Generated $Output with $($result.nodes.Count) nodes and $($result.links.Count) links."
+Write-Host "Generated $CompatibilityOutput with $($result.nodes.Count) nodes and $($result.links.Count) links."
 Write-Host "Generated $RuntimeOutput with $($result.nodes.Count) nodes and $($result.links.Count) links."
 Write-Host "Generated $VirtualOutput with $($virtualMeter.points.Count) virtual points."
 Write-Host "Generated $RuntimeVirtualOutput with $($virtualMeter.points.Count) virtual points."

@@ -324,6 +324,39 @@ void writeTextFile(const std::string& path, const std::string& text) {
     output << text;
 }
 
+std::string singleControlWriteV2Graph(
+    const std::string& graphCode,
+    const std::string& nodeId,
+    std::uint32_t inputIndex,
+    std::uint32_t targetIndex,
+    bool preserveImportedBehavior
+) {
+    std::ostringstream output;
+    output << "{\n"
+           << "  \"schemaVersion\":\"2.0.0\",\n"
+           << "  \"graphCode\":\"" << graphCode << "\",\n"
+           << "  \"compile\":{\"maxNodes\":4,\"maxEdges\":4,"
+           << "\"virtualIndexStart\":700000,\"virtualIndexEnd\":700010,"
+           << "\"preserveImportedBehavior\":" << (preserveImportedBehavior ? "true" : "false") << "},\n"
+           << "  \"nodes\":[{\n"
+           << "    \"id\":\"" << nodeId << "\",\"type\":\"controlWrite\",\"order\":0,\n"
+           << "    \"parameters\":{\"inputIndex\":" << inputIndex
+           << ",\"targetIndex\":" << targetIndex
+           << ",\"minValue\":-100,\"maxValue\":100,\"submitWrites\":true},\n"
+           << "    \"ports\":[\n"
+           << "      {\"id\":\"input\",\"direction\":\"input\",\"valueType\":\"number\","
+           << "\"runtimePath\":\"/inputIndex\",\"binding\":{\"kind\":\"point\",\"index\":"
+           << inputIndex << "}},\n"
+           << "      {\"id\":\"target\",\"direction\":\"target\",\"valueType\":\"number\","
+           << "\"runtimePath\":\"/targetIndex\",\"binding\":{\"kind\":\"point\",\"index\":"
+           << targetIndex << "}}\n"
+           << "    ]\n"
+           << "  }],\n"
+           << "  \"links\":[]\n"
+           << "}\n";
+    return output.str();
+}
+
 struct MeterAverageV2Spec {
     std::string id;
     std::string profileKey;
@@ -4113,6 +4146,187 @@ int main() {
             productionRejectedLegacy,
             "production ComputeEngineService must reject legacyEms and direct migration to schemaVersion 2.x"
         );
+
+        const auto requireGraphStartupRejected = [&](const std::string& ruleCode, const std::string& graphFile) {
+            edge_gateway::ComputeRuleConfig graphRule;
+            graphRule.ruleCode = ruleCode;
+            graphRule.enabled = true;
+            graphRule.script.type = "graphEms";
+            graphRule.script.graphFile = graphFile;
+            edge_gateway::ComputeEngineConfig graphConfig;
+            graphConfig.enabled = true;
+            graphConfig.rules.push_back(graphRule);
+            requireThrowsWithMessage(
+                "failed to preload enabled graphEms rule '" + ruleCode + "'",
+                [&]() {
+                    edge_gateway::ComputeEngineService service(graphConfig, router);
+                }
+            );
+        };
+
+        requireGraphStartupRejected("missing_graph", "compute_engine_missing_graph.logic.json");
+        const std::string corruptStartupGraph = "compute_engine_corrupt_startup.logic.json";
+        writeTextFile(corruptStartupGraph, "{not-json");
+        requireGraphStartupRejected("corrupt_graph", corruptStartupGraph);
+        std::remove(corruptStartupGraph.c_str());
+        const std::string v1StartupGraph = "compute_engine_v1_startup.logic.json";
+        writeTextFile(
+            v1StartupGraph,
+            R"json({
+  "schemaVersion":"1.0.0",
+  "graphCode":"startup-v1",
+  "limits":{"maxNodes":4,"maxEdges":4},
+  "nodes":[],
+  "edges":[]
+})json"
+        );
+        requireGraphStartupRejected("v1_graph", v1StartupGraph);
+        std::remove(v1StartupGraph.c_str());
+
+        const std::string strictOwnershipGraph = "compute_engine_strict_ownership.logic.json";
+        writeTextFile(
+            strictOwnershipGraph,
+            singleControlWriteV2Graph("strict-ownership", "strict_target", 100, 700000, false)
+        );
+        edge_gateway::ComputeRuleConfig strictGraphRule;
+        strictGraphRule.ruleCode = "strict_graph";
+        strictGraphRule.enabled = true;
+        strictGraphRule.script.type = "graphEms";
+        strictGraphRule.script.graphFile = strictOwnershipGraph;
+        edge_gateway::ComputeRuleConfig conflictingExpressionRule;
+        conflictingExpressionRule.ruleCode = "conflicting_expression";
+        conflictingExpressionRule.enabled = true;
+        conflictingExpressionRule.script.type = "expression";
+        conflictingExpressionRule.script.expression = "1";
+        edge_gateway::ComputeOutputConfig upstreamInputOutput;
+        upstreamInputOutput.name = "graph_input_source";
+        upstreamInputOutput.index = 100;
+        conflictingExpressionRule.outputs.push_back(upstreamInputOutput);
+        edge_gateway::ComputeEngineConfig validCrossRuleInputConfig;
+        validCrossRuleInputConfig.enabled = true;
+        validCrossRuleInputConfig.rules.push_back(conflictingExpressionRule);
+        validCrossRuleInputConfig.rules.push_back(strictGraphRule);
+        {
+            edge_gateway::ComputeEngineService service(validCrossRuleInputConfig, router);
+        }
+        conflictingExpressionRule.outputs.clear();
+        edge_gateway::ComputeOutputConfig conflictingOutput;
+        conflictingOutput.name = "conflicting_output";
+        conflictingOutput.index = 700000;
+        conflictingExpressionRule.outputs.push_back(conflictingOutput);
+        edge_gateway::ComputeEngineConfig ownershipConflictConfig;
+        ownershipConflictConfig.enabled = true;
+        ownershipConflictConfig.rules.push_back(strictGraphRule);
+        ownershipConflictConfig.rules.push_back(conflictingExpressionRule);
+        requireThrowsWithMessage(
+            "enabled compute rule index ownership conflict index=700000",
+            [&]() {
+                edge_gateway::ComputeEngineService service(ownershipConflictConfig, router);
+            }
+        );
+        std::remove(strictOwnershipGraph.c_str());
+
+        const std::string migrationFirstGraph = "compute_engine_migration_first.logic.json";
+        const std::string migrationSecondGraph = "compute_engine_migration_second.logic.json";
+        const std::string migrationFirstState = "compute_engine_migration_first.state.json";
+        const std::string migrationSecondState = "compute_engine_migration_second.state.json";
+        writeTextFile(
+            migrationFirstGraph,
+            singleControlWriteV2Graph("migration-first", "write_first", 100, 200, true)
+        );
+        writeTextFile(
+            migrationSecondGraph,
+            singleControlWriteV2Graph("migration-second", "write_second", 101, 200, true)
+        );
+        edge_gateway::ComputeRuleConfig migrationFirstRule;
+        migrationFirstRule.ruleCode = "migration_first";
+        migrationFirstRule.enabled = true;
+        migrationFirstRule.trigger.intervalMs = 1;
+        migrationFirstRule.script.type = "graphEms";
+        migrationFirstRule.script.graphFile = migrationFirstGraph;
+        migrationFirstRule.script.graphStateFile = migrationFirstState;
+        edge_gateway::ComputeRuleConfig migrationSecondRule;
+        migrationSecondRule.ruleCode = "migration_second";
+        migrationSecondRule.enabled = true;
+        migrationSecondRule.trigger.intervalMs = 1;
+        migrationSecondRule.script.type = "graphEms";
+        migrationSecondRule.script.graphFile = migrationSecondGraph;
+        migrationSecondRule.script.graphStateFile = migrationSecondState;
+        edge_gateway::ComputeEngineConfig migrationOwnershipConfig;
+        migrationOwnershipConfig.enabled = true;
+        migrationOwnershipConfig.maxWritesPerScan = 2;
+        migrationOwnershipConfig.rules.push_back(migrationFirstRule);
+        migrationOwnershipConfig.rules.push_back(migrationSecondRule);
+
+        edge_gateway::MemoryStoreConfig migrationMemory;
+        migrationMemory.sharedMemoryName = "compute_engine_migration_ownership_store";
+        migrationMemory.maxLatestPoints = 8;
+        migrationMemory.maxPendingWrites = 8;
+        migrationMemory.maxPersistentSamples = 8;
+        cleanupStoreSegment(migrationMemory);
+        edge_gateway::MemoryPointStore migrationStore(migrationMemory);
+        edge_gateway::PointStoreRouter migrationRouter;
+        migrationRouter.addStore(migrationMemory.sharedMemoryName, migrationStore);
+        addRouteIfMissing(migrationRouter, 100, "migration_input_first", migrationMemory.sharedMemoryName, false);
+        addRouteIfMissing(migrationRouter, 101, "migration_input_second", migrationMemory.sharedMemoryName, false);
+        addRouteIfMissing(migrationRouter, 200, "migration_target", migrationMemory.sharedMemoryName, true);
+        const auto seedMigrationPoint = [&](std::uint32_t index, double value) {
+            edge_gateway::PointValue pointValue;
+            pointValue.index = index;
+            pointValue.value = value;
+            pointValue.quality = 1;
+            pointValue.ts = 5000;
+            pointValue.expireAt = 605000;
+            const auto routed = migrationRouter.putLatestByIndex(pointValue);
+            require(routed.accepted, "failed to seed migration ownership input");
+        };
+        seedMigrationPoint(100, 11.0);
+        seedMigrationPoint(101, 22.0);
+
+        std::ostringstream migrationWarnings;
+        auto* originalErrorBuffer = std::cerr.rdbuf(migrationWarnings.rdbuf());
+        try {
+            edge_gateway::ComputeEngineService migrationService(migrationOwnershipConfig, migrationRouter);
+            migrationService.runOnce(5000);
+        } catch (...) {
+            std::cerr.rdbuf(originalErrorBuffer);
+            throw;
+        }
+        std::cerr.rdbuf(originalErrorBuffer);
+        const auto warningText = migrationWarnings.str();
+        require(
+            warningText.find("graph EMS V2 migration ownership warning") != std::string::npos &&
+                warningText.find("index=200") != std::string::npos &&
+                warningText.find("rule=migration_first") != std::string::npos &&
+                warningText.find("rule=migration_second") != std::string::npos &&
+                warningText.find("rules execute in configured order") != std::string::npos &&
+                warningText.find("dependency order with order/nodeId tie-breakers") != std::string::npos,
+            "migration ownership warning did not explain both owners and deterministic behavior"
+        );
+        const auto migrationPending = migrationRouter.peekPendingWrites();
+        require(migrationPending.size() == 2, "migration-compatible owners did not both execute");
+        require(
+            migrationPending[0].value == 11.0 && migrationPending[1].value == 22.0,
+            "migration-compatible owners did not execute in configured rule order"
+        );
+        migrationStore.drainPendingWriteCommands();
+        migrationOwnershipConfig.maxWritesPerScan = 1;
+        {
+            edge_gateway::ComputeEngineService limitedMigrationService(
+                migrationOwnershipConfig,
+                migrationRouter
+            );
+            limitedMigrationService.runOnce(6000);
+        }
+        const auto limitedMigrationPending = migrationRouter.peekPendingWrites();
+        require(
+            limitedMigrationPending.size() == 1 && limitedMigrationPending[0].value == 11.0,
+            "maxWritesPerScan must be shared by all graph rules in the same service scan"
+        );
+        std::remove(migrationFirstGraph.c_str());
+        std::remove(migrationSecondGraph.c_str());
+        std::remove(migrationFirstState.c_str());
+        std::remove(migrationSecondState.c_str());
 
         const auto tqOffConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_tq_off");
         edge_gateway::PointStoreRouter tqOffRouter;

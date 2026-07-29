@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 option(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS "Enable function/data section GC for smaller edge binaries" ON)
+include(CTest)
 
 add_library(edge_gateway
     src/agc_avc_controller.cpp
@@ -248,3 +249,25 @@ target_compile_options(ota_service_test PRIVATE -fdiagnostics-color=never)
 add_executable(system_monitor_service_test tools/system_monitor_service_test.cpp)
 target_link_libraries(system_monitor_service_test PRIVATE edge_gateway)
 target_compile_options(system_monitor_service_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(
+    system_monitor_direct_maintenance_contract_test
+    tools/system_monitor_direct_maintenance_contract_test.cpp
+    system_monitor_direct_maintenance.cpp
+)
+target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE edge_gateway)
+target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
+
+if(BUILD_TESTING)
+    add_test(NAME graph_ems_v2_loader COMMAND graph_ems_v2_loader_test)
+    add_test(NAME graph_ems_voltage_quality COMMAND graph_ems_voltage_quality_test)
+    add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
+    add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
+    set_tests_properties(
+        graph_ems_v2_loader
+        graph_ems_voltage_quality
+        legacy_ems_migration_parity
+        system_monitor_direct_maintenance_contract
+        PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endif()

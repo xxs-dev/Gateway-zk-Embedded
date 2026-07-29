@@ -29,13 +29,23 @@ struct GraphEmsEdgeConfig {
     std::string to;
 };
 
+struct GraphEmsIndexClaim {
+    std::uint32_t index = 0;
+    std::string nodeId;
+    std::string portId;
+    std::string kind;
+    int order = 0;
+};
+
 struct GraphEmsConfig {
     std::string schemaVersion = "2.0.0";
     std::string graphCode;
     std::size_t maxNodes = 256;
     std::size_t maxEdges = 512;
+    bool preserveImportedBehavior = false;
     std::vector<GraphEmsNodeConfig> nodes;
     std::vector<GraphEmsEdgeConfig> edges;
+    std::vector<GraphEmsIndexClaim> indexClaims;
     std::vector<std::string> loadWarnings;
 
     // Production loader: the referenced graphFile must contain a V2 executable graph.
@@ -48,6 +58,8 @@ struct GraphEmsConfig {
 struct GraphEmsRunResult {
     std::size_t latestWrites = 0;
     std::size_t deviceWrites = 0;
+    std::size_t deviceWritesSkipped = 0;
+    bool writeLimitReached = false;
     std::vector<std::string> errors;
 };
 
@@ -58,10 +70,12 @@ public:
         PointStoreRouter& router,
         std::int64_t defaultTtlMs = 600000,
         std::string stateFile = std::string(),
-        std::unordered_map<std::string, std::string> profile = {}
+        std::unordered_map<std::string, std::string> profile = {},
+        std::string ruleCode = std::string()
     );
 
     GraphEmsRunResult runOnce(std::int64_t nowMs);
+    GraphEmsRunResult runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites);
 
 private:
     struct PointSnapshot {
@@ -119,12 +133,20 @@ private:
         GraphEmsRunResult& result,
         bool submitMissingZeroTargets
     );
+    CommandSubmitResult submitDeviceWrite(
+        const GraphEmsNodeConfig& node,
+        PendingWriteCommand command,
+        GraphEmsRunResult& result
+    );
 
     GraphEmsConfig config_;
     PointStoreRouter& router_;
     std::int64_t defaultTtlMs_ = 600000;
     std::string stateFile_;
     std::unordered_map<std::string, std::string> profile_;
+    std::string ruleCode_;
+    std::size_t maxDeviceWritesThisRun_ = 0;
+    std::uint64_t commandSequence_ = 0;
     std::vector<const GraphEmsNodeConfig*> executionOrder_;
     std::vector<std::uint32_t> snapshotIndexes_;
     mutable bool snapshotActive_ = false;

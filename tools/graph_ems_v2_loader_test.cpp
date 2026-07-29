@@ -85,7 +85,7 @@ std::string duplicateTargetGraph(bool preserveImportedBehavior) {
   "nodes":[
     {
       "id":"write_first","type":"controlWrite","order":10,
-      "parameters":{"inputIndex":100,"targetIndex":200,"minValue":-100,"maxValue":100},
+      "parameters":{"inputIndex":100,"targetIndex":200,"minValue":-100,"maxValue":100,"submitWrites":true},
       "ports":[
         {"id":"input","direction":"input","valueType":"number","runtimePath":"/inputIndex",
          "binding":{"kind":"point","index":100}},
@@ -95,7 +95,7 @@ std::string duplicateTargetGraph(bool preserveImportedBehavior) {
     },
     {
       "id":"write_second","type":"controlWrite","order":20,
-      "parameters":{"inputIndex":101,"targetIndex":200,"minValue":-100,"maxValue":100},
+      "parameters":{"inputIndex":101,"targetIndex":200,"minValue":-100,"maxValue":100,"submitWrites":true},
       "ports":[
         {"id":"input","direction":"input","valueType":"number","runtimePath":"/inputIndex",
          "binding":{"kind":"point","index":101}},
@@ -233,7 +233,8 @@ bool hasLoadWarning(const edge_gateway::GraphEmsConfig& config, const std::strin
 void addRoute(
     edge_gateway::PointStoreRouter& router,
     std::uint32_t index,
-    const std::string& sharedMemoryName
+    const std::string& sharedMemoryName,
+    bool writable = false
 ) {
     edge_gateway::PointStoreRoute route;
     route.index = index;
@@ -243,6 +244,7 @@ void addRoute(
     route.interfaceCode = "compute";
     route.interfaceType = "computed";
     route.sharedMemoryName = sharedMemoryName;
+    route.writable = writable;
     route.isStore = true;
     route.persistIntervalSec = 60;
     router.addRoute(route);
@@ -520,6 +522,76 @@ int main(int argc, char* argv[]) {
             hasLoadWarning(preservedDuplicateTarget, "duplicate device target index 200"),
             "preserved duplicate target did not emit a migration warning"
         );
+
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
+        {
+            edge_gateway::MemoryPointStore store(memoryConfig);
+            edge_gateway::PointStoreRouter router;
+            router.addStore(sharedMemoryName, store);
+            addRoute(router, 100, sharedMemoryName);
+            addRoute(router, 101, sharedMemoryName);
+            addRoute(router, 200, sharedMemoryName, true);
+            const std::int64_t commandNowMs = 1721001601234LL;
+            put(router, 100, 11.0, commandNowMs);
+            put(router, 101, 22.0, commandNowMs);
+
+            edge_gateway::GraphEmsEngine limitedEngine(
+                preservedDuplicateTarget,
+                router,
+                600000,
+                std::string(),
+                {},
+                "budget_rule"
+            );
+            const auto limitedResult = limitedEngine.runOnce(commandNowMs, 1);
+            require(limitedResult.deviceWrites == 1, "write budget must allow exactly one device write");
+            require(limitedResult.writeLimitReached, "write budget exhaustion was not reported");
+            require(limitedResult.deviceWritesSkipped == 1, "write budget must skip the second eligible node");
+            auto pending = router.peekPendingWrites();
+            require(pending.size() == 1, "write budget was checked after submitting the second command");
+            require(pending[0].value == 11.0, "write budget did not preserve deterministic node order");
+            store.drainPendingWriteCommands();
+
+            edge_gateway::GraphEmsEngine commandIdEngine(
+                preservedDuplicateTarget,
+                router,
+                600000,
+                std::string(),
+                {},
+                "command_rule"
+            );
+            const auto commandIdResult = commandIdEngine.runOnce(commandNowMs, 2);
+            require(commandIdResult.deviceWrites == 2, "two eligible control nodes were not submitted");
+            pending = router.peekPendingWrites();
+            require(pending.size() == 2, "same-target commands were unexpectedly collapsed");
+            require(pending[0].cmdId != pending[1].cmdId, "same-millisecond same-target cmdId collision");
+            require(pending[0].cmdId.find("command_rule") != std::string::npos, "cmdId omitted ruleCode");
+            require(pending[0].cmdId.find("write_first") != std::string::npos, "first cmdId omitted nodeId");
+            require(pending[1].cmdId.find("write_second") != std::string::npos, "second cmdId omitted nodeId");
+            require(pending[0].cmdId.size() < 64 && pending[1].cmdId.size() < 64, "cmdId exceeds shared-store limit");
+            const auto firstCommandId = pending[0].cmdId;
+            const auto secondCommandId = pending[1].cmdId;
+            require(
+                firstCommandId.rfind("_1") == firstCommandId.size() - 2 &&
+                    secondCommandId.rfind("_2") == secondCommandId.size() - 2,
+                "cmdId did not include the initial monotonic sequence"
+            );
+            store.drainPendingWriteCommands();
+            const auto repeatedResult = commandIdEngine.runOnce(commandNowMs, 2);
+            require(repeatedResult.deviceWrites == 2, "repeated same-millisecond commands were not submitted");
+            pending = router.peekPendingWrites();
+            require(pending.size() == 2, "repeated command queue size mismatch");
+            require(
+                pending[0].cmdId.rfind("_3") == pending[0].cmdId.size() - 2 &&
+                    pending[1].cmdId.rfind("_4") == pending[1].cmdId.size() - 2,
+                "cmdId sequence did not advance monotonically across scans"
+            );
+            require(
+                pending[0].cmdId != firstCommandId && pending[1].cmdId != secondCommandId,
+                "same-millisecond cmdId was reused on a later scan"
+            );
+        }
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
 
         writeText(strictWeakTypeFile, weakTypeLinkGraph(false));
         expectLoadFailure(strictWeakTypeFile, "connects incompatible port types or units");

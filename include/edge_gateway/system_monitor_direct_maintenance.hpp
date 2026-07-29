@@ -7,6 +7,7 @@
 namespace edge_gateway {
 namespace system_monitor_direct_maintenance {
 
+std::string otaCapabilitiesJson();
 int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config);
 void requestStop();
 

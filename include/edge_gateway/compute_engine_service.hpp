@@ -65,8 +65,11 @@ private:
     void evaluateRule(
         const ComputeRuleConfig& rule,
         const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
-        std::int64_t nowMs
+        std::int64_t nowMs,
+        std::size_t& deviceWritesThisScan
     );
+    void preloadGraphEmsEngine(const ComputeRuleConfig& rule);
+    void validateEnabledRuleIndexOwnership() const;
     GraphEmsEngine& graphEmsEngineFor(const ComputeRuleConfig& rule);
     bool shouldSubmitOutput(
         const ComputeRuleConfig& rule,
