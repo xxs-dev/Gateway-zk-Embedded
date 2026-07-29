@@ -197,7 +197,8 @@ if [ "$PACKAGE" = "1" ]; then
   if [ -n "$MANIFEST" ]; then
     args+=("--manifest" "$MANIFEST")
   fi
-  EDGE_TOOLCHAIN_ID="$(aarch64-linux-gnu-g++ --version | sed -n '1p')" \
+  EDGE_PACKAGE_BUILD_DIR="$BUILD_DIR" \
+    EDGE_TOOLCHAIN_ID="$(aarch64-linux-gnu-g++ --version | sed -n '1p')" \
     sh "$ROOT_DIR/deploy/build-factory-package.sh" "${args[@]}"
   sh "$ROOT_DIR/deploy/build-agc-avc-runtime-package.sh" "$AGC_AVC_PACKAGE_OUT"
 fi

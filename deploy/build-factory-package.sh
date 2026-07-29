@@ -8,6 +8,7 @@ PACKAGE_PROFILE="${PACKAGE_PROFILE:-full}"
 EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
 COMPONENT_VERSION="${COMPONENT_VERSION:-1.0}"
 EDGE_TOOLCHAIN_ID="${EDGE_TOOLCHAIN_ID:-unknown}"
+EDGE_PACKAGE_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-0}"
 TMP_DIR="${TMPDIR:-/tmp}/gateway-factory-defaults.$$"
 OUT_TMP=""
@@ -232,12 +233,28 @@ unique_words() {
 
 SOURCE_COMMIT="unknown"
 SOURCE_DIRTY="false"
-if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  SOURCE_COMMIT=$(git -C "$ROOT_DIR" rev-parse HEAD)
-  SOURCE_CHANGES=$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . \
+SOURCE_BUILD_DIR_REL=""
+case "$EDGE_PACKAGE_BUILD_DIR" in
+  "$ROOT_DIR"/*) SOURCE_BUILD_DIR_REL=${EDGE_PACKAGE_BUILD_DIR#"$ROOT_DIR"/} ;;
+esac
+
+source_status() {
+  set -- \
+    . \
     ':(exclude)build-aarch64/**' \
     ':(exclude)gateway-factory-defaults.tar.gz' \
-    ':(exclude)ky-ems/KY-EMS' || true)
+    ':(exclude)ky-ems/KY-EMS'
+  if [ -n "$SOURCE_BUILD_DIR_REL" ]; then
+    set -- "$@" \
+      ":(exclude)$SOURCE_BUILD_DIR_REL" \
+      ":(exclude)$SOURCE_BUILD_DIR_REL/**"
+  fi
+  git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- "$@"
+}
+
+if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  SOURCE_COMMIT=$(git -C "$ROOT_DIR" rev-parse HEAD)
+  SOURCE_CHANGES=$(source_status || true)
   [ -z "$SOURCE_CHANGES" ] || SOURCE_DIRTY="true"
 fi
 if [ "$SOURCE_DIRTY" = "true" ] && [ "$ALLOW_DIRTY_SOURCE" != "1" ]; then
