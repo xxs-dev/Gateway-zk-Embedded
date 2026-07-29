@@ -63,14 +63,18 @@ GraphEms 生产配置只保留一个 `schemaVersion=2.x` 文件。Windows 编辑
 
 ```json
 {
-  "editorSourceSchema": "2.x",
-  "runtimeSchema": "2.x",
-  "compilerContract": "GraphEmsV2/direct",
-  "executesEditorSource": true
+  "supportedPackageTypes": ["config", "full", "scada"],
+  "directUpload": false,
+  "emsLogic": {
+    "editorSourceSchema": "2.x",
+    "runtimeSchema": "2.x",
+    "compilerContract": "GraphEmsV2/direct",
+    "executesEditorSource": true
+  }
 }
 ```
 
-`runtimeSchema=2.x` 和 `executesEditorSource=true` 表示边端直接执行被引用的 V2 唯一文件。
+`emsLogic.runtimeSchema=2.x` 和 `emsLogic.executesEditorSource=true` 表示边端直接执行被引用的 V2 唯一文件。Windows 与平台必须读取 `emsLogic` 子对象，不能把这些字段当作响应顶层字段。
 
 ## 6. 仓库生产源迁移检查
 
@@ -94,32 +98,55 @@ GraphEms 生产配置只保留一个 `schemaVersion=2.x` 文件。Windows 编辑
 
 定向 V2 示例位于 `tools/testdata/graph_ems_v2_direct.logic.json`；它覆盖 `pointInput` 折叠、常量绑定、自动输出和数据连线。
 
-## 7. 生产验证
+## 7. 自动化与交叉构建验证
 
-1. V2 loader 拒绝 V1、未物化语义绑定、虚拟 index 越界和参数/绑定不一致。
-2. V2 fixture 直接执行并产生预期共享内存输出。
-3. 旧 GraphEms 节点执行回归通过显式迁移 loader 保持覆盖。
-4. 严格图拒绝重复 executable output；迁移图保留重复 output、节点 order 和依赖边，并产生带覆盖风险的告警。
-5. 回归测试逐一加载仓库内全部 7 个可部署 GraphEms 图，防止示例或项目图重新退回 V1。
-6. 487 节点舜通工厂图由生产 loader 直接加载，确认 22 组重复 output、9 组重复 target 和 8 条弱类型连线均只作为迁移告警。
-7. 生产 `ComputeEngineService` 构造测试确认 `legacyEms` 配置被明确拒绝，旧引擎仅由离线工具和测试使用。
-8. 当前候选使用隔离的 Ubuntu 20.04 / GCC 9.4 ARM64 工具链构建，动态依赖上限为 `GLIBC_2.29`、`GLIBCXX_3.4.26`；已在 22.16 实机加载运行。正式交叉机恢复后仍应按同一源码重编并复跑本节测试。
-9. 测试设备先完成 V1/V2 等价性和受限控制验证，再替换生产策略。
+正式边端源码基线为 `d12272a96863e7c45cc1ab4615396225a69f875e`。验证使用全志 AArch64 Linaro GCC 6.3.1，不再使用 Ubuntu GCC 9 临时候选：
 
-## 8. 22.16 生产程序替换验证（2026-07-28）
+1. V2 路由审计回归测试 `8/8` 通过。
+2. `graph_ems_v2_loader_test`、`graph_ems_voltage_quality_test`、`legacy_ems_test` 和 `system_monitor_direct_maintenance_contract_test` 均完成 AArch64 交叉编译，并通过 `qemu-aarch64-static` 加目标 sysroot 执行。
+3. V2 loader 拒绝 V1、未物化绑定、非法 binding、虚拟 index 越界、参数/端口分叉和不一致的数据连线。
+4. 回归测试逐一加载 7 个可部署 V2 图；487 节点舜通图保留 22 组重复 output、9 组重复 target 和 8 条弱类型连线，并逐项产生受控迁移告警。
+5. `script.type=legacyEms` 在服务构造阶段直接拒绝；`graphEms` 指向 V1 时只拒绝该规则加载，服务保持存活并输出可诊断错误。两条路径不能混为一种启动行为。
+6. 正式打包前会审计源码状态和构建目录；当前构建目录不会再被误判为脏源码，但其他未提交源码仍会阻止生成 `sourceDirty=false` 的发布包。
 
-测试机 `COMM202600999 / 192.168.22.16` 已将 `ComputeEngine`、主 EMS 图和低压电压合格率图作为一个回滚单元完成替换：
+## 8. 可追溯正式出厂包（2026-07-29）
 
-- `ComputeEngine` SHA-256：`6b01a3f595031d53d1de2f8d0e209e490627f8271796fed5d65b6b75a48cd11a`。
-- `EmsParityCheck` SHA-256：`90d56bef51c3c4bafbbcbfedc11e01f9826d4c348ab61f0caadd4389f80a25da`。
-- 主 V2 图 SHA-256：`ee9e2c276a14adeda29f4c8260a182a84951efda05c1db378f5defdbacdab7ad`，487 个编辑节点、489 条连线（227 条数据连线、262 条依赖连线）。
-- 电压合格率 V2 图 SHA-256：`957d4b187227f0c6e1fd9463bcdfc7a2fdc0f3f10f6a63e84ee5534a471c57d0`。
-- Windows 与边端内置初始化包 SHA-256：`293114704049b7cd36252e342b2fd2af321a674e3774a4c102d863080e48b0de`；该包从提交前 HEAD 基线精确重建，仅替换 EMS V2 图、虚拟点、`ComputeEngine`/`EmsParityCheck` 并删除 legacy 示例，未混入其他驱动改动。包内 `ComputeEngine` 与本节实机候选哈希一致，7 份可部署策略图均为 V2。
-- ARM64 上 `graph_ems_v2_loader_test`、`graph_ems_voltage_quality_test` 和 `legacy_ems_test` 全部通过。
-- 使用替换前 V1 主图和现场 887 个共享内存样本执行 10 轮隔离等价计算，8 个实际可比较关键输出全部一致，4 个输出在两边均未生成，差异数为 0。
-- 服务启动时产生 39 条受控迁移告警：22 组重复 output、9 组重复 target 和 8 条弱类型连线；除此之外没有 `error`、`failed`、异常退出或重启。
-- `compute-engine@mqtt-service.service` 为 `active/running`，`MainPID=17066`、`NRestarts=0`、`MemoryCurrent=21839872` 字节。部署未修改应用配置、MQTT broker 或控制开关。
-- 当前 app 的两个启用规则均为 `graphEms`，实际引用的主图和电压合格率图均为 `schemaVersion=2.0.0`，不存在 V1 `params/edges`。
-- 验证结束后已检查 `/tmp`、`/dev/shm` 和 `/root`，没有遗留 `legacy_ems_test` 测试文件或共享内存对象。
+正式 full 包由提交 `d12272a96863e7c45cc1ab4615396225a69f875e` 的精确源码树生成：
 
-成套回滚备份位于 `/opt/modbus-gateway/backup/ems-v2-20260728-pre-v2`。回滚时必须同时恢复二进制、主图和电压合格率图，不能形成 V1/V2 混装。
+- 包大小：`5360815` 字节；SHA-256：`9172423e97c88b06c3884817b7cd6ed7ac61a5c0e9501378c9a63e81dc8c83f7`。
+- manifest：`packageProfile=full`、`sourceDirty=false`、`createdAt=2026-07-29T05:46:32Z`。
+- 工具链：`aarch64-linux-gnu-g++ (Linaro GCC 6.3-2017.05) 6.3.1 20170404`。
+- `ComputeEngine`：`786856` 字节，SHA-256 `fe5a76edf242cc3ff3d9d8ed3a24830b4972bb0ca0b480a78cd7cad2e25f9736`。
+- `EmsParityCheck`：`877288` 字节，SHA-256 `2010440f136202342c1165f56734ecbb9598c67ede85b0b53ecb34ac06ce8eb9`。
+- `SystemMonitor`：`1116472` 字节，SHA-256 `1fbd40d953791dd01fee9397c12c216a60b0e884be1dad86e7e1c59e84578926`。
+- 该包已作为正式初始化资产写入 `GatewayDesktop-Modern/src/GatewayDesktop.UI/Assets/DeviceInit/gateway-factory-defaults.tar.gz`；Windows 提交 `2fb504b` 首次纳入，后续 V2 收尾提交未改动包字节。
+
+manifest 同时记录全部驱动的大小和 SHA-256。验收与部署必须以 manifest 和整包 SHA-256 为准，不能从某个脏工作区的散文件重新拼包。
+
+## 9. 22.16 最终生产复核（2026-07-29）
+
+测试边端为 `COMM202600999 / 192.168.22.16`。最终仅替换正式二进制并修复现场 V2 点位路由，未覆盖现场采集配置、MQTT 参数或控制开关。
+
+### 9.1 配置与路由
+
+- App 配置 SHA-256：`6a405eb827b00b89c996f90b8ec1d8b6a7357c6c26e976c1e03bf4ef6c2dd3f3`；两条启用规则均为 `graphEms` 和 `schemaVersion=2.0.0`。
+- 既有虚拟点按语义重映射：`166→800166`、`203→800203`、`209-211→800209-800211`、`1615-1616→801615-801616`，并补齐图实际使用的虚拟点 `217-225`。
+- `device_ems_modular_virtual.json` SHA-256：`1687a31998fb7b4788944d533ba6385d334599fe1f6993874d5019ebe33f1eb4`。
+- `shuntong_ems_modular_graph.json` SHA-256：`b653360aaafffc8cf28cffd6fa59993cba91c320e4adefe904993140f48d731e`。
+- `voltage_quality_daily_graph.json` SHA-256：`957d4b187227f0c6e1fd9463bcdfc7a2fdc0f3f10f6a63e84ee5534a471c57d0`。
+- 严格项目路由审计：`1737` 条路由、`1737` 个唯一 Index、2 个启用图、489 个启用节点、380 个当前 profile 活跃节点；虚拟输出、内部输入、活跃外部输入、活跃控制目标和只读目标均无缺口，结果为 `PASS (structural=0, project=0, strictProjectRoutes=true)`。
+- 当前停用 profile 仍声明 `1341/4000/4048/4199` 输入和 `1341/4000/4065` 控制目标依赖。它们不影响当前 profile；启用对应策略前必须先补齐项目路由并重新执行严格审计。
+
+### 9.2 运行状态
+
+- 设备上的 `ComputeEngine`、`EmsParityCheck`、`SystemMonitor` 大小和 SHA-256 与正式包完全一致。
+- `compute-engine@mqtt-service`、`mqtt-driver@mqtt-service`、`event-engine@mqtt-service`、`system-monitor@monitor-service` 均为 `active/running`，`NRestarts=0`。
+- 能力接口返回 `emsLogic.runtimeSchema=2.x`、`compilerContract=GraphEmsV2/direct`、`executesEditorSource=true`。
+- ComputeEngine 启动时记录 39 条 `preserveImportedBehavior` 兼容告警；其中 22 组重复 output 和 9 组重复 target 另有 31 条确定性归属诊断。四个服务从最终重启至复核时没有 `error`、`failed`、`exception` 或 `fatal` 日志。
+- EMS 虚拟共享内存持续刷新。部分新映射输出当前为空，是因为对应采集源没有有效值，不是图加载或路由失败；接入真实源值后仍需做一次业务值验收。
+
+### 9.3 清理与回滚
+
+- `192.168.22.11` 的 `/tmp/gateway-v2-*`、`/tmp/gateway-build-*` 已清空。
+- `192.168.22.16` 的本轮部署目录、审计包、路由修复目录和 7 月 29 日中间备份已清空；`/root` 与 `/dev/shm` 无 V2/legacy 测试残留。
+- 仅保留 `/opt/modbus-gateway/backup/ems-v2-20260728-pre-v2` 作为 V2 上线前成套回滚点。回滚时必须同时恢复二进制、主图、虚拟点和电压合格率图，不能形成 V1/V2 混装。
