@@ -6,6 +6,8 @@ PREFER_CELLULAR=true
 # 4G interface and gateway assigned by the cellular modem.
 CELLULAR_INTERFACE=usb0
 CELLULAR_GATEWAY=192.168.43.1
+CELLULAR_INTERFACE_WAIT_SEC=60
+CELLULAR_DHCP_SCRIPT=/etc/udhcpc/default.script
 
 # Wired interface must already have a valid default route from DHCP or static config.
 WIRED_INTERFACE=ens1

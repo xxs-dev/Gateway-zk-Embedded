@@ -1,0 +1,26 @@
+{
+  "cmake.configureOnOpen": false,
+  "cmake.useCMakePresets": "always",
+  "cmake.configurePreset": "wsl-aarch64-local",
+  "cmake.buildPreset": "wsl-aarch64-local",
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build-aarch64-local/compile_commands.json",
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.idea/**": true,
+    "**/build-aarch64/**": true,
+    "**/build-aarch64-cross/**": true,
+    "**/build-aarch64-local/**": true,
+    "**/cmake-build-debug/**": true,
+    "**/*.o": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/.idea": true,
+    "**/build-aarch64": true,
+    "**/build-aarch64-cross": true,
+    "**/build-aarch64-local": true,
+    "**/cmake-build-debug": true
+  }
+}

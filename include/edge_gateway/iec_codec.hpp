@@ -54,6 +54,47 @@ struct IecFileSegment {
     std::string rawHex;
 };
 
+struct Iec103DisturbanceRecord {
+    int fan = 0;
+    int state = 0;
+    std::int64_t timestampMs = 0;
+    std::string rawTimeHex;
+};
+
+struct Iec103ComtradeChunk {
+    int fileType = 0;
+    int packetNumber = 0;
+    bool lastPacket = false;
+    std::vector<std::uint8_t> data;
+    std::string rawHex;
+};
+
+struct Iec103ComtradeFiles {
+    int fan = 0;
+    std::string cfgPath;
+    std::string datPath;
+    std::size_t cfgBytes = 0;
+    std::size_t datBytes = 0;
+};
+
+class Iec103ComtradeAssembler {
+public:
+    explicit Iec103ComtradeAssembler(std::size_t maxBytes);
+
+    void add(const Iec103ComtradeChunk& chunk);
+    bool complete() const;
+    int fileType() const;
+    const std::vector<std::uint8_t>& bytes() const;
+
+private:
+    std::size_t maxBytes_;
+    int fileType_ = 0;
+    int nextPacketNumber_ = 0;
+    bool complete_ = false;
+    std::vector<std::vector<std::uint8_t>> packets_;
+    std::vector<std::uint8_t> bytes_;
+};
+
 struct IecAsdu {
     int typeId = 0;
     int cause = 0;
@@ -139,6 +180,42 @@ public:
 
     static std::vector<std::uint8_t> buildIec101InterrogationFrame(const IecProtocolConfig& config);
     static std::vector<std::uint8_t> buildIec103GeneralInterrogationFrame(const IecProtocolConfig& config);
+    static std::vector<std::uint8_t> buildFt12FixedFrame(
+        std::uint8_t control,
+        int linkAddress,
+        int linkAddressSize
+    );
+    static bool isFt12FixedFrame(const std::vector<std::uint8_t>& frame, int linkAddressSize);
+    static std::uint8_t ft12Control(const std::vector<std::uint8_t>& frame);
+    static bool ft12AccessDemand(const std::vector<std::uint8_t>& frame);
+    static std::vector<std::uint8_t> buildIec103ClassRequestFrame(
+        const IecProtocolConfig& config,
+        int dataClass,
+        bool frameCountBit
+    );
+    static std::vector<std::uint8_t> buildIec103ResetCommunicationFrame(const IecProtocolConfig& config);
+    static std::vector<std::uint8_t> buildIec103RecordingDirectoryFrame(
+        const IecProtocolConfig& config,
+        bool frameCountBit
+    );
+    static std::vector<Iec103DisturbanceRecord> decodeIec103RecordingDirectory(
+        const std::vector<std::uint8_t>& userData,
+        const IecProtocolConfig& config
+    );
+    static std::vector<std::uint8_t> buildIec103ComtradeFileCallFrame(
+        const IecProtocolConfig& config,
+        int fan,
+        int fileType,
+        bool frameCountBit
+    );
+    static Iec103ComtradeChunk decodeIec103ComtradeChunk(
+        const std::vector<std::uint8_t>& userData,
+        const IecProtocolConfig& config
+    );
+    static std::vector<std::uint8_t> buildAm5seUdpDiscoveryPacket(
+        std::int64_t unixTimeMs,
+        const std::string& stationName
+    );
     static bool isFt12VariableFrame(const std::vector<std::uint8_t>& frame);
     static std::vector<std::uint8_t> ft12UserData(const std::vector<std::uint8_t>& frame, int linkAddressSize);
 

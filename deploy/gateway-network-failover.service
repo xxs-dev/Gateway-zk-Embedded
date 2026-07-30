@@ -1,7 +1,7 @@
 [Unit]
 Description=Gateway 4G and wired network failover
 After=network-online.target gateway-cellular.service
-Wants=network-online.target
+Wants=network-online.target gateway-cellular.service
 
 [Service]
 Type=simple

@@ -43,6 +43,14 @@ struct IecPointSpec {
     int timeoutMs = 3000;
 };
 
+struct Dlt645WriteSpec {
+    std::string di;
+    std::string dataType;
+    int byteCount = 0;
+    int unit = 2;
+    std::string fixedDataHex;
+};
+
 struct ReadSpec {
     bool enable = false;
     int function = 3;
@@ -82,6 +90,7 @@ struct WriteSpec {
     bool verifyAfterWrite = false;
     int verifyDelayMs = 200;
     bool verifyByRead = true;
+    Dlt645WriteSpec dlt645;
     CanSignalSpec can;
     IecPointSpec iec;
 };
@@ -347,7 +356,9 @@ enum class MqttIncomingType {
     ConfigPullRequest,
     ConfigApplyRequest,
     ConfigDeleteRequest,
-    ConfigRestoreRequest
+    ConfigRestoreRequest,
+    RecordingRequest,
+    RecordingAck
 };
 
 struct MqttIncomingMessage {
@@ -372,6 +383,7 @@ struct SerialTransportConfig {
     int timeoutMs = 1000;
     int frameIntervalMs = -1;
     int readRetryCount = 1;
+    int wakeupBytes = 0;
 };
 
 struct TcpTransportConfig {
@@ -422,6 +434,30 @@ struct IecProtocolConfig {
     bool backgroundReceive = true;
     bool sendSFrameAck = true;
     int clockSyncIntervalSec = 0;
+    int returnInformationIdentifier = 0xE9;
+    int deviceFunctionType = 0;
+    std::string listenAddress = "0.0.0.0";
+    int listenPort = 1048;
+    std::string allowedDeviceIp;
+    std::string udpBindAddress = "0.0.0.0";
+    std::string udpBroadcastAddress = "255.255.255.255";
+    int udpPort = 1032;
+    int udpBroadcastIntervalSec = 30;
+    std::string stationName = "KY-GATEWAY";
+    std::string recordingDirectory = "/opt/modbus-gateway/data/iec103-recordings";
+    std::string recordingCommandSocket;
+    int recordingTimeoutMs = 30000;
+    std::size_t recordingMaxFileBytes = 64U * 1024U * 1024U;
+};
+
+struct Dlt645WriteSecurityConfig {
+    bool enabled = false;
+    std::string password;
+    std::string operatorCode = "00000000";
+};
+
+struct Dlt645ProtocolConfig {
+    Dlt645WriteSecurityConfig write;
 };
 
 struct ProtocolConfig {
@@ -431,6 +467,7 @@ struct ProtocolConfig {
     TcpTransportConfig tcp;
     CanProtocolConfig can;
     IecProtocolConfig iec;
+    Dlt645ProtocolConfig dlt645;
     std::string backend;
     std::string gpioBasePath = "/sys/class/gpio";
     std::string standardPointsFile;
@@ -580,6 +617,10 @@ struct MqttConfig {
     std::string configDeleteReplyTopic = "edge/config/delete/reply";
     std::string configRestoreRequestTopic = "edge/config/restore/request";
     std::string configRestoreReplyTopic = "edge/config/restore/reply";
+    std::string recordingRequestTopic = "edge/recording/request";
+    std::string recordingReplyTopic = "edge/recording/reply";
+    std::string recordingStatusTopic = "edge/recording/status";
+    std::string recordingAckTopic = "edge/recording/ack";
     int qos = 1;
     int controlQos = 2;
     bool cleanSession = true;
@@ -997,6 +1038,17 @@ struct SystemMonitorConfig {
         int maxRealtimePoints = 2000;
     };
 
+    struct RecordingTransferConfig {
+        bool enabled = false;
+        std::string queueFile = "/opt/modbus-gateway/data/iec103-recording-upload-queue.tsv";
+        std::string workDirectory = "/opt/modbus-gateway/data/iec103-recording-upload";
+        std::string curlExecutable = "curl";
+        bool allowInsecureHttp = false;
+        int requestTimeoutSec = 180;
+        int retryBaseSec = 5;
+        int retryMaxSec = 300;
+    };
+
     bool enabled = false;
     int defaultIntervalMs = 5000;
     int minIntervalMs = 500;
@@ -1022,6 +1074,7 @@ struct SystemMonitorConfig {
       CellularConfig cellular;
       DirectMaintenanceConfig directMaintenance;
       ScadaUpperComputerSafetyConfig scadaUpperComputerSafety;
+      RecordingTransferConfig recordingTransfer;
   };
 
 struct LocalDisplayGroupConfig {

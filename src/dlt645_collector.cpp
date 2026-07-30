@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 #include "edge_gateway/dlt645_client.hpp"
@@ -16,6 +17,11 @@ std::int64_t currentTimeMs() {
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
 }
+
+struct Dlt645ReadAttempt {
+    std::vector<std::uint8_t> response;
+    std::string error;
+};
 
 }  // namespace
 
@@ -37,6 +43,7 @@ CollectCycleResult Dlt645Collector::collectOnce(std::int64_t nowMs, bool realtim
     const auto points = duePoints(nowMs);
     bool hasSuccessfulRead = false;
     std::string firstFailureMessage;
+    std::unordered_map<std::string, Dlt645ReadAttempt> readsByDataId;
     for (const auto& point : points) {
         PointValue value;
         const auto pointNowMs = currentTimeMs();
@@ -47,8 +54,20 @@ CollectCycleResult Dlt645Collector::collectOnce(std::int64_t nowMs, bool realtim
             if (point.read.dlt645Di.empty()) {
                 throw std::runtime_error("DLT645 point missing read.dlt645.di: " + point.pointCode);
             }
-            const auto response = dlt645Client_->readData(config_.address, point.read.dlt645Di);
-            const auto decoded = Dlt645Codec::decodeReadResponse(response, point);
+            auto cached = readsByDataId.find(point.read.dlt645Di);
+            if (cached == readsByDataId.end()) {
+                Dlt645ReadAttempt attempt;
+                try {
+                    attempt.response = dlt645Client_->readData(config_.address, point.read.dlt645Di);
+                } catch (const std::exception& ex) {
+                    attempt.error = ex.what();
+                }
+                cached = readsByDataId.emplace(point.read.dlt645Di, std::move(attempt)).first;
+            }
+            if (!cached->second.error.empty()) {
+                throw std::runtime_error(cached->second.error);
+            }
+            const auto decoded = Dlt645Codec::decodeReadResponse(cached->second.response, point);
             value = buildPointValue(point, decoded, pointNowMs);
             hasSuccessfulRead = true;
         } catch (const std::exception& ex) {

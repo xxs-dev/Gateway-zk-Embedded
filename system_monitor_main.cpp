@@ -1,5 +1,4 @@
 #include <chrono>
-#include <algorithm>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
@@ -9,16 +8,15 @@
 #include <unordered_set>
 #include <vector>
 #ifndef _WIN32
-#include <dirent.h>
 #include <sys/prctl.h>
 #endif
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
-#include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
+#include "edge_gateway/system_monitor_runtime_discovery.hpp"
 #include "edge_gateway/system_monitor_service.hpp"
 
 namespace {
@@ -32,42 +30,6 @@ void handleSignal(int) {
 std::string basenameOf(const std::string& path) {
     const auto pos = path.find_last_of("/\\");
     return pos == std::string::npos ? path : path.substr(pos + 1);
-}
-
-std::string dirnameOf(const std::string& path) {
-    const auto pos = path.find_last_of("/\\");
-    return pos == std::string::npos ? std::string(".") : path.substr(0, pos);
-}
-
-void addUniquePath(std::vector<std::string>& paths, const std::string& path) {
-    if (path.empty()) {
-        return;
-    }
-    if (std::find(paths.begin(), paths.end(), path) == paths.end()) {
-        paths.push_back(path);
-    }
-}
-
-std::vector<std::string> discoverSiblingAppConfigFiles(const std::string& appConfigPath) {
-    std::vector<std::string> files;
-#ifndef _WIN32
-    const auto dir = dirnameOf(appConfigPath);
-    DIR* handle = opendir(dir.c_str());
-    if (handle == nullptr) {
-        return files;
-    }
-    while (dirent* entry = readdir(handle)) {
-        const std::string name = entry->d_name;
-        if (name.size() < 6 || name.substr(name.size() - 5) != ".json") {
-            continue;
-        }
-        files.push_back(dir + "/" + name);
-    }
-    closedir(handle);
-#else
-    (void)appConfigPath;
-#endif
-    return files;
 }
 
 std::string sanitizeProcessToken(std::string value) {
@@ -154,22 +116,36 @@ int main(int argc, char* argv[]) {
     if (!appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
+    const auto runtimeDependencies = discoverSystemMonitorRuntimeDependencies(appConfigPath, appConfig);
+    for (const auto& warning : runtimeDependencies.warnings) {
+        std::cerr << "system monitor skipped sibling app config " << warning << std::endl;
+    }
     auto deviceConfigs = ConfigLoader::loadMany(appConfig.deviceConfigFiles, identity);
-    std::vector<std::string> sharedMemoryNames = appConfig.mqttDriver.sharedMemoryNames;
+    std::unordered_set<std::string> primaryDeviceFiles(
+        appConfig.deviceConfigFiles.begin(),
+        appConfig.deviceConfigFiles.end()
+    );
+    for (const auto& file : runtimeDependencies.deviceConfigFiles) {
+        if (primaryDeviceFiles.find(file) != primaryDeviceFiles.end()) {
+            continue;
+        }
+        try {
+            deviceConfigs.push_back(ConfigLoader::loadFromFile(file, identity));
+        } catch (const std::exception& ex) {
+            std::cerr << "system monitor skipped sibling device config "
+                      << file << ": " << ex.what() << std::endl;
+        }
+    }
+    std::vector<std::string> sharedMemoryNames = runtimeDependencies.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);
     }
-    appendSiblingAgcAvcRuntime(appConfigPath, identity, deviceConfigs, sharedMemoryNames);
     std::unordered_set<std::string> seen(sharedMemoryNames.begin(), sharedMemoryNames.end());
     for (const auto& config : deviceConfigs) {
         const auto& name = config.memoryStore.sharedMemoryName;
         if (!name.empty() && seen.insert(name).second) {
             sharedMemoryNames.push_back(name);
         }
-    }
-    if (!appConfig.cameraService.sharedMemoryName.empty() &&
-        seen.insert(appConfig.cameraService.sharedMemoryName).second) {
-        sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
     }
     edge_gateway::PointStoreRouter router;
     router.setPowerControlOwnershipFile(appConfig.mqttDriver.powerControlOwnershipFile, "system-monitor");
@@ -182,7 +158,9 @@ int main(int argc, char* argv[]) {
     const auto machineCode = !identity.machineCode.empty()
         ? identity.machineCode
         : (deviceConfigs.empty() ? std::string() : deviceConfigs.front().machineCode);
-    router.addRoutesFromCameraServiceConfig(appConfig.cameraService, machineCode);
+    for (const auto& cameraService : runtimeDependencies.cameraServices) {
+        router.addRoutesFromCameraServiceConfig(cameraService, machineCode);
+    }
 
     if (!machineCode.empty()) {
         appConfig.mqtt.topicMachineCode = machineCode;
@@ -193,27 +171,7 @@ int main(int argc, char* argv[]) {
     } else {
         appConfig.mqtt.clientId = "system-monitor";
     }
-    std::vector<std::string> configFiles;
-    if (!appConfig.identityConfigFile.empty()) {
-        addUniquePath(configFiles, appConfig.identityConfigFile);
-    }
-    addUniquePath(configFiles, appConfigPath);
-    for (const auto& appFile : discoverSiblingAppConfigFiles(appConfigPath)) {
-        addUniquePath(configFiles, appFile);
-        try {
-            const auto siblingApp = ConfigLoader::loadAppConfigFromFile(appFile);
-            addUniquePath(configFiles, siblingApp.identityConfigFile);
-            for (const auto& file : siblingApp.deviceConfigFiles) {
-                addUniquePath(configFiles, file);
-            }
-        } catch (const std::exception& ex) {
-            std::cerr << "system monitor skipped sibling app dependencies "
-                      << appFile << ": " << ex.what() << std::endl;
-        }
-    }
-    for (const auto& file : appConfig.deviceConfigFiles) {
-        addUniquePath(configFiles, file);
-    }
+    const auto& configFiles = runtimeDependencies.configFiles;
     std::shared_ptr<IMqttDriverPublisher> publisher;
     if (appConfig.mqtt.enabled) {
         publisher = std::make_shared<BuiltinMqttDriverPublisher>(appConfig.mqtt);

@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure local aarch64",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "-e",
+        "bash",
+        "-lc",
+        "cd /mnt/d/workspace/Embedded/Gateway-zk && cmake -S . -B build-aarch64-local -DCMAKE_TOOLCHAIN_FILE=.vscode/toolchains/aarch64-linux-gnu-local.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=OFF"
+      ],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "-e",
+        "bash",
+        "-lc",
+        "cd /mnt/d/workspace/Embedded/Gateway-zk && cmake --build build-aarch64-local --parallel"
+      ],
+      "dependsOn": [
+        "configure local aarch64"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "build production targets",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "-e",
+        "bash",
+        "-lc",
+        "cd /mnt/d/workspace/Embedded/Gateway-zk && cmake --build build-aarch64-local --target ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine SystemMonitor LocalDisplay QtDisplayBridge CameraService pointctl stress_runner --parallel"
+      ],
+      "dependsOn": [
+        "configure local aarch64"
+      ],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "build tests",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "-e",
+        "bash",
+        "-lc",
+        "cd /mnt/d/workspace/Embedded/Gateway-zk && cmake --build build-aarch64-local --target dio_smoke_test can_signal_codec_test iec_codec_test config_loader_test collector_partial_failure_test gateway_daemon_realtime_priority_test priority_control_lease_test modbus_rtu_client_resync_test dlt645_client_interval_test modbus_tcp_client_limit_test modbus_northbound_server_test memory_point_store_lifecycle_test builtin_mqtt_driver_publisher_test mqtt_driver_service_test legacy_ems_test ota_service_test system_monitor_service_test --parallel"
+      ],
+      "dependsOn": [
+        "configure local aarch64"
+      ],
+      "group": "test",
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "build via original script",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "-e",
+        "bash",
+        "-lc",
+        "cd /mnt/d/workspace/Embedded/Gateway-zk && tools/build_edge_aarch64.sh"
+      ],
+      "problemMatcher": "$gcc"
+    }
+  ]
+}

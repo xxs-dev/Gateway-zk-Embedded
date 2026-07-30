@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/iec103_recording_transfer_service.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/scada_upper_computer_safety.hpp"
@@ -123,7 +124,11 @@ private:
     void publishConfigApplyReply(const std::string& payload) const;
     void publishConfigFileOperationReply(const std::string& payload, const std::string& operation) const;
     std::string acceptConfigApplyChunk(const std::string& payload, std::int64_t nowMs, bool* complete);
-    std::string buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const;
+    std::string buildConfigPullReply(
+        const std::string& requestId,
+        std::int64_t nowMs,
+        const std::string& scope
+    ) const;
     std::string buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const;
     std::string buildConfigFileOperationReply(
         const std::string& payload,
@@ -138,6 +143,7 @@ private:
     std::vector<std::string> configFiles_;
     PointStoreRouter* router_ = nullptr;
     std::unique_ptr<ScadaUpperComputerSafetyMonitor> scadaSafetyMonitor_;
+    std::unique_ptr<Iec103RecordingTransferService> recordingTransferService_;
     std::atomic<bool> running_{false};
     std::thread thread_;
     mutable std::map<std::string, MonitorLease> leases_;

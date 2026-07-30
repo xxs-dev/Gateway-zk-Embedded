@@ -274,6 +274,8 @@ std::vector<std::uint8_t> buildSubscribePacket(
     const std::string& configApplyTopic,
     const std::string& configDeleteTopic,
     const std::string& configRestoreTopic,
+    const std::string& recordingRequestTopic,
+    const std::string& recordingAckTopic,
     std::uint16_t packetId
 ) {
     const auto normalQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config.qos)));
@@ -320,6 +322,14 @@ std::vector<std::uint8_t> buildSubscribePacket(
     }
     if (!configRestoreTopic.empty()) {
         appendString(payload, configRestoreTopic);
+        payload.push_back(controlQos);
+    }
+    if (!recordingRequestTopic.empty()) {
+        appendString(payload, recordingRequestTopic);
+        payload.push_back(controlQos);
+    }
+    if (!recordingAckTopic.empty()) {
+        appendString(payload, recordingAckTopic);
         payload.push_back(controlQos);
     }
 
@@ -1584,6 +1594,10 @@ bool parsePublishPacket(
         message->type = MqttIncomingType::ConfigDeleteRequest;
     } else if (topic == scopedTopic(config.configRestoreRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::ConfigRestoreRequest;
+    } else if (topic == scopedTopic(config.recordingRequestTopic, config.topicMachineCode)) {
+        message->type = MqttIncomingType::RecordingRequest;
+    } else if (topic == scopedTopic(config.recordingAckTopic, config.topicMachineCode)) {
+        message->type = MqttIncomingType::RecordingAck;
     } else {
         return false;
     }
@@ -1716,9 +1730,15 @@ void BuiltinMqttDriverPublisher::publishJsonMessage(
     publishJson(topic, payload);
 }
 
+void BuiltinMqttDriverPublisher::maintain() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    maintainTxConnection();
+}
+
 std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int timeoutMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<MqttIncomingMessage> messages;
+    maintainTxConnection();
     if (config_.commandRequestTopic.empty() &&
         config_.otaRequestTopic.empty() &&
         config_.realtimeRequestTopic.empty() &&
@@ -1727,7 +1747,9 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
         config_.configPullRequestTopic.empty() &&
         config_.configApplyRequestTopic.empty() &&
         config_.configDeleteRequestTopic.empty() &&
-        config_.configRestoreRequestTopic.empty()) {
+        config_.configRestoreRequestTopic.empty() &&
+        config_.recordingRequestTopic.empty() &&
+        config_.recordingAckTopic.empty()) {
         return messages;
     }
 
@@ -1785,7 +1807,7 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
             }
         }
     } catch (...) {
-        closeSubscriber();
+        closeSubscriber(false);
         throw;
     }
 
@@ -1905,12 +1927,13 @@ void BuiltinMqttDriverPublisher::sendJsonNow(const std::string& topic, const std
     try {
         sendJsonOnTxConnection(topic, payload, qos);
     } catch (...) {
-        closeTx();
+        closeTx(false);
         throw;
     }
 }
 
 void BuiltinMqttDriverPublisher::sendJsonOnTxConnection(const std::string& topic, const std::string& payload, int qos) {
+    maintainTxConnection();
     ensureTxConnected();
     auto& connection = txConnection_->connection;
 
@@ -1937,7 +1960,9 @@ int BuiltinMqttDriverPublisher::qosForTopic(const std::string& scopedTopicValue)
         matches(config_.diagReplyTopic) ||
         matches(config_.configApplyReplyTopic) ||
         matches(config_.configDeleteReplyTopic) ||
-        matches(config_.configRestoreReplyTopic)) {
+        matches(config_.configRestoreReplyTopic) ||
+        matches(config_.recordingReplyTopic) ||
+        matches(config_.recordingStatusTopic)) {
         return std::max(0, std::min(2, config_.controlQos));
     }
     return std::max(0, std::min(2, config_.qos));
@@ -2108,15 +2133,42 @@ void BuiltinMqttDriverPublisher::ensureTxConnected() {
     lastTxActivityMs_ = currentTimeMs();
 }
 
-void BuiltinMqttDriverPublisher::closeTx() {
+void BuiltinMqttDriverPublisher::maintainTxConnection() {
+    if (!txConnected_ || !txConnection_) {
+        return;
+    }
+
+    auto& connection = txConnection_->connection;
+    try {
+        if (!waitReadable(connection, 0)) {
+            return;
+        }
+
+        // A publish connection has no asynchronous application traffic. If it
+        // becomes readable while idle, consume a possible PINGRESP; EOF, TLS
+        // close-notify, broker DISCONNECT, and every other packet invalidate it.
+        const auto packet = readPacket(connection, incomingPacketLimit(config_));
+        if (!packet.empty() && (packet[0] & 0xF0) == kPacketPingResp) {
+            lastTxActivityMs_ = currentTimeMs();
+            return;
+        }
+    } catch (...) {
+    }
+    closeTx(false);
+}
+
+void BuiltinMqttDriverPublisher::closeTx(bool graceful) {
     if (!txConnected_) {
         return;
     }
-    try {
-        if (txConnection_) {
-            sendAll(txConnection_->connection, buildDisconnectPacket());
+
+    if (graceful) {
+        try {
+            if (txConnection_) {
+                sendAll(txConnection_->connection, buildDisconnectPacket());
+            }
+        } catch (...) {
         }
-    } catch (...) {
     }
     txConnection_.reset();
     txConnected_ = false;
@@ -2147,6 +2199,8 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
                 scopedTopic(config_.configApplyRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.configDeleteRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.configRestoreRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.recordingRequestTopic, config_.topicMachineCode),
+                scopedTopic(config_.recordingAckTopic, config_.topicMachineCode),
                 nextPacketId_++
             )
         );
@@ -2160,16 +2214,18 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
     lastSubscriberActivityMs_ = currentTimeMs();
 }
 
-void BuiltinMqttDriverPublisher::closeSubscriber() {
+void BuiltinMqttDriverPublisher::closeSubscriber(bool graceful) {
     if (!subscriberConnected_) {
         return;
     }
 
-    try {
-        if (subscriberConnection_) {
-            sendAll(subscriberConnection_->connection, buildDisconnectPacket());
+    if (graceful) {
+        try {
+            if (subscriberConnection_) {
+                sendAll(subscriberConnection_->connection, buildDisconnectPacket());
+            }
+        } catch (...) {
         }
-    } catch (...) {
     }
     subscriberConnection_.reset();
     subscriberConnected_ = false;

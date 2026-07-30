@@ -101,6 +101,10 @@ for item in items:
     name = str(name or "").strip()
     if not name or name in seen:
         continue
+    if name.lower().replace("-", "").replace("_", "") == "directagent":
+        raise SystemExit(
+            "retired standalone maintenance agent is not allowed in factory package manifest: " + name
+        )
     seen.add(name)
     print(name)
 PY
@@ -231,6 +235,17 @@ unique_words() {
   awk 'NF && !seen[$0]++ { print }'
 }
 
+assert_no_retired_maintenance_agent() {
+  root="$1"
+  [ -e "$root" ] || return 0
+  found=$(find "$root" -type f -print | grep -Ei '(^|/)direct[-_]?agent([^/]*)$' || true)
+  if [ -n "$found" ]; then
+    echo "retired standalone maintenance agent artifact is not allowed in factory packages:" >&2
+    printf '%s\n' "$found" >&2
+    exit 2
+  fi
+}
+
 SOURCE_COMMIT="unknown"
 SOURCE_DIRTY="false"
 SOURCE_BUILD_DIR_REL=""
@@ -265,8 +280,10 @@ fi
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR/gateway-factory-defaults/config"
 
+assert_no_retired_maintenance_agent "$ROOT_DIR/config/factory"
+assert_no_retired_maintenance_agent "$ROOT_DIR/deploy"
+
 cp -a "$ROOT_DIR/config/factory" "$TMP_DIR/gateway-factory-defaults/config/factory"
-rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/apps/direct-agent.json"
 rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/apps/agc-avc-service.json"
 rm -f "$TMP_DIR/gateway-factory-defaults/config/factory/runtime/devices/device_agc_avc_virtual.json"
 if [ -d "$ROOT_DIR/config/templates" ]; then
@@ -282,7 +299,6 @@ if [ -d "$ROOT_DIR/deploy" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/deploy"
   for file in "$ROOT_DIR/deploy"/*; do
     name=$(basename "$file")
-    [ "$name" = "direct-agent@.service" ] && continue
     [ "$name" = "agc-avc@.service" ] && continue
     [ "$name" = "build-agc-avc-runtime-package.sh" ] && continue
     [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
@@ -359,10 +375,16 @@ finalize_package_manifest \
   "$SOURCE_COMMIT" \
   "$SOURCE_DIRTY"
 
+assert_no_retired_maintenance_agent "$TMP_DIR/gateway-factory-defaults"
+
 mkdir -p "$(dirname "$OUT")"
 PACKAGE_ARCHIVE="$TMP_DIR/gateway-factory-defaults.tar.gz"
 tar -C "$TMP_DIR" -czf "$PACKAGE_ARCHIVE" gateway-factory-defaults
 tar -tzf "$PACKAGE_ARCHIVE" >/dev/null
+if tar -tzf "$PACKAGE_ARCHIVE" | grep -Eiq '(^|/)direct[-_]?agent([^/]*)$'; then
+  echo "retired standalone maintenance agent was found in generated factory package" >&2
+  exit 2
+fi
 
 OUT_TMP="$OUT.tmp.$$"
 cp "$PACKAGE_ARCHIVE" "$OUT_TMP"

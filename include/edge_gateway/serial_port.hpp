@@ -27,6 +27,7 @@ struct SerialPortOptions {
     int maxRequestRegisters = 125;
     int frameIntervalMs = 0;
     int readRetryCount = 1;
+    int wakeupBytes = 0;
 };
 
 }  // namespace edge_gateway

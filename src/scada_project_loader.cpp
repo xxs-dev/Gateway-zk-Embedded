@@ -640,7 +640,8 @@ bool stableId(const std::string& value) {
 
 bool validComparison(const std::string& value) {
     return value == "eq" || value == "ne" || value == "gt" || value == "gte" ||
-           value == "lt" || value == "lte";
+           value == "lt" || value == "lte" || value == "bitSet" || value == "bitClear" ||
+           value == "maskAny" || value == "maskNone";
 }
 
 bool validComparisonValue(const std::string& value) {

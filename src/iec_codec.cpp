@@ -7,6 +7,7 @@
 #include <ctime>
 #include <cstring>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 
@@ -200,6 +201,52 @@ void appendCp56Time2a(std::vector<std::uint8_t>& bytes, std::int64_t unixTimeMs)
     bytes.push_back(static_cast<std::uint8_t>((tm->tm_year % 100) & 0x7F));
 }
 
+std::int64_t decodeCp56Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
+    if (offset + 7 > bytes.size()) {
+        throw std::runtime_error("IEC103 CP56Time2a is truncated");
+    }
+    const int msOfMinute = readLe(bytes, offset, 2);
+    std::tm tmValue{};
+    tmValue.tm_sec = msOfMinute / 1000;
+    tmValue.tm_min = bytes[offset + 2] & 0x3F;
+    tmValue.tm_hour = bytes[offset + 3] & 0x1F;
+    tmValue.tm_mday = bytes[offset + 4] & 0x1F;
+    tmValue.tm_mon = (bytes[offset + 5] & 0x0F) - 1;
+    tmValue.tm_year = (bytes[offset + 6] & 0x7F) + 100;
+    tmValue.tm_isdst = -1;
+    const auto seconds = std::mktime(&tmValue);
+    if (seconds < 0) {
+        return 0;
+    }
+    return static_cast<std::int64_t>(seconds) * 1000 + (msOfMinute % 1000);
+}
+
+double decodeGenericValue(
+    const std::vector<std::uint8_t>& bytes,
+    std::size_t offset,
+    int dataType,
+    int dataSize
+) {
+    if (dataSize <= 0 || dataSize > 8 || offset + static_cast<std::size_t>(dataSize) > bytes.size()) {
+        throw std::runtime_error("IEC103 generic value is truncated");
+    }
+    if (dataType == 7 && dataSize == 4) {
+        return static_cast<double>(readFloatLe(bytes, offset));
+    }
+    if (dataType == 3) {
+        if (dataSize == 1) {
+            return static_cast<double>(static_cast<std::int8_t>(bytes[offset]));
+        }
+        if (dataSize == 2) {
+            return static_cast<double>(readInt16Le(bytes, offset));
+        }
+        if (dataSize == 4) {
+            return static_cast<double>(readInt32Le(bytes, offset));
+        }
+    }
+    return static_cast<double>(readLe(bytes, offset, std::min(dataSize, 4)));
+}
+
 int commandIoaOf(const PointDefinition& point) {
     if (point.write.iec.ioa >= 0) {
         return point.write.iec.ioa;
@@ -376,6 +423,58 @@ IecDataValue decodeInformationObject(
 }
 
 }  // namespace
+
+Iec103ComtradeAssembler::Iec103ComtradeAssembler(std::size_t maxBytes)
+    : maxBytes_(std::max<std::size_t>(1U, maxBytes)) {
+}
+
+void Iec103ComtradeAssembler::add(const Iec103ComtradeChunk& chunk) {
+    if (chunk.fileType != 0x51 && chunk.fileType != 0x52) {
+        throw std::invalid_argument("IEC103 COMTRADE file type must be 0x51 or 0x52");
+    }
+    if (fileType_ == 0) {
+        fileType_ = chunk.fileType;
+    } else if (fileType_ != chunk.fileType) {
+        throw std::runtime_error("IEC103 COMTRADE file type changed during transfer");
+    }
+    if (chunk.packetNumber < 0) {
+        throw std::runtime_error("IEC103 COMTRADE packet number is negative");
+    }
+    if (chunk.packetNumber < nextPacketNumber_) {
+        const auto index = static_cast<std::size_t>(chunk.packetNumber);
+        if (index >= packets_.size() || packets_[index] != chunk.data) {
+            throw std::runtime_error("IEC103 COMTRADE conflicting duplicate packet");
+        }
+        return;
+    }
+    if (complete_) {
+        throw std::runtime_error("IEC103 COMTRADE packet received after final packet");
+    }
+    if (chunk.packetNumber != nextPacketNumber_) {
+        throw std::runtime_error(
+            "IEC103 COMTRADE packet gap: expected " + std::to_string(nextPacketNumber_) +
+            " but received " + std::to_string(chunk.packetNumber));
+    }
+    if (chunk.data.size() > maxBytes_ - std::min(maxBytes_, bytes_.size())) {
+        throw std::runtime_error("IEC103 COMTRADE file exceeds configured size limit");
+    }
+    packets_.push_back(chunk.data);
+    bytes_.insert(bytes_.end(), chunk.data.begin(), chunk.data.end());
+    ++nextPacketNumber_;
+    complete_ = chunk.lastPacket;
+}
+
+bool Iec103ComtradeAssembler::complete() const {
+    return complete_;
+}
+
+int Iec103ComtradeAssembler::fileType() const {
+    return fileType_;
+}
+
+const std::vector<std::uint8_t>& Iec103ComtradeAssembler::bytes() const {
+    return bytes_;
+}
 
 std::vector<std::uint8_t> IecCodec::buildIec104StartDtAct() {
     return {0x68, 0x04, 0x07, 0x00, 0x00, 0x00};
@@ -829,15 +928,195 @@ std::vector<std::uint8_t> IecCodec::buildIec103GeneralInterrogationFrame(const I
     userData.push_back(0x73);
     appendLe(userData, config.linkAddress, config.linkAddressSize);
     userData.push_back(7);
-    userData.push_back(1);
+    userData.push_back(0x81);
     appendLe(userData, config.interrogationCot, 1);
     appendLe(userData, config.commonAddress, 1);
     userData.push_back(0xFF);
     userData.push_back(0x00);
+    userData.push_back(static_cast<std::uint8_t>(config.returnInformationIdentifier & 0xFF));
 
     std::vector<std::uint8_t> frame;
     appendFt12VariableFrame(frame, userData);
     return frame;
+}
+
+std::vector<std::uint8_t> IecCodec::buildFt12FixedFrame(
+    std::uint8_t control,
+    int linkAddress,
+    int linkAddressSize
+) {
+    if (linkAddressSize < 0 || linkAddressSize > 2) {
+        throw std::invalid_argument("IEC FT1.2 link address size must be between 0 and 2");
+    }
+    std::vector<std::uint8_t> frame = {0x10, control};
+    appendLe(frame, linkAddress, linkAddressSize);
+    frame.push_back(ft12Checksum(frame, 1, frame.size()));
+    frame.push_back(0x16);
+    return frame;
+}
+
+bool IecCodec::isFt12FixedFrame(const std::vector<std::uint8_t>& frame, int linkAddressSize) {
+    if (linkAddressSize < 0 || linkAddressSize > 2 ||
+        frame.size() != static_cast<std::size_t>(4 + linkAddressSize) ||
+        frame.front() != 0x10 || frame.back() != 0x16) {
+        return false;
+    }
+    return frame[frame.size() - 2] == ft12Checksum(frame, 1, frame.size() - 2);
+}
+
+std::uint8_t IecCodec::ft12Control(const std::vector<std::uint8_t>& frame) {
+    if (frame.size() < 2) {
+        throw std::runtime_error("IEC FT1.2 frame is too short");
+    }
+    if (frame.front() == 0x10) {
+        return frame[1];
+    }
+    if (frame.front() == 0x68 && frame.size() >= 5) {
+        return frame[4];
+    }
+    throw std::runtime_error("unsupported IEC FT1.2 frame start");
+}
+
+bool IecCodec::ft12AccessDemand(const std::vector<std::uint8_t>& frame) {
+    return (ft12Control(frame) & 0x20U) != 0;
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec103ClassRequestFrame(
+    const IecProtocolConfig& config,
+    int dataClass,
+    bool frameCountBit
+) {
+    if (dataClass != 1 && dataClass != 2) {
+        throw std::invalid_argument("IEC103 data class must be 1 or 2");
+    }
+    const auto function = static_cast<std::uint8_t>(dataClass == 1 ? 10 : 11);
+    const auto control = static_cast<std::uint8_t>(
+        0x40U | 0x10U | (frameCountBit ? 0x20U : 0x00U) | function);
+    return buildFt12FixedFrame(control, config.linkAddress, config.linkAddressSize);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec103ResetCommunicationFrame(const IecProtocolConfig& config) {
+    return buildFt12FixedFrame(0x40, config.linkAddress, config.linkAddressSize);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec103RecordingDirectoryFrame(
+    const IecProtocolConfig& config,
+    bool frameCountBit
+) {
+    std::vector<std::uint8_t> userData;
+    userData.push_back(static_cast<std::uint8_t>(0x53U | (frameCountBit ? 0x20U : 0x00U)));
+    appendLe(userData, config.linkAddress, config.linkAddressSize);
+    userData.insert(userData.end(), {
+        0x18, 0x81, 0x1F,
+        static_cast<std::uint8_t>(config.commonAddress & 0xFF),
+        0xFF, 0x00, 0x18, 0x01, 0x00, 0x00, 0x00
+    });
+    std::vector<std::uint8_t> frame;
+    appendFt12VariableFrame(frame, userData);
+    return frame;
+}
+
+std::vector<Iec103DisturbanceRecord> IecCodec::decodeIec103RecordingDirectory(
+    const std::vector<std::uint8_t>& userData,
+    const IecProtocolConfig& config
+) {
+    const auto headerSize = static_cast<std::size_t>(1 + std::max(0, config.linkAddressSize));
+    if (userData.size() < headerSize + 6 || userData[headerSize] != 0x17) {
+        return {};
+    }
+    const int count = static_cast<int>(userData[headerSize + 1] & 0x7FU);
+    const int cause = userData[headerSize + 2] & 0x3F;
+    if (cause != 0x1F) {
+        return {};
+    }
+    std::size_t offset = headerSize + 6;
+    std::vector<Iec103DisturbanceRecord> records;
+    records.reserve(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        if (offset + 10 > userData.size()) {
+            throw std::runtime_error("IEC103 ASDU23 directory entry is truncated");
+        }
+        Iec103DisturbanceRecord record;
+        record.fan = readLe(userData, offset, 2);
+        record.state = userData[offset + 2];
+        record.timestampMs = decodeCp56Time2a(userData, offset + 3);
+        record.rawTimeHex = toHex(std::vector<std::uint8_t>(
+            userData.begin() + static_cast<std::ptrdiff_t>(offset + 3),
+            userData.begin() + static_cast<std::ptrdiff_t>(offset + 10)));
+        records.push_back(std::move(record));
+        offset += 10;
+    }
+    return records;
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec103ComtradeFileCallFrame(
+    const IecProtocolConfig& config,
+    int fan,
+    int fileType,
+    bool frameCountBit
+) {
+    if (fan < 0 || fan > 0xFFFF) {
+        throw std::invalid_argument("IEC103 disturbance FAN must be between 0 and 65535");
+    }
+    if (fileType != 0x51 && fileType != 0x52) {
+        throw std::invalid_argument("IEC103 COMTRADE file type must be 0x51 or 0x52");
+    }
+    std::vector<std::uint8_t> userData;
+    userData.push_back(static_cast<std::uint8_t>(0x53U | (frameCountBit ? 0x20U : 0x00U)));
+    appendLe(userData, config.linkAddress, config.linkAddressSize);
+    userData.insert(userData.end(), {
+        0x44, 0x81, 0x00,
+        static_cast<std::uint8_t>(config.commonAddress & 0xFF),
+        0xFF, static_cast<std::uint8_t>(fileType)
+    });
+    appendLe(userData, fan, 2);
+    std::vector<std::uint8_t> frame;
+    appendFt12VariableFrame(frame, userData);
+    return frame;
+}
+
+Iec103ComtradeChunk IecCodec::decodeIec103ComtradeChunk(
+    const std::vector<std::uint8_t>& userData,
+    const IecProtocolConfig& config
+) {
+    const auto headerSize = static_cast<std::size_t>(1 + std::max(0, config.linkAddressSize));
+    if (userData.size() < headerSize + 8 || userData[headerSize] != 0x50) {
+        throw std::runtime_error("IEC103 response is not an ASDU80 COMTRADE packet");
+    }
+    const int cause = userData[headerSize + 2] & 0x3F;
+    if (cause != 0x14) {
+        throw std::runtime_error("IEC103 ASDU80 has unexpected cause " + std::to_string(cause));
+    }
+    const auto sequenceLow = userData[headerSize + 6];
+    const auto sequenceHigh = userData[headerSize + 7];
+    Iec103ComtradeChunk chunk;
+    chunk.fileType = userData[headerSize + 5];
+    chunk.packetNumber = static_cast<int>(sequenceLow) |
+        (static_cast<int>(sequenceHigh & 0x7FU) << 8);
+    chunk.lastPacket = (sequenceHigh & 0x80U) != 0;
+    chunk.data.assign(
+        userData.begin() + static_cast<std::ptrdiff_t>(headerSize + 8),
+        userData.end());
+    if (chunk.data.size() > 240U) {
+        throw std::runtime_error("IEC103 ASDU80 payload exceeds 240 bytes");
+    }
+    chunk.rawHex = toHex(userData);
+    return chunk;
+}
+
+std::vector<std::uint8_t> IecCodec::buildAm5seUdpDiscoveryPacket(
+    std::int64_t unixTimeMs,
+    const std::string& stationName
+) {
+    std::vector<std::uint8_t> packet(41, 0);
+    packet[0] = 0xFF;
+    packet[1] = 0x01;
+    std::vector<std::uint8_t> time;
+    appendCp56Time2a(time, unixTimeMs);
+    std::copy(time.begin(), time.end(), packet.begin() + 2);
+    const auto stationBytes = std::min<std::size_t>(16U, stationName.size());
+    std::copy_n(stationName.begin(), stationBytes, packet.begin() + 9);
+    return packet;
 }
 
 bool IecCodec::isFt12VariableFrame(const std::vector<std::uint8_t>& frame) {
@@ -977,6 +1256,79 @@ std::vector<IecDataValue> IecCodec::decodeIec103Data(
     const int count = std::max(1, static_cast<int>(vsq & 0x7FU));
     const int cause = userData[offset++];
     const int commonAddress = userData[offset++];
+
+    if (typeId == 44) {
+        if (offset + 2 > userData.size()) {
+            return values;
+        }
+        const int functionType = userData[offset++];
+        const int baseInformationNumber = userData[offset++];
+        for (int block = 0; block < count; ++block) {
+            if (offset + 5 > userData.size()) {
+                throw std::runtime_error("IEC103 ASDU44 information element is truncated");
+            }
+            const auto states = static_cast<std::uint16_t>(readLe(userData, offset, 2));
+            for (int bit = 0; bit < 16; ++bit) {
+                IecDataValue value;
+                value.typeId = typeId;
+                value.cause = cause;
+                value.commonAddress = commonAddress;
+                value.functionType = functionType;
+                value.informationNumber = baseInformationNumber + block * 16 + bit;
+                value.ioa = value.functionType * 256 + value.informationNumber;
+                value.value = (states & (static_cast<std::uint16_t>(1U) << bit)) != 0 ? 1.0 : 0.0;
+                value.text = value.value > 0.0 ? "1" : "0";
+                value.rawHex = toHex(userData);
+                values.push_back(std::move(value));
+            }
+            offset += 5;
+        }
+        return values;
+    }
+
+    if (typeId == 10) {
+        if (offset + 4 > userData.size()) {
+            return values;
+        }
+        offset += 2;  // Generic classification FUN/INF (normally FE/F1).
+        offset += 1;  // Return information identifier.
+        const int genericCount = static_cast<int>(userData[offset++] & 0x3FU);
+        for (int i = 0; i < genericCount; ++i) {
+            if (offset + 6 > userData.size()) {
+                throw std::runtime_error("IEC103 ASDU10 generic identifier is truncated");
+            }
+            const int group = userData[offset++];
+            const int entry = userData[offset++];
+            offset += 1;  // KOD.
+            const int dataType = userData[offset++];
+            const int dataSize = userData[offset++];
+            const int number = userData[offset++];
+            const auto payloadBytes = static_cast<std::size_t>(dataSize) * static_cast<std::size_t>(number);
+            if (number <= 0 || offset + payloadBytes > userData.size()) {
+                throw std::runtime_error("IEC103 ASDU10 generic value is truncated");
+            }
+            if (group == 0 && entry > 0) {
+                IecDataValue value;
+                value.typeId = typeId;
+                value.cause = cause;
+                value.commonAddress = commonAddress;
+                value.functionType = config.deviceFunctionType;
+                value.informationNumber = 139 + entry;
+                value.ioa = value.functionType * 256 + value.informationNumber;
+                value.value = decodeGenericValue(userData, offset, dataType, dataSize);
+                value.text = std::to_string(value.value);
+                value.rawHex = toHex(userData);
+                values.push_back(std::move(value));
+            }
+            offset += payloadBytes;
+        }
+        return values;
+    }
+
+    if (typeId == 23 || typeId == 50) {
+        return values;
+    }
+
     for (int i = 0; i < count && offset + 2 <= userData.size(); ++i) {
         IecDataValue value;
         value.typeId = typeId;
@@ -1016,7 +1368,11 @@ bool IecCodec::pointMatches(const PointDefinition& point, const IecDataValue& va
         return false;
     }
     if (spec.typeId > 0 && spec.typeId != value.typeId) {
-        return false;
+        const bool iec103SignalFamily = spec.typeId == 44 &&
+            (value.typeId == 1 || value.typeId == 2 || value.typeId == 44);
+        if (!iec103SignalFamily) {
+            return false;
+        }
     }
     if (spec.cause > 0 && spec.cause != value.cause) {
         return false;

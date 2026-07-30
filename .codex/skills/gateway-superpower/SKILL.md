@@ -11,10 +11,31 @@ Use this skill whenever working on the Gateway-zk edge repository or the edge-ga
 
 - Edge repository: `D:\workspace\Embedded\Gateway-zk`
 - Platform repository: `D:\workspace\CloudPlatform\idea\edge-gateway`
-- Cross-compile host: `192.168.22.11`, user `root`, path `/mnt/hgfs/Embedded/Gateway-zk`
-- Edge device: `192.168.22.7`, user `root`
+- Cross-compile host: `192.168.22.11`, SSH user `root`
+- Persistent remote repository: `/srv/build/Gateway-zk`, owner/build user `tronlong`
+- Edge verification device: `192.168.22.16`, user `root`
 
-Never compile on the edge device. Build edge binaries only on the cross-compile host.
+The cross-compile host is a remote ESXi VM. It has no live HGFS, Windows-drive, WSL, or other
+mapped source directory. Never use `/mnt/hgfs/...` or `/mnt/d/...` as a source path on `192.168.22.11`.
+Old CMake caches and local VS Code/WSL tasks are not valid cross-build or release evidence.
+
+Before every edge build, connect to `192.168.22.11` and inspect the branch, commit, and worktree at
+`/srv/build/Gateway-zk`. Run Git and builds as `tronlong`; logging in as `root` is only the SSH entry
+point. Never compile on the edge device. Build releaseable edge binaries only on the cross-compile
+host; use `192.168.22.16` only for runtime verification.
+
+## Source Synchronization
+
+When the intended commit is pushed and the remote worktree is clean, synchronize with `git fetch`
+and `git pull --ff-only` as `tronlong`.
+
+When validating unpushed or staged changes, export the exact local Git index and upload it to a
+unique `/tmp/gateway-build-<id>` directory. Build there as `tronlong`, copy back only the selected
+artifacts, verify SHA256 on both hosts, and remove only that exact temporary directory.
+
+Never use `scp` or `rsync` to overwrite `/srv/build/Gateway-zk`. The remote persistent repository may
+contain work owned by another session. Do not run `git reset`, `git clean`, forced branch switches, or
+`rsync --delete` there.
 
 ## Verification
 
@@ -28,7 +49,9 @@ mvn -q test
 For edge EMS / compute changes, run on the cross-compile host:
 
 ```bash
-cd /mnt/hgfs/Embedded/Gateway-zk
+sudo -iu tronlong
+cd /srv/build/Gateway-zk
+git status --short --branch
 cmake --build build-aarch64 --target legacy_ems_test -j 4
 qemu-aarch64-static -L /home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc ./build-aarch64/legacy_ems_test
 cmake --build build-aarch64 --target ComputeEngine -j 4

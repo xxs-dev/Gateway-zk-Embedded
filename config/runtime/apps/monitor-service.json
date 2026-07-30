@@ -27,6 +27,10 @@
     "diagReplyTopic": "edge/system/diag/reply",
     "configPullRequestTopic": "edge/config/pull/request",
     "configPullReplyTopic": "edge/config/pull/reply",
+    "recordingRequestTopic": "edge/recording/request",
+    "recordingReplyTopic": "edge/recording/reply",
+    "recordingStatusTopic": "edge/recording/status",
+    "recordingAckTopic": "edge/recording/ack",
     "qos": 1,
     "controlQos": 2,
     "maxPayloadBytes": 163840,
@@ -185,8 +189,22 @@
         "failureThreshold": 3,
         "recoveryThreshold": 2,
         "cellularRouteMetric": 10,
-        "fallbackRouteMetric": 600
+        "fallbackRouteMetric": 600,
+        "dnsServers": [
+          "223.5.5.5",
+          "119.29.29.29"
+        ]
       }
+    },
+    "recordingTransfer": {
+      "enabled": true,
+      "queueFile": "/opt/modbus-gateway/data/iec103-recording-upload-queue.tsv",
+      "workDirectory": "/opt/modbus-gateway/data/iec103-recording-upload",
+      "curlExecutable": "curl",
+      "allowInsecureHttp": false,
+      "requestTimeoutSec": 180,
+      "retryBaseSec": 5,
+      "retryMaxSec": 300
     },
     "directMaintenance": {
       "enabled": true,

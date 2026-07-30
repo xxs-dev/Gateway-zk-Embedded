@@ -244,6 +244,50 @@ std::string resolveMachineCode(
     return "UNKNOWN";
 }
 
+class EdgeScadaRuntimeSource final : public ScadaSceneRuntimeSource {
+public:
+    EdgeScadaRuntimeSource(
+        const edge_gateway::ScadaProject& project,
+        std::string machineCode,
+        edge_gateway::PointStoreRouter& router
+    ) : runtime_(project, std::move(machineCode), router) {}
+
+    const std::string& nodeId() const override {
+        return runtime_.resolver().nodeId();
+    }
+
+    edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
+        const auto resolved = runtime_.resolver().resolveTag(tagId);
+        if (!resolved) return edge_gateway::NullOpt;
+        return ScadaSceneResolvedTag{resolved->tag, resolved->mapping};
+    }
+
+    edge_gateway::Optional<edge_gateway::StoredPointValue> readTag(
+        const std::string& tagId,
+        std::int64_t timestampMs
+    ) const override {
+        return runtime_.readTag(tagId, timestampMs);
+    }
+
+    std::vector<edge_gateway::StoredPointValue> readIndexes(
+        const std::vector<std::uint32_t>& indexes,
+        std::int64_t timestampMs
+    ) const override {
+        return runtime_.readIndexes(indexes, timestampMs);
+    }
+
+    ScadaSceneWriteResult submitWrite(
+        const std::string& tagId,
+        edge_gateway::PendingWriteCommand command
+    ) override {
+        const auto result = runtime_.submitWrite(tagId, std::move(command));
+        return {result.accepted, result.message};
+    }
+
+private:
+    edge_gateway::ScadaRuntimeMap runtime_;
+};
+
 class EmsQtWindow : public QWidget {
 public:
     EmsQtWindow(
@@ -723,12 +767,15 @@ int main(int argc, char* argv[]) {
         if (appConfig.localDisplay.scada.enabled) {
             ScadaRuntimeWindow window(
                 appConfig.localDisplay.scada.projectDirectory,
-                machineCode,
-                router,
                 appConfig.localDisplay.refreshIntervalMs > 0
                     ? appConfig.localDisplay.refreshIntervalMs
                     : refreshMs,
-                appConfig.localDisplay.scada.autoReload
+                appConfig.localDisplay.scada.autoReload,
+                [&machineCode, &router](const edge_gateway::ScadaProject& project) {
+                    return std::unique_ptr<ScadaSceneRuntimeSource>(
+                        new EdgeScadaRuntimeSource(project, machineCode, router)
+                    );
+                }
             );
             if (fullscreen) {
                 window.showFullScreen();

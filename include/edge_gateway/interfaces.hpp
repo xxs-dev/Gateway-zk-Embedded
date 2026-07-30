@@ -108,6 +108,9 @@ public:
         const std::string& payload
     ) = 0;
 
+    virtual void maintain() {
+    }
+
     virtual std::vector<MqttIncomingMessage> pollIncoming(int timeoutMs) = 0;
 };
 

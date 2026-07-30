@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "protocol": {
+    "type": "iec103",
+    "tcp": {
+      "host": "0.0.0.0",
+      "port": 1048,
+      "connectTimeoutMs": 1000,
+      "timeoutMs": 1000
+    },
+    "iec": {
+      "transportMode": "am5se_passive_tcp",
+      "listenAddress": "0.0.0.0",
+      "listenPort": 1048,
+      "allowedDeviceIp": "192.168.1.101",
+      "udpBindAddress": "0.0.0.0",
+      "udpBroadcastAddress": "255.255.255.255",
+      "udpPort": 1032,
+      "udpBroadcastIntervalSec": 30,
+      "stationName": "KY-GATEWAY",
+      "linkAddress": 1,
+      "linkAddressSize": 1,
+      "commonAddress": 1,
+      "cotSize": 1,
+      "caSize": 1,
+      "ioaSize": 2,
+      "interrogationCot": 9,
+      "returnInformationIdentifier": 233,
+      "deviceFunctionType": 4,
+      "pollTimeoutMs": 1000,
+      "maxPollFrames": 64,
+      "pollOnCollect": true,
+      "backgroundReceive": false,
+      "recordingDirectory": "/opt/modbus-gateway/data/iec103-recordings",
+      "recordingCommandSocket": "/run/modbus-gateway/iec103/device_am5se_iec103_tcp_example.sock",
+      "recordingTimeoutMs": 30000,
+      "recordingMaxFileBytes": 67108864
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1,
+    "maxRequestRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "shared_memory",
+    "sharedMemoryName": "gateway_point_store",
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_am5se_t.db"
+  },
+  "points": [
+    {
+      "index": 433001,
+      "pointCode": "protection_am5se_t_iec103_yx_100",
+      "name": "断路器合位",
+      "category": "signal",
+      "address": 0,
+      "enabled": true,
+      "fullUpload": true,
+      "reportOnChange": true,
+      "read": {
+        "enable": true,
+        "dataType": "bool",
+        "intervalMs": 1000,
+        "iec": {
+          "functionType": 4,
+          "informationNumber": 100,
+          "typeId": 44,
+          "commonAddress": 0
+        }
+      },
+      "write": {
+        "enable": false
+      }
+    },
+    {
+      "index": 433002,
+      "pointCode": "protection_am5se_t_iec103_yc_140",
+      "name": "A相电流",
+      "category": "telemetry",
+      "address": 0,
+      "enabled": true,
+      "fullUpload": true,
+      "read": {
+        "enable": true,
+        "dataType": "float32",
+        "intervalMs": 1000,
+        "iec": {
+          "functionType": 4,
+          "informationNumber": 140,
+          "typeId": 10,
+          "commonAddress": 0
+        }
+      },
+      "write": {
+        "enable": false
+      }
+    }
+  ],
+  "meters": []
+}

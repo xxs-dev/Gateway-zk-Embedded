@@ -11,9 +11,11 @@
 #endif
 
 #include "edge_gateway/common/command_executor_interface.hpp"
+#include "edge_gateway/am5se_iec103_client.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/iec_client.hpp"
+#include "edge_gateway/iec103_recording_command.hpp"
 #include "edge_gateway/iec_collector.hpp"
 #include "edge_gateway/iec_command_executor.hpp"
 #include "edge_gateway/memory_point_store.hpp"
@@ -55,7 +57,9 @@ void setProcessName(const std::string& name) {
 bool isTcpIecMode(const edge_gateway::DeviceConfig& config) {
     const auto type = config.protocol.type;
     return type == "iec104" || type == "iec103_tcp" ||
-        (type == "iec103" && config.protocol.iec.transportMode == "tcp");
+        (type == "iec103" &&
+            (config.protocol.iec.transportMode == "tcp" ||
+             config.protocol.iec.transportMode == "am5se_passive_tcp"));
 }
 
 std::int64_t currentTimeMs() {
@@ -73,12 +77,21 @@ int main(int argc, char* argv[]) {
     std::string appConfigPath = "config/runtime/apps/mqtt-service.json";
     bool useMock = false;
     bool once = false;
+    bool listRecordings = false;
+    int pullRecordingFan = -1;
+    std::string recordingOutputDirectory;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--mock") {
             useMock = true;
         } else if (arg == "--once") {
             once = true;
+        } else if (arg == "--list-recordings") {
+            listRecordings = true;
+        } else if (arg == "--pull-recording" && i + 1 < argc) {
+            pullRecordingFan = std::stoi(argv[++i]);
+        } else if (arg == "--recording-output" && i + 1 < argc) {
+            recordingOutputDirectory = argv[++i];
         } else if (arg == "--config" && i + 1 < argc) {
             configPath = argv[++i];
         } else if (arg == "--app-config" && i + 1 < argc) {
@@ -113,7 +126,11 @@ int main(int argc, char* argv[]) {
         if (useMock) {
             throw std::invalid_argument("--mock is not supported for IEC TCP");
         }
-        iecClient = std::make_shared<IecTcpClient>(config.protocol.type, config.protocol.tcp, config.protocol.iec);
+        if (config.protocol.iec.transportMode == "am5se_passive_tcp") {
+            iecClient = std::make_shared<Am5seIec103Client>(config.protocol.iec);
+        } else {
+            iecClient = std::make_shared<IecTcpClient>(config.protocol.type, config.protocol.tcp, config.protocol.iec);
+        }
     } else {
         SerialPortOptions serialOptions;
         serialOptions.device = config.protocol.transport.serialPort;
@@ -140,6 +157,31 @@ int main(int argc, char* argv[]) {
         }
 #endif
         iecClient = std::make_shared<IecSerialClient>(config.protocol.type, serialPort, serialOptions, config.protocol.iec);
+    }
+
+    if (listRecordings) {
+        const auto records = iecClient->listDisturbanceRecords(config.protocol.iec.recordingTimeoutMs);
+        for (const auto& record : records) {
+            std::cout << "fan=" << record.fan
+                      << " state=" << record.state
+                      << " timestampMs=" << record.timestampMs
+                      << " rawTime=" << record.rawTimeHex
+                      << std::endl;
+        }
+        return 0;
+    }
+    if (pullRecordingFan >= 0) {
+        const auto files = iecClient->pullComtradeRecording(
+            pullRecordingFan,
+            recordingOutputDirectory,
+            config.protocol.iec.recordingTimeoutMs);
+        std::cout << "fan=" << files.fan
+                  << " cfg=" << files.cfgPath
+                  << " cfgBytes=" << files.cfgBytes
+                  << " dat=" << files.datPath
+                  << " datBytes=" << files.datBytes
+                  << std::endl;
+        return 0;
     }
 
     if (!config.memoryStore.sharedMemoryName.empty()) {
@@ -175,6 +217,17 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+    std::unique_ptr<Iec103RecordingCommandServer> recordingCommandServer;
+    if (config.protocol.iec.transportMode == "am5se_passive_tcp") {
+        recordingCommandServer.reset(new Iec103RecordingCommandServer(
+            iecClient,
+            config.protocol.iec.recordingCommandSocket.empty()
+                ? defaultIec103RecordingSocketPath(configPath)
+                : config.protocol.iec.recordingCommandSocket,
+            config.protocol.iec.recordingDirectory,
+            config.protocol.iec.recordingTimeoutMs));
+        recordingCommandServer->start();
+    }
     daemon.start();
     const auto runtimeMeterCount = config.meters.empty() ? 1 : config.meters.size();
     std::cout << "iec driver started"
@@ -185,6 +238,9 @@ int main(int argc, char* argv[]) {
               << " meters=" << runtimeMeterCount
               << " sharedMemory=" << config.memoryStore.sharedMemoryName
               << " sqlite=" << config.memoryStore.sqlitePath
+              << " recordingSocket=" << (recordingCommandServer
+                    ? recordingCommandServer->socketPath()
+                    : "disabled")
               << " mqtt=disabled"
               << std::endl;
 
@@ -207,6 +263,9 @@ int main(int argc, char* argv[]) {
     }
 
     daemon.stop();
+    if (recordingCommandServer) {
+        recordingCommandServer->stop();
+    }
     std::cout << "iec driver stopped" << std::endl;
     return 0;
 }

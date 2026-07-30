@@ -27,6 +27,7 @@ stop_units() {
         'local-display@*.service' \
         'local-display-qt@*.service' \
         'qt-display-bridge.service' \
+        'gateway-cellular.service' \
         'gateway-network-failover.service' \
         'local-kiosk@*.service' \
         'ky-ems.service' \
@@ -47,6 +48,7 @@ stop_units() {
         'local-display@*.service' \
         'local-display-qt@*.service' \
         'qt-display-bridge.service' \
+        'gateway-cellular.service' \
         'gateway-network-failover.service' \
         'local-kiosk@*.service' \
         'ky-ems.service' \
@@ -55,7 +57,7 @@ stop_units() {
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'
-    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service" || $0 == "gateway-network-failover.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
+    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service" || $0 == "gateway-cellular.service" || $0 == "gateway-network-failover.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
   )
   [ -z "$units" ] && return 0
   # Stop all instances together so OTA/config switching is bounded by the slowest
@@ -411,6 +413,7 @@ if os.path.isfile(monitor_path):
         emit_unit(stunnel_unit_for_app(monitor_path))
         emit_unit(f"system-monitor@{monitor_app_name}.service")
     if route_failover_enabled:
+        emit_unit("gateway-cellular.service")
         emit_unit("gateway-network-failover.service")
     if local_display_enabled and local_display_native_qt:
         emit_unit("ky-ems.service")

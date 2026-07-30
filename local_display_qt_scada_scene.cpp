@@ -20,6 +20,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
@@ -68,6 +69,13 @@ QString formatNumber(double value) {
     return text;
 }
 
+Qt::PenStyle chartPenStyle(const QString& value) {
+    if (value.compare(QStringLiteral("DashLine"), Qt::CaseInsensitive) == 0) return Qt::DashLine;
+    if (value.compare(QStringLiteral("DotLine"), Qt::CaseInsensitive) == 0) return Qt::DotLine;
+    if (value.compare(QStringLiteral("DashDotLine"), Qt::CaseInsensitive) == 0) return Qt::DashDotLine;
+    return Qt::SolidLine;
+}
+
 bool isProgressType(const std::string& type) {
     return type == "progressBar" || type == "batterySoc" || type == "bilateralProgress" || type == "qtFillProgress";
 }
@@ -81,7 +89,7 @@ bool isButtonType(const std::string& type) {
 }
 
 bool isQtNativeTextType(const std::string& type) {
-    return type == "qtLabel" || type == "qtFrame" || type == "qtInput" || type == "qtCheckBox";
+    return type == "qtLabel" || type == "qtValue" || type == "qtFrame" || type == "qtInput" || type == "qtCheckBox";
 }
 
 bool isQtNativeVisualType(const std::string& type) {
@@ -115,7 +123,7 @@ ScadaSceneView::ScadaSceneView(
     const std::string& projectRoot,
     const std::vector<edge_gateway::ScadaAlarm>& alarms,
     const std::vector<edge_gateway::ScadaTrend>& trends,
-    edge_gateway::ScadaRuntimeMap& runtime,
+    ScadaSceneRuntimeSource& runtime,
     std::function<void(const std::string&)> navigate,
     QWidget* parent
 ) : QGraphicsView(parent),
@@ -162,6 +170,9 @@ void ScadaSceneView::buildScene() {
             widget.geometry.height
         );
         const auto imageReference = property(widget, "qtImageFile");
+        const auto imageOverlayText = property(widget, "qtText");
+        const auto imageHasTextOverlay =
+            (widget.type == "qtImage" || widget.type == "image") && !imageOverlayText.empty();
         if ((widget.type == "qtImage" || widget.type == "image") && !imageReference.empty()) {
             const auto imagePath = QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
             QPixmap pixmap(imagePath);
@@ -174,7 +185,7 @@ void ScadaSceneView::buildScene() {
                 ));
                 image->setPos(geometry.x(), geometry.y());
                 image->setZValue(widget.zIndex);
-                continue;
+                if (!imageHasTextOverlay && widget.bindings.empty()) continue;
             }
         }
 
@@ -214,20 +225,26 @@ void ScadaSceneView::buildScene() {
             continue;
         }
 
-        const auto qtNativeText = isQtNativeTextType(widget.type);
+        const auto qtNativeText = isQtNativeTextType(widget.type) || imageHasTextOverlay;
         const auto legacyQtWidget = !property(widget, "qtClass").empty();
         const auto qtNativeVisual = isQtNativeVisualType(widget.type) || legacyQtWidget;
         const auto qtFillProgress = widget.type == "qtFillProgress";
         const auto legacyQtProgress = isProgressType(widget.type) && legacyQtWidget;
         const auto alarmTable = widget.type == "alarmTable";
+        const auto configuredBackground = property(widget, "qtBackgroundColor");
+        const auto inputNeedsNativeBackground = widget.type == "qtInput" &&
+            (configuredBackground.empty() ||
+             QString::fromStdString(configuredBackground).compare(QStringLiteral("transparent"), Qt::CaseInsensitive) == 0);
         const auto background = colorOr(
-            property(widget, "qtBackgroundColor"),
+            inputNeedsNativeBackground ? "#D7E6F2" : configuredBackground,
             qtNativeVisual ? "transparent" : "#102A38"
         );
         auto* panel = scene_->addRect(
             geometry,
             alarmTable
                 ? QPen(QColor("#2C6078"), 1)
+                : widget.type == "qtInput"
+                    ? QPen(QColor("#6F8FA7"), 1)
                 : qtNativeVisual
                     ? QPen(Qt::NoPen)
                     : QPen(QColor("#275165"), 1),
@@ -251,13 +268,21 @@ void ScadaSceneView::buildScene() {
         runtimeWidget.type = widget.type;
         runtimeWidget.action = widget.action;
         runtimeWidget.panel = panel;
-        runtimeWidget.defaultColor = background.name().toStdString();
-        runtimeWidget.defaultImage = imageReference;
+        runtimeWidget.defaultLabel = property(widget, "defaultStateLabel");
+        const auto configuredDefaultColor = QColor(QString::fromStdString(property(widget, "defaultStateColor")));
+        runtimeWidget.defaultColor = configuredDefaultColor.isValid()
+            ? configuredDefaultColor.name().toStdString()
+            : background.name().toStdString();
+        runtimeWidget.defaultImage = property(widget, "defaultStateImage").empty()
+            ? imageReference
+            : property(widget, "defaultStateImage");
+        runtimeWidget.stateLabelVisible = property(widget, "stateLabelVisible") != "false";
         runtimeWidget.progressMax = numericProperty(widget, "progressMaxValue", 100.0);
         runtimeWidget.trendMaxPoints = std::max(2, static_cast<int>(numericProperty(widget, "chartMaxPoints", 120.0)));
+        runtimeWidget.valueMap = parseScadaValueMapJson(property(widget, "valueMapJson"));
         for (const auto& binding : widget.bindings) {
-            if (binding.nodeId != runtime_.resolver().nodeId()) continue;
-            const auto resolved = runtime_.resolver().resolveTag(binding.tagId);
+            if (binding.nodeId != runtime_.nodeId()) continue;
+            const auto resolved = runtime_.resolveTag(binding.tagId);
             if (resolved && resolved->mapping.index > 0) {
                 runtimeWidget.indexes.push_back(resolved->mapping.index);
             }
@@ -269,8 +294,8 @@ void ScadaSceneView::buildScene() {
                 if (!trendId.empty() && trend.trendId != trendId) continue;
                 runtimeWidget.trendMaxPoints = std::max(2, trend.maxPoints);
                 for (const auto& series : trend.series) {
-                    if (series.nodeId != runtime_.resolver().nodeId()) continue;
-                    const auto resolved = runtime_.resolver().resolveTag(series.tagId);
+                    if (series.nodeId != runtime_.nodeId()) continue;
+                    const auto resolved = runtime_.resolveTag(series.tagId);
                     if (resolved && resolved->mapping.index > 0) {
                         runtimeWidget.indexes.push_back(resolved->mapping.index);
                     }
@@ -289,11 +314,11 @@ void ScadaSceneView::buildScene() {
             rule.matchAny = sourceRule.match == "any";
             bool complete = true;
             for (const auto& sourceCondition : sourceRule.conditions) {
-                if (sourceCondition.nodeId != runtime_.resolver().nodeId()) {
+                if (sourceCondition.nodeId != runtime_.nodeId()) {
                     complete = false;
                     break;
                 }
-                const auto resolved = runtime_.resolver().resolveTag(sourceCondition.tagId);
+                const auto resolved = runtime_.resolveTag(sourceCondition.tagId);
                 if (!resolved || resolved->mapping.index == 0) {
                     complete = false;
                     break;
@@ -313,9 +338,9 @@ void ScadaSceneView::buildScene() {
         if (widget.type == "alarmTable") {
             const auto selectedAlarmId = property(widget, "alarmId");
             for (const auto& sourceAlarm : alarms_) {
-                if (sourceAlarm.nodeId != runtime_.resolver().nodeId()) continue;
+                if (sourceAlarm.nodeId != runtime_.nodeId()) continue;
                 if (!selectedAlarmId.empty() && sourceAlarm.alarmId != selectedAlarmId) continue;
-                const auto resolved = runtime_.resolver().resolveTag(sourceAlarm.tagId);
+                const auto resolved = runtime_.resolveTag(sourceAlarm.tagId);
                 if (!resolved || resolved->mapping.index == 0) continue;
                 RuntimeAlarm alarm;
                 alarm.label = sourceAlarm.alarmId;
@@ -363,10 +388,18 @@ void ScadaSceneView::buildScene() {
             1.0,
             geometry.width() - (alarmTable ? 36.0 : qtNativeText ? 0.0 : 24.0)
         ));
-        runtimeWidget.valueText->setPos(
-            geometry.x() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : 12.0),
-            geometry.y() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : std::min(38.0, geometry.height() * 0.42))
-        );
+        auto textX = geometry.x() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : 12.0);
+        auto textY = geometry.y() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : std::min(38.0, geometry.height() * 0.42));
+        if (imageHasTextOverlay) {
+            const auto textHeight = runtimeWidget.valueText->boundingRect().height();
+            const auto verticalAlignment = property(widget, "qtVerticalAlignment");
+            if (verticalAlignment == "Center") {
+                textY = geometry.y() + std::max(0.0, (geometry.height() - textHeight) / 2.0);
+            } else if (verticalAlignment == "Bottom") {
+                textY = geometry.bottom() - textHeight;
+            }
+        }
+        runtimeWidget.valueText->setPos(textX, textY);
         runtimeWidget.valueText->setZValue(widget.zIndex + 0.3);
         runtimeWidget.valueText->setVisible(!hideNativeValue);
 
@@ -401,17 +434,23 @@ void ScadaSceneView::buildScene() {
         }
 
         if (isProgressType(widget.type)) {
-            runtimeWidget.progressVertical = property(widget, "progressOrientation") == "vertical";
-            runtimeWidget.progressX = legacyQtProgress ? geometry.x() : geometry.x() + 12;
-            runtimeWidget.progressY = legacyQtProgress
-                ? geometry.y()
-                : geometry.bottom() - std::max(8.0, std::min(20.0, geometry.height() * 0.16)) - 12;
+            const auto progressOrientation = property(widget, "progressOrientation");
+            const auto configuredMaxWidth = numericProperty(widget, "progressMaxWidth", 0.0);
+            const auto configuredMaxHeight = numericProperty(widget, "progressMaxHeight", 0.0);
+            runtimeWidget.progressVertical = progressOrientation == "vertical" ||
+                (progressOrientation.empty() && configuredMaxHeight > 0.0 && configuredMaxWidth <= 0.0);
             runtimeWidget.progressWidth = legacyQtProgress
-                ? std::max(1.0, geometry.width())
+                ? std::max(1.0, configuredMaxWidth > 0.0 ? configuredMaxWidth : geometry.width())
                 : std::max(1.0, geometry.width() - 24);
             runtimeWidget.progressHeight = legacyQtProgress
-                ? std::max(1.0, geometry.height())
+                ? std::max(1.0, configuredMaxHeight > 0.0 ? configuredMaxHeight : geometry.height())
                 : std::max(8.0, std::min(20.0, geometry.height() * 0.16));
+            runtimeWidget.progressX = legacyQtProgress ? geometry.x() : geometry.x() + 12;
+            runtimeWidget.progressY = legacyQtProgress
+                ? (runtimeWidget.progressVertical
+                    ? geometry.bottom() - runtimeWidget.progressHeight
+                    : geometry.y())
+                : geometry.bottom() - runtimeWidget.progressHeight - 12;
             auto* track = scene_->addRect(
                 runtimeWidget.progressX,
                 runtimeWidget.progressY,
@@ -439,13 +478,13 @@ void ScadaSceneView::buildScene() {
 
         if (isTrendType(widget.type)) {
             const auto legacyChart = widget.type == "qtChart";
-            runtimeWidget.chartX = geometry.x() + (legacyChart ? 36 : 12);
+            runtimeWidget.chartX = geometry.x() + (legacyChart ? 58 : 44);
             runtimeWidget.chartY = geometry.y() + (legacyChart ? 30 : 42);
             runtimeWidget.chartWidth = std::max(
                 1.0,
-                geometry.width() * (legacyChart ? 0.76 : 1.0) - (legacyChart ? 54 : 24)
+                geometry.width() * (legacyChart ? 0.76 : 1.0) - (legacyChart ? 82 : 58)
             );
-            runtimeWidget.chartHeight = std::max(1.0, geometry.height() - (legacyChart ? 60 : 56));
+            runtimeWidget.chartHeight = std::max(1.0, geometry.height() - (legacyChart ? 70 : 66));
             QPen gridPen(QColor("#1C506B"), 1, Qt::DashLine);
             for (int line = 0; line <= 10; ++line) {
                 const auto x = runtimeWidget.chartX + runtimeWidget.chartWidth * static_cast<double>(line) / 10.0;
@@ -457,7 +496,51 @@ void ScadaSceneView::buildScene() {
                 auto* grid = scene_->addLine(runtimeWidget.chartX, y, runtimeWidget.chartX + runtimeWidget.chartWidth, y, gridPen);
                 grid->setZValue(widget.zIndex + 0.1);
             }
+            auto* border = scene_->addRect(
+                runtimeWidget.chartX,
+                runtimeWidget.chartY,
+                runtimeWidget.chartWidth,
+                runtimeWidget.chartHeight,
+                QPen(QColor("#347792"), 1),
+                QBrush(Qt::NoBrush)
+            );
+            border->setZValue(widget.zIndex + 0.15);
+
+            const QFont axisFont(QStringLiteral("Microsoft YaHei"), 9);
+            for (int line = 0; line <= 5; ++line) {
+                auto* label = scene_->addText(QStringLiteral("--"), axisFont);
+                label->setDefaultTextColor(QColor("#8FB0BF"));
+                label->setTextWidth(50);
+                auto option = label->document()->defaultTextOption();
+                option.setAlignment(Qt::AlignRight);
+                label->document()->setDefaultTextOption(option);
+                label->document()->setDocumentMargin(0);
+                label->setPos(
+                    runtimeWidget.chartX - 54,
+                    runtimeWidget.chartY + runtimeWidget.chartHeight * static_cast<double>(line) / 5.0 - 9
+                );
+                label->setZValue(widget.zIndex + 0.3);
+                runtimeWidget.chartYLabels.push_back(label);
+            }
+            for (int line = 0; line <= 4; ++line) {
+                auto* label = scene_->addText(QStringLiteral("--:--:--"), axisFont);
+                label->setDefaultTextColor(QColor("#8FB0BF"));
+                label->setTextWidth(64);
+                auto option = label->document()->defaultTextOption();
+                option.setAlignment(Qt::AlignHCenter);
+                label->document()->setDefaultTextOption(option);
+                label->document()->setDocumentMargin(0);
+                label->setPos(
+                    runtimeWidget.chartX + runtimeWidget.chartWidth * static_cast<double>(line) / 4.0 - 32,
+                    runtimeWidget.chartY + runtimeWidget.chartHeight + 5
+                );
+                label->setZValue(widget.zIndex + 0.3);
+                runtimeWidget.chartXLabels.push_back(label);
+            }
             std::unordered_map<std::uint32_t, QColor> seriesColors;
+            std::unordered_map<std::uint32_t, QString> seriesNames;
+            std::unordered_map<std::uint32_t, QString> seriesUnits;
+            std::unordered_map<std::uint32_t, Qt::PenStyle> seriesPenStyles;
             const auto seriesDocument = QJsonDocument::fromJson(
                 QString::fromStdString(property(widget, "chartSeriesJson")).toUtf8()
             );
@@ -467,6 +550,11 @@ void ScadaSceneView::buildScene() {
                     const auto index = static_cast<std::uint32_t>(object.value(QStringLiteral("index")).toInt());
                     const auto color = QColor(object.value(QStringLiteral("color")).toString());
                     if (index > 0 && color.isValid()) seriesColors[index] = color;
+                    if (index > 0) {
+                        seriesNames[index] = object.value(QStringLiteral("name")).toString();
+                        seriesUnits[index] = object.value(QStringLiteral("unit")).toString();
+                        seriesPenStyles[index] = chartPenStyle(object.value(QStringLiteral("penStyle")).toString());
+                    }
                 }
             }
             static const char* fallbackColors[] = {"#F9CC44", "#129A37", "#EF5350", "#FF9626", "#20DBE9", "#CB2B88"};
@@ -478,9 +566,49 @@ void ScadaSceneView::buildScene() {
                 const auto color = colorIt == seriesColors.end()
                     ? QColor(fallbackColors[seriesIndex % 6])
                     : colorIt->second;
-                series.path = scene_->addPath(QPainterPath(), QPen(color, 2));
+                series.name = seriesNames[index].isEmpty()
+                    ? std::string("Index ") + std::to_string(index)
+                    : seriesNames[index].toStdString();
+                series.unit = seriesUnits[index].toStdString();
+                const auto styleIt = seriesPenStyles.find(index);
+                series.path = scene_->addPath(
+                    QPainterPath(),
+                    QPen(color, 2, styleIt == seriesPenStyles.end() ? Qt::SolidLine : styleIt->second)
+                );
                 series.path->setZValue(widget.zIndex + 0.4 + static_cast<double>(seriesIndex) * 0.001);
                 runtimeWidget.trendSeries.push_back(series);
+
+                if (legacyChart) {
+                    const auto legendX = geometry.x() + geometry.width() * 0.80;
+                    const auto legendRows = std::max<std::size_t>(1, runtimeWidget.indexes.size());
+                    const auto legendRowHeight = std::min(
+                        30.0,
+                        std::max(20.0, (runtimeWidget.chartHeight - 44.0) / static_cast<double>(legendRows))
+                    );
+                    const auto legendY = runtimeWidget.chartY + 32.0 +
+                        static_cast<double>(seriesIndex) * legendRowHeight;
+                    const auto legendPenStyle = styleIt == seriesPenStyles.end() ? Qt::SolidLine : styleIt->second;
+                    auto* swatch = scene_->addLine(
+                        legendX,
+                        legendY + 7,
+                        legendX + 24,
+                        legendY + 7,
+                        QPen(color, 3, legendPenStyle)
+                    );
+                    swatch->setZValue(widget.zIndex + 0.35);
+                    auto* legend = scene_->addText(
+                        QString::fromStdString(series.name + (series.unit.empty() ? "" : " (" + series.unit + ")")),
+                        QFont(QStringLiteral("Microsoft YaHei"), 9)
+                    );
+                    legend->setDefaultTextColor(QColor("#C5D5DC"));
+                    legend->document()->setDocumentMargin(0);
+                    legend->setTextWidth(std::max(1.0, geometry.right() - legendX - 40.0));
+                    auto legendOption = legend->document()->defaultTextOption();
+                    legendOption.setWrapMode(QTextOption::NoWrap);
+                    legend->document()->setDefaultTextOption(legendOption);
+                    legend->setPos(legendX + 32, legendY);
+                    legend->setZValue(widget.zIndex + 0.35);
+                }
                 ++seriesIndex;
             }
         }
@@ -530,8 +658,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
                 widget.valueText->setPlainText(text);
                 widget.lastText = text.toStdString();
             }
-        } else if (!isTrendType(widget.type) &&
-                   !(widget.statusLamp != nullptr && !widget.stateRules.empty())) {
+        } else if (!isTrendType(widget.type) && widget.stateRules.empty()) {
             const auto text = valueText(widget, byIndex);
             const auto utf8 = text.toStdString();
             if (utf8 != widget.lastText) {
@@ -540,6 +667,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
             }
         }
 
+        refreshState(widget, byIndex);
         if (widget.indexes.empty()) continue;
         const auto value = byIndex.find(widget.indexes.front());
         const auto good = value != byIndex.end() && value->second.quality == 1 && !value->second.stale;
@@ -569,7 +697,6 @@ void ScadaSceneView::refresh(std::int64_t now) {
                 );
             }
         }
-        refreshState(widget, byIndex);
         refreshTrend(widget, byIndex);
     }
 }
@@ -581,8 +708,8 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
     }
     if (!isControlAction(action.type)) return;
 
-    const auto resolved = runtime_.resolver().resolveTag(action.tagId);
-    if (!resolved || resolved->tag.nodeId != runtime_.resolver().nodeId()) {
+    const auto resolved = runtime_.resolveTag(action.tagId);
+    if (!resolved || resolved->tag.nodeId != runtime_.nodeId()) {
         QMessageBox::warning(this, QStringLiteral("SCADA"), QStringLiteral("The control tag is not available on this edge."));
         return;
     }
@@ -666,19 +793,7 @@ bool ScadaSceneView::conditionMatches(
 ) const {
     const auto current = values.find(condition.index);
     if (current == values.end() || current->second.quality != 1 || current->second.stale) return false;
-    double expected = 0.0;
-    if (!parseDouble(condition.expected, &expected)) {
-        if (condition.expected == "true" || condition.expected == "on") expected = 1.0;
-        else if (condition.expected == "false" || condition.expected == "off") expected = 0.0;
-        else return false;
-    }
-    const auto actual = current->second.value;
-    if (condition.comparison == "ne") return std::fabs(actual - expected) > 1e-9;
-    if (condition.comparison == "gt") return actual > expected;
-    if (condition.comparison == "gte") return actual >= expected;
-    if (condition.comparison == "lt") return actual < expected;
-    if (condition.comparison == "lte") return actual <= expected;
-    return std::fabs(actual - expected) <= 1e-9;
+    return matchesScadaCondition(current->second.value, condition.comparison, condition.expected);
 }
 
 void ScadaSceneView::refreshState(
@@ -705,7 +820,11 @@ void ScadaSceneView::refreshState(
     const auto color = matched == nullptr
         ? colorOr(widget.defaultColor, "#102A38")
         : colorOr(matched->color, "#AAB3BD");
-    if (widget.panel != nullptr) widget.panel->setBrush(color);
+    if (widget.panel != nullptr) {
+        const auto imageOnlyState = widget.stateImage != nullptr &&
+            (widget.type == "statusLamp" || widget.type == "statusCard");
+        widget.panel->setBrush(imageOnlyState ? QBrush(Qt::NoBrush) : QBrush(color));
+    }
     if (widget.statusLamp != nullptr) widget.statusLamp->setBrush(matched == nullptr ? QColor("#71808A") : color);
     if (widget.stateImage != nullptr) {
         const auto imageReference = matched == nullptr ? widget.defaultImage : matched->image;
@@ -722,12 +841,15 @@ void ScadaSceneView::refreshState(
             }
         }
     }
-    if (widget.type == "statusLamp" || widget.type == "statusCard") {
-        if (widget.stateImage == nullptr) {
-            const auto label = matched != nullptr && !matched->label.empty() ? matched->label : std::string("--");
-            widget.valueText->setPlainText(QString::fromStdString(label));
-            widget.lastText = label;
-        }
+    if (widget.stateImage == nullptr && widget.valueText != nullptr && !isTrendType(widget.type)) {
+        const auto label = !widget.stateLabelVisible
+            ? std::string()
+            : matched != nullptr && !matched->label.empty()
+                ? matched->label
+                : widget.defaultLabel.empty() ? std::string("--") : widget.defaultLabel;
+        widget.valueText->setDefaultTextColor(matched == nullptr ? QColor("#AAB3BD") : QColor("#F3F8FA"));
+        widget.valueText->setPlainText(QString::fromStdString(label));
+        widget.lastText = label;
     }
 }
 
@@ -760,19 +882,46 @@ void ScadaSceneView::refreshTrend(
         maximum += 1.0;
     }
 
+    const auto padding = std::max(1e-6, (maximum - minimum) * 0.08);
+    minimum -= padding;
+    maximum += padding;
+
+    std::int64_t firstTs = std::numeric_limits<std::int64_t>::max();
+    std::int64_t lastTs = 0;
+    for (const auto& series : widget.trendSeries) {
+        if (series.samples.empty()) continue;
+        firstTs = std::min(firstTs, series.samples.front().first);
+        lastTs = std::max(lastTs, series.samples.back().first);
+    }
+    if (firstTs == std::numeric_limits<std::int64_t>::max()) return;
+
+    for (std::size_t line = 0; line < widget.chartYLabels.size(); ++line) {
+        const auto ratio = widget.chartYLabels.size() <= 1
+            ? 0.0
+            : static_cast<double>(line) / static_cast<double>(widget.chartYLabels.size() - 1);
+        widget.chartYLabels[line]->setPlainText(formatNumber(maximum - (maximum - minimum) * ratio));
+    }
+    for (std::size_t line = 0; line < widget.chartXLabels.size(); ++line) {
+        const auto ratio = widget.chartXLabels.size() <= 1
+            ? 0.0
+            : static_cast<double>(line) / static_cast<double>(widget.chartXLabels.size() - 1);
+        const auto ts = firstTs + static_cast<std::int64_t>(static_cast<double>(lastTs - firstTs) * ratio);
+        widget.chartXLabels[line]->setPlainText(
+            QDateTime::fromMSecsSinceEpoch(ts).toString(QStringLiteral("HH:mm:ss"))
+        );
+    }
+
     for (auto& series : widget.trendSeries) {
         QPainterPath path;
-        const auto count = series.samples.size();
-        std::size_t index = 0;
         for (const auto& sample : series.samples) {
-            const auto x = count < 2
+            const auto x = lastTs <= firstTs
                 ? widget.chartX
-                : widget.chartX + widget.chartWidth * static_cast<double>(index) / static_cast<double>(count - 1);
+                : widget.chartX + widget.chartWidth * static_cast<double>(sample.first - firstTs) /
+                    static_cast<double>(lastTs - firstTs);
             const auto ratio = (sample.second - minimum) / (maximum - minimum);
             const auto y = widget.chartY + widget.chartHeight * (1.0 - ratio);
-            if (index == 0) path.moveTo(x, y);
+            if (path.elementCount() == 0) path.moveTo(x, y);
             else path.lineTo(x, y);
-            ++index;
         }
         if (series.path != nullptr) series.path->setPath(path);
     }
@@ -809,7 +958,10 @@ QString ScadaSceneView::valueText(
         if (value == values.end() || value->second.quality != 1 || value->second.stale) {
             parts.push_back(QStringLiteral("--"));
         } else {
-            parts.push_back(formatNumber(value->second.value));
+            std::string mapped;
+            parts.push_back(resolveScadaValueLabel(widget.valueMap, value->second.value, &mapped)
+                ? QString::fromStdString(mapped)
+                : formatNumber(value->second.value));
         }
     }
     return parts.join(QStringLiteral("  "));
@@ -817,15 +969,13 @@ QString ScadaSceneView::valueText(
 
 ScadaRuntimeWindow::ScadaRuntimeWindow(
     const std::string& projectDirectory,
-    const std::string& machineCode,
-    edge_gateway::PointStoreRouter& router,
     int refreshIntervalMs,
     bool autoReload,
+    std::function<std::unique_ptr<ScadaSceneRuntimeSource>(const edge_gateway::ScadaProject&)> runtimeFactory,
     QWidget* parent
 ) : QWidget(parent),
     projectDirectory_(projectDirectory),
-    machineCode_(machineCode),
-    router_(router),
+    runtimeFactory_(std::move(runtimeFactory)),
     autoReload_(autoReload) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -858,7 +1008,8 @@ void ScadaRuntimeWindow::reloadProject(bool initial) {
     auto loaded = edge_gateway::ScadaProjectLoader::loadFromDirectory(projectDirectory_);
     if (loaded.screens.empty()) throw std::runtime_error("SCADA project has no screens for local runtime");
     project_ = std::move(loaded);
-    runtime_.reset(new edge_gateway::ScadaRuntimeMap(project_, machineCode_, router_));
+    runtime_ = runtimeFactory_(project_);
+    if (!runtime_) throw std::runtime_error("SCADA runtime source factory returned no source");
     setWindowTitle(QString::fromStdString(project_.manifest.projectName));
     rebuildScreens();
     loadedRevision_ = projectRevision();
@@ -876,25 +1027,39 @@ void ScadaRuntimeWindow::rebuildScreens() {
     views_.clear();
     screenIndexes_.clear();
     for (const auto& screen : project_.screens) {
-        auto* view = new ScadaSceneView(
-            screen,
-            project_.rootDirectory,
-            project_.alarms,
-            project_.trends,
-            *runtime_,
-            [this](const std::string& target) { showScreen(target); },
-            stack_
-        );
-        screenIndexes_[screen.screenId] = stack_->addWidget(view);
-        views_.push_back(view);
+        screenIndexes_[screen.screenId] = -1;
     }
     showScreen(project_.manifest.entryScreen);
 }
 
+int ScadaRuntimeWindow::buildScreen(const edge_gateway::ScadaScreen& screen) {
+    auto* view = new ScadaSceneView(
+        screen,
+        project_.rootDirectory,
+        project_.alarms,
+        project_.trends,
+        *runtime_,
+        [this](const std::string& target) { showScreen(target); },
+        stack_
+    );
+    const auto index = stack_->addWidget(view);
+    views_.push_back(view);
+    screenIndexes_[screen.screenId] = index;
+    return index;
+}
+
 void ScadaRuntimeWindow::showScreen(const std::string& screenId) {
-    const auto item = screenIndexes_.find(screenId);
+    auto item = screenIndexes_.find(screenId);
     if (item != screenIndexes_.end()) {
-        stack_->setCurrentIndex(item->second);
+        auto index = item->second;
+        if (index < 0) {
+            const auto screen = std::find_if(project_.screens.begin(), project_.screens.end(), [&](const auto& value) {
+                return value.screenId == screenId;
+            });
+            if (screen == project_.screens.end()) return;
+            index = buildScreen(*screen);
+        }
+        stack_->setCurrentIndex(index);
         refreshCurrent();
     } else if (stack_->count() > 0) {
         stack_->setCurrentIndex(0);
