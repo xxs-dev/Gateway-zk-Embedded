@@ -246,9 +246,9 @@ void verifyCollectorCachesFailedReadPerDataId() {
 
         const auto first = store.getLatestByIndex(645001, 1000);
         const auto second = store.getLatestByIndex(645002, 1000);
-        require(first.has_value() && first->quality == 0,
+        require(static_cast<bool>(first) && first->quality == 0,
                 "first point sharing a failed DLT645 DI must be stored with bad quality");
-        require(second.has_value() && second->quality == 0,
+        require(static_cast<bool>(second) && second->quality == 0,
                 "second point sharing a failed DLT645 DI must be stored with bad quality");
     }
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
