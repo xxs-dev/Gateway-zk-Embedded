@@ -814,6 +814,7 @@ install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/inst
 install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 if [ ! -f /etc/default/gateway-network-failover ]; then
   install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"

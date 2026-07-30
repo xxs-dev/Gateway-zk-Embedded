@@ -139,6 +139,12 @@
     "maxDiagOutputBytes": 16384,
     "configPullChunkBytes": 131072,
     "realtimeMeterLeaseFile": "/opt/modbus-gateway/run/realtime-meter-leases.json",
+    "scadaUpperComputerSafety": {
+      "enabled": true,
+      "projectDirectory": "/opt/modbus-gateway/scada/current",
+      "leaseFile": "/opt/modbus-gateway/run/scada-upper-computer-lease.json",
+      "reloadIntervalMs": 5000
+    },
     "allowedCommands": [
       "uptime",
       "free_m",
@@ -212,6 +218,13 @@
   "localDisplay": {
     "enabled": false,
     "renderer": "webkit",
+    "scada": {
+      "enabled": false,
+      "projectDirectory": "/opt/modbus-gateway/scada/current",
+      "packageFile": "",
+      "nodeId": "",
+      "autoReload": true
+    },
     "bindHost": "127.0.0.1",
     "port": 18080,
     "refreshIntervalMs": 1000,

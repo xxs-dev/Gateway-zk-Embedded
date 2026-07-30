@@ -40,6 +40,9 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/scada_project_loader.hpp"
+#include "edge_gateway/scada_runtime_map.hpp"
+#include "local_display_qt_scada_scene.hpp"
 
 namespace {
 
@@ -652,7 +655,7 @@ void printUsage(const char* argv0) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
-    std::string appConfigPath = "config/runtime/apps/monitor-service.json";
+    std::string appConfigPath = "/opt/modbus-gateway/config/runtime/apps/monitor-service.json";
     bool fullscreen = true;
     int refreshMs = 1000;
     std::size_t maxPoints = 500;
@@ -717,6 +720,25 @@ int main(int argc, char* argv[]) {
         const auto pointMeta = buildPointMeta(deviceConfigs, fallbackSharedMemoryName);
 
         QApplication app(argc, argv);
+        if (appConfig.localDisplay.scada.enabled) {
+            ScadaRuntimeWindow window(
+                appConfig.localDisplay.scada.projectDirectory,
+                machineCode,
+                router,
+                appConfig.localDisplay.refreshIntervalMs > 0
+                    ? appConfig.localDisplay.refreshIntervalMs
+                    : refreshMs,
+                appConfig.localDisplay.scada.autoReload
+            );
+            if (fullscreen) {
+                window.showFullScreen();
+            } else {
+                window.resize(1280, 720);
+                window.show();
+            }
+            return app.exec();
+        }
+
         EmsQtWindow window(
             appConfig.localDisplay,
             machineCode,

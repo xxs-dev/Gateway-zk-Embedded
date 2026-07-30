@@ -323,7 +323,8 @@ int main(int argc, char* argv[]) {
         router,
         publisher,
         std::move(eventOutbox),
-        std::move(otaService)
+        std::move(otaService),
+        appConfig.systemMonitor.scadaUpperComputerSafety
     );
     service.setAgcAvcCommandMailboxRuntime(agcAvcCommandMailbox);
 

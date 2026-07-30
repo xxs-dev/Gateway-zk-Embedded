@@ -26,6 +26,8 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/scada_control_lease.hpp"
+#include "edge_gateway/scada_upper_computer_safety.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
 
 #ifndef _WIN32
@@ -813,6 +815,13 @@ std::string realtimePointsJson(const SystemMonitorDirectMaintenanceConfig& confi
     const auto values = meterCode.empty()
         ? context->router.getAllLatest(ts)
         : context->router.getLatestByMeter(machineCode, meterCode, ts);
+    if (config.scadaUpperComputerSafetyEnabled) {
+        edge_gateway::ScadaUpperComputerSafetyMonitor::writeHeartbeat(
+            config.scadaUpperComputerLeaseFile,
+            machineCode,
+            ts
+        );
+    }
     const auto limit = config.maxRealtimePoints <= 0
         ? values.size()
         : std::min(values.size(), static_cast<std::size_t>(config.maxRealtimePoints));
@@ -887,6 +896,7 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
 edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
     edge_gateway::OtaRequest request;
     request.jobId = jsonString(body, "jobId", "DIRECT_OTA_" + std::to_string(nowMs()));
+    request.packageType = jsonString(body, "packageType", "full");
     request.artifactUrl = jsonString(body, "artifactUrl");
     request.version = jsonString(body, "version");
     request.sha256 = jsonString(body, "sha256");
@@ -1991,6 +2001,24 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
 
     const auto requestId = jsonString(body, "requestId", "CTRL_BATCH_" + std::to_string(requestTs));
     const auto commands = parseBatchControlCommands(body);
+    const auto hasScadaCommand = std::any_of(commands.begin(), commands.end(), [](const DirectControlCommand& command) {
+        return command.source.rfind("scada-windows:", 0) == 0;
+    });
+    if (hasScadaCommand && config.scadaUpperComputerSafetyEnabled) {
+        edge_gateway::SystemMonitorConfig::ScadaUpperComputerSafetyConfig safetyConfig;
+        safetyConfig.enabled = config.scadaUpperComputerSafetyEnabled;
+        safetyConfig.projectDirectory = config.scadaUpperComputerProjectDirectory;
+        safetyConfig.leaseFile = config.scadaUpperComputerLeaseFile;
+        std::string leaseMessage;
+        if (!edge_gateway::ScadaControlLease::isFresh(
+                safetyConfig.projectDirectory,
+                safetyConfig.leaseFile,
+                machineCode,
+                requestTs,
+                &leaseMessage)) {
+            throw std::runtime_error(leaseMessage);
+        }
+    }
     edge_gateway::PriorityControlLease priorityLease(
         context->appConfig.mqttDriver.priorityControlLeaseFile,
         "system-monitor-direct-maintenance"
@@ -2203,8 +2231,8 @@ std::string startOtaJob(const SystemMonitorDirectMaintenanceConfig& config, cons
     }
 
     auto request = parseOtaRequest(body);
-    const auto packageType = jsonString(body, "packageType", "full");
-    if (packageType != "full" && packageType != "config") {
+    const auto packageType = request.packageType.empty() ? std::string("full") : request.packageType;
+    if (packageType != "full" && packageType != "config" && packageType != "scada") {
         return response(400, "Bad Request", "{\"success\":false,\"message\":\"unsupported packageType\"}");
     }
 
@@ -2338,7 +2366,7 @@ std::string handleRequest(
         return response(
             200,
             "OK",
-            "{\"supportedPackageTypes\":[\"config\",\"full\"],\"directUpload\":false,\"message\":\"full OTA job can be started from an artifact URL with the maintenance password\"}"
+            "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"],\"directUpload\":false,\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}"
         );
     }
     if (method == "GET" && path == "/api/v1/ota/status") {
@@ -2652,6 +2680,12 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
                 }
                 break;
             }
+
+            timeval clientTimeout{};
+            clientTimeout.tv_sec = 10;
+            clientTimeout.tv_usec = 0;
+            ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &clientTimeout, sizeof(clientTimeout));
+            ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &clientTimeout, sizeof(clientTimeout));
 
             if (!isClientAllowed(config, clientAddr)) {
                 const auto peer = sockaddrToString(clientAddr);

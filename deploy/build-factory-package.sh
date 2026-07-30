@@ -8,6 +8,7 @@ PACKAGE_PROFILE="${PACKAGE_PROFILE:-full}"
 EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
 COMPONENT_VERSION="1.0"
 TMP_DIR="${TMPDIR:-/tmp}/gateway-factory-defaults.$$"
+OUT_TMP=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -56,6 +57,7 @@ case "$PACKAGE_PROFILE" in
 esac
 
 cleanup() {
+  [ -z "$OUT_TMP" ] || rm -f "$OUT_TMP"
   rm -rf "$TMP_DIR"
 }
 
@@ -217,7 +219,16 @@ if [ -d "$ROOT_DIR/ky-ems" ]; then
 fi
 
 mkdir -p "$(dirname "$OUT")"
-tar -C "$TMP_DIR" -czf "$OUT" gateway-factory-defaults
+PACKAGE_ARCHIVE="$TMP_DIR/gateway-factory-defaults.tar.gz"
+tar -C "$TMP_DIR" -czf "$PACKAGE_ARCHIVE" gateway-factory-defaults
+tar -tzf "$PACKAGE_ARCHIVE" >/dev/null
+
+OUT_TMP="$OUT.tmp.$$"
+cp "$PACKAGE_ARCHIVE" "$OUT_TMP"
+tar -tzf "$OUT_TMP" >/dev/null
+mv -f "$OUT_TMP" "$OUT"
+OUT_TMP=""
+tar -tzf "$OUT" >/dev/null
 
 echo "factory package created: $OUT"
 echo "factory package profile: $PACKAGE_PROFILE"

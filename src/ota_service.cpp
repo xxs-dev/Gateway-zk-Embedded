@@ -372,6 +372,10 @@ void validateOtaRequestFields(const OtaRequest& request) {
     if (!isSafeSha256(request.sha256)) {
         throw std::runtime_error("invalid ota sha256");
     }
+    if (!request.packageType.empty() && request.packageType != "full" &&
+        request.packageType != "config" && request.packageType != "scada") {
+        throw std::runtime_error("unsupported ota packageType");
+    }
     if (request.artifactUrl.empty() || hasControlCharacter(request.artifactUrl)) {
         throw std::runtime_error("invalid ota artifactUrl");
     }
@@ -848,7 +852,8 @@ void OtaService::execute(
 std::string OtaService::resolveArtifactPath(const OtaRequest& request) const {
     std::string fileName;
     if (!request.version.empty()) {
-        fileName = request.version + "." + config_.packageType;
+        const auto packageExtension = request.packageType == "scada" ? "kyscada" : config_.packageType;
+        fileName = request.version + "." + packageExtension;
     } else {
         fileName = artifactFileName(resolveArtifactSource(request));
     }

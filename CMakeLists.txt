@@ -52,6 +52,10 @@ add_library(edge_gateway
     src/power_control_ownership.cpp
     src/priority_control_lease.cpp
     src/read_task_planner.cpp
+    src/scada_project_loader.cpp
+    src/scada_runtime_map.cpp
+    src/scada_control_lease.cpp
+    src/scada_upper_computer_safety.cpp
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
     src/sysfs_gpio_port.cpp
@@ -123,13 +127,13 @@ target_compile_options(QtDisplayBridge PRIVATE -fdiagnostics-color=never)
 
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6Widgets_FOUND)
-    add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp)
+    add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp)
     target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt6::Widgets)
     target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
 else()
     find_package(Qt5 COMPONENTS Widgets QUIET)
     if(Qt5Widgets_FOUND)
-        add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp)
+        add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp)
         target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt5::Widgets)
         target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
     else()
@@ -204,6 +208,14 @@ target_compile_options(memory_point_store_lifecycle_test PRIVATE -fdiagnostics-c
 add_executable(point_store_router_normalize_test tools/point_store_router_normalize_test.cpp)
 target_link_libraries(point_store_router_normalize_test PRIVATE edge_gateway)
 target_compile_options(point_store_router_normalize_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(scada_runtime_test tools/scada_runtime_test.cpp)
+target_link_libraries(scada_runtime_test PRIVATE edge_gateway)
+target_compile_options(scada_runtime_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(scada_upper_computer_safety_test tools/scada_upper_computer_safety_test.cpp)
+target_link_libraries(scada_upper_computer_safety_test PRIVATE edge_gateway)
+target_compile_options(scada_upper_computer_safety_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(builtin_mqtt_driver_publisher_test tools/builtin_mqtt_driver_publisher_test.cpp)
 target_link_libraries(builtin_mqtt_driver_publisher_test PRIVATE edge_gateway)

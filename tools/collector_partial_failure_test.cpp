@@ -184,6 +184,7 @@ edge_gateway::DeviceConfig buildConfig(const std::string& sharedMemoryName) {
     config.collect.defaultIntervalMs = 100;
     config.collect.maxBatchRegisters = 1;
     config.collect.maxTasksPerMeterPerCycle = 2;
+    config.collect.cycleBackoffEnabled = false;
     config.memoryStore.sharedMemoryName = sharedMemoryName;
     config.memoryStore.maxLatestPoints = 128;
     config.memoryStore.maxPendingWrites = 16;
@@ -1036,6 +1037,39 @@ void verifyRealtimeFocusedUsesShortTaskBackoff() {
     cleanupStore(storeName);
 }
 
+void verifyCycleBackoffSkipsConfiguredTaskCycles() {
+    const std::string storeName = "gateway_collector_task_cycle_backoff_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.cycleBackoffEnabled = true;
+        config.collect.taskFailureBackoffThreshold = 1;
+        config.collect.taskFailureBackoffCycles = 1;
+        config.collect.taskFailureBackoffMaxCycles = 1;
+        config.collect.slaveFailureBackoffThreshold = 100;
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(0, 123);
+        client->failStart(10);
+
+        edge_gateway::Collector collector(config, store, client);
+        auto collected = collector.collectOnce(2500);
+        require(collected.executedTasks.size() == 2, "first cycle should execute both tasks");
+        require(client->readCount(10) == 1, "failed task should be attempted on the first cycle");
+
+        collected = collector.collectOnce(2600);
+        require(collected.executedTasks.size() == 1, "configured cycle backoff should skip one cycle");
+        require(collected.executedTasks.front().start == 0, "healthy task should continue during cycle backoff");
+        require(client->readCount(10) == 1, "failed task should not be read during the skipped cycle");
+
+        collected = collector.collectOnce(2700);
+        require(collected.executedTasks.size() == 2, "failed task should retry after the skipped cycle");
+        require(client->readCount(10) == 2, "failed task should be read again after cycle backoff");
+    }
+    cleanupStore(storeName);
+}
+
 void verifyRealtimeFocusedOverridesPreviousLongTaskBackoff() {
     const std::string storeName = "gateway_collector_realtime_override_backoff_test";
     cleanupStore(storeName);
@@ -1136,6 +1170,7 @@ int main() {
         verifyBackedOffBadPointRefreshesBeforeBudget();
         verifyFailedTaskBackoffDoesNotSkipHealthyTask();
         verifyFailedTaskCanBackoffAfterOneFailure();
+        verifyCycleBackoffSkipsConfiguredTaskCycles();
         verifyFailedBatchCanSplitAndKeepGoodSubPoints();
         verifyFailedSplitCanFallBackToSinglePointReads();
         verifyLeafSplitProbeBudgetRotates();

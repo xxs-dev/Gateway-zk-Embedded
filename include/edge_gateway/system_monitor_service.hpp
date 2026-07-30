@@ -11,6 +11,7 @@
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/scada_upper_computer_safety.hpp"
 
 namespace edge_gateway {
 
@@ -136,6 +137,7 @@ private:
     std::string machineCode_;
     std::vector<std::string> configFiles_;
     PointStoreRouter* router_ = nullptr;
+    std::unique_ptr<ScadaUpperComputerSafetyMonitor> scadaSafetyMonitor_;
     std::atomic<bool> running_{false};
     std::thread thread_;
     mutable std::map<std::string, MonitorLease> leases_;
