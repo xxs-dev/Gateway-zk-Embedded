@@ -51,8 +51,70 @@ std::string directoryOf(const std::string& path) {
     return pos == std::string::npos ? std::string() : path.substr(0, pos);
 }
 
-std::string graphCmdId(std::uint32_t index, std::int64_t nowMs) {
-    return "GRAPH_EMS_" + std::to_string(index) + "_" + std::to_string(nowMs);
+std::string base36(std::uint64_t value) {
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    std::string result;
+    do {
+        result.push_back(digits[value % 36]);
+        value /= 36;
+    } while (value != 0);
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+std::uint32_t commandTokenHash(const std::string& value) {
+    std::uint32_t hash = 2166136261U;
+    for (const auto ch : value) {
+        hash ^= static_cast<unsigned char>(ch);
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
+std::string commandToken(std::string value) {
+    if (value.empty()) {
+        value = "unknown";
+    }
+    for (auto& ch : value) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c) == 0 && ch != '_' && ch != '-') {
+            ch = '_';
+        }
+    }
+    return value;
+}
+
+std::string hex32(std::uint32_t value) {
+    static const char digits[] = "0123456789abcdef";
+    std::string result(8, '0');
+    for (int i = 7; i >= 0; --i) {
+        result[static_cast<std::size_t>(i)] = digits[value & 0x0fU];
+        value >>= 4U;
+    }
+    return result;
+}
+
+std::string graphCmdId(
+    const std::string& ruleCode,
+    const std::string& nodeId,
+    std::uint32_t index,
+    std::int64_t nowMs,
+    std::uint64_t sequence
+) {
+    auto rule = commandToken(ruleCode);
+    auto node = commandToken(nodeId);
+    const auto identityHash = hex32(commandTokenHash(ruleCode + "\x1f" + nodeId));
+    const auto suffix = "_" + identityHash + "_" + base36(index) + "_" +
+        base36(nowMs > 0 ? static_cast<std::uint64_t>(nowMs) : 0U) + "_" + base36(sequence);
+    constexpr std::size_t maxStoredLength = 63;
+    const std::string prefix = "GRAPH_EMS_";
+    const std::size_t fixedLength = prefix.size() + 1 + suffix.size();
+    const std::size_t tokenBudget = fixedLength < maxStoredLength ? maxStoredLength - fixedLength : 2;
+    const std::size_t ruleLength = std::max<std::size_t>(1, (tokenBudget + 1) / 2);
+    const std::size_t nodeLength = std::max<std::size_t>(1, tokenBudget - std::min(tokenBudget, ruleLength));
+    rule.resize(std::min(rule.size(), ruleLength));
+    node.resize(std::min(node.size(), nodeLength));
+    return prefix + rule + "_" + node + suffix;
 }
 
 bool directoryExists(const std::string& path) {
@@ -582,6 +644,9 @@ int localHourFromEpochMs(std::int64_t nowMs) {
 
 int localTimeComponentFromEpochMs(std::int64_t nowMs, const std::string& component) {
     const auto localTime = localTimeFromEpochMs(nowMs);
+    if (component == "dayofmonth" || component == "day") {
+        return localTime.tm_mday;
+    }
     if (component == "minute") {
         return localTime.tm_min;
     }
@@ -595,6 +660,23 @@ int localTimeComponentFromEpochMs(std::int64_t nowMs, const std::string& compone
         return localTime.tm_wday == 0 ? 7 : localTime.tm_wday;
     }
     return localTime.tm_hour;
+}
+
+int voltageQualityDayKey(std::int64_t minuteKey) {
+    const auto localTime = localTimeFromEpochMs(minuteKey * 60000LL);
+    const auto year = localTime.tm_year + 1900;
+    const auto month = localTime.tm_mon + 1;
+    return year * 10000 + month * 100 + localTime.tm_mday;
+}
+
+std::pair<double, double> voltageQualityLimits(double nominalVoltage) {
+    if (std::abs(nominalVoltage - 220.0) < 0.5) {
+        return std::make_pair(198.0, 235.4);
+    }
+    if (std::abs(nominalVoltage - 380.0) < 0.5) {
+        return std::make_pair(353.4, 406.6);
+    }
+    throw std::runtime_error("voltageQualification nominal voltage must be 220V or 380V");
 }
 
 bool isFiniteNonZero(double value) {
@@ -717,7 +799,9 @@ std::unordered_map<std::string, std::string> parseParams(const JsonObject& nodeO
         "activeBaseIndexes", "reactiveBaseIndexes",
         "activeInputIndexes", "reactiveInputIndexes",
         "activeOutputIndexes", "reactiveOutputIndexes",
-        "loadIndexes", "lowStateClearIndexes", "highStateClearIndexes"
+        "loadIndexes", "lowStateClearIndexes", "highStateClearIndexes",
+        "inputIndexes", "nominalVoltages", "minuteAverageOutputIndexes",
+        "enableMaskIndexes"
     };
     for (const auto* name : numberArrays) {
         flattenNumberArray(name);
@@ -731,7 +815,7 @@ std::unordered_map<std::string, std::string> parseParams(const JsonObject& nodeO
             const auto& candidate = candidates[i]->asObject();
             const char* fields[] = {
                 "name", "target", "merge", "direction", "enableIndex", "enableValue",
-                "totalIndex", "defaultValue"
+                "totalIndex", "defaultValue", "runOutputIndex"
             };
             for (const auto* field : fields) {
                 if (const auto* value = findValue(candidate, field)) {
@@ -796,6 +880,12 @@ std::unordered_map<std::string, std::string> parseParams(const JsonObject& nodeO
             }
             if (const auto* targetSoc = findValue(itemObject, "targetSoc")) {
                 params["scheduleCurve." + std::to_string(i) + ".targetSoc"] = scalarToString(*targetSoc);
+            }
+            const char* indexFields[] = {"powerIndex", "targetSocIndex", "modeIndex"};
+            for (const auto* field : indexFields) {
+                if (const auto* value = findValue(itemObject, field)) {
+                    params["scheduleCurve." + std::to_string(i) + "." + field] = scalarToString(*value);
+                }
             }
         }
     }
@@ -998,11 +1088,11 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
             node.params.count("component") ? node.params.at("component") : "hour"
         );
         static const std::set<std::string> supportedComponents = {
-            "hour", "minute", "second", "minuteofday", "weekday"
+            "dayofmonth", "day", "hour", "minute", "second", "minuteofday", "weekday"
         };
         if (supportedComponents.find(component) == supportedComponents.end()) {
             throw std::runtime_error(
-                "timeSource component must be hour, minute, second, minuteOfDay, or weekday"
+                "timeSource component must be dayOfMonth, hour, minute, second, minuteOfDay, or weekday"
             );
         }
         if (!hasParam(node, "outputIndex")) {
@@ -1055,6 +1145,69 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         return;
     }
 
+    if (node.type == "voltageQualification") {
+        validateIndexArray(node, "inputIndexes", 1, 16);
+        validateIndexArray(node, "minuteAverageOutputIndexes", 1, 16);
+        const auto inputCount = paramCount(node, "inputIndexes");
+        if (paramCount(node, "nominalVoltages") != inputCount ||
+            paramCount(node, "minuteAverageOutputIndexes") != inputCount) {
+            throw std::runtime_error(
+                "voltageQualification inputIndexes, nominalVoltages, and minuteAverageOutputIndexes must have equal counts"
+            );
+        }
+        for (std::size_t i = 0; i < inputCount; ++i) {
+            const auto nominal = paramDouble(node, "nominalVoltages." + std::to_string(i));
+            if (!nominal || !std::isfinite(*nominal)) {
+                throw std::runtime_error("voltageQualification nominalVoltages must be finite numbers");
+            }
+            voltageQualityLimits(*nominal);
+        }
+        const auto sampleIntervalMs = paramDouble(node, "sampleIntervalMs").value_or(200.0);
+        if (!std::isfinite(sampleIntervalMs) || sampleIntervalMs != 200.0) {
+            throw std::runtime_error("voltageQualification sampleIntervalMs must be 200 for GB/T 12325 statistics");
+        }
+        const auto minimumCoverage = paramDouble(node, "minimumCoveragePercent").value_or(90.0);
+        if (!std::isfinite(minimumCoverage) || minimumCoverage <= 0.0 || minimumCoverage > 100.0) {
+            throw std::runtime_error("voltageQualification minimumCoveragePercent must be in (0, 100]");
+        }
+        const auto passThreshold = paramDouble(node, "passThresholdPercent").value_or(95.0);
+        if (!std::isfinite(passThreshold) || passThreshold < 0.0 || passThreshold > 100.0) {
+            throw std::runtime_error("voltageQualification passThresholdPercent must be in [0, 100]");
+        }
+
+        static const char* scalarOutputs[] = {
+            "minuteStatusOutputIndex", "minuteSampleCoverageOutputIndex",
+            "dayKeyOutputIndex", "dayMonitoredMinutesOutputIndex",
+            "dayOverlimitMinutesOutputIndex", "dayInvalidMinutesOutputIndex",
+            "dayQualifiedRateOutputIndex", "dayAvailabilityRateOutputIndex",
+            "dayPassOutputIndex", "completedDayKeyOutputIndex",
+            "completedDayMonitoredMinutesOutputIndex", "completedDayOverlimitMinutesOutputIndex",
+            "completedDayInvalidMinutesOutputIndex", "completedDayQualifiedRateOutputIndex",
+            "completedDayAvailabilityRateOutputIndex", "completedDayPassOutputIndex"
+        };
+        std::set<std::uint32_t> outputIndexes;
+        for (const auto index : paramIndexes(node, "minuteAverageOutputIndexes")) {
+            if (!outputIndexes.insert(index).second) {
+                throw std::runtime_error("voltageQualification output indexes must be unique");
+            }
+        }
+        for (const auto* key : scalarOutputs) {
+            if (!hasParam(node, key)) {
+                throw std::runtime_error(std::string("voltageQualification ") + key + " is required");
+            }
+            validatePositiveIndex(node, key);
+            if (!outputIndexes.insert(paramIndex(node, key)).second) {
+                throw std::runtime_error("voltageQualification output indexes must be unique");
+            }
+        }
+        for (const auto input : paramIndexes(node, "inputIndexes")) {
+            if (outputIndexes.find(input) != outputIndexes.end()) {
+                throw std::runtime_error("voltageQualification input and output indexes must differ");
+            }
+        }
+        return;
+    }
+
     if (node.type == "windowAggregate") {
         if (!hasParam(node, "inputIndex") || !hasParam(node, "outputIndex")) {
             throw std::runtime_error("windowAggregate inputIndex and outputIndex are required");
@@ -1102,16 +1255,31 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
                     throw std::runtime_error(std::string("scheduleSelect ") + field + " must be finite");
                 }
             }
+            validatePositiveIndex(node, prefix + "powerIndex");
+            validatePositiveIndex(node, prefix + "targetSocIndex");
+            validatePositiveIndex(node, prefix + "modeIndex");
         }
         const bool hasPowerOutput = hasParam(node, "powerOutputIndex");
         const bool hasSocOutput = hasParam(node, "socOutputIndex");
         const bool hasModeOutput = hasParam(node, "modeOutputIndex");
-        if (!hasPowerOutput && !hasSocOutput && !hasModeOutput) {
+        const bool hasEnableOutput = hasParam(node, "enableOutputIndex");
+        if (!hasPowerOutput && !hasSocOutput && !hasModeOutput && !hasEnableOutput) {
             throw std::runtime_error("scheduleSelect requires at least one output index");
         }
         validatePositiveIndex(node, "powerOutputIndex");
         validatePositiveIndex(node, "socOutputIndex");
         validatePositiveIndex(node, "modeOutputIndex");
+        validatePositiveIndex(node, "enableOutputIndex");
+        const auto enableMaskCount = paramCount(node, "enableMaskIndexes");
+        if (enableMaskCount > 2) {
+            throw std::runtime_error("scheduleSelect supports at most two 16-bit enable masks");
+        }
+        if (enableMaskCount > 0) {
+            validateIndexArray(node, "enableMaskIndexes");
+            if (!hasEnableOutput) {
+                throw std::runtime_error("scheduleSelect enable masks require enableOutputIndex");
+            }
+        }
         return;
     }
 
@@ -1151,6 +1319,7 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
             }
             validatePositiveIndex(node, prefix + "enableIndex");
             validatePositiveIndex(node, prefix + "totalIndex");
+            validatePositiveIndex(node, prefix + "runOutputIndex");
             const auto indexesCount = paramCount(node, prefix + "indexes");
             const bool hasTotal = hasParam(node, prefix + "totalIndex");
             if (hasTotal == (indexesCount > 0)) {
@@ -1522,6 +1691,7 @@ bool isKnownNodeType(const std::string& type) {
         "formula",
         "timeSource",
         "windowAggregate",
+        "voltageQualification",
         "scheduleSelect",
         "phaseArbiter",
         "powerConstraint",
@@ -1615,9 +1785,15 @@ std::vector<const GraphEmsNodeConfig*> executionOrder(const GraphEmsConfig& conf
     return ordered;
 }
 
-void validateGraph(const GraphEmsConfig& config) {
-    if (config.schemaVersion.empty() || (config.schemaVersion != "1" && config.schemaVersion.rfind("1.", 0) != 0)) {
-        throw std::runtime_error("unsupported graph schemaVersion; only major version 1 is supported");
+bool hasSchemaMajor(const std::string& schemaVersion, const std::string& major) {
+    return schemaVersion == major || schemaVersion.rfind(major + ".", 0) == 0;
+}
+
+void validateGraph(const GraphEmsConfig& config, const std::string& expectedMajor) {
+    if (!hasSchemaMajor(config.schemaVersion, expectedMajor)) {
+        throw std::runtime_error(
+            "unsupported graph schemaVersion; expected major version " + expectedMajor
+        );
     }
     if (config.maxNodes == 0 || config.maxNodes > 1024 || config.maxEdges == 0 || config.maxEdges > 4096) {
         throw std::runtime_error("graph limits exceed supported range");
@@ -1657,21 +1833,390 @@ void validateGraph(const GraphEmsConfig& config) {
     }
 }
 
-}  // namespace
+bool isSafeGraphIdentifier(const std::string& value) {
+    if (value.empty() || value.size() > 256 || !std::isalnum(static_cast<unsigned char>(value.front()))) {
+        return false;
+    }
+    for (const auto ch : value) {
+        if (std::isalnum(static_cast<unsigned char>(ch)) == 0 && ch != '_' && ch != '-' && ch != '.') {
+            return false;
+        }
+    }
+    return true;
+}
 
-GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
+std::uint32_t strictPositiveIndex(const JsonValue& value, const std::string& context) {
+    if (!value.isNumber()) {
+        throw std::runtime_error(context + " must be a positive integer index");
+    }
+    const auto number = value.asNumber();
+    if (!std::isfinite(number) || number <= 0.0 || std::floor(number) != number ||
+        number > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+        throw std::runtime_error(context + " must be a positive integer index");
+    }
+    return static_cast<std::uint32_t>(number);
+}
+
+std::uint32_t strictPositiveIntegerMember(
+    const JsonObject& object,
+    const char* key,
+    std::uint32_t maximum,
+    const std::string& context
+) {
+    const auto* value = findValue(object, key);
+    if (value == nullptr || !value->isNumber()) {
+        throw std::runtime_error(context + "." + key + " is required and must be an integer");
+    }
+    const auto number = value->asNumber();
+    if (!std::isfinite(number) || number <= 0.0 || std::floor(number) != number ||
+        number > static_cast<double>(maximum)) {
+        throw std::runtime_error(context + "." + key + " is outside the supported range");
+    }
+    return static_cast<std::uint32_t>(number);
+}
+
+int strictNodeOrder(const JsonObject& object, int defaultValue, const std::string& context) {
+    const auto* value = findValue(object, "order");
+    if (value == nullptr || value->isNull()) {
+        return defaultValue;
+    }
+    if (!value->isNumber()) {
+        throw std::runtime_error(context + ".order must be a non-negative integer");
+    }
+    const auto number = value->asNumber();
+    if (!std::isfinite(number) || number < 0.0 || std::floor(number) != number ||
+        number > static_cast<double>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error(context + ".order must be a non-negative integer");
+    }
+    return static_cast<int>(number);
+}
+
+std::string decodeJsonPointerSegment(const std::string& encoded, const std::string& context) {
+    if (encoded.empty()) {
+        throw std::runtime_error(context + " contains an empty JSON pointer segment");
+    }
+    std::string decoded;
+    decoded.reserve(encoded.size());
+    for (std::size_t i = 0; i < encoded.size(); ++i) {
+        if (encoded[i] != '~') {
+            decoded.push_back(encoded[i]);
+            continue;
+        }
+        if (i + 1 >= encoded.size() || (encoded[i + 1] != '0' && encoded[i + 1] != '1')) {
+            throw std::runtime_error(context + " contains an invalid JSON pointer escape");
+        }
+        decoded.push_back(encoded[++i] == '0' ? '~' : '/');
+    }
+    if (decoded.empty() || decoded == "." || decoded == ".." || decoded.find('.') != std::string::npos ||
+        decoded.find('\\') != std::string::npos) {
+        throw std::runtime_error(context + " contains an unsupported JSON pointer segment");
+    }
+    return decoded;
+}
+
+std::string runtimePathToParamKey(const std::string& runtimePath, const std::string& context) {
+    if (runtimePath.size() < 2 || runtimePath.front() != '/') {
+        throw std::runtime_error(context + ".runtimePath must be a non-empty JSON pointer");
+    }
+    std::string result;
+    std::size_t begin = 1;
+    while (begin <= runtimePath.size()) {
+        const auto end = runtimePath.find('/', begin);
+        const auto encoded = runtimePath.substr(
+            begin,
+            end == std::string::npos ? std::string::npos : end - begin
+        );
+        const auto decoded = decodeJsonPointerSegment(encoded, context + ".runtimePath");
+        if (!result.empty()) {
+            result.push_back('.');
+        }
+        result += decoded;
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+    return result;
+}
+
+void flattenV2Parameter(
+    const JsonValue& value,
+    const std::string& key,
+    std::unordered_map<std::string, std::string>& params,
+    const std::string& context
+) {
+    if (value.isNull()) {
+        return;
+    }
+    if (value.isObject()) {
+        for (const auto& member : value.asObject().values) {
+            if (member.key.empty() || member.key.find('.') != std::string::npos) {
+                throw std::runtime_error(context + " contains an unsupported parameter name");
+            }
+            flattenV2Parameter(
+                *member.value,
+                key.empty() ? member.key : key + "." + member.key,
+                params,
+                context
+            );
+        }
+        return;
+    }
+    if (value.isArray()) {
+        params[key + ".count"] = std::to_string(value.asArray().values.size());
+        for (std::size_t i = 0; i < value.asArray().values.size(); ++i) {
+            flattenV2Parameter(
+                *value.asArray().values[i],
+                key + "." + std::to_string(i),
+                params,
+                context
+            );
+        }
+        return;
+    }
+    if (key.empty()) {
+        throw std::runtime_error(context + " must be a JSON object");
+    }
+    const auto scalar = scalarToString(value);
+    if (scalar.empty() && !value.isString()) {
+        throw std::runtime_error(context + " contains an unsupported parameter value");
+    }
+    params[key] = scalar;
+}
+
+std::unordered_map<std::string, std::string> parseV2Parameters(
+    const JsonObject& nodeObject,
+    const std::string& context
+) {
+    if (findValue(nodeObject, "params") != nullptr) {
+        throw std::runtime_error(context + " uses legacy params; V2 requires parameters");
+    }
+    std::unordered_map<std::string, std::string> params;
+    const auto* parameters = findValue(nodeObject, "parameters");
+    if (parameters == nullptr || parameters->isNull()) {
+        return params;
+    }
+    if (!parameters->isObject()) {
+        throw std::runtime_error(context + ".parameters must be a JSON object");
+    }
+    flattenV2Parameter(*parameters, std::string(), params, context + ".parameters");
+    return params;
+}
+
+void materializeRuntimeParameter(
+    std::unordered_map<std::string, std::string>& params,
+    const std::string& parameterKey,
+    const std::string& value
+) {
+    params[parameterKey] = value;
+    std::size_t segmentBegin = 0;
+    std::string prefix;
+    while (segmentBegin < parameterKey.size()) {
+        const auto segmentEnd = parameterKey.find('.', segmentBegin);
+        const auto segment = parameterKey.substr(
+            segmentBegin,
+            segmentEnd == std::string::npos ? std::string::npos : segmentEnd - segmentBegin
+        );
+        bool numeric = !segment.empty();
+        for (const auto ch : segment) {
+            if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+                numeric = false;
+                break;
+            }
+        }
+        if (numeric && !prefix.empty()) {
+            const auto countKey = prefix + ".count";
+            const auto requiredCount = static_cast<std::size_t>(std::stoul(segment)) + 1;
+            const auto existing = params.find(countKey);
+            const auto currentCount = existing == params.end()
+                ? static_cast<std::size_t>(0)
+                : static_cast<std::size_t>(std::stoul(existing->second));
+            if (requiredCount > currentCount) {
+                params[countKey] = std::to_string(requiredCount);
+            }
+        }
+        if (!prefix.empty()) {
+            prefix.push_back('.');
+        }
+        prefix += segment;
+        if (segmentEnd == std::string::npos) {
+            break;
+        }
+        segmentBegin = segmentEnd + 1;
+    }
+}
+
+std::uint32_t strictIndexString(const std::string& value, const std::string& context) {
+    try {
+        std::size_t consumed = 0;
+        const auto parsed = std::stoull(value, &consumed);
+        if (consumed != value.size() || parsed == 0 || parsed > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::runtime_error(context + " must contain a positive integer index");
+        }
+        return static_cast<std::uint32_t>(parsed);
+    } catch (const std::exception&) {
+        throw std::runtime_error(context + " must contain a positive integer index");
+    }
+}
+
+struct GraphEmsV2Port {
+    std::string id;
+    std::string direction;
+    std::string valueType;
+    std::string unit;
+    std::string parameterKey;
+    bool required = true;
+    std::string bindingKind;
+    bool hasBinding = false;
+    bool hasIndex = false;
+    std::uint32_t index = 0;
+    bool hasConstant = false;
+    std::string constant;
+};
+
+struct GraphEmsV2Node {
+    GraphEmsNodeConfig runtime;
+    int order = 0;
+    std::vector<GraphEmsV2Port> ports;
+};
+
+std::string graphPortKey(const std::string& nodeId, const std::string& portId) {
+    return nodeId + "\x1f" + portId;
+}
+
+bool isNumericPortType(const std::string& valueType) {
+    return valueType == "number" || valueType == "power" || valueType == "soc";
+}
+
+bool isKnownV2ValueType(const std::string& valueType) {
+    return valueType == "any" || valueType == "number" || valueType == "boolean" ||
+        valueType == "enum" || valueType == "power" || valueType == "soc" || valueType == "state";
+}
+
+bool asciiEqualsIgnoreCase(const std::string& left, const std::string& right) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        const auto leftByte = static_cast<unsigned char>(left[i]);
+        const auto rightByte = static_cast<unsigned char>(right[i]);
+        const auto normalizedLeft = leftByte >= 'A' && leftByte <= 'Z' ? leftByte - 'A' + 'a' : leftByte;
+        const auto normalizedRight = rightByte >= 'A' && rightByte <= 'Z' ? rightByte - 'A' + 'a' : rightByte;
+        if (normalizedLeft != normalizedRight) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool compatibleV2Ports(const GraphEmsV2Port& source, const GraphEmsV2Port& target) {
+    const auto typeCompatible = source.valueType.empty() || target.valueType.empty() ||
+        source.valueType == "any" || target.valueType == "any" || source.valueType == target.valueType ||
+        (isNumericPortType(source.valueType) && isNumericPortType(target.valueType));
+    const auto unitCompatible = source.unit.empty() || target.unit.empty() ||
+        asciiEqualsIgnoreCase(source.unit, target.unit);
+    return typeCompatible && unitCompatible;
+}
+
+GraphEmsV2Port parseV2Port(
+    const JsonObject& portObject,
+    const std::string& nodeId,
+    const std::unordered_map<std::string, std::string>& params
+) {
+    GraphEmsV2Port port;
+    const auto context = "node " + nodeId + " port " + stringValue(portObject, "id");
+    port.id = stringValue(portObject, "id");
+    if (!isSafeGraphIdentifier(port.id)) {
+        throw std::runtime_error(context + " has an invalid id");
+    }
+    port.direction = normalizedToken(stringValue(portObject, "direction"));
+    if (port.direction != "input" && port.direction != "output" && port.direction != "target") {
+        throw std::runtime_error(context + " has an unsupported direction");
+    }
+    port.valueType = normalizedToken(stringValue(portObject, "valueType", "number"));
+    if (!isKnownV2ValueType(port.valueType)) {
+        throw std::runtime_error(context + " has an unsupported valueType");
+    }
+    port.unit = stringValue(portObject, "unit");
+    port.required = boolValue(portObject, "required", true);
+    port.parameterKey = runtimePathToParamKey(stringValue(portObject, "runtimePath"), context);
+
+    const auto* bindingValue = findValue(portObject, "binding");
+    if (bindingValue != nullptr && !bindingValue->isNull()) {
+        if (!bindingValue->isObject()) {
+            throw std::runtime_error(context + ".binding must be a JSON object");
+        }
+        port.hasBinding = true;
+        const auto& binding = bindingValue->asObject();
+        port.bindingKind = normalizedToken(stringValue(binding, "kind"));
+        if (port.bindingKind != "point" && port.bindingKind != "automatic" &&
+            port.bindingKind != "constant") {
+            throw std::runtime_error(context + " has an unsupported binding kind");
+        }
+        if (const auto* index = findValue(binding, "index")) {
+            if (!index->isNull()) {
+                port.index = strictPositiveIndex(*index, context + ".binding.index");
+                port.hasIndex = true;
+            }
+        }
+        if (const auto* constant = findValue(binding, "constant")) {
+            if (constant->isObject() || constant->isArray()) {
+                throw std::runtime_error(context + ".binding.constant must be a scalar value");
+            }
+            if (!constant->isNull()) {
+                port.constant = scalarToString(*constant);
+                port.hasConstant = true;
+            }
+        }
+        const auto pointCode = stringValue(binding, "pointCode");
+        const auto semanticRole = stringValue(binding, "semanticRole");
+        if (port.bindingKind == "constant") {
+            if (!port.hasConstant || port.hasIndex) {
+                throw std::runtime_error(context + " constant binding must contain only a constant value");
+            }
+        } else {
+            if (!port.hasIndex) {
+                if (!pointCode.empty() || !semanticRole.empty()) {
+                    throw std::runtime_error(
+                        context + " has pointCode/semanticRole without a materialized binding.index"
+                    );
+                }
+                throw std::runtime_error(context + " binding.index was not materialized");
+            }
+            if (port.hasConstant) {
+                throw std::runtime_error(context + " index binding cannot also contain a constant");
+            }
+        }
+    }
+
+    const auto existing = params.find(port.parameterKey);
+    if (existing != params.end() && port.hasIndex &&
+        strictIndexString(existing->second, context + ".parameters." + port.parameterKey) != port.index) {
+        throw std::runtime_error(
+            context + " binding.index does not match node.parameters at runtimePath"
+        );
+    }
+    if (existing != params.end() && port.hasConstant && existing->second != port.constant) {
+        throw std::runtime_error(
+            context + " binding.constant does not match node.parameters at runtimePath"
+        );
+    }
+    return port;
+}
+
+JsonValue readGraphJson(const std::string& path) {
     std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
     if (!input.is_open()) {
         throw std::runtime_error("failed to open graph EMS config file: " + path);
     }
-
     std::stringstream buffer;
     buffer << input.rdbuf();
-    const auto root = JsonParser(buffer.str()).parse();
-    const auto& object = root.asObject();
+    return JsonParser(buffer.str()).parse();
+}
 
+GraphEmsConfig parseLegacyV1Graph(const JsonObject& object) {
     GraphEmsConfig config;
-    config.schemaVersion = stringValue(object, "schemaVersion", config.schemaVersion);
+    config.schemaVersion = stringValue(object, "schemaVersion", "1.0.0");
     config.graphCode = stringValue(object, "graphCode", config.graphCode);
     if (const auto* limitsValue = findValue(object, "limits")) {
         const auto& limits = limitsValue->asObject();
@@ -1686,7 +2231,6 @@ GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
             static_cast<std::uint32_t>(config.maxEdges)
         ));
     }
-
     if (const auto* nodes = findValue(object, "nodes")) {
         for (const auto& item : nodes->asArray().values) {
             const auto& nodeObject = item->asObject();
@@ -1698,7 +2242,6 @@ GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
             config.nodes.push_back(std::move(node));
         }
     }
-
     if (const auto* edges = findValue(object, "edges")) {
         for (const auto& item : edges->asArray().values) {
             const auto& edgeObject = item->asObject();
@@ -1708,9 +2251,307 @@ GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
             config.edges.push_back(std::move(edge));
         }
     }
-
-    validateGraph(config);
+    validateGraph(config, "1");
     return config;
+}
+
+GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
+    GraphEmsConfig config;
+    config.schemaVersion = stringValue(object, "schemaVersion", config.schemaVersion);
+    if (!hasSchemaMajor(config.schemaVersion, "2")) {
+        throw std::runtime_error("production GraphEms loader requires schemaVersion major 2");
+    }
+    config.graphCode = stringValue(object, "graphCode");
+    if (!isSafeGraphIdentifier(config.graphCode)) {
+        throw std::runtime_error("V2 graphCode is required and has an invalid format");
+    }
+    if (findValue(object, "edges") != nullptr) {
+        throw std::runtime_error("V2 graph must use typed links instead of legacy edges");
+    }
+
+    const auto* compileValue = findValue(object, "compile");
+    if (compileValue == nullptr || !compileValue->isObject()) {
+        throw std::runtime_error("V2 graph compile object is required");
+    }
+    const auto& compile = compileValue->asObject();
+    config.maxNodes = strictPositiveIntegerMember(compile, "maxNodes", 1024, "compile");
+    config.maxEdges = strictPositiveIntegerMember(compile, "maxEdges", 4096, "compile");
+    const auto virtualIndexStart = strictPositiveIntegerMember(
+        compile,
+        "virtualIndexStart",
+        std::numeric_limits<std::uint32_t>::max(),
+        "compile"
+    );
+    const auto virtualIndexEnd = strictPositiveIntegerMember(
+        compile,
+        "virtualIndexEnd",
+        std::numeric_limits<std::uint32_t>::max(),
+        "compile"
+    );
+    config.preserveImportedBehavior = boolValue(compile, "preserveImportedBehavior", false);
+    if (virtualIndexEnd < virtualIndexStart) {
+        throw std::runtime_error("compile.virtualIndexEnd must be greater than or equal to virtualIndexStart");
+    }
+
+    std::vector<GraphEmsV2Node> nodes;
+    const auto* nodesValue = findValue(object, "nodes");
+    if (nodesValue == nullptr || !nodesValue->isArray()) {
+        throw std::runtime_error("V2 graph nodes array is required");
+    }
+    if (nodesValue->asArray().values.size() > config.maxNodes) {
+        throw std::runtime_error("V2 source node count exceeds compile.maxNodes");
+    }
+    std::unordered_set<std::string> nodeIds;
+    for (std::size_t i = 0; i < nodesValue->asArray().values.size(); ++i) {
+        const auto& nodeObject = nodesValue->asArray().values[i]->asObject();
+        GraphEmsV2Node node;
+        node.runtime.id = stringValue(nodeObject, "id");
+        if (!isSafeGraphIdentifier(node.runtime.id) || !nodeIds.insert(node.runtime.id).second) {
+            throw std::runtime_error("V2 graph contains an invalid or duplicate node id");
+        }
+        node.runtime.type = stringValue(nodeObject, "type");
+        node.runtime.enabled = boolValue(nodeObject, "enabled", node.runtime.enabled);
+        node.order = strictNodeOrder(nodeObject, static_cast<int>(i), "node " + node.runtime.id);
+        node.runtime.params = parseV2Parameters(nodeObject, "node " + node.runtime.id);
+
+        const auto* portsValue = findValue(nodeObject, "ports");
+        if (portsValue == nullptr || !portsValue->isArray()) {
+            throw std::runtime_error("node " + node.runtime.id + " ports array is required");
+        }
+        std::unordered_set<std::string> portIds;
+        std::unordered_set<std::string> runtimePaths;
+        for (const auto& portValue : portsValue->asArray().values) {
+            auto port = parseV2Port(portValue->asObject(), node.runtime.id, node.runtime.params);
+            if (!portIds.insert(port.id).second) {
+                throw std::runtime_error("node " + node.runtime.id + " contains a duplicate port id");
+            }
+            if (!runtimePaths.insert(port.parameterKey).second) {
+                throw std::runtime_error("node " + node.runtime.id + " contains duplicate port runtimePath values");
+            }
+            if (node.runtime.type == "pointInput" && port.direction != "output") {
+                throw std::runtime_error("pointInput node " + node.runtime.id + " may only expose output ports");
+            }
+            if (port.direction != "input" && port.bindingKind == "constant") {
+                throw std::runtime_error("node " + node.runtime.id + " output/target port cannot bind a constant");
+            }
+            node.ports.push_back(std::move(port));
+        }
+        nodes.push_back(std::move(node));
+    }
+
+    std::sort(nodes.begin(), nodes.end(), [](const GraphEmsV2Node& left, const GraphEmsV2Node& right) {
+        if (left.order != right.order) {
+            return left.order < right.order;
+        }
+        return left.runtime.id < right.runtime.id;
+    });
+
+    std::unordered_map<std::string, GraphEmsV2Node*> nodeById;
+    std::unordered_map<std::string, GraphEmsV2Port*> portByKey;
+    std::unordered_map<std::uint32_t, std::string> producedIndexOwners;
+    std::unordered_set<std::uint32_t> targetIndexes;
+    for (auto& node : nodes) {
+        nodeById[node.runtime.id] = &node;
+        for (auto& port : node.ports) {
+            portByKey[graphPortKey(node.runtime.id, port.id)] = &port;
+            if (port.direction == "output" || port.direction == "target") {
+                if (!port.hasIndex) {
+                    throw std::runtime_error(
+                        "node " + node.runtime.id + " port " + port.id + " requires a materialized binding.index"
+                    );
+                }
+                if (port.bindingKind == "automatic" && node.runtime.type != "pointInput" &&
+                    port.direction == "output" &&
+                    (port.index < virtualIndexStart || port.index > virtualIndexEnd)) {
+                    throw std::runtime_error(
+                        "node " + node.runtime.id + " automatic output index is outside compile virtual range"
+                    );
+                }
+                if (node.runtime.type != "pointInput" && port.direction == "output") {
+                    const auto currentOwner = node.runtime.id + "." + port.id +
+                        " (order=" + std::to_string(node.order) + ")";
+                    const auto existingOwner = producedIndexOwners.find(port.index);
+                    if (existingOwner != producedIndexOwners.end()) {
+                        if (!config.preserveImportedBehavior) {
+                            throw std::runtime_error(
+                                "V2 graph contains duplicate executable output indexes: " +
+                                std::to_string(port.index)
+                            );
+                        }
+                        config.loadWarnings.push_back(
+                            "preserveImportedBehavior allowed duplicate executable output index " +
+                            std::to_string(port.index) + ": first " + existingOwner->second +
+                            ", duplicate " + currentOwner +
+                            "; profile misconfiguration may cause same-cycle overwrite"
+                        );
+                    } else {
+                        producedIndexOwners.emplace(port.index, currentOwner);
+                    }
+                }
+                if (port.direction == "target" && !targetIndexes.insert(port.index).second) {
+                    if (!config.preserveImportedBehavior) {
+                        throw std::runtime_error("V2 graph contains duplicate device target indexes");
+                    }
+                    config.loadWarnings.push_back(
+                        "preserveImportedBehavior allowed duplicate device target index " +
+                        std::to_string(port.index) + " at " + node.runtime.id + "." + port.id
+                    );
+                }
+                if (node.runtime.enabled &&
+                    (port.direction == "output" || port.direction == "target")) {
+                    GraphEmsIndexClaim claim;
+                    claim.index = port.index;
+                    claim.nodeId = node.runtime.id;
+                    claim.portId = port.id;
+                    claim.kind = port.direction;
+                    claim.order = node.order;
+                    config.indexClaims.push_back(std::move(claim));
+                }
+                materializeRuntimeParameter(node.runtime.params, port.parameterKey, std::to_string(port.index));
+            }
+        }
+    }
+
+    std::set<std::pair<std::string, std::string>> executionEdges;
+    std::unordered_set<std::string> linkIds;
+    std::unordered_set<std::string> linkedInputs;
+    const auto* linksValue = findValue(object, "links");
+    if (linksValue == nullptr || !linksValue->isArray()) {
+        throw std::runtime_error("V2 graph links array is required");
+    }
+    if (linksValue->asArray().values.size() > config.maxEdges) {
+        throw std::runtime_error("V2 source link count exceeds compile.maxEdges");
+    }
+    for (const auto& linkValue : linksValue->asArray().values) {
+        const auto& link = linkValue->asObject();
+        const auto linkId = stringValue(link, "id");
+        if (!isSafeGraphIdentifier(linkId) || !linkIds.insert(linkId).second) {
+            throw std::runtime_error("V2 graph contains an invalid or duplicate link id");
+        }
+        const auto kind = normalizedToken(stringValue(link, "kind"));
+        const auto fromNodeId = stringValue(link, "fromNodeId");
+        const auto toNodeId = stringValue(link, "toNodeId");
+        const auto fromNode = nodeById.find(fromNodeId);
+        const auto toNode = nodeById.find(toNodeId);
+        if (fromNode == nodeById.end() || toNode == nodeById.end()) {
+            throw std::runtime_error("link " + linkId + " references an unknown node");
+        }
+        if (fromNodeId == toNodeId) {
+            throw std::runtime_error("link " + linkId + " cannot connect a node to itself");
+        }
+        if (kind == "dependency") {
+            if (fromNode->second->runtime.type != "pointInput" && toNode->second->runtime.type != "pointInput") {
+                executionEdges.insert(std::make_pair(fromNodeId, toNodeId));
+            }
+            continue;
+        }
+        if (kind != "data") {
+            throw std::runtime_error("link " + linkId + " has an unsupported kind");
+        }
+        const auto fromPortId = stringValue(link, "fromPortId");
+        const auto toPortId = stringValue(link, "toPortId");
+        const auto source = portByKey.find(graphPortKey(fromNodeId, fromPortId));
+        const auto target = portByKey.find(graphPortKey(toNodeId, toPortId));
+        if (source == portByKey.end() || target == portByKey.end()) {
+            throw std::runtime_error("link " + linkId + " references an unknown port");
+        }
+        if (source->second->direction != "output" || target->second->direction != "input") {
+            throw std::runtime_error("link " + linkId + " must connect output to input");
+        }
+        if (!compatibleV2Ports(*source->second, *target->second)) {
+            if (!config.preserveImportedBehavior) {
+                throw std::runtime_error("link " + linkId + " connects incompatible port types or units");
+            }
+            config.loadWarnings.push_back(
+                "preserveImportedBehavior allowed weakly typed data link " + linkId + " (" +
+                source->second->valueType + " " + source->second->unit + " -> " +
+                target->second->valueType + " " + target->second->unit + ")"
+            );
+        }
+        const auto targetKey = graphPortKey(toNodeId, toPortId);
+        if (!linkedInputs.insert(targetKey).second) {
+            throw std::runtime_error("input port " + toNodeId + "." + toPortId + " has multiple data links");
+        }
+        if (!source->second->hasIndex) {
+            throw std::runtime_error("link " + linkId + " source output has no materialized index");
+        }
+        if (target->second->hasConstant) {
+            throw std::runtime_error("link " + linkId + " target input also has a constant binding");
+        }
+        if (target->second->hasIndex && target->second->index != source->second->index) {
+            throw std::runtime_error("link " + linkId + " target binding.index differs from source index");
+        }
+        const auto existing = toNode->second->runtime.params.find(target->second->parameterKey);
+        if (existing != toNode->second->runtime.params.end() &&
+            strictIndexString(existing->second, "link " + linkId + " target parameters") != source->second->index) {
+            throw std::runtime_error("link " + linkId + " target parameters differ from source index");
+        }
+        materializeRuntimeParameter(
+            toNode->second->runtime.params,
+            target->second->parameterKey,
+            std::to_string(source->second->index)
+        );
+        if (fromNode->second->runtime.type != "pointInput" && toNode->second->runtime.type != "pointInput") {
+            executionEdges.insert(std::make_pair(fromNodeId, toNodeId));
+        }
+    }
+
+    for (auto& node : nodes) {
+        for (const auto& port : node.ports) {
+            if (port.direction != "input") {
+                continue;
+            }
+            if (linkedInputs.find(graphPortKey(node.runtime.id, port.id)) != linkedInputs.end()) {
+                continue;
+            }
+            if (port.hasConstant) {
+                materializeRuntimeParameter(node.runtime.params, port.parameterKey, port.constant);
+                continue;
+            }
+            if (port.hasIndex) {
+                materializeRuntimeParameter(node.runtime.params, port.parameterKey, std::to_string(port.index));
+                continue;
+            }
+            if (node.runtime.params.find(port.parameterKey) != node.runtime.params.end()) {
+                throw std::runtime_error(
+                    "node " + node.runtime.id + " port " + port.id +
+                    " has a runtime parameter value without a materialized binding or data link"
+                );
+            }
+            if (port.required) {
+                throw std::runtime_error(
+                    "node " + node.runtime.id + " required input port " + port.id + " is unbound"
+                );
+            }
+        }
+        if (node.runtime.type != "pointInput") {
+            config.nodes.push_back(std::move(node.runtime));
+        }
+    }
+
+    if (executionEdges.size() > config.maxEdges) {
+        throw std::runtime_error("V2 executable edge count exceeds compile.maxEdges");
+    }
+    for (const auto& edgeValue : executionEdges) {
+        GraphEmsEdgeConfig edge;
+        edge.from = edgeValue.first;
+        edge.to = edgeValue.second;
+        config.edges.push_back(std::move(edge));
+    }
+    validateGraph(config, "2");
+    return config;
+}
+
+}  // namespace
+
+GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
+    const auto root = readGraphJson(path);
+    return parseExecutableV2Graph(root.asObject());
+}
+
+GraphEmsConfig GraphEmsConfig::loadLegacyV1ForMigration(const std::string& path) {
+    const auto root = readGraphJson(path);
+    return parseLegacyV1Graph(root.asObject());
 }
 
 GraphEmsEngine::GraphEmsEngine(
@@ -1718,12 +2559,14 @@ GraphEmsEngine::GraphEmsEngine(
     PointStoreRouter& router,
     std::int64_t defaultTtlMs,
     std::string stateFile,
-    std::unordered_map<std::string, std::string> profile
+    std::unordered_map<std::string, std::string> profile,
+    std::string ruleCode
 ) : config_(std::move(config)),
     router_(router),
     defaultTtlMs_(defaultTtlMs),
     stateFile_(std::move(stateFile)),
-    profile_(std::move(profile)) {
+    profile_(std::move(profile)),
+    ruleCode_(ruleCode.empty() ? config_.graphCode : std::move(ruleCode)) {
     executionOrder_ = executionOrder(config_);
 
     std::set<std::uint32_t> indexes;
@@ -1750,7 +2593,12 @@ GraphEmsEngine::GraphEmsEngine(
 }
 
 GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
+    return runOnce(nowMs, std::numeric_limits<std::size_t>::max());
+}
+
+GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites) {
     GraphEmsRunResult result;
+    maxDeviceWritesThisRun_ = maxDeviceWrites;
     if (!stateRestored_) {
         try {
             restoreState(nowMs);
@@ -1759,11 +2607,13 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
         }
         stateRestored_ = true;
     }
+    snapshotPoints_.clear();
     snapshotValues_.clear();
     snapshotResolvedIndexes_.clear();
     const auto snapshot = router_.getLatestByIndexes(snapshotIndexes_, nowMs);
     snapshotResolvedIndexes_.insert(snapshotIndexes_.begin(), snapshotIndexes_.end());
     for (const auto& value : snapshot) {
+        snapshotPoints_[value.index] = PointSnapshot{value.value, value.quality, value.ts, value.stale};
         if (value.quality == 1 && !value.stale) {
             snapshotValues_[value.index] = value.value;
         }
@@ -1806,6 +2656,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
                 runTimeSource(node, nowMs, result);
             } else if (node.type == "windowAggregate") {
                 runWindowAggregate(node, nowMs, result);
+            } else if (node.type == "voltageQualification") {
+                runVoltageQualification(node, nowMs, result);
             } else if (node.type == "scheduleSelect") {
                 runScheduleSelect(node, nowMs, result);
             } else if (node.type == "phaseArbiter") {
@@ -1846,6 +2698,33 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
     return result;
 }
 
+Optional<GraphEmsEngine::PointSnapshot> GraphEmsEngine::latestPoint(
+    std::uint32_t index,
+    std::int64_t nowMs
+) const {
+    if (snapshotActive_) {
+        const auto cached = snapshotPoints_.find(index);
+        if (cached != snapshotPoints_.end()) {
+            return cached->second;
+        }
+        if (snapshotResolvedIndexes_.find(index) != snapshotResolvedIndexes_.end()) {
+            return NullOpt;
+        }
+    }
+    const auto latest = router_.getLatestByIndex(index, nowMs);
+    if (snapshotActive_) {
+        snapshotResolvedIndexes_.insert(index);
+        if (latest) {
+            snapshotPoints_[index] = PointSnapshot{latest->value, latest->quality, latest->ts, latest->stale};
+            return snapshotPoints_[index];
+        }
+    }
+    if (!latest) {
+        return NullOpt;
+    }
+    return PointSnapshot{latest->value, latest->quality, latest->ts, latest->stale};
+}
+
 Optional<double> GraphEmsEngine::latestValue(std::uint32_t index, std::int64_t nowMs) const {
     if (snapshotActive_) {
         const auto cached = snapshotValues_.find(index);
@@ -1881,6 +2760,7 @@ CommandSubmitResult GraphEmsEngine::set(std::uint32_t index, double value, std::
     if (result.accepted && snapshotActive_) {
         snapshotResolvedIndexes_.insert(index);
         snapshotValues_[index] = value;
+        snapshotPoints_[index] = PointSnapshot{value, 1, nowMs, false};
     }
     return result;
 }
@@ -2030,6 +2910,101 @@ void GraphEmsEngine::restoreState(std::int64_t nowMs) {
         }
     }
 
+    if (const auto* states = findValue(runtime, "voltageQualification")) {
+        for (const auto& item : states->asArray().values) {
+            const auto& stateObject = item->asObject();
+            const auto nodeId = stringValue(stateObject, "nodeId");
+            const auto* node = findNode(nodeId, "voltageQualification");
+            if (node == nullptr) {
+                continue;
+            }
+            const auto inputCount = paramCount(*node, "inputIndexes");
+            const auto readNumbers = [&](const char* key) {
+                std::vector<double> values;
+                const auto* array = findValue(stateObject, key);
+                if (array == nullptr || !array->isArray()) {
+                    return values;
+                }
+                for (const auto& value : array->asArray().values) {
+                    if (!value->isNumber() || !std::isfinite(value->asNumber())) {
+                        values.clear();
+                        return values;
+                    }
+                    values.push_back(value->asNumber());
+                }
+                return values;
+            };
+            const auto sums = readNumbers("sums");
+            const auto counts = readNumbers("counts");
+            const auto inputTimestamps = readNumbers("lastInputTimestamps");
+            const auto averages = readNumbers("lastAverages");
+            if (sums.size() != inputCount || counts.size() != inputCount || averages.size() != inputCount ||
+                (!inputTimestamps.empty() && inputTimestamps.size() != inputCount)) {
+                continue;
+            }
+
+            VoltageQualityState state;
+            state.currentMinuteKey = static_cast<std::int64_t>(numberValue(stateObject, "currentMinuteKey", -1.0));
+            if (state.currentMinuteKey < 0 || state.currentMinuteKey > nowMs / 60000LL + 1) {
+                continue;
+            }
+            // Resume the minute bucket, but let the first post-restart run take a fresh sample.
+            state.lastSampleAt = 0;
+            state.sums = sums;
+            state.lastAverages = averages;
+            state.counts.reserve(counts.size());
+            bool validCounts = true;
+            for (const auto count : counts) {
+                if (count < 0.0 || count > 1000000.0 || std::floor(count) != count) {
+                    validCounts = false;
+                    break;
+                }
+                state.counts.push_back(static_cast<std::uint32_t>(count));
+            }
+            if (!validCounts) {
+                continue;
+            }
+            state.lastInputTimestamps.assign(inputCount, 0);
+            bool validTimestamps = true;
+            for (std::size_t i = 0; i < inputTimestamps.size(); ++i) {
+                const auto timestamp = inputTimestamps[i];
+                if (timestamp < 0.0 || timestamp > static_cast<double>(nowMs) ||
+                    std::floor(timestamp) != timestamp) {
+                    validTimestamps = false;
+                    break;
+                }
+                state.lastInputTimestamps[i] = static_cast<std::int64_t>(timestamp);
+            }
+            if (!validTimestamps) {
+                continue;
+            }
+            state.lastMinuteStatus = static_cast<int>(numberValue(stateObject, "lastMinuteStatus", 0.0));
+            state.lastMinuteCoverage = numberValue(stateObject, "lastMinuteCoverage", 0.0);
+            const auto restorePeriod = [&](const char* prefix, VoltageQualityPeriodState& period) {
+                const auto key = std::string(prefix);
+                period.key = static_cast<int>(numberValue(stateObject, (key + "Key").c_str(), 0.0));
+                period.monitoredMinutes = static_cast<std::uint64_t>(std::max(
+                    0.0,
+                    numberValue(stateObject, (key + "MonitoredMinutes").c_str(), 0.0)
+                ));
+                period.overlimitMinutes = static_cast<std::uint64_t>(std::max(
+                    0.0,
+                    numberValue(stateObject, (key + "OverlimitMinutes").c_str(), 0.0)
+                ));
+                period.invalidMinutes = static_cast<std::uint64_t>(std::max(
+                    0.0,
+                    numberValue(stateObject, (key + "InvalidMinutes").c_str(), 0.0)
+                ));
+                if (period.overlimitMinutes > period.monitoredMinutes) {
+                    period = VoltageQualityPeriodState();
+                }
+            };
+            restorePeriod("day", state.day);
+            restorePeriod("completedDay", state.completedDay);
+            voltageQualityStates_[nodeId] = std::move(state);
+        }
+    }
+
     if (const auto* states = findValue(runtime, "feedbackVerify")) {
         for (const auto& item : states->asArray().values) {
             const auto& stateObject = item->asObject();
@@ -2135,7 +3110,7 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
     }
     std::ostringstream output;
     output << "{\n";
-    output << "  \"schemaVersion\": \"1.0.0\",\n";
+    output << "  \"schemaVersion\": \"1.1.0\",\n";
     output << "  \"graphCode\": \"" << jsonEscape(config_.graphCode) << "\",\n";
     output << "  \"savedAt\": " << nowMs << ",\n";
     output << "  \"points\": [\n";
@@ -2219,6 +3194,59 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
     };
     writeBooleanStates("hysteresis", hysteresisStates_, true);
     writeBooleanStates("debounce", debounceStates_, true);
+
+    output << "    \"voltageQualification\": [";
+    first = true;
+    for (const auto& entry : voltageQualityStates_) {
+        const auto& state = entry.second;
+        if (state.currentMinuteKey < 0) {
+            continue;
+        }
+        output << (first ? "\n" : ",\n")
+               << "      {\"nodeId\": \"" << jsonEscape(entry.first)
+               << "\", \"currentMinuteKey\": " << state.currentMinuteKey
+               << ", \"lastMinuteStatus\": " << state.lastMinuteStatus
+               << ", \"lastMinuteCoverage\": " << state.lastMinuteCoverage;
+        const auto writeDoubles = [&](const char* key, const std::vector<double>& values) {
+            output << ", \"" << key << "\": [";
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                if (i > 0) {
+                    output << ", ";
+                }
+                output << values[i];
+            }
+            output << "]";
+        };
+        writeDoubles("sums", state.sums);
+        output << ", \"counts\": [";
+        for (std::size_t i = 0; i < state.counts.size(); ++i) {
+            if (i > 0) {
+                output << ", ";
+            }
+            output << state.counts[i];
+        }
+        output << "]";
+        output << ", \"lastInputTimestamps\": [";
+        for (std::size_t i = 0; i < state.lastInputTimestamps.size(); ++i) {
+            if (i > 0) {
+                output << ", ";
+            }
+            output << state.lastInputTimestamps[i];
+        }
+        output << "]";
+        writeDoubles("lastAverages", state.lastAverages);
+        const auto writePeriod = [&](const char* prefix, const VoltageQualityPeriodState& period) {
+            output << ", \"" << prefix << "Key\": " << period.key
+                   << ", \"" << prefix << "MonitoredMinutes\": " << period.monitoredMinutes
+                   << ", \"" << prefix << "OverlimitMinutes\": " << period.overlimitMinutes
+                   << ", \"" << prefix << "InvalidMinutes\": " << period.invalidMinutes;
+        };
+        writePeriod("day", state.day);
+        writePeriod("completedDay", state.completedDay);
+        output << "}";
+        first = false;
+    }
+    output << (first ? "]" : "\n    ]") << ",\n";
 
     output << "    \"sequence\": [";
     first = true;
@@ -2367,12 +3395,19 @@ std::vector<std::uint32_t> GraphEmsEngine::stateOutputIndexes() const {
             add(paramIndex(node, "powerOutputIndex", 0));
             add(paramIndex(node, "socOutputIndex", 0));
             add(paramIndex(node, "modeOutputIndex", 0));
+            add(paramIndex(node, "enableOutputIndex", 0));
         } else if (node.type == "phaseArbiter" || node.type == "powerConstraint") {
             for (const auto index : paramIndexes(node, "activeOutputIndexes")) {
                 add(index);
             }
             for (const auto index : paramIndexes(node, "reactiveOutputIndexes")) {
                 add(index);
+            }
+            if (node.type == "phaseArbiter") {
+                const auto candidateCount = paramCount(node, "candidates");
+                for (std::size_t i = 0; i < candidateCount; ++i) {
+                    add(paramIndex(node, "candidates." + std::to_string(i) + ".runOutputIndex", 0));
+                }
             }
             if (node.type == "powerConstraint") {
                 add(paramIndex(node, "reserveRunOutputIndex", 0));
@@ -2382,6 +3417,23 @@ std::vector<std::uint32_t> GraphEmsEngine::stateOutputIndexes() const {
                 for (const auto index : paramIndexes(node, "highStateClearIndexes")) {
                     add(index);
                 }
+            }
+        } else if (node.type == "voltageQualification") {
+            for (const auto index : paramIndexes(node, "minuteAverageOutputIndexes")) {
+                add(index);
+            }
+            static const char* scalarOutputs[] = {
+                "minuteStatusOutputIndex", "minuteSampleCoverageOutputIndex",
+                "dayKeyOutputIndex", "dayMonitoredMinutesOutputIndex",
+                "dayOverlimitMinutesOutputIndex", "dayInvalidMinutesOutputIndex",
+                "dayQualifiedRateOutputIndex", "dayAvailabilityRateOutputIndex",
+                "dayPassOutputIndex", "completedDayKeyOutputIndex",
+                "completedDayMonitoredMinutesOutputIndex", "completedDayOverlimitMinutesOutputIndex",
+                "completedDayInvalidMinutesOutputIndex", "completedDayQualifiedRateOutputIndex",
+                "completedDayAvailabilityRateOutputIndex", "completedDayPassOutputIndex"
+            };
+            for (const auto* key : scalarOutputs) {
+                add(paramIndex(node, key, 0));
             }
         } else if (node.type == "formula" || node.type == "timeSource" || node.type == "windowAggregate" ||
                    node.type == "switch" || node.type == "controlGate" ||
@@ -3595,6 +4647,195 @@ bool GraphEmsEngine::runWindowAggregate(
     return true;
 }
 
+bool GraphEmsEngine::runVoltageQualification(
+    const GraphEmsNodeConfig& node,
+    std::int64_t nowMs,
+    GraphEmsRunResult& result
+) {
+    const auto inputIndexes = paramIndexes(node, "inputIndexes");
+    const auto averageOutputIndexes = paramIndexes(node, "minuteAverageOutputIndexes");
+    std::vector<double> nominalVoltages;
+    nominalVoltages.reserve(inputIndexes.size());
+    for (std::size_t i = 0; i < inputIndexes.size(); ++i) {
+        nominalVoltages.push_back(paramDouble(node, "nominalVoltages." + std::to_string(i)).value());
+    }
+
+    const auto sampleIntervalMs = 200LL;
+    const auto expectedSamples = 60000.0 / static_cast<double>(sampleIntervalMs);
+    const auto minimumCoverage = paramDouble(node, "minimumCoveragePercent").value_or(90.0);
+    const auto requiredSamples = static_cast<std::uint32_t>(
+        std::ceil(expectedSamples * minimumCoverage / 100.0)
+    );
+    const auto passThreshold = paramDouble(node, "passThresholdPercent").value_or(95.0);
+    const auto minuteKey = nowMs / 60000LL;
+    auto& state = voltageQualityStates_[node.id];
+
+    const auto resetMinute = [&]() {
+        state.sums.assign(inputIndexes.size(), 0.0);
+        state.counts.assign(inputIndexes.size(), 0U);
+    };
+    if (state.sums.size() != inputIndexes.size() || state.counts.size() != inputIndexes.size()) {
+        resetMinute();
+    }
+    if (state.lastAverages.size() != inputIndexes.size()) {
+        state.lastAverages.assign(inputIndexes.size(), 0.0);
+    }
+    if (state.lastInputTimestamps.size() != inputIndexes.size()) {
+        state.lastInputTimestamps.assign(inputIndexes.size(), 0);
+    }
+    if (state.currentMinuteKey < 0) {
+        state.currentMinuteKey = minuteKey;
+    } else if (minuteKey < state.currentMinuteKey) {
+        state.currentMinuteKey = minuteKey;
+        state.lastSampleAt = 0;
+        resetMinute();
+    } else if (minuteKey - state.currentMinuteKey > 600000LL) {
+        state = VoltageQualityState();
+        state.currentMinuteKey = minuteKey;
+        resetMinute();
+        state.lastAverages.assign(inputIndexes.size(), 0.0);
+    }
+
+    const auto finalizeDay = [&]() {
+        if (state.day.key != 0) {
+            state.completedDay = state.day;
+        }
+    };
+    const auto updatePeriod = [&](VoltageQualityPeriodState& period, int key, int status) {
+        if (period.key != key) {
+            finalizeDay();
+            period = VoltageQualityPeriodState();
+            period.key = key;
+        }
+        if (status == 1 || status == 2) {
+            ++period.monitoredMinutes;
+            if (status == 2) {
+                ++period.overlimitMinutes;
+            }
+        } else {
+            ++period.invalidMinutes;
+        }
+    };
+
+    const auto accountCompletedMinute = [&](std::int64_t completedMinuteKey) {
+        double coverage = 100.0;
+        bool valid = true;
+        for (std::size_t i = 0; i < state.counts.size(); ++i) {
+            coverage = std::min(
+                coverage,
+                std::min(100.0, static_cast<double>(state.counts[i]) * 100.0 / expectedSamples)
+            );
+            if (state.counts[i] < requiredSamples) {
+                valid = false;
+            }
+        }
+
+        int status = 3;
+        if (valid) {
+            bool qualified = true;
+            for (std::size_t i = 0; i < inputIndexes.size(); ++i) {
+                const auto average = state.sums[i] / static_cast<double>(state.counts[i]);
+                state.lastAverages[i] = average;
+                const auto limits = voltageQualityLimits(nominalVoltages[i]);
+                if (average < limits.first || average > limits.second) {
+                    qualified = false;
+                }
+            }
+            status = qualified ? 1 : 2;
+        }
+        state.lastMinuteStatus = status;
+        state.lastMinuteCoverage = coverage;
+
+        updatePeriod(state.day, voltageQualityDayKey(completedMinuteKey), status);
+    };
+
+    bool completedMinute = false;
+    if (minuteKey > state.currentMinuteKey) {
+        accountCompletedMinute(state.currentMinuteKey);
+        completedMinute = true;
+        for (auto missing = state.currentMinuteKey + 1; missing < minuteKey; ++missing) {
+            resetMinute();
+            accountCompletedMinute(missing);
+        }
+        state.currentMinuteKey = minuteKey;
+        resetMinute();
+    }
+    const auto currentDayKey = voltageQualityDayKey(minuteKey);
+    if (state.day.key != 0 && state.day.key != currentDayKey) {
+        finalizeDay();
+        state.day = VoltageQualityPeriodState();
+        state.day.key = currentDayKey;
+    }
+
+    const auto writeOutput = [&](std::uint32_t index, double value, const char* field) {
+        const auto routed = set(index, value, nowMs);
+        if (!routed.accepted) {
+            throw std::runtime_error(std::string("voltageQualification ") + field +
+                " output rejected: " + routed.message);
+        }
+        ++result.latestWrites;
+    };
+    const auto writePeriod = [&](const char* prefix, const VoltageQualityPeriodState& period) {
+        const auto monitored = static_cast<double>(period.monitoredMinutes);
+        const auto invalid = static_cast<double>(period.invalidMinutes);
+        const auto overlimit = static_cast<double>(period.overlimitMinutes);
+        const auto qualifiedRate = monitored > 0.0
+            ? (monitored - overlimit) * 100.0 / monitored
+            : 0.0;
+        const auto total = monitored + invalid;
+        const auto availabilityRate = total > 0.0 ? monitored * 100.0 / total : 0.0;
+        const auto key = std::string(prefix);
+        writeOutput(paramIndex(node, key + "KeyOutputIndex"), static_cast<double>(period.key), "period key");
+        writeOutput(paramIndex(node, key + "MonitoredMinutesOutputIndex"), monitored, "monitored minutes");
+        writeOutput(paramIndex(node, key + "OverlimitMinutesOutputIndex"), overlimit, "overlimit minutes");
+        writeOutput(paramIndex(node, key + "InvalidMinutesOutputIndex"), invalid, "invalid minutes");
+        writeOutput(paramIndex(node, key + "QualifiedRateOutputIndex"), qualifiedRate, "qualified rate");
+        writeOutput(paramIndex(node, key + "AvailabilityRateOutputIndex"), availabilityRate, "availability rate");
+        writeOutput(
+            paramIndex(node, key + "PassOutputIndex"),
+            monitored > 0.0 && qualifiedRate + 1e-9 >= passThreshold ? 1.0 : 0.0,
+            "pass status"
+        );
+    };
+
+    if (completedMinute) {
+        if (state.lastMinuteStatus == 1 || state.lastMinuteStatus == 2) {
+            for (std::size_t i = 0; i < averageOutputIndexes.size(); ++i) {
+                writeOutput(averageOutputIndexes[i], state.lastAverages[i], "minute average");
+            }
+        }
+        writeOutput(
+            paramIndex(node, "minuteStatusOutputIndex"),
+            static_cast<double>(state.lastMinuteStatus),
+            "minute status"
+        );
+        writeOutput(
+            paramIndex(node, "minuteSampleCoverageOutputIndex"),
+            state.lastMinuteCoverage,
+            "minute sample coverage"
+        );
+        writePeriod("day", state.day);
+        if (state.completedDay.key != 0) {
+            writePeriod("completedDay", state.completedDay);
+        }
+    }
+
+    if (state.lastSampleAt == 0 || nowMs < state.lastSampleAt || nowMs - state.lastSampleAt >= sampleIntervalMs) {
+        for (std::size_t i = 0; i < inputIndexes.size(); ++i) {
+            const auto point = latestPoint(inputIndexes[i], nowMs);
+            if (point && point->quality == 1 && !point->stale && std::isfinite(point->value) &&
+                point->ts / 60000LL == state.currentMinuteKey &&
+                point->ts != state.lastInputTimestamps[i]) {
+                state.sums[i] += point->value;
+                ++state.counts[i];
+                state.lastInputTimestamps[i] = point->ts;
+            }
+        }
+        state.lastSampleAt = nowMs;
+    }
+    return completedMinute;
+}
+
 bool GraphEmsEngine::runScheduleSelect(
     const GraphEmsNodeConfig& node,
     std::int64_t nowMs,
@@ -3604,6 +4845,8 @@ bool GraphEmsEngine::runScheduleSelect(
     double power = paramDouble(node, "defaultPower").value_or(0.0);
     double targetSoc = paramDouble(node, "defaultTargetSoc").value_or(0.0);
     double mode = paramDouble(node, "defaultMode").value_or(0.0);
+    bool matched = false;
+    bool indexedValuesAvailable = true;
     const auto count = paramCount(node, "scheduleCurve");
     for (std::size_t i = 0; i < count; ++i) {
         const auto prefix = "scheduleCurve." + std::to_string(i) + ".";
@@ -3611,19 +4854,59 @@ bool GraphEmsEngine::runScheduleSelect(
         if (hour != currentHour) {
             continue;
         }
+        matched = true;
         power = paramDouble(node, prefix + "power").value_or(power);
         targetSoc = paramDouble(node, prefix + "targetSoc").value_or(
             paramDouble(node, prefix + "soc").value_or(targetSoc)
         );
         mode = paramDouble(node, prefix + "mode").value_or(mode);
+        const auto loadIndexedValue = [&](const std::string& field, double& output) {
+            const auto index = paramIndex(node, prefix + field, 0);
+            if (index == 0) {
+                return;
+            }
+            const auto value = latestValue(index, nowMs);
+            if (!value || !std::isfinite(*value)) {
+                indexedValuesAvailable = false;
+                return;
+            }
+            output = *value;
+        };
+        loadIndexedValue("powerIndex", power);
+        loadIndexedValue("targetSocIndex", targetSoc);
+        loadIndexedValue("modeIndex", mode);
         break;
+    }
+
+    // A matched indexed schedule is not executable until every referenced value is available.
+    // Keeping the previous outputs preserves the legacy startup behavior and avoids writing
+    // synthetic zero targets while the schedule points are still being populated.
+    if (!indexedValuesAvailable) {
+        return false;
+    }
+
+    bool enabled = matched && indexedValuesAvailable &&
+        paramDouble(node, "defaultEnable").value_or(1.0) != 0.0;
+    const auto enableMaskIndexes = paramIndexes(node, "enableMaskIndexes");
+    if (!enableMaskIndexes.empty()) {
+        enabled = false;
+        const auto maskPosition = static_cast<std::size_t>(currentHour / 16);
+        if (matched && indexedValuesAvailable && maskPosition < enableMaskIndexes.size()) {
+            const auto maskValue = latestValue(enableMaskIndexes[maskPosition], nowMs);
+            if (maskValue && std::isfinite(*maskValue) && *maskValue >= 0.0 && *maskValue <= 65535.0 &&
+                std::floor(*maskValue) == *maskValue) {
+                const auto mask = static_cast<std::uint32_t>(*maskValue);
+                enabled = (mask & (1U << static_cast<unsigned>(currentHour % 16))) != 0U;
+            }
+        }
     }
 
     bool updated = false;
     const std::pair<std::uint32_t, double> outputs[] = {
         {paramIndex(node, "powerOutputIndex", 0), power},
         {paramIndex(node, "socOutputIndex", 0), targetSoc},
-        {paramIndex(node, "modeOutputIndex", 0), mode}
+        {paramIndex(node, "modeOutputIndex", 0), mode},
+        {paramIndex(node, "enableOutputIndex", 0), enabled ? 1.0 : 0.0}
     };
     for (const auto& output : outputs) {
         if (output.first == 0) {
@@ -3661,6 +4944,14 @@ bool GraphEmsEngine::runPhaseArbiter(
     loadBase("reactiveBaseIndexes", reactive);
 
     const auto candidateCount = paramCount(node, "candidates");
+    std::vector<std::pair<std::uint32_t, double>> candidateRunOutputs;
+    candidateRunOutputs.reserve(candidateCount);
+    for (std::size_t i = 0; i < candidateCount; ++i) {
+        candidateRunOutputs.push_back({
+            paramIndex(node, "candidates." + std::to_string(i) + ".runOutputIndex", 0),
+            0.0
+        });
+    }
     for (std::size_t i = 0; i < candidateCount; ++i) {
         const auto prefix = "candidates." + std::to_string(i) + ".";
         const auto enableIndex = paramIndex(node, prefix + "enableIndex", 0);
@@ -3697,12 +4988,14 @@ bool GraphEmsEngine::runPhaseArbiter(
         const auto direction = normalizedToken(node.params.count(prefix + "direction")
             ? node.params.at(prefix + "direction") : "any");
         auto& target = targetName == "reactive" ? reactive : active;
+        bool intervened = false;
         for (std::size_t phase = 0; phase < phaseCount; ++phase) {
             const auto value = values[phase];
             if ((direction == "positive" && value <= 0.0) ||
                 (direction == "negative" && value >= 0.0)) {
                 continue;
             }
+            const auto previous = target[phase];
             if (merge == "max") {
                 target[phase] = std::max(target[phase], value);
             } else if (merge == "min") {
@@ -3716,7 +5009,11 @@ bool GraphEmsEngine::runPhaseArbiter(
             } else if (value < 0.0) {
                 target[phase] = std::min(target[phase], value);
             }
+            if (std::abs(target[phase] - previous) > 1e-9) {
+                intervened = true;
+            }
         }
+        candidateRunOutputs[i].second = intervened ? 1.0 : 0.0;
     }
 
     const auto overrideEnableIndex = paramIndex(node, "override.enableIndex", 0);
@@ -3734,6 +5031,17 @@ bool GraphEmsEngine::runPhaseArbiter(
     }
 
     bool updated = false;
+    for (const auto& output : candidateRunOutputs) {
+        if (output.first == 0) {
+            continue;
+        }
+        const auto routed = set(output.first, output.second, nowMs);
+        if (!routed.accepted) {
+            throw std::runtime_error("phaseArbiter candidate run output rejected: " + routed.message);
+        }
+        ++result.latestWrites;
+        updated = true;
+    }
     for (std::size_t phase = 0; phase < phaseCount; ++phase) {
         const std::pair<std::uint32_t, double> outputs[] = {
             {activeOutputs[phase], active[phase]},
@@ -4099,17 +5407,18 @@ bool GraphEmsEngine::runControlWrite(
     }
 
     PendingWriteCommand pending;
-    pending.cmdId = graphCmdId(targetIndex, nowMs);
     pending.index = targetIndex;
     pending.value = commandValue;
     pending.source = "graph-ems";
     pending.ts = nowMs;
     pending.highPriority = paramBool(node, "highPriority", false);
-    const auto routed = router_.submitWriteCommand(pending);
+    const auto routed = submitDeviceWrite(node, std::move(pending), result);
     if (!routed.accepted) {
+        if (routed.message == "maxWritesPerScan reached before submit") {
+            return false;
+        }
         throw std::runtime_error("controlWrite rejected: " + routed.message);
     }
-    ++result.deviceWrites;
     return true;
 }
 
@@ -4741,18 +6050,36 @@ bool GraphEmsEngine::submitPcsWritebackCommands(
         }
 
         PendingWriteCommand pending;
-        pending.cmdId = graphCmdId(command.outputIndex, nowMs);
         pending.index = command.outputIndex;
         pending.value = targetDouble;
         pending.source = "graph-ems";
         pending.ts = nowMs;
-        const auto routed = router_.submitWriteCommand(pending);
+        const auto routed = submitDeviceWrite(node, std::move(pending), result);
         if (routed.accepted) {
-            ++result.deviceWrites;
             submitted = true;
         }
     }
     return submitted;
+}
+
+CommandSubmitResult GraphEmsEngine::submitDeviceWrite(
+    const GraphEmsNodeConfig& node,
+    PendingWriteCommand command,
+    GraphEmsRunResult& result
+) {
+    if (result.deviceWrites >= maxDeviceWritesThisRun_) {
+        CommandSubmitResult rejected;
+        rejected.message = "maxWritesPerScan reached before submit";
+        ++result.deviceWritesSkipped;
+        result.writeLimitReached = true;
+        return rejected;
+    }
+    command.cmdId = graphCmdId(ruleCode_, node.id, command.index, command.ts, ++commandSequence_);
+    const auto routed = router_.submitWriteCommand(command);
+    if (routed.accepted) {
+        ++result.deviceWrites;
+    }
+    return routed;
 }
 
 }  // namespace edge_gateway

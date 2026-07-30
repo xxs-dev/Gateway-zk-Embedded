@@ -298,6 +298,77 @@ int main() {
     require(logicReply.find(runtimeGraph) != std::string::npos, "runtime logic graph should be included in config pull");
     require(logicReply.find("test-graph") != std::string::npos, "runtime logic graph content should be included");
 
+    const std::string templateRoot = root + "/config/templates";
+    const std::string deviceRoot = runtimeRoot + "/devices";
+    ensureDir(templateRoot);
+    ensureDir(deviceRoot);
+    const std::string dlt645Template = templateRoot + "/dlt645_breaker_points.json";
+    const std::string dlt645Device = deviceRoot + "/device_dlt645_breakers.json";
+    writeFile(
+        dlt645Template,
+        "{\"protocol\":\"dlt645_2007\",\"points\":[{\"pointCode\":\"breaker_remote_close\",\"name\":\"remote close\",\"access\":\"write\",\"write\":{\"enable\":true}}]}\n"
+    );
+    writeFile(
+        dlt645Device,
+        std::string("{\"machineCode\":\"GW_TEST\",\"protocol\":{\"type\":\"dlt645_2007\",\"standardPointsFile\":\"") +
+            dlt645Template +
+            "\"},\"dlt645\":{\"write\":{\"enabled\":false,\"password\":\"\",\"operatorCode\":\"00000000\"}},\"meters\":[{\"meterCode\":\"BREAKER_1\",\"address\":\"000000000020\",\"points\":[]}]}\n"
+    );
+    auto dlt645Publisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService dlt645Service(
+        SystemMonitorConfig{},
+        mqtt,
+        dlt645Publisher,
+        "GW_TEST",
+        std::vector<std::string>{dlt645Device}
+    );
+    request.payload = "{\"requestId\":\"REQ_DLT645_TEMPLATE\",\"machineCode\":\"GW_TEST\"}";
+    dlt645Publisher->incoming.push_back(request);
+    dlt645Service.runOnce(1770000000550LL);
+    const std::string dlt645Reply = configPullReplyPayload(*dlt645Publisher, mqtt.configPullReplyTopic);
+    require(dlt645Reply.find(dlt645Template) != std::string::npos, "referenced DLT645 standard point file should be included in config pull");
+    require(dlt645Reply.find("breaker_remote_close") != std::string::npos, "referenced DLT645 point content should be included in config pull");
+
+    const std::string scadaRoot = root + "/scada/current";
+    const std::string scadaScreens = scadaRoot + "/screens";
+    const std::string scadaAssets = scadaRoot + "/assets";
+    ensureDir(root + "/scada");
+    ensureDir(scadaRoot);
+    ensureDir(scadaScreens);
+    ensureDir(scadaAssets);
+    writeFile(scadaRoot + "/manifest.json", "{\"projectId\":\"SCADA_TEST\",\"packageVersion\":\"1.0.0\"}\n");
+    writeFile(scadaRoot + "/topology.json", "{\"mode\":\"integrated\"}\n");
+    writeFile(scadaRoot + "/nodes.json", "[]\n");
+    writeFile(scadaRoot + "/tags.json", "[]\n");
+    writeFile(scadaRoot + "/runtime-map.json", "[]\n");
+    writeFile(scadaRoot + "/checksums.json", "{}\n");
+    writeFile(scadaScreens + "/overview.json", "{\"screenId\":\"overview\",\"nodes\":[]}\n");
+    writeFile(scadaAssets + "/background.png", std::string("\x01\x02\x03\x04", 4));
+    writeFile(scadaRoot + "/not-part-of-package.txt", "ignored\n");
+    SystemMonitorConfig scadaConfig;
+    scadaConfig.scadaUpperComputerSafety.projectDirectory = scadaRoot;
+    auto scadaPublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService scadaService(
+        scadaConfig,
+        mqtt,
+        scadaPublisher,
+        "GW_TEST",
+        std::vector<std::string>{small}
+    );
+    request.payload = "{\"requestId\":\"REQ_SCADA\",\"machineCode\":\"GW_TEST\",\"scope\":\"scada\"}";
+    scadaPublisher->incoming.push_back(request);
+    scadaService.runOnce(1770000000575LL);
+    const std::string scadaReply = configPullReplyPayload(*scadaPublisher, mqtt.configPullReplyTopic);
+    require(scadaReply.find("\"scope\":\"scada\"") != std::string::npos, "SCADA reply should preserve request scope");
+    require(scadaReply.find(scadaRoot + "/manifest.json") != std::string::npos, "SCADA manifest should be included");
+    require(scadaReply.find(scadaRoot + "/topology.json") != std::string::npos, "SCADA topology should be included");
+    require(scadaReply.find(scadaRoot + "/nodes.json") != std::string::npos, "SCADA nodes should be included");
+    require(scadaReply.find(scadaScreens + "/overview.json") != std::string::npos, "SCADA screen should be included");
+    require(scadaReply.find(scadaAssets + "/background.png") != std::string::npos, "SCADA asset should be included");
+    require(scadaReply.find("\"content\":\"AQIDBA==\"") != std::string::npos, "SCADA binary asset should be base64 encoded");
+    require(scadaReply.find("not-part-of-package.txt") == std::string::npos, "unrecognized SCADA root file should be excluded");
+    require(scadaReply.find(small) == std::string::npos, "SCADA scope should not include regular config files");
+
     MqttIncomingMessage logicApplyRequest;
     logicApplyRequest.type = MqttIncomingType::ConfigApplyRequest;
     logicApplyRequest.payload =
@@ -501,6 +572,8 @@ int main() {
     removeFileIfExists(small);
     removeFileIfExists(medium);
     removeFileIfExists(large);
+    removeFileIfExists(dlt645Device);
+    removeFileIfExists(dlt645Template);
     for (const auto& path : chunkFiles) {
         removeFileIfExists(path);
     }

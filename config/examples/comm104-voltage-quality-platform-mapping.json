@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0.0",
+  "machineCode": "COMM202600104",
+  "timezone": "Asia/Shanghai",
+  "monitors": [
+    {
+      "monitorCode": "COMM202600104_GRID_LV",
+      "name": "并网低压监测点",
+      "meterCode": "MTR20250600664",
+      "inputIndexes": [
+        1030,
+        1031,
+        1032,
+        1053,
+        1054,
+        1055
+      ],
+      "completedDayIndexes": {
+        "dayKey": 710015,
+        "monitoredMinutes": 710016,
+        "overlimitMinutes": 710017,
+        "invalidMinutes": 710018,
+        "qualifiedRate": 710019,
+        "availabilityRate": 710020,
+        "pass": 710021
+      },
+      "completedDayPointCodes": {
+        "dayKey": "voltage_quality_grid_completed_day_key",
+        "monitoredMinutes": "voltage_quality_grid_completed_day_monitored_minutes",
+        "overlimitMinutes": "voltage_quality_grid_completed_day_overlimit_minutes",
+        "invalidMinutes": "voltage_quality_grid_completed_day_invalid_minutes",
+        "qualifiedRate": "voltage_quality_grid_completed_day_qualified_rate",
+        "availabilityRate": "voltage_quality_grid_completed_day_availability_rate",
+        "pass": "voltage_quality_grid_completed_day_pass"
+      }
+    },
+    {
+      "monitorCode": "COMM202600104_STORAGE_LV",
+      "name": "储能低压监测点",
+      "meterCode": "MTR20250600663",
+      "inputIndexes": [
+        1130,
+        1131,
+        1132,
+        1153,
+        1154,
+        1155
+      ],
+      "completedDayIndexes": {
+        "dayKey": 710115,
+        "monitoredMinutes": 710116,
+        "overlimitMinutes": 710117,
+        "invalidMinutes": 710118,
+        "qualifiedRate": 710119,
+        "availabilityRate": 710120,
+        "pass": 710121
+      },
+      "completedDayPointCodes": {
+        "dayKey": "voltage_quality_storage_completed_day_key",
+        "monitoredMinutes": "voltage_quality_storage_completed_day_monitored_minutes",
+        "overlimitMinutes": "voltage_quality_storage_completed_day_overlimit_minutes",
+        "invalidMinutes": "voltage_quality_storage_completed_day_invalid_minutes",
+        "qualifiedRate": "voltage_quality_storage_completed_day_qualified_rate",
+        "availabilityRate": "voltage_quality_storage_completed_day_availability_rate",
+        "pass": "voltage_quality_storage_completed_day_pass"
+      }
+    },
+    {
+      "monitorCode": "COMM202600104_LOAD_LV",
+      "name": "负荷低压监测点",
+      "meterCode": "COMM202600104_LOAD_METER",
+      "inputIndexes": [
+        9030,
+        9031,
+        9032,
+        9053,
+        9054,
+        9055
+      ],
+      "completedDayIndexes": {
+        "dayKey": 710215,
+        "monitoredMinutes": 710216,
+        "overlimitMinutes": 710217,
+        "invalidMinutes": 710218,
+        "qualifiedRate": 710219,
+        "availabilityRate": 710220,
+        "pass": 710221
+      },
+      "completedDayPointCodes": {
+        "dayKey": "voltage_quality_load_completed_day_key",
+        "monitoredMinutes": "voltage_quality_load_completed_day_monitored_minutes",
+        "overlimitMinutes": "voltage_quality_load_completed_day_overlimit_minutes",
+        "invalidMinutes": "voltage_quality_load_completed_day_invalid_minutes",
+        "qualifiedRate": "voltage_quality_load_completed_day_qualified_rate",
+        "availabilityRate": "voltage_quality_load_completed_day_availability_rate",
+        "pass": "voltage_quality_load_completed_day_pass"
+      }
+    }
+  ]
+}

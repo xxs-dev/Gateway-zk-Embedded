@@ -8,8 +8,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "edge_gateway/legacy_ems_engine.hpp"
-#include "edge_gateway/legacy_ems_point_catalog.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -53,11 +51,6 @@ private:
         bool hasLastValue = false;
     };
 
-    struct LegacyRuntimeState {
-        LegacyEmsPointCatalog catalog;
-        std::unique_ptr<LegacyEmsEngine> engine;
-    };
-
     struct GraphEmsRuntimeState {
         GraphEmsConfig config;
         std::unique_ptr<GraphEmsEngine> engine;
@@ -72,9 +65,11 @@ private:
     void evaluateRule(
         const ComputeRuleConfig& rule,
         const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
-        std::int64_t nowMs
+        std::int64_t nowMs,
+        std::size_t& deviceWritesThisScan
     );
-    LegacyEmsEngine& legacyEngineFor(const ComputeRuleConfig& rule);
+    void preloadGraphEmsEngine(const ComputeRuleConfig& rule);
+    void validateEnabledRuleIndexOwnership() const;
     GraphEmsEngine& graphEmsEngineFor(const ComputeRuleConfig& rule);
     bool shouldSubmitOutput(
         const ComputeRuleConfig& rule,
@@ -97,7 +92,6 @@ private:
     std::thread worker_;
     std::unordered_map<std::string, RuleState> ruleStates_;
     std::unordered_map<std::string, OutputState> outputStates_;
-    std::unordered_map<std::string, std::unique_ptr<LegacyRuntimeState>> legacyStates_;
     std::unordered_map<std::string, std::unique_ptr<GraphEmsRuntimeState>> graphEmsStates_;
 };
 

@@ -34,7 +34,7 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"meterCode\":\"MTR_TEST\","
         "\"deviceName\":\"Meter Test\","
         "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1,"
-        "\"transport\":{\"frameIntervalMs\":500,\"readRetryCount\":2}},"
+        "\"transport\":{\"frameIntervalMs\":500,\"readRetryCount\":2,\"wakeupBytes\":4}},"
         "\"collect\":{"
         "\"maxBatchRegisters\":16,"
         "\"maxRequestRegisters\":16,"
@@ -69,6 +69,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "frame interval should parse");
     require(config.protocol.transport.readRetryCount == 2,
         "read retry count should parse");
+    require(config.protocol.transport.wakeupBytes == 4,
+        "serial wakeup byte count should parse");
 
     const auto pointPriority = edge_gateway::ConfigLoader::loadFromText(
         "{"
@@ -187,6 +189,152 @@ void verifyNorthboundConfig() {
     require(config.points.front().northbound.readFunction == 4, "northbound area should infer function 4");
     require(config.points.front().northbound.address == 300, "northbound address should parse");
     require(config.points.front().northbound.stalePolicy == "zero", "northbound stale policy should parse");
+}
+
+void verifyDlt645WriteConfig() {
+    const auto config = edge_gateway::ConfigLoader::loadFromText(
+        R"JSON({
+          "schemaVersion": "1.1.0",
+          "machineCode": "GW_DLT645",
+          "meterCode": "BREAKER_20",
+          "deviceName": "Breaker",
+          "protocol": { "type": "dlt645_2007" },
+          "dlt645": {
+            "write": {
+              "enabled": true,
+              "password": "02000000",
+              "operatorCode": "01020304"
+            }
+          },
+          "points": [{
+            "index": 200001,
+            "pointCode": "breaker_remote_trip",
+            "name": "Remote trip",
+            "enabled": true,
+            "write": {
+              "enable": true,
+              "min": 0,
+              "max": 99,
+              "step": 1,
+              "dlt645": {
+                "di": "06010101",
+                "dataType": "dlt645_scheduled_control",
+                "byteCount": 2,
+                "unit": 2
+              }
+            }
+          }],
+          "meters": []
+        })JSON"
+    );
+    require(config.protocol.dlt645.write.enabled, "DLT645 protocol write enable should parse");
+    require(config.protocol.dlt645.write.password == "02000000", "DLT645 password should parse");
+    require(config.protocol.dlt645.write.operatorCode == "01020304", "DLT645 operator code should parse");
+    require(config.points.size() == 1, "DLT645 writable point should parse");
+    require(config.points.front().write.dlt645.di == "06010101", "DLT645 write DI should parse");
+    require(
+        config.points.front().write.dlt645.dataType == "dlt645_scheduled_control",
+        "DLT645 write data type should parse"
+    );
+    require(config.points.front().write.dlt645.byteCount == 2, "DLT645 write byte count should parse");
+    require(config.points.front().write.dlt645.unit == 2, "DLT645 write unit should parse");
+
+    bool missingPasswordRejected = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadFromText(
+            R"JSON({
+              "protocol": { "type": "dlt645_2007" },
+              "dlt645": { "write": { "enabled": true, "operatorCode": "00000000" } },
+              "meters": []
+            })JSON"
+        );
+    } catch (const std::invalid_argument&) {
+        missingPasswordRejected = true;
+    }
+    require(missingPasswordRejected, "enabled DLT645 write without password must be rejected");
+
+    const auto templatePath = tempPath();
+    std::ofstream templateOutput(templatePath.c_str(), std::ios::binary | std::ios::trunc);
+    templateOutput << R"JSON({
+      "points": [{
+        "pointCode": "breaker_remote_close",
+        "name": "Remote close",
+        "desc": "",
+        "access": "write",
+        "category": "command",
+        "di": "",
+        "dataType": "dlt645_scheduled_control",
+        "byteCount": 0,
+        "enabledByDefault": true,
+        "write": {
+          "enable": true,
+          "min": 0,
+          "max": 99,
+          "step": 1,
+          "dlt645": {
+            "di": "06010201",
+            "dataType": "dlt645_scheduled_control",
+            "byteCount": 2,
+            "unit": 2
+          }
+        }
+      }, {
+        "pointCode": "device_online",
+        "name": "Breaker online",
+        "desc": "",
+        "category": "status",
+        "di": "",
+        "dataType": "device_online",
+        "byteCount": 0,
+        "storeLatest": true,
+        "storeHistory": false,
+        "reportOnChange": true,
+        "enabledByDefault": true
+      }]
+    })JSON";
+    templateOutput.close();
+    const auto templatePoints = edge_gateway::ConfigLoader::loadDlt645StandardPointsFromFile(templatePath);
+    std::remove(templatePath.c_str());
+    require(templatePoints.size() == 2, "DLT645 standard template control and online points should load");
+    require(!templatePoints.front().read.enable, "DLT645 write-only template point must not be collected");
+    require(templatePoints.front().write.enable, "DLT645 template write enable should load");
+    require(
+        templatePoints.front().write.dlt645.di == "06010201",
+        "DLT645 standard template write DI should load"
+    );
+    require(templatePoints.back().read.enable, "DLT645 online point should be registered as readable");
+    require(
+        templatePoints.back().read.dataType == "device_online",
+        "DLT645 online point data type should load"
+    );
+    require(templatePoints.back().index == 2, "DLT645 standard point order must remain stable");
+}
+
+void verifyDlt645StandardPointValueMap() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+          "protocol": "dlt645_2007",
+          "points": [{
+            "pointCode": "breaker_alarm_overcurrent",
+            "name": "过流告警",
+            "category": "alarm",
+            "di": "04001504",
+            "dataType": "dlt645_bitfield_le",
+            "byteCount": 12,
+            "bit": 20,
+            "valueMap": { "0": "正常", "1": "过流告警" }
+          }]
+        })JSON";
+    output.close();
+    const auto points = edge_gateway::ConfigLoader::loadDlt645StandardPointsFromFile(path);
+    std::remove(path.c_str());
+
+    require(points.size() == 1, "DLT645 standard point should parse");
+    require(points.front().read.bit == 20, "DLT645 standard point bit should parse");
+    require(points.front().valueMap.size() == 2, "DLT645 standard point valueMap should parse");
+    require(points.front().valueMap.at("0") == "正常", "DLT645 normal label should parse");
+    require(points.front().valueMap.at("1") == "过流告警", "DLT645 alarm label should parse");
 }
 
 void verifyPointNormalizeConfig() {
@@ -339,6 +487,47 @@ void verifyScadaUpperComputerSafetyConfig() {
     require(config.directMaintenance.scadaUpperComputerProjectDirectory == "/srv/scada/current", "direct maintenance should share SCADA project directory");
 }
 
+void verifyIec103RecordingTransferConfig() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+      "mqtt": {
+        "recordingRequestTopic": "recording/request/custom",
+        "recordingReplyTopic": "recording/reply/custom",
+        "recordingStatusTopic": "recording/status/custom",
+        "recordingAckTopic": "recording/ack/custom"
+      },
+      "systemMonitor": {
+        "recordingTransfer": {
+          "enabled": true,
+          "queueFile": "/tmp/recording-queue.tsv",
+          "workDirectory": "/tmp/recording-work",
+          "curlExecutable": "/usr/bin/curl",
+          "allowInsecureHttp": true,
+          "requestTimeoutSec": 7,
+          "retryBaseSec": 4,
+          "retryMaxSec": 2
+        }
+      }
+    })JSON";
+    output.close();
+
+    const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+    std::remove(path.c_str());
+    require(app.mqtt.recordingRequestTopic == "recording/request/custom", "recording request topic should parse");
+    require(app.mqtt.recordingReplyTopic == "recording/reply/custom", "recording reply topic should parse");
+    require(app.mqtt.recordingStatusTopic == "recording/status/custom", "recording status topic should parse");
+    require(app.mqtt.recordingAckTopic == "recording/ack/custom", "recording ACK topic should parse");
+    require(app.systemMonitor.recordingTransfer.enabled, "recording transfer should parse enabled");
+    require(app.systemMonitor.recordingTransfer.queueFile == "/tmp/recording-queue.tsv", "recording queue path should parse");
+    require(app.systemMonitor.recordingTransfer.workDirectory == "/tmp/recording-work", "recording work path should parse");
+    require(app.systemMonitor.recordingTransfer.curlExecutable == "/usr/bin/curl", "recording curl executable should parse");
+    require(app.systemMonitor.recordingTransfer.allowInsecureHttp, "recording HTTP test override should parse");
+    require(app.systemMonitor.recordingTransfer.requestTimeoutSec == 10, "recording timeout should be bounded");
+    require(app.systemMonitor.recordingTransfer.retryBaseSec == 4, "recording retry base should parse");
+    require(app.systemMonitor.recordingTransfer.retryMaxSec == 4, "recording retry max should not be below base");
+}
+
 }  // namespace
 
 int main() {
@@ -386,11 +575,14 @@ int main() {
     require(config.eventOutboxMaxDiskBytes == 256U * 1024U * 1024U, "outbox disk should be bounded");
 
     verifyDeviceCollectBackgroundTaskConfig();
+    verifyDlt645WriteConfig();
+    verifyDlt645StandardPointValueMap();
     verifyNorthboundConfig();
     verifyPointNormalizeConfig();
     verifyLocalDisplayStateBindingConfig();
     verifyLocalDisplayScadaConfig();
     verifyScadaUpperComputerSafetyConfig();
+    verifyIec103RecordingTransferConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

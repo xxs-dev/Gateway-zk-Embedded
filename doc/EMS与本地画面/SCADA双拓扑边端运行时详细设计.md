@@ -249,7 +249,7 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 
 - `MqttDriver`：725,872 bytes，SHA-256 `cbd6ba571c8622f1008c9780ce3cd79ad3b17648e13db310524b786688c87ae5`。
 - `SystemMonitor`：1,115,936 bytes，SHA-256 `3b0911500b54116367f0edc3942069fce286aabf8fbc21deca6913cbf8194a56`。
-- 出厂包：5,160,839 bytes，SHA-256 `40034547e53ed511937c564e261583f24646a045a1c91e7130c0d26b8797453a`；包内二进制与仓库产物哈希一致，且不含 DirectAgent 或 AGC/AVC 独立运行模式。
+- 出厂包：5,198,688 bytes，SHA-256 `8a532369a13615e392d466d9badb6db314be70a0eab9071cbb4e84d2b03f19fc`；包内二进制与仓库产物哈希一致，不包含废弃的独立维护代理或 AGC/AVC 独立运行模式。远程维护走 MQTT，本地网口维护复用 `SystemMonitor` 内嵌接口；打包脚本会拒绝废弃组件重新进入归档。
 - 直连实时快照返回 1,001 点，并成功更新 machineCode 为 `COMM202600999` 的租约文件。
 - 60 秒观察前后 SystemMonitor、MqttDriver、KY-EMS 的 PID 不变，三者 `NRestarts=0`。
 - SystemMonitor 与 MqttDriver 均有到 broker `:8883` 的已建立连接；broker 仍为 `ssl://kygate.kyxn.net:8883`。
@@ -261,9 +261,20 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 
 ## 16. 2026-07-20 旧 EMS 全量 SCADA 验证
 
-- 完整工程：15 页、1,595 图元、1,158 Tag、57 资源，SHA-256 `1c990348c1b1cc74110570657ebbd4b34e6e6a993ab09deb55a9f5127efe9072`。
-- Qt SCADA 运行时：711,288 bytes，SHA-256 `5ad3f2c23ab6c6a6d47a358b46e2e99e921786d80f0d2283f7bb63e7e991bec6`。
+- 完整工程：15 页、1,595 图元、1,158 Tag、57 资源，5,477,976 bytes，SHA-256 `e42f93c6a48e3c737fcf7ca2380ca5c6ed4f83c79d674efd94e2482b5cfbfe08`。其中 `qtLabel` 706 个且不绑定运行点位，`qtValue` 220 个负责单点值和值映射。
+- Qt SCADA 运行时：724,208 bytes，SHA-256 `6551b55585afd3476f95d43ed6d571cb9f63e48a09b513deb105eac2ccf6f35a`；枚举映射在初始化时解析一次，刷新时按数值匹配，未知值回退为原始数值。
 - 22.16 使用 X11 事件自动遍历 15 个页面，页面截图均为 1920x1080、非空且哈希不同。
-- 当前主设备点没有有效采集值，因此数值和曲线保持空值；未注入 mock。DIO Index `984` 保持 `value=1 quality=1`。
+- 当前主设备点没有有效采集值，因此数值和曲线保持空值；未注入 mock。旧画面中的数字和状态占位已改为 `--`，固定容量等静态文字继续保留。DIO Index `984` 保持 `value=1 quality=1`。
 - `ky-ems.service` 为 `active`、`NRestarts=0`，broker 保持 `ssl://kygate.kyxn.net:8883`。
 - 配置、SCADA 运行时、上位机安全、OTA、SystemMonitor、安装和回滚测试均通过；未部署 `10.126.126.*`。
+
+## 17. SCADA 独立拉取范围（2026-07-25）
+
+为了让通用 Windows 运行器只同步画面工程，SystemMonitor 在原配置拉取协议上增加 `scope`，不新增服务或端口：
+
+- `scope=config`：保持现有配置快照行为。
+- `scope=scada`：只遍历 `localDisplay.scada.projectDirectory` 指向的当前 SCADA release。
+
+允许文件为固定元数据 `manifest.json`、`topology.json`、`nodes.json`、`tags.json`、`runtime-map.json`、`symbols.json`、`alarms.json`、`trends.json`、`permissions.json`、`checksums.json`，以及 `screens/**`、`assets/**`。实现复用现有 MQTT 分片、缺片补发、直连 HTTP、大小限制和安全路径检查，不建立第二套传输协议。
+
+22.16 实测候选二进制先使用关闭 MQTT 和直连端口的临时配置执行 `--once`，再经 `ldd` 预检和自动回滚脚本原子替换。新服务稳定后，直连 `scope=scada` 在约 0.9 秒内返回 82 个文件、9,115,329 bytes；Windows 能重建 checksums 完整的 `.kyscada`，第二次相同内容命中缓存。生产采集驱动、MqttDriver 和 KY-EMS 未因本次替换重启。

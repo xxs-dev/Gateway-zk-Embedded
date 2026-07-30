@@ -7,11 +7,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 option(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS "Enable function/data section GC for smaller edge binaries" ON)
+include(CTest)
 
 add_library(edge_gateway
     src/agc_avc_controller.cpp
     src/agc_avc_command_mailbox.cpp
     src/agc_avc_service.cpp
+    src/am5se_iec103_client.cpp
     src/alarm_service.cpp
     src/can_driver_service.cpp
     src/can_signal_codec.cpp
@@ -23,6 +25,7 @@ add_library(edge_gateway
     src/dio_command_executor.cpp
     src/dio_collector.cpp
     src/dlt645_client.cpp
+    src/dlt645_command_executor.cpp
     src/dlt645_collector.cpp
     src/dlt645_codec.cpp
     src/dlt645_standard_points_loader.cpp
@@ -32,6 +35,8 @@ add_library(edge_gateway
     src/graph_ems_engine.cpp
     src/iec_client.cpp
     src/iec_codec.cpp
+    src/iec103_recording_command.cpp
+    src/iec103_recording_transfer_service.cpp
     src/iec_command_executor.cpp
     src/iec_collector.cpp
     src/legacy_ems_engine.cpp
@@ -58,6 +63,7 @@ add_library(edge_gateway
     src/scada_upper_computer_safety.cpp
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
+    src/system_monitor_runtime_discovery.cpp
     src/sysfs_gpio_port.cpp
     src/system_monitor_service.cpp
     src/writeback_service.cpp
@@ -127,15 +133,21 @@ target_compile_options(QtDisplayBridge PRIVATE -fdiagnostics-color=never)
 
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6Widgets_FOUND)
-    add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp)
+    add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp local_display_qt_value_map.cpp)
     target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt6::Widgets)
     target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
+    add_executable(local_display_qt_value_map_test tools/local_display_qt_value_map_test.cpp local_display_qt_value_map.cpp)
+    target_link_libraries(local_display_qt_value_map_test PRIVATE Qt6::Core)
+    target_compile_options(local_display_qt_value_map_test PRIVATE -fdiagnostics-color=never)
 else()
     find_package(Qt5 COMPONENTS Widgets QUIET)
     if(Qt5Widgets_FOUND)
-        add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp)
+        add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp local_display_qt_value_map.cpp)
         target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt5::Widgets)
         target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
+        add_executable(local_display_qt_value_map_test tools/local_display_qt_value_map_test.cpp local_display_qt_value_map.cpp)
+        target_link_libraries(local_display_qt_value_map_test PRIVATE Qt5::Core)
+        target_compile_options(local_display_qt_value_map_test PRIVATE -fdiagnostics-color=never)
     else()
         message(STATUS "Qt Widgets not found; LocalDisplayQtEms target disabled")
     endif()
@@ -160,6 +172,22 @@ target_compile_options(can_signal_codec_test PRIVATE -fdiagnostics-color=never)
 add_executable(iec_codec_test tools/iec_codec_test.cpp)
 target_link_libraries(iec_codec_test PRIVATE edge_gateway)
 target_compile_options(iec_codec_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(am5se_iec103_codec_test tools/am5se_iec103_codec_test.cpp)
+target_link_libraries(am5se_iec103_codec_test PRIVATE edge_gateway)
+target_compile_options(am5se_iec103_codec_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(am5se_iec103_client_integration_test tools/am5se_iec103_client_integration_test.cpp)
+target_link_libraries(am5se_iec103_client_integration_test PRIVATE edge_gateway)
+target_compile_options(am5se_iec103_client_integration_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(iec103_recording_command_test tools/iec103_recording_command_test.cpp)
+target_link_libraries(iec103_recording_command_test PRIVATE edge_gateway)
+target_compile_options(iec103_recording_command_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(iec103_recording_transfer_service_test tools/iec103_recording_transfer_service_test.cpp)
+target_link_libraries(iec103_recording_transfer_service_test PRIVATE edge_gateway)
+target_compile_options(iec103_recording_transfer_service_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(iec104_client_integration_test tools/iec104_client_integration_test.cpp)
 target_link_libraries(iec104_client_integration_test PRIVATE edge_gateway)
@@ -192,6 +220,10 @@ target_compile_options(modbus_rtu_client_resync_test PRIVATE -fdiagnostics-color
 add_executable(dlt645_client_interval_test tools/dlt645_client_interval_test.cpp)
 target_link_libraries(dlt645_client_interval_test PRIVATE edge_gateway)
 target_compile_options(dlt645_client_interval_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(dlt645_command_executor_test tools/dlt645_command_executor_test.cpp)
+target_link_libraries(dlt645_command_executor_test PRIVATE edge_gateway)
+target_compile_options(dlt645_command_executor_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(modbus_tcp_client_limit_test tools/modbus_tcp_client_limit_test.cpp)
 target_link_libraries(modbus_tcp_client_limit_test PRIVATE edge_gateway)
@@ -229,6 +261,14 @@ add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(graph_ems_voltage_quality_test tools/graph_ems_voltage_quality_test.cpp)
+target_link_libraries(graph_ems_voltage_quality_test PRIVATE edge_gateway)
+target_compile_options(graph_ems_voltage_quality_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(graph_ems_v2_loader_test tools/graph_ems_v2_loader_test.cpp)
+target_link_libraries(graph_ems_v2_loader_test PRIVATE edge_gateway)
+target_compile_options(graph_ems_v2_loader_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(EmsParityCheck tools/ems_parity_check.cpp)
 target_link_libraries(EmsParityCheck PRIVATE edge_gateway)
 target_compile_options(EmsParityCheck PRIVATE -fdiagnostics-color=never)
@@ -240,3 +280,29 @@ target_compile_options(ota_service_test PRIVATE -fdiagnostics-color=never)
 add_executable(system_monitor_service_test tools/system_monitor_service_test.cpp)
 target_link_libraries(system_monitor_service_test PRIVATE edge_gateway)
 target_compile_options(system_monitor_service_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(system_monitor_runtime_discovery_test tools/system_monitor_runtime_discovery_test.cpp)
+target_link_libraries(system_monitor_runtime_discovery_test PRIVATE edge_gateway)
+target_compile_options(system_monitor_runtime_discovery_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(
+    system_monitor_direct_maintenance_contract_test
+    tools/system_monitor_direct_maintenance_contract_test.cpp
+    system_monitor_direct_maintenance.cpp
+)
+target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE edge_gateway)
+target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
+
+if(BUILD_TESTING)
+    add_test(NAME graph_ems_v2_loader COMMAND graph_ems_v2_loader_test)
+    add_test(NAME graph_ems_voltage_quality COMMAND graph_ems_voltage_quality_test)
+    add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
+    add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
+    set_tests_properties(
+        graph_ems_v2_loader
+        graph_ems_voltage_quality
+        legacy_ems_migration_parity
+        system_monitor_direct_maintenance_contract
+        PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endif()

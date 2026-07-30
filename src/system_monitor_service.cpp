@@ -954,6 +954,26 @@ bool isBase64SnapshotFile(const std::string& path) {
            isKyEmsSnapshotFile(path);
 }
 
+std::string normalizeDirectoryPath(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    while (path.size() > 1 && path.back() == '/') {
+        path.pop_back();
+    }
+    return path;
+}
+
+bool isPathInsideDirectory(const std::string& path, const std::string& directory) {
+    const auto normalizedPath = normalizeDirectoryPath(path);
+    const auto normalizedDirectory = normalizeDirectoryPath(directory);
+    return normalizedPath.size() > normalizedDirectory.size() &&
+           normalizedPath.compare(0, normalizedDirectory.size(), normalizedDirectory) == 0 &&
+           normalizedPath[normalizedDirectory.size()] == '/';
+}
+
+bool isScadaAssetFile(const std::string& path, const std::string& projectDirectory) {
+    return isPathInsideDirectory(path, normalizeDirectoryPath(projectDirectory) + "/assets");
+}
+
 std::string jsonStringAfter(const std::string& text, const std::string& key, std::size_t start) {
     if (start >= text.size()) {
         return std::string();
@@ -1035,8 +1055,103 @@ void collectFilesRecursive(
 #endif
 }
 
+template <typename IncludeFile>
+void collectScadaFilesRecursive(
+    std::vector<std::string>& files,
+    const std::string& root,
+    IncludeFile includeFile
+) {
+#ifndef _WIN32
+    DIR* handle = opendir(root.c_str());
+    if (handle == nullptr) {
+        return;
+    }
+    while (auto* entry = readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") {
+            continue;
+        }
+        const auto path = root + "/" + name;
+        struct stat st {};
+        if (lstat(path.c_str(), &st) != 0 || S_ISLNK(st.st_mode)) {
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            collectScadaFilesRecursive(files, path, includeFile);
+        } else if (S_ISREG(st.st_mode) && includeFile(path)) {
+            addUniquePath(files, path);
+        }
+    }
+    closedir(handle);
+#else
+    (void)files;
+    (void)root;
+    (void)includeFile;
+#endif
+}
+
+std::vector<std::string> collectScadaSnapshotFiles(const std::string& projectDirectory) {
+    std::vector<std::string> files;
+    const auto root = normalizeDirectoryPath(projectDirectory);
+    const char* metadataFiles[] = {
+        "manifest.json",
+        "topology.json",
+        "nodes.json",
+        "tags.json",
+        "runtime-map.json",
+        "symbols.json",
+        "alarms.json",
+        "trends.json",
+        "permissions.json",
+        "checksums.json"
+    };
+    for (const auto* name : metadataFiles) {
+        const auto path = root + "/" + name;
+        if (isRegularFile(path)) {
+            addUniquePath(files, path);
+        }
+    }
+    collectScadaFilesRecursive(files, root + "/screens", [](const std::string& path) {
+        return endsWithIgnoreCase(path, ".json");
+    });
+    collectScadaFilesRecursive(files, root + "/assets", [](const std::string&) {
+        return true;
+    });
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
 std::vector<std::string> collectConfigSnapshotFiles(const std::vector<std::string>& configFiles) {
     auto files = configFiles;
+    for (const auto& path : configFiles) {
+        if (!isRegularFile(path)) {
+            continue;
+        }
+        try {
+            const auto config = ConfigLoader::loadFromText(readFileText(path));
+            const auto reference = config.protocol.standardPointsFile;
+            if (reference.empty()) {
+                continue;
+            }
+            if (isRegularFile(reference)) {
+                addUniquePath(files, reference);
+                continue;
+            }
+
+            const auto separator = path.find_last_of("/\\");
+            auto base = separator == std::string::npos ? std::string(".") : path.substr(0, separator);
+            for (int level = 0; level < 6; ++level) {
+                const auto candidate = base + "/" + reference;
+                if (isRegularFile(candidate)) {
+                    addUniquePath(files, candidate);
+                    break;
+                }
+                base += "/..";
+            }
+        } catch (...) {
+            // App、identity 等非设备配置不包含标准点表引用，不影响快照收集。
+        }
+    }
     for (const auto& logicRoot : logicRootsFromConfigFiles(configFiles)) {
         collectFilesRecursive(files, logicRoot, [](const std::string& path) {
             return isRuntimeLogicSnapshotFile(path);
@@ -1662,6 +1777,15 @@ SystemMonitorService::SystemMonitorService(
             *router_
         ));
     }
+    if (monitorConfig_.recordingTransfer.enabled) {
+        recordingTransferService_.reset(new Iec103RecordingTransferService(
+            monitorConfig_.recordingTransfer,
+            mqttConfig_,
+            publisher_,
+            machineCode_,
+            configFiles_
+        ));
+    }
 }
 
 SystemMonitorService::~SystemMonitorService() {
@@ -1674,6 +1798,9 @@ void SystemMonitorService::start() {
         return;
     }
     publishStatusEvent("started", currentTimeMs());
+    if (recordingTransferService_) {
+        recordingTransferService_->start();
+    }
     thread_ = std::thread(&SystemMonitorService::loop, this);
 }
 
@@ -1684,6 +1811,9 @@ void SystemMonitorService::stop() {
     }
     if (thread_.joinable()) {
         thread_.join();
+    }
+    if (recordingTransferService_) {
+        recordingTransferService_->stop();
     }
 }
 
@@ -1773,6 +1903,10 @@ void SystemMonitorService::processIncomingMessages(std::int64_t nowMs) {
                 handleConfigFileOperationRequest(message.payload, nowMs, "delete");
             } else if (message.type == MqttIncomingType::ConfigRestoreRequest) {
                 handleConfigFileOperationRequest(message.payload, nowMs, "restore");
+            } else if (message.type == MqttIncomingType::RecordingRequest && recordingTransferService_) {
+                recordingTransferService_->handleRequest(message.payload, nowMs);
+            } else if (message.type == MqttIncomingType::RecordingAck && recordingTransferService_) {
+                recordingTransferService_->handleAck(message.payload, nowMs);
             }
         } catch (const std::exception& ex) {
             publishStatusEvent("request-failed", nowMs, std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
@@ -1917,9 +2051,11 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
     FlatJsonReader json(payload);
     std::string requestId;
     std::string machineCode;
+    std::string scope = "config";
     bool resend = false;
     json.tryGetString("requestId", &requestId);
     json.tryGetString("machineCode", &machineCode);
+    json.tryGetString("scope", &scope);
     json.tryGetBool("resend", &resend);
     if (machineCode.empty()) {
         throw std::runtime_error("machineCode is required");
@@ -1930,14 +2066,21 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
     if (requestId.empty()) {
         requestId = "CFG_PULL_" + std::to_string(nowMs);
     }
+    if (scope.empty()) {
+        scope = "config";
+    }
+    if (scope != "config" && scope != "scada") {
+        throw std::runtime_error("unsupported config pull scope");
+    }
 
-    const auto reply = buildConfigPullReply(requestId, nowMs);
+    const auto reply = buildConfigPullReply(requestId, nowMs, scope);
     const auto missingChunks = resend ? extractJsonIntArrayField(payload, "missingChunks") : std::vector<int>();
     publishConfigPullReply(reply, missingChunks);
     publishStatusEvent(
         resend ? "config-pull-resend-replied" : "config-pull-replied",
         nowMs,
         std::string(R"("requestId":")") + escapeJson(requestId) +
+            R"(","scope":")" + escapeJson(scope) +
             R"(","resend":)" + (resend ? "true" : "false") +
             R"(,"missingChunkCount":)" + std::to_string(missingChunks.size()) +
             R"(","fileCount":)" + std::to_string(configFiles_.size())
@@ -2014,16 +2157,36 @@ void SystemMonitorService::handleConfigFileOperationRequest(
     }
 }
 
-std::string SystemMonitorService::buildConfigPullReply(const std::string& requestId, std::int64_t nowMs) const {
+std::string SystemMonitorService::buildConfigPullReply(
+    const std::string& requestId,
+    std::int64_t nowMs,
+    const std::string& scope
+) const {
+    const auto projectDirectory = monitorConfig_.scadaUpperComputerSafety.projectDirectory;
+    const auto snapshotFiles = scope == "scada"
+        ? collectScadaSnapshotFiles(projectDirectory)
+        : collectConfigSnapshotFiles(configFiles_);
+    if (scope == "scada" &&
+        std::find(snapshotFiles.begin(), snapshotFiles.end(), normalizeDirectoryPath(projectDirectory) + "/manifest.json") == snapshotFiles.end()) {
+        std::ostringstream missing;
+        missing << "{\"requestId\":\"" << escapeJson(requestId)
+                << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+                << "\",\"scope\":\"scada\",\"success\":false,\"files\":[]"
+                << ",\"fileCount\":0,\"skippedFiles\":0,\"totalBytes\":0"
+                << ",\"message\":\"SCADA project manifest not found\""
+                << ",\"ts\":" << nowMs << "}";
+        return missing.str();
+    }
+
     std::ostringstream reply;
     reply << "{\"requestId\":\"" << escapeJson(requestId)
           << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+          << "\",\"scope\":\"" << escapeJson(scope)
           << "\",\"success\":true,\"files\":[";
 
     std::size_t emittedFiles = 0;
     std::size_t skippedFiles = 0;
     std::size_t totalBytes = 0;
-    const auto snapshotFiles = collectConfigSnapshotFiles(configFiles_);
     for (const auto& path : snapshotFiles) {
         if (path.empty()) {
             continue;
@@ -2049,7 +2212,10 @@ std::string SystemMonitorService::buildConfigPullReply(const std::string& reques
             continue;
         }
         totalBytes += content.size();
-        const auto encoding = isBase64SnapshotFile(path) ? std::string("base64") : std::string("utf8");
+        const auto encoding = (isBase64SnapshotFile(path) ||
+                               (scope == "scada" && isScadaAssetFile(path, projectDirectory)))
+            ? std::string("base64")
+            : std::string("utf8");
         const auto encodedContent = encoding == "base64" ? base64Encode(content) : content;
         if (emittedFiles > 0) {
             reply << ",";

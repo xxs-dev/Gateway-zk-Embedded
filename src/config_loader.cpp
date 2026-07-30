@@ -843,6 +843,18 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
+    if (const auto* dlt645 = value->find("dlt645")) {
+        const auto& dlt645Object = dlt645->asObject();
+        spec.dlt645.di = requireString(dlt645Object, "di", spec.dlt645.di);
+        spec.dlt645.dataType = requireString(dlt645Object, "dataType", spec.dataType);
+        spec.dlt645.byteCount = requireInt(dlt645Object, "byteCount", spec.dlt645.byteCount);
+        spec.dlt645.unit = requireInt(dlt645Object, "unit", spec.dlt645.unit);
+        spec.dlt645.fixedDataHex = requireString(
+            dlt645Object,
+            "fixedDataHex",
+            spec.dlt645.fixedDataHex
+        );
+    }
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
     return spec;
@@ -1212,6 +1224,10 @@ SerialTransportConfig parseTransport(const JsonValue* value) {
     );
     transport.frameIntervalMs = requireInt(object, "interRequestDelayMs", transport.frameIntervalMs);
     transport.readRetryCount = requireInt(object, "readRetryCount", transport.readRetryCount);
+    transport.wakeupBytes = requireInt(object, "wakeupBytes", transport.wakeupBytes);
+    if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
+        throw std::invalid_argument("transport.wakeupBytes must be between 0 and 16");
+    }
     return transport;
 }
 
@@ -1280,6 +1296,36 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.backgroundReceive = requireBool(object, "backgroundReceive", iec.backgroundReceive);
     iec.sendSFrameAck = requireBool(object, "sendSFrameAck", iec.sendSFrameAck);
     iec.clockSyncIntervalSec = requireInt(object, "clockSyncIntervalSec", iec.clockSyncIntervalSec);
+    iec.returnInformationIdentifier = requireInt(
+        object,
+        "returnInformationIdentifier",
+        iec.returnInformationIdentifier
+    );
+    iec.deviceFunctionType = requireInt(object, "deviceFunctionType", iec.deviceFunctionType);
+    iec.listenAddress = requireString(object, "listenAddress", iec.listenAddress);
+    iec.listenPort = requireInt(object, "listenPort", iec.listenPort);
+    iec.allowedDeviceIp = requireString(object, "allowedDeviceIp", iec.allowedDeviceIp);
+    iec.udpBindAddress = requireString(object, "udpBindAddress", iec.udpBindAddress);
+    iec.udpBroadcastAddress = requireString(
+        object,
+        "udpBroadcastAddress",
+        iec.udpBroadcastAddress
+    );
+    iec.udpPort = requireInt(object, "udpPort", iec.udpPort);
+    iec.udpBroadcastIntervalSec = requireInt(
+        object,
+        "udpBroadcastIntervalSec",
+        iec.udpBroadcastIntervalSec
+    );
+    iec.stationName = requireString(object, "stationName", iec.stationName);
+    iec.recordingDirectory = requireString(object, "recordingDirectory", iec.recordingDirectory);
+    iec.recordingCommandSocket = requireString(object, "recordingCommandSocket", iec.recordingCommandSocket);
+    iec.recordingTimeoutMs = requireInt(object, "recordingTimeoutMs", iec.recordingTimeoutMs);
+    iec.recordingMaxFileBytes = requireSize(
+        object,
+        "recordingMaxFileBytes",
+        iec.recordingMaxFileBytes
+    );
     iec.cotSize = boundedInt(iec.cotSize, 1, 2);
     iec.caSize = boundedInt(iec.caSize, 1, 2);
     iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
@@ -1294,6 +1340,13 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.kWindow = boundedInt(iec.kWindow, 1, 32767);
     iec.wAck = boundedInt(iec.wAck, 1, iec.kWindow);
     iec.clockSyncIntervalSec = std::max(0, iec.clockSyncIntervalSec);
+    iec.returnInformationIdentifier = boundedInt(iec.returnInformationIdentifier, 0, 255);
+    iec.deviceFunctionType = boundedInt(iec.deviceFunctionType, 0, 255);
+    iec.listenPort = boundedInt(iec.listenPort, 1, 65535);
+    iec.udpPort = boundedInt(iec.udpPort, 1, 65535);
+    iec.udpBroadcastIntervalSec = boundedInt(iec.udpBroadcastIntervalSec, 1, 3600);
+    iec.recordingTimeoutMs = boundedInt(iec.recordingTimeoutMs, 1000, 600000);
+    iec.recordingMaxFileBytes = std::max<std::size_t>(1024U, iec.recordingMaxFileBytes);
     return iec;
 }
 
@@ -1307,6 +1360,8 @@ ProtocolConfig parseProtocol(const JsonValue* value) {
     protocol.slave = requireInt(object, "slave", protocol.slave);
     protocol.backend = requireString(object, "backend", protocol.backend);
     protocol.gpioBasePath = requireString(object, "gpioBasePath", protocol.gpioBasePath);
+    protocol.standardPointsFile = requireString(object, "standardPointsFile", protocol.standardPointsFile);
+    protocol.standardPointsVersion = requireString(object, "standardPointsVersion", protocol.standardPointsVersion);
     protocol.transport = parseTransport(value->find("transport"));
     protocol.tcp = parseTcpTransport(value->find("tcp"));
     protocol.can = parseCanProtocol(value->find("can"));
@@ -1335,6 +1390,40 @@ void parseDlt645Config(const JsonValue* value, ProtocolConfig& protocol) {
     const auto& object = value->asObject();
     protocol.standardPointsFile = requireString(object, "standardPointsFile", protocol.standardPointsFile);
     protocol.standardPointsVersion = requireString(object, "standardPointsVersion", protocol.standardPointsVersion);
+    if (const auto* write = value->find("write")) {
+        const auto& writeObject = write->asObject();
+        protocol.dlt645.write.enabled = requireBool(
+            writeObject,
+            "enabled",
+            protocol.dlt645.write.enabled
+        );
+        protocol.dlt645.write.password = requireString(
+            writeObject,
+            "password",
+            protocol.dlt645.write.password
+        );
+        protocol.dlt645.write.operatorCode = requireString(
+            writeObject,
+            "operatorCode",
+            protocol.dlt645.write.operatorCode
+        );
+
+        const auto validHex32 = [](const std::string& text) {
+            return text.size() == 8U && std::all_of(text.begin(), text.end(), [](char ch) {
+                return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
+            });
+        };
+        if (!protocol.dlt645.write.password.empty() &&
+            !validHex32(protocol.dlt645.write.password)) {
+            throw std::invalid_argument("dlt645.write.password must be exactly 8 hex characters");
+        }
+        if (protocol.dlt645.write.enabled && protocol.dlt645.write.password.empty()) {
+            throw std::invalid_argument("dlt645.write.password is required when write is enabled");
+        }
+        if (!validHex32(protocol.dlt645.write.operatorCode)) {
+            throw std::invalid_argument("dlt645.write.operatorCode must be exactly 8 hex characters");
+        }
+    }
 }
 
 CollectConfig parseCollect(const JsonValue* value) {
@@ -1576,6 +1665,10 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.configDeleteReplyTopic = requireString(object, "configDeleteReplyTopic", config.configDeleteReplyTopic);
     config.configRestoreRequestTopic = requireString(object, "configRestoreRequestTopic", config.configRestoreRequestTopic);
     config.configRestoreReplyTopic = requireString(object, "configRestoreReplyTopic", config.configRestoreReplyTopic);
+    config.recordingRequestTopic = requireString(object, "recordingRequestTopic", config.recordingRequestTopic);
+    config.recordingReplyTopic = requireString(object, "recordingReplyTopic", config.recordingReplyTopic);
+    config.recordingStatusTopic = requireString(object, "recordingStatusTopic", config.recordingStatusTopic);
+    config.recordingAckTopic = requireString(object, "recordingAckTopic", config.recordingAckTopic);
     config.qos = requireInt(object, "qos", config.qos);
     config.controlQos = boundedInt(requireInt(object, "controlQos", config.controlQos), 0, 2);
     config.cleanSession = requireBool(object, "cleanSession", config.cleanSession);
@@ -2347,6 +2440,34 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
             config.cellular.modemDevicePatterns = modemDevicePatterns;
         }
     }
+    if (const auto* recording = value->find("recordingTransfer")) {
+        const auto& recordingObject = recording->asObject();
+        config.recordingTransfer.enabled = requireBool(
+            recordingObject, "enabled", config.recordingTransfer.enabled);
+        config.recordingTransfer.queueFile = requireString(
+            recordingObject, "queueFile", config.recordingTransfer.queueFile);
+        config.recordingTransfer.workDirectory = requireString(
+            recordingObject, "workDirectory", config.recordingTransfer.workDirectory);
+        config.recordingTransfer.curlExecutable = requireString(
+            recordingObject, "curlExecutable", config.recordingTransfer.curlExecutable);
+        config.recordingTransfer.allowInsecureHttp = requireBool(
+            recordingObject, "allowInsecureHttp", config.recordingTransfer.allowInsecureHttp);
+        config.recordingTransfer.requestTimeoutSec = boundedInt(
+            requireInt(recordingObject, "requestTimeoutSec", config.recordingTransfer.requestTimeoutSec),
+            10,
+            3600
+        );
+        config.recordingTransfer.retryBaseSec = boundedInt(
+            requireInt(recordingObject, "retryBaseSec", config.recordingTransfer.retryBaseSec),
+            1,
+            3600
+        );
+        config.recordingTransfer.retryMaxSec = boundedInt(
+            requireInt(recordingObject, "retryMaxSec", config.recordingTransfer.retryMaxSec),
+            config.recordingTransfer.retryBaseSec,
+            86400
+        );
+    }
     config.directMaintenance = parseDirectMaintenanceConfig(value->find("directMaintenance"), value);
     config.directMaintenance.scadaUpperComputerLeaseFile = config.scadaUpperComputerSafety.leaseFile;
     config.directMaintenance.scadaUpperComputerProjectDirectory = config.scadaUpperComputerSafety.projectDirectory;
@@ -2838,6 +2959,10 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.configDeleteReplyTopic = "edge/config/delete/reply";
     config.mqtt.configRestoreRequestTopic = "edge/config/restore/request";
     config.mqtt.configRestoreReplyTopic = "edge/config/restore/reply";
+    config.mqtt.recordingRequestTopic = "edge/recording/request";
+    config.mqtt.recordingReplyTopic = "edge/recording/reply";
+    config.mqtt.recordingStatusTopic = "edge/recording/status";
+    config.mqtt.recordingAckTopic = "edge/recording/ack";
     config.mqtt.qos = 1;
     config.mqtt.controlQos = 2;
     config.mqtt.cleanSession = true;
@@ -3107,19 +3232,21 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
     std::uint32_t generatedIndex = 1;
     for (const auto& item : points->asArray().values) {
         const auto& object = item->asObject();
+        const auto access = requireString(object, "access", "read");
         PointDefinition point;
         point.index = generatedIndex++;
         point.pointCode = requireString(object, "pointCode");
         point.name = requireString(object, "name");
         point.desc = requireString(object, "desc");
-        point.category = requireString(object, "category", "telemetry");
+        point.category = requireString(object, "category", access == "write" ? "command" : "telemetry");
+        point.address = requireInt(object, "address", point.address);
         point.enabled = requireBool(object, "enabledByDefault", true);
         point.isStore = requireBool(object, "storeHistory", true);
         point.fullUpload = requireBool(object, "fullUpload", true);
         point.reportOnChange = requireBool(object, "reportOnChange", false);
         point.persistIntervalSec = 60;
 
-        point.read.enable = point.enabled;
+        point.read.enable = point.enabled && access != "write";
         point.read.dataType = requireString(object, "dataType");
         point.read.scale = requireDouble(object, "scale", 1.0);
         point.read.offset = 0.0;
@@ -3128,11 +3255,14 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
         point.read.dlt645Di = requireString(object, "di");
         point.read.dlt645ByteCount = requireInt(object, "byteCount", 0);
         point.read.dlt645Decoder = requireString(object, "decoder", point.read.dlt645Decoder);
+        point.read.bit = requireInt(object, "bit", point.read.bit);
         point.read.length = point.read.dlt645ByteCount > 0 ? point.read.dlt645ByteCount : point.read.length;
         point.read.cachePolicy.storeLatest = requireBool(object, "storeLatest", true);
         point.read.cachePolicy.storeHistory = requireBool(object, "storeHistory", true);
         point.read.cachePolicy.historySize = 100;
         point.read.cachePolicy.ttlMs = 600000;
+        point.write = parseWriteSpec(item->find("write"));
+        point.valueMap = parseStringMap(item->find("valueMap"));
 
         result.push_back(std::move(point));
     }

@@ -142,7 +142,12 @@
             "UPS_MODEL": "0",
             "DEHUMIDIFIER_MODEL": "0",
             "XF_CZ": "1",
-            "LOCAL_DIO": "1"
+            "LOCAL_DIO": "1",
+            "STATION_LIMIT_V2": "0",
+            "CHARGE_DISCHARGE_TEST": "0",
+            "PCS_ENERGY_SAVING": "0",
+            "LIQUID_COOLING_ENERGY_SAVING": "0",
+            "PCS_AUTO_RESET": "0"
           }
         }
       }

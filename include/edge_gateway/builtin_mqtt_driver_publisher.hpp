@@ -67,6 +67,8 @@ public:
         const std::string& payload
     ) override;
 
+    void maintain() override;
+
     std::vector<MqttIncomingMessage> pollIncoming(int timeoutMs) override;
 
     static bool parseIncomingPublishPacket(
@@ -89,9 +91,10 @@ private:
     void flushOfflineBuffer(bool force);
     void replayOfflineBuffer();
     void ensureTxConnected();
-    void closeTx();
+    void maintainTxConnection();
+    void closeTx(bool graceful = true);
     void ensureSubscriberConnected();
-    void closeSubscriber();
+    void closeSubscriber(bool graceful = true);
 
     struct OfflineMessage {
         std::string topic;

@@ -2,9 +2,9 @@
 
 ## 1. 背景
 
-当前舜通 EMS 逻辑已经迁移为边端 `LegacyEmsEngine`，由 `ComputeEngine` 通过 `script.type=legacyEms` 周期执行。该方式适合快速复刻旧 `script.cpp` 行为，但逻辑被固化在 C++ 中，平台端只能配置启停、点表文件和少量 profile 参数，不能图形化调整策略块、点位映射、调度表和输出写回规则。
+舜通 EMS 生产逻辑已经完成 V2 单文件迁移。Windows 编辑器保存、平台审批发布和边端 `ComputeEngine` 执行同一份 `schemaVersion=2.x` 策略图，不再发布外部 V1 运行图，也不再允许生产 `script.type=legacyEms`。
 
-当前已经形成两层策略图：旧领域节点图用于兼容既有工程和等价基准；模块化图使用公式、条件、调度、仲裁、约束和写回等通用节点表达算法。`LegacyEmsEngine` 和旧领域图保留为金标准，新的模块化图仍通过 `script.type=graphEms` 执行。
+模块化图使用公式、条件、调度、仲裁、约束和写回等通用节点表达算法，并通过 `script.type=graphEms` 直接执行。`LegacyEmsEngine` 和 V1 loader 只保留在 `EmsParityCheck` 与回归测试中，作为一次性迁移的离线基准，不属于生产服务。
 
 ## 2. 目标
 
@@ -12,7 +12,7 @@
 - 边端执行安全、确定性的 JSON 策略图，不执行任意 JavaScript、Python 或 Shell。
 - 支持舜通模板一键加载，也支持在模板基础上调整点位、参数、启停和输出写回。
 - 保留现有共享内存、`PointStoreRouter`、计算点、写回队列和 MQTT 上报链路。
-- 能用自动化测试对比 `legacyEms` 与 `graphEms` 的关键输出，降低迁移风险。
+- 能在不接入生产调度的离线工具中对比 V1 基线与 V2 候选关键输出，降低迁移风险。
 
 ## 3. 非目标
 
@@ -39,7 +39,7 @@ Java / Vue 平台
   -> PointStoreRouter 写 latest / PendingWriteCommand
 ```
 
-`legacyEms` 与 `graphEms` 可以在同一个 `ComputeEngine` 中并存。现场切换时先启用影子运行，只比较输出，不下发 PCS 写命令；确认一致后再开启 `submitWrites=true`。
+生产 `ComputeEngine` 只接受 `graphEms` V2 策略。旧工程必须先在 Windows 原路径转换为 V2，再进行影子运行和写回验收；同一生产 app 配置不得并存 `legacyEms` 与 `graphEms`。
 
 ## 5. 配置入口
 
@@ -110,92 +110,75 @@ App 配置增加一种脚本类型：
 
 策略图是版本化 JSON。平台端只生成受支持的节点类型，边端严格校验。
 
-当前边端只接受 `schemaVersion=1.x`。根级 `limits.maxNodes/maxEdges` 默认 256/512，允许的硬上限为 1024/4096；超过配置或硬上限会拒绝加载。节点参数、重复 ID、未知节点、边引用和有向环同样在加载期拒绝。
+当前边端生产执行器只接受 `schemaVersion=2.x`，直接解析 Windows 保存的 `parameters + ports/bindings + links`。V2 文件是编辑和执行的唯一真源，不再编译或发布外部 V1 运行图。`computeEngine.script.graphFile` 引用哪个文件就加载哪个文件，文件名可为迁移前保留的 `.json`，也可为新建图推荐的 `<graphCode>.logic.json`；未引用历史文件不会阻断运行。
+
+`compile.maxNodes/maxEdges` 的硬上限为 1024/4096。所有运行端口必须由具体 `binding.index`、标量 `constant` 或数据连线解析；只有 `pointCode/semanticRole` 而没有 index 时拒绝。端口绑定值与 `runtimePath` 指向的 `parameters` 值不一致时同样拒绝。
 
 ```json
 {
-  "schemaVersion": "1.0.0",
-  "graphCode": "shuntong_ems",
-  "name": "舜通 EMS 默认策略",
-  "scanIntervalMs": 2000,
-  "mode": "active",
-  "limits": {
-    "maxNodes": 200,
-    "maxEdges": 500,
-    "maxWritesPerScan": 100
+  "schemaVersion": "2.0.0",
+  "graphCode": "typed-rate-limit",
+  "compile": {
+    "maxNodes": 16,
+    "maxEdges": 16,
+    "virtualIndexStart": 700000,
+    "virtualIndexEnd": 700099
   },
   "nodes": [
     {
-      "id": "meter_average",
-      "type": "meterAverage",
+      "id": "source",
+      "type": "pointInput",
       "enabled": true,
-      "params": {
-        "windowSizeIndex": 156,
-        "mappings": [
-          { "input": 1036, "output": 209 },
-          { "input": 1037, "output": 210 },
-          { "input": 1038, "output": 211 }
-        ]
-      }
+      "order": 0,
+      "parameters": { "inputIndex": 100 },
+      "ports": [{
+        "id": "value",
+        "direction": "output",
+        "valueType": "number",
+        "runtimePath": "/inputIndex",
+        "binding": { "kind": "point", "index": 100, "pointCode": "source_value" }
+      }]
     },
     {
-      "id": "ds",
-      "type": "timedChargeDischarge",
+      "id": "limit",
+      "type": "rateLimit",
       "enabled": true,
-      "params": {
-        "useLocalHour": true,
-        "powerScheduleStartIndex": 400,
-        "socScheduleStartIndex": 424,
-        "modeScheduleStartIndex": 760,
-        "bmsSocIndex": 1570,
-        "cnVoltageIndexes": [251, 252, 253],
-        "gradPIndex": 533,
-        "vMaxIndex": 463,
-        "vMinIndex": 464
+      "order": 10,
+      "parameters": {
+        "inputIndex": 100,
+        "outputIndex": 700000,
+        "risePerSecond": 10,
+        "fallPerSecond": 10,
+        "minValue": -100,
+        "maxValue": 100
       },
-      "outputs": {
-        "powerNow": 461,
-        "socNow": 462,
-        "pa": 615,
-        "pb": 616,
-        "pc": 617,
-        "p3": 618,
-        "run": 18
-      }
-    },
-    {
-      "id": "pcs_writeback",
-      "type": "pcsWriteback",
-      "enabled": true,
-      "params": {
-        "communicationStatusIndex": 1399,
-        "requiredCommunicationStatus": 1,
-        "submitWrites": true,
-        "truncateToInteger": true,
-        "deadband": 0.5
-      },
-      "inputs": {
-        "pa": 627,
-        "pb": 628,
-        "pc": 629,
-        "qa": 630,
-        "qb": 631,
-        "qc": 632
-      },
-      "outputs": {
-        "pControlA": 1318,
-        "pControlB": 1319,
-        "pControlC": 1320,
-        "qControlA": 1321,
-        "qControlB": 1322,
-        "qControlC": 1323
-      }
+      "ports": [
+        {
+          "id": "input",
+          "direction": "input",
+          "valueType": "number",
+          "runtimePath": "/inputIndex",
+          "binding": { "kind": "automatic", "index": 100 }
+        },
+        {
+          "id": "result",
+          "direction": "output",
+          "valueType": "number",
+          "runtimePath": "/outputIndex",
+          "binding": { "kind": "automatic", "index": 700000 }
+        }
+      ]
     }
   ],
-  "edges": [
-    { "from": "meter_average", "to": "ds" },
-    { "from": "ds", "to": "power_solve" },
-    { "from": "power_solve", "to": "pcs_writeback" }
+  "links": [
+    {
+      "id": "source_to_limit",
+      "kind": "data",
+      "fromNodeId": "source",
+      "fromPortId": "value",
+      "toNodeId": "limit",
+      "toPortId": "input"
+    }
   ]
 }
 ```
@@ -206,11 +189,11 @@ App 配置增加一种脚本类型：
 
 加载期：
 
-1. 解析 graph JSON。
-2. 校验 `schemaVersion`、节点类型、参数字段和节点 ID。
-3. 校验 `edges` 无环，生成拓扑顺序。
-4. 收集所有输入和输出点位，通过 `PointStoreRouter::routeByIndex()` 校验路由。
-5. 对写设备输出校验 `write.enable=true`。
+1. 解析被 `script.graphFile` 引用的 V2 JSON。
+2. 校验 `schemaVersion`、`compile` 范围、节点、端口、绑定和连线。
+3. 校验端口绑定与 `parameters` 一致，拒绝未物化点位和语义绑定。
+4. 折叠 `pointInput`，把端口和数据连线规范化到内存执行参数。
+5. 校验执行依赖无环，生成拓扑顺序并执行既有节点参数校验。
 6. 初始化节点状态，例如 DS 的 `OUT_PA_DS / OUT_PB_DS / OUT_PC_DS`。
 
 运行期：
@@ -268,6 +251,7 @@ Windows 端保存前还应检查单字段范围和字段关系；边端加载时
 | `hysteresis` | 高低阈值滞回判断 | 无 | 已实现第一版 |
 | `debounce` | 布尔状态开启/关闭防抖 | 无 | 已实现第一版 |
 | `sequence` | 多阶段顺序状态机 | 无 | 已实现第一版 |
+| `voltageQualification` | 380/220 V 每分钟平均及自然日电压合格率统计 | 有 | 已实现 |
 
 旧领域节点继续用于旧工程兼容。新模块化模板不再使用这些节点：数学计算和分支由 `formula/switch/controlGate` 组成，时段选择由 `timeSource/scheduleSelect` 组成，PCS 候选合并与限制分别由 `phaseArbiter/powerConstraint` 执行，设备下发由固定目标的 `controlWrite` 执行。不可绕过的目标可写性、队列容量、控制租约和协议写回校验仍在边端公共控制链中执行。
 
@@ -626,22 +610,23 @@ runtime/logic/shuntong_ems_native_config.json
 
 平台端也要做同样校验，但不能依赖平台校验保证边端安全。
 
-## 12. 兼容策略
+## 12. 迁移兼容边界
 
-- `legacyEms` 不删除，继续作为旧工程兼容和回归基准。
-- `graphEms` 第一阶段只覆盖舜通 EMS 模板。
-- 同一工程允许配置 `legacyEms` 和 `graphEms` 两条规则，但只有一条允许开启 PCS 写回。
-- 迁移验收时使用同一输入快照分别跑 `legacyEms` 和 `graphEms`，比较 `461/462/601..632/1318..1323`。
+- Windows 是唯一允许读取并原路径转换 V1 工程的生产工具，保存和发布结果必须是 V2。
+- 平台只治理 `computeEngine...graphFile` 引用的 V2 单文件；被引用 V1 会阻断发布，未引用历史文件不参与治理。
+- 生产 `ComputeEngineService` 构造时拒绝任何 `script.type=legacyEms`，不提供旧执行器回退开关。
+- `LegacyEmsEngine`、V1 loader 和旧领域图仅供 `EmsParityCheck` 与回归测试使用，不进入生产运行时。
+- 迁移验收使用隔离输入分别计算 V1 基线和 V2 候选，比较 `461/462/601..632/1318..1323`，不得把 legacy 规则写回生产 app 配置。
 
 ### 12.1 完全替代验收报告
 
-边端新增 `EmsParityCheck`，它先读取当前共享内存快照，再把同一份输入复制到两个独立临时共享内存，分别执行 `legacyEms` 和 `graphEms`。临时执行不会修改生产 latest，也不会把控制命令写入生产队列。
+边端提供离线工具 `EmsParityCheck`。推荐使用 `--baseline-graph` 指定 V1 迁移基线、`--candidate-graph` 指定 V2 候选；工具把同一输入复制到两个独立临时共享内存。临时执行不会修改生产 latest，也不会把控制命令写入生产队列。
 
 ```bash
 /opt/modbus-gateway/bin/EmsParityCheck \
   --app-config /opt/modbus-gateway/config/runtime/apps/mqtt-service.json \
-  --legacy-rule shuntong_legacy \
-  --graph-rule shuntong_graph \
+  --baseline-graph /opt/modbus-gateway/migration/shuntong_v1_baseline.json \
+  --candidate-graph /opt/modbus-gateway/config/runtime/logic/shuntong_ems_graph.json \
   --report /opt/modbus-gateway/config/runtime/logic/ems_graph_parity_report.json
 ```
 
@@ -701,7 +686,7 @@ Windows 的“发布就绪 -> Graph 完全替代”同时检查：启用的 `gra
 - 先启用影子运行，关闭 PCS 写回。
 - 对比关键输出和待写命令。
 - 通过后开启 `pcsWriteback.submitWrites=true`。
-- 保留回退到 `legacyEms` 的配置项。
+- 保留整套 V2 二进制、app 配置、策略图和状态文件的回滚单元；禁止回退到生产 `legacyEms`。
 
 ## 15. 完全模块化等价替换（2026-07-13）
 
@@ -709,8 +694,8 @@ Windows 的“发布就绪 -> Graph 完全替代”同时检查：启用的 `gra
 
 `tools/generate_shuntong_modular_graph.ps1` 读取旧领域图中的点位和参数，生成以下两份配套文件：
 
-- `shuntong_ems_modular_graph.json`：315 个节点、314 条有向边，旧领域节点数量为 0。
-- `device_ems_modular_virtual.json`：保留原 130 个 EMS 虚拟点，并增加 219 个 `700000..700218` 内部路由点；内部点不全量上传、不落历史。
+- `shuntong_ems_modular_graph.json`：487 个节点、486 条有向边，旧领域节点数量为 0。
+- `device_ems_modular_virtual.json`：共 622 个 EMS 虚拟点，其中 351 个为 `700000+` 内部路由点；内部点不全量上传、不落历史。
 
 | 旧领域职责 | 模块化实现 |
 | --- | --- |
@@ -718,12 +703,12 @@ Windows 的“发布就绪 -> Graph 完全替代”同时检查：启用的 `gra
 | FH、视在功率、功率因数、BMS 派生 | `formula`，零除数使用 `safeDivide` |
 | COS、电压、手动充放电、光伏、三相平衡 | `formula + switch + controlGate` |
 | 24 小时计划 | `scheduleSelect`，逐相渐变由公式和选择器显式展开 |
-| 当前本地小时 | `timeSource(component=hour)` |
+| 当前本地日期/小时 | `timeSource(component=dayOfMonth/hour)` |
 | PCS 模式候选合并 | `phaseArbiter` |
 | 正反送、增容、P/Q/S、BMS功率、SOC限制 | `powerConstraint` |
 | PCS 六路写回 | 6 个固定目标 `controlWrite(valueMode=truncate)` |
 
-`timeSource.component` 不是“配置几点”，而是选择写入虚拟点的时间分量。时间来自边端 Linux 系统时间和系统时区：`hour` 输出 0-23，`minute` 输出 0-59，`second` 输出 0-59，`minuteOfDay` 输出 0-1439（例如 01:30 输出 90），`weekday` 输出 1-7（周一为 1、周日为 7）。`scheduleSelect` 当前直接读取设备本地小时，不依赖 `timeSource` 输出；需要分钟级条件时，应使用 `minuteOfDay` 输出点连接公式或条件模块。
+`timeSource.component` 不是“配置几点”，而是选择写入虚拟点的时间分量。时间来自边端 Linux 系统时间和系统时区：`dayOfMonth` 输出 1-31，`hour` 输出 0-23，`minute` 输出 0-59，`second` 输出 0-59，`minuteOfDay` 输出 0-1439（例如 01:30 输出 90），`weekday` 输出 1-7（周一为 1、周日为 7）。`scheduleSelect` 当前直接读取设备本地小时，不依赖 `timeSource` 输出；需要日期或分钟条件时，应使用对应时间源输出点连接条件模块。
 
 `formula` 额外支持 `square/sqrt/acos/tan/sin/cos/safeDivide`。`safeDivide` 可配置零除数返回值；`sqrt/acos` 可使用 `invalidPolicy=skip` 保留旧逻辑“本轮不覆盖输出”的语义。节点还可用 `profileIntKey/profileIntValue..4` 按设备型号执行，例如 BMS 型号 1/3 的当日累计量。`profileKey` 要求设备存在，`optionalProfileKey` 要求可选设备被明确启用，`profileDisabledKey` 要求对应设备不存在，用于表达 `TQ-CN`、`TQ-BW` 和独立 FH 三条互斥取数路径。
 
@@ -783,7 +768,7 @@ Windows 的“发布就绪 -> Graph 完全替代”同时检查：启用的 `gra
 | 1000 ms | 约 35% | 稳定约 1%~2% | 约 51 MB |
 | 200 ms | 约 69% | 稳定约 4%~6% | 约 52 MB |
 
-随后补齐循环策略和 Profile 分支，当前现场图为 372 节点/371 边，1000 ms 周期实测约 2.4% CPU、约 54 MB RSS。EMS 虚拟共享内存待写命令为 0，六个 `controlWrite` 均为 `submitWrites=false`。宿主机构建的 `legacy_ems_test` 通过；22.11 完成交叉编译；22.16 上 PCS 六路输出连续 10 轮、200 ms 步进比较 `mismatchCount=0`。包含 `461/462` 的非定时时段校验会报告旧 Graph 本轮未刷新这两个点，这属于旧策略的时段语义，不应把该 `require-refreshed` 结果误判为数值差异。
+上表是 2026-07-13 的 315 节点历史性能基线。随后补齐循环策略、Profile 分支和 2026-07-26 舜通新版差异，当前生成图为 487 节点/486 边、622 个虚拟点。最新版迁移范围和安全边界见 [舜通20260726策略迁移说明.md](舜通20260726策略迁移说明.md)。历史 372 节点现场图曾在 1000 ms 周期实测约 2.4% CPU、约 54 MB RSS；该数据不能直接冒充 487 节点版本的现场结果，新版必须重新完成 22.16 影子压测。包含 `461/462` 的非定时时段校验会报告旧 Graph 本轮未刷新这两个点，这属于旧策略的时段语义，不应把该 `require-refreshed` 结果误判为数值差异。
 
 异常恢复验收中主动对 ComputeEngine 执行一次 `SIGKILL`，systemd 在 5 秒后自动拉起，`NRestarts` 从 0 增至 1；共享内存值保留并继续刷新，待写队列仍为 0。这一计数是受控验收结果，不是现场无故崩溃。损坏状态文件的宿主回归也确认：恢复错误会记录 `restoreState` 告警，计算继续执行并原子重写有效状态文件。
 

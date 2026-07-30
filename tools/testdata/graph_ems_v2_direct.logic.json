@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "2.0.0",
+  "graphCode": "graph-ems-v2-direct-fixture",
+  "compile": {
+    "maxNodes": 16,
+    "maxEdges": 16,
+    "virtualIndexStart": 700000,
+    "virtualIndexEnd": 700099,
+    "requireKnownWriteTargets": true,
+    "preserveImportedBehavior": false
+  },
+  "nodes": [
+    {
+      "id": "source",
+      "type": "pointInput",
+      "typeVersion": "1.0.0",
+      "enabled": true,
+      "order": 0,
+      "parameters": {
+        "inputIndex": 100
+      },
+      "ports": [
+        {
+          "id": "value",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "kW",
+          "required": true,
+          "runtimePath": "/inputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 100,
+            "pointCode": "source_value",
+            "semanticRole": "fixture.source"
+          }
+        }
+      ]
+    },
+    {
+      "id": "calculate",
+      "type": "formula",
+      "typeVersion": "1.0.0",
+      "enabled": true,
+      "order": 10,
+      "parameters": {
+        "operation": "add",
+        "inputs": [
+          { "index": 100 },
+          { "value": 2 }
+        ],
+        "outputIndex": 700000
+      },
+      "ports": [
+        {
+          "id": "input",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "KW",
+          "required": true,
+          "runtimePath": "/inputs/0/index",
+          "binding": {
+            "kind": "automatic",
+            "index": 100
+          }
+        },
+        {
+          "id": "offset",
+          "direction": "input",
+          "valueType": "number",
+          "required": true,
+          "runtimePath": "/inputs/1/value",
+          "binding": {
+            "kind": "constant",
+            "constant": 2
+          }
+        },
+        {
+          "id": "result",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "kW",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "automatic",
+            "index": 700000
+          }
+        }
+      ]
+    },
+    {
+      "id": "limit",
+      "type": "rateLimit",
+      "typeVersion": "1.0.0",
+      "enabled": true,
+      "order": 20,
+      "parameters": {
+        "inputIndex": 700000,
+        "outputIndex": 700001,
+        "risePerSecond": 100,
+        "fallPerSecond": 100,
+        "minValue": -100,
+        "maxValue": 100,
+        "initialValue": 0
+      },
+      "ports": [
+        {
+          "id": "input",
+          "direction": "input",
+          "valueType": "number",
+          "unit": "KW",
+          "required": true,
+          "runtimePath": "/inputIndex",
+          "binding": {
+            "kind": "automatic",
+            "index": 700000
+          }
+        },
+        {
+          "id": "result",
+          "direction": "output",
+          "valueType": "number",
+          "required": true,
+          "runtimePath": "/outputIndex",
+          "binding": {
+            "kind": "automatic",
+            "index": 700001
+          }
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "id": "source_to_calculate",
+      "kind": "data",
+      "fromNodeId": "source",
+      "fromPortId": "value",
+      "toNodeId": "calculate",
+      "toPortId": "input",
+      "inferred": false
+    },
+    {
+      "id": "calculate_to_limit",
+      "kind": "data",
+      "fromNodeId": "calculate",
+      "fromPortId": "result",
+      "toNodeId": "limit",
+      "toPortId": "input",
+      "inferred": false
+    }
+  ],
+  "groups": []
+}

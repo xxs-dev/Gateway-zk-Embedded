@@ -57,24 +57,41 @@
          包含：能量统计 + 有功/无功功率 + 进度条
          ================================================================ -->
     <FirstPage>
+        <WaveformCache>
+            <SampleIntervalSec value="1"/>
+            <MaxPoints value="3600"/>
+        </WaveformCache>
+        <Waves>
+            <Wave name="台区Pa" unit="kW" semanticRole="meter.grid.activePowerA" indexFallback="1036" color="#F9CC44" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPa"/>
+            <Wave name="台区Pb" unit="kW" semanticRole="meter.grid.activePowerB" indexFallback="1037" color="#129A37" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPb"/>
+            <Wave name="台区Pc" unit="kW" semanticRole="meter.grid.activePowerC" indexFallback="1038" color="#1A9BEF" penStyle="SolidLine" axis="left" checkbox="checkBoxTqPc"/>
+            <Wave name="台区P" unit="kW" semanticRole="meter.gridActivePower" indexFallback="1039" color="#20DBE9" penStyle="SolidLine" axis="left" checkbox="checkBoxTqP"/>
+            <Wave name="PCS Pa" unit="kW" semanticRole="pcs.activePowerA" indexFallback="1227" color="#F9CC44" penStyle="DashLine" axis="left" checkbox="checkBoxPcsPa"/>
+            <Wave name="PCS Pb" unit="kW" semanticRole="pcs.activePowerB" indexFallback="1228" color="#129A37" penStyle="DashLine" axis="left" checkbox="checkBoxPcsPb"/>
+            <Wave name="PCS Pc" unit="kW" semanticRole="pcs.activePowerC" indexFallback="1229" color="#1A9BEF" penStyle="DashLine" axis="left" checkbox="checkBoxPcsPc"/>
+            <Wave name="PCS P" unit="kW" semanticRole="pcs.activePowerTotal" indexFallback="1230" color="#FF9626" penStyle="DashLine" axis="left" checkbox="checkBoxPcsP"/>
+        </Waves>
         <DataBindings>
-            <!-- ── 控制模式 ── -->
-            <Bind widget="CtlModeColor" type="image" semanticRole="ems.controlMode" indexFallback="1"
-                  meterCode="EMS_CORE" pointCode="ems_auto_mode"
+            <!-- ── 当前充放电状态 ── -->
+            <Bind widget="CtlModeColor" type="image" semanticRole="bms.chargeDischargeState" indexFallback="1454"
+                  meterCode="MTR20250600659" pointCode="mb3_s2_1454"
                   value0Image=":/new/prefix1/Pictures/RingG.png"
                   value1Image=":/new/prefix1/Pictures/RingR.png">
                 <StateRules labelWidget="CtlModeText" defaultCode="UNKNOWN" defaultLabel="未知" defaultColor="#AAB3BD" defaultImage="">
-                    <State code="MANUAL" label="手动" color="#D64545" image=":/new/prefix1/Pictures/RingR.png" priority="100" match="all">
-                        <Condition meterCode="EMS_CORE" pointCode="ems_auto_mode" indexFallback="1" semanticRole="ems.controlMode" operator="eq" value="1"/>
+                    <State code="DISCHARGING" label="放电" color="#F59E0B" image=":/new/prefix1/Pictures/RingR.png" priority="100" match="all">
+                        <Condition meterCode="MTR20250600659" pointCode="mb3_s2_1454" indexFallback="1454" semanticRole="bms.chargeDischargeState" operator="eq" value="1"/>
                     </State>
-                    <State code="AUTO" label="自动" color="#2F9D78" image=":/new/prefix1/Pictures/RingG.png" priority="90" match="all">
-                        <Condition meterCode="EMS_CORE" pointCode="ems_auto_mode" indexFallback="1" semanticRole="ems.controlMode" operator="eq" value="0"/>
+                    <State code="CHARGING" label="充电" color="#2F9D78" image=":/new/prefix1/Pictures/RingG.png" priority="90" match="all">
+                        <Condition meterCode="MTR20250600659" pointCode="mb3_s2_1454" indexFallback="1454" semanticRole="bms.chargeDischargeState" operator="eq" value="2"/>
+                    </State>
+                    <State code="IDLE" label="静置" color="#71808A" image=":/new/prefix1/Pictures/RingG.png" priority="80" match="all">
+                        <Condition meterCode="MTR20250600659" pointCode="mb3_s2_1454" indexFallback="1454" semanticRole="bms.chargeDischargeState" operator="eq" value="0"/>
                     </State>
                 </StateRules>
-            </Bind>  <!-- 控制模式：灯色与文字由同一组多状态规则驱动 -->
-            <Bind widget="CtlModeText" type="text" semanticRole="ems.controlMode" indexFallback="1"
-                  meterCode="EMS_CORE" pointCode="ems_auto_mode" decimals="0"
-                  value0Text="自动" value1Text="手动"/>                <!-- 控制模式文本 -->
+            </Bind>
+            <Bind widget="CtlModeText" type="text" semanticRole="bms.chargeDischargeState" indexFallback="1454"
+                  meterCode="MTR20250600659" pointCode="mb3_s2_1454" decimals="0"
+                  valueMap="0=静置;1=放电;2=充电"/>
 
             <!-- ── SOC 显示 ── -->
             <Bind widget="SocData"     type="text" semanticRole="bms.soc" indexFallback="1569" decimals="1"/>  <!-- SOC 数值(%) -->
@@ -90,17 +107,17 @@
             <Bind widget="SafyRunData" semanticRole="ems.safeRunDays" indexFallback="6" decimals="0"/>      <!-- 安全运行天数 -->
             
             <!-- ── 有功功率 ── -->
-            <Bind widget="EnStorePData" semanticRole="meter.storageActivePower" indexFallback="1139" unit="kW" decimals="1"/>      <!-- 储能有功功率(kW) -->
+            <Bind widget="EnStorePData" semanticRole="pcs.activePowerTotal" indexFallback="1230" unit="kW" decimals="1"/>      <!-- PCS 实际有功功率(kW) -->
             <Bind widget="tqPData" semanticRole="meter.gridActivePower" indexFallback="1039" unit="kW" decimals="1"/>      <!-- 台区有功功率(kW) -->
             
             <!-- ── 无功功率 ── -->
-            <Bind widget="EnStorePData_2" semanticRole="meter.storageReactivePower" indexFallback="1143" unit="kVar" decimals="1"/>      <!-- 储能无功功率(kVar) -->
+            <Bind widget="EnStorePData_2" semanticRole="pcs.reactivePowerTotal" indexFallback="1234" unit="kVar" decimals="1"/>      <!-- PCS 实际无功功率(kVar) -->
             <Bind widget="tqPData_2" semanticRole="meter.gridReactivePower" indexFallback="1043" unit="kVar" decimals="1"/>      <!-- 台区无功功率(kVar) -->
 
             <!-- ── 双向进度条（BilateralProgressBar，数值范围±100）── -->
-            <Bind widget="progBarEsP" type="bar" semanticRole="meter.storageActivePower" indexFallback="1139"/>   <!-- 储能有功功率进度条 -->
+            <Bind widget="progBarEsP" type="bar" semanticRole="pcs.activePowerTotal" indexFallback="1230"/>   <!-- PCS 有功功率进度条 -->
             <Bind widget="progBarTqP" type="bar" semanticRole="meter.gridActivePower" indexFallback="1039"/>   <!-- 台区有功功率进度条 -->
-            <Bind widget="progBarEsQ" type="bar" semanticRole="meter.storageReactivePower" indexFallback="1143"/>   <!-- 储能无功功率进度条 -->
+            <Bind widget="progBarEsQ" type="bar" semanticRole="pcs.reactivePowerTotal" indexFallback="1234"/>   <!-- PCS 无功功率进度条 -->
             <Bind widget="progBarTqQ" type="bar" semanticRole="meter.gridReactivePower" indexFallback="1043"/>   <!-- 台区无功功率进度条 -->
         </DataBindings>
     </FirstPage>
@@ -182,12 +199,13 @@
             <Bind widget="SocColor" type="progress" semanticRole="bms.soc" indexFallback="1569" targetWidget="SocColor" maxHeight="270" maxValue="100"/>  <!-- SOC 液位条 -->
             <Bind widget="SohColor" type="progress" semanticRole="bms.soh" indexFallback="1570" targetWidget="SohColor" maxHeight="270" maxValue="100"/>  <!-- SOH 液位条 -->
 
-            <!-- 顶部 BMS 系统状态：接触器位图先在 PointMap 中归一化 -->
-            <Bind widget="label_15" type="image" semanticRole="bms.contactorState" activeStates="PRECHARGING,ON"
+            <!-- 顶部 BMS 系统状态：与首页统一显示静置/放电/充电 -->
+            <Bind widget="label_15" type="image" semanticRole="bms.chargeDischargeState" indexFallback="1454"
+                  activeStates="CHARGING,DISCHARGING"
                   value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
                   value1Image=":/new/prefix1/Pictures/RunMonPics/Circle.png"/>
-            <Bind widget="label_16" semanticRole="bms.contactorState" decimals="0"
-                  valueMap="0=簇下电;1=预充中;2=簇上电;3=状态异常"/>
+            <Bind widget="label_16" semanticRole="bms.chargeDischargeState" indexFallback="1454" decimals="0"
+                  valueMap="0=静置;1=放电;2=充电"/>
 
             <!-- 电池状态灯只绑定标准枚举；厂家原始值由 PointMap.semanticValueMap 归一化 -->
             <Bind widget="BatInit" type="image" semanticRole="bms.prechargeState" activeStates="STARTING,CONNECTING"
@@ -211,19 +229,27 @@
             <Bind widget="BatDisableAll" type="image" semanticRole="bms.runState" activeStates="STANDBY,STOPPED"
                   value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
                   value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 电池全部禁用 -->
-            <Bind widget="BatFault" type="image" semanticRole="bms.fault"
-                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+            <Bind widget="BatFault" type="image" semanticRole="bms.fault" indexFallback="1462"
+                  alarmWordIndexes="1462" alarmMask="65535"
+                  unknownImage=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle.png"
                   value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 电池故障 -->
 
             <!-- ── 报警等级指示灯 ── -->
             <Bind widget="AlarmLvl1" type="image" semanticRole="bms.alarm.level1" indexFallback="8197"
-                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  alarmWordIndexes="8197" alarmMask="65535"
+                  unknownImage=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle.png"
                   value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 一级报警 -->
             <Bind widget="AlarmLvl2" type="image" semanticRole="bms.alarm.level2" indexFallback="8198"
-                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  alarmWordIndexes="8198" alarmMask="65535"
+                  unknownImage=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle.png"
                   value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 二级报警 -->
             <Bind widget="AlarmLvl3" type="image" semanticRole="bms.alarm.level3" indexFallback="8199"
-                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  alarmWordIndexes="8199" alarmMask="65535"
+                  unknownImage=":/new/prefix1/Pictures/RunMonPics/Circle2.png"
+                  value0Image=":/new/prefix1/Pictures/RunMonPics/Circle.png"
                   value1Image=":/new/prefix1/Pictures/RunMonPics/Circle1.png"/>   <!-- 三级报警 -->
 
             <!-- ── 充放电统计数据 ── -->
@@ -243,17 +269,56 @@
     <BmsRun>
         <DataBindings>
             <!-- ── 三级报警状态（文本：正常/报警）── -->
-            <Bind widget="TotVoltStatus" semanticRole="bms.alarm.totalVoltage" decimals="0"/>   <!-- 总电压状态 -->
-            <Bind widget="SingleOverVoltStatus" semanticRole="bms.alarm.cellOverVoltage" decimals="0"/>   <!-- 单体过压状态 -->
-            <Bind widget="SingleUnderVoltStatus" semanticRole="bms.alarm.cellUnderVoltage" decimals="0"/>   <!-- 单体欠压状态 -->
-            <Bind widget="BatWorkTempStatus" semanticRole="bms.alarm.workTemperature" decimals="0"/>   <!-- 电池工作温度状态 -->
-            <Bind widget="SingleTempChange" semanticRole="bms.alarm.cellTemperatureRise" decimals="0"/>   <!-- 单体温升状态 -->
-            <Bind widget="SingleTempDiff" semanticRole="bms.alarm.cellTemperatureDifference" decimals="0"/>   <!-- 单体温差状态 -->
-            <Bind widget="SingleTemp" semanticRole="bms.alarm.cellTemperature" decimals="0"/>   <!-- 单体温度状态 -->
-            <Bind widget="IsolateMon" semanticRole="bms.alarm.insulation" decimals="0"/>   <!-- 绝缘监测状态 -->
-            <Bind widget="SocStatus" semanticRole="bms.alarm.soc" decimals="0"/>   <!-- SOC状态 -->
-            <Bind widget="SingleVoltDiff" semanticRole="bms.alarm.cellVoltageDifference" decimals="0"/>   <!-- 单体压差状态 -->
-            <Bind widget="SingleVoltChange" semanticRole="bms.alarm.cellVoltageChange" decimals="0"/>   <!-- 单体电压变化状态 -->
+            <Bind widget="TotVoltStatus" semanticRole="bms.alarm.totalVoltage" alarmWordIndexes="8197,8198,8199" alarmMask="3" value0Text="正常" value1Text="触发"/>   <!-- Bit0/1：簇端过压或欠压 -->
+            <Bind widget="SingleOverVoltStatus" semanticRole="bms.alarm.cellOverVoltage" alarmWordIndexes="8197,8198,8199" alarmMask="4" value0Text="正常" value1Text="触发"/>   <!-- Bit2：单体过压 -->
+            <Bind widget="SingleUnderVoltStatus" semanticRole="bms.alarm.cellUnderVoltage" alarmWordIndexes="8197,8198,8199" alarmMask="8" value0Text="正常" value1Text="触发"/>   <!-- Bit3：单体欠压 -->
+            <Bind widget="BatWorkTempStatus" semanticRole="bms.alarm.workTemperature" alarmWordIndexes="8197,8198,8199" alarmMask="7104" value0Text="正常" value1Text="触发"/>   <!-- Bit6-9/11/12：电池工作温度 -->
+            <Bind widget="OverI" semanticRole="bms.alarm.overCurrent" alarmWordIndexes="8197,8198,8199" alarmMask="48" value0Text="正常" value1Text="触发"/>   <!-- Bit4/5：充放电过流 -->
+            <Bind widget="SingleTempChange" semanticRole="bms.alarm.cellTemperatureRise" alarmWordIndexes="8197,8198,8199" alarmMask="6464" value0Text="正常" value1Text="触发"/>   <!-- Bit6/8/11/12：温升或过温 -->
+            <Bind widget="SingleTempDiff" semanticRole="bms.alarm.cellTemperatureDifference" alarmWordIndexes="8197,8198,8199" alarmMask="16384" value0Text="正常" value1Text="触发"/>   <!-- Bit14：单体温差 -->
+            <Bind widget="SingleTemp" semanticRole="bms.alarm.cellTemperature" alarmWordIndexes="8197,8198,8199" alarmMask="3008" value0Text="正常" value1Text="触发"/>   <!-- Bit6-9/11：单体温度 -->
+            <Bind widget="IsolateMon" semanticRole="bms.alarm.insulation" alarmWordIndexes="8197,8198,8199" alarmMask="1024" value0Text="正常" value1Text="触发"/>   <!-- Bit10：绝缘检测低 -->
+            <Bind widget="SocStatus" semanticRole="bms.alarm.soc" alarmWordIndexes="8197,8198,8199" alarmMask="32768" value0Text="正常" value1Text="触发"/>   <!-- Bit15：SOC低 -->
+            <Bind widget="SingleVoltDiff" semanticRole="bms.alarm.cellVoltageDifference" alarmWordIndexes="8197,8198,8199" alarmMask="8192" value0Text="正常" value1Text="触发"/>   <!-- Bit13：单体压差 -->
+            <Bind widget="SingleVoltChange" semanticRole="bms.alarm.cellVoltageChange" alarmWordIndexes="8197,8198,8199" alarmMask="8204" value0Text="正常" value1Text="触发"/>   <!-- Bit2/3/13：单体电压异常 -->
+
+            <!-- 每张报警卡下方从左到右依次为一级、二级、三级色块。色块只变色，不显示状态文字。 -->
+            <Bind widget="label_9"   indexFallback="8197" alarmWordIndexes="8197" alarmMask="3"     stateLabelVisible="false"/>
+            <Bind widget="label_10"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="3"     stateLabelVisible="false"/>
+            <Bind widget="label_11"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="3"     stateLabelVisible="false"/>
+            <Bind widget="label_14"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="4"     stateLabelVisible="false"/>
+            <Bind widget="label_15"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="4"     stateLabelVisible="false"/>
+            <Bind widget="label_13"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="4"     stateLabelVisible="false"/>
+            <Bind widget="label_18"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="8"     stateLabelVisible="false"/>
+            <Bind widget="label_19"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="8"     stateLabelVisible="false"/>
+            <Bind widget="label_17"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="8"     stateLabelVisible="false"/>
+            <Bind widget="label_26"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="7104"  stateLabelVisible="false"/>
+            <Bind widget="label_27"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="7104"  stateLabelVisible="false"/>
+            <Bind widget="label_25"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="7104"  stateLabelVisible="false"/>
+            <Bind widget="label_38"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="48"    stateLabelVisible="false"/>
+            <Bind widget="label_39"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="48"    stateLabelVisible="false"/>
+            <Bind widget="label_37"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="48"    stateLabelVisible="false"/>
+            <Bind widget="label_34"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="3008"  stateLabelVisible="false"/>
+            <Bind widget="label_35"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="3008"  stateLabelVisible="false"/>
+            <Bind widget="label_33"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="3008"  stateLabelVisible="false"/>
+            <Bind widget="label_22"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="6464"  stateLabelVisible="false"/>
+            <Bind widget="label_23"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="6464"  stateLabelVisible="false"/>
+            <Bind widget="label_21"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="6464"  stateLabelVisible="false"/>
+            <Bind widget="label_30"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="16384" stateLabelVisible="false"/>
+            <Bind widget="label_31"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="16384" stateLabelVisible="false"/>
+            <Bind widget="label_29"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="16384" stateLabelVisible="false"/>
+            <Bind widget="label_140" indexFallback="8197" alarmWordIndexes="8197" alarmMask="8204"  stateLabelVisible="false"/>
+            <Bind widget="label_141" indexFallback="8198" alarmWordIndexes="8198" alarmMask="8204"  stateLabelVisible="false"/>
+            <Bind widget="label_138" indexFallback="8199" alarmWordIndexes="8199" alarmMask="8204"  stateLabelVisible="false"/>
+            <Bind widget="label_134" indexFallback="8197" alarmWordIndexes="8197" alarmMask="8192"  stateLabelVisible="false"/>
+            <Bind widget="label_135" indexFallback="8198" alarmWordIndexes="8198" alarmMask="8192"  stateLabelVisible="false"/>
+            <Bind widget="label_132" indexFallback="8199" alarmWordIndexes="8199" alarmMask="8192"  stateLabelVisible="false"/>
+            <Bind widget="label_42"  indexFallback="8197" alarmWordIndexes="8197" alarmMask="1024"  stateLabelVisible="false"/>
+            <Bind widget="label_43"  indexFallback="8198" alarmWordIndexes="8198" alarmMask="1024"  stateLabelVisible="false"/>
+            <Bind widget="label_41"  indexFallback="8199" alarmWordIndexes="8199" alarmMask="1024"  stateLabelVisible="false"/>
+            <Bind widget="label_128" indexFallback="8197" alarmWordIndexes="8197" alarmMask="32768" stateLabelVisible="false"/>
+            <Bind widget="label_129" indexFallback="8198" alarmWordIndexes="8198" alarmMask="32768" stateLabelVisible="false"/>
+            <Bind widget="label_126" indexFallback="8199" alarmWordIndexes="8199" alarmMask="32768" stateLabelVisible="false"/>
 
             <!-- ── BMS 运行参数（数值显示）── -->
             <Bind widget="TotVoltVal" semanticRole="bms.totalVoltage" indexFallback="1566" decimals="1"/>   <!-- 总电压(V) -->
@@ -278,26 +343,25 @@
             <Bind widget="SingleTempAvg" semanticRole="bms.averageTemperature" indexFallback="1573" decimals="1"/>   <!-- 单体平均温度(℃) -->
             <Bind widget="NegIsoVal" semanticRole="bms.negativeInsulation" indexFallback="1622" decimals="0"/>   <!-- 负极绝缘电阻(kΩ) -->
 
-            <!-- ── BMS 状态诊断（0=正常，非0=报警）── -->
-            <Bind widget="OverI" semanticRole="bms.alarm.overCurrent" indexFallback="350" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 过流保护 -->
-            <Bind widget="TotRelayPos" semanticRole="bms.relay.positive" indexFallback="351" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 总正继电器 -->
-            <Bind widget="TotRelayNeg" semanticRole="bms.relay.negative" indexFallback="352" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 总负继电器 -->
-            <Bind widget="RelayPreChg" semanticRole="bms.relay.precharge" indexFallback="353" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 预充继电器 -->
-            <Bind widget="RelayFan" semanticRole="bms.relay.fan" indexFallback="354" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 风扇继电器 -->
-            <Bind widget="RelaySleep" semanticRole="bms.relay.sleep" indexFallback="355" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 休眠继电器 -->
-            <Bind widget="Breaker" semanticRole="bms.breakerStatus" indexFallback="356" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 断路器 -->
-            <Bind widget="AfeStat" semanticRole="bms.afeStatus" indexFallback="357" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- AFE状态 -->
-            <Bind widget="TempSensorStat" semanticRole="bms.temperatureSensorStatus" indexFallback="358" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 温度传感器 -->
-            <Bind widget="MosAvgStat" semanticRole="bms.balanceMosStatus" indexFallback="359" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 均衡MOS -->
-            <Bind widget="MainPower" semanticRole="bms.mainPowerStatus" indexFallback="360" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 主控供电 -->
-            <Bind widget="SlavePower" semanticRole="bms.slavePowerStatus" indexFallback="361" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控供电 -->
-            <Bind widget="SlaveComm" semanticRole="bms.slaveCommunicationStatus" indexFallback="362" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控通讯 -->
-            <Bind widget="SlaveFan" semanticRole="bms.slaveFanStatus" indexFallback="363" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控风扇 -->
-            <Bind widget="MainProgram" semanticRole="bms.mainProgramStatus" indexFallback="364" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 主控程序 -->
-            <Bind widget="SlaveProgram" semanticRole="bms.slaveProgramStatus" indexFallback="365" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- 从控程序 -->
-            <Bind widget="Eeprom" semanticRole="bms.eepromStatus" indexFallback="366" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- EEPROM -->
-            <Bind widget="CanComm" semanticRole="bms.canCommunicationStatus" indexFallback="367" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- CAN采集 -->
-            <Bind widget="PcsComm" semanticRole="pcs.com_status" indexFallback="368" decimals="0" value0Text="正常" value1Text="报警"/>   <!-- PCS通讯 -->
+            <!-- ── 优旦 BMS Rack 故障字 0x2004 / index 1462（0=正常，置位=触发）── -->
+            <Bind widget="TotRelayPos" semanticRole="bms.fault.bmuHardware" indexFallback="1462" alarmWordIndexes="1462" alarmMask="1" value0Text="正常" value1Text="触发"/>       <!-- Bit0：BMU 硬件故障 -->
+            <Bind widget="TotRelayNeg" semanticRole="bms.fault.bcuHardware" indexFallback="1462" alarmWordIndexes="1462" alarmMask="2" value0Text="正常" value1Text="触发"/>       <!-- Bit1：BCU 硬件故障 -->
+            <Bind widget="RelayPreChg" semanticRole="bms.fault.fuse" indexFallback="1462" alarmWordIndexes="1462" alarmMask="4" value0Text="正常" value1Text="触发"/>               <!-- Bit2：熔断器故障 -->
+            <Bind widget="RelayFan" semanticRole="bms.fault.contactorAdhesion" indexFallback="1462" alarmWordIndexes="1462" alarmMask="8" value0Text="正常" value1Text="触发"/>    <!-- Bit3：接触器粘连故障 -->
+            <Bind widget="RelaySleep" semanticRole="bms.fault.bmuCommunication" indexFallback="1462" alarmWordIndexes="1462" alarmMask="16" value0Text="正常" value1Text="触发"/> <!-- Bit4：BMU 通信故障 -->
+            <Bind widget="Breaker" semanticRole="bms.fault.bauCommunication" indexFallback="1462" alarmWordIndexes="1462" alarmMask="32" value0Text="正常" value1Text="触发"/>     <!-- Bit5：BAU/EMS 通信故障 -->
+            <Bind widget="AfeStat" semanticRole="bms.fault.currentSensor" indexFallback="1462" alarmWordIndexes="1462" alarmMask="64" value0Text="正常" value1Text="触发"/>        <!-- Bit6：电流传感器故障 -->
+            <Bind widget="TempSensorStat" semanticRole="bms.fault.insulationMonitor" indexFallback="1462" alarmWordIndexes="1462" alarmMask="128" value0Text="正常" value1Text="触发"/> <!-- Bit7：绝缘监测设备故障 -->
+            <Bind widget="MosAvgStat" semanticRole="bms.fault.disconnector" indexFallback="1462" alarmWordIndexes="1462" alarmMask="256" value0Text="正常" value1Text="触发"/>       <!-- Bit8：隔离开关异常断开 -->
+            <Bind widget="MainPower" semanticRole="bms.fault.precharge" indexFallback="1462" alarmWordIndexes="1462" alarmMask="512" value0Text="正常" value1Text="触发"/>         <!-- Bit9：预充故障 -->
+            <Bind widget="SlavePower" semanticRole="bms.fault.totalVoltageDifference" indexFallback="1462" alarmWordIndexes="1462" alarmMask="1024" value0Text="正常" value1Text="触发"/> <!-- Bit10：总压压差故障 -->
+            <Bind widget="SlaveComm" semanticRole="bms.fault.thermalRunaway" indexFallback="1462" alarmWordIndexes="1462" alarmMask="2048" value0Text="正常" value1Text="触发"/>   <!-- Bit11：热失控故障 -->
+            <Bind widget="SlaveFan" semanticRole="bms.fault.ambientHighTemperature" indexFallback="1462" alarmWordIndexes="1462" alarmMask="4096" value0Text="正常" value1Text="触发"/> <!-- Bit12：环境温度高温 -->
+            <Bind widget="MainProgram" semanticRole="bms.fault.currentAbnormal" indexFallback="1462" alarmWordIndexes="1462" alarmMask="8192" value0Text="正常" value1Text="触发"/> <!-- Bit13：电流异常 -->
+            <Bind widget="SlaveProgram" semanticRole="bms.fault.supplyVoltage" indexFallback="1462" alarmWordIndexes="1462" alarmMask="16384" value0Text="正常" value1Text="触发"/> <!-- Bit14：供电电压异常 -->
+            <Bind widget="Eeprom" semanticRole="bms.fault.relayAggregate" indexFallback="1462" alarmWordIndexes="1462" alarmMask="32768" value0Text="正常" value1Text="触发"/>       <!-- Bit15：BMS 断继电器故障总标志 -->
+            <Bind widget="CanComm" semanticRole="bms.fault.communicationAggregate" indexFallback="1462" alarmWordIndexes="1462" alarmMask="48" value0Text="正常" value1Text="触发"/> <!-- Bit4/Bit5：通信故障汇总 -->
+            <Bind widget="PcsComm" semanticRole="bms.fault.aggregate" indexFallback="1462" alarmWordIndexes="1462" alarmMask="65535" value0Text="正常" value1Text="触发"/>             <!-- 全故障字汇总 -->
         </DataBindings>
     </BmsRun>
 
@@ -397,27 +461,27 @@
     <UpsMon>
         <DataBindings>
             <!-- ── 电池状态 ── -->
-            <Bind widget="label_9"   appDataIndex="0" decimals="2" defaultValue="64.80"/>   <!-- SOC(%) -->
-            <Bind widget="label_38"  appDataIndex="0" decimals="0" defaultValue="0.0"/>     <!-- 运行状态(0=正常) -->
-            <Bind widget="label_41"  appDataIndex="0" decimals="0" defaultValue="56.0"/>    <!-- 剩余时间(min) -->
-            <Bind widget="label_43"  appDataIndex="0" decimals="2" defaultValue="35.55"/>   <!-- 电池温度(℃) -->
+            <Bind widget="label_9"   appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- SOC(%) -->
+            <Bind widget="label_38"  appDataIndex="0" decimals="0" defaultValue="--"/>     <!-- 运行状态(0=正常) -->
+            <Bind widget="label_41"  appDataIndex="0" decimals="0" defaultValue="--"/>    <!-- 剩余时间(min) -->
+            <Bind widget="label_43"  appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- 电池温度(℃) -->
             <!-- ── 遥测信息（左侧）── -->
-            <Bind widget="label_126" appDataIndex="0" decimals="2" defaultValue="220.20"/>  <!-- 输入电压(V) -->
-            <Bind widget="label_125" appDataIndex="0" decimals="2" defaultValue="220.01"/>  <!-- 输出电压(V) -->
-            <Bind widget="label_127" appDataIndex="0" decimals="2" defaultValue="50.02"/>   <!-- 输入频率(Hz) -->
-            <Bind widget="label_128" appDataIndex="0" decimals="2" defaultValue="49.99"/>   <!-- 输出频率(Hz) -->
-            <Bind widget="label_130" appDataIndex="0" decimals="2" defaultValue="50.22"/>   <!-- 输出电流(A) -->
+            <Bind widget="label_126" appDataIndex="0" decimals="2" defaultValue="--"/>  <!-- 输入电压(V) -->
+            <Bind widget="label_125" appDataIndex="0" decimals="2" defaultValue="--"/>  <!-- 输出电压(V) -->
+            <Bind widget="label_127" appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- 输入频率(Hz) -->
+            <Bind widget="label_128" appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- 输出频率(Hz) -->
+            <Bind widget="label_130" appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- 输出电流(A) -->
             <!-- ── 遥测信息（右侧）── -->
-            <Bind widget="label_132" appDataIndex="0" decimals="2" defaultValue="220.20"/>  <!-- 直流母线电压+(V) -->
-            <Bind widget="label_133" appDataIndex="0" decimals="2" defaultValue="220.20"/>  <!-- 直流母线电压-(V) -->
-            <Bind widget="label_134" appDataIndex="0" decimals="2" defaultValue="60.22"/>   <!-- 输出负载率(%) -->
-            <Bind widget="label_135" appDataIndex="0" decimals="2" defaultValue="30.22"/>   <!-- 电池电压(V) -->
+            <Bind widget="label_132" appDataIndex="0" decimals="2" defaultValue="--"/>  <!-- 直流母线电压+(V) -->
+            <Bind widget="label_133" appDataIndex="0" decimals="2" defaultValue="--"/>  <!-- 直流母线电压-(V) -->
+            <Bind widget="label_134" appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- 输出负载率(%) -->
+            <Bind widget="label_135" appDataIndex="0" decimals="2" defaultValue="--"/>   <!-- 电池电压(V) -->
             <!-- ── 故障/告警代码 ── -->
-            <Bind widget="label_129" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 故障代码 -->
-            <Bind widget="label_136" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码01 -->
-            <Bind widget="label_143" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码03 -->
-            <Bind widget="label_138" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码02 -->
-            <Bind widget="label_142" appDataIndex="0" decimals="0" defaultValue="56845"/>   <!-- 告警代码04 -->
+            <Bind widget="label_129" appDataIndex="0" decimals="0" defaultValue="--"/>   <!-- 故障代码 -->
+            <Bind widget="label_136" appDataIndex="0" decimals="0" defaultValue="--"/>   <!-- 告警代码01 -->
+            <Bind widget="label_143" appDataIndex="0" decimals="0" defaultValue="--"/>   <!-- 告警代码03 -->
+            <Bind widget="label_138" appDataIndex="0" decimals="0" defaultValue="--"/>   <!-- 告警代码02 -->
+            <Bind widget="label_142" appDataIndex="0" decimals="0" defaultValue="--"/>   <!-- 告警代码04 -->
         </DataBindings>
     </UpsMon>
 
@@ -445,6 +509,73 @@
             <Bind widget="HydrDensity" semanticRole="fireDetector.h2" indexFallback="310104" decimals="1"/>   <!-- 氢气浓度(ppm) -->
             <Bind widget="HydrRmvInterval" semanticRole="fire.hydrogenRemovalInterval" indexFallback="384" decimals="2"/>    <!-- 排氢间隔时间(小时) -->
             <Bind widget="HydrRmvWorkTime" semanticRole="fire.hydrogenRemovalDuration" indexFallback="385" decimals="0"/>       <!-- 排氢工作时间(分钟) -->
+            <!-- 当前项目实际告警：0=正常，非零/1=触发，无有效数据=灰色。 -->
+            <Bind widget="label_125" type="text" pointCode="mb5_s3_153" indexFallback="153">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="液冷机组故障：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="液冷机组故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s3_153" indexFallback="153" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="液冷机组故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s3_153" indexFallback="153" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_126" type="text" pointCode="mb5_s5_209" indexFallback="209">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="除湿温湿度故障：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="除湿温湿度故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s5_209" indexFallback="209" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="除湿温湿度故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s5_209" indexFallback="209" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_127" type="text" pointCode="mb5_s5_210" indexFallback="210">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="除湿 NTC 故障：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="除湿 NTC 故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s5_210" indexFallback="210" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="除湿 NTC 故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s5_210" indexFallback="210" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_128" type="text" pointCode="mb5_s5_211" indexFallback="211">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="除湿制冷片故障：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="除湿制冷片故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s5_211" indexFallback="211" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="除湿制冷片故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s5_211" indexFallback="211" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_129" type="text" pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防一级预警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防一级预警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防一级预警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_130" type="text" pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防二级报警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防二级报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防二级报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_131" type="text" pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防三级报警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防三级报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防三级报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_132" type="text" pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防温度报警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防温度报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防温度报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_133" type="text" pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防烟雾报警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防烟雾报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防烟雾报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_134" type="text" pointCode="can0_zh_addr043_co_alarm" indexFallback="310022">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防 CO 报警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防 CO 报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_co_alarm" indexFallback="310022" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防 CO 报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_co_alarm" indexFallback="310022" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
+            <Bind widget="label_135" type="text" pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023">
+                <StateRules defaultCode="UNKNOWN" defaultLabel="消防 H2 报警：--" defaultColor="#71808A">
+                    <State code="TRIGGERED" label="消防 H2 报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防 H2 报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023" operator="eq" value="0"/></State>
+                </StateRules>
+            </Bind>
         </DataBindings>
     </FireFight>
 

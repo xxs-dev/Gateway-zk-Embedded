@@ -460,34 +460,6 @@
     },
     {
       "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1101",
-      "index": 1101,
-      "name": "当前组合有功尖电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1102",
-      "index": 1102,
-      "name": "当前组合有功峰电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1103",
-      "index": 1103,
-      "name": "当前组合有功平电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1104",
-      "index": 1104,
-      "name": "当前组合有功谷电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
       "pointCode": "mb1_s1_1105",
       "index": 1105,
       "name": "当前正向总有功电能",
@@ -561,34 +533,6 @@
       "pointCode": "mb1_s1_1115",
       "index": 1115,
       "name": "当前组合无功总电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1116",
-      "index": 1116,
-      "name": "当前组合无功尖电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1117",
-      "index": 1117,
-      "name": "当前组合无功峰电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1118",
-      "index": 1118,
-      "name": "当前组合无功平电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1119",
-      "index": 1119,
-      "name": "当前组合无功谷电能",
       "unit": ""
     },
     {
@@ -889,23 +833,9 @@
     },
     {
       "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1156",
-      "index": 1156,
-      "name": "电压变比PT",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
       "pointCode": "mb1_s1_1157",
       "index": 1157,
       "name": "电流变比CT",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_1",
-      "pointCode": "mb1_s1_1158",
-      "index": 1158,
-      "name": "运行状态",
       "unit": ""
     },
     {
@@ -941,34 +871,6 @@
       "pointCode": "mb1_s2_1000",
       "index": 1000,
       "name": "当前组合有功总电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1001",
-      "index": 1001,
-      "name": "当前组合有功尖电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1002",
-      "index": 1002,
-      "name": "当前组合有功峰电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1003",
-      "index": 1003,
-      "name": "当前组合有功平电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1004",
-      "index": 1004,
-      "name": "当前组合有功谷电能",
       "unit": ""
     },
     {
@@ -1046,34 +948,6 @@
       "pointCode": "mb1_s2_1015",
       "index": 1015,
       "name": "当前组合无功总电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1016",
-      "index": 1016,
-      "name": "当前组合无功尖电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1017",
-      "index": 1017,
-      "name": "当前组合无功峰电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1018",
-      "index": 1018,
-      "name": "当前组合无功平电能",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1019",
-      "index": 1019,
-      "name": "当前组合无功谷电能",
       "unit": ""
     },
     {
@@ -1374,23 +1248,9 @@
     },
     {
       "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1056",
-      "index": 1056,
-      "name": "电压变比PT",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
       "pointCode": "mb1_s2_1057",
       "index": 1057,
       "name": "电流变比CT",
-      "unit": ""
-    },
-    {
-      "meterCode": "T2216_modbusRTU_1_slave_2",
-      "pointCode": "mb1_s2_1058",
-      "index": 1058,
-      "name": "运行状态",
       "unit": ""
     },
     {

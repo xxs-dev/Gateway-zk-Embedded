@@ -1,0 +1,16 @@
+[Unit]
+Description=Gateway persistent cellular DHCP
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+Before=gateway-network-failover.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/opt/modbus-gateway/bin/gateway-cellular.sh run
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

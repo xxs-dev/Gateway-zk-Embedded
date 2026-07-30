@@ -72,6 +72,7 @@ common_flags=(
 sources=(
   "$ROOT_DIR/local_display_qt_ems_main.cpp"
   "$ROOT_DIR/local_display_qt_scada_scene.cpp"
+  "$ROOT_DIR/local_display_qt_value_map.cpp"
 )
 objects=()
 for source in "${sources[@]}"; do
@@ -82,6 +83,7 @@ done
 
 lib_dir="$SYSROOT/usr/lib/aarch64-linux-gnu"
 "$CXX" --sysroot="$SYSROOT" \
+  -no-pie \
   -Wl,--gc-sections \
   -Wl,-rpath-link="$lib_dir" \
   -o "$BUILD_DIR/KY-SCADA" \

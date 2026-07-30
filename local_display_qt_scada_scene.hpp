@@ -13,7 +13,8 @@
 #include <QWidget>
 
 #include "edge_gateway/scada_models.hpp"
-#include "edge_gateway/scada_runtime_map.hpp"
+#include "local_display_qt_scada_runtime.hpp"
+#include "local_display_qt_value_map.hpp"
 
 class QGraphicsEllipseItem;
 class QGraphicsPathItem;
@@ -31,7 +32,7 @@ public:
         const std::string& projectRoot,
         const std::vector<edge_gateway::ScadaAlarm>& alarms,
         const std::vector<edge_gateway::ScadaTrend>& trends,
-        edge_gateway::ScadaRuntimeMap& runtime,
+        ScadaSceneRuntimeSource& runtime,
         std::function<void(const std::string&)> navigate,
         QWidget* parent = nullptr
     );
@@ -66,6 +67,8 @@ private:
 
     struct RuntimeTrendSeries {
         std::uint32_t index = 0;
+        std::string name;
+        std::string unit;
         QGraphicsPathItem* path = nullptr;
         std::int64_t lastSampleTs = 0;
         std::deque<std::pair<std::int64_t, double>> samples;
@@ -73,10 +76,12 @@ private:
 
     struct RuntimeWidget {
         std::string type;
+        std::string defaultLabel;
         std::string defaultColor;
         std::string defaultImage;
         edge_gateway::ScadaWidgetAction action;
         std::vector<std::uint32_t> indexes;
+        ScadaValueMap valueMap;
         std::vector<RuntimeStateRule> stateRules;
         std::vector<RuntimeAlarm> alarms;
         QGraphicsRectItem* panel = nullptr;
@@ -85,12 +90,15 @@ private:
         QGraphicsEllipseItem* statusLamp = nullptr;
         QGraphicsPixmapItem* stateImage = nullptr;
         std::vector<RuntimeTrendSeries> trendSeries;
+        std::vector<QGraphicsTextItem*> chartYLabels;
+        std::vector<QGraphicsTextItem*> chartXLabels;
         double progressX = 0.0;
         double progressY = 0.0;
         double progressWidth = 0.0;
         double progressHeight = 0.0;
         double progressMax = 100.0;
         bool progressVertical = false;
+        bool stateLabelVisible = true;
         double chartX = 0.0;
         double chartY = 0.0;
         double chartWidth = 0.0;
@@ -122,7 +130,7 @@ private:
     std::string projectRoot_;
     std::vector<edge_gateway::ScadaAlarm> alarms_;
     std::vector<edge_gateway::ScadaTrend> trends_;
-    edge_gateway::ScadaRuntimeMap& runtime_;
+    ScadaSceneRuntimeSource& runtime_;
     std::function<void(const std::string&)> navigate_;
     QGraphicsScene* scene_ = nullptr;
     std::vector<RuntimeWidget> runtimeWidgets_;
@@ -132,16 +140,18 @@ class ScadaRuntimeWindow final : public QWidget {
 public:
     ScadaRuntimeWindow(
         const std::string& projectDirectory,
-        const std::string& machineCode,
-        edge_gateway::PointStoreRouter& router,
         int refreshIntervalMs,
         bool autoReload,
+        std::function<std::unique_ptr<ScadaSceneRuntimeSource>(const edge_gateway::ScadaProject&)> runtimeFactory,
         QWidget* parent = nullptr
     );
+
+    const edge_gateway::ScadaProject& project() const { return project_; }
 
 private:
     void reloadProject(bool initial);
     void rebuildScreens();
+    int buildScreen(const edge_gateway::ScadaScreen& screen);
     void showScreen(const std::string& screenId);
     void refreshCurrent();
     std::string projectRevision() const;
@@ -149,10 +159,9 @@ private:
     QStackedWidget* stack_ = nullptr;
     QTimer* timer_ = nullptr;
     std::string projectDirectory_;
-    std::string machineCode_;
-    edge_gateway::PointStoreRouter& router_;
     edge_gateway::ScadaProject project_;
-    std::unique_ptr<edge_gateway::ScadaRuntimeMap> runtime_;
+    std::unique_ptr<ScadaSceneRuntimeSource> runtime_;
+    std::function<std::unique_ptr<ScadaSceneRuntimeSource>(const edge_gateway::ScadaProject&)> runtimeFactory_;
     std::string loadedRevision_;
     std::int64_t lastReloadCheckMs_ = 0;
     bool autoReload_ = false;

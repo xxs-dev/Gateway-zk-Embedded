@@ -477,6 +477,27 @@ ComputeEngineService::ComputeEngineService(
 ) : config_(std::move(config)),
     router_(router),
     running_(false) {
+    for (const auto& rule : config_.rules) {
+        if (rule.script.type == "legacyEms") {
+            throw std::invalid_argument(
+                "production ComputeEngine no longer supports legacyEms rule '" +
+                safeRuleCode(rule) +
+                "'; migrate the referenced strategy to schemaVersion 2.x in GatewayDesktop"
+            );
+        }
+        if (!rule.enabled || rule.script.type != "graphEms") {
+            continue;
+        }
+        try {
+            preloadGraphEmsEngine(rule);
+        } catch (const std::exception& ex) {
+            throw std::invalid_argument(
+                "failed to preload enabled graphEms rule '" + safeRuleCode(rule) +
+                "': " + ex.what()
+            );
+        }
+    }
+    validateEnabledRuleIndexOwnership();
 }
 
 ComputeEngineService::~ComputeEngineService() {
@@ -517,6 +538,7 @@ void ComputeEngineService::loop() {
 
 void ComputeEngineService::runOnce(std::int64_t nowMs) {
     std::size_t evaluated = 0;
+    std::size_t deviceWritesThisScan = 0;
     for (const auto& rule : config_.rules) {
         if (!rule.enabled) {
             continue;
@@ -536,7 +558,7 @@ void ComputeEngineService::runOnce(std::int64_t nowMs) {
             continue;
         }
 
-        evaluateRule(rule, currentInputs, nowMs);
+        evaluateRule(rule, currentInputs, nowMs, deviceWritesThisScan);
         ruleStates_[safeRuleCode(rule)].lastEvalMs = nowMs;
         ruleStates_[safeRuleCode(rule)].lastInputs = std::move(currentInputs);
         ++evaluated;
@@ -584,33 +606,21 @@ bool ComputeEngineService::shouldEvaluate(
 void ComputeEngineService::evaluateRule(
     const ComputeRuleConfig& rule,
     const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
-    std::int64_t nowMs
+    std::int64_t nowMs,
+    std::size_t& deviceWritesThisScan
 ) {
-    if (rule.script.type == "legacyEms") {
-        try {
-            const auto result = legacyEngineFor(rule).runOnce(nowMs);
-            if (result.deviceWrites > 0 && result.deviceWrites > config_.maxWritesPerScan) {
-                std::cerr << "legacy EMS write count exceeded maxWritesPerScan"
-                          << " rule=" << safeRuleCode(rule)
-                          << " writes=" << result.deviceWrites
-                          << std::endl;
-            }
-        } catch (const std::exception& ex) {
-            std::cerr << "legacy EMS rule failed"
-                      << " rule=" << safeRuleCode(rule)
-                      << " error=" << ex.what()
-                      << std::endl;
-        }
-        return;
-    }
-
     if (rule.script.type == "graphEms") {
         try {
-            const auto result = graphEmsEngineFor(rule).runOnce(nowMs);
-            if (result.deviceWrites > 0 && result.deviceWrites > config_.maxWritesPerScan) {
-                std::cerr << "graph EMS write count exceeded maxWritesPerScan"
+            const auto remainingWrites = deviceWritesThisScan < config_.maxWritesPerScan
+                ? config_.maxWritesPerScan - deviceWritesThisScan
+                : 0;
+            const auto result = graphEmsEngineFor(rule).runOnce(nowMs, remainingWrites);
+            deviceWritesThisScan += result.deviceWrites;
+            if (result.writeLimitReached) {
+                std::cerr << "graph EMS write skipped maxWritesPerScan reached before submit"
                           << " rule=" << safeRuleCode(rule)
-                          << " writes=" << result.deviceWrites
+                          << " acceptedThisScan=" << deviceWritesThisScan
+                          << " skipped=" << result.deviceWritesSkipped
                           << std::endl;
             }
             for (const auto& error : result.errors) {
@@ -660,8 +670,6 @@ void ComputeEngineService::evaluateRule(
     }
 
     const auto value = expressionOk ? result.number : 0.0;
-    std::size_t writeCount = 0;
-
     for (const auto& output : rule.outputs) {
         const auto quality = outputQuality(rule, output, inputs, expressionOk);
         if (!shouldSubmitOutput(rule, output, value, quality, nowMs)) {
@@ -689,7 +697,7 @@ void ComputeEngineService::evaluateRule(
             if (quality != 1) {
                 continue;
             }
-            if (writeCount >= config_.maxWritesPerScan) {
+            if (deviceWritesThisScan >= config_.maxWritesPerScan) {
                 std::cerr << "compute write skipped maxWritesPerScan reached"
                           << " rule=" << safeRuleCode(rule)
                           << std::endl;
@@ -709,7 +717,7 @@ void ComputeEngineService::evaluateRule(
                           << " message=" << routed.message
                           << std::endl;
             } else {
-                ++writeCount;
+                ++deviceWritesThisScan;
             }
         }
 
@@ -721,35 +729,10 @@ void ComputeEngineService::evaluateRule(
     }
 }
 
-LegacyEmsEngine& ComputeEngineService::legacyEngineFor(const ComputeRuleConfig& rule) {
+void ComputeEngineService::preloadGraphEmsEngine(const ComputeRuleConfig& rule) {
     const auto key = safeRuleCode(rule);
-    auto it = legacyStates_.find(key);
-    if (it != legacyStates_.end()) {
-        return *it->second->engine;
-    }
-
-    auto state = std::unique_ptr<LegacyRuntimeState>(new LegacyRuntimeState());
-    state->catalog = LegacyEmsPointCatalog::loadFromFiles(
-        rule.script.legacyGlListFile,
-        rule.script.legacyVarListFile,
-        rule.script.legacyEncoding.empty() ? std::string("gbk") : rule.script.legacyEncoding
-    );
-    state->engine.reset(new LegacyEmsEngine(
-        state->catalog,
-        router_,
-        config_.defaultOutputTtlMs,
-        rule.script.legacyProfile
-    ));
-    auto* engine = state->engine.get();
-    legacyStates_[key] = std::move(state);
-    return *engine;
-}
-
-GraphEmsEngine& ComputeEngineService::graphEmsEngineFor(const ComputeRuleConfig& rule) {
-    const auto key = safeRuleCode(rule);
-    auto it = graphEmsStates_.find(key);
-    if (it != graphEmsStates_.end()) {
-        return *it->second->engine;
+    if (graphEmsStates_.find(key) != graphEmsStates_.end()) {
+        throw std::runtime_error("duplicate enabled graphEms rule identity: " + key);
     }
 
     if (rule.script.graphFile.empty()) {
@@ -758,6 +741,12 @@ GraphEmsEngine& ComputeEngineService::graphEmsEngineFor(const ComputeRuleConfig&
 
     auto state = std::unique_ptr<GraphEmsRuntimeState>(new GraphEmsRuntimeState());
     state->config = GraphEmsConfig::loadFromFile(rule.script.graphFile);
+    for (const auto& warning : state->config.loadWarnings) {
+        std::cerr << "graph EMS V2 migration warning"
+                  << " rule=" << key
+                  << " warning=" << warning
+                  << std::endl;
+    }
     const auto stateFile = rule.script.graphStateFile.empty()
         ? std::string("/opt/modbus-gateway/data/graph_ems_state_") + filesystemSafeName(key) + ".json"
         : rule.script.graphStateFile;
@@ -766,11 +755,86 @@ GraphEmsEngine& ComputeEngineService::graphEmsEngineFor(const ComputeRuleConfig&
         router_,
         config_.defaultOutputTtlMs,
         stateFile,
-        rule.script.graphProfile
+        rule.script.graphProfile,
+        key
     ));
-    auto* engine = state->engine.get();
     graphEmsStates_[key] = std::move(state);
-    return *engine;
+}
+
+void ComputeEngineService::validateEnabledRuleIndexOwnership() const {
+    struct IndexOwner {
+        std::string description;
+        bool preserveImportedBehavior = false;
+    };
+
+    std::unordered_map<std::uint32_t, IndexOwner> owners;
+    const auto registerOwner = [&](std::uint32_t index, IndexOwner owner) {
+        if (index == 0) {
+            return;
+        }
+        const auto existing = owners.find(index);
+        if (existing == owners.end()) {
+            owners.emplace(index, std::move(owner));
+            return;
+        }
+        if (!existing->second.preserveImportedBehavior || !owner.preserveImportedBehavior) {
+            throw std::invalid_argument(
+                "enabled compute rule index ownership conflict index=" + std::to_string(index) +
+                " first={" + existing->second.description + "} duplicate={" + owner.description + "}"
+            );
+        }
+        std::cerr << "graph EMS V2 migration ownership warning"
+                  << " index=" << index
+                  << " first={" << existing->second.description << "}"
+                  << " later={" << owner.description << "}"
+                  << " behavior=rules execute in configured order and graph nodes execute by dependency order"
+                  << " with order/nodeId tie-breakers;"
+                  << " later eligible writes are processed after earlier writes"
+                  << std::endl;
+    };
+
+    for (const auto& rule : config_.rules) {
+        if (!rule.enabled) {
+            continue;
+        }
+        const auto ruleCode = safeRuleCode(rule);
+        if (rule.script.type == "graphEms") {
+            const auto state = graphEmsStates_.find(ruleCode);
+            if (state == graphEmsStates_.end() || !state->second) {
+                throw std::logic_error("enabled graphEms rule ownership checked before preload: " + ruleCode);
+            }
+            const auto& graph = state->second->config;
+            for (const auto& claim : graph.indexClaims) {
+                IndexOwner owner;
+                owner.preserveImportedBehavior = graph.preserveImportedBehavior;
+                owner.description = "rule=" + ruleCode +
+                    " graph=" + graph.graphCode +
+                    " node=" + claim.nodeId +
+                    " port=" + claim.portId +
+                    " kind=" + claim.kind +
+                    " order=" + std::to_string(claim.order);
+                registerOwner(claim.index, std::move(owner));
+            }
+            continue;
+        }
+        for (const auto& output : rule.outputs) {
+            IndexOwner owner;
+            owner.description = "rule=" + ruleCode +
+                " script=" + rule.script.type +
+                " output=" + (output.name.empty() ? std::string("<unnamed>") : output.name) +
+                " mode=" + output.mode;
+            registerOwner(output.index, std::move(owner));
+        }
+    }
+}
+
+GraphEmsEngine& ComputeEngineService::graphEmsEngineFor(const ComputeRuleConfig& rule) {
+    const auto key = safeRuleCode(rule);
+    const auto it = graphEmsStates_.find(key);
+    if (it == graphEmsStates_.end() || !it->second || !it->second->engine) {
+        throw std::logic_error("enabled graphEms rule was not preloaded: " + key);
+    }
+    return *it->second->engine;
 }
 
 bool ComputeEngineService::shouldSubmitOutput(

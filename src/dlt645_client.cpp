@@ -66,20 +66,59 @@ Dlt645Client::Dlt645Client(
 }
 
 std::vector<std::uint8_t> Dlt645Client::readData(const std::string& meterAddress, const std::string& dataIdHex) {
-    ensurePortOpen();
+    std::lock_guard<std::mutex> lock(transactionMutex_);
     const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
     const auto frame = Dlt645Codec::buildReadFrame(normalizedAddress, dataIdHex);
+    return exchange(normalizedAddress, dataIdHex, frame, false);
+}
+
+void Dlt645Client::writeData(
+    const std::string& meterAddress,
+    const std::string& dataIdHex,
+    const std::string& passwordHex,
+    const std::string& operatorCodeHex,
+    const std::vector<std::uint8_t>& payload
+) {
+    std::lock_guard<std::mutex> lock(transactionMutex_);
+    const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
+    const auto frame = Dlt645Codec::buildWriteFrame(
+        normalizedAddress,
+        dataIdHex,
+        passwordHex,
+        operatorCodeHex,
+        payload
+    );
+    const auto response = exchange(normalizedAddress, dataIdHex, frame, true);
+    Dlt645Codec::validateWriteResponse(response, normalizedAddress);
+}
+
+std::vector<std::uint8_t> Dlt645Client::exchange(
+    const std::string& normalizedAddress,
+    const std::string& dataIdHex,
+    const std::vector<std::uint8_t>& frame,
+    bool sensitiveRequest
+) {
+    ensurePortOpen();
+    std::vector<std::uint8_t> wireFrame;
+    wireFrame.reserve(static_cast<std::size_t>(options_.wakeupBytes) + frame.size());
+    wireFrame.insert(
+        wireFrame.end(),
+        static_cast<std::size_t>(options_.wakeupBytes),
+        static_cast<std::uint8_t>(0xFE)
+    );
+    wireFrame.insert(wireFrame.end(), frame.begin(), frame.end());
     if (dlt645DebugEnabled()) {
         std::cerr << "[dlt645] tx"
                   << " address=" << normalizedAddress
                   << " di=" << dataIdHex
-                  << " size=" << frame.size()
-                  << " hex=" << bytesToHex(frame)
+                  << " wakeupBytes=" << options_.wakeupBytes
+                  << " size=" << wireFrame.size()
+                  << " hex=" << (sensitiveRequest ? "<redacted>" : bytesToHex(wireFrame))
                   << std::endl;
     }
     waitForFrameInterval(normalizedAddress);
     const auto writeStartedAt = std::chrono::steady_clock::now();
-    serialPort_->write(frame);
+    serialPort_->write(wireFrame);
     lastRequestWriteAtByMeter_[normalizedAddress] = writeStartedAt;
 
     std::vector<std::uint8_t> response;

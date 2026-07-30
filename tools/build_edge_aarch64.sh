@@ -42,7 +42,10 @@ usage() {
   cat <<'EOF'
 Usage: tools/build_edge_aarch64.sh [options] [target ...]
 
-Build Gateway-zk edge binaries on the 192.168.22.11 cross-compile machine.
+Build Gateway-zk edge binaries inside /srv/build/Gateway-zk on the remote
+192.168.22.11 cross-compile server. Local Windows/WSL directories are not
+mounted on that server and must be synchronized explicitly before this script
+is run.
 
 Options:
   --build-dir DIR       Build output dir; default: ./build-aarch64-cross
@@ -59,6 +62,9 @@ Options:
 
 When no target is supplied, production targets are built. The script does not
 touch ./build-aarch64 unless --publish or --package is passed.
+
+After a remote build, copy selected artifacts back explicitly and compare
+SHA256. Building on 192.168.22.11 does not update the local checkout.
 EOF
 }
 
@@ -191,6 +197,8 @@ if [ "$PACKAGE" = "1" ]; then
   if [ -n "$MANIFEST" ]; then
     args+=("--manifest" "$MANIFEST")
   fi
-  sh "$ROOT_DIR/deploy/build-factory-package.sh" "${args[@]}"
+  EDGE_PACKAGE_BUILD_DIR="$BUILD_DIR" \
+    EDGE_TOOLCHAIN_ID="$(aarch64-linux-gnu-g++ --version | sed -n '1p')" \
+    sh "$ROOT_DIR/deploy/build-factory-package.sh" "${args[@]}"
   sh "$ROOT_DIR/deploy/build-agc-avc-runtime-package.sh" "$AGC_AVC_PACKAGE_OUT"
 fi

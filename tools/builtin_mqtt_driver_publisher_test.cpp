@@ -279,6 +279,158 @@ private:
     std::vector<PublishedMessage> messages_;
 };
 
+class ReconnectMqttBroker {
+public:
+    ReconnectMqttBroker() {
+        listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
+        require(listenFd_ >= 0, "reconnect broker socket failed");
+        int opt = 1;
+        setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        require(bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0,
+                "reconnect broker bind failed");
+        socklen_t len = sizeof(addr);
+        require(getsockname(listenFd_, reinterpret_cast<sockaddr*>(&addr), &len) == 0,
+                "reconnect broker getsockname failed");
+        port_ = ntohs(addr.sin_port);
+        require(listen(listenFd_, 4) == 0, "reconnect broker listen failed");
+        thread_ = std::thread([this]() { run(); });
+    }
+
+    ~ReconnectMqttBroker() {
+        stop_.store(true);
+        const int rx = rxFd_.exchange(-1);
+        if (rx >= 0) {
+            shutdown(rx, SHUT_RDWR);
+            close(rx);
+        }
+        if (listenFd_ >= 0) {
+            shutdown(listenFd_, SHUT_RDWR);
+            close(listenFd_);
+        }
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+    int port() const {
+        return port_;
+    }
+
+    int publishCount() const {
+        return publishCount_.load();
+    }
+
+    int closedTxCount() const {
+        return closedTxCount_.load();
+    }
+
+private:
+    static std::size_t bodyOffset(const std::vector<std::uint8_t>& packet) {
+        std::size_t cursor = 1;
+        while (cursor < packet.size() && (packet[cursor++] & 0x80) != 0) {
+        }
+        return cursor;
+    }
+
+    static bool isRxConnect(const std::vector<std::uint8_t>& packet) {
+        const std::string bytes(packet.begin(), packet.end());
+        return bytes.find("-rx") != std::string::npos;
+    }
+
+    static void sendConnAck(int fd) {
+        const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
+        send(fd, connAck, sizeof(connAck), 0);
+    }
+
+    static void sendSubAck(int fd, const std::vector<std::uint8_t>& subscribe) {
+        const auto body = bodyOffset(subscribe);
+        require(body + 2 <= subscribe.size(), "reconnect broker subscribe id missing");
+        const std::uint8_t subAck[] = {
+            0x90, 0x03, subscribe[body], subscribe[body + 1], 0x01
+        };
+        send(fd, subAck, sizeof(subAck), 0);
+    }
+
+    void run() {
+        while (!stop_.load() && publishCount_.load() < 2) {
+            const int fd = accept(listenFd_, nullptr, nullptr);
+            if (fd < 0) {
+                continue;
+            }
+            try {
+                const auto connect = readMqttPacket(fd);
+                require(!connect.empty() && (connect[0] & 0xF0) == 0x10,
+                        "reconnect broker expected connect");
+                sendConnAck(fd);
+                if (isRxConnect(connect)) {
+                    const auto subscribe = readMqttPacket(fd);
+                    require(!subscribe.empty() && (subscribe[0] & 0xF0) == 0x80,
+                            "reconnect broker expected subscribe");
+                    sendSubAck(fd, subscribe);
+                    rxFd_.store(fd);
+                    continue;
+                }
+
+                const auto publish = readMqttPacket(fd);
+                require(!publish.empty() && (publish[0] & 0xF0) == 0x30,
+                        "reconnect broker expected publish");
+                const auto id = packetId(publish);
+                if (((publish[0] >> 1) & 0x03) == 1) {
+                    sendPubAck(fd, id);
+                }
+                publishCount_.fetch_add(1);
+            } catch (...) {
+            }
+            shutdown(fd, SHUT_RDWR);
+            close(fd);
+            closedTxCount_.fetch_add(1);
+        }
+    }
+
+    int listenFd_ = -1;
+    int port_ = 0;
+    std::atomic<int> rxFd_ {-1};
+    std::atomic<int> publishCount_ {0};
+    std::atomic<int> closedTxCount_ {0};
+    std::atomic<bool> stop_ {false};
+    std::thread thread_;
+};
+
+void testClosedTxConnectionReconnectsBeforeNextPublish() {
+    ReconnectMqttBroker broker;
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_RECONNECT";
+    config.topicMachineCode = "GW_RECONNECT";
+    config.commandRequestTopic = "edge/command/request";
+    config.statusTopic = "edge/status";
+    config.qos = 1;
+    config.offlineBufferEnabled = false;
+
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    publisher.pollIncoming(0);
+    publisher.publishJsonMessage(config.statusTopic, "{\"n\":1}");
+
+    for (int attempt = 0; attempt < 100 && broker.closedTxCount() < 1; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    require(broker.publishCount() == 1, "reconnect broker did not receive first publish");
+    require(broker.closedTxCount() == 1, "reconnect broker did not close first TX connection");
+
+    // Publish-only services call maintain without subscribing to command topics.
+    publisher.maintain();
+    publisher.publishJsonMessage(config.statusTopic, "{\"n\":2}");
+
+    for (int attempt = 0; attempt < 100 && broker.publishCount() < 2; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    require(broker.publishCount() == 2, "publisher did not reconnect before second publish");
+}
+
 void testOfflineReplayRemovesSentRecords() {
     const auto dir = std::string("/tmp/gateway_mqtt_offline_test_") + std::to_string(getpid());
     const auto mkdirCommand = std::string("mkdir -p ") + dir;
@@ -326,7 +478,7 @@ void testOfflineReplayRemovesSentRecords() {
 }
 
 void testControlTopicsUseQos2() {
-    TestMqttBroker broker(2);
+    TestMqttBroker broker(4);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
     config.clientId = "GW_TEST";
@@ -335,6 +487,8 @@ void testControlTopicsUseQos2() {
     config.controlQos = 2;
     config.statusTopic = "edge/status";
     config.commandReplyTopic = "edge/command/reply";
+    config.recordingReplyTopic = "edge/recording/reply";
+    config.recordingStatusTopic = "edge/recording/status";
     config.offlineBufferEnabled = false;
 
     {
@@ -346,14 +500,20 @@ void testControlTopicsUseQos2() {
         reply.message = "accepted";
         publisher.publishCommandReply(config.commandReplyTopic, reply);
         publisher.publishJsonMessage(config.statusTopic, "{\"ok\":true}");
+        publisher.publishJsonMessage(config.recordingReplyTopic, "{\"stage\":\"accepted\"}");
+        publisher.publishJsonMessage(config.recordingStatusTopic, "{\"stage\":\"uploading\"}");
     }
 
     const auto messages = broker.messages();
-    require(messages.size() == 2, "test broker should capture two publishes");
+    require(messages.size() == 4, "test broker should capture four publishes");
     require(messages[0].topic == "edge/command/reply/GW_TEST", "command reply topic mismatch");
     require(messages[0].qos == 2, "command reply should use qos2");
     require(messages[1].topic == "edge/status/GW_TEST", "status topic mismatch");
     require(messages[1].qos == 1, "status should keep normal qos");
+    require(messages[2].topic == "edge/recording/reply/GW_TEST", "recording reply topic mismatch");
+    require(messages[2].qos == 2, "recording reply should use qos2");
+    require(messages[3].topic == "edge/recording/status/GW_TEST", "recording status topic mismatch");
+    require(messages[3].qos == 2, "recording status should use qos2");
 }
 #endif
 
@@ -374,6 +534,26 @@ int main() {
     require(message.topic == "edge/command/request/GW_TEST", "command publish topic mismatch");
     require(message.payload == "{\"cmdId\":\"CMD1\"}", "command publish payload mismatch");
 
+    config.recordingRequestTopic = "edge/recording/request";
+    const auto recordingRequest = publishPacket(
+        "edge/recording/request/GW_TEST",
+        "{\"requestId\":\"REC1\",\"action\":\"list\"}"
+    );
+    require(BuiltinMqttDriverPublisher::parseIncomingPublishPacket(config, recordingRequest, &message),
+        "recording request publish should parse");
+    require(message.type == MqttIncomingType::RecordingRequest,
+        "recording request publish type mismatch");
+
+    config.recordingAckTopic = "edge/recording/ack";
+    const auto recordingAck = publishPacket(
+        "edge/recording/ack/GW_TEST",
+        "{\"requestId\":\"REC1\",\"status\":\"completed\"}"
+    );
+    require(BuiltinMqttDriverPublisher::parseIncomingPublishPacket(config, recordingAck, &message),
+        "recording ACK publish should parse");
+    require(message.type == MqttIncomingType::RecordingAck,
+        "recording ACK publish type mismatch");
+
     const auto oversized = publishPacket("edge/command/request/GW_TEST", std::string(512 * 1024 + 1, 'x'));
     requireRejected(oversized, config, "mqtt incoming packet is too large");
 
@@ -383,6 +563,7 @@ int main() {
 #ifndef _WIN32
     testOfflineReplayRemovesSentRecords();
     testControlTopicsUseQos2();
+    testClosedTxConnectionReconnectsBeforeNextPublish();
 #endif
 
     std::cout << "builtin_mqtt_driver_publisher_test passed" << std::endl;

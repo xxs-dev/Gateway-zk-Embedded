@@ -32,6 +32,7 @@ load_runtime_config() {
             RECOVERY_THRESHOLD) RECOVERY_THRESHOLD="$value" ;;
             CELLULAR_ROUTE_METRIC) CELLULAR_ROUTE_METRIC="$value" ;;
             FALLBACK_ROUTE_METRIC) FALLBACK_ROUTE_METRIC="$value" ;;
+            UPLINK_DNS_SERVERS) UPLINK_DNS_SERVERS="$value" ;;
         esac
     done < <(python3 - "$RUNTIME_CONFIG_FILE" 2>/dev/null <<'PY'
 import json
@@ -46,6 +47,11 @@ if isinstance(wired_interfaces, list):
     values = [str(item).strip() for item in wired_interfaces if str(item).strip()]
     if values:
         print(f"WIRED_INTERFACES\t{' '.join(values)}")
+dns_servers = config.get("dnsServers")
+if isinstance(dns_servers, list):
+    values = [str(item).strip() for item in dns_servers if str(item).strip()]
+    if values:
+        print(f"UPLINK_DNS_SERVERS\t{' '.join(values)}")
 fields = (
     ("FAILOVER_ENABLED", "enabled"),
     ("PREFER_CELLULAR", "preferCellular"),
@@ -92,6 +98,7 @@ load_runtime_config
 : "${RECOVERY_THRESHOLD:=2}"
 : "${CELLULAR_ROUTE_METRIC:=10}"
 : "${FALLBACK_ROUTE_METRIC:=600}"
+: "${UPLINK_DNS_SERVERS:=223.5.5.5 119.29.29.29}"
 : "${STATE_DIR:=/run/gateway-network-failover}"
 : "${LOG_FILE:=/opt/modbus-gateway/data/network-failover.log}"
 : "${MAX_LOG_SIZE:=1048576}"
@@ -264,6 +271,28 @@ wired_candidates_csv() {
     '
 }
 
+configure_primary_dns() {
+    local primary_interface="$1"
+    command -v resolvectl >/dev/null 2>&1 || return 0
+
+    local interface
+    while IFS= read -r interface; do
+        [ -n "$interface" ] || continue
+        [ "$interface" = "$primary_interface" ] && continue
+        ip link show dev "$interface" >/dev/null 2>&1 || continue
+        resolvectl domain "$interface" "" >/dev/null 2>&1 || true
+        resolvectl default-route "$interface" no >/dev/null 2>&1 || true
+    done < <({ printf '%s\n' "$CELLULAR_INTERFACE"; wired_candidates; } | awk 'NF && !seen[$0]++')
+
+    # Route all DNS queries through the active uplink. Public resolvers keep
+    # cellular links usable even when a disconnected DHCP interface retains DNS.
+    # shellcheck disable=SC2086
+    resolvectl dns "$primary_interface" $UPLINK_DNS_SERVERS >/dev/null 2>&1 || return 1
+    resolvectl domain "$primary_interface" '~.' >/dev/null 2>&1 || return 1
+    resolvectl default-route "$primary_interface" yes >/dev/null 2>&1 || true
+    resolvectl flush-caches >/dev/null 2>&1 || true
+}
+
 cellular_default_metric() {
     ip -4 route show default dev "$CELLULAR_INTERFACE" 2>/dev/null |
         awk 'NR == 1 {
@@ -297,6 +326,10 @@ set_cellular_primary() {
     if [ "$metric" != "$CELLULAR_ROUTE_METRIC" ]; then
         replace_cellular_default "$CELLULAR_ROUTE_METRIC" || return 1
         log_message "4G connectivity recovered; $CELLULAR_INTERFACE is the primary route (metric $CELLULAR_ROUTE_METRIC)"
+    fi
+    if ! configure_primary_dns "$CELLULAR_INTERFACE"; then
+        last_message="4G route is healthy, but DNS configuration failed"
+        return 1
     fi
     mode="cellular"
     last_message="4G healthy; cellular route is primary"
@@ -340,6 +373,10 @@ set_wired_fallback() {
     fi
     if [ "$previous_interface" != "$interface" ]; then
         log_message "selected wired interface changed from ${previous_interface:-none} to $interface"
+    fi
+    if ! configure_primary_dns "$interface"; then
+        last_message="$reason; wired route $interface is active, but DNS configuration failed"
+        return 1
     fi
     selected_wired_interface="$interface"
     mode="wired"
@@ -404,6 +441,7 @@ keep_cellular_as_last_resort() {
         replace_cellular_default "$CELLULAR_ROUTE_METRIC" || return 1
         should_log=1
     fi
+    configure_primary_dns "$CELLULAR_INTERFACE" || true
     mode="cellular-degraded"
     last_message="4G unhealthy and no healthy wired interface is available; keeping 4G as the last-resort route"
     [ "$should_log" -eq 0 ] || log_message "$last_message"

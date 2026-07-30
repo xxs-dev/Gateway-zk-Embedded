@@ -112,10 +112,10 @@ readlink -f /opt/modbus-gateway/scada/current
 
 禁止删除当前 release。不要在服务运行时清理共享内存，也不要用清理 SCADA release 的方式处理采集故障。
 
-## 8. 2026-07-20 验证记录
+## 8. 2026-07-20 上位机安全链验证记录（历史快照）
 
 - 设备：`192.168.22.16 / COMM202600999`。
-- 当前 release：`comm202600999-scada-acceptance-1.0.1-acceptance-20260719160309`。
+- 当时 release：`comm202600999-scada-acceptance-1.0.1-acceptance-20260719160309`；当前 release 见第 9 节。
 - `MqttDriver`：725,872 bytes，SHA-256 `cbd6ba571c8622f1008c9780ce3cd79ad3b17648e13db310524b786688c87ae5`。
 - `SystemMonitor`：1,115,936 bytes，SHA-256 `3b0911500b54116367f0edc3942069fce286aabf8fbc21deca6913cbf8194a56`。
 - `KY-EMS`：685,912 bytes，SHA-256 `cf3d4fa7337078876a6e72da88977bdd2208edc2be706f597be32bbd497f2642`。
@@ -133,11 +133,37 @@ readlink -f /opt/modbus-gateway/scada/current
 
 ## 9. 2026-07-20 旧 EMS 全量工程验证
 
-- 工程包：`ky-ems-COMM202600999-1.0.0.kyscada`，5,478,167 bytes，SHA-256 `1c990348c1b1cc74110570657ebbd4b34e6e6a993ab09deb55a9f5127efe9072`。
+- 通用工程包：`ky-ems-COMM202600999-1.0.0.kyscada`，5,477,976 bytes，SHA-256 `e42f93c6a48e3c737fcf7ca2380ca5c6ed4f83c79d674efd94e2482b5cfbfe08`。
 - 工程内容：15 页、1,595 图元、1,158 Tag、57 图片资源。
-- 当前 release：`/opt/modbus-gateway/scada/releases/ky-ems-COMM202600999-1.0.0-20260720125210`。
-- `KY-EMS` 兼容路径内运行统一 Qt SCADA 程序，711,288 bytes，SHA-256 `5ad3f2c23ab6c6a6d47a358b46e2e99e921786d80f0d2283f7bb63e7e991bec6`。
+- 当前 release：`/opt/modbus-gateway/scada/releases/ky-ems-COMM202600999-1.0.0-20260720172230`。
+- `KY-EMS` 兼容路径内运行统一 Qt SCADA 程序，724,208 bytes，SHA-256 `6551b55585afd3476f95d43ed6d571cb9f63e48a09b513deb105eac2ccf6f35a`。
 - 15 个页面已通过 X11 自动点击逐页截图；故障预警页显示告警表空状态，数据报表和实时曲线保留实际绑定且不写入 mock 数据。
+- 运行监测的系统概览、PCS、BMS、动环消防、UPS、IO 六个左侧页签已再次自动点击验证；选中态背景、点击层、图标和文字层级正确，首次进入和切回时均不再出现选中项空白。
 - `ky-ems.service` 为 `active`、`NRestarts=0`；MQTT broker 保持 `ssl://kygate.kyxn.net:8883`。
-- DIO Index `984` 为 `value=1 quality=1`；主设备通讯点当前无有效值，页面显示 `--` 属于真实状态。
+- DIO Index `984` 为 `value=1 quality=1`；主设备通讯点当前无有效值，页面显示 `--` 属于真实状态。706 个 `qtLabel` 保持纯静态文字，220 个 `qtValue` 负责单点数据和值映射，旧数字和状态占位不再作为真实数据展示。
 - 本轮只部署 `192.168.22.16 / COMM202600999`，没有部署 `10.126.126.*`。
+
+## 10. Windows 按范围拉取画面工程
+
+SystemMonitor 的 MQTT 和直连配置拉取接口都支持请求字段：
+
+```json
+{
+  "requestId": "SCADA_PULL_001",
+  "machineCode": "COMM202600999",
+  "passwordSha256": "<维护口令 SHA-256>",
+  "scope": "scada"
+}
+```
+
+`scope=scada` 只允许返回当前 `/opt/modbus-gateway/scada/current` 中的工程元数据、`screens/**` 和 `assets/**`。不得返回 `config/runtime/devices/**` 或其他运行配置。默认 `scope=config` 保持原行为，兼容旧 Windows 客户端。
+
+传输限制保持不变：MQTT 分片 128KiB、总快照 48MiB、单文件 5MiB；支持缺片补发，二进制资源使用 Base64。直连接口使用同一文件筛选、路径规范化、符号链接拒绝和大小限制。
+
+2026-07-25 在 `192.168.22.16 / COMM202600999` 验收：
+
+- 原生 GCC 9.4 编译的 `SystemMonitor` 为 1,089,400 bytes，SHA-256 `21b394eece6f00b058685d21bcbf441cda0ef9b48dc57017e46bb949c6d9c7af`。
+- 最高运行库要求为 `GLIBC_2.17` 和 `GLIBCXX_3.4.26`，与设备 Ubuntu 20.04 兼容。
+- 仅重启 `system-monitor@monitor-service.service`；服务 PID `3063656`、`NRestarts=0`，MQTT、总服务和 KY-EMS 未重启。
+- 直连请求返回 82 个文件、9,115,329 bytes，包含页面和资源且不包含普通设备配置。
+- 旧二进制备份位于 `/opt/modbus-gateway/backup/system-monitor/SystemMonitor.20260725005642`，需要回滚时只恢复该文件并重启监测服务。

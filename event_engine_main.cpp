@@ -255,6 +255,7 @@ int main(int argc, char* argv[]) {
               << std::endl;
 
     while (g_running) {
+        publisher->maintain();
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 

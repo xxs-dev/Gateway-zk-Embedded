@@ -177,6 +177,20 @@ std::vector<IecFileSegment> IecClient::callFile(int, int, int, std::uint8_t, int
     throw std::runtime_error("IEC file transfer is not supported for this transport");
 }
 
+std::vector<Iec103DisturbanceRecord> IecClient::listDisturbanceRecords(int) {
+    throw std::runtime_error("IEC103 disturbance directory is not supported for this transport");
+}
+
+Iec103ComtradeFiles IecClient::pullComtradeRecording(int, const std::string&, int) {
+    throw std::runtime_error("IEC103 COMTRADE transfer is not supported for this transport");
+}
+
+void IecClient::setRecordingProgressCallback(
+    std::function<void(const std::string&)> callback
+) {
+    (void)callback;
+}
+
 IecTcpClient::IecTcpClient(std::string protocolType, TcpTransportConfig tcp, IecProtocolConfig iec)
     : protocolType_(normalizedProtocol(std::move(protocolType))),
       tcp_(std::move(tcp)),

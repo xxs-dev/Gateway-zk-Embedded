@@ -15,6 +15,24 @@ public:
         const std::string& dataIdHex
     );
 
+    static std::vector<std::uint8_t> buildWriteFrame(
+        const std::string& meterAddress,
+        const std::string& dataIdHex,
+        const std::string& passwordHex,
+        const std::string& operatorCodeHex,
+        const std::vector<std::uint8_t>& payload
+    );
+
+    static std::vector<std::uint8_t> encodeWritePayload(
+        double value,
+        const WriteSpec& spec
+    );
+
+    static void validateWriteResponse(
+        const std::vector<std::uint8_t>& frame,
+        const std::string& meterAddress
+    );
+
     static DecodedValue decodeReadResponse(
         const std::vector<std::uint8_t>& frame,
         const PointDefinition& point

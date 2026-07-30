@@ -22,6 +22,7 @@
 
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
+#include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
@@ -1024,6 +1025,26 @@ bool isBase64SnapshotFile(const std::string& path) {
            isKyEmsSnapshotFile(path);
 }
 
+std::string normalizeDirectoryPath(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    while (path.size() > 1 && path.back() == '/') {
+        path.pop_back();
+    }
+    return path;
+}
+
+bool isPathInsideDirectory(const std::string& path, const std::string& directory) {
+    const auto normalizedPath = normalizeDirectoryPath(path);
+    const auto normalizedDirectory = normalizeDirectoryPath(directory);
+    return normalizedPath.size() > normalizedDirectory.size() &&
+           normalizedPath.compare(0, normalizedDirectory.size(), normalizedDirectory) == 0 &&
+           normalizedPath[normalizedDirectory.size()] == '/';
+}
+
+bool isScadaAssetFile(const std::string& path, const std::string& projectDirectory) {
+    return isPathInsideDirectory(path, normalizeDirectoryPath(projectDirectory) + "/assets");
+}
+
 std::string kyEmsHomeFromConfig(const SystemMonitorDirectMaintenanceConfig& config) {
     try {
         const auto appText = readFile(config.appConfigFile);
@@ -1078,11 +1099,107 @@ void collectFilesRecursive(
 #endif
 }
 
+template <typename IncludeFile>
+void collectScadaFilesRecursive(
+    std::vector<std::string>& files,
+    const std::string& root,
+    IncludeFile includeFile
+) {
+#ifndef _WIN32
+    DIR* handle = ::opendir(root.c_str());
+    if (handle == nullptr) {
+        return;
+    }
+    while (auto* entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") {
+            continue;
+        }
+        const auto path = root + "/" + name;
+        struct stat st {};
+        if (::lstat(path.c_str(), &st) != 0 || S_ISLNK(st.st_mode)) {
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            collectScadaFilesRecursive(files, path, includeFile);
+        } else if (S_ISREG(st.st_mode) && includeFile(path)) {
+            addUniquePath(files, path);
+        }
+    }
+    ::closedir(handle);
+#else
+    (void)files;
+    (void)root;
+    (void)includeFile;
+#endif
+}
+
+std::vector<std::string> collectScadaSnapshotFiles(const std::string& projectDirectory) {
+    std::vector<std::string> files;
+    const auto root = normalizeDirectoryPath(projectDirectory);
+    const char* metadataFiles[] = {
+        "manifest.json",
+        "topology.json",
+        "nodes.json",
+        "tags.json",
+        "runtime-map.json",
+        "symbols.json",
+        "alarms.json",
+        "trends.json",
+        "permissions.json",
+        "checksums.json"
+    };
+    for (const auto* name : metadataFiles) {
+        const auto path = root + "/" + name;
+        if (isRegularFile(path)) {
+            addUniquePath(files, path);
+        }
+    }
+    collectScadaFilesRecursive(files, root + "/screens", [](const std::string& path) {
+        return endsWithIgnoreCase(path, ".json");
+    });
+    collectScadaFilesRecursive(files, root + "/assets", [](const std::string&) {
+        return true;
+    });
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
 std::vector<std::string> collectConfigSnapshotFiles(const SystemMonitorDirectMaintenanceConfig& config) {
     std::vector<std::string> files;
     addUniquePath(files, config.identityConfigFile);
     collectConfigFilesFromAppConfig(files, config.appConfigFile);
     collectConfigFilesFromAppConfig(files, config.otaAppConfigFile);
+    const auto referencedByConfigs = files;
+    for (const auto& path : referencedByConfigs) {
+        if (!isRegularFile(path)) {
+            continue;
+        }
+        try {
+            const auto deviceConfig = edge_gateway::ConfigLoader::loadFromText(readFile(path));
+            const auto reference = deviceConfig.protocol.standardPointsFile;
+            if (reference.empty()) {
+                continue;
+            }
+            if (isRegularFile(reference)) {
+                addUniquePath(files, reference);
+                continue;
+            }
+
+            const auto separator = path.find_last_of("/\\");
+            auto base = separator == std::string::npos ? std::string(".") : path.substr(0, separator);
+            for (int level = 0; level < 6; ++level) {
+                const auto candidate = base + "/" + reference;
+                if (isRegularFile(candidate)) {
+                    addUniquePath(files, candidate);
+                    break;
+                }
+                base += "/..";
+            }
+        } catch (...) {
+            // App、identity 等非设备配置不包含标准点表引用，不影响快照收集。
+        }
+    }
     for (const auto& logicRoot : logicRootsFromConfigFiles(files)) {
         collectFilesRecursive(files, logicRoot, [](const std::string& path) {
             return isRuntimeLogicSnapshotFile(path);
@@ -1899,6 +2016,13 @@ std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& confi
     const auto now = nowMs();
     const auto requestId = jsonString(body, "requestId", "DIRECT_CFG_PULL_" + std::to_string(now));
     const auto requestedMachineCode = trim(jsonString(body, "machineCode"));
+    auto scope = trim(jsonString(body, "scope", "config"));
+    if (scope.empty()) {
+        scope = "config";
+    }
+    if (scope != "config" && scope != "scada") {
+        throw std::runtime_error("unsupported config pull scope");
+    }
     const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
     const auto identity = loadIdentity(config.identityConfigFile);
     const auto machineCode = identity.machineCode.empty() ? appConfig.mqtt.clientId : identity.machineCode;
@@ -1908,7 +2032,14 @@ std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& confi
         throw std::runtime_error("machineCode mismatch");
     }
 
-    const auto files = collectConfigSnapshotFiles(config);
+    const auto projectDirectory = config.scadaUpperComputerProjectDirectory;
+    const auto files = scope == "scada"
+        ? collectScadaSnapshotFiles(projectDirectory)
+        : collectConfigSnapshotFiles(config);
+    if (scope == "scada" &&
+        std::find(files.begin(), files.end(), normalizeDirectoryPath(projectDirectory) + "/manifest.json") == files.end()) {
+        throw std::runtime_error("SCADA project manifest not found");
+    }
     std::size_t emittedFiles = 0;
     std::size_t skippedFiles = 0;
     std::size_t totalBytes = 0;
@@ -1916,6 +2047,7 @@ std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& confi
     std::ostringstream out;
     out << "{\"requestId\":\"" << jsonEscape(requestId)
         << "\",\"machineCode\":\"" << jsonEscape(machineCode)
+        << "\",\"scope\":\"" << jsonEscape(scope)
         << "\",\"success\":true"
         << ",\"message\":\"config snapshot exported\""
         << ",\"files\":[";
@@ -1945,7 +2077,10 @@ std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& confi
             continue;
         }
         totalBytes += content.size();
-        const auto encoding = isBase64SnapshotFile(path) ? std::string("base64") : std::string("utf8");
+        const auto encoding = (isBase64SnapshotFile(path) ||
+                               (scope == "scada" && isScadaAssetFile(path, projectDirectory)))
+            ? std::string("base64")
+            : std::string("utf8");
         const auto encodedContent = encoding == "base64" ? base64Encode(content) : content;
         if (emittedFiles > 0) {
             out << ",";
@@ -2366,7 +2501,7 @@ std::string handleRequest(
         return response(
             200,
             "OK",
-            "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"],\"directUpload\":false,\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}"
+            edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson()
         );
     }
     if (method == "GET" && path == "/api/v1/ota/status") {
@@ -2731,6 +2866,23 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
 
 namespace edge_gateway {
 namespace system_monitor_direct_maintenance {
+
+std::string otaCapabilitiesJson() {
+    std::ostringstream payload;
+    payload << "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]"
+            << ",\"directUpload\":false"
+            << ",\"emsLogic\":{\"editorSourceSchema\":\""
+            << GraphEmsRuntimeCapabilities::editorSourceSchema()
+            << "\",\"runtimeSchema\":\""
+            << GraphEmsRuntimeCapabilities::runtimeSchema()
+            << "\",\"compilerContract\":\""
+            << GraphEmsRuntimeCapabilities::compilerContract()
+            << "\",\"executesEditorSource\":"
+            << (GraphEmsRuntimeCapabilities::executesEditorSource() ? "true" : "false")
+            << "}"
+            << ",\"message\":\"OTA jobs can be started from an artifact URL with the maintenance password\"}";
+    return payload.str();
+}
 
 void requestStop() {
     g_running = false;

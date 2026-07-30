@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <memory>
 #include <string>
@@ -36,6 +37,15 @@ public:
     virtual CommandResult writeParameter(int ioa, int typeId, double value, std::uint8_t qualifier, int timeoutMs);
     virtual CommandResult activateParameter(int ioa, std::uint8_t qualifier, int timeoutMs);
     virtual std::vector<IecFileSegment> callFile(int ioa, int nameOfFile, int nameOfSection, std::uint8_t qualifier, int timeoutMs);
+    virtual std::vector<Iec103DisturbanceRecord> listDisturbanceRecords(int timeoutMs);
+    virtual Iec103ComtradeFiles pullComtradeRecording(
+        int fan,
+        const std::string& outputDirectory,
+        int timeoutMs
+    );
+    virtual void setRecordingProgressCallback(
+        std::function<void(const std::string&)> callback
+    );
 };
 
 class IecTcpClient : public IecClient {

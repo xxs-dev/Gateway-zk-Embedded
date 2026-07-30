@@ -13,6 +13,7 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/dlt645_collector.hpp"
 #include "edge_gateway/dlt645_client.hpp"
+#include "edge_gateway/dlt645_command_executor.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mock_serial_port.hpp"
@@ -96,6 +97,7 @@ int main(int argc, char* argv[]) {
     serialOptions.frameIntervalMs = config.protocol.transport.frameIntervalMs >= 0
         ? config.protocol.transport.frameIntervalMs
         : std::max(0, config.collect.defaultIntervalMs);
+    serialOptions.wakeupBytes = config.protocol.transport.wakeupBytes;
 
     std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32
@@ -120,9 +122,9 @@ int main(int argc, char* argv[]) {
                 new Dlt645Collector(runtimeConfig, runtimeStore, dlt645Client)
             );
         },
-        [](const DeviceConfig& runtimeConfig, MemoryPointStore&) {
+        [dlt645Client](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
             return std::unique_ptr<ICommandExecutor>(
-                new UnsupportedCommandExecutor(runtimeConfig)
+                new Dlt645CommandExecutor(runtimeConfig, runtimeStore, dlt645Client)
             );
         },
         nullptr,

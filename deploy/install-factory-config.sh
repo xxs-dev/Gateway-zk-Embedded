@@ -369,6 +369,56 @@ for item in items:
 PY
 }
 
+verify_manifest_components() {
+  manifest="$1"
+  package_root="$2"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 command not found, cannot verify package component hashes" >&2
+    exit 2
+  fi
+  python3 - "$manifest" "$package_root" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+manifest_path, package_root = sys.argv[1:3]
+with open(manifest_path, "r", encoding="utf-8") as fh:
+    manifest = json.load(fh)
+components = manifest.get("components")
+schema = str(manifest.get("schemaVersion") or "")
+if not isinstance(components, list) or not components:
+    if schema.startswith("1.1"):
+        raise SystemExit("schema 1.1 package manifest must contain hashed components")
+    print("warning: legacy package manifest has no component hashes", file=sys.stderr)
+    raise SystemExit(0)
+
+root = os.path.realpath(package_root)
+for component in components:
+    if not isinstance(component, dict):
+        raise SystemExit("invalid component entry in package manifest")
+    name = str(component.get("binary") or component.get("name") or "").strip()
+    relative = str(component.get("path") or "").strip().replace("\\", "/")
+    expected = str(component.get("sha256") or "").strip().lower()
+    if not name or not relative or len(expected) != 64:
+        raise SystemExit(f"incomplete component hash metadata: {name or '<unknown>'}")
+    path = os.path.realpath(os.path.join(root, relative))
+    if os.path.commonpath((root, path)) != root or not os.path.isfile(path):
+        raise SystemExit(f"component path is missing or outside package: {relative}")
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        raise SystemExit(f"component SHA-256 mismatch: {name}")
+    expected_size = component.get("sizeBytes")
+    if expected_size is not None and int(expected_size) != os.path.getsize(path):
+        raise SystemExit(f"component size mismatch: {name}")
+print(f"verified package component hashes: {len(components)}")
+PY
+}
+
 unique_words() {
   awk 'NF && !seen[$0]++ { print }'
 }
@@ -396,6 +446,8 @@ case "$PACKAGE_PROFILE" in
   base|project|full) ;;
   *) echo "invalid package profile: $PACKAGE_PROFILE" >&2; exit 2 ;;
 esac
+
+verify_manifest_components "$EDGE_PACKAGE_MANIFEST" "$PACKAGE_ROOT"
 
 json_string_value() {
   file="$1"
@@ -757,15 +809,17 @@ fi
 BASE_BINS="SystemMonitor MqttDriver pointctl"
 ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
-INSTALL_RUNTIME_MODE="${INIT_RUNTIME_MODE:-}"
-if [ -z "$INSTALL_RUNTIME_MODE" ] && [ -f "$FACTORY_DIR/runtime/apps/agc-avc-service.json" ]; then
-  INSTALL_RUNTIME_MODE="agc_avc"
-fi
-INSTALL_RUNTIME_MODE=$(normalize_runtime_mode "${INSTALL_RUNTIME_MODE:-gateway}")
+EXISTING_RUNTIME_MODE=$(json_string_value "$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" "runtimeMode" || true)
+DEFAULT_INSTALL_RUNTIME_MODE=$(first_nonempty "${INIT_RUNTIME_MODE:-}" "$EXISTING_RUNTIME_MODE" "gateway")
+INSTALL_RUNTIME_MODE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_INSTALL_RUNTIME_MODE")")
 if [ "$INSTALL_RUNTIME_MODE" = "agc_avc" ]; then
   ALL_BINS="$ALL_BINS AgcAvcController"
 fi
 if [ "$PACKAGE_PROFILE" = "base" ]; then
+  if [ "$INSTALL_RUNTIME_MODE" = "ems" ]; then
+    echo "base profile cannot initialize EMS mode; use a project or full package containing ComputeEngine and EmsParityCheck" >&2
+    exit 2
+  fi
   REQUIRED_BINS="$BASE_BINS"
   OPTIONAL_BINS=""
 elif [ "$PACKAGE_PROFILE" = "project" ]; then
@@ -774,6 +828,9 @@ elif [ "$PACKAGE_PROFILE" = "project" ]; then
     exit 2
   fi
   REQUIRED_BINS=$(printf '%s\n' $BASE_BINS $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_words | tr '\n' ' ')
+  if [ "$INSTALL_RUNTIME_MODE" = "ems" ]; then
+    REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS ComputeEngine EmsParityCheck | unique_words | tr '\n' ' ')
+  fi
   OPTIONAL_BINS=""
 else
   REQUIRED_BINS="$ALL_BINS"
@@ -816,6 +873,7 @@ install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
+install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"
 if [ ! -f /etc/default/gateway-network-failover ]; then
   install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"
 fi
@@ -868,9 +926,9 @@ DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}"
 DEFAULT_DIRECT_MAINTENANCE_ENABLED=$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")
 DEFAULT_DIRECT_LISTEN_HOSTS=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
 DEFAULT_DIRECT_ALLOWED_CIDRS=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")
-DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
+DEFAULT_RUNTIME_MODE="$INSTALL_RUNTIME_MODE"
 
-INIT_RUNTIME_MODE_VALUE=$(normalize_runtime_mode "$(prompt_value "runtimeMode" "$DEFAULT_RUNTIME_MODE")")
+INIT_RUNTIME_MODE_VALUE="$DEFAULT_RUNTIME_MODE"
 INIT_MACHINE_CODE_VALUE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
 INIT_MQTT_BROKER_VALUE=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
 INIT_MQTT_USERNAME_VALUE=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
@@ -950,6 +1008,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
   install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   install_deploy_file_if_exists "gateway-network-failover.service" "/etc/systemd/system/gateway-network-failover.service"
+  install_deploy_file_if_exists "gateway-cellular.service" "/etc/systemd/system/gateway-cellular.service"
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
     mkdir -p /etc/systemd/system.conf.d
     install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
