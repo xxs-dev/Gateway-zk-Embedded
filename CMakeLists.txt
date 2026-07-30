@@ -298,6 +298,12 @@ if(BUILD_TESTING)
     add_test(NAME graph_ems_voltage_quality COMMAND graph_ems_voltage_quality_test)
     add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
     add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
+    if(UNIX)
+        add_test(
+            NAME gateway_services_boot
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_boot_test.sh"
+        )
+    endif()
     set_tests_properties(
         graph_ems_v2_loader
         graph_ems_voltage_quality

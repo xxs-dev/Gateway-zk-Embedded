@@ -453,7 +453,17 @@ start_units() {
       \#*) continue ;;
     esac
     echo "[gateway-services] starting $unit"
-    systemctl start "$unit"
+    case "$unit" in
+      ky-ems.service|local-kiosk@*.service)
+        # These units wait for graphical.target. During boot this launcher is
+        # itself part of multi-user.target, so a blocking start deadlocks the
+        # target transaction until gateway-services.service times out.
+        systemctl start --no-block "$unit"
+        ;;
+      *)
+        systemctl start "$unit"
+        ;;
+    esac
   done
 }
 
