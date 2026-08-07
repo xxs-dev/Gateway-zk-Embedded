@@ -14,6 +14,7 @@
 
 #include "edge_gateway/compute_engine_service.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -133,6 +134,9 @@ int main(int argc, char* argv[]) {
         }
     }
     addUnique(sharedMemoryNames, seenSharedMemoryNames, appConfig.computeEngine.outputDefaultSharedMemoryName);
+    if (appConfig.emsCluster.enabled) {
+        addUnique(sharedMemoryNames, seenSharedMemoryNames, appConfig.emsCluster.virtualSharedMemoryName);
+    }
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back("gateway_point_store");
     }
@@ -147,6 +151,7 @@ int main(int argc, char* argv[]) {
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
     router.addRoutesFromCameraServiceConfig(appConfig.cameraService, machineCode);
+    addEmsClusterPointRoutes(router, appConfig.emsCluster, machineCode);
 
     for (const auto& rule : appConfig.computeEngine.rules) {
         for (const auto& output : rule.outputs) {

@@ -2401,6 +2401,26 @@ EmsClusterConfig parseEmsClusterConfig(const JsonValue* value) {
         config.membershipRetentionSec
     );
     config.statusIntervalMs = requireInt(object, "statusIntervalMs", config.statusIntervalMs);
+    config.controlEnabled = requireBool(object, "controlEnabled", config.controlEnabled);
+    config.dispatchCycleMs = requireInt(object, "dispatchCycleMs", config.dispatchCycleMs);
+    config.dispatchTtlMs = requireInt(object, "dispatchTtlMs", config.dispatchTtlMs);
+    config.capabilityTtlMs = requireInt(object, "capabilityTtlMs", config.capabilityTtlMs);
+    config.stationTargetTtlMs = requireInt(
+        object,
+        "stationTargetTtlMs",
+        config.stationTargetTtlMs
+    );
+    config.zeroTargetOnLoss = requireBool(object, "zeroTargetOnLoss", config.zeroTargetOnLoss);
+    config.virtualSharedMemoryName = requireString(
+        object,
+        "virtualSharedMemoryName",
+        config.virtualSharedMemoryName
+    );
+    config.virtualPointBaseIndex = static_cast<std::uint32_t>(requireSize(
+        object,
+        "virtualPointBaseIndex",
+        config.virtualPointBaseIndex
+    ));
     config.factoryAddress = requireString(object, "factoryAddress", config.factoryAddress);
     config.consensusStateFile = requireString(
         object,

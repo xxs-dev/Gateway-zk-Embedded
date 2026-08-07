@@ -115,6 +115,7 @@ private:
     bool runWindowAggregate(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runVoltageQualification(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runScheduleSelect(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
+    bool runClusterDispatch(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPhaseArbiter(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPowerConstraint(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runSwitch(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);

@@ -31,7 +31,9 @@ add_library(edge_gateway
     src/dlt645_standard_points_loader.cpp
     src/event_engine_service.cpp
     src/ems_cluster.cpp
+    src/ems_cluster_dispatch.cpp
     src/ems_cluster_network.cpp
+    src/ems_cluster_points.cpp
     src/ems_cluster_transport.cpp
     src/common/gateway_daemon.cpp
     src/common/gateway_daemon_modbus.cpp
@@ -325,6 +327,10 @@ add_executable(graph_ems_voltage_quality_test tools/graph_ems_voltage_quality_te
 target_link_libraries(graph_ems_voltage_quality_test PRIVATE edge_gateway)
 target_compile_options(graph_ems_voltage_quality_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(graph_ems_cluster_dispatch_test tools/graph_ems_cluster_dispatch_test.cpp)
+target_link_libraries(graph_ems_cluster_dispatch_test PRIVATE edge_gateway)
+target_compile_options(graph_ems_cluster_dispatch_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(graph_ems_v2_loader_test tools/graph_ems_v2_loader_test.cpp)
 target_link_libraries(graph_ems_v2_loader_test PRIVATE edge_gateway)
 target_compile_options(graph_ems_v2_loader_test PRIVATE -fdiagnostics-color=never)
@@ -378,6 +384,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME graph_ems_v2_loader COMMAND graph_ems_v2_loader_test)
     add_test(NAME graph_ems_voltage_quality COMMAND graph_ems_voltage_quality_test)
+    add_test(NAME graph_ems_cluster_dispatch COMMAND graph_ems_cluster_dispatch_test)
     add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
     add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
     if(UNIX)
@@ -389,6 +396,7 @@ if(BUILD_TESTING)
     set_tests_properties(
         graph_ems_v2_loader
         graph_ems_voltage_quality
+        graph_ems_cluster_dispatch
         legacy_ems_migration_parity
         system_monitor_direct_maintenance_contract
         gateway_test_lab_modbus

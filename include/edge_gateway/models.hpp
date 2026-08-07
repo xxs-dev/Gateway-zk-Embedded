@@ -1012,6 +1012,14 @@ struct EmsClusterConfig {
     int memberTimeoutMs = 5000;
     int membershipRetentionSec = 86400;
     int statusIntervalMs = 1000;
+    bool controlEnabled = false;
+    int dispatchCycleMs = 1000;
+    int dispatchTtlMs = 3000;
+    int capabilityTtlMs = 3000;
+    int stationTargetTtlMs = 3000;
+    bool zeroTargetOnLoss = true;
+    std::string virtualSharedMemoryName = "ems_cluster_store";
+    std::uint32_t virtualPointBaseIndex = 724000;
     std::string factoryAddress = "192.168.3.250";
     std::string consensusStateFile = "/opt/modbus-gateway/data/ems-cluster-consensus.json";
     std::string membershipFile = "/opt/modbus-gateway/data/cluster-membership.json";

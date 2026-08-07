@@ -18,6 +18,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "edge_gateway/ems_cluster.hpp"
+
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
@@ -801,7 +803,7 @@ std::unordered_map<std::string, std::string> parseParams(const JsonObject& nodeO
         "activeOutputIndexes", "reactiveOutputIndexes",
         "loadIndexes", "lowStateClearIndexes", "highStateClearIndexes",
         "inputIndexes", "nominalVoltages", "minuteAverageOutputIndexes",
-        "enableMaskIndexes"
+        "enableMaskIndexes", "dispatchActiveIndexes", "dispatchReactiveIndexes"
     };
     for (const auto* name : numberArrays) {
         flattenNumberArray(name);
@@ -1283,6 +1285,78 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         return;
     }
 
+    if (node.type == "clusterDispatch") {
+        const char* requiredInputs[] = {
+            "enableIndex", "roleIndex", "quorumIndex", "dispatchValidIndex",
+            "dispatchReasonIndex", "stationStrategyActiveIndex"
+        };
+        const char* requiredOutputs[] = {
+            "validOutputIndex", "stationLeaderOutputIndex", "reasonOutputIndex"
+        };
+        for (const auto* key : requiredInputs) {
+            if (!hasParam(node, key)) {
+                throw std::runtime_error(std::string("clusterDispatch ") + key + " is required");
+            }
+            validatePositiveIndex(node, key);
+        }
+        for (const auto* key : requiredOutputs) {
+            if (!hasParam(node, key)) {
+                throw std::runtime_error(std::string("clusterDispatch ") + key + " is required");
+            }
+            validatePositiveIndex(node, key);
+        }
+        validateIndexArray(node, "dispatchActiveIndexes", 3, 3);
+        validateIndexArray(node, "dispatchReactiveIndexes", 3, 3);
+        validateIndexArray(node, "activeOutputIndexes", 3, 3);
+        validateIndexArray(node, "reactiveOutputIndexes", 3, 3);
+
+        std::set<std::uint32_t> inputs;
+        std::set<std::uint32_t> outputs;
+        const auto addInput = [&](std::uint32_t index) {
+            if (index == 0) {
+                throw std::runtime_error("clusterDispatch input indexes must be positive");
+            }
+            if (!inputs.insert(index).second) {
+                throw std::runtime_error("clusterDispatch input indexes must be unique");
+            }
+        };
+        for (const auto* key : requiredInputs) addInput(paramIndex(node, key));
+        for (const auto index : paramIndexes(node, "dispatchActiveIndexes")) addInput(index);
+        for (const auto index : paramIndexes(node, "dispatchReactiveIndexes")) addInput(index);
+        for (const auto* key : requiredOutputs) {
+            if (!outputs.insert(paramIndex(node, key)).second) {
+                throw std::runtime_error("clusterDispatch output indexes must be unique");
+            }
+        }
+        for (const auto index : paramIndexes(node, "activeOutputIndexes")) {
+            if (index == 0) {
+                throw std::runtime_error("clusterDispatch output indexes must be positive");
+            }
+            if (!outputs.insert(index).second) {
+                throw std::runtime_error("clusterDispatch output indexes must be unique");
+            }
+        }
+        for (const auto index : paramIndexes(node, "reactiveOutputIndexes")) {
+            if (index == 0) {
+                throw std::runtime_error("clusterDispatch output indexes must be positive");
+            }
+            if (!outputs.insert(index).second) {
+                throw std::runtime_error("clusterDispatch output indexes must be unique");
+            }
+        }
+        for (const auto index : outputs) {
+            if (inputs.find(index) != inputs.end()) {
+                throw std::runtime_error("clusterDispatch input and output indexes must differ");
+            }
+        }
+        const auto maxTargetAgeMs = paramDouble(node, "maxTargetAgeMs").value_or(3000.0);
+        if (!std::isfinite(maxTargetAgeMs) || maxTargetAgeMs < 100.0 ||
+            maxTargetAgeMs > 60000.0 || std::floor(maxTargetAgeMs) != maxTargetAgeMs) {
+            throw std::runtime_error("clusterDispatch maxTargetAgeMs must be an integer from 100 to 60000");
+        }
+        return;
+    }
+
     if (node.type == "phaseArbiter") {
         validateIndexArray(node, "activeOutputIndexes");
         validateIndexArray(node, "reactiveOutputIndexes");
@@ -1693,6 +1767,7 @@ bool isKnownNodeType(const std::string& type) {
         "windowAggregate",
         "voltageQualification",
         "scheduleSelect",
+        "clusterDispatch",
         "phaseArbiter",
         "powerConstraint",
         "switch",
@@ -2660,6 +2735,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
                 runVoltageQualification(node, nowMs, result);
             } else if (node.type == "scheduleSelect") {
                 runScheduleSelect(node, nowMs, result);
+            } else if (node.type == "clusterDispatch") {
+                runClusterDispatch(node, nowMs, result);
             } else if (node.type == "phaseArbiter") {
                 runPhaseArbiter(node, nowMs, result);
             } else if (node.type == "powerConstraint") {
@@ -4920,6 +4997,132 @@ bool GraphEmsEngine::runScheduleSelect(
         updated = true;
     }
     return updated;
+}
+
+bool GraphEmsEngine::runClusterDispatch(
+    const GraphEmsNodeConfig& node,
+    std::int64_t nowMs,
+    GraphEmsRunResult& result
+) {
+    const auto maxTargetAgeMs = static_cast<std::int64_t>(
+        paramDouble(node, "maxTargetAgeMs").value_or(3000.0)
+    );
+    const auto freshPoint = [&](std::uint32_t index) -> Optional<PointSnapshot> {
+        const auto point = latestPoint(index, nowMs);
+        if (!point || point->quality != 1 || point->stale || !std::isfinite(point->value) ||
+            point->ts <= 0 || point->ts > nowMs + 1000 || nowMs - point->ts > maxTargetAgeMs) {
+            return NullOpt;
+        }
+        return point;
+    };
+    const auto write = [&](std::uint32_t index, double value) {
+        const auto routed = set(index, value, nowMs);
+        if (!routed.accepted) {
+            throw std::runtime_error("clusterDispatch output rejected: " + routed.message);
+        }
+        ++result.latestWrites;
+    };
+
+    const auto enable = freshPoint(paramIndex(node, "enableIndex"));
+    const auto role = freshPoint(paramIndex(node, "roleIndex"));
+    const auto quorum = freshPoint(paramIndex(node, "quorumIndex"));
+    const auto dispatchValid = freshPoint(paramIndex(node, "dispatchValidIndex"));
+    const auto dispatchReason = freshPoint(paramIndex(node, "dispatchReasonIndex"));
+    const auto stationStrategy = freshPoint(paramIndex(node, "stationStrategyActiveIndex"));
+    const auto dispatchCode = [&](double value) -> Optional<double> {
+        const auto code = static_cast<int>(std::llround(value));
+        if (std::fabs(value - static_cast<double>(code)) > 0.01) return NullOpt;
+        switch (static_cast<EmsClusterDispatchCode>(code)) {
+            case EmsClusterDispatchCode::Accepted:
+            case EmsClusterDispatchCode::Clamped:
+            case EmsClusterDispatchCode::ControlDisabled:
+            case EmsClusterDispatchCode::NoQuorum:
+            case EmsClusterDispatchCode::NotLeader:
+            case EmsClusterDispatchCode::TermMismatch:
+            case EmsClusterDispatchCode::MembershipMismatch:
+            case EmsClusterDispatchCode::StaleSequence:
+            case EmsClusterDispatchCode::Expired:
+            case EmsClusterDispatchCode::CapabilityStale:
+            case EmsClusterDispatchCode::NotReady:
+            case EmsClusterDispatchCode::Interlocked:
+            case EmsClusterDispatchCode::ManualOverride:
+            case EmsClusterDispatchCode::InvalidTarget:
+                return static_cast<double>(code);
+        }
+        return NullOpt;
+    };
+
+    double stationLeader = stationStrategy && stationStrategy->value >= 0.5 ? 1.0 : 0.0;
+    double reason = static_cast<double>(EmsClusterDispatchCode::Expired);
+    bool valid = false;
+    std::vector<double> active(3, 0.0);
+    std::vector<double> reactive(3, 0.0);
+
+    Optional<double> sourceDispatchCode = NullOpt;
+    if (dispatchReason) sourceDispatchCode = dispatchCode(dispatchReason->value);
+    if (!enable || !role || !quorum || !dispatchValid || !dispatchReason || !stationStrategy) {
+        stationLeader = 0.0;
+    } else if (!sourceDispatchCode) {
+        reason = static_cast<double>(EmsClusterDispatchCode::InvalidTarget);
+    } else if (enable->value < 0.5) {
+        reason = static_cast<double>(EmsClusterDispatchCode::ControlDisabled);
+        stationLeader = 0.0;
+    } else {
+        const auto roleValue = static_cast<int>(std::llround(role->value));
+        const bool validRole = std::fabs(role->value - static_cast<double>(roleValue)) <= 0.01 &&
+            (roleValue == static_cast<int>(EmsClusterRole::Leader) ||
+             roleValue == static_cast<int>(EmsClusterRole::Follower));
+        if (!validRole) {
+            reason = static_cast<double>(EmsClusterDispatchCode::NotLeader);
+            stationLeader = 0.0;
+        } else if (quorum->value < 0.5) {
+            reason = static_cast<double>(EmsClusterDispatchCode::NoQuorum);
+            stationLeader = 0.0;
+        } else if (dispatchValid->value < 0.5) {
+            reason = *sourceDispatchCode;
+        } else if (*sourceDispatchCode != static_cast<double>(EmsClusterDispatchCode::Accepted) &&
+                   *sourceDispatchCode != static_cast<double>(EmsClusterDispatchCode::Clamped)) {
+            reason = static_cast<double>(EmsClusterDispatchCode::InvalidTarget);
+        } else {
+            const auto activeInputs = paramIndexes(node, "dispatchActiveIndexes");
+            const auto reactiveInputs = paramIndexes(node, "dispatchReactiveIndexes");
+            valid = true;
+            for (std::size_t i = 0; i < 3; ++i) {
+                const auto activePoint = freshPoint(activeInputs[i]);
+                const auto reactivePoint = freshPoint(reactiveInputs[i]);
+                if (!activePoint || !reactivePoint) {
+                    valid = false;
+                    reason = static_cast<double>(EmsClusterDispatchCode::Expired);
+                    break;
+                }
+                active[i] = activePoint->value;
+                reactive[i] = reactivePoint->value;
+            }
+            if (valid) {
+                reason = *sourceDispatchCode;
+            }
+        }
+    }
+
+    if (!valid && paramBool(node, "zeroOnInvalid", true)) {
+        const auto activeOutputs = paramIndexes(node, "activeOutputIndexes");
+        const auto reactiveOutputs = paramIndexes(node, "reactiveOutputIndexes");
+        for (std::size_t i = 0; i < 3; ++i) {
+            write(activeOutputs[i], 0.0);
+            write(reactiveOutputs[i], 0.0);
+        }
+    } else if (valid) {
+        const auto activeOutputs = paramIndexes(node, "activeOutputIndexes");
+        const auto reactiveOutputs = paramIndexes(node, "reactiveOutputIndexes");
+        for (std::size_t i = 0; i < 3; ++i) {
+            write(activeOutputs[i], active[i]);
+            write(reactiveOutputs[i], reactive[i]);
+        }
+    }
+    write(paramIndex(node, "validOutputIndex"), valid ? 1.0 : 0.0);
+    write(paramIndex(node, "stationLeaderOutputIndex"), stationLeader);
+    write(paramIndex(node, "reasonOutputIndex"), reason);
+    return true;
 }
 
 bool GraphEmsEngine::runPhaseArbiter(
