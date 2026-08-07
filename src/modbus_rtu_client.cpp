@@ -9,11 +9,17 @@
 #include <thread>
 #include <utility>
 
+#include "edge_gateway/modbus_error.hpp"
+
 namespace edge_gateway {
 
 thread_local int ModbusRtuClient::priorityContextDepth_ = 0;
 
 namespace {
+
+constexpr int kMaxReadRegisters = 125;
+constexpr int kMaxWriteRegisters = 123;
+constexpr int kMaxReadBits = 2000;
 
 std::vector<std::uint8_t> makeWord(int value) {
     if (value < 0 || value > 0xFFFF) {
@@ -220,6 +226,12 @@ ModbusRtuClient::ModbusRtuClient(
     if (!serialPort_) {
         throw std::invalid_argument("serialPort is required");
     }
+    if (options_.timeoutMs <= 0) {
+        throw std::invalid_argument("modbus rtu timeoutMs must be positive");
+    }
+    if (options_.baudRate <= 0) {
+        throw std::invalid_argument("modbus rtu baudRate must be positive");
+    }
 }
 
 void ModbusRtuClient::beginPriorityWrite() {
@@ -270,15 +282,30 @@ void ModbusRtuClient::leaveTransaction() {
 void ModbusRtuClient::waitForFrameInterval(int slave) {
     const auto intervalMs = std::max(0, options_.frameIntervalMs);
     const auto lastWriteIt = lastRequestWriteAtBySlave_.find(slave);
-    if (intervalMs <= 0 || lastWriteIt == lastRequestWriteAtBySlave_.end()) {
-        return;
+    auto nextWriteAt = std::chrono::steady_clock::time_point{};
+    if (intervalMs > 0 && lastWriteIt != lastRequestWriteAtBySlave_.end()) {
+        nextWriteAt = lastWriteIt->second + std::chrono::milliseconds(intervalMs);
     }
-
-    const auto nextWriteAt = lastWriteIt->second + std::chrono::milliseconds(intervalMs);
+    if (lastBusActivityAt_.time_since_epoch().count() > 0) {
+        nextWriteAt = std::max(nextWriteAt, lastBusActivityAt_ + minimumBusSilentInterval());
+    }
     const auto now = std::chrono::steady_clock::now();
     if (now < nextWriteAt) {
         std::this_thread::sleep_until(nextWriteAt);
     }
+}
+
+std::chrono::microseconds ModbusRtuClient::minimumBusSilentInterval() const {
+    const auto parityBits = options_.parity == "N" ? 0 : 1;
+    const auto bitsPerCharacter = 1 + std::max(5, options_.dataBits) + parityBits +
+        std::max(1, options_.stopBits);
+    const auto numerator = static_cast<long long>(bitsPerCharacter) * 35LL * 100000LL;
+    const auto microseconds = (numerator + options_.baudRate - 1) / options_.baudRate;
+    return std::chrono::microseconds(std::max<long long>(1, microseconds));
+}
+
+void ModbusRtuClient::noteBusActivity() {
+    lastBusActivityAt_ = std::chrono::steady_clock::now();
 }
 
 std::vector<std::uint16_t> ModbusRtuClient::readCoils(int slave, int start, int count) {
@@ -330,11 +357,16 @@ void ModbusRtuClient::writeMultipleRegisters(
     if (values.empty()) {
         throw std::invalid_argument("writeMultipleRegisters requires at least one value");
     }
-    if (values.size() > static_cast<std::size_t>(options_.maxRequestRegisters)) {
+    const auto writeLimit = std::min(options_.maxRequestRegisters, kMaxWriteRegisters);
+    if (values.size() > static_cast<std::size_t>(writeLimit)) {
         throw std::invalid_argument(
             "write register count exceeds maxRequestRegisters: " + std::to_string(values.size()) +
-            " > " + std::to_string(options_.maxRequestRegisters)
+            " > " + std::to_string(writeLimit)
         );
+    }
+    if (address < 0 || address > 0xFFFF ||
+        static_cast<int>(values.size()) - 1 > 0xFFFF - address) {
+        throw std::invalid_argument("modbus write address range is invalid");
     }
 
     std::vector<std::uint8_t> pdu;
@@ -382,11 +414,18 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
         : 1;
     for (int attempts = 1; attempts <= maxAttempts; ++attempts) {
         attemptsMade = attempts;
+        if (drainSerialInput(*serialPort_) > 0) {
+            noteBusActivity();
+        }
         waitForFrameInterval(slave);
-        drainSerialInput(*serialPort_);
+        if (drainSerialInput(*serialPort_) > 0) {
+            noteBusActivity();
+            waitForFrameInterval(slave);
+        }
         const auto writeStartedAt = std::chrono::steady_clock::now();
         serialPort_->write(frame);
         lastRequestWriteAtBySlave_[slave] = writeStartedAt;
+        noteBusActivity();
         std::vector<std::uint8_t> buffer;
         std::vector<std::uint8_t> rawReceived;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
@@ -406,6 +445,7 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
 
             rawReceived.insert(rawReceived.end(), chunk.begin(), chunk.end());
             buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+            noteBusActivity();
             if (tryExtractResponseFrame(
                     buffer,
                     static_cast<std::uint8_t>(slave),
@@ -426,6 +466,9 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
             sawResponseBytes = true;
         }
         lastCleanupRxBytes = tryDrainSerialInput(*serialPort_, 10);
+        if (lastCleanupRxBytes > 0) {
+            noteBusActivity();
+        }
         if (attempts >= maxAttempts) {
             break;
         }
@@ -448,20 +491,23 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
                       << std::endl;
         }
         if (!sawResponseBytes) {
-            throw std::runtime_error("modbus response timeout");
+            throw ModbusError(ModbusFailureKind::Timeout, "modbus response timeout");
         }
-        throw std::runtime_error("modbus response too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus response too short");
     }
 
     validateCrc(response);
     if (response[0] != static_cast<std::uint8_t>(slave)) {
-        throw std::runtime_error("modbus slave mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus slave mismatch");
     }
     if (response[1] == static_cast<std::uint8_t>(function | 0x80)) {
-        throw std::runtime_error("modbus exception code " + std::to_string(response[2]));
+        throw ModbusError(
+            ModbusFailureKind::ProtocolException,
+            "modbus exception code " + std::to_string(response[2])
+        );
     }
     if (response[1] != function) {
-        throw std::runtime_error("modbus function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus function mismatch");
     }
     return response;
 }
@@ -475,11 +521,15 @@ std::vector<std::uint16_t> ModbusRtuClient::executeRegisterRead(
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
     }
-    if (count > options_.maxRequestRegisters) {
+    const auto readLimit = std::min(options_.maxRequestRegisters, kMaxReadRegisters);
+    if (count > readLimit) {
         throw std::invalid_argument(
             "read count exceeds maxRequestRegisters: " + std::to_string(count) +
-            " > " + std::to_string(options_.maxRequestRegisters)
+            " > " + std::to_string(readLimit)
         );
+    }
+    if (start < 0 || start > 0xFFFF || count - 1 > 0xFFFF - start) {
+        throw std::invalid_argument("modbus read address range is invalid");
     }
 
     std::vector<std::uint8_t> pdu;
@@ -501,11 +551,15 @@ std::vector<std::uint16_t> ModbusRtuClient::executeBitRead(
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
     }
-    if (count > options_.maxRequestRegisters) {
+    const auto readLimit = std::min(options_.maxRequestRegisters, kMaxReadBits);
+    if (count > readLimit) {
         throw std::invalid_argument(
             "bit read count exceeds maxRequestRegisters: " + std::to_string(count) +
-            " > " + std::to_string(options_.maxRequestRegisters)
+            " > " + std::to_string(readLimit)
         );
+    }
+    if (start < 0 || start > 0xFFFF || count - 1 > 0xFFFF - start) {
+        throw std::invalid_argument("modbus bit read address range is invalid");
     }
 
     std::vector<std::uint8_t> pdu;
@@ -548,7 +602,7 @@ void ModbusRtuClient::appendCrc(std::vector<std::uint8_t>& frame) {
 
 void ModbusRtuClient::validateCrc(const std::vector<std::uint8_t>& frame) {
     if (frame.size() < 4) {
-        throw std::runtime_error("frame too short for crc");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "frame too short for crc");
     }
 
     std::vector<std::uint8_t> payload(frame.begin(), frame.end() - 2);
@@ -558,7 +612,7 @@ void ModbusRtuClient::validateCrc(const std::vector<std::uint8_t>& frame) {
         frame[frame.size() - 2]
     );
     if (expected != actual) {
-        throw std::runtime_error("modbus crc mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus crc mismatch");
     }
 }
 
@@ -568,18 +622,18 @@ std::vector<std::uint16_t> ModbusRtuClient::decodeRegistersFromReadResponse(
     int expectedCount
 ) {
     if (response.size() < 5) {
-        throw std::runtime_error("read response too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "read response too short");
     }
     if (response[1] != function) {
-        throw std::runtime_error("read function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "read function mismatch");
     }
 
     const auto byteCount = static_cast<std::size_t>(response[2]);
     if (byteCount != static_cast<std::size_t>(expectedCount) * 2) {
-        throw std::runtime_error("unexpected byte count in read response");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "unexpected byte count in read response");
     }
     if (response.size() != byteCount + 5) {
-        throw std::runtime_error("unexpected response frame size");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "unexpected response frame size");
     }
 
     std::vector<std::uint16_t> registers;
@@ -598,19 +652,19 @@ std::vector<std::uint16_t> ModbusRtuClient::decodeBitsFromReadResponse(
     int expectedCount
 ) {
     if (response.size() < 5) {
-        throw std::runtime_error("bit read response too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "bit read response too short");
     }
     if (response[1] != function) {
-        throw std::runtime_error("bit read function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "bit read function mismatch");
     }
 
     const auto byteCount = static_cast<std::size_t>(response[2]);
     const auto expectedByteCount = static_cast<std::size_t>((expectedCount + 7) / 8);
     if (byteCount != expectedByteCount) {
-        throw std::runtime_error("unexpected byte count in bit read response");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "unexpected byte count in bit read response");
     }
     if (response.size() != byteCount + 5) {
-        throw std::runtime_error("unexpected bit response frame size");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "unexpected bit response frame size");
     }
 
     std::vector<std::uint16_t> bits;
@@ -629,10 +683,10 @@ void ModbusRtuClient::validateWriteEcho(
     int countOrValue
 ) {
     if (response.size() != 8) {
-        throw std::runtime_error("write response must be 8 bytes");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "write response must be 8 bytes");
     }
     if (response[1] != function) {
-        throw std::runtime_error("write function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "write function mismatch");
     }
 
     const auto echoedAddress = static_cast<int>(
@@ -643,7 +697,7 @@ void ModbusRtuClient::validateWriteEcho(
     );
 
     if (echoedAddress != address || echoedValue != countOrValue) {
-        throw std::runtime_error("write echo mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "write echo mismatch");
     }
 }
 

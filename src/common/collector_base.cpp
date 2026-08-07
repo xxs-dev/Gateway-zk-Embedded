@@ -126,9 +126,38 @@ std::vector<PointDefinition> CollectorBase::duePoints(std::int64_t nowMs, bool f
 
 int CollectorBase::effectiveIntervalMs(const PointDefinition& point) const {
     if (point.read.intervalMs > 0) {
-        return std::max(100, point.read.intervalMs);
+        return std::max(1, point.read.intervalMs);
     }
-    return std::max(100, config_.collect.defaultIntervalMs);
+    return std::max(1, config_.collect.defaultIntervalMs);
+}
+
+bool CollectorBase::shouldSkipFailedCollectionCycle() {
+    if (collectionSkipCyclesRemaining_ <= 0) {
+        return false;
+    }
+    --collectionSkipCyclesRemaining_;
+    return true;
+}
+
+void CollectorBase::recordCollectionCycleSuccess() {
+    collectionCycleFailures_ = 0;
+    collectionSkipCyclesRemaining_ = 0;
+}
+
+void CollectorBase::recordCollectionCycleFailure() {
+    ++collectionCycleFailures_;
+    if (!config_.collect.cycleBackoffEnabled) {
+        return;
+    }
+    const auto threshold = std::max(1, config_.collect.slaveFailureBackoffThreshold);
+    if (collectionCycleFailures_ < threshold) {
+        return;
+    }
+    const auto baseCycles = std::max(1, config_.collect.slaveFailureBackoffCycles);
+    const auto maxCycles = std::max(baseCycles, config_.collect.taskFailureBackoffMaxCycles);
+    const auto exponent = std::min(10, collectionCycleFailures_ - threshold);
+    const auto expanded = baseCycles * (1 << exponent);
+    collectionSkipCyclesRemaining_ = std::min(maxCycles, expanded);
 }
 
 void CollectorBase::publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const {

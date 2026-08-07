@@ -53,7 +53,7 @@ safe_service_name() {
       ;;
   esac
   case "$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service)
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service)
       return 0
       ;;
   esac
@@ -183,18 +183,18 @@ if [ -f "$REQUEST_WORK_DIR/package-type.txt" ] && grep -qx 'packageType=scada' "
 fi
 
 if [ -f "$STATE_FILE" ]; then
-  cp "$STATE_FILE" "$ROLLBACK_MARK"
-fi
-
-if [ -f "$STATE_FILE" ]; then
-  STATE_BACKUP_DIR="$(awk -F= '/^backupDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
-  case "${STATE_BACKUP_DIR:-}" in
-    "$BACKUP_DIR"/*) RESTORE_BACKUP_DIR="$STATE_BACKUP_DIR" ;;
-  esac
-  STATE_WORK_DIR="$(awk -F= '/^workDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
-  case "${STATE_WORK_DIR:-}" in
-    "$STAGING_DIR"/*) WORK_DIR="$STATE_WORK_DIR" ;;
-  esac
+  STATE_JOB_ID="$(awk -F= '/^jobId=/{print $2}' "$STATE_FILE" | tail -n 1)"
+  if [ "${STATE_JOB_ID:-}" = "$JOB_ID" ]; then
+    cp "$STATE_FILE" "$ROLLBACK_MARK"
+    STATE_BACKUP_DIR="$(awk -F= '/^backupDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
+    case "${STATE_BACKUP_DIR:-}" in
+      "$BACKUP_DIR"/*) RESTORE_BACKUP_DIR="$STATE_BACKUP_DIR" ;;
+    esac
+    STATE_WORK_DIR="$(awk -F= '/^workDir=/{print $2}' "$STATE_FILE" | tail -n 1)"
+    case "${STATE_WORK_DIR:-}" in
+      "$STAGING_DIR"/*) WORK_DIR="$STATE_WORK_DIR" ;;
+    esac
+  fi
 fi
 
 case "$WORK_DIR" in
@@ -218,9 +218,27 @@ if [ -d "$RESTORE_BACKUP_DIR/opt" ] || [ -d "$RESTORE_BACKUP_DIR/etc" ]; then
 import os
 import shutil
 import sys
+import tempfile
 
 backup_dir, restore_list = sys.argv[1:3]
 restored = []
+
+def atomic_copy2(src, dst):
+    destination_dir = os.path.dirname(dst)
+    fd, temporary_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(dst)}.ota-rollback-",
+        dir=destination_dir,
+    )
+    os.close(fd)
+    try:
+        shutil.copy2(src, temporary_path)
+        with open(temporary_path, "rb") as fh:
+            os.fsync(fh.fileno())
+        os.replace(temporary_path, dst)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
 for top in ("opt", "etc"):
     root = os.path.join(backup_dir, top)
     if not os.path.isdir(root):
@@ -231,7 +249,7 @@ for top in ("opt", "etc"):
             rel = os.path.relpath(src, backup_dir)
             dst = os.path.join("/", rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
+            atomic_copy2(src, dst)
             restored.append(f"{src} -> {dst}")
 with open(restore_list, "w", encoding="utf-8") as fh:
     for item in restored:

@@ -611,6 +611,10 @@ PY
     rm -f "$GATEWAY_HOME/bin/AgcAvcController"
     rm -f /etc/systemd/system/agc-avc@.service
   fi
+  if [ "$runtime_mode" != "ems" ]; then
+    rm -f "$GATEWAY_HOME/bin/EmsClusterCoordinator"
+    rm -f /etc/systemd/system/ems-cluster@.service
+  fi
 }
 
 json_tls_bool_value() {

@@ -135,6 +135,29 @@ edge_gateway::DeviceConfig config(const std::string& sharedMemoryName) {
     return item;
 }
 
+void verifyCollectLoopUsesActualPointIntervals() {
+    auto item = config("gateway_daemon_interval_test");
+    item.collect.defaultIntervalMs = 2;
+    require(
+        edge_gateway::resolveCollectLoopIntervalMs(item) == 100,
+        "explicit point intervals should prevent an unused device default from causing a busy loop"
+    );
+
+    item.meters[1].points[0].read.intervalMs = 5;
+    require(
+        edge_gateway::resolveCollectLoopIntervalMs(item) == 5,
+        "collect loop should use the shortest enabled readable point interval"
+    );
+
+    for (auto& meter : item.meters) {
+        meter.enabled = false;
+    }
+    require(
+        edge_gateway::resolveCollectLoopIntervalMs(item) == 2,
+        "device default should remain the fallback when no readable point is enabled"
+    );
+}
+
 }  // namespace
 
 int main() {
@@ -144,6 +167,7 @@ int main() {
     std::remove(leaseFile.c_str());
 
     try {
+        verifyCollectLoopUsesActualPointIntervals();
         auto deviceConfig = config(storeName);
         {
             writeFile(
@@ -156,7 +180,7 @@ int main() {
 
             daemon.collectOnce(1000);
 
-            require(client->readCount(1) == 0, "cursor meter should be deferred while realtime lease is active");
+            require(client->readCount(1) == 1, "realtime collection should retain one background meter slot");
             require(client->readCount(2) == 1, "realtime lease meter should be collected first");
         }
 
@@ -195,6 +219,7 @@ int main() {
         const auto normalResult = writeStore.getWritebackResult("CMD_NORMAL");
         const auto pending = writeStore.peekPendingWriteCommands();
         require(priorityResult && priorityResult->success, "priority control command should process while lease is active");
+        require(priorityResult->highPriority, "writeback result should preserve the high-priority flag across shared memory");
         require(!normalResult, "normal write should not process while priority control lease is active");
         require(pending.size() == 1 && pending.front().cmdId == "CMD_NORMAL", "normal write should remain pending");
         require(writeClient->writeCount(1) == 1, "only priority writeback should execute while lease is active");

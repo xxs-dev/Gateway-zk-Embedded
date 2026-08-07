@@ -12,6 +12,7 @@
 #include "edge_gateway/can_driver_service.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/timing_policy.hpp"
 
 namespace {
 
@@ -68,6 +69,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "can_socketcan" && config.protocol.type != "can") {
         throw std::invalid_argument("CanDriver requires protocol.type=can_socketcan");

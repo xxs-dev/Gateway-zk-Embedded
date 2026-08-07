@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.1.0",
+  "protocol": {
+    "type": "dlt645_2007",
+    "slave": 1,
+    "transport": {
+      "serialPort": "__SERIAL_DEVICE__",
+      "baudRate": 2400,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "E",
+      "timeoutMs": 500,
+      "frameIntervalMs": 50,
+      "readRetryCount": 0,
+      "wakeupBytes": 0
+    }
+  },
+  "collect": {"defaultIntervalMs": 500, "batchOptimize": false, "maxBatchRegisters": 1},
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 5000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_test_lab_dlt645",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 50,
+    "writebackBatchSize": 50
+  },
+  "meters": [
+    {
+      "meterCode": "SIM_645_01",
+      "deviceName": "模拟 645 电表 1",
+      "slave": 1,
+      "address": "000000000001",
+      "points": [
+        {"index": 970000, "pointCode": "SIM_64501_ONLINE", "name": "设备在线状态", "enabled": true, "read": {"enable": true, "dataType": "device_online", "intervalMs": 500}, "write": {"enable": false}},
+        {"index": 970001, "pointCode": "SIM_64501_ENERGY", "name": "正向有功总电能", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "00010000", "byteCount": 4}, "scale": 0.01, "unit": "kWh", "intervalMs": 500}, "write": {"enable": false}},
+        {"index": 970002, "pointCode": "SIM_64501_VOLTAGE_A", "name": "A 相电压", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02010100", "byteCount": 2}, "scale": 0.1, "unit": "V", "intervalMs": 500}, "write": {"enable": false}},
+        {"index": 970003, "pointCode": "SIM_64501_CURRENT_A", "name": "A 相电流", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02020100", "byteCount": 3}, "scale": 0.001, "unit": "A", "intervalMs": 500}, "write": {"enable": false}}
+      ]
+    },
+    {
+      "meterCode": "SIM_645_02",
+      "deviceName": "模拟 645 电表 2",
+      "slave": 2,
+      "address": "000000000002",
+      "points": [
+        {"index": 980000, "pointCode": "SIM_64502_ONLINE", "name": "设备在线状态", "enabled": true, "read": {"enable": true, "dataType": "device_online", "intervalMs": 500}, "write": {"enable": false}},
+        {"index": 980001, "pointCode": "SIM_64502_ENERGY", "name": "正向有功总电能", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "00010000", "byteCount": 4}, "scale": 0.01, "unit": "kWh", "intervalMs": 500}, "write": {"enable": false}},
+        {"index": 980002, "pointCode": "SIM_64502_VOLTAGE_A", "name": "A 相电压", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02010100", "byteCount": 2}, "scale": 0.1, "unit": "V", "intervalMs": 500}, "write": {"enable": false}},
+        {"index": 980003, "pointCode": "SIM_64502_CURRENT_A", "name": "A 相电流", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02020100", "byteCount": 3}, "scale": 0.001, "unit": "A", "intervalMs": 500}, "write": {"enable": false}}
+      ]
+    }
+  ]
+}

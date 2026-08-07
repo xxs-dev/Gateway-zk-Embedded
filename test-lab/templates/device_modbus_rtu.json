@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.1.0",
+  "protocol": {
+    "type": "modbus_rtu",
+    "slave": 1,
+    "transport": {
+      "serialPort": "__SERIAL_DEVICE__",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 300,
+      "frameIntervalMs": 20,
+      "readRetryCount": 0
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 200,
+    "batchOptimize": true,
+    "maxBatchRegisters": 32,
+    "maxRequestRegisters": 32,
+    "failureBadQualityThreshold": 1,
+    "slaveFailureBackoffThreshold": 2,
+    "cycleBackoffEnabled": true,
+    "slaveFailureBackoffCycles": 1,
+    "slaveFailureBackoffMs": 0,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffCycles": 1,
+    "taskFailureBackoffMaxCycles": 4
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 3000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_test_lab_modbus_rtu",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 50,
+    "writebackBatchSize": 50
+  },
+  "meters": [
+    {
+      "meterCode": "SIM_RTU_01",
+      "deviceName": "模拟 RTU 设备 1",
+      "slave": 1,
+      "points": [
+        {"index": 940000, "pointCode": "SIM_RTU01_ONLINE", "name": "设备在线状态", "address": 0, "enabled": true, "read": {"enable": true, "function": 0, "length": 0, "dataType": "device_online", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 940001, "pointCode": "SIM_RTU01_VOLTAGE", "name": "模拟电压", "address": 1, "enabled": true, "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "V", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 940002, "pointCode": "SIM_RTU01_CURRENT", "name": "模拟电流", "address": 2, "enabled": true, "read": {"enable": true, "function": 4, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "A", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 940003, "pointCode": "SIM_RTU01_SETPOINT", "name": "模拟设定值", "address": 10, "enabled": true, "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200}, "write": {"enable": true, "function": 6, "length": 1, "dataType": "uint16", "min": 0, "max": 65535, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}}
+      ]
+    },
+    {
+      "meterCode": "SIM_RTU_02",
+      "deviceName": "模拟 RTU 设备 2",
+      "slave": 2,
+      "points": [
+        {"index": 950000, "pointCode": "SIM_RTU02_ONLINE", "name": "设备在线状态", "address": 0, "enabled": true, "read": {"enable": true, "function": 0, "length": 0, "dataType": "device_online", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 950001, "pointCode": "SIM_RTU02_VOLTAGE", "name": "模拟电压", "address": 1, "enabled": true, "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "V", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 950002, "pointCode": "SIM_RTU02_CURRENT", "name": "模拟电流", "address": 2, "enabled": true, "read": {"enable": true, "function": 4, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "A", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 950003, "pointCode": "SIM_RTU02_SETPOINT", "name": "模拟设定值", "address": 10, "enabled": true, "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200}, "write": {"enable": true, "function": 6, "length": 1, "dataType": "uint16", "min": 0, "max": 65535, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}}
+      ]
+    },
+    {
+      "meterCode": "SIM_RTU_03",
+      "deviceName": "模拟 RTU 设备 3",
+      "slave": 3,
+      "points": [
+        {"index": 960000, "pointCode": "SIM_RTU03_ONLINE", "name": "设备在线状态", "address": 0, "enabled": true, "read": {"enable": true, "function": 0, "length": 0, "dataType": "device_online", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 960001, "pointCode": "SIM_RTU03_VOLTAGE", "name": "模拟电压", "address": 1, "enabled": true, "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "V", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 960002, "pointCode": "SIM_RTU03_CURRENT", "name": "模拟电流", "address": 2, "enabled": true, "read": {"enable": true, "function": 4, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "A", "intervalMs": 200}, "write": {"enable": false}},
+        {"index": 960003, "pointCode": "SIM_RTU03_SETPOINT", "name": "模拟设定值", "address": 10, "enabled": true, "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200}, "write": {"enable": true, "function": 6, "length": 1, "dataType": "uint16", "min": 0, "max": 65535, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}}
+      ]
+    }
+  ]
+}

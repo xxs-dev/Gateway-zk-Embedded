@@ -53,12 +53,17 @@ protected:
     ) const;
     std::vector<PointDefinition> duePoints(std::int64_t nowMs, bool forceDue = false);
     int effectiveIntervalMs(const PointDefinition& point) const;
+    bool shouldSkipFailedCollectionCycle();
+    void recordCollectionCycleSuccess();
+    void recordCollectionCycleFailure();
 
     DeviceConfig config_;
     MemoryPointStore& store_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
     std::unordered_map<std::uint32_t, std::int64_t> lastReadMs_;
     std::unordered_map<std::uint32_t, std::int64_t> lastValueUpdateMs_;
+    int collectionCycleFailures_ = 0;
+    int collectionSkipCyclesRemaining_ = 0;
 };
 
 }  // namespace edge_gateway

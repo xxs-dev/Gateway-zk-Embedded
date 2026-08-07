@@ -8,18 +8,23 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 
 #include "edge_gateway/can_signal_codec.hpp"
+#include "edge_gateway/virtual_can_datagram.hpp"
+#include "edge_gateway/writeback_service.hpp"
 
 #ifndef _WIN32
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -30,16 +35,8 @@ namespace edge_gateway {
 
 namespace {
 
-std::int64_t nonNegativeDuration(std::int64_t endMs, std::int64_t startMs) {
-    if (endMs <= 0 || startMs <= 0 || endMs < startMs) {
-        return 0;
-    }
-    return endMs - startMs;
-}
-
-std::int64_t edgeTotalElapsed(const WritebackResultRecord& result) {
-    return std::max(result.edgeElapsedMs, result.queueDelayMs + result.deviceWriteMs);
-}
+constexpr int kStoreHeartbeatIntervalMs = 5000;
+constexpr int kStoreExpirySweepIntervalMs = 5000;
 
 std::string escapeJson(const std::string& value) {
     std::string out;
@@ -88,6 +85,28 @@ bool isValidCanRestartMs(int value) {
 
 bool isValidCanSamplePoint(double value) {
     return value <= 0.0 || (value >= 0.5 && value <= 0.999);
+}
+
+bool usesUdpTestTransport(const CanProtocolConfig& config) {
+    return config.transportMode == "udp_test";
+}
+
+void validateUdpTestTransport(const CanProtocolConfig& config) {
+    if (config.udpListenPort <= 0 || config.udpListenPort > 65535) {
+        throw std::invalid_argument("CAN udpListenPort must be between 1 and 65535");
+    }
+    if (config.udpPeerPort <= 0 || config.udpPeerPort > 65535) {
+        throw std::invalid_argument("CAN udpPeerPort must be between 1 and 65535");
+    }
+#ifndef _WIN32
+    in_addr address{};
+    if (inet_pton(AF_INET, config.udpBindAddress.c_str(), &address) != 1) {
+        throw std::invalid_argument("invalid CAN udpBindAddress: " + config.udpBindAddress);
+    }
+    if (inet_pton(AF_INET, config.udpPeerAddress.c_str(), &address) != 1) {
+        throw std::invalid_argument("invalid CAN udpPeerAddress: " + config.udpPeerAddress);
+    }
+#endif
 }
 
 std::string quoteShellArg(const std::string& value) {
@@ -248,9 +267,10 @@ void CanDriverService::initializeRuntimeDevices() {
             if (!inserted.second) {
                 throw std::invalid_argument("duplicate CAN point.index: " + std::to_string(point.index));
             }
-            runtimePoints_.push_back(RuntimePoint{deviceIndex, point});
+            runtimePoints_.push_back(RuntimePoint{deviceIndex, point, 0, false});
         }
         runtimeDevices_.push_back(std::move(device));
+        publishOnlinePoint(runtimeDevices_.back(), false, nowMs());
     }
 }
 
@@ -259,6 +279,13 @@ void CanDriverService::configureInterface() const {
     throw std::runtime_error("SocketCAN is not supported on Windows");
 #else
     const auto& can = config_.protocol.can;
+    if (usesUdpTestTransport(can)) {
+        validateUdpTestTransport(can);
+        return;
+    }
+    if (can.transportMode != "socketcan") {
+        throw std::invalid_argument("unsupported CAN transportMode: " + can.transportMode);
+    }
     if (!can.manageInterface) {
         return;
     }
@@ -304,10 +331,50 @@ void CanDriverService::openSocket() {
 #ifdef _WIN32
     throw std::runtime_error("SocketCAN is not supported on Windows");
 #else
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    openSocketLocked();
+#endif
+}
+
+void CanDriverService::openSocketLocked() {
+#ifdef _WIN32
+    throw std::runtime_error("SocketCAN is not supported on Windows");
+#else
     if (socketFd_ >= 0) {
         return;
     }
     const auto& can = config_.protocol.can;
+    if (usesUdpTestTransport(can)) {
+        validateUdpTestTransport(can);
+        socketFd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (socketFd_ < 0) {
+            throw std::runtime_error("failed to open virtual CAN UDP socket");
+        }
+        int reuse = 1;
+        setsockopt(socketFd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        const auto receiveBuffer = static_cast<int>(std::min<std::size_t>(
+            can.rxQueueSize * (kVirtualCanHeaderSize + kVirtualCanMaxPayloadSize),
+            static_cast<std::size_t>(std::numeric_limits<int>::max())
+        ));
+        const auto sendBuffer = static_cast<int>(std::min<std::size_t>(
+            can.txQueueSize * (kVirtualCanHeaderSize + kVirtualCanMaxPayloadSize),
+            static_cast<std::size_t>(std::numeric_limits<int>::max())
+        ));
+        setsockopt(socketFd_, SOL_SOCKET, SO_RCVBUF, &receiveBuffer, sizeof(receiveBuffer));
+        setsockopt(socketFd_, SOL_SOCKET, SO_SNDBUF, &sendBuffer, sizeof(sendBuffer));
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(static_cast<std::uint16_t>(can.udpListenPort));
+        if (inet_pton(AF_INET, can.udpBindAddress.c_str(), &address.sin_addr) != 1 ||
+            bind(socketFd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+            closeSocketLocked();
+            throw std::runtime_error(
+                "failed to bind virtual CAN UDP socket: " + can.udpBindAddress + ":" +
+                std::to_string(can.udpListenPort)
+            );
+        }
+        return;
+    }
     socketFd_ = ::socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (socketFd_ < 0) {
         throw std::runtime_error("failed to open CAN raw socket");
@@ -322,7 +389,7 @@ void CanDriverService::openSocket() {
     ifreq ifr{};
     std::snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", can.interfaceName.c_str());
     if (ioctl(socketFd_, SIOCGIFINDEX, &ifr) < 0) {
-        closeSocket();
+        closeSocketLocked();
         throw std::runtime_error("failed to resolve CAN interface index: " + can.interfaceName);
     }
 
@@ -330,13 +397,20 @@ void CanDriverService::openSocket() {
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
     if (bind(socketFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        closeSocket();
+        closeSocketLocked();
         throw std::runtime_error("failed to bind CAN socket: " + can.interfaceName);
     }
 #endif
 }
 
 void CanDriverService::closeSocket() {
+#ifndef _WIN32
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    closeSocketLocked();
+#endif
+}
+
+void CanDriverService::closeSocketLocked() {
 #ifndef _WIN32
     if (socketFd_ >= 0) {
         ::close(socketFd_);
@@ -345,42 +419,114 @@ void CanDriverService::closeSocket() {
 #endif
 }
 
+int CanDriverService::duplicateSocket() const {
+#ifdef _WIN32
+    return -1;
+#else
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    return socketFd_ >= 0 ? ::dup(socketFd_) : -1;
+#endif
+}
+
+bool CanDriverService::isInterfaceReady() const {
+#ifdef _WIN32
+    return false;
+#else
+    if (usesUdpTestTransport(config_.protocol.can)) {
+        return socketFd_ >= 0;
+    }
+    const auto fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return false;
+    }
+    ifreq ifr{};
+    std::snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", config_.protocol.can.interfaceName.c_str());
+    const auto result = ioctl(fd, SIOCGIFFLAGS, &ifr);
+    ::close(fd);
+    return result == 0 && (ifr.ifr_flags & IFF_UP) != 0;
+#endif
+}
+
+void CanDriverService::checkInterfaceOnce(std::int64_t nowMsValue) {
+    const auto intervalMs = std::max(1, config_.collect.interfaceCheckIntervalMs);
+    if (lastInterfaceCheckMs_ > 0 && nowMsValue - lastInterfaceCheckMs_ < intervalMs) {
+        return;
+    }
+    lastInterfaceCheckMs_ = nowMsValue;
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    if (socketFd_ >= 0 && isInterfaceReady()) {
+        return;
+    }
+
+    closeSocketLocked();
+    configureInterface();
+    openSocketLocked();
+    publishStatusEvent(
+        "interface-recovered",
+        nowMsValue,
+        std::string("\"interfaceName\":\"") + escapeJson(config_.protocol.can.interfaceName) + "\""
+    );
+}
+
 std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
 #ifdef _WIN32
     (void)timeoutMs;
     throw std::runtime_error("SocketCAN is not supported on Windows");
 #else
-    if (socketFd_ < 0) {
-        openSocket();
+    openSocket();
+    const auto receiveFd = duplicateSocket();
+    if (receiveFd < 0) {
+        throw std::runtime_error("failed to duplicate CAN socket");
     }
     fd_set readSet;
     FD_ZERO(&readSet);
-    FD_SET(socketFd_, &readSet);
+    FD_SET(receiveFd, &readSet);
     timeval timeout{};
     timeout.tv_sec = timeoutMs / 1000;
     timeout.tv_usec = (timeoutMs % 1000) * 1000;
-    const auto ready = select(socketFd_ + 1, &readSet, nullptr, nullptr, &timeout);
+    const auto ready = select(receiveFd + 1, &readSet, nullptr, nullptr, &timeout);
     if (ready <= 0) {
+        ::close(receiveFd);
         return 0;
     }
 
-    canfd_frame frame{};
-    const auto nbytes = read(socketFd_, &frame, sizeof(frame));
-    if (nbytes < 0) {
-        throw std::runtime_error("failed to read CAN frame");
+    std::uint32_t frameId = 0;
+    bool extended = false;
+    bool remote = false;
+    std::vector<std::uint8_t> payload;
+    if (usesUdpTestTransport(config_.protocol.can)) {
+        std::uint8_t bytes[kVirtualCanHeaderSize + kVirtualCanMaxPayloadSize]{};
+        const auto nbytes = recv(receiveFd, bytes, sizeof(bytes), 0);
+        ::close(receiveFd);
+        if (nbytes < 0) {
+            throw std::runtime_error("failed to read virtual CAN UDP datagram");
+        }
+        VirtualCanFrame frame;
+        if (!decodeVirtualCanDatagram(bytes, static_cast<std::size_t>(nbytes), frame)) {
+            return 0;
+        }
+        frameId = frame.frameId;
+        extended = frame.extended;
+        remote = frame.remoteRequest;
+        payload = std::move(frame.payload);
+    } else {
+        canfd_frame frame{};
+        const auto nbytes = read(receiveFd, &frame, sizeof(frame));
+        ::close(receiveFd);
+        if (nbytes < 0) {
+            throw std::runtime_error("failed to read CAN frame");
+        }
+        if (nbytes != CAN_MTU && nbytes != CANFD_MTU) {
+            return 0;
+        }
+        frameId = frame.can_id & CAN_EFF_MASK;
+        extended = (frame.can_id & CAN_EFF_FLAG) != 0;
+        remote = (frame.can_id & CAN_RTR_FLAG) != 0;
+        payload.assign(frame.data, frame.data + frame.len);
     }
-    if (nbytes != CAN_MTU && nbytes != CANFD_MTU) {
-        return 0;
-    }
-
-    const auto frameId = frame.can_id & CAN_EFF_MASK;
-    const bool extended = (frame.can_id & CAN_EFF_FLAG) != 0;
-    const bool remote = (frame.can_id & CAN_RTR_FLAG) != 0;
     if (remote) {
         return 0;
     }
-    const auto length = nbytes == CANFD_MTU ? frame.len : frame.len;
-    const std::vector<std::uint8_t> payload(frame.data, frame.data + length);
     const auto ts = nowMs();
     std::size_t matched = 0;
 
@@ -393,7 +539,7 @@ std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
         }
     }
 
-    for (const auto& runtimePoint : runtimePoints_) {
+    for (auto& runtimePoint : runtimePoints_) {
         const auto& point = runtimePoint.point;
         if (!point.read.enable || isOnlinePoint(point)) {
             continue;
@@ -402,6 +548,8 @@ std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
             continue;
         }
         const auto decoded = CanSignalCodec::decode(payload, point.read);
+        runtimePoint.lastSeenTs = ts;
+        runtimePoint.stalePublished = false;
         publishPointValue(runtimeDevices_[runtimePoint.deviceIndex], point, decoded, ts);
         ++matched;
     }
@@ -410,33 +558,26 @@ std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
 }
 
 std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
-    const auto activeLease = priorityControlLease_.activeLease(nowMsValue);
-    const auto commands = activeLease
-        ? store_.drainPendingWriteCommandsByCmdId(activeLease->cmdId, config_.memoryStore.writebackBatchSize)
-        : store_.drainPendingWriteCommands(config_.memoryStore.writebackBatchSize);
+    const auto commands = drainScheduledWriteCommands(
+        store_,
+        &priorityControlLease_,
+        nowMsValue,
+        config_.memoryStore.writebackBatchSize
+    );
     std::size_t processed = 0;
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
-        const auto acceptedAt = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
-        WritebackResultRecord writebackResult;
-        writebackResult.cmdId = command.cmdId;
-        writebackResult.index = command.index;
-        writebackResult.value = command.value;
-        writebackResult.highPriority = command.highPriority;
-        writebackResult.requestedAt = command.ts;
-        writebackResult.acceptedAt = acceptedAt;
-        writebackResult.startedAt = startedAt;
-        writebackResult.queueDelayMs = nonNegativeDuration(startedAt, acceptedAt);
+        auto writebackResult = beginWritebackResult(command, startedAt);
         const auto pointIt = indexToRuntimePoint_.find(command.index);
         if (pointIt == indexToRuntimePoint_.end()) {
             const auto completedAt = nowMs();
-            writebackResult.completedAt = completedAt;
-            writebackResult.success = false;
-            writebackResult.message = "unknown-index";
-            writebackResult.stage = "writeback-skipped";
-            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            completeWritebackResult(
+                writebackResult,
+                false,
+                "unknown-index",
+                "writeback-skipped",
+                completedAt
+            );
             store_.recordWritebackResult(writebackResult);
             priorityControlLease_.release(command.cmdId);
             continue;
@@ -454,25 +595,25 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
             );
             const auto completedAt = nowMs();
-            writebackResult.completedAt = completedAt;
-            writebackResult.success = true;
-            writebackResult.message = "ok";
-            writebackResult.stage = "writeback-succeeded";
-            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            completeWritebackResult(
+                writebackResult,
+                true,
+                "ok",
+                "writeback-succeeded",
+                completedAt
+            );
             store_.recordWritebackResult(writebackResult);
             priorityControlLease_.release(command.cmdId);
             ++processed;
         } catch (const std::exception& ex) {
             const auto completedAt = nowMs();
-            writebackResult.completedAt = completedAt;
-            writebackResult.success = false;
-            writebackResult.message = ex.what();
-            writebackResult.stage = "writeback-failed";
-            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            completeWritebackResult(
+                writebackResult,
+                false,
+                ex.what(),
+                "writeback-failed",
+                completedAt
+            );
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-failed",
@@ -556,12 +697,42 @@ void CanDriverService::runStartupWrites() {
 bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) {
     const auto encoded = CanSignalCodec::encode(value, point.write);
 #ifndef _WIN32
-    if (socketFd_ < 0) {
-        openSocket();
+    if (usesUdpTestTransport(config_.protocol.can)) {
+        VirtualCanFrame frame;
+        frame.frameId = encoded.frameId;
+        frame.extended = encoded.extended;
+        frame.remoteRequest = encoded.remoteRequest;
+        frame.fd = config_.protocol.can.fdEnabled || encoded.payload.size() > CAN_MAX_DLEN;
+        frame.payload = encoded.payload;
+        const auto bytes = encodeVirtualCanDatagram(frame);
+        if (bytes.empty() && !frame.payload.empty()) {
+            throw std::invalid_argument("virtual CAN payload must be <= 64 bytes");
+        }
+        sockaddr_in peer{};
+        peer.sin_family = AF_INET;
+        peer.sin_port = htons(static_cast<std::uint16_t>(config_.protocol.can.udpPeerPort));
+        if (inet_pton(AF_INET, config_.protocol.can.udpPeerAddress.c_str(), &peer.sin_addr) != 1) {
+            throw std::invalid_argument("invalid CAN udpPeerAddress: " + config_.protocol.can.udpPeerAddress);
+        }
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        openSocketLocked();
+        if (sendto(
+                socketFd_,
+                bytes.data(),
+                bytes.size(),
+                0,
+                reinterpret_cast<sockaddr*>(&peer),
+                sizeof(peer)
+            ) != static_cast<ssize_t>(bytes.size())) {
+            throw std::runtime_error("failed to send virtual CAN UDP datagram");
+        }
+        return true;
     }
     if (!config_.protocol.can.fdEnabled && encoded.payload.size() > CAN_MAX_DLEN) {
         throw std::invalid_argument("classic CAN payload must be <= 8 bytes");
     }
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    openSocketLocked();
     if (config_.protocol.can.fdEnabled || encoded.payload.size() > CAN_MAX_DLEN) {
         canfd_frame frame{};
         frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);
@@ -590,23 +761,88 @@ bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) 
 
 void CanDriverService::updateOnlineStatus(std::int64_t nowMsValue) {
     for (auto& device : runtimeDevices_) {
-        const auto timeoutMs = std::max(1000, device.onlineTimeoutMs);
+        const auto timeoutMs = std::max(1, device.onlineTimeoutMs);
         const auto online = device.lastSeenTs > 0 && nowMsValue - device.lastSeenTs <= timeoutMs;
-        if (online != device.online) {
+        std::int64_t refreshMs = std::min(timeoutMs, 30000);
+        for (const auto& point : device.config.points) {
+            if (isOnlinePoint(point) && point.read.cachePolicy.ttlMs > 0) {
+                const auto ttlRefreshMs = std::max<std::int64_t>(250, point.read.cachePolicy.ttlMs / 2);
+                refreshMs = std::min(refreshMs, ttlRefreshMs);
+            }
+        }
+        if (online != device.online || device.lastOnlinePublishedTs <= 0 ||
+            nowMsValue - device.lastOnlinePublishedTs >= refreshMs) {
             publishOnlinePoint(device, online, nowMsValue);
         }
+    }
+    updatePointStaleness(nowMsValue);
+}
+
+void CanDriverService::updatePointStaleness(std::int64_t nowMsValue) {
+    for (auto& runtimePoint : runtimePoints_) {
+        const auto& point = runtimePoint.point;
+        if (!point.read.enable || isOnlinePoint(point) || runtimePoint.lastSeenTs <= 0 ||
+            point.read.can.receiveTimeoutMs <= 0) {
+            continue;
+        }
+        if (nowMsValue - runtimePoint.lastSeenTs <= point.read.can.receiveTimeoutMs) {
+            runtimePoint.stalePublished = false;
+            continue;
+        }
+        if (runtimePoint.stalePublished) {
+            continue;
+        }
+        const auto latest = store_.getLatestByIndex(point.index, nowMsValue);
+        if (!latest) {
+            continue;
+        }
+
+        const auto& device = runtimeDevices_[runtimePoint.deviceIndex].config;
+        PointValue stale;
+        stale.index = point.index;
+        stale.machineCode = device.machineCode;
+        stale.meterCode = device.meterCode;
+        stale.pointCode = point.pointCode;
+        stale.pointName = point.name;
+        stale.category = point.category;
+        stale.unit = point.read.unit;
+        stale.value = latest->value;
+        stale.quality = 0;
+        stale.qualityMsg = "CAN receive timeout";
+        stale.ts = nowMsValue;
+        stale.expireAt = nowMsValue + std::max<std::int64_t>(1, point.read.cachePolicy.ttlMs);
+        stale.stale = true;
+        stale.function = 0;
+        stale.address = point.address;
+        stale.length = 1;
+        stale.isStore = false;
+        stale.persistIntervalSec = point.persistIntervalSec;
+        store_.putLatest(stale);
+        runtimePoint.stalePublished = true;
     }
 }
 
 void CanDriverService::receiveLoop() {
+    std::int64_t lastStoreHeartbeatMs = 0;
+    std::int64_t lastExpirySweepMs = 0;
     while (running_.load()) {
         try {
             const auto ts = nowMs();
-            store_.heartbeatRegisteredPoints(ts);
+            checkInterfaceOnce(ts);
+            if (lastStoreHeartbeatMs <= 0 || ts - lastStoreHeartbeatMs >= kStoreHeartbeatIntervalMs) {
+                store_.heartbeatRegisteredPoints(ts);
+                lastStoreHeartbeatMs = ts;
+            }
             if (!priorityControlBlocked(ts)) {
-                processReceiveOnce(std::max(50, config_.collect.defaultIntervalMs));
-                updateOnlineStatus(ts);
-                store_.removeExpired(ts);
+                processReceiveOnce(std::max(1, config_.collect.receiveWaitMs));
+                const auto completedTs = nowMs();
+                updateOnlineStatus(completedTs);
+                if (lastExpirySweepMs <= 0 || completedTs - lastExpirySweepMs >= kStoreExpirySweepIntervalMs) {
+                    store_.removeExpired(completedTs);
+                    lastExpirySweepMs = completedTs;
+                }
+            } else {
+                sleepInterruptibly(running_, std::max(10, config_.collect.receiveWaitMs));
             }
         } catch (const std::exception& ex) {
             publishStatusEvent("receive-failed", nowMs(), std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
@@ -621,7 +857,6 @@ void CanDriverService::writebackLoop() {
         try {
             const auto ts = nowMs();
             processWritebackOnce(ts);
-            store_.heartbeatRegisteredPoints(ts);
         } catch (...) {
         }
         sleepInterruptibly(running_, intervalMs);
@@ -697,6 +932,7 @@ void CanDriverService::publishPointValue(
 
 void CanDriverService::publishOnlinePoint(RuntimeDevice& device, bool online, std::int64_t ts) {
     device.online = online;
+    device.lastOnlinePublishedTs = ts;
     for (const auto& point : device.config.points) {
         if (!isOnlinePoint(point)) {
             continue;

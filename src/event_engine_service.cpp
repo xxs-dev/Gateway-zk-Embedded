@@ -99,13 +99,20 @@ bool EventEngineService::isRunning() const {
 void EventEngineService::runOnce(std::int64_t nowMs) {
     std::vector<StoredPointValue> values;
     const std::size_t limit = std::max<std::size_t>(1, eventConfig_.updateDrainBatchSize);
+    std::size_t sequenceGapCount = 0;
 
     for (auto* store : stores_) {
         if (store == nullptr) {
             continue;
         }
         const auto updates = store->drainPointUpdates(limit);
+        auto& lastSequence = lastUpdateSequenceByStore_[store];
         for (const auto& update : updates) {
+            if ((lastSequence == 0 && update.sequence > 1) ||
+                (lastSequence > 0 && update.sequence != lastSequence + 1)) {
+                ++sequenceGapCount;
+            }
+            lastSequence = update.sequence;
             auto value = buildValueFromUpdate(update);
             if (value) {
                 values.push_back(*value);
@@ -115,18 +122,25 @@ void EventEngineService::runOnce(std::int64_t nowMs) {
 
     if (!values.empty()) {
         evaluateValues(values, nowMs);
-        return;
     }
 
     const int fallbackMs = std::max(1000, eventConfig_.scanFallbackIntervalMs);
-    if (lastFallbackScanMs_ == 0 || nowMs - lastFallbackScanMs_ >= fallbackMs) {
+    const bool fallbackDue = lastFallbackScanMs_ == 0 || nowMs - lastFallbackScanMs_ >= fallbackMs;
+    if (sequenceGapCount > 0) {
+        publishStatusEvent(
+            "point-update-sequence-gap",
+            nowMs,
+            std::string(R"("gapCount":)") + std::to_string(sequenceGapCount)
+        );
+    }
+    if (fallbackDue || sequenceGapCount > 0) {
         evaluateValues(router_.getAllLatest(nowMs), nowMs);
         lastFallbackScanMs_ = nowMs;
     }
 }
 
 void EventEngineService::loop() {
-    const auto intervalMs = std::max(20, eventConfig_.scanIntervalMs);
+    const auto intervalMs = std::max(10, eventConfig_.scanIntervalMs);
     while (running_.load()) {
         const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()
@@ -277,6 +291,10 @@ void EventEngineService::processAlarms(const std::vector<StoredPointValue>& valu
 }
 
 void EventEngineService::processChanges(const std::vector<StoredPointValue>& values, std::int64_t nowMs) {
+    if (eventConfig_.deliveryMode == "periodic") {
+        return;
+    }
+
     std::unordered_map<std::uint32_t, StoredPointValue> pendingByIndex;
     std::vector<std::uint32_t> publishOrder;
     pendingByIndex.reserve(values.size());

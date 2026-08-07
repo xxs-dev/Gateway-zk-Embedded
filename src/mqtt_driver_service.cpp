@@ -75,26 +75,6 @@ void applyWritebackResultToReply(
     reply.ts = result.completedAt > 0 ? result.completedAt : reply.ts;
 }
 
-Optional<WritebackResultRecord> waitForWritebackResult(
-    const PointStoreRouter& router,
-    const PointStoreRoute& route,
-    const std::string& cmdId,
-    int timeoutMs
-) {
-    const auto deadline = currentTimeMs() + std::max(0, timeoutMs);
-    do {
-        auto result = router.getWritebackResult(route, cmdId);
-        if (result) {
-            return result;
-        }
-        if (timeoutMs <= 0 || currentTimeMs() >= deadline) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    } while (true);
-    return NullOpt;
-}
-
 class FlatJsonReader {
 public:
     explicit FlatJsonReader(const std::string& text) : text_(text) {
@@ -699,6 +679,7 @@ void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTime
     }
 
     processIncomingMessages(nowMs, incomingTimeoutMs);
+    processPendingCommandReplies(nowMs);
     cleanupExpiredRealtimeSessions(nowMs);
     publishDueRealtimeSessions(nowMs);
 
@@ -731,7 +712,10 @@ void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
     if (!eventOutbox_) {
         return;
     }
-    const auto intervalMs = std::max(100, driverConfig_.scanIntervalMs);
+    auto intervalMs = std::max(10, driverConfig_.scanIntervalMs);
+    if (driverConfig_.deliveryMaxLatencyMs > 0) {
+        intervalMs = std::min(intervalMs, driverConfig_.deliveryMaxLatencyMs);
+    }
     if (lastEventOutboxReplayMs_ > 0 && nowMs - lastEventOutboxReplayMs_ < intervalMs) {
         return;
     }
@@ -929,7 +913,39 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
             }
         } catch (...) {
         }
-        session.nextPublishMs = nowMs + std::max(100, session.intervalMs);
+        session.nextPublishMs = nowMs + std::max(10, session.intervalMs);
+    }
+}
+
+void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
+    for (auto it = pendingCommandReplies_.begin(); it != pendingCommandReplies_.end();) {
+        auto reply = it->reply;
+        const auto writeback = router_.getWritebackResult(it->route, reply.cmdId);
+        if (writeback) {
+            applyWritebackResultToReply(reply, *writeback, it->route);
+            reply.highPriority = it->reply.highPriority;
+        } else if (nowMs >= it->deadlineMs) {
+            reply.success = false;
+            reply.message = "writeback result timeout";
+            reply.stage = "writeback-timeout";
+            reply.ts = nowMs;
+            reply.edgeElapsedMs = std::max<std::int64_t>(0, nowMs - reply.acceptedAt);
+            reply.totalElapsedMs = reply.edgeElapsedMs;
+            publishStatusEvent(
+                "command-writeback-timeout",
+                nowMs,
+                std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
+                    R"(","index":)" + std::to_string(reply.index) +
+                    R"(,"meterCode":")" + escapeJson(reply.meterCode) +
+                    R"(","totalElapsedMs":)" + std::to_string(reply.totalElapsedMs)
+            );
+        } else {
+            ++it;
+            continue;
+        }
+
+        it = pendingCommandReplies_.erase(it);
+        publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
     }
 }
 
@@ -948,12 +964,15 @@ int MqttDriverService::scanLoopIncomingTimeoutMs(std::int64_t nowMs) const {
             continue;
         }
         waitMs = std::min(waitMs, std::max(0, static_cast<int>(session.nextPublishMs - nowMs)));
-        waitMs = std::min(waitMs, std::max(100, session.intervalMs));
+        waitMs = std::min(waitMs, std::max(10, session.intervalMs));
     }
 
-    if (hasActiveRealtimeSessions(nowMs)) {
-        waitMs = std::min(waitMs, std::max(100, driverConfig_.scanIntervalMs));
+    for (const auto& pending : pendingCommandReplies_) {
+        waitMs = std::min(waitMs, std::max(0, static_cast<int>(pending.deadlineMs - nowMs)));
+        waitMs = std::min(waitMs, 20);
     }
+
+    waitMs = std::min(waitMs, std::max(10, driverConfig_.scanIntervalMs));
     return std::max(0, std::min(waitMs, 1000));
 }
 
@@ -971,7 +990,10 @@ void MqttDriverService::scanLoop() {
 }
 
 void MqttDriverService::replayLoop() {
-    const auto intervalMs = std::max(50, std::min(200, driverConfig_.scanIntervalMs));
+    int intervalMs = std::max(10, std::min(200, driverConfig_.scanIntervalMs));
+    if (driverConfig_.deliveryMaxLatencyMs > 0) {
+        intervalMs = std::max(10, std::min(intervalMs, driverConfig_.deliveryMaxLatencyMs));
+    }
     while (running_.load()) {
         const auto nowMs = currentTimeMs();
         try {
@@ -1163,35 +1185,12 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
                 R"(,"meterCode":")" + escapeJson(reply.meterCode) +
                 R"(","highPriority":)" + (request.highPriority ? "true" : "false")
         );
-        const auto storeRoute = router_.routeByIndex(request.index);
-        const auto writeback = storeRoute
-            ? waitForWritebackResult(
-                router_,
-                *storeRoute,
-                request.cmdId,
-                driverConfig_.controlResultWaitTimeoutMs
-            )
-            : NullOpt;
-        if (writeback) {
-            applyWritebackResultToReply(reply, *writeback, *storeRoute);
-            reply.highPriority = request.highPriority;
-        } else {
-            const auto timedOutAt = currentTimeMs();
-            reply.success = false;
-            reply.message = "writeback result timeout";
-            reply.stage = "writeback-timeout";
-            reply.ts = timedOutAt;
-            reply.edgeElapsedMs = std::max<std::int64_t>(0, timedOutAt - command.acceptedAt);
-            reply.totalElapsedMs = reply.edgeElapsedMs;
-            publishStatusEvent(
-                "command-writeback-timeout",
-                timedOutAt,
-                std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
-                    R"(","index":)" + std::to_string(reply.index) +
-                    R"(,"meterCode":")" + escapeJson(reply.meterCode) +
-                    R"(","totalElapsedMs":)" + std::to_string(reply.totalElapsedMs)
-            );
-        }
+        PendingCommandReply pending;
+        pending.reply = reply;
+        pending.route = submitResult.route;
+        pending.deadlineMs = nowMs + std::max(0, driverConfig_.controlResultWaitTimeoutMs);
+        pendingCommandReplies_.push_back(std::move(pending));
+        return;
     } catch (const std::exception& ex) {
         reply.success = false;
         reply.message = ex.what();
@@ -1376,8 +1375,8 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
     session.expireAtMs = nowMs + ttlSec * 1000;
     session.intervalMs = request.intervalMs > 0
         ? request.intervalMs
-        : std::max(100, driverConfig_.scanIntervalMs);
-    session.intervalMs = std::max(100, session.intervalMs);
+        : std::max(10, driverConfig_.scanIntervalMs);
+    session.intervalMs = std::max(10, session.intervalMs);
     session.nextPublishMs = nowMs + session.intervalMs;
     session.requestedCount = request.indexes.size();
     realtimeSessions_[sessionId] = session;

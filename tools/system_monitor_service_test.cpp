@@ -485,6 +485,18 @@ int main() {
     leaseConfig.defaultIntervalMs = 5000;
     leaseConfig.minIntervalMs = 500;
     leaseConfig.realtimeMeterLeaseFile = root + "/realtime-meter-leases.json";
+    leaseConfig.cellular.enabled = false;
+    leaseConfig.cellular.routeFailoverStateFile = root + "/network-failover-state";
+    writeFile(
+        leaseConfig.cellular.routeFailoverStateFile,
+        "mode=cellular\n"
+        "last_result=healthy\n"
+        "last_checked=2026-07-30T06:00:00Z\n"
+        "selected_wired_interface=''\n"
+        "failover_enabled=true\n"
+        "prefer_cellular=true\n"
+        "cellular_interface=usb0\n"
+    );
     removeFileIfExists(leaseConfig.realtimeMeterLeaseFile);
     auto leasePublisher = std::make_shared<CapturingPublisher>();
     SystemMonitorService leaseService(leaseConfig, leaseMqtt, leasePublisher, "GW_TEST", std::vector<std::string>{}, &router);
@@ -498,6 +510,11 @@ int main() {
     require(fullPayload.find("\"meterCode\":\"METER_1\"") != std::string::npos, "unfiltered monitor snapshot should include meter 1");
     require(fullPayload.find("\"meterCode\":\"METER_2\"") != std::string::npos, "unfiltered monitor snapshot should include meter 2");
     require(countTopic(*leasePublisher, leaseMqtt.systemMonitorTelemetryTopic) == 1, "monitor subscribe should still publish telemetry once");
+    const auto routeTelemetry = lastPayloadForTopic(*leasePublisher, leaseMqtt.systemMonitorTelemetryTopic);
+    require(routeTelemetry.find("\"failoverEnabled\":true") != std::string::npos, "telemetry should publish failover enablement");
+    require(routeTelemetry.find("\"preferCellular\":true") != std::string::npos, "telemetry should publish 4G priority policy");
+    require(routeTelemetry.find("\"usingCellular\":true") != std::string::npos, "telemetry should publish the active 4G route");
+    require(routeTelemetry.find("\"activeInterface\":\"usb0\"") != std::string::npos, "telemetry should publish the active route interface");
     leaseService.runOnce(1770000003300LL);
     require(countTopic(*leasePublisher, leaseMqtt.systemMonitorPointTopic) == 1, "monitor point snapshot should respect 500ms interval after immediate publish");
     leaseService.runOnce(1770000003500LL);

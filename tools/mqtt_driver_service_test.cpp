@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -309,6 +310,57 @@ void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
     cleanupFixture(fixture);
 }
 
+void testCommandWritebackWaitDoesNotBlockMqttScan() {
+    auto fixture = makeFixture("command_async_writeback", 10000, true);
+    fixture.service.reset();
+    fixture.driverConfig.controlResultWaitTimeoutMs = 5000;
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"CMD_ASYNC\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7}"
+    ));
+    const auto startedAt = std::chrono::steady_clock::now();
+    fixture.service->runScanOnce(1770000045000LL);
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startedAt
+    ).count();
+
+    require(elapsedMs < 1000, "pending writeback must not block the MQTT scan loop");
+    require(fixture.publisher->commandReplies.empty(), "pending writeback must not publish a premature reply");
+
+    WritebackResultRecord result;
+    result.cmdId = "CMD_ASYNC";
+    result.index = 1001;
+    result.value = 7;
+    result.success = true;
+    result.message = "ok";
+    result.stage = "writeback-completed";
+    result.requestedAt = 1770000045000LL;
+    result.acceptedAt = 1770000045000LL;
+    result.startedAt = 1770000045020LL;
+    result.completedAt = 1770000045040LL;
+    result.queueDelayMs = 20;
+    result.deviceWriteMs = 20;
+    result.edgeElapsedMs = 40;
+    result.totalElapsedMs = 40;
+    fixture.store->recordWritebackResult(result);
+
+    fixture.service->runScanOnce(1770000045050LL);
+    require(fixture.publisher->commandReplies.size() == 1, "completed writeback should publish one final reply");
+    require(fixture.publisher->commandReplies.front().success, "completed writeback reply should preserve success");
+    require(
+        fixture.publisher->commandReplies.front().stage == "writeback-completed",
+        "completed writeback reply should preserve the driver stage"
+    );
+    cleanupFixture(fixture);
+}
+
 void testHighPriorityCommandRequestCreatesPriorityControlLease() {
     auto fixture = makeFixture("command_lease", 10000, true);
     fixture.service.reset();
@@ -424,6 +476,7 @@ int main() {
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
+        testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
         testCommandRequestRejectedDuringActivePriorityControl();
         testAgcAvcCommandMailboxCommitsLatestWithoutWriteback();

@@ -35,6 +35,9 @@ IecCollector::IecCollector(
 CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     (void)realtimeFocused;
     CollectCycleResult result;
+    if (shouldSkipFailedCollectionCycle()) {
+        return result;
+    }
     auto dataValues = client_->drainBufferedValues();
     std::unordered_map<std::uint32_t, bool> updatedByPush;
     for (const auto& dataValue : dataValues) {
@@ -61,18 +64,22 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
     if (points.empty()) {
         if (!result.values.empty()) {
             publishDeviceOnlineStatus(true, nowMs);
+            recordCollectionCycleSuccess();
         }
         return result;
     }
 
     bool pollSucceeded = false;
     std::string firstFailureMessage;
-    try {
-        auto polledValues = client_->poll();
-        dataValues.insert(dataValues.end(), polledValues.begin(), polledValues.end());
-        pollSucceeded = true;
-    } catch (const std::exception& ex) {
-        firstFailureMessage = ex.what();
+    const auto attempts = std::max(1, config_.protocol.transport.readRetryCount + 1);
+    for (int attemptIndex = 0; attemptIndex < attempts && !pollSucceeded; ++attemptIndex) {
+        try {
+            auto polledValues = client_->poll();
+            dataValues.insert(dataValues.end(), polledValues.begin(), polledValues.end());
+            pollSucceeded = true;
+        } catch (const std::exception& ex) {
+            firstFailureMessage = ex.what();
+        }
     }
 
     bool hasSuccessfulRead = false;
@@ -113,7 +120,11 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
 
     publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
     if (!hasSuccessfulRead && !firstFailureMessage.empty()) {
+        recordCollectionCycleFailure();
         throw std::runtime_error(firstFailureMessage);
+    }
+    if (hasSuccessfulRead) {
+        recordCollectionCycleSuccess();
     }
     return result;
 }

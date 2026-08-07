@@ -17,6 +17,8 @@
 
 namespace edge_gateway {
 
+int resolveCollectLoopIntervalMs(const DeviceConfig& config);
+
 class GatewayDaemon {
 public:
     using CollectorFactory = std::function<std::unique_ptr<ICollector>(const DeviceConfig&, MemoryPointStore&)>;

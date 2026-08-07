@@ -38,6 +38,29 @@ bool containsText(const std::string& path, const std::string& expected) {
 int main() {
     using namespace edge_gateway;
 
+    const std::string otaApplyScript = "deploy/ota-apply.sh";
+    for (const auto* binary : {
+        "ModbusRtu",
+        "Dlt645Driver",
+        "DioDriver",
+        "CanDriver",
+        "IecDriver",
+        "MqttDriver",
+        "EventEngine",
+        "ComputeEngine",
+        "EmsClusterCoordinator",
+        "AgcAvcController",
+        "EmsParityCheck",
+        "SystemMonitor",
+        "LocalDisplay",
+        "QtDisplayBridge",
+        "CameraService",
+        "pointctl"
+    }) {
+        const auto target = std::string("\"/opt/modbus-gateway/bin/") + binary + "\"";
+        require(containsText(otaApplyScript, target), "ota apply script must allow shipped production binaries");
+    }
+
     OtaConfig config;
     config.enabled = true;
     config.downloadDir = "/tmp/gateway-ota-test";

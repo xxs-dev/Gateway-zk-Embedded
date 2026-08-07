@@ -57,6 +57,15 @@ private:
             std::string iccid;
             std::string modemDevice;
             std::string lastError;
+            bool routeStateAvailable = false;
+            bool routeFailoverEnabled = false;
+            bool preferCellular = false;
+            bool usingCellular = false;
+            std::string routeMode;
+            std::string activeRouteInterface;
+            std::string selectedWiredInterface;
+            std::string routeLastResult;
+            std::string routeLastChecked;
             double signalPercent = -1.0;
             double rssiDbm = 0.0;
             double rsrpDbm = 0.0;

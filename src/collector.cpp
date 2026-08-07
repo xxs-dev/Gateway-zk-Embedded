@@ -57,11 +57,6 @@ bool rangeCovers(int outerStart, int outerCount, int innerStart, int innerCount)
     return outerStart <= innerStart && innerEnd <= outerEnd;
 }
 
-bool isNoResponseError(const std::string& message) {
-    return message.find("response timeout") != std::string::npos ||
-        message.find("no response") != std::string::npos;
-}
-
 }  // namespace
 
 Collector::Collector(
@@ -80,7 +75,6 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     CollectCycleResult result;
     ++collectCycle_;
     if (shouldSkipForBackoff(nowMs)) {
-        publishDeviceOnlineStatus(currentOnline(), nowMs);
         return result;
     }
     const auto points = duePoints(nowMs);
@@ -279,15 +273,11 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     std::function<bool(const ReadTask&, bool, int)> executeAdaptiveTask;
     executeAdaptiveTask = [&](const ReadTask& task, bool recordPointFailures, int depth) {
         if (shouldSkipTaskForBackoff(task, nowMs, realtimeFocused)) {
-            if (config_.collect.cycleBackoffEnabled) {
-                ++skippedTasks;
-                (void)recordPointFailures;
-                return false;
-            }
             if (canAdaptiveSplitTask(task) && depth < config_.collect.adaptiveSplitMaxDepth) {
                 const auto state = taskFailureStates_.find(taskBackoffKey(task));
-                const bool parentNoResponse = state != taskFailureStates_.end() && state->second.noResponse;
-                if (!parentNoResponse) {
+                const bool parentCanSplit = state != taskFailureStates_.end() &&
+                    canAdaptiveSplitFailure(state->second.failureKind);
+                if (parentCanSplit) {
                     auto splitTasks = splitReadTask(task);
                     if (splitTasks.size() == 1 && splitTasks.front().start == task.start &&
                         splitTasks.front().count == task.count &&
@@ -323,8 +313,9 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             decodeSuccessfulBlock(task, block);
         } catch (const std::exception& ex) {
             const auto messageText = std::string(ex.what());
-            noteTaskReadFailure(task, nowMs, realtimeFocused, messageText);
-            if (!isNoResponseError(messageText) && canAdaptiveSplitTask(task) &&
+            const auto failureKind = classifyModbusFailure(ex);
+            noteTaskReadFailure(task, nowMs, realtimeFocused, messageText, failureKind);
+            if (canAdaptiveSplitFailure(failureKind) && canAdaptiveSplitTask(task) &&
                 depth < config_.collect.adaptiveSplitMaxDepth) {
                 if (config_.collect.logAdaptiveSplitParentFailures) {
                     logTaskFailure(task, ex, "split");
@@ -365,7 +356,6 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     }
 
     if (result.executedTasks.empty() && skippedTasks > 0) {
-        publishDeviceOnlineStatus(currentOnline(), nowMs);
         return result;
     }
 
@@ -451,12 +441,13 @@ void Collector::noteTaskReadFailure(
     const ReadTask& task,
     std::int64_t nowMs,
     bool realtimeFocused,
-    const std::string& message
+    const std::string& message,
+    ModbusFailureKind failureKind
 ) {
     auto& state = taskFailureStates_[taskBackoffKey(task)];
     ++state.consecutiveFailures;
     state.lastFailureMs = nowMs;
-    state.noResponse = isNoResponseError(message);
+    state.failureKind = failureKind;
     state.lastMessage = std::string("modbus read task is in backoff function=") +
         std::to_string(task.function) +
         " start=" + std::to_string(task.start) +
@@ -664,13 +655,9 @@ std::vector<ReadTask> Collector::expandBackedOffTasksBeforeBudget(
             expanded.push_back(task);
             continue;
         }
-        if (config_.collect.cycleBackoffEnabled) {
-            expanded.push_back(task);
-            continue;
-        }
-
         const auto state = taskFailureStates_.find(taskBackoffKey(task));
-        if (state != taskFailureStates_.end() && state->second.noResponse) {
+        if (state == taskFailureStates_.end() ||
+            !canAdaptiveSplitFailure(state->second.failureKind)) {
             expanded.push_back(task);
             continue;
         }

@@ -301,6 +301,62 @@ private:
     std::thread thread_;
 };
 
+class SilentTcpServer {
+public:
+    SilentTcpServer() {
+        listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listenFd_ < 0) throw std::runtime_error("silent server socket failed");
+        int reuse = 1;
+        setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        if (bind(listenFd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+            listen(listenFd_, 1) != 0) {
+            closeFd(listenFd_);
+            throw std::runtime_error("silent server bind failed");
+        }
+        socklen_t length = sizeof(address);
+        if (getsockname(listenFd_, reinterpret_cast<sockaddr*>(&address), &length) != 0) {
+            closeFd(listenFd_);
+            throw std::runtime_error("silent server port lookup failed");
+        }
+        port_ = ntohs(address.sin_port);
+        running_.store(true);
+        thread_ = std::thread([this] {
+            const auto accepted = accept(listenFd_, nullptr, nullptr);
+            clientFd_.store(accepted);
+            while (running_.load() && accepted >= 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            const auto fd = clientFd_.exchange(-1);
+            if (fd >= 0) closeFd(fd);
+        });
+    }
+
+    ~SilentTcpServer() { stop(); }
+
+    int port() const { return port_; }
+
+    void stop() {
+        if (!running_.exchange(false)) return;
+        const auto client = clientFd_.load();
+        if (client >= 0) shutdown(client, SHUT_RDWR);
+        if (listenFd_ >= 0) shutdown(listenFd_, SHUT_RDWR);
+        if (thread_.joinable()) thread_.join();
+        closeFd(listenFd_);
+        listenFd_ = -1;
+    }
+
+private:
+    int listenFd_ = -1;
+    std::atomic<int> clientFd_{-1};
+    int port_ = 0;
+    std::atomic<bool> running_{false};
+    std::thread thread_;
+};
+
 }  // namespace
 
 int main() {
@@ -379,6 +435,28 @@ int main() {
     requireTrue(server.sawFileCall(), "server should receive file call command");
 
     server.stop();
+
+    SilentTcpServer silentServer;
+    TcpTransportConfig silentTcp;
+    silentTcp.host = "127.0.0.1";
+    silentTcp.port = silentServer.port();
+    silentTcp.timeoutMs = 1000;
+    IecProtocolConfig silentIec;
+    silentIec.transportMode = "tcp";
+    silentIec.pollOnCollect = false;
+    silentIec.pollTimeoutMs = 40;
+    silentIec.maxPollFrames = 1;
+    const auto silentStartedAt = std::chrono::steady_clock::now();
+    {
+        IecTcpClient silentClient("iec103", silentTcp, silentIec);
+        requireTrue(silentClient.poll().empty(), "silent IEC103 server should return no values");
+    }
+    const auto silentElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - silentStartedAt
+    ).count();
+    requireTrue(silentElapsedMs < 300, "IEC read must honor the per-call poll timeout");
+    silentServer.stop();
+
     std::cout << "iec104 client integration test passed" << std::endl;
     return 0;
 }

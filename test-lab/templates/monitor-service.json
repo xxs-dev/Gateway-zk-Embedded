@@ -1,0 +1,49 @@
+{
+  "identityConfigFile": "__TEST_LAB_ROOT__/config/device_identity.json",
+  "deviceConfigFiles": [
+    "__TEST_LAB_ROOT__/config/devices/device_modbus_tcp.json"
+  ],
+  "mqtt": {
+    "enabled": false,
+    "clientId": "SIM_COMM202600999",
+    "topicMachineCode": "SIM_COMM202600999"
+  },
+  "mqttDriver": {
+    "enabled": false,
+    "sharedMemoryName": "gateway_test_lab_modbus",
+    "sharedMemoryNames": ["gateway_test_lab_modbus"],
+    "scanIntervalMs": 200,
+    "priorityControlLeaseFile": "__TEST_LAB_ROOT__/run/priority-control.json"
+  },
+  "alarmStore": {"enabled": false},
+  "eventEngine": {"enabled": false},
+  "computeEngine": {"enabled": false},
+  "realtime": {"enabled": false},
+  "systemMonitor": {
+    "enabled": true,
+    "defaultIntervalMs": 1000,
+    "minIntervalMs": 200,
+    "subscriptionTtlSec": 30,
+    "diagEnabled": false,
+    "configPullChunkBytes": 131072,
+    "realtimeMeterLeaseFile": "__TEST_LAB_ROOT__/run/realtime-meter-leases.json",
+    "cellular": {"enabled": false},
+    "recordingTransfer": {"enabled": false},
+    "directMaintenance": {
+      "enabled": true,
+      "listenHost": "__MONITOR_HOST__",
+      "listenHosts": ["__MONITOR_HOST__"],
+      "listenPort": __MONITOR_PORT__,
+      "allowedClientCidrs": [],
+      "identityConfigFile": "__TEST_LAB_ROOT__/config/device_identity.json",
+      "appConfigFile": "__TEST_LAB_ROOT__/config/apps/monitor-service.json",
+      "otaAppConfigFile": "__TEST_LAB_ROOT__/config/apps/monitor-service.json",
+      "authStateFile": "__TEST_LAB_ROOT__/run/direct-maintenance-state.json",
+      "otaStatusFile": "__TEST_LAB_ROOT__/run/ota-status.jsonl",
+      "includeKyEmsSnapshot": false,
+      "maxRealtimePoints": 5000
+    }
+  },
+  "localDisplay": {"enabled": false},
+  "ota": {"enabled": false}
+}

@@ -181,7 +181,7 @@ runtime_package_profile() {
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
   base_bins="SystemMonitor MqttDriver pointctl"
-  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
   if [ "$(app_runtime_mode "$APP_CONFIG")" = "agc_avc" ]; then
     full_bins="$full_bins AgcAvcController"
   fi
@@ -191,7 +191,11 @@ required_runtime_binaries() {
       ;;
     project)
       if [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
-        printf '%s\n' $base_bins $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_lines
+        project_bins=$(printf '%s\n' $base_bins $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_lines)
+        if [ "$(app_runtime_mode "$APP_CONFIG")" = "ems" ]; then
+          project_bins=$(printf '%s\n' $project_bins ComputeEngine EmsParityCheck EmsClusterCoordinator | unique_lines)
+        fi
+        printf '%s\n' $project_bins
       else
         printf '%s\n' $base_bins | unique_lines
       fi
@@ -664,6 +668,7 @@ check_services() {
       'dio-driver@*.service' \
       'can-driver@*.service' \
       'compute-engine@*.service' \
+      'ems-cluster@*.service' \
       'agc-avc@*.service' \
       'event-engine@*.service' \
       'local-display@*.service' \
@@ -681,6 +686,7 @@ check_services() {
       'dio-driver@*.service' \
       'can-driver@*.service' \
       'compute-engine@*.service' \
+      'ems-cluster@*.service' \
       'agc-avc@*.service' \
       'event-engine@*.service' \
       'local-display@*.service' \

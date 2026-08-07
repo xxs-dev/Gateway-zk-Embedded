@@ -14,6 +14,7 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
 #include "edge_gateway/ota_service.hpp"
@@ -227,6 +228,7 @@ int main(int argc, char* argv[]) {
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    TimingPolicyResolver::applyAppServices(appConfig);
     setProcessName("modbus-mqtt-" + sanitizeProcessToken(basenameOf(appConfigPath)));
     if (appConfig.mqtt.protocolVersion != "mqtt3" && appConfig.mqtt.protocolVersion != "mqtt5") {
         throw std::invalid_argument("mqtt.protocolVersion must be mqtt3 or mqtt5");

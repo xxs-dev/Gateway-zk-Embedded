@@ -14,6 +14,7 @@ struct CachePolicy {
     bool storeHistory = true;
     std::size_t historySize = 100;
     std::int64_t ttlMs = 600000;
+    bool ttlExplicit = false;
 };
 
 struct CanSignalSpec {
@@ -26,6 +27,7 @@ struct CanSignalSpec {
     std::string bitOrder = "lsb0";
     std::string endian = "little";
     int receiveTimeoutMs = 5000;
+    bool receiveTimeoutExplicit = false;
     bool remoteRequest = false;
 };
 
@@ -62,6 +64,7 @@ struct ReadSpec {
     bool signedFlag = false;
     std::string unit;
     int intervalMs = 500;
+    bool intervalExplicit = false;
     int bit = -1;
     int gpio = -1;
     bool activeHigh = true;
@@ -394,6 +397,7 @@ struct TcpTransportConfig {
 };
 
 struct CanProtocolConfig {
+    std::string transportMode = "socketcan";
     std::string interfaceName = "can0";
     std::string interfaceCode = "CAN_1";
     int bitrate = 500000;
@@ -406,6 +410,10 @@ struct CanProtocolConfig {
     bool manageInterface = true;
     std::size_t rxQueueSize = 4096;
     std::size_t txQueueSize = 1024;
+    std::string udpBindAddress = "127.0.0.1";
+    int udpListenPort = 19011;
+    std::string udpPeerAddress = "127.0.0.1";
+    int udpPeerPort = 19012;
 };
 
 struct IecProtocolConfig {
@@ -474,6 +482,36 @@ struct ProtocolConfig {
     std::string standardPointsVersion;
 };
 
+struct TimingAcquisitionConfig {
+    int targetFreshnessMs = -1;
+    int maxAgeMs = -1;
+};
+
+struct TimingDeliveryConfig {
+    std::string mode;
+    int maxLatencyMs = -1;
+    int batchWindowMs = -1;
+    int heartbeatMs = -1;
+};
+
+struct TimingOverrideConfig {
+    int pollIntervalMs = -1;
+    int requestGapMs = -1;
+    int responseTimeoutMs = -1;
+    int retryCount = -1;
+    int interfaceCheckIntervalMs = -1;
+    int receiveWaitMs = -1;
+    int mqttScanIntervalMs = -1;
+};
+
+struct TimingPolicyConfig {
+    bool configured = false;
+    std::string profile = "inherit";
+    TimingAcquisitionConfig acquisition;
+    TimingDeliveryConfig delivery;
+    TimingOverrideConfig overrides;
+};
+
 struct LogicalDeviceConfig {
     std::string meterCode;
     std::string deviceName;
@@ -481,6 +519,7 @@ struct LogicalDeviceConfig {
     int slave = 1;
     std::string address;
     int onlineTimeoutMs = 5000;
+    bool onlineTimeoutExplicit = false;
     std::vector<std::string> onlineFrameIds;
     std::vector<PointDefinition> points;
 };
@@ -523,6 +562,7 @@ struct CollectConfig {
     int realtimeAdaptiveSplitLeafProbeBudget = 12;
     int writebackIntervalMs = 50;
     int interfaceCheckIntervalMs = 1000;
+    int receiveWaitMs = 50;
 };
 
 struct MemoryStoreConfig {
@@ -658,6 +698,8 @@ struct MqttDriverConfig {
     bool enabled = false;
     std::string sharedMemoryName = "gateway_point_store";
     std::vector<std::string> sharedMemoryNames;
+    std::string deliveryMode = "hybrid";
+    int deliveryMaxLatencyMs = -1;
     int scanIntervalMs = 1000;
     int fullUploadIntervalMs = 60000;
     std::size_t snapshotBacklogThreshold = 0;
@@ -685,6 +727,8 @@ struct AlarmStoreConfig {
 
 struct EventEngineConfig {
     bool enabled = false;
+    std::string deliveryMode = "hybrid";
+    int deliveryMaxLatencyMs = -1;
     int scanIntervalMs = 100;
     int scanFallbackIntervalMs = 5000;
     std::size_t updateDrainBatchSize = 4096;
@@ -747,6 +791,9 @@ struct ComputeEngineConfig {
     int badQuality = 0;
     std::int64_t defaultOutputTtlMs = 600000;
     std::size_t maxWritesPerScan = 100;
+    std::string healthFile = "/opt/modbus-gateway/run/compute-engine-health.json";
+    int healthPublishIntervalMs = 1000;
+    std::size_t healthWindowCycles = 300;
     std::vector<ComputeRuleConfig> rules;
 };
 
@@ -937,6 +984,42 @@ struct AgcAvcConfig {
     AgcAvcOutputConfig outputs;
 };
 
+struct EmsClusterConfig {
+    bool enabled = false;
+    std::string clusterId;
+    std::string transport = "ethernet";
+    std::string clusterInterface = "ens2";
+    std::string ipMode = "autoLinkLocal";
+    std::string staticAddress;
+    int prefixLength = 16;
+    bool autoConfigureAddress = false;
+    std::string multicastAddress = "239.192.0.80";
+    int discoveryPort = 37680;
+    int tcpPort = 37681;
+    std::vector<std::string> seedPeers;
+    std::string securityMode = "psk";
+    std::string psk;
+    int expectedMembers = 2;
+    int maxMembers = 5;
+    int minimumQuorum = 0;
+    int lockedCabinetNo = 0;
+    int electionPriority = 100;
+    int discoveryIntervalMs = 1000;
+    int heartbeatMs = 250;
+    int leaderLeaseMs = 1500;
+    int electionTimeoutMinMs = 1800;
+    int electionTimeoutMaxMs = 3200;
+    int memberTimeoutMs = 5000;
+    int membershipRetentionSec = 86400;
+    int statusIntervalMs = 1000;
+    std::string factoryAddress = "192.168.3.250";
+    std::string consensusStateFile = "/opt/modbus-gateway/data/ems-cluster-consensus.json";
+    std::string membershipFile = "/opt/modbus-gateway/data/cluster-membership.json";
+    std::string statusFile = "/opt/modbus-gateway/run/ems-cluster-status.json";
+    std::string networkStateFile = "/opt/modbus-gateway/config/runtime/network/ems-cluster-address.json";
+    std::string computeHealthFile = "/opt/modbus-gateway/run/compute-engine-health.json";
+};
+
 struct OtaStorageMinioConfig {
     std::string endpoint;
     std::string accessKey;
@@ -1003,6 +1086,7 @@ struct SystemMonitorConfig {
         int atBaudRate = 115200;
         double signalAlertThresholdPercent = 20.0;
         bool maskSensitiveFields = true;
+        std::string routeFailoverStateFile = "/run/gateway-network-failover/state";
         std::vector<std::string> interfacePatterns = {
             "wwan*",
             "ppp*",
@@ -1274,12 +1358,14 @@ struct AppConfig {
     std::string runtimeMode = "gateway";
     std::string identityConfigFile;
     std::vector<std::string> deviceConfigFiles;
+    TimingPolicyConfig timingPolicy;
     MqttConfig mqtt;
     MqttDriverConfig mqttDriver;
     AlarmStoreConfig alarmStore;
     EventEngineConfig eventEngine;
     ComputeEngineConfig computeEngine;
     AgcAvcConfig agcAvc;
+    EmsClusterConfig emsCluster;
     OtaConfig ota;
     RealtimeConfig realtime;
     SystemMonitorConfig systemMonitor;
@@ -1293,6 +1379,7 @@ struct DeviceConfig {
     std::string meterCode;
     std::string deviceName;
     std::string address;
+    TimingPolicyConfig timingPolicy;
     ProtocolConfig protocol;
     CollectConfig collect;
     MemoryStoreConfig memoryStore;

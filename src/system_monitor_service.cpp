@@ -16,13 +16,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #ifdef _WIN32
 #include <direct.h>
 #endif
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/select.h>
+#include <sys/statvfs.h>
 #include <termios.h>
 #include <unistd.h>
 #endif
@@ -543,6 +543,71 @@ std::string trimCopy(const std::string& value) {
         --end;
     }
     return value.substr(begin, end - begin);
+}
+
+std::string decodeShellStateValue(const std::string& rawValue) {
+    auto value = trimCopy(rawValue);
+    if (value == "''" || value == "\"\"") {
+        return {};
+    }
+    if (value.size() >= 2 &&
+        ((value.front() == '\'' && value.back() == '\'') ||
+         (value.front() == '"' && value.back() == '"'))) {
+        value = value.substr(1, value.size() - 2);
+    }
+    std::string decoded;
+    decoded.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '\\' && i + 1 < value.size()) {
+            decoded.push_back(value[++i]);
+        } else {
+            decoded.push_back(value[i]);
+        }
+    }
+    return decoded;
+}
+
+std::map<std::string, std::string> readShellStateFile(const std::string& path) {
+    std::map<std::string, std::string> values;
+    if (path.empty()) {
+        return values;
+    }
+    std::ifstream input(path.c_str(), std::ios::binary);
+    std::string line;
+    std::size_t lineCount = 0;
+    while (lineCount++ < 64 && std::getline(input, line)) {
+        if (line.size() > 4096 || line.empty() || line.front() == '#') {
+            continue;
+        }
+        const auto separator = line.find('=');
+        if (separator == std::string::npos || separator == 0) {
+            continue;
+        }
+        values[trimCopy(line.substr(0, separator))] = decodeShellStateValue(line.substr(separator + 1));
+    }
+    return values;
+}
+
+bool shellStateBool(
+    const std::map<std::string, std::string>& values,
+    const std::string& key,
+    bool fallback
+) {
+    const auto it = values.find(key);
+    if (it == values.end()) {
+        return fallback;
+    }
+    auto value = it->second;
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (value == "1" || value == "true" || value == "yes" || value == "on") {
+        return true;
+    }
+    if (value == "0" || value == "false" || value == "no" || value == "off") {
+        return false;
+    }
+    return fallback;
 }
 
 std::string truncateText(std::string value, std::size_t maxBytes) {
@@ -2437,11 +2502,13 @@ SystemMonitorService::Sample SystemMonitorService::collectSample() const {
         sample.memUsage = 100.0 * static_cast<double>(totalMem - availMem) / static_cast<double>(totalMem);
     }
 
+#ifndef _WIN32
     struct statvfs vfs {};
     if (statvfs("/", &vfs) == 0 && vfs.f_blocks > 0) {
         const auto used = vfs.f_blocks - vfs.f_bavail;
         sample.diskUsage = 100.0 * static_cast<double>(used) / static_cast<double>(vfs.f_blocks);
     }
+#endif
 
     std::ifstream loadavg("/proc/loadavg");
     if (loadavg) {
@@ -2456,6 +2523,32 @@ SystemMonitorService::Sample::CellularStatus SystemMonitorService::collectCellul
     Sample::CellularStatus status;
     status.enabled = monitorConfig_.cellular.enabled;
     status.ts = nowMs;
+    const auto routeState = readShellStateFile(monitorConfig_.cellular.routeFailoverStateFile);
+    if (!routeState.empty()) {
+        const auto value = [&routeState](const std::string& key) {
+            const auto it = routeState.find(key);
+            return it == routeState.end() ? std::string() : it->second;
+        };
+        status.routeStateAvailable = true;
+        status.routeMode = value("mode");
+        status.routeLastResult = value("last_result");
+        status.routeLastChecked = value("last_checked");
+        status.selectedWiredInterface = value("selected_wired_interface");
+        status.routeFailoverEnabled = shellStateBool(
+            routeState,
+            "failover_enabled",
+            status.routeMode != "disabled"
+        );
+        status.preferCellular = shellStateBool(
+            routeState,
+            "prefer_cellular",
+            status.routeLastResult != "not-preferred"
+        );
+        status.usingCellular = status.routeMode == "cellular" || status.routeMode == "cellular-degraded";
+        status.activeRouteInterface = status.usingCellular
+            ? value("cellular_interface")
+            : status.routeMode == "wired" ? status.selectedWiredInterface : std::string();
+    }
     if (!monitorConfig_.cellular.enabled) {
         lastCellularStatus_ = status;
         lastCellularProbeMs_ = nowMs;
@@ -2619,6 +2712,17 @@ void SystemMonitorService::publishTelemetry(const Sample& sample, std::int64_t n
             << ",\"txBytes\":" << static_cast<unsigned long long>(cellular.txBytes)
             << ",\"rxRateBps\":" << cellular.rxRateBps
             << ",\"txRateBps\":" << cellular.txRateBps
+            << ",\"route\":{"
+            << "\"available\":" << (cellular.routeStateAvailable ? "true" : "false")
+            << ",\"failoverEnabled\":" << (cellular.routeFailoverEnabled ? "true" : "false")
+            << ",\"preferCellular\":" << (cellular.preferCellular ? "true" : "false")
+            << ",\"usingCellular\":" << (cellular.usingCellular ? "true" : "false")
+            << ",\"mode\":\"" << escapeJson(cellular.routeMode) << "\""
+            << ",\"activeInterface\":\"" << escapeJson(cellular.activeRouteInterface) << "\""
+            << ",\"selectedWiredInterface\":\"" << escapeJson(cellular.selectedWiredInterface) << "\""
+            << ",\"lastResult\":\"" << escapeJson(cellular.routeLastResult) << "\""
+            << ",\"lastChecked\":\"" << escapeJson(cellular.routeLastChecked) << "\""
+            << "}"
             << ",\"ts\":" << cellular.ts
             << "}"
             << ",\"ts\":" << nowMs

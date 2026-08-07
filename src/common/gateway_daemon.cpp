@@ -12,10 +12,14 @@
 #include <utility>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/writeback_service.hpp"
 
 namespace edge_gateway {
 
 namespace {
+
+constexpr int kStoreHeartbeatIntervalMs = 5000;
+constexpr int kStoreExpirySweepIntervalMs = 5000;
 
 std::string escapeJson(const std::string& value) {
     std::string out;
@@ -37,17 +41,6 @@ std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
-}
-
-std::int64_t nonNegativeDuration(std::int64_t endMs, std::int64_t startMs) {
-    if (endMs <= 0 || startMs <= 0 || endMs < startMs) {
-        return 0;
-    }
-    return endMs - startMs;
-}
-
-std::int64_t edgeTotalElapsed(const WritebackResultRecord& result) {
-    return std::max(result.edgeElapsedMs, result.queueDelayMs + result.deviceWriteMs);
 }
 
 void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
@@ -195,6 +188,28 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
 
 }  // namespace
 
+int resolveCollectLoopIntervalMs(const DeviceConfig& config) {
+    int intervalMs = std::numeric_limits<int>::max();
+    const auto inspectPoints = [&](const std::vector<PointDefinition>& points) {
+        for (const auto& point : points) {
+            if (!point.enabled || !point.read.enable || point.read.dataType == "device_online") {
+                continue;
+            }
+            const auto pointIntervalMs = point.read.intervalMs > 0
+                ? point.read.intervalMs
+                : config.collect.defaultIntervalMs;
+            intervalMs = std::min(intervalMs, std::max(1, pointIntervalMs));
+        }
+    };
+    inspectPoints(config.points);
+    for (const auto& meter : config.meters) {
+        if (meter.enabled) inspectPoints(meter.points);
+    }
+    return intervalMs == std::numeric_limits<int>::max()
+        ? std::max(1, config.collect.defaultIntervalMs)
+        : intervalMs;
+}
+
 GatewayDaemon::GatewayDaemon(
     DeviceConfig config,
     MemoryPointStore& store,
@@ -314,6 +329,17 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
         collectDevice(index, true);
     }
     if (!activeIndexes.empty()) {
+        std::size_t attempts = 0;
+        while (attempts < runtimeDevices_.size()) {
+            const auto index = collectCursor_ % runtimeDevices_.size();
+            collectCursor_ = (collectCursor_ + 1) % runtimeDevices_.size();
+            ++attempts;
+            if (collectedIndexes.find(index) != collectedIndexes.end()) {
+                continue;
+            }
+            collectDevice(index, false);
+            break;
+        }
         return;
     }
 
@@ -356,34 +382,27 @@ std::size_t GatewayDaemon::flushPersistentOnce() {
 }
 
 std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
-    const auto activeLease = priorityControlLease_.activeLease(nowMsValue);
-    const auto commands = activeLease
-        ? store_.drainPendingWriteCommandsByCmdId(activeLease->cmdId, config_.memoryStore.writebackBatchSize)
-        : store_.drainPendingWriteCommands(config_.memoryStore.writebackBatchSize);
+    const auto commands = drainScheduledWriteCommands(
+        store_,
+        &priorityControlLease_,
+        nowMsValue,
+        config_.memoryStore.writebackBatchSize
+    );
     std::size_t processed = 0;
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
-        const auto acceptedAt = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
-        WritebackResultRecord writebackResult;
-        writebackResult.cmdId = command.cmdId;
-        writebackResult.index = command.index;
-        writebackResult.value = command.value;
-        writebackResult.highPriority = command.highPriority;
-        writebackResult.requestedAt = command.ts;
-        writebackResult.acceptedAt = acceptedAt;
-        writebackResult.startedAt = startedAt;
-        writebackResult.queueDelayMs = nonNegativeDuration(startedAt, acceptedAt);
+        auto writebackResult = beginWritebackResult(command, startedAt);
         const auto it = indexToRuntimeDevice_.find(command.index);
         if (it == indexToRuntimeDevice_.end()) {
             std::cerr << "writeback skipped index=" << command.index << " reason=unknown-index" << std::endl;
             const auto completedAt = nowMs();
-            writebackResult.completedAt = completedAt;
-            writebackResult.success = false;
-            writebackResult.message = "unknown-index";
-            writebackResult.stage = "writeback-skipped";
-            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            completeWritebackResult(
+                writebackResult,
+                false,
+                "unknown-index",
+                "writeback-skipped",
+                completedAt
+            );
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-skipped",
@@ -404,15 +423,15 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             const auto& runtimeDevice = runtimeDevices_[it->second];
             if (!result.success) {
                 const auto completedAt = nowMs();
-                writebackResult.completedAt = completedAt;
-                writebackResult.success = false;
-                writebackResult.message = result.message;
-                writebackResult.stage = "writeback-failed";
-                writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-                writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-                writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
-                writebackResult.verifyAttempted = result.verifyAttempted;
-                writebackResult.verifyPassed = result.verifyPassed;
+                completeWritebackResult(
+                    writebackResult,
+                    false,
+                    result.message,
+                    "writeback-failed",
+                    completedAt,
+                    result.verifyAttempted,
+                    result.verifyPassed
+                );
                 store_.recordWritebackResult(writebackResult);
                 std::cerr << "writeback failed"
                           << " device=" << runtimeDevice.config.meterCode
@@ -433,15 +452,15 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             ++processed;
             priorityControlLease_.release(command.cmdId);
             const auto completedAt = nowMs();
-            writebackResult.completedAt = completedAt;
-            writebackResult.success = true;
-            writebackResult.message = result.message.empty() ? "ok" : result.message;
-            writebackResult.stage = "writeback-succeeded";
-            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
-            writebackResult.verifyAttempted = result.verifyAttempted;
-            writebackResult.verifyPassed = result.verifyPassed;
+            completeWritebackResult(
+                writebackResult,
+                true,
+                result.message.empty() ? "ok" : result.message,
+                "writeback-succeeded",
+                completedAt,
+                result.verifyAttempted,
+                result.verifyPassed
+            );
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-succeeded",
@@ -456,13 +475,13 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
         } catch (const std::exception& ex) {
             const auto& runtimeDevice = runtimeDevices_[it->second];
             const auto completedAt = nowMs();
-            writebackResult.completedAt = completedAt;
-            writebackResult.success = false;
-            writebackResult.message = ex.what();
-            writebackResult.stage = "writeback-failed";
-            writebackResult.deviceWriteMs = nonNegativeDuration(completedAt, startedAt);
-            writebackResult.edgeElapsedMs = nonNegativeDuration(completedAt, acceptedAt);
-            writebackResult.totalElapsedMs = edgeTotalElapsed(writebackResult);
+            completeWritebackResult(
+                writebackResult,
+                false,
+                ex.what(),
+                "writeback-failed",
+                completedAt
+            );
             store_.recordWritebackResult(writebackResult);
             std::cerr << "writeback failed"
                       << " device=" << runtimeDevice.config.meterCode
@@ -486,18 +505,26 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
 void GatewayDaemon::collectLoop() {
     const auto intervalMs = collectLoopIntervalMs();
     auto nextDeadline = nowMs() + intervalMs;
+    std::int64_t lastStoreHeartbeatMs = 0;
+    std::int64_t lastExpirySweepMs = 0;
     while (running_.load()) {
         try {
             const auto ts = nowMs();
-            store_.heartbeatRegisteredPoints(ts);
+            if (lastStoreHeartbeatMs <= 0 || ts - lastStoreHeartbeatMs >= kStoreHeartbeatIntervalMs) {
+                store_.heartbeatRegisteredPoints(ts);
+                lastStoreHeartbeatMs = ts;
+            }
             if (!priorityControlBlocked(ts)) {
                 collectOnce(ts);
-                store_.removeExpired(ts);
+                if (lastExpirySweepMs <= 0 || ts - lastExpirySweepMs >= kStoreExpirySweepIntervalMs) {
+                    store_.removeExpired(ts);
+                    lastExpirySweepMs = ts;
+                }
             }
         } catch (...) {
         }
         const auto remaining = static_cast<int>(nextDeadline - nowMs());
-        sleepInterruptibly(running_, std::max(10, remaining));
+        sleepInterruptibly(running_, std::max(1, remaining));
         nextDeadline += intervalMs;
         const auto now = nowMs();
         if (nextDeadline < now) {
@@ -507,19 +534,7 @@ void GatewayDaemon::collectLoop() {
 }
 
 int GatewayDaemon::collectLoopIntervalMs() const {
-    int intervalMs = std::max(100, config_.collect.defaultIntervalMs);
-    for (const auto& runtimeDevice : runtimeDevices_) {
-        for (const auto& point : runtimeDevice.config.points) {
-            if (!point.enabled || !point.read.enable || point.read.dataType == "device_online") {
-                continue;
-            }
-            const auto pointIntervalMs = point.read.intervalMs > 0
-                ? point.read.intervalMs
-                : config_.collect.defaultIntervalMs;
-            intervalMs = std::min(intervalMs, std::max(100, pointIntervalMs));
-        }
-    }
-    return intervalMs;
+    return resolveCollectLoopIntervalMs(config_);
 }
 
 std::size_t GatewayDaemon::collectRuntimeMeterBatchSize() const {
@@ -609,7 +624,7 @@ void GatewayDaemon::writebackLoop() {
         } catch (...) {
         }
         const auto remaining = static_cast<int>(nextDeadline - nowMs());
-        sleepInterruptibly(running_, std::max(10, remaining));
+        sleepInterruptibly(running_, std::max(1, remaining));
         nextDeadline += intervalMs;
         const auto now = nowMs();
         if (nextDeadline < now) {

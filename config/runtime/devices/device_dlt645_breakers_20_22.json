@@ -1,0 +1,102 @@
+{
+  "templateName": "mobile_ess_residual_current_breakers_20231101",
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {
+    "type": "dlt645_2007",
+    "transport": {
+      "serialPort": "/dev/ttySP2",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "E",
+      "timeoutMs": 800,
+      "frameIntervalMs": 150,
+      "readRetryCount": 1,
+      "wakeupBytes": 4
+    },
+    "standardPointsFile": "/opt/modbus-gateway/config/templates/dlt645_residual_current_breaker_20231101_comm104_verified_points.json",
+    "standardPointsVersion": "1.2.0"
+  },
+  "dlt645": {
+    "standardPointsFile": "/opt/modbus-gateway/config/templates/dlt645_residual_current_breaker_20231101_comm104_verified_points.json",
+    "standardPointsVersion": "1.2.0",
+    "write": {
+      "enabled": true,
+      "password": "00000000",
+      "operatorCode": "00000000"
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1,
+    "offlineFailureThreshold": 3,
+    "recoverySuccessThreshold": 1,
+    "cycleBackoffEnabled": true,
+    "slaveFailureBackoffThreshold": 3,
+    "slaveFailureBackoffCycles": 3,
+    "taskFailureBackoffThreshold": 2,
+    "taskFailureBackoffCycles": 2,
+    "taskFailureBackoffMaxCycles": 30,
+    "offlineProbeOnly": true,
+    "offlineProbeTaskCount": 2,
+    "failureGoodValueGraceMs": 0,
+    "failureBadQualityThreshold": 3
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ttySP2",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ttySP2.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "COMM202600104_GRID_BREAKER",
+      "deviceName": "并网断路器",
+      "enabled": true,
+      "slave": 20,
+      "address": "000000000020",
+      "protocolType": "dlt645_2007",
+      "sourceCom": "COM2",
+      "sourceAddress": 20,
+      "points": []
+    },
+    {
+      "meterCode": "COMM202600104_STORAGE_BREAKER",
+      "deviceName": "储能断路器",
+      "enabled": true,
+      "slave": 21,
+      "address": "000000000021",
+      "protocolType": "dlt645_2007",
+      "sourceCom": "COM2",
+      "sourceAddress": 21,
+      "points": []
+    },
+    {
+      "meterCode": "COMM202600104_LOAD_BREAKER",
+      "deviceName": "负荷断路器",
+      "enabled": true,
+      "slave": 22,
+      "address": "000000000022",
+      "protocolType": "dlt645_2007",
+      "sourceCom": "COM2",
+      "sourceAddress": 22,
+      "points": []
+    }
+  ]
+}

@@ -807,7 +807,7 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
 fi
 
 BASE_BINS="SystemMonitor MqttDriver pointctl"
-ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
 EXISTING_RUNTIME_MODE=$(json_string_value "$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" "runtimeMode" || true)
 DEFAULT_INSTALL_RUNTIME_MODE=$(first_nonempty "${INIT_RUNTIME_MODE:-}" "$EXISTING_RUNTIME_MODE" "gateway")
@@ -817,7 +817,7 @@ if [ "$INSTALL_RUNTIME_MODE" = "agc_avc" ]; then
 fi
 if [ "$PACKAGE_PROFILE" = "base" ]; then
   if [ "$INSTALL_RUNTIME_MODE" = "ems" ]; then
-    echo "base profile cannot initialize EMS mode; use a project or full package containing ComputeEngine and EmsParityCheck" >&2
+    echo "base profile cannot initialize EMS mode; use a project or full package containing ComputeEngine, EmsParityCheck and EmsClusterCoordinator" >&2
     exit 2
   fi
   REQUIRED_BINS="$BASE_BINS"
@@ -829,7 +829,7 @@ elif [ "$PACKAGE_PROFILE" = "project" ]; then
   fi
   REQUIRED_BINS=$(printf '%s\n' $BASE_BINS $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_words | tr '\n' ' ')
   if [ "$INSTALL_RUNTIME_MODE" = "ems" ]; then
-    REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS ComputeEngine EmsParityCheck | unique_words | tr '\n' ' ')
+    REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS ComputeEngine EmsParityCheck EmsClusterCoordinator | unique_words | tr '\n' ' ')
   fi
   OPTIONAL_BINS=""
 else
@@ -997,6 +997,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
   install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
   install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
+  install_deploy_file_if_exists "ems-cluster@.service" "/etc/systemd/system/ems-cluster@.service"
   if [ "$INIT_RUNTIME_MODE_VALUE" = "agc_avc" ]; then
     install_deploy_file_if_exists "agc-avc@.service" "/etc/systemd/system/agc-avc@.service"
   fi

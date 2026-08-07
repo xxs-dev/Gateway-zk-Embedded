@@ -28,6 +28,7 @@ PRODUCTION_TARGETS=(
   MqttDriver
   EventEngine
   ComputeEngine
+  EmsClusterCoordinator
   AgcAvcController
   EmsParityCheck
   SystemMonitor

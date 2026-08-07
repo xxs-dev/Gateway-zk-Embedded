@@ -116,6 +116,9 @@
     "badQuality": 0,
     "defaultOutputTtlMs": 600000,
     "maxWritesPerScan": 100,
+    "healthFile": "/opt/modbus-gateway/run/compute-engine-health.json",
+    "healthPublishIntervalMs": 1000,
+    "healthWindowCycles": 300,
     "rules": [
       {
         "ruleCode": "shuntong_graph_ems",
@@ -152,6 +155,41 @@
         }
       }
     ]
+  },
+  "emsCluster": {
+    "enabled": false,
+    "clusterId": "",
+    "transport": "ethernet",
+    "clusterInterface": "ens2",
+    "ipMode": "autoLinkLocal",
+    "staticAddress": "",
+    "prefixLength": 16,
+    "autoConfigureAddress": false,
+    "multicastAddress": "239.192.0.80",
+    "discoveryPort": 37680,
+    "tcpPort": 37681,
+    "seedPeers": [],
+    "securityMode": "psk",
+    "psk": "",
+    "expectedMembers": 2,
+    "maxMembers": 5,
+    "minimumQuorum": 2,
+    "lockedCabinetNo": 0,
+    "electionPriority": 100,
+    "discoveryIntervalMs": 1000,
+    "heartbeatMs": 250,
+    "leaderLeaseMs": 1500,
+    "electionTimeoutMinMs": 1800,
+    "electionTimeoutMaxMs": 3200,
+    "memberTimeoutMs": 5000,
+    "membershipRetentionSec": 86400,
+    "statusIntervalMs": 1000,
+    "factoryAddress": "192.168.3.250",
+    "consensusStateFile": "/opt/modbus-gateway/data/ems-cluster-consensus.json",
+    "membershipFile": "/opt/modbus-gateway/data/cluster-membership.json",
+    "statusFile": "/opt/modbus-gateway/run/ems-cluster-status.json",
+    "networkStateFile": "/opt/modbus-gateway/config/runtime/network/ems-cluster-address.json",
+    "computeHealthFile": "/opt/modbus-gateway/run/compute-engine-health.json"
   },
   "realtime": {
     "enabled": true,

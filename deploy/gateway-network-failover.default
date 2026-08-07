@@ -12,6 +12,8 @@ CELLULAR_DHCP_SCRIPT=/etc/udhcpc/default.script
 # Wired interface must already have a valid default route from DHCP or static config.
 WIRED_INTERFACE=ens1
 WIRED_INTERFACES="ens1 auto"
+# Any interface assigned to emsCluster.clusterInterface is added automatically.
+EXCLUDED_INTERFACES=""
 WIRED_ROUTE_METRIC=50
 WIRED_STANDBY_ROUTE_METRIC=200
 

@@ -641,12 +641,45 @@ void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
 }
 
 std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
-    (void)timeoutMs;
+    const auto socketHandle = static_cast<SocketHandle>(socket_);
+    if (socketHandle == kInvalidSocket) {
+        throw std::runtime_error("IEC TCP socket is not connected");
+    }
+
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(socketHandle, &readSet);
+    const auto boundedTimeoutMs = std::max(0, timeoutMs);
+    timeval timeout{};
+    timeout.tv_sec = boundedTimeoutMs / 1000;
+    timeout.tv_usec = (boundedTimeoutMs % 1000) * 1000;
+#ifdef _WIN32
+    const auto ready = select(0, &readSet, nullptr, nullptr, &timeout);
+#else
+    const auto ready = select(socketHandle + 1, &readSet, nullptr, nullptr, &timeout);
+#endif
+    if (ready == 0) {
+        return {};
+    }
+    if (ready < 0) {
+#ifdef _WIN32
+        if (WSAGetLastError() == WSAEINTR) {
+            return {};
+        }
+#else
+        if (errno == EINTR) {
+            return {};
+        }
+#endif
+        disconnect();
+        throw std::runtime_error("IEC TCP receive wait failed");
+    }
+
     std::vector<std::uint8_t> bytes(512);
 #ifdef _WIN32
-        const auto rc = recv(static_cast<SocketHandle>(socket_), reinterpret_cast<char*>(bytes.data()), static_cast<int>(bytes.size()), 0);
+        const auto rc = recv(socketHandle, reinterpret_cast<char*>(bytes.data()), static_cast<int>(bytes.size()), 0);
 #else
-        const auto rc = recv(static_cast<SocketHandle>(socket_), bytes.data(), bytes.size(), 0);
+        const auto rc = recv(socketHandle, bytes.data(), bytes.size(), 0);
 #endif
     if (rc == 0) {
         disconnect();

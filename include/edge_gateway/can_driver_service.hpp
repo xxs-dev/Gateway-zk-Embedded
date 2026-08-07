@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -42,18 +43,26 @@ private:
         std::int64_t lastSeenTs = 0;
         bool online = false;
         int onlineTimeoutMs = 5000;
+        std::int64_t lastOnlinePublishedTs = 0;
         std::vector<std::string> onlineFrameIds;
     };
 
     struct RuntimePoint {
         std::size_t deviceIndex = 0;
         PointDefinition point;
+        std::int64_t lastSeenTs = 0;
+        bool stalePublished = false;
     };
 
     void initializeRuntimeDevices();
     void configureInterface() const;
     void openSocket();
+    void openSocketLocked();
     void closeSocket();
+    void closeSocketLocked();
+    int duplicateSocket() const;
+    bool isInterfaceReady() const;
+    void checkInterfaceOnce(std::int64_t nowMs);
     void runStartupWrites();
     bool sendCanWrite(const PointDefinition& point, double value);
     void receiveLoop();
@@ -63,6 +72,7 @@ private:
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void publishPointValue(const RuntimeDevice& device, const PointDefinition& point, const DecodedValue& decoded, std::int64_t ts);
     void publishOnlinePoint(RuntimeDevice& device, bool online, std::int64_t ts);
+    void updatePointStaleness(std::int64_t nowMs);
     bool frameBelongsToDevice(const RuntimeDevice& device, std::uint32_t frameId, bool extended) const;
     static std::int64_t nowMs();
 
@@ -75,7 +85,9 @@ private:
     std::vector<RuntimePoint> runtimePoints_;
     std::unordered_map<std::uint32_t, std::size_t> indexToRuntimePoint_;
     std::atomic<bool> running_{false};
+    mutable std::mutex socketMutex_;
     int socketFd_ = -1;
+    std::int64_t lastInterfaceCheckMs_ = 0;
     std::thread receiveThread_;
     std::thread writebackThread_;
     std::thread persistThread_;

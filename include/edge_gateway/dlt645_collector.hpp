@@ -1,6 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "edge_gateway/common/collector_base.hpp"
 
@@ -21,6 +25,9 @@ public:
 
 private:
     std::shared_ptr<Dlt645Client> dlt645Client_;
+    std::vector<std::string> dataIdOrder_;
+    std::unordered_map<std::string, int> failedRetryRoundsByDataId_;
+    std::size_t dataIdCursor_ = 0;
 };
 
 }  // namespace edge_gateway

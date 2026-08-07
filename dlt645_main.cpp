@@ -11,6 +11,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/dlt645_collector.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/dlt645_command_executor.hpp"
@@ -76,6 +77,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "dlt645_2007") {
         throw std::invalid_argument("Dlt645Driver requires protocol.type=dlt645_2007");
@@ -94,9 +96,7 @@ int main(int argc, char* argv[]) {
     serialOptions.stopBits = config.protocol.transport.stopBits;
     serialOptions.parity = config.protocol.transport.parity;
     serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
-    serialOptions.frameIntervalMs = config.protocol.transport.frameIntervalMs >= 0
-        ? config.protocol.transport.frameIntervalMs
-        : std::max(0, config.collect.defaultIntervalMs);
+    serialOptions.frameIntervalMs = std::max(0, config.protocol.transport.frameIntervalMs);
     serialOptions.wakeupBytes = config.protocol.transport.wakeupBytes;
 
     std::shared_ptr<ISerialPort> serialPort;

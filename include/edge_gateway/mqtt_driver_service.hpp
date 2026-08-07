@@ -77,6 +77,11 @@ private:
         int intervalMs = 0;
         std::size_t requestedCount = 0;
     };
+    struct PendingCommandReply {
+        MqttCommandReply reply;
+        PointStoreRoute route;
+        std::int64_t deadlineMs = 0;
+    };
 
     void runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs);
     void processIncomingMessages(std::int64_t nowMs);
@@ -87,6 +92,7 @@ private:
     bool hasActiveRealtimeSessions(std::int64_t nowMs) const;
     void cleanupExpiredRealtimeSessions(std::int64_t nowMs);
     void publishDueRealtimeSessions(std::int64_t nowMs);
+    void processPendingCommandReplies(std::int64_t nowMs);
     int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
     bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs);
@@ -133,6 +139,7 @@ private:
     int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
+    std::deque<PendingCommandReply> pendingCommandReplies_;
     std::int64_t lastRealtimeSessionCleanupMs_ = 0;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;

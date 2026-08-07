@@ -1070,6 +1070,86 @@ void verifyCycleBackoffSkipsConfiguredTaskCycles() {
     cleanupStore(storeName);
 }
 
+void verifyCycleBackoffKeepsHealthyAdaptiveSplitLeavesRunning() {
+    const std::string storeName = "gateway_collector_cycle_adaptive_split_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.maxBatchRegisters = 16;
+        config.collect.maxTasksPerMeterPerCycle = 4;
+        config.collect.cycleBackoffEnabled = true;
+        config.collect.taskFailureBackoffThreshold = 1;
+        config.collect.taskFailureBackoffCycles = 1;
+        config.collect.taskFailureBackoffMaxCycles = 4;
+        config.collect.slaveFailureBackoffThreshold = 100;
+        config.collect.adaptiveSplitOnFailure = true;
+        config.collect.adaptiveSplitMaxRegisters = 1;
+        config.collect.adaptiveSplitLeafProbeBudget = 3;
+        config.points = {
+            onlinePoint(),
+            registerPoint(500001, "healthy_0", 0),
+            registerPoint(500002, "invalid_1", 1),
+            registerPoint(500003, "healthy_2", 2)
+        };
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(0, 100);
+        client->setRegister(1, 200);
+        client->setRegister(2, 300);
+        client->failRange(0, 3);
+        client->failStart(1);
+
+        edge_gateway::Collector collector(config, store, client);
+        auto collected = collector.collectOnce(3000);
+        require(collected.executedTasks.size() == 4, "first cycle should run parent and all split leaves");
+        require(client->readCount(0) == 2, "healthy start 0 should run as parent and leaf");
+        require(client->readCount(1) == 1, "invalid leaf should fail once");
+        require(client->readCount(2) == 1, "healthy start 2 should run as leaf");
+
+        collected = collector.collectOnce(3100);
+        require(collected.executedTasks.size() == 2, "parent backoff should still execute both healthy leaves");
+        require(client->readCount(0) == 3, "healthy start 0 should continue during parent cycle backoff");
+        require(client->readCount(1) == 1, "invalid leaf should honor its own cycle backoff");
+        require(client->readCount(2) == 2, "healthy start 2 should continue during parent cycle backoff");
+    }
+    cleanupStore(storeName);
+}
+
+void verifyTransportFailureDoesNotTriggerAdaptiveSplit() {
+    const std::string storeName = "gateway_collector_transport_no_split_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.maxBatchRegisters = 16;
+        config.collect.adaptiveSplitOnFailure = true;
+        config.collect.adaptiveSplitMaxRegisters = 1;
+        config.points = {
+            onlinePoint(),
+            registerPoint(500001, "register_0", 0),
+            registerPoint(500002, "register_1", 1),
+            registerPoint(500003, "register_2", 2)
+        };
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->failRangeWithMessage(0, 3, "modbus tcp recv failed");
+        edge_gateway::Collector collector(config, store, client);
+
+        bool threw = false;
+        try {
+            (void)collector.collectOnce(3200);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        require(threw, "transport failure should be reported to the daemon");
+        require(client->readCount(0) == 1, "transport failure should execute only the parent request");
+        require(client->readCount(1) == 0, "transport failure must not probe leaf start 1");
+        require(client->readCount(2) == 0, "transport failure must not probe leaf start 2");
+    }
+    cleanupStore(storeName);
+}
+
 void verifyRealtimeFocusedOverridesPreviousLongTaskBackoff() {
     const std::string storeName = "gateway_collector_realtime_override_backoff_test";
     cleanupStore(storeName);
@@ -1171,6 +1251,8 @@ int main() {
         verifyFailedTaskBackoffDoesNotSkipHealthyTask();
         verifyFailedTaskCanBackoffAfterOneFailure();
         verifyCycleBackoffSkipsConfiguredTaskCycles();
+        verifyCycleBackoffKeepsHealthyAdaptiveSplitLeavesRunning();
+        verifyTransportFailureDoesNotTriggerAdaptiveSplit();
         verifyFailedBatchCanSplitAndKeepGoodSubPoints();
         verifyFailedSplitCanFallBackToSinglePointReads();
         verifyLeafSplitProbeBudgetRotates();

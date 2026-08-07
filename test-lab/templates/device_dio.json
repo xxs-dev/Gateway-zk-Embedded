@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {"type": "local_dio", "backend": "sysfs_gpio", "gpioBasePath": "__GPIO_ROOT__"},
+  "collect": {"defaultIntervalMs": 100, "batchOptimize": false, "maxBatchRegisters": 1, "writebackIntervalMs": 50},
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 3000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_test_lab_dio",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackBatchSize": 50
+  },
+  "meters": [
+    {
+      "meterCode": "SIM_DIO_01",
+      "deviceName": "模拟本机 DI/DO",
+      "points": [
+        {"index": 991001, "pointCode": "SIM_DI_1", "name": "模拟 DI1", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": true, "dataType": "digital_input", "intervalMs": 100, "gpio": 101, "activeHigh": true, "debounceMs": 20}, "write": {"enable": false}, "valueMap": {"0": "无效", "1": "有效"}},
+        {"index": 991002, "pointCode": "SIM_DI_2", "name": "模拟 DI2", "category": "status", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": true, "dataType": "digital_input", "intervalMs": 100, "gpio": 102, "activeHigh": true, "debounceMs": 20}, "write": {"enable": false}, "valueMap": {"0": "无效", "1": "有效"}},
+        {"index": 991101, "pointCode": "SIM_DO_1", "name": "模拟 DO1", "category": "control", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": true, "dataType": "digital_output", "intervalMs": 100, "gpio": 201, "activeHigh": true, "debounceMs": 0}, "write": {"enable": true, "dataType": "digital_output", "min": 0, "max": 1, "allowedValues": [0, 1], "verifyAfterWrite": true, "verifyDelayMs": 20, "verifyByRead": true}, "valueMap": {"0": "断开", "1": "闭合"}},
+        {"index": 991102, "pointCode": "SIM_DO_2", "name": "模拟 DO2", "category": "control", "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": true, "dataType": "digital_output", "intervalMs": 100, "gpio": 202, "activeHigh": true, "debounceMs": 0}, "write": {"enable": true, "dataType": "digital_output", "min": 0, "max": 1, "allowedValues": [0, 1], "verifyAfterWrite": true, "verifyDelayMs": 20, "verifyByRead": true}, "valueMap": {"0": "断开", "1": "闭合"}}
+      ]
+    }
+  ]
+}
