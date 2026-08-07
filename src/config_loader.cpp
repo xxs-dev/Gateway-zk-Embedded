@@ -2606,7 +2606,30 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     config.defaultIntervalMs = requireInt(object, "defaultIntervalMs", config.defaultIntervalMs);
     config.minIntervalMs = requireInt(object, "minIntervalMs", config.minIntervalMs);
     config.subscriptionTtlSec = requireInt(object, "subscriptionTtlSec", config.subscriptionTtlSec);
-    config.cpuAlertThreshold = requireDouble(object, "cpuAlertThreshold", config.cpuAlertThreshold);
+    config.cpuAlertThreshold = std::max(
+        1.0,
+        std::min(100.0, requireDouble(object, "cpuAlertThreshold", config.cpuAlertThreshold))
+    );
+    config.cpuAlertRecoveryThreshold = std::max(
+        0.0,
+        std::min(
+            100.0,
+            requireDouble(object, "cpuAlertRecoveryThreshold", config.cpuAlertRecoveryThreshold)
+        )
+    );
+    if (config.cpuAlertRecoveryThreshold >= config.cpuAlertThreshold) {
+        config.cpuAlertRecoveryThreshold = std::max(0.0, config.cpuAlertThreshold - 10.0);
+    }
+    config.cpuAlertConsecutiveSamples = boundedInt(
+        requireInt(object, "cpuAlertConsecutiveSamples", config.cpuAlertConsecutiveSamples),
+        1,
+        60
+    );
+    config.cpuRecoveryConsecutiveSamples = boundedInt(
+        requireInt(object, "cpuRecoveryConsecutiveSamples", config.cpuRecoveryConsecutiveSamples),
+        1,
+        60
+    );
     config.memAlertThreshold = requireDouble(object, "memAlertThreshold", config.memAlertThreshold);
     config.diskAlertThreshold = requireDouble(object, "diskAlertThreshold", config.diskAlertThreshold);
     config.alertRepeatIntervalSec = requireInt(object, "alertRepeatIntervalSec", config.alertRepeatIntervalSec);
@@ -3271,6 +3294,9 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.systemMonitor.minIntervalMs = 500;
     config.systemMonitor.subscriptionTtlSec = 30;
     config.systemMonitor.cpuAlertThreshold = 90.0;
+    config.systemMonitor.cpuAlertRecoveryThreshold = 80.0;
+    config.systemMonitor.cpuAlertConsecutiveSamples = 3;
+    config.systemMonitor.cpuRecoveryConsecutiveSamples = 3;
     config.systemMonitor.memAlertThreshold = 90.0;
     config.systemMonitor.diskAlertThreshold = 90.0;
     config.systemMonitor.alertRepeatIntervalSec = 60;
