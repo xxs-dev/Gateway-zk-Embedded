@@ -425,6 +425,7 @@ void verifyFrameIntervalIsScopedToSlaveAddress() {
     options.timeoutMs = 50;
     options.frameIntervalMs = 200;
     options.readRetryCount = 0;
+    options.baudRate = 1200;
 
     auto serial = std::make_shared<ImmediateRegisterSerialPort>();
     edge_gateway::ModbusRtuClient client(serial, options);
@@ -442,8 +443,44 @@ void verifyFrameIntervalIsScopedToSlaveAddress() {
     const auto firstToThirdMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         serial->writeTimes()[2] - serial->writeTimes()[0]
     ).count();
+    require(firstToSecondMs >= 20, "different slaves should still honor the RTU bus silent interval");
     require(firstToSecondMs < 140, "different slave addresses should not be delayed by frameIntervalMs");
     require(firstToThirdMs >= 180, "same slave address should honor frameIntervalMs");
+}
+
+void verifyProtocolQuantityLimitsAreEnforced() {
+    edge_gateway::SerialPortOptions options;
+    options.device = "test";
+    options.timeoutMs = 50;
+    options.maxRequestRegisters = 5000;
+
+    auto serial = std::make_shared<StaleThenCurrentSerialPort>();
+    edge_gateway::ModbusRtuClient client(serial, options);
+
+    bool registerReadRejected = false;
+    try {
+        (void)client.readHoldingRegisters(1, 0, 126);
+    } catch (const std::invalid_argument&) {
+        registerReadRejected = true;
+    }
+    require(registerReadRejected, "function 03 must reject more than 125 registers");
+
+    bool registerWriteRejected = false;
+    try {
+        client.writeMultipleRegisters(1, 0, std::vector<std::uint16_t>(124, 1));
+    } catch (const std::invalid_argument&) {
+        registerWriteRejected = true;
+    }
+    require(registerWriteRejected, "function 10 must reject more than 123 registers");
+
+    bool bitReadRejected = false;
+    try {
+        (void)client.readCoils(1, 0, 2001);
+    } catch (const std::invalid_argument&) {
+        bitReadRejected = true;
+    }
+    require(bitReadRejected, "function 01 must reject more than 2000 bits");
+    require(serial->writes().empty(), "protocol-limit failures must not write to the serial bus");
 }
 
 void verifyNoResponseFailureIsReportedAsTimeout() {
@@ -497,6 +534,7 @@ int main() {
         verifyFrameIntervalIsScopedToSlaveAddress();
         verifyNoResponseFailureIsReportedAsTimeout();
         verifyMaxRequestRegistersIsEnforced();
+        verifyProtocolQuantityLimitsAreEnforced();
         std::cout << "modbus_rtu_client_resync_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

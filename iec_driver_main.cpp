@@ -13,6 +13,7 @@
 #include "edge_gateway/common/command_executor_interface.hpp"
 #include "edge_gateway/am5se_iec103_client.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/iec_client.hpp"
 #include "edge_gateway/iec103_recording_command.hpp"
@@ -105,6 +106,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "iec104" && config.protocol.type != "iec101" &&
         config.protocol.type != "iec103" && config.protocol.type != "iec103_tcp" &&
@@ -139,9 +141,7 @@ int main(int argc, char* argv[]) {
         serialOptions.stopBits = config.protocol.transport.stopBits;
         serialOptions.parity = config.protocol.transport.parity;
         serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
-        serialOptions.frameIntervalMs = config.protocol.transport.frameIntervalMs >= 0
-            ? config.protocol.transport.frameIntervalMs
-            : std::max(0, config.collect.defaultIntervalMs);
+        serialOptions.frameIntervalMs = std::max(0, config.protocol.transport.frameIntervalMs);
         serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
 
         std::shared_ptr<ISerialPort> serialPort;

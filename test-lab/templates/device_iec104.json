@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "meterCode": "SIM_IEC104_01",
+  "deviceName": "模拟 IEC104 设备",
+  "protocol": {
+    "type": "iec104",
+    "tcp": {"host": "__SIMULATOR_HOST__", "port": __SIMULATOR_PORT__, "connectTimeoutMs": 500, "timeoutMs": 500},
+    "iec": {
+      "transportMode": "tcp",
+      "commonAddress": 1,
+      "cotSize": 2,
+      "caSize": 2,
+      "ioaSize": 3,
+      "interrogationQualifier": 20,
+      "pollTimeoutMs": 500,
+      "idleReadTimeoutMs": 20,
+      "maxPollFrames": 64,
+      "pollOnCollect": true,
+      "backgroundReceive": true,
+      "sendSFrameAck": true,
+      "t0Ms": 3000,
+      "t1Ms": 2000,
+      "t2Ms": 200,
+      "t3Ms": 2000,
+      "kWindow": 12,
+      "wAck": 2,
+      "clockSyncIntervalSec": 0
+    }
+  },
+  "collect": {"defaultIntervalMs": 200, "batchOptimize": false, "maxBatchRegisters": 1, "writebackIntervalMs": 50},
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 3000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_test_lab_iec104",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackBatchSize": 50
+  },
+  "pointGroups": {
+    "teleindication": [
+      {"index": 992001, "pointCode": "SIM_IEC104_SIGNAL", "name": "模拟遥信", "address": 1001, "enabled": true, "fullUpload": true, "reportOnChange": true, "read": {"enable": true, "dataType": "single_point", "intervalMs": 200, "iec": {"ioa": 1001, "typeId": 1, "commonAddress": 1}}, "write": {"enable": false}}
+    ],
+    "telemetry": [
+      {"index": 992002, "pointCode": "SIM_IEC104_POWER", "name": "模拟有功功率", "address": 2001, "enabled": true, "fullUpload": true, "read": {"enable": true, "dataType": "measured_float", "scale": 1, "offset": 0, "intervalMs": 200, "unit": "kW", "iec": {"ioa": 2001, "typeId": 13, "commonAddress": 1}}, "write": {"enable": false}}
+    ],
+    "telecontrol": [
+      {"index": 992003, "pointCode": "SIM_IEC104_COMMAND", "name": "模拟遥控", "address": 3001, "enabled": true, "fullUpload": false, "read": {"enable": false}, "write": {"enable": true, "dataType": "single_command", "allowedValues": [0, 1], "iec": {"ioa": 3001, "typeId": 45, "commonAddress": 1, "selectBeforeExecute": true, "waitActivationTermination": true, "timeoutMs": 1000}}}
+    ]
+  },
+  "meters": []
+}

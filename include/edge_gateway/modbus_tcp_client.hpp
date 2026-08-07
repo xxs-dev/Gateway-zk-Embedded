@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstddef>
 #include <condition_variable>
@@ -58,8 +59,14 @@ private:
     void ensureConnected();
     void disconnect();
     void configureSocketTimeouts() const;
-    std::vector<std::uint8_t> readExact(std::size_t size);
-    void sendAll(const std::vector<std::uint8_t>& bytes);
+    std::vector<std::uint8_t> readExact(
+        std::size_t size,
+        std::chrono::steady_clock::time_point deadline
+    );
+    void sendAll(
+        const std::vector<std::uint8_t>& bytes,
+        std::chrono::steady_clock::time_point deadline
+    );
 
     TcpTransportConfig config_;
     int maxRequestRegisters_ = 125;

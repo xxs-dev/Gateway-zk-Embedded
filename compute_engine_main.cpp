@@ -14,6 +14,7 @@
 
 #include "edge_gateway/compute_engine_service.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 
@@ -90,6 +91,7 @@ int main(int argc, char* argv[]) {
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    TimingPolicyResolver::applyAppServices(appConfig);
     setProcessName("gateway-compute-" + sanitizeProcessToken(basenameOf(appConfigPath)));
 
     DeviceIdentity identity;

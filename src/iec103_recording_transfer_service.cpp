@@ -15,7 +15,9 @@
 #include <stdexcept>
 #include <utility>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <direct.h>
+#else
 #include <csignal>
 #include <fcntl.h>
 #include <sys/stat.h>

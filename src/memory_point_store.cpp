@@ -568,7 +568,10 @@ void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord&
     copyString(slot.cmdId, kCmdIdSize, result.cmdId);
     copyString(slot.message, kWritebackMessageSize, result.message);
     copyString(slot.stage, kWritebackStageSize, result.stage);
-    slot.success = result.success ? 1 : 0;
+    slot.success = static_cast<std::uint8_t>(
+        (result.success ? 0x01U : 0x00U) |
+        (result.highPriority ? 0x02U : 0x00U)
+    );
     slot.verifyAttempted = result.verifyAttempted ? 1 : 0;
     slot.verifyPassed = result.verifyPassed ? 1 : 0;
     slot.occupied = 1;
@@ -597,7 +600,7 @@ Optional<WritebackResultRecord> findWritebackResult(
             result.cmdId = readString(slot.cmdId, kCmdIdSize);
             result.index = slot.index;
             result.value = slot.value;
-            result.success = slot.success != 0;
+            result.success = (slot.success & 0x01U) != 0;
             result.message = readString(slot.message, kWritebackMessageSize);
             result.stage = readString(slot.stage, kWritebackStageSize);
             result.requestedAt = slot.requestedAt;
@@ -610,6 +613,7 @@ Optional<WritebackResultRecord> findWritebackResult(
             result.totalElapsedMs = slot.totalElapsedMs;
             result.verifyAttempted = slot.verifyAttempted != 0;
             result.verifyPassed = slot.verifyPassed != 0;
+            result.highPriority = (slot.success & 0x02U) != 0;
             found = result;
         }
         head = (head + 1) % kMaxWritebackResultSlots;
@@ -1234,7 +1238,7 @@ void MemoryPointStore::putLatest(const PointValue& value) {
     slot->quality = value.quality;
     slot->ts = value.ts;
     slot->expireAt = value.expireAt;
-    slot->stale = 0;
+    slot->stale = value.stale ? 1 : 0;
     slot->occupied = 1;
     pushPointUpdate(
         layout2,

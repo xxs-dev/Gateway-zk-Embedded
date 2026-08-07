@@ -1,5 +1,9 @@
 #include "edge_gateway/can_signal_codec.hpp"
+#include "edge_gateway/can_driver_service.hpp"
+#include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/virtual_can_datagram.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -64,6 +68,64 @@ int main() {
     require(!encoded.extended, "standard frame should not be extended");
     require(encoded.payload.size() == 8, "encoded dlc should be 8");
     require(encoded.payload[2] == 0x00 && encoded.payload[3] == 0xC8, "uint16 big endian encode failed");
+
+    VirtualCanFrame virtualFrame;
+    virtualFrame.frameId = 0x18FF50E5U;
+    virtualFrame.extended = true;
+    virtualFrame.payload = {0x12, 0x34, 0x56, 0x78};
+    const auto datagram = encodeVirtualCanDatagram(virtualFrame);
+    VirtualCanFrame decodedFrame;
+    require(decodeVirtualCanDatagram(datagram, decodedFrame), "virtual CAN datagram decode failed");
+    require(decodedFrame.frameId == virtualFrame.frameId, "virtual CAN frame id mismatch");
+    require(decodedFrame.extended, "virtual CAN extended flag mismatch");
+    require(decodedFrame.payload == virtualFrame.payload, "virtual CAN payload mismatch");
+    auto malformedDatagram = datagram;
+    malformedDatagram[6] = static_cast<std::uint8_t>(malformedDatagram[6] + 1U);
+    require(!decodeVirtualCanDatagram(malformedDatagram, decodedFrame),
+            "virtual CAN malformed payload length must be rejected");
+
+    DeviceConfig config;
+    config.machineCode = "CAN_INIT_TEST";
+    config.protocol.type = "can_socketcan";
+    config.memoryStore.sharedMemoryName = "can_signal_codec_test_online_init";
+    config.memoryStore.maxLatestPoints = 16;
+    config.memoryStore.maxPendingWrites = 4;
+    config.memoryStore.maxPersistentSamples = 4;
+    LogicalDeviceConfig logicalDevice;
+    logicalDevice.meterCode = "CAN_DEVICE";
+    logicalDevice.deviceName = "CAN online initialization test";
+    logicalDevice.onlineTimeoutMs = 1000;
+    PointDefinition onlinePoint;
+    onlinePoint.index = 310000;
+    onlinePoint.pointCode = "device_online";
+    onlinePoint.name = "设备在线状态";
+    onlinePoint.enabled = true;
+    onlinePoint.read.enable = true;
+    onlinePoint.read.dataType = "device_online";
+    onlinePoint.read.cachePolicy.ttlMs = 60000;
+    logicalDevice.points.push_back(onlinePoint);
+    config.meters.push_back(logicalDevice);
+
+    MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
+    {
+        MemoryPointStore store(config.memoryStore);
+        CanDriverService service(config, store);
+        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count();
+        const auto initialOnline = store.getLatestByIndex(310000, nowMs);
+        require(static_cast<bool>(initialOnline), "CAN online point must exist after service initialization");
+        requireNear(initialOnline->value, 0.0, 0.0001, "CAN online point must initialize as offline");
+        require(initialOnline->quality == 1, "CAN initial offline point must have good quality");
+
+        const auto heartbeatTs = nowMs + 1001;
+        service.updateOnlineStatus(heartbeatTs);
+        const auto refreshedOnline = store.getLatestByIndex(310000, heartbeatTs);
+        require(static_cast<bool>(refreshedOnline), "CAN online point must remain available while state is stable");
+        requireNear(refreshedOnline->value, 0.0, 0.0001, "CAN stable offline heartbeat value mismatch");
+        require(refreshedOnline->ts == heartbeatTs, "CAN online point heartbeat must refresh its timestamp");
+    }
+    MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
 
     return 0;
 }

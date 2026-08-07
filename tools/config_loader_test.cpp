@@ -102,6 +102,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"deviceName\":\"Meter Test\","
         "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1},"
         "\"collect\":{"
+        "\"maxBatchRegisters\":500,"
+        "\"maxRequestRegisters\":500,"
         "\"maxTasksPerMeterPerCycle\":4,"
         "\"realtimeMaxTasksPerMeterPerCycle\":1,"
         "\"adaptiveSplitLeafProbeBudget\":5,"
@@ -138,6 +140,90 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         normalized.collect.failureBadQualityThreshold == 1,
         "small failure bad-quality threshold should normalize to one"
     );
+    require(normalized.collect.maxRequestRegisters == 125,
+        "Modbus register request limit should normalize to 125");
+    require(normalized.collect.maxBatchRegisters == 125,
+        "Modbus batch limit should normalize to the request limit");
+
+    bool rejectedInvalidTcpTimeout = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadFromText(
+            "{"
+            "\"schemaVersion\":\"1.1.0\","
+            "\"machineCode\":\"GW_TEST\","
+            "\"meterCode\":\"MTR_TEST\","
+            "\"deviceName\":\"Meter Test\","
+            "\"protocol\":{\"type\":\"modbus_tcp\",\"slave\":1,"
+            "\"tcp\":{\"host\":\"127.0.0.1\",\"port\":502,\"connectTimeoutMs\":0,\"timeoutMs\":0}},"
+            "\"meters\":[]"
+            "}"
+        );
+    } catch (const std::invalid_argument&) {
+        rejectedInvalidTcpTimeout = true;
+    }
+    require(rejectedInvalidTcpTimeout, "non-positive Modbus TCP timeouts should be rejected");
+
+    const auto virtualDevice = edge_gateway::ConfigLoader::loadFromText(
+        "{"
+        "\"schemaVersion\":\"1.1.0\","
+        "\"machineCode\":\"GW_TEST\","
+        "\"meterCode\":\"EMS_CORE\","
+        "\"deviceName\":\"EMS Core\","
+        "\"protocol\":{\"type\":\"ems_virtual\",\"slave\":1,"
+        "\"tcp\":{\"host\":\"127.0.0.1\",\"port\":0,\"connectTimeoutMs\":1000,\"timeoutMs\":1000}},"
+        "\"meters\":[]"
+        "}"
+    );
+    require(virtualDevice.protocol.tcp.port == 0,
+        "virtual devices should preserve a zero TCP placeholder port");
+
+    bool rejectedInvalidTcpPort = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadFromText(
+            "{"
+            "\"schemaVersion\":\"1.1.0\","
+            "\"machineCode\":\"GW_TEST\","
+            "\"meterCode\":\"MTR_TEST\","
+            "\"deviceName\":\"Meter Test\","
+            "\"protocol\":{\"type\":\"modbus_tcp\",\"slave\":1,"
+            "\"tcp\":{\"host\":\"127.0.0.1\",\"port\":0,\"connectTimeoutMs\":1000,\"timeoutMs\":1000}},"
+            "\"meters\":[]"
+            "}"
+        );
+    } catch (const std::invalid_argument&) {
+        rejectedInvalidTcpPort = true;
+    }
+    require(rejectedInvalidTcpPort, "Modbus TCP should reject a zero endpoint port");
+}
+
+void verifyTimingPolicyConfig() {
+    const auto config = edge_gateway::ConfigLoader::loadFromText(
+        "{"
+        "\"schemaVersion\":\"1.1.0\","
+        "\"machineCode\":\"GW_TEST\","
+        "\"meterCode\":\"MTR_TEST\","
+        "\"deviceName\":\"Meter Test\","
+        "\"timingPolicy\":{"
+        "\"profile\":\"highFrequency\","
+        "\"acquisition\":{\"targetFreshnessMs\":150,\"maxAgeMs\":2000},"
+        "\"delivery\":{\"mode\":\"onChange\",\"batchWindowMs\":20,\"heartbeatMs\":60000},"
+        "\"overrides\":{\"requestGapMs\":3,\"responseTimeoutMs\":250,\"retryCount\":2,\"receiveWaitMs\":15}"
+        "},"
+        "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1},"
+        "\"meters\":[{\"meterCode\":\"M1\",\"deviceName\":\"Meter 1\",\"onlineTimeoutMs\":7000,\"points\":["
+        "{\"index\":1,\"pointCode\":\"p1\",\"enabled\":true,\"read\":{\"enable\":true,\"intervalMs\":750,\"cachePolicy\":{\"ttlMs\":9000},\"can\":{\"receiveTimeoutMs\":8000}}}"
+        "]}]"
+        "}"
+    );
+    require(config.timingPolicy.configured, "timing policy should be marked configured");
+    require(config.timingPolicy.profile == "highFrequency", "timing profile should parse");
+    require(config.timingPolicy.acquisition.targetFreshnessMs == 150, "timing freshness should parse");
+    require(config.timingPolicy.overrides.requestGapMs == 3, "timing request gap should parse");
+    const auto& meter = config.meters.front();
+    require(meter.onlineTimeoutExplicit, "explicit meter online timeout should be tracked");
+    require(meter.points.front().read.intervalExplicit, "explicit point interval should be tracked");
+    require(meter.points.front().read.cachePolicy.ttlExplicit, "explicit point TTL should be tracked");
+    require(meter.points.front().read.can.receiveTimeoutExplicit, "explicit CAN timeout should be tracked");
 }
 
 void verifyNorthboundConfig() {
@@ -528,6 +614,29 @@ void verifyIec103RecordingTransferConfig() {
     require(app.systemMonitor.recordingTransfer.retryMaxSec == 4, "recording retry max should not be below base");
 }
 
+void verifyDeliveryRuntimeConfig() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+      "mqttDriver": {
+        "deliveryMode": "on_change",
+        "deliveryMaxLatencyMs": 40
+      },
+      "eventEngine": {
+        "deliveryMode": "periodic",
+        "deliveryMaxLatencyMs": 50
+      }
+    })JSON";
+    output.close();
+
+    const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+    std::remove(path.c_str());
+    require(app.mqttDriver.deliveryMode == "onChange", "MQTT delivery mode should normalize");
+    require(app.mqttDriver.deliveryMaxLatencyMs == 40, "MQTT maximum delivery latency should parse");
+    require(app.eventEngine.deliveryMode == "periodic", "EventEngine delivery mode should parse");
+    require(app.eventEngine.deliveryMaxLatencyMs == 50, "EventEngine maximum delivery latency should parse");
+}
+
 }  // namespace
 
 int main() {
@@ -575,6 +684,7 @@ int main() {
     require(config.eventOutboxMaxDiskBytes == 256U * 1024U * 1024U, "outbox disk should be bounded");
 
     verifyDeviceCollectBackgroundTaskConfig();
+    verifyTimingPolicyConfig();
     verifyDlt645WriteConfig();
     verifyDlt645StandardPointValueMap();
     verifyNorthboundConfig();
@@ -583,6 +693,7 @@ int main() {
     verifyLocalDisplayScadaConfig();
     verifyScadaUpperComputerSafetyConfig();
     verifyIec103RecordingTransferConfig();
+    verifyDeliveryRuntimeConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

@@ -31,6 +31,9 @@ DioCollector::DioCollector(
 CollectCycleResult DioCollector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     (void)realtimeFocused;
     CollectCycleResult result;
+    if (shouldSkipFailedCollectionCycle()) {
+        return result;
+    }
     const auto points = duePoints(nowMs);
     bool hasSuccessfulRead = false;
     std::string firstFailureMessage;
@@ -60,7 +63,11 @@ CollectCycleResult DioCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
         mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
     }
     if (!points.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
+        recordCollectionCycleFailure();
         throw std::runtime_error(firstFailureMessage);
+    }
+    if (hasSuccessfulRead) {
+        recordCollectionCycleSuccess();
     }
     return result;
 }
@@ -72,9 +79,12 @@ PointValue DioCollector::collectLocalDioPoint(const PointDefinition& point, std:
     if (point.read.dataType != "digital_input" && point.read.dataType != "digital_output") {
         throw std::runtime_error("unsupported local_dio read.dataType: " + point.read.dataType);
     }
-    gpioPort_->exportGpio(point.read.gpio);
-    if (point.read.dataType == "digital_input") {
-        gpioPort_->setDirection(point.read.gpio, "in");
+    if (initializedReadGpios_.find(point.read.gpio) == initializedReadGpios_.end()) {
+        gpioPort_->exportGpio(point.read.gpio);
+        if (point.read.dataType == "digital_input") {
+            gpioPort_->setDirection(point.read.gpio, "in");
+        }
+        initializedReadGpios_.insert(point.read.gpio);
     }
     const auto gpioHigh = gpioPort_->readValue(point.read.gpio);
     auto logicalValue = gpioHigh == point.read.activeHigh ? 1.0 : 0.0;

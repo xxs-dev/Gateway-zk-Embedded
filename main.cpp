@@ -12,6 +12,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/dlt645_standard_points_loader.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
@@ -78,6 +79,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.mqttDriver = appConfig.mqttDriver;
     std::string processToken;
     if (config.protocol.type == "modbus_tcp") {
@@ -91,9 +93,7 @@ int main(int argc, char* argv[]) {
     setProcessName("modbus-" + sanitizeProcessToken(processToken));
     std::shared_ptr<IModbusClient> modbusClient;
     std::shared_ptr<Dlt645Client> dlt645Client;
-    const auto frameIntervalMs = config.protocol.transport.frameIntervalMs >= 0
-        ? config.protocol.transport.frameIntervalMs
-        : std::max(0, config.collect.defaultIntervalMs);
+    const auto frameIntervalMs = std::max(0, config.protocol.transport.frameIntervalMs);
     if (config.protocol.type == "modbus_tcp") {
         if (useMock) {
             throw std::invalid_argument("--mock is not supported for modbus_tcp");
@@ -173,6 +173,9 @@ int main(int argc, char* argv[]) {
     );
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     daemon.start();
     const auto runtimeMeterCount = config.meters.empty() ? 1 : config.meters.size();

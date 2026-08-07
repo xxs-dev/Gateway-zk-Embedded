@@ -9,6 +9,28 @@
 
 namespace edge_gateway {
 
+std::vector<PendingWriteCommand> drainScheduledWriteCommands(
+    MemoryPointStore& store,
+    const PriorityControlLease* priorityControlLease,
+    std::int64_t nowMs,
+    std::size_t limit = 0
+);
+
+WritebackResultRecord beginWritebackResult(
+    const PendingWriteCommand& command,
+    std::int64_t startedAt
+);
+
+void completeWritebackResult(
+    WritebackResultRecord& result,
+    bool success,
+    const std::string& message,
+    const std::string& stage,
+    std::int64_t completedAt,
+    bool verifyAttempted = false,
+    bool verifyPassed = false
+);
+
 class WritebackService {
 public:
     WritebackService(MemoryPointStore& store, CommandExecutor& executor);

@@ -229,6 +229,7 @@ import glob
 import os
 import shutil
 import sys
+import tempfile
 
 manifest_path, backup_dir, log_file, restart_file, systemd_reload_file, chmod_file = sys.argv[1:7]
 root_dir = os.path.dirname(manifest_path)
@@ -250,6 +251,22 @@ allowed_clean_roots = (
 )
 
 allowed_bin_targets = {
+    "/opt/modbus-gateway/bin/ModbusRtu",
+    "/opt/modbus-gateway/bin/Dlt645Driver",
+    "/opt/modbus-gateway/bin/DioDriver",
+    "/opt/modbus-gateway/bin/CanDriver",
+    "/opt/modbus-gateway/bin/IecDriver",
+    "/opt/modbus-gateway/bin/MqttDriver",
+    "/opt/modbus-gateway/bin/EventEngine",
+    "/opt/modbus-gateway/bin/ComputeEngine",
+    "/opt/modbus-gateway/bin/AgcAvcController",
+    "/opt/modbus-gateway/bin/EmsParityCheck",
+    "/opt/modbus-gateway/bin/EmsClusterCoordinator",
+    "/opt/modbus-gateway/bin/SystemMonitor",
+    "/opt/modbus-gateway/bin/LocalDisplay",
+    "/opt/modbus-gateway/bin/QtDisplayBridge",
+    "/opt/modbus-gateway/bin/CameraService",
+    "/opt/modbus-gateway/bin/pointctl",
     "/opt/modbus-gateway/bin/gateway-run.sh",
     "/opt/modbus-gateway/bin/gateway-services.sh",
     "/opt/modbus-gateway/bin/install-factory-config.sh",
@@ -267,6 +284,7 @@ allowed_systemd_targets = {
     "/etc/systemd/system/dio-driver@.service",
     "/etc/systemd/system/can-driver@.service",
     "/etc/systemd/system/compute-engine@.service",
+    "/etc/systemd/system/ems-cluster@.service",
     "/etc/systemd/system/agc-avc@.service",
     "/etc/systemd/system/event-engine@.service",
     "/etc/systemd/system/local-display@.service",
@@ -289,6 +307,7 @@ allowed_service_prefixes = (
     "dio-driver@",
     "can-driver@",
     "compute-engine@",
+    "ems-cluster@",
     "agc-avc@",
     "event-engine@",
     "local-display@",
@@ -347,6 +366,32 @@ def verify_manifest_checksum(item, src):
     if actual != expected:
         raise SystemExit(f"manifest checksum mismatch for {item.get('path', '')}")
 
+def atomic_copy2(src, dst, item=None):
+    destination_dir = os.path.dirname(dst)
+    fd, temporary_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(dst)}.ota-",
+        dir=destination_dir,
+    )
+    os.close(fd)
+    try:
+        shutil.copy2(src, temporary_path)
+        if item is not None:
+            verify_manifest_checksum(item, temporary_path)
+        with open(temporary_path, "rb") as fh:
+            os.fsync(fh.fileno())
+        os.replace(temporary_path, dst)
+        try:
+            directory_fd = os.open(destination_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
 def is_safe_service_name(value):
     if not value or len(value) > 128 or not value.endswith(".service"):
         return False
@@ -378,11 +423,9 @@ for item in manifest.get("files", []):
     src = os.path.abspath(os.path.join(root_dir, item["path"]))
     dst = os.path.abspath(item["target"])
     if not safe_child_path(src, root_dir) or not os.path.isfile(src):
-        log(f"[manifest-copy-skip] unsafe source {item.get('path', '')}")
-        continue
+        raise SystemExit(f"unsafe or missing manifest source: {item.get('path', '')}")
     if not is_safe_target(dst):
-        log(f"[manifest-copy-skip] unsafe target {dst}")
-        continue
+        raise SystemExit(f"unsafe manifest target: {dst}")
     verify_manifest_checksum(item, src)
     if (
         os.path.abspath(dst) == "/opt/modbus-gateway/config/runtime/device_identity.json"
@@ -397,12 +440,14 @@ for item in manifest.get("files", []):
         backup_path = os.path.join(backup_dir, os.path.relpath(dst, "/"))
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         shutil.copy2(dst, backup_path)
-    shutil.copy2(src, dst)
+    # Replacing the inode keeps a running executable alive until its delayed
+    # service restart; truncating it in place would fail with ETXTBSY.
+    atomic_copy2(src, dst, item)
     if needs_gateway_services_restart(dst):
         need_gateway_services_restart = True
     if dst.startswith("/etc/systemd/system/") and dst.endswith(".service"):
         need_systemd_reload = True
-    if dst.startswith("/opt/modbus-gateway/bin/") and (dst.endswith(".sh") or os.access(src, os.X_OK)):
+    if dst.startswith("/opt/modbus-gateway/bin/"):
         chmod_targets.append(dst)
     log(f"[manifest-copy] {src} -> {dst}")
 
@@ -434,7 +479,7 @@ fi
 if [ -n "$CHMOD_FILE" ] && [ -f "$CHMOD_FILE" ]; then
   while IFS= read -r target; do
     [ -z "$target" ] && continue
-    chmod +x "$target" || echo "[$TIMESTAMP] [ota-apply] chmod failed $target" >> "$LOG_FILE"
+    chmod 0755 "$target" || echo "[$TIMESTAMP] [ota-apply] chmod failed $target" >> "$LOG_FILE"
   done < "$CHMOD_FILE"
 fi
 
@@ -463,7 +508,7 @@ fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
   case "\$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
     *)
       echo "[$TIMESTAMP] [ota-apply] skip unsafe restart service \$service" >> "$LOG_FILE"
       continue

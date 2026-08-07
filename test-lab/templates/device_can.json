@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {
+    "type": "can_socketcan",
+    "can": {
+      "transportMode": "__CAN_TRANSPORT__",
+      "interfaceName": "__CAN_INTERFACE__",
+      "interfaceCode": "SIM_CAN_1",
+      "bitrate": 500000,
+      "samplePoint": 0.875,
+      "restartMs": 100,
+      "listenOnly": false,
+      "loopback": true,
+      "fdEnabled": false,
+      "manageInterface": false,
+      "rxQueueSize": 1024,
+      "txQueueSize": 256,
+      "udpBindAddress": "__CAN_UDP_BIND__",
+      "udpListenPort": __CAN_DRIVER_UDP_PORT__,
+      "udpPeerAddress": "__CAN_UDP_PEER__",
+      "udpPeerPort": __CAN_SIMULATOR_UDP_PORT__
+    }
+  },
+  "collect": {"defaultIntervalMs": 100, "writebackIntervalMs": 50, "interfaceCheckIntervalMs": 200, "receiveWaitMs": 20},
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 3000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_test_lab_can",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackBatchSize": 50
+  },
+  "meters": [
+    {
+      "meterCode": "SIM_CAN_01",
+      "deviceName": "模拟 CAN 设备",
+      "enabled": true,
+      "onlineTimeoutMs": 500,
+      "onlineFrameIds": ["0x18FF50E5"],
+      "points": [
+        {"index": 990000, "pointCode": "SIM_CAN_ONLINE", "name": "设备在线状态", "category": "status", "enabled": true, "fullUpload": true, "read": {"enable": true, "dataType": "device_online"}, "write": {"enable": false}},
+        {"index": 990001, "pointCode": "SIM_CAN_SPEED", "name": "模拟转速", "category": "telemetry", "enabled": true, "fullUpload": true, "read": {"enable": true, "dataType": "uint16", "scale": 0.125, "unit": "rpm", "can": {"frameId": "0x18FF50E5", "extended": true, "dlc": 8, "byteOffset": 0, "bitOffset": 0, "bitLength": 16, "bitOrder": "lsb0", "endian": "little", "receiveTimeoutMs": 500}}, "write": {"enable": false}},
+        {"index": 990002, "pointCode": "SIM_CAN_TEMPERATURE", "name": "模拟温度", "category": "telemetry", "enabled": true, "fullUpload": true, "read": {"enable": true, "dataType": "int16", "scale": 0.1, "unit": "C", "can": {"frameId": "0x18FF50E5", "extended": true, "dlc": 8, "byteOffset": 2, "bitOffset": 0, "bitLength": 16, "bitOrder": "lsb0", "endian": "little", "receiveTimeoutMs": 500}}, "write": {"enable": false}},
+        {"index": 990003, "pointCode": "SIM_CAN_STATUS", "name": "模拟运行状态", "category": "status", "enabled": true, "fullUpload": true, "read": {"enable": true, "dataType": "uint8", "scale": 1, "can": {"frameId": "0x18FF50E5", "extended": true, "dlc": 8, "byteOffset": 4, "bitOffset": 0, "bitLength": 8, "bitOrder": "lsb0", "endian": "little", "receiveTimeoutMs": 500}}, "write": {"enable": false}, "valueMap": {"0": "停止", "1": "运行"}},
+        {"index": 990004, "pointCode": "SIM_CAN_RELAY", "name": "模拟继电器命令", "category": "control", "enabled": true, "fullUpload": false, "read": {"enable": false, "dataType": "bool"}, "write": {"enable": true, "dataType": "bool", "min": 0, "max": 1, "allowedValues": [0, 1], "can": {"frameId": "0x321", "extended": false, "dlc": 8, "byteOffset": 0, "bitOffset": 0, "bitLength": 1, "bitOrder": "lsb0", "endian": "little"}}}
+      ]
+    }
+  ]
+}

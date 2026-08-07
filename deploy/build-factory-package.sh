@@ -307,7 +307,7 @@ fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver pointctl"
-  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck SystemMonitor pointctl"
+  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
   OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then
@@ -322,7 +322,7 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
     MANIFEST_BINS=$(manifest_binaries "$EDGE_PACKAGE_MANIFEST")
     REQUIRED_BINS=$(printf '%s\n' $BASE_BINS $MANIFEST_BINS | unique_words | tr '\n' ' ')
     if [ "$(factory_requires_ems_runtime "$TMP_DIR/gateway-factory-defaults/config/factory")" = "true" ]; then
-      REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS ComputeEngine EmsParityCheck | unique_words | tr '\n' ' ')
+      REQUIRED_BINS=$(printf '%s\n' $REQUIRED_BINS ComputeEngine EmsParityCheck EmsClusterCoordinator | unique_words | tr '\n' ' ')
     fi
     OPTIONAL_BINS=""
   fi

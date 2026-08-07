@@ -10,6 +10,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/dio_collector.hpp"
 #include "edge_gateway/dio_command_executor.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
@@ -71,6 +72,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "local_dio") {
         throw std::invalid_argument("DioDriver requires protocol.type=local_dio");

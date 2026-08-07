@@ -1,0 +1,211 @@
+{
+  "schemaVersion": "1.1.0",
+  "protocol": {
+    "type": "modbus_tcp",
+    "slave": 1,
+    "tcp": {
+      "host": "__SIMULATOR_HOST__",
+      "port": __SIMULATOR_PORT__,
+      "connectTimeoutMs": 300,
+      "timeoutMs": 300
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 200,
+    "batchOptimize": true,
+    "maxBatchRegisters": 32,
+    "maxRequestRegisters": 32,
+    "failureBadQualityThreshold": 1,
+    "slaveFailureBackoffThreshold": 2,
+    "cycleBackoffEnabled": true,
+    "slaveFailureBackoffCycles": 1,
+    "slaveFailureBackoffMs": 0,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffCycles": 1,
+    "taskFailureBackoffMaxCycles": 4,
+    "taskFailureBackoffMs": 0,
+    "taskFailureBackoffMaxMs": 0
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 3000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "gateway_test_lab_modbus",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 50,
+    "writebackBatchSize": 50
+  },
+  "meters": [
+    {
+      "meterCode": "SIM_MODBUS_01",
+      "deviceName": "模拟电表 1",
+      "slave": 1,
+      "points": [
+        {
+          "index": 910000,
+          "pointCode": "SIM01_ONLINE",
+          "name": "设备在线状态",
+          "address": 0,
+          "enabled": true,
+          "read": {"enable": true, "function": 0, "length": 0, "dataType": "device_online", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 910001,
+          "pointCode": "SIM01_HEARTBEAT",
+          "name": "设备心跳",
+          "address": 0,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 910002,
+          "pointCode": "SIM01_VOLTAGE",
+          "name": "模拟电压",
+          "address": 1,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "V", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 910003,
+          "pointCode": "SIM01_CURRENT",
+          "name": "模拟电流",
+          "address": 2,
+          "enabled": true,
+          "read": {"enable": true, "function": 4, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "A", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 910004,
+          "pointCode": "SIM01_SETPOINT",
+          "name": "模拟设定值",
+          "address": 10,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200},
+          "write": {"enable": true, "function": 6, "length": 1, "dataType": "uint16", "min": 0, "max": 65535, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}
+        },
+        {
+          "index": 910005,
+          "pointCode": "SIM01_RUN_COMMAND",
+          "name": "模拟运行命令",
+          "address": 3,
+          "enabled": true,
+          "read": {"enable": true, "function": 1, "length": 1, "dataType": "bit", "intervalMs": 200},
+          "write": {"enable": true, "function": 5, "length": 1, "dataType": "bool", "min": 0, "max": 1, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}
+        }
+      ]
+    },
+    {
+      "meterCode": "SIM_MODBUS_02",
+      "deviceName": "模拟电表 2",
+      "slave": 2,
+      "points": [
+        {
+          "index": 920000,
+          "pointCode": "SIM02_ONLINE",
+          "name": "设备在线状态",
+          "address": 0,
+          "enabled": true,
+          "read": {"enable": true, "function": 0, "length": 0, "dataType": "device_online", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 920001,
+          "pointCode": "SIM02_HEARTBEAT",
+          "name": "设备心跳",
+          "address": 0,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 920002,
+          "pointCode": "SIM02_VOLTAGE",
+          "name": "模拟电压",
+          "address": 1,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "V", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 920003,
+          "pointCode": "SIM02_CURRENT",
+          "name": "模拟电流",
+          "address": 2,
+          "enabled": true,
+          "read": {"enable": true, "function": 4, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "A", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 920004,
+          "pointCode": "SIM02_SETPOINT",
+          "name": "模拟设定值",
+          "address": 10,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200},
+          "write": {"enable": true, "function": 6, "length": 1, "dataType": "uint16", "min": 0, "max": 65535, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}
+        }
+      ]
+    },
+    {
+      "meterCode": "SIM_MODBUS_03",
+      "deviceName": "模拟电表 3",
+      "slave": 3,
+      "points": [
+        {
+          "index": 930000,
+          "pointCode": "SIM03_ONLINE",
+          "name": "设备在线状态",
+          "address": 0,
+          "enabled": true,
+          "read": {"enable": true, "function": 0, "length": 0, "dataType": "device_online", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 930001,
+          "pointCode": "SIM03_HEARTBEAT",
+          "name": "设备心跳",
+          "address": 0,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 930002,
+          "pointCode": "SIM03_VOLTAGE",
+          "name": "模拟电压",
+          "address": 1,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "V", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 930003,
+          "pointCode": "SIM03_CURRENT",
+          "name": "模拟电流",
+          "address": 2,
+          "enabled": true,
+          "read": {"enable": true, "function": 4, "length": 1, "dataType": "uint16", "scale": 0.1, "unit": "A", "intervalMs": 200},
+          "write": {"enable": false}
+        },
+        {
+          "index": 930004,
+          "pointCode": "SIM03_SETPOINT",
+          "name": "模拟设定值",
+          "address": 10,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 200},
+          "write": {"enable": true, "function": 6, "length": 1, "dataType": "uint16", "min": 0, "max": 65535, "verifyAfterWrite": true, "verifyDelayMs": 50, "verifyByRead": true}
+        }
+      ]
+    }
+  ]
+}

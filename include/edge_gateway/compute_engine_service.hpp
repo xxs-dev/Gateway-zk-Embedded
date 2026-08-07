@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <thread>
@@ -57,6 +58,7 @@ private:
     };
 
     void loop();
+    void recordAndPublishHealth(double durationMs, bool failed, std::int64_t wallNowMs);
     bool shouldEvaluate(
         const ComputeRuleConfig& rule,
         const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
@@ -93,6 +95,10 @@ private:
     std::unordered_map<std::string, RuleState> ruleStates_;
     std::unordered_map<std::string, OutputState> outputStates_;
     std::unordered_map<std::string, std::unique_ptr<GraphEmsRuntimeState>> graphEmsStates_;
+    std::size_t ruleCursor_ = 0;
+    std::deque<double> cycleDurationsMs_;
+    std::deque<bool> cycleFailures_;
+    std::int64_t lastHealthPublishMs_ = 0;
 };
 
 }  // namespace edge_gateway

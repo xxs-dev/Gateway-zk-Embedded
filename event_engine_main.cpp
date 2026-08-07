@@ -14,6 +14,7 @@
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/event_engine_service.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
@@ -149,6 +150,7 @@ int main(int argc, char* argv[]) {
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    TimingPolicyResolver::applyAppServices(appConfig);
     setProcessName("modbus-event-" + sanitizeProcessToken(basenameOf(appConfigPath)));
 
     DeviceIdentity identity;

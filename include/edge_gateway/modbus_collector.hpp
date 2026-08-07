@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "edge_gateway/common/collector_base.hpp"
+#include "edge_gateway/modbus_error.hpp"
 
 namespace edge_gateway {
 
@@ -34,7 +35,8 @@ private:
         const ReadTask& task,
         std::int64_t nowMs,
         bool realtimeFocused,
-        const std::string& message
+        const std::string& message,
+        ModbusFailureKind failureKind
     );
     int taskFailureBackoffDurationMs(int consecutiveFailures, bool realtimeFocused) const;
     void clearOverlappingTaskFailures(const ReadTask& task);
@@ -82,7 +84,7 @@ private:
         std::int64_t nextAttemptCycle = 0;
         std::int64_t lastFailureMs = 0;
         std::string lastMessage;
-        bool noResponse = false;
+        ModbusFailureKind failureKind = ModbusFailureKind::ProtocolException;
     };
     std::unordered_map<std::string, TaskFailureState> taskFailureStates_;
     mutable std::unordered_map<std::string, std::size_t> adaptiveSplitProbeCursors_;

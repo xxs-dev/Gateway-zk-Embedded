@@ -4,13 +4,24 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#else
+#include <direct.h>
+#include <process.h>
+#endif
 
 namespace edge_gateway {
 
@@ -20,6 +31,53 @@ std::int64_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
+}
+
+std::string directoryOf(const std::string& path) {
+    const auto pos = path.find_last_of("/\\");
+    return pos == std::string::npos ? std::string() : path.substr(0, pos);
+}
+
+void ensureDirectory(const std::string& path) {
+    if (path.empty()) return;
+    std::string current;
+    for (const auto ch : path) {
+        current.push_back(ch);
+        if ((ch != '/' && ch != '\\') || current.size() <= 1) continue;
+#ifndef _WIN32
+        mkdir(current.c_str(), 0775);
+#else
+        _mkdir(current.c_str());
+#endif
+    }
+#ifndef _WIN32
+    mkdir(path.c_str(), 0775);
+#else
+    _mkdir(path.c_str());
+#endif
+}
+
+double percentile95(std::vector<double> values) {
+    if (values.empty()) return 0.0;
+    std::sort(values.begin(), values.end());
+    const auto index = static_cast<std::size_t>(std::ceil(values.size() * 0.95)) - 1;
+    return values[std::min(index, values.size() - 1)];
+}
+
+void writeComputeHealthFile(const std::string& path, const std::string& payload) {
+    if (path.empty()) return;
+    ensureDirectory(directoryOf(path));
+#ifndef _WIN32
+    const auto processId = static_cast<long long>(getpid());
+#else
+    const auto processId = static_cast<long long>(_getpid());
+#endif
+    const auto temporary = path + ".tmp." + std::to_string(processId);
+    std::ofstream output(temporary.c_str(), std::ios::out | std::ios::trunc | std::ios::binary);
+    if (!output) return;
+    output << payload << '\n';
+    output.close();
+    if (!output || std::rename(temporary.c_str(), path.c_str()) != 0) std::remove(temporary.c_str());
 }
 
 struct EvalValue {
@@ -521,30 +579,90 @@ void ComputeEngineService::stop() {
 }
 
 void ComputeEngineService::loop() {
+    using SteadyClock = std::chrono::steady_clock;
+    const auto scanPeriod = std::chrono::milliseconds(std::max(1, config_.scanIntervalMs));
+    auto nextScan = SteadyClock::now();
+
     while (running_) {
         const auto now = currentTimeMs();
+        const auto cycleStarted = SteadyClock::now();
+        bool failed = false;
         try {
             runOnce(now);
         } catch (const std::exception& ex) {
+            failed = true;
             std::cerr << "compute engine scan failed error=" << ex.what() << std::endl;
         }
-        const auto sleepMs = std::max(10, config_.scanIntervalMs);
-        const auto deadline = currentTimeMs() + sleepMs;
-        while (running_ && currentTimeMs() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const auto durationMs = std::chrono::duration<double, std::milli>(SteadyClock::now() - cycleStarted).count();
+        recordAndPublishHealth(durationMs, failed, now);
+
+        nextScan += scanPeriod;
+        auto steadyNow = SteadyClock::now();
+        if (steadyNow >= nextScan) {
+            const auto missedPeriods = (steadyNow - nextScan) / scanPeriod + 1;
+            nextScan += scanPeriod * missedPeriods;
+        }
+        while (running_ && (steadyNow = SteadyClock::now()) < nextScan) {
+            const auto remaining = nextScan - steadyNow;
+            const auto maxSleepSlice = std::chrono::milliseconds(10);
+            std::this_thread::sleep_for(remaining < maxSleepSlice ? remaining : maxSleepSlice);
         }
     }
 }
 
+void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed, std::int64_t wallNowMs) {
+    const auto window = std::max<std::size_t>(10, config_.healthWindowCycles);
+    cycleDurationsMs_.push_back(durationMs);
+    cycleFailures_.push_back(failed || durationMs > std::max(1, config_.scanIntervalMs));
+    while (cycleDurationsMs_.size() > window) cycleDurationsMs_.pop_front();
+    while (cycleFailures_.size() > window) cycleFailures_.pop_front();
+    if (config_.healthFile.empty() ||
+        (lastHealthPublishMs_ > 0 && wallNowMs - lastHealthPublishMs_ < std::max(100, config_.healthPublishIntervalMs))) {
+        return;
+    }
+
+    std::vector<double> durations(cycleDurationsMs_.begin(), cycleDurationsMs_.end());
+    std::vector<double> queueDelays;
+    for (const auto& pending : router_.peekPendingWrites(2048)) {
+        const auto acceptedAt = pending.acceptedAt > 0 ? pending.acceptedAt : pending.ts;
+        if (acceptedAt > 0 && wallNowMs >= acceptedAt) {
+            queueDelays.push_back(static_cast<double>(wallNowMs - acceptedAt));
+        }
+    }
+    const auto failures = static_cast<std::size_t>(std::count(cycleFailures_.begin(), cycleFailures_.end(), true));
+    const auto timeoutPercent = cycleFailures_.empty()
+        ? 100.0
+        : 100.0 * static_cast<double>(failures) / static_cast<double>(cycleFailures_.size());
+    const bool healthy = !cycleFailures_.empty() && timeoutPercent < 20.0;
+    std::ostringstream payload;
+    payload << std::fixed << std::setprecision(2)
+            << "{\"schemaVersion\":\"1.0\",\"ts\":" << wallNowMs
+            << ",\"healthy\":" << (healthy ? "true" : "false")
+            << ",\"windowCycles\":" << cycleFailures_.size()
+            << ",\"timeoutPercent\":" << timeoutPercent
+            << ",\"scanP95Ms\":" << percentile95(std::move(durations))
+            << ",\"controlQueueP95Ms\":" << percentile95(std::move(queueDelays))
+            << ",\"pendingWrites\":" << router_.peekPendingWrites(2048).size()
+            << '}';
+    writeComputeHealthFile(config_.healthFile, payload.str());
+    lastHealthPublishMs_ = wallNowMs;
+}
+
 void ComputeEngineService::runOnce(std::int64_t nowMs) {
+    if (config_.rules.empty() || config_.maxRuleEvalPerScan == 0) {
+        return;
+    }
+
     std::size_t evaluated = 0;
     std::size_t deviceWritesThisScan = 0;
-    for (const auto& rule : config_.rules) {
+    const auto ruleCount = config_.rules.size();
+    const auto start = ruleCursor_ % ruleCount;
+    std::size_t visited = 0;
+    for (; visited < ruleCount; ++visited) {
+        const auto ruleIndex = (start + visited) % ruleCount;
+        const auto& rule = config_.rules[ruleIndex];
         if (!rule.enabled) {
             continue;
-        }
-        if (evaluated >= config_.maxRuleEvalPerScan) {
-            break;
         }
 
         const auto indexes = collectInputIndexes(rule);
@@ -562,7 +680,12 @@ void ComputeEngineService::runOnce(std::int64_t nowMs) {
         ruleStates_[safeRuleCode(rule)].lastEvalMs = nowMs;
         ruleStates_[safeRuleCode(rule)].lastInputs = std::move(currentInputs);
         ++evaluated;
+        if (evaluated >= config_.maxRuleEvalPerScan) {
+            ++visited;
+            break;
+        }
     }
+    ruleCursor_ = (start + visited) % ruleCount;
 }
 
 bool ComputeEngineService::shouldEvaluate(

@@ -1,10 +1,14 @@
 #include "edge_gateway/modbus_tcp_client.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include "edge_gateway/modbus_error.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -12,6 +16,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -31,6 +36,99 @@ constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
 using SocketHandle = int;
 constexpr SocketHandle kInvalidSocket = -1;
 #endif
+
+constexpr int kMaxReadRegisters = 125;
+constexpr int kMaxWriteRegisters = 123;
+constexpr int kMaxReadBits = 2000;
+constexpr std::uint16_t kMaxMbapLength = 254;
+
+int lastSocketError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+bool isConnectInProgress(int error) {
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINVAL;
+#else
+    return error == EINPROGRESS || error == EWOULDBLOCK || error == EAGAIN;
+#endif
+}
+
+bool isInterrupted(int error) {
+#ifdef _WIN32
+    return error == WSAEINTR;
+#else
+    return error == EINTR;
+#endif
+}
+
+bool setSocketBlocking(SocketHandle socketHandle, bool blocking) {
+#ifdef _WIN32
+    u_long mode = blocking ? 0UL : 1UL;
+    return ioctlsocket(socketHandle, FIONBIO, &mode) == 0;
+#else
+    const auto flags = fcntl(socketHandle, F_GETFL, 0);
+    if (flags < 0) {
+        return false;
+    }
+    const auto nextFlags = blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
+    return fcntl(socketHandle, F_SETFL, nextFlags) == 0;
+#endif
+}
+
+bool waitForSocket(
+    SocketHandle socketHandle,
+    bool writable,
+    std::chrono::steady_clock::time_point deadline
+) {
+    while (true) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+        const auto remainingUs = std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count();
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(remainingUs / 1000000);
+        timeout.tv_usec = static_cast<long>(remainingUs % 1000000);
+
+        fd_set readySet;
+        FD_ZERO(&readySet);
+        FD_SET(socketHandle, &readySet);
+        fd_set errorSet;
+        FD_ZERO(&errorSet);
+        FD_SET(socketHandle, &errorSet);
+#ifdef _WIN32
+        const auto rc = select(
+            0,
+            writable ? nullptr : &readySet,
+            writable ? &readySet : nullptr,
+            &errorSet,
+            &timeout
+        );
+#else
+        const auto rc = select(
+            socketHandle + 1,
+            writable ? nullptr : &readySet,
+            writable ? &readySet : nullptr,
+            &errorSet,
+            &timeout
+        );
+#endif
+        if (rc > 0) {
+            return !FD_ISSET(socketHandle, &errorSet);
+        }
+        if (rc == 0) {
+            return false;
+        }
+        if (!isInterrupted(lastSocketError())) {
+            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp socket wait failed");
+        }
+    }
+}
 
 std::vector<std::uint8_t> makeWord(int value) {
     if (value < 0 || value > 0xFFFF) {
@@ -73,13 +171,13 @@ std::vector<std::uint16_t> decodeRegistersFromReadResponse(
     int expectedCount
 ) {
     if (pdu.size() < 2) {
-        throw std::runtime_error("modbus tcp pdu too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp pdu too short");
     }
     if (pdu[0] != function) {
-        throw std::runtime_error("modbus tcp function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp function mismatch");
     }
     if (pdu.size() != static_cast<std::size_t>(2 + expectedCount * 2)) {
-        throw std::runtime_error("modbus tcp unexpected byte count");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp unexpected byte count");
     }
 
     std::vector<std::uint16_t> registers;
@@ -98,18 +196,18 @@ std::vector<std::uint16_t> decodeBitsFromReadResponse(
     int expectedCount
 ) {
     if (pdu.size() < 2) {
-        throw std::runtime_error("modbus tcp bit pdu too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit pdu too short");
     }
     if (pdu[0] != function) {
-        throw std::runtime_error("modbus tcp bit function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit function mismatch");
     }
     const auto byteCount = static_cast<std::size_t>(pdu[1]);
     const auto expectedByteCount = static_cast<std::size_t>((expectedCount + 7) / 8);
     if (byteCount != expectedByteCount) {
-        throw std::runtime_error("modbus tcp bit unexpected byte count");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit unexpected byte count");
     }
     if (pdu.size() != 2 + byteCount) {
-        throw std::runtime_error("modbus tcp bit unexpected pdu size");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit unexpected pdu size");
     }
 
     std::vector<std::uint16_t> bits;
@@ -128,10 +226,10 @@ void validateWriteEcho(
     int countOrValue
 ) {
     if (pdu.size() != 5) {
-        throw std::runtime_error("modbus tcp write echo size mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write echo size mismatch");
     }
     if (pdu[0] != function) {
-        throw std::runtime_error("modbus tcp write function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write function mismatch");
     }
     const auto echoedAddress = static_cast<int>(
         static_cast<std::uint16_t>(pdu[1] << 8) | pdu[2]
@@ -140,7 +238,7 @@ void validateWriteEcho(
         static_cast<std::uint16_t>(pdu[3] << 8) | pdu[4]
     );
     if (echoedAddress != address || echoedValue != countOrValue) {
-        throw std::runtime_error("modbus tcp write echo mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write echo mismatch");
     }
 }
 
@@ -182,7 +280,13 @@ private:
 
 ModbusTcpClient::ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters)
     : config_(std::move(config)),
-      maxRequestRegisters_(maxRequestRegisters > 0 ? maxRequestRegisters : 125) {
+      maxRequestRegisters_(maxRequestRegisters > 0 ? maxRequestRegisters : kMaxReadRegisters) {
+    if (config_.connectTimeoutMs <= 0) {
+        throw std::invalid_argument("modbus tcp connectTimeoutMs must be positive");
+    }
+    if (config_.timeoutMs <= 0) {
+        throw std::invalid_argument("modbus tcp timeoutMs must be positive");
+    }
 }
 
 ModbusTcpClient::~ModbusTcpClient() {
@@ -285,11 +389,16 @@ void ModbusTcpClient::writeMultipleRegisters(
     if (values.empty()) {
         throw std::invalid_argument("writeMultipleRegisters requires at least one value");
     }
-    if (values.size() > static_cast<std::size_t>(maxRequestRegisters_)) {
+    const auto writeLimit = std::min(maxRequestRegisters_, kMaxWriteRegisters);
+    if (values.size() > static_cast<std::size_t>(writeLimit)) {
         throw std::invalid_argument(
             "modbus tcp write register count exceeds maxRequestRegisters: " + std::to_string(values.size()) +
-            " > " + std::to_string(maxRequestRegisters_)
+            " > " + std::to_string(writeLimit)
         );
+    }
+    if (address < 0 || address > 0xFFFF ||
+        static_cast<int>(values.size()) - 1 > 0xFFFF - address) {
+        throw std::invalid_argument("modbus tcp write address range is invalid");
     }
 
     std::vector<std::uint8_t> pdu;
@@ -318,6 +427,8 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
         throw std::invalid_argument("unit id must be in range 0..255");
     }
     ensureConnected();
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(config_.timeoutMs);
 
     ++transactionId_;
     if (transactionId_ == 0) {
@@ -336,9 +447,9 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
     frame.push_back(static_cast<std::uint8_t>(slave & 0xFF));
     frame.insert(frame.end(), pdu.begin(), pdu.end());
 
-    sendAll(frame);
+    sendAll(frame, deadline);
 
-    const auto header = readExact(7);
+    const auto header = readExact(7, deadline);
     const auto responseTransactionId = static_cast<std::uint16_t>(
         static_cast<std::uint16_t>(header[0] << 8) | header[1]
     );
@@ -351,30 +462,37 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
     const auto unitId = header[6];
 
     if (responseTransactionId != transactionId_) {
-        throw std::runtime_error("modbus tcp transaction id mismatch");
+        disconnect();
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp transaction id mismatch");
     }
     if (protocolId != 0) {
-        throw std::runtime_error("modbus tcp protocol id mismatch");
+        disconnect();
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp protocol id mismatch");
     }
     if (unitId != static_cast<std::uint8_t>(slave & 0xFF)) {
-        throw std::runtime_error("modbus tcp unit id mismatch");
+        disconnect();
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp unit id mismatch");
     }
-    if (lengthField < 2) {
-        throw std::runtime_error("modbus tcp length too short");
+    if (lengthField < 2 || lengthField > kMaxMbapLength) {
+        disconnect();
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp invalid length");
     }
 
-    const auto body = readExact(static_cast<std::size_t>(lengthField - 1));
+    const auto body = readExact(static_cast<std::size_t>(lengthField - 1), deadline);
     if (body.empty()) {
-        throw std::runtime_error("modbus tcp empty pdu");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp empty pdu");
     }
     if (body[0] == static_cast<std::uint8_t>(function | 0x80U)) {
         if (body.size() < 2) {
-            throw std::runtime_error("modbus tcp exception without code");
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp exception without code");
         }
-        throw std::runtime_error("modbus tcp exception code " + std::to_string(body[1]));
+        throw ModbusError(
+            ModbusFailureKind::ProtocolException,
+            "modbus tcp exception code " + std::to_string(body[1])
+        );
     }
     if (body[0] != function) {
-        throw std::runtime_error("modbus tcp function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp function mismatch");
     }
     return body;
 }
@@ -388,11 +506,15 @@ std::vector<std::uint16_t> ModbusTcpClient::executeRegisterRead(
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
     }
-    if (count > maxRequestRegisters_) {
+    const auto readLimit = std::min(maxRequestRegisters_, kMaxReadRegisters);
+    if (count > readLimit) {
         throw std::invalid_argument(
             "modbus tcp read count exceeds maxRequestRegisters: " + std::to_string(count) +
-            " > " + std::to_string(maxRequestRegisters_)
+            " > " + std::to_string(readLimit)
         );
+    }
+    if (start < 0 || start > 0xFFFF || count - 1 > 0xFFFF - start) {
+        throw std::invalid_argument("modbus tcp read address range is invalid");
     }
 
     std::vector<std::uint8_t> pdu;
@@ -415,11 +537,15 @@ std::vector<std::uint16_t> ModbusTcpClient::executeBitRead(
     if (count <= 0) {
         throw std::invalid_argument("read count must be positive");
     }
-    if (count > maxRequestRegisters_) {
+    const auto readLimit = std::min(maxRequestRegisters_, kMaxReadBits);
+    if (count > readLimit) {
         throw std::invalid_argument(
             "modbus tcp bit read count exceeds maxRequestRegisters: " + std::to_string(count) +
-            " > " + std::to_string(maxRequestRegisters_)
+            " > " + std::to_string(readLimit)
         );
+    }
+    if (start < 0 || start > 0xFFFF || count - 1 > 0xFFFF - start) {
+        throw std::invalid_argument("modbus tcp bit read address range is invalid");
     }
 
     std::vector<std::uint8_t> pdu;
@@ -448,29 +574,70 @@ void ModbusTcpClient::ensureConnected() {
     addrinfo* result = nullptr;
     const auto port = std::to_string(config_.port);
     if (getaddrinfo(config_.host.c_str(), port.c_str(), &hints, &result) != 0) {
-        throw std::runtime_error("modbus tcp getaddrinfo failed");
+        throw ModbusError(ModbusFailureKind::Transport, "modbus tcp getaddrinfo failed");
     }
 
     SocketHandle connected = kInvalidSocket;
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(config_.connectTimeoutMs);
     for (auto* addr = result; addr != nullptr; addr = addr->ai_next) {
         connected = static_cast<SocketHandle>(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
         if (connected == kInvalidSocket) {
             continue;
         }
-        if (connect(connected, addr->ai_addr, static_cast<int>(addr->ai_addrlen)) == 0) {
-            break;
+        if (!setSocketBlocking(connected, false)) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
         }
-        closeSocket(connected);
-        connected = kInvalidSocket;
+        const auto connectRc = connect(connected, addr->ai_addr, static_cast<int>(addr->ai_addrlen));
+        if (connectRc != 0) {
+            const auto error = lastSocketError();
+            if (!isConnectInProgress(error) || !waitForSocket(connected, true, deadline)) {
+                closeSocket(connected);
+                connected = kInvalidSocket;
+                continue;
+            }
+            int socketError = 0;
+#ifdef _WIN32
+            int optionLength = sizeof(socketError);
+            const auto optionRc = getsockopt(
+                connected,
+                SOL_SOCKET,
+                SO_ERROR,
+                reinterpret_cast<char*>(&socketError),
+                &optionLength
+            );
+#else
+            socklen_t optionLength = sizeof(socketError);
+            const auto optionRc = getsockopt(connected, SOL_SOCKET, SO_ERROR, &socketError, &optionLength);
+#endif
+            if (optionRc != 0 || socketError != 0) {
+                closeSocket(connected);
+                connected = kInvalidSocket;
+                continue;
+            }
+        }
+        if (!setSocketBlocking(connected, true)) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
+        }
+        break;
     }
     freeaddrinfo(result);
 
     if (connected == kInvalidSocket) {
-        throw std::runtime_error("modbus tcp connect failed");
+        throw ModbusError(ModbusFailureKind::Transport, "modbus tcp connect failed");
     }
 
     socket_ = static_cast<std::intptr_t>(connected);
-    configureSocketTimeouts();
+    try {
+        configureSocketTimeouts();
+    } catch (...) {
+        disconnect();
+        throw;
+    }
 }
 
 void ModbusTcpClient::disconnect() {
@@ -484,46 +651,70 @@ void ModbusTcpClient::disconnect() {
 void ModbusTcpClient::configureSocketTimeouts() const {
 #ifdef _WIN32
     const DWORD timeout = static_cast<DWORD>(config_.timeoutMs);
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+    if (setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) != 0 ||
+        setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) != 0) {
+        throw ModbusError(ModbusFailureKind::Transport, "modbus tcp configure socket timeout failed");
+    }
 #else
     timeval timeout;
     timeout.tv_sec = config_.timeoutMs / 1000;
     timeout.tv_usec = (config_.timeoutMs % 1000) * 1000;
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    if (setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        throw ModbusError(ModbusFailureKind::Transport, "modbus tcp configure socket timeout failed");
+    }
 #endif
 }
 
-std::vector<std::uint8_t> ModbusTcpClient::readExact(std::size_t size) {
+std::vector<std::uint8_t> ModbusTcpClient::readExact(
+    std::size_t size,
+    std::chrono::steady_clock::time_point deadline
+) {
     std::vector<std::uint8_t> bytes(size);
     std::size_t received = 0;
     while (received < size) {
+        if (!waitForSocket(static_cast<SocketHandle>(socket_), false, deadline)) {
+            disconnect();
+            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp recv timeout");
+        }
 #ifdef _WIN32
         const auto rc = recv(static_cast<SocketHandle>(socket_), reinterpret_cast<char*>(bytes.data() + received), static_cast<int>(size - received), 0);
 #else
         const auto rc = recv(static_cast<SocketHandle>(socket_), bytes.data() + received, size - received, 0);
 #endif
+        if (rc < 0 && isInterrupted(lastSocketError())) {
+            continue;
+        }
         if (rc <= 0) {
             disconnect();
-            throw std::runtime_error("modbus tcp recv failed");
+            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp recv failed");
         }
         received += static_cast<std::size_t>(rc);
     }
     return bytes;
 }
 
-void ModbusTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
+void ModbusTcpClient::sendAll(
+    const std::vector<std::uint8_t>& bytes,
+    std::chrono::steady_clock::time_point deadline
+) {
     std::size_t sent = 0;
     while (sent < bytes.size()) {
+        if (!waitForSocket(static_cast<SocketHandle>(socket_), true, deadline)) {
+            disconnect();
+            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp send timeout");
+        }
 #ifdef _WIN32
         const auto rc = send(static_cast<SocketHandle>(socket_), reinterpret_cast<const char*>(bytes.data() + sent), static_cast<int>(bytes.size() - sent), 0);
 #else
-        const auto rc = send(static_cast<SocketHandle>(socket_), bytes.data() + sent, bytes.size() - sent, 0);
+        const auto rc = send(static_cast<SocketHandle>(socket_), bytes.data() + sent, bytes.size() - sent, MSG_NOSIGNAL);
 #endif
+        if (rc < 0 && isInterrupted(lastSocketError())) {
+            continue;
+        }
         if (rc <= 0) {
             disconnect();
-            throw std::runtime_error("modbus tcp send failed");
+            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp send failed");
         }
         sent += static_cast<std::size_t>(rc);
     }

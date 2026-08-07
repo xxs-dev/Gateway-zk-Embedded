@@ -76,6 +76,7 @@ private:
     std::unique_ptr<MqttEventOutbox> eventOutbox_;
     std::unique_ptr<SqliteAlarmWriter> alarmWriter_;
     std::unordered_map<std::uint32_t, ChangeState> changeStates_;
+    std::unordered_map<MemoryPointStore*, std::uint64_t> lastUpdateSequenceByStore_;
     std::int64_t lastFallbackScanMs_ = 0;
     std::atomic<bool> running_{false};
     std::thread thread_;

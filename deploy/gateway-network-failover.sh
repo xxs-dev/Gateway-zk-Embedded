@@ -22,6 +22,7 @@ load_runtime_config() {
             CELLULAR_GATEWAY) CELLULAR_GATEWAY="$value" ;;
             WIRED_INTERFACE) WIRED_INTERFACE="$value" ;;
             WIRED_INTERFACES) WIRED_INTERFACES="$value" ;;
+            EXCLUDED_INTERFACES) EXCLUDED_INTERFACES="$value" ;;
             WIRED_ROUTE_METRIC) WIRED_ROUTE_METRIC="$value" ;;
             WIRED_STANDBY_ROUTE_METRIC) WIRED_STANDBY_ROUTE_METRIC="$value" ;;
             PROBE_HOST) PROBE_HOST="$value" ;;
@@ -33,15 +34,36 @@ load_runtime_config() {
             CELLULAR_ROUTE_METRIC) CELLULAR_ROUTE_METRIC="$value" ;;
             FALLBACK_ROUTE_METRIC) FALLBACK_ROUTE_METRIC="$value" ;;
             UPLINK_DNS_SERVERS) UPLINK_DNS_SERVERS="$value" ;;
+            STATE_FILE) STATE_FILE="$value" ;;
         esac
     done < <(python3 - "$RUNTIME_CONFIG_FILE" 2>/dev/null <<'PY'
 import json
+import os
 import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     root = json.load(handle)
 
 config = (((root.get("systemMonitor") or {}).get("cellular") or {}).get("routeFailover") or {})
+excluded_interfaces = config.get("excludedInterfaces")
+if not isinstance(excluded_interfaces, list):
+    excluded_interfaces = []
+cluster = root.get("emsCluster") or {}
+if not (isinstance(cluster, dict) and cluster.get("enabled")):
+    sibling = os.path.join(os.path.dirname(sys.argv[1]), "mqtt-service.json")
+    try:
+        with open(sibling, "r", encoding="utf-8") as handle:
+            sibling_root = json.load(handle)
+        cluster = sibling_root.get("emsCluster") or {}
+    except Exception:
+        cluster = {}
+if isinstance(cluster, dict) and cluster.get("enabled"):
+    cluster_interface = str(cluster.get("clusterInterface") or "").strip()
+    if cluster_interface:
+        excluded_interfaces.append(cluster_interface)
+excluded_interfaces = [str(item).strip() for item in excluded_interfaces if str(item).strip()]
+if excluded_interfaces:
+    print(f"EXCLUDED_INTERFACES\t{' '.join(dict.fromkeys(excluded_interfaces))}")
 wired_interfaces = config.get("wiredInterfaces")
 if isinstance(wired_interfaces, list):
     values = [str(item).strip() for item in wired_interfaces if str(item).strip()]
@@ -52,6 +74,8 @@ if isinstance(dns_servers, list):
     values = [str(item).strip() for item in dns_servers if str(item).strip()]
     if values:
         print(f"UPLINK_DNS_SERVERS\t{' '.join(values)}")
+if str(config.get("stateFile", "")).strip():
+    print(f"STATE_FILE\t{str(config['stateFile']).strip()}")
 fields = (
     ("FAILOVER_ENABLED", "enabled"),
     ("PREFER_CELLULAR", "preferCellular"),
@@ -88,6 +112,7 @@ load_runtime_config
 : "${CELLULAR_GATEWAY:=192.168.43.1}"
 : "${WIRED_INTERFACE:=ens1}"
 : "${WIRED_INTERFACES:=$WIRED_INTERFACE auto}"
+: "${EXCLUDED_INTERFACES:=}"
 : "${WIRED_ROUTE_METRIC:=50}"
 : "${WIRED_STANDBY_ROUTE_METRIC:=200}"
 : "${PROBE_HOST:=223.5.5.5}"
@@ -100,10 +125,9 @@ load_runtime_config
 : "${FALLBACK_ROUTE_METRIC:=600}"
 : "${UPLINK_DNS_SERVERS:=223.5.5.5 119.29.29.29}"
 : "${STATE_DIR:=/run/gateway-network-failover}"
+: "${STATE_FILE:=$STATE_DIR/state}"
 : "${LOG_FILE:=/opt/modbus-gateway/data/network-failover.log}"
 : "${MAX_LOG_SIZE:=1048576}"
-
-STATE_FILE="$STATE_DIR/state"
 PROBE_ROUTE_INSTALLED=0
 PROBE_ROUTE_INTERFACE=""
 
@@ -176,7 +200,7 @@ load_state() {
 }
 
 save_state() {
-    mkdir -p "$STATE_DIR"
+    mkdir -p "$(dirname "$STATE_FILE")"
     local temp_file="$STATE_FILE.tmp"
     {
         printf 'mode=%q\n' "$mode"
@@ -186,6 +210,9 @@ save_state() {
         printf 'last_checked=%q\n' "$last_checked"
         printf 'last_message=%q\n' "$last_message"
         printf 'selected_wired_interface=%q\n' "$selected_wired_interface"
+        printf 'failover_enabled=%q\n' "$FAILOVER_ENABLED"
+        printf 'prefer_cellular=%q\n' "$PREFER_CELLULAR"
+        printf 'cellular_interface=%q\n' "$CELLULAR_INTERFACE"
     } > "$temp_file"
     mv -f "$temp_file" "$STATE_FILE"
 }
@@ -234,10 +261,20 @@ discover_physical_wired_interfaces() {
         [ -e "$path/device" ] || continue
         interface=${path##*/}
         [ "$interface" = "$CELLULAR_INTERFACE" ] && continue
+        interface_excluded "$interface" && continue
         case "$interface" in
             en*|eth*) printf '%s\n' "$interface" ;;
         esac
     done
+}
+
+interface_excluded() {
+    local interface="$1"
+    local excluded
+    for excluded in $EXCLUDED_INTERFACES; do
+        [ "$interface" = "$excluded" ] && return 0
+    done
+    return 1
 }
 
 wired_candidates() {
@@ -247,6 +284,7 @@ wired_candidates() {
             if [ "$item" = "auto" ]; then
                 discover_physical_wired_interfaces
             elif [ -n "$item" ] && [ "$item" != "$CELLULAR_INTERFACE" ]; then
+                interface_excluded "$item" && continue
                 printf '%s\n' "$item"
             fi
         done
@@ -255,7 +293,9 @@ wired_candidates() {
 
 ordered_wired_candidates() {
     {
-        [ -n "$selected_wired_interface" ] && printf '%s\n' "$selected_wired_interface"
+        if [ -n "$selected_wired_interface" ] && ! interface_excluded "$selected_wired_interface"; then
+            printf '%s\n' "$selected_wired_interface"
+        fi
         wired_candidates
     } | awk 'NF && !seen[$0]++'
 }

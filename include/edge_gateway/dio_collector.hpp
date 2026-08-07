@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "edge_gateway/common/collector_base.hpp"
 
@@ -23,6 +24,7 @@ private:
     PointValue collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs);
 
     std::shared_ptr<IGpioPort> gpioPort_;
+    std::unordered_set<int> initializedReadGpios_;
     std::unordered_map<std::uint32_t, double> lastDioRawValues_;
     std::unordered_map<std::uint32_t, double> lastDioStableValues_;
     std::unordered_map<std::uint32_t, std::int64_t> lastDioRawChangeMs_;

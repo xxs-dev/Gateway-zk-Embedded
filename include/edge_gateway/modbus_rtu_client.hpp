@@ -58,6 +58,8 @@ private:
 
     void ensurePortOpen();
     void waitForFrameInterval(int slave);
+    std::chrono::microseconds minimumBusSilentInterval() const;
+    void noteBusActivity();
     static std::uint16_t crc16(const std::vector<std::uint8_t>& bytes);
     static void appendCrc(std::vector<std::uint8_t>& frame);
     static void validateCrc(const std::vector<std::uint8_t>& frame);
@@ -85,6 +87,7 @@ private:
     int activeTransactions_ = 0;
     int pendingPriorityWrites_ = 0;
     std::unordered_map<int, std::chrono::steady_clock::time_point> lastRequestWriteAtBySlave_;
+    std::chrono::steady_clock::time_point lastBusActivityAt_{};
     static thread_local int priorityContextDepth_;
 };
 

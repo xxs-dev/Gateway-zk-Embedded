@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "1.1.0",
+  "protocol": {"type": "computed"},
+  "collect": {"defaultIntervalMs": 200, "batchOptimize": false, "maxBatchRegisters": 1},
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 3000,
+    "indexBy": ["machineCode", "meterCode", "pointCode"],
+    "sharedMemoryName": "__SHARED_MEMORY_NAME__",
+    "maxLatestPoints": 5000,
+    "maxPendingWrites": 512,
+    "maxPersistentSamples": 0,
+    "sqlitePath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 50,
+    "writebackBatchSize": 50
+  },
+  "meters": [
+    {
+      "meterCode": "SIM_COMPUTE",
+      "deviceName": "模拟计算点",
+      "slave": 0,
+      "points": [
+        {
+          "index": 999901,
+          "pointCode": "SIM_COMPUTE_DOUBLE",
+          "name": "模拟源点二倍值",
+          "category": "computed",
+          "enabled": true,
+          "fullUpload": false,
+          "reportOnChange": true,
+          "read": {"enable": true, "function": 0, "length": 0, "dataType": "computed", "intervalMs": 200, "cachePolicy": {"storeLatest": true, "storeHistory": true, "historySize": 100, "ttlMs": 3000}},
+          "write": {"enable": false}
+        }
+      ]
+    }
+  ]
+}

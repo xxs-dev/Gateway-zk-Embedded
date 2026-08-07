@@ -76,6 +76,28 @@ std::string normalizedJsonFormat(std::string value, const std::string& fallback)
     return fallback.empty() ? "compactArray" : fallback;
 }
 
+std::string normalizedDeliveryMode(std::string value) {
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (const auto ch : value) {
+        if (ch == '_' || ch == '-' || std::isspace(static_cast<unsigned char>(ch))) {
+            continue;
+        }
+        normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    if (normalized == "onchange") return "onChange";
+    if (normalized == "periodic") return "periodic";
+    if (normalized == "hybrid" || normalized.empty()) return "hybrid";
+    throw std::invalid_argument("deliveryMode must be onChange, periodic, or hybrid");
+}
+
+int validatedDeliveryMaxLatency(int value) {
+    if (value == -1 || value >= 10) {
+        return value;
+    }
+    throw std::invalid_argument("deliveryMaxLatencyMs must be -1 or at least 10ms");
+}
+
 std::string resolveRelativeToConfig(const std::string& configPath, const std::string& value) {
     if (value.empty() || isAbsolutePath(value) || fileExists(value)) {
         return value;
@@ -626,7 +648,8 @@ void normalizeCollectConfig(CollectConfig& config) {
     if (config.maxRequestRegisters <= 0) {
         config.maxRequestRegisters = config.maxBatchRegisters;
     }
-    config.maxBatchRegisters = std::min(config.maxBatchRegisters, config.maxRequestRegisters);
+    config.maxRequestRegisters = boundedInt(config.maxRequestRegisters, 1, 125);
+    config.maxBatchRegisters = boundedInt(config.maxBatchRegisters, 1, config.maxRequestRegisters);
     config.offlineFailureThreshold = std::max(1, config.offlineFailureThreshold);
     config.recoverySuccessThreshold = std::max(1, config.recoverySuccessThreshold);
     config.slaveFailureBackoffThreshold = std::max(1, config.slaveFailureBackoffThreshold);
@@ -733,6 +756,7 @@ CachePolicy parseCachePolicy(const JsonValue* value) {
         return policy;
     }
     const auto& object = value->asObject();
+    policy.ttlExplicit = value->find("ttlMs") != nullptr;
     policy.storeLatest = requireBool(object, "storeLatest", policy.storeLatest);
     policy.storeHistory = requireBool(object, "storeHistory", policy.storeHistory);
     policy.historySize = requireSize(object, "historySize", policy.historySize);
@@ -746,6 +770,7 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
         return spec;
     }
     const auto& object = value->asObject();
+    spec.receiveTimeoutExplicit = value->find("receiveTimeoutMs") != nullptr;
     spec.frameId = requireString(object, "frameId", spec.frameId);
     spec.extended = requireBool(object, "extended", spec.extended);
     spec.dlc = requireInt(object, "dlc", spec.dlc);
@@ -785,6 +810,7 @@ ReadSpec parseReadSpec(const JsonValue* value) {
         return spec;
     }
     const auto& object = value->asObject();
+    spec.intervalExplicit = value->find("intervalMs") != nullptr;
     spec.enable = requireBool(object, "enable", spec.enable);
     spec.function = requireInt(object, "function", spec.function);
     spec.length = requireInt(object, "length", spec.length);
@@ -1194,6 +1220,7 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     device.enabled = requireBool(object, "enabled", device.enabled);
     device.slave = requireInt(object, "slave", defaultSlave);
     device.address = requireString(object, "address", device.address);
+    device.onlineTimeoutExplicit = value.find("onlineTimeoutMs") != nullptr;
     device.onlineTimeoutMs = requireInt(object, "onlineTimeoutMs", device.onlineTimeoutMs);
     device.onlineFrameIds = parseStringArray(value.find("onlineFrameIds"));
     if (const auto* points = value.find("points")) {
@@ -1228,6 +1255,12 @@ SerialTransportConfig parseTransport(const JsonValue* value) {
     if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
         throw std::invalid_argument("transport.wakeupBytes must be between 0 and 16");
     }
+    if (transport.timeoutMs <= 0) {
+        throw std::invalid_argument("transport.timeoutMs must be positive");
+    }
+    if (transport.readRetryCount < 0) {
+        throw std::invalid_argument("transport.readRetryCount must not be negative");
+    }
     return transport;
 }
 
@@ -1244,12 +1277,28 @@ TcpTransportConfig parseTcpTransport(const JsonValue* value) {
     return transport;
 }
 
+void validateTcpTransport(const TcpTransportConfig& transport) {
+    if (transport.host.empty()) {
+        throw std::invalid_argument("tcp.host is required");
+    }
+    if (transport.port <= 0 || transport.port > 65535) {
+        throw std::invalid_argument("tcp.port must be between 1 and 65535");
+    }
+    if (transport.connectTimeoutMs <= 0) {
+        throw std::invalid_argument("tcp.connectTimeoutMs must be positive");
+    }
+    if (transport.timeoutMs <= 0) {
+        throw std::invalid_argument("tcp.timeoutMs must be positive");
+    }
+}
+
 CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     CanProtocolConfig can;
     if (value == nullptr || value->isNull()) {
         return can;
     }
     const auto& object = value->asObject();
+    can.transportMode = requireString(object, "transportMode", can.transportMode);
     can.interfaceName = requireString(object, "interfaceName", can.interfaceName);
     can.interfaceCode = requireString(object, "interfaceCode", can.interfaceCode);
     can.bitrate = requireInt(object, "bitrate", can.bitrate);
@@ -1262,6 +1311,10 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     can.manageInterface = requireBool(object, "manageInterface", can.manageInterface);
     can.rxQueueSize = requireSize(object, "rxQueueSize", can.rxQueueSize);
     can.txQueueSize = requireSize(object, "txQueueSize", can.txQueueSize);
+    can.udpBindAddress = requireString(object, "udpBindAddress", can.udpBindAddress);
+    can.udpListenPort = requireInt(object, "udpListenPort", can.udpListenPort);
+    can.udpPeerAddress = requireString(object, "udpPeerAddress", can.udpPeerAddress);
+    can.udpPeerPort = requireInt(object, "udpPeerPort", can.udpPeerPort);
     return can;
 }
 
@@ -1379,6 +1432,13 @@ ProtocolConfig parseProtocol(const JsonValue* value) {
     if ((protocol.type == "iec103_tcp" || protocol.type == "iec103") &&
         protocol.iec.transportMode == "tcp" && protocol.tcp.port == 502) {
         protocol.tcp.port = 2404;
+    }
+    const bool usesTcp = protocol.type == "modbus_tcp" ||
+        protocol.type == "iec104" ||
+        protocol.type == "iec103_tcp" ||
+        (protocol.type == "iec103" && protocol.iec.transportMode == "tcp");
+    if (usesTcp) {
+        validateTcpTransport(protocol.tcp);
     }
     return protocol;
 }
@@ -1562,7 +1622,90 @@ CollectConfig parseCollect(const JsonValue* value) {
     );
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.interfaceCheckIntervalMs = requireInt(object, "interfaceCheckIntervalMs", config.interfaceCheckIntervalMs);
+    config.receiveWaitMs = requireInt(object, "receiveWaitMs", config.receiveWaitMs);
     normalizeCollectConfig(config);
+    return config;
+}
+
+TimingPolicyConfig parseTimingPolicy(const JsonValue* value) {
+    TimingPolicyConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.configured = true;
+    config.profile = requireString(object, "profile", config.profile);
+
+    if (const auto* acquisition = value->find("acquisition")) {
+        const auto& acquisitionObject = acquisition->asObject();
+        config.acquisition.targetFreshnessMs = requireInt(
+            acquisitionObject,
+            "targetFreshnessMs",
+            config.acquisition.targetFreshnessMs
+        );
+        config.acquisition.maxAgeMs = requireInt(
+            acquisitionObject,
+            "maxAgeMs",
+            config.acquisition.maxAgeMs
+        );
+    }
+    if (const auto* delivery = value->find("delivery")) {
+        const auto& deliveryObject = delivery->asObject();
+        config.delivery.mode = requireString(deliveryObject, "mode", config.delivery.mode);
+        config.delivery.maxLatencyMs = requireInt(
+            deliveryObject,
+            "maxLatencyMs",
+            config.delivery.maxLatencyMs
+        );
+        config.delivery.batchWindowMs = requireInt(
+            deliveryObject,
+            "batchWindowMs",
+            config.delivery.batchWindowMs
+        );
+        config.delivery.heartbeatMs = requireInt(
+            deliveryObject,
+            "heartbeatMs",
+            config.delivery.heartbeatMs
+        );
+    }
+    if (const auto* overrides = value->find("overrides")) {
+        const auto& overrideObject = overrides->asObject();
+        config.overrides.pollIntervalMs = requireInt(
+            overrideObject,
+            "pollIntervalMs",
+            config.overrides.pollIntervalMs
+        );
+        config.overrides.requestGapMs = requireInt(
+            overrideObject,
+            "requestGapMs",
+            config.overrides.requestGapMs
+        );
+        config.overrides.responseTimeoutMs = requireInt(
+            overrideObject,
+            "responseTimeoutMs",
+            config.overrides.responseTimeoutMs
+        );
+        config.overrides.retryCount = requireInt(
+            overrideObject,
+            "retryCount",
+            config.overrides.retryCount
+        );
+        config.overrides.interfaceCheckIntervalMs = requireInt(
+            overrideObject,
+            "interfaceCheckIntervalMs",
+            config.overrides.interfaceCheckIntervalMs
+        );
+        config.overrides.receiveWaitMs = requireInt(
+            overrideObject,
+            "receiveWaitMs",
+            config.overrides.receiveWaitMs
+        );
+        config.overrides.mqttScanIntervalMs = requireInt(
+            overrideObject,
+            "mqttScanIntervalMs",
+            config.overrides.mqttScanIntervalMs
+        );
+    }
     return config;
 }
 
@@ -1800,6 +1943,12 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
     if (config.sharedMemoryNames.empty() && !config.sharedMemoryName.empty()) {
         config.sharedMemoryNames.push_back(config.sharedMemoryName);
     }
+    config.deliveryMode = normalizedDeliveryMode(
+        requireString(object, "deliveryMode", config.deliveryMode)
+    );
+    config.deliveryMaxLatencyMs = validatedDeliveryMaxLatency(
+        requireInt(object, "deliveryMaxLatencyMs", config.deliveryMaxLatencyMs)
+    );
     config.scanIntervalMs = requireInt(object, "scanIntervalMs", config.scanIntervalMs);
     config.fullUploadIntervalMs = requireInt(object, "fullUploadIntervalMs", config.fullUploadIntervalMs);
     config.snapshotBacklogThreshold = requireSize(object, "snapshotBacklogThreshold", config.snapshotBacklogThreshold);
@@ -1878,6 +2027,12 @@ EventEngineConfig parseEventEngineConfig(const JsonValue* value) {
     }
     const auto& object = value->asObject();
     config.enabled = requireBool(object, "enabled", config.enabled);
+    config.deliveryMode = normalizedDeliveryMode(
+        requireString(object, "deliveryMode", config.deliveryMode)
+    );
+    config.deliveryMaxLatencyMs = validatedDeliveryMaxLatency(
+        requireInt(object, "deliveryMaxLatencyMs", config.deliveryMaxLatencyMs)
+    );
     config.scanIntervalMs = requireInt(object, "scanIntervalMs", config.scanIntervalMs);
     config.scanFallbackIntervalMs = requireInt(object, "scanFallbackIntervalMs", config.scanFallbackIntervalMs);
     config.updateDrainBatchSize = requireSize(object, "updateDrainBatchSize", config.updateDrainBatchSize);
@@ -2209,6 +2364,56 @@ AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
     return config;
 }
 
+EmsClusterConfig parseEmsClusterConfig(const JsonValue* value) {
+    EmsClusterConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.clusterId = requireString(object, "clusterId", config.clusterId);
+    config.transport = requireString(object, "transport", config.transport);
+    config.clusterInterface = requireString(object, "clusterInterface", config.clusterInterface);
+    config.ipMode = requireString(object, "ipMode", config.ipMode);
+    config.staticAddress = requireString(object, "staticAddress", config.staticAddress);
+    config.prefixLength = requireInt(object, "prefixLength", config.prefixLength);
+    config.autoConfigureAddress = requireBool(object, "autoConfigureAddress", config.autoConfigureAddress);
+    config.multicastAddress = requireString(object, "multicastAddress", config.multicastAddress);
+    config.discoveryPort = requireInt(object, "discoveryPort", config.discoveryPort);
+    config.tcpPort = requireInt(object, "tcpPort", config.tcpPort);
+    config.seedPeers = parseStringArray(value->find("seedPeers"));
+    config.securityMode = requireString(object, "securityMode", config.securityMode);
+    config.psk = requireString(object, "psk", config.psk);
+    config.expectedMembers = requireInt(object, "expectedMembers", config.expectedMembers);
+    config.maxMembers = requireInt(object, "maxMembers", config.maxMembers);
+    config.minimumQuorum = requireInt(object, "minimumQuorum", config.minimumQuorum);
+    config.lockedCabinetNo = requireInt(object, "lockedCabinetNo", config.lockedCabinetNo);
+    config.electionPriority = requireInt(object, "electionPriority", config.electionPriority);
+    config.discoveryIntervalMs = requireInt(object, "discoveryIntervalMs", config.discoveryIntervalMs);
+    config.heartbeatMs = requireInt(object, "heartbeatMs", config.heartbeatMs);
+    config.leaderLeaseMs = requireInt(object, "leaderLeaseMs", config.leaderLeaseMs);
+    config.electionTimeoutMinMs = requireInt(object, "electionTimeoutMinMs", config.electionTimeoutMinMs);
+    config.electionTimeoutMaxMs = requireInt(object, "electionTimeoutMaxMs", config.electionTimeoutMaxMs);
+    config.memberTimeoutMs = requireInt(object, "memberTimeoutMs", config.memberTimeoutMs);
+    config.membershipRetentionSec = requireInt(
+        object,
+        "membershipRetentionSec",
+        config.membershipRetentionSec
+    );
+    config.statusIntervalMs = requireInt(object, "statusIntervalMs", config.statusIntervalMs);
+    config.factoryAddress = requireString(object, "factoryAddress", config.factoryAddress);
+    config.consensusStateFile = requireString(
+        object,
+        "consensusStateFile",
+        config.consensusStateFile
+    );
+    config.membershipFile = requireString(object, "membershipFile", config.membershipFile);
+    config.statusFile = requireString(object, "statusFile", config.statusFile);
+    config.networkStateFile = requireString(object, "networkStateFile", config.networkStateFile);
+    config.computeHealthFile = requireString(object, "computeHealthFile", config.computeHealthFile);
+    return config;
+}
+
 ComputeEngineConfig parseComputeEngineConfig(const JsonValue* value) {
     ComputeEngineConfig config;
     if (value == nullptr || value->isNull()) {
@@ -2227,6 +2432,13 @@ ComputeEngineConfig parseComputeEngineConfig(const JsonValue* value) {
     config.badQuality = requireInt(object, "badQuality", config.badQuality);
     config.defaultOutputTtlMs = requireInt64(object, "defaultOutputTtlMs", config.defaultOutputTtlMs);
     config.maxWritesPerScan = requireSize(object, "maxWritesPerScan", config.maxWritesPerScan);
+    config.healthFile = requireString(object, "healthFile", config.healthFile);
+    config.healthPublishIntervalMs = requireInt(
+        object,
+        "healthPublishIntervalMs",
+        config.healthPublishIntervalMs
+    );
+    config.healthWindowCycles = requireSize(object, "healthWindowCycles", config.healthWindowCycles);
     if (const auto* rules = value->find("rules")) {
         for (const auto& item : rules->asArray().values) {
             config.rules.push_back(parseComputeRuleConfig(*item, config));
@@ -2431,6 +2643,14 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
             config.cellular.signalAlertThresholdPercent
         );
         config.cellular.maskSensitiveFields = requireBool(cellularObject, "maskSensitiveFields", config.cellular.maskSensitiveFields);
+        if (const auto* routeFailover = cellular->find("routeFailover")) {
+            const auto& routeFailoverObject = routeFailover->asObject();
+            config.cellular.routeFailoverStateFile = requireString(
+                routeFailoverObject,
+                "stateFile",
+                config.cellular.routeFailoverStateFile
+            );
+        }
         const auto interfacePatterns = parseStringArray(cellular->find("interfacePatterns"));
         if (!interfacePatterns.empty()) {
             config.cellular.interfacePatterns = interfacePatterns;
@@ -3186,6 +3406,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
     config.machineCode = requireString(object, "machineCode", config.machineCode);
     config.meterCode = requireString(object, "meterCode", config.meterCode);
     config.deviceName = requireString(object, "deviceName", config.deviceName);
+    config.timingPolicy = parseTimingPolicy(root.find("timingPolicy"));
     config.protocol = parseProtocol(root.find("protocol"));
     parseDlt645Config(root.find("dlt645"), config.protocol);
     config.collect = parseCollect(root.find("collect"));
@@ -3280,12 +3501,14 @@ AppConfig parseAppConfig(const std::string& text) {
     }
     config.identityConfigFile = requireString(root.asObject(), "identityConfigFile", config.identityConfigFile);
     config.deviceConfigFiles = parseStringArray(root.find("deviceConfigFiles"));
+    config.timingPolicy = parseTimingPolicy(root.find("timingPolicy"));
     config.mqtt = parseMqttConfig(root.find("mqtt"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
     config.alarmStore = parseAlarmStoreConfig(root.find("alarmStore"));
     config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
     config.computeEngine = parseComputeEngineConfig(root.find("computeEngine"));
     config.agcAvc = parseAgcAvcConfig(root.find("agcAvc"));
+    config.emsCluster = parseEmsClusterConfig(root.find("emsCluster"));
     config.ota = parseOtaConfig(root.find("ota"));
     config.realtime = parseRealtimeConfig(root.find("realtime"));
     config.systemMonitor = parseSystemMonitorConfig(root.find("systemMonitor"));

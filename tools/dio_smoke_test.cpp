@@ -17,13 +17,19 @@ class FakeGpioPort : public edge_gateway::IGpioPort {
 public:
     void exportGpio(int gpio) override {
         exported_[gpio] = true;
+        ++exportCounts_[gpio];
     }
 
     void setDirection(int gpio, const std::string& direction) override {
         directions_[gpio] = direction;
+        ++directionCounts_[gpio];
     }
 
     bool readValue(int gpio) override {
+        ++readCounts_[gpio];
+        if (failReads_) {
+            throw std::runtime_error("simulated GPIO read failure");
+        }
         return values_[gpio];
     }
 
@@ -45,10 +51,27 @@ public:
         return it == directions_.end() ? std::string() : it->second;
     }
 
+    int directionCount(int gpio) const {
+        const auto it = directionCounts_.find(gpio);
+        return it == directionCounts_.end() ? 0 : it->second;
+    }
+
+    int totalReadCount() const {
+        int result = 0;
+        for (const auto& entry : readCounts_) result += entry.second;
+        return result;
+    }
+
+    void failReads(bool value) { failReads_ = value; }
+
 private:
     std::unordered_map<int, bool> exported_;
     std::unordered_map<int, bool> values_;
     std::unordered_map<int, std::string> directions_;
+    std::unordered_map<int, int> exportCounts_;
+    std::unordered_map<int, int> directionCounts_;
+    std::unordered_map<int, int> readCounts_;
+    bool failReads_ = false;
 };
 
 void require(bool condition, const std::string& message) {
@@ -159,7 +182,6 @@ int main() {
         require(config.meters[0].points[0].read.gpio == 134, "DI gpio not parsed");
         require(config.meters[0].points[1].read.gpio == 231, "DO gpio not parsed");
         require(!config.meters[0].points[1].read.activeHigh, "DO activeHigh not parsed");
-
         edge_gateway::DeviceConfig runtime = config;
         runtime.meterCode = config.meters[0].meterCode;
         runtime.deviceName = config.meters[0].deviceName;
@@ -180,6 +202,8 @@ int main() {
         auto doBefore = store.getLatestByIndex(420001, 1000);
         require(static_cast<bool>(doBefore), "DO value missing from store");
         require((*doBefore).value == 0.0, "DO1 active-low GPIO high should expose value 0");
+        (void)collector.collectOnce(1500);
+        require(gpio->directionCount(134) == 1, "DI direction should be configured only once");
 
         edge_gateway::DioCommandExecutor executor(runtime, store, gpio);
         const auto result = executor.executeByIndex("CMD_DIO_1", 420001, 1.0, 1100);
@@ -189,6 +213,42 @@ int main() {
         auto doAfter = store.getLatestByIndex(420001, 1100);
         require(static_cast<bool>(doAfter), "DO value missing after write");
         require((*doAfter).value == 1.0, "DO latest value should update after write");
+
+        const std::string failureStoreName = "gateway_dio_backoff_test";
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(failureStoreName);
+        {
+            auto failureConfig = runtime;
+            failureConfig.memoryStore.sharedMemoryName = failureStoreName;
+            failureConfig.collect.slaveFailureBackoffThreshold = 1;
+            failureConfig.collect.slaveFailureBackoffCycles = 1;
+            failureConfig.collect.taskFailureBackoffMaxCycles = 1;
+            edge_gateway::MemoryPointStore failureStore(failureStoreName);
+            auto failingGpio = std::make_shared<FakeGpioPort>();
+            failingGpio->failReads(true);
+            edge_gateway::DioCollector failingCollector(failureConfig, failureStore, failingGpio);
+
+            bool firstFailed = false;
+            try {
+                (void)failingCollector.collectOnce(2000);
+            } catch (const std::runtime_error&) {
+                firstFailed = true;
+            }
+            require(firstFailed, "all-GPIO failure should fail the collection cycle");
+            require(failingGpio->totalReadCount() == 2, "first failed cycle should probe each configured GPIO once");
+
+            require(failingCollector.collectOnce(2500).values.empty(), "configured backoff cycle should be skipped");
+            require(failingGpio->totalReadCount() == 2, "backoff cycle must not access GPIO files");
+
+            bool recoveryProbeFailed = false;
+            try {
+                (void)failingCollector.collectOnce(3000);
+            } catch (const std::runtime_error&) {
+                recoveryProbeFailed = true;
+            }
+            require(recoveryProbeFailed, "failed GPIO recovery probe should remain visible");
+            require(failingGpio->totalReadCount() == 4, "GPIO collection should resume after the skipped cycle");
+        }
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(failureStoreName);
 
         std::cout << "dio_smoke_test passed" << std::endl;
         return 0;

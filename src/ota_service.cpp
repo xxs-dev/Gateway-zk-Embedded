@@ -20,6 +20,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
+#include <sys/stat.h>
 #else
 #include <netdb.h>
 #include <sys/socket.h>

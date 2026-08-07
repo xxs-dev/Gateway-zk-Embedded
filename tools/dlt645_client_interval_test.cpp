@@ -197,6 +197,12 @@ edge_gateway::DeviceConfig dlt645CollectorConfig(const std::string& storeName) {
     return config;
 }
 
+std::vector<std::uint8_t> requestDataIdBytes(const std::vector<std::uint8_t>& frame) {
+    const auto start = std::find(frame.begin(), frame.end(), static_cast<std::uint8_t>(0x68));
+    require(start != frame.end() && std::distance(start, frame.end()) >= 14, "invalid DLT645 read request");
+    return std::vector<std::uint8_t>(start + 10, start + 14);
+}
+
 void verifyCollectorCachesSuccessfulReadPerDataId() {
     const std::string storeName = "dlt645_collector_success_cache_test_store";
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -250,6 +256,52 @@ void verifyCollectorCachesFailedReadPerDataId() {
                 "first point sharing a failed DLT645 DI must be stored with bad quality");
         require(static_cast<bool>(second) && second->quality == 0,
                 "second point sharing a failed DLT645 DI must be stored with bad quality");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+void verifyCollectorSpreadsRetriesAcrossCyclesAndStopsAfterTimeout() {
+    const std::string storeName = "dlt645_collector_round_budget_test_store";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        edge_gateway::MemoryPointStore store(storeName);
+        edge_gateway::SerialPortOptions options;
+        options.device = "test";
+        options.timeoutMs = 1;
+        auto serial = std::make_shared<ImmediateDlt645SerialPort>();
+        serial->respondToReads(false);
+        auto client = std::make_shared<edge_gateway::Dlt645Client>(serial, options);
+        auto config = dlt645CollectorConfig(storeName);
+        auto secondDi = dlt645BitPoint(645003, "BREAKER_OTHER_DI", 0);
+        secondDi.read.dlt645Di = "04001505";
+        config.points.push_back(secondDi);
+        config.protocol.transport.readRetryCount = 1;
+        config.collect.maxTasksPerMeterPerCycle = 3;
+        config.collect.slaveFailureBackoffThreshold = 100;
+        edge_gateway::Dlt645Collector collector(config, store, client);
+
+        for (const auto nowMs : {1000LL, 1100LL, 1200LL}) {
+            bool failed = false;
+            try {
+                (void)collector.collectOnce(nowMs);
+            } catch (const std::runtime_error&) {
+                failed = true;
+            }
+            require(failed, "offline DLT645 cycle should report its failed recovery probe");
+            require(
+                serial->writes().size() == static_cast<std::size_t>((nowMs - 1000) / 100 + 1),
+                "offline DLT645 device must consume only one request in each collection cycle"
+            );
+        }
+
+        require(
+            requestDataIdBytes(serial->writes()[0]) == requestDataIdBytes(serial->writes()[1]),
+            "configured DLT645 retry should retry the same DI in the next cycle"
+        );
+        require(
+            requestDataIdBytes(serial->writes()[1]) != requestDataIdBytes(serial->writes()[2]),
+            "DLT645 cursor should advance after cross-cycle retries are exhausted"
+        );
     }
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
@@ -411,6 +463,7 @@ int main() {
         verifyWriteResponseAndPasswordRedaction();
         verifyCollectorCachesSuccessfulReadPerDataId();
         verifyCollectorCachesFailedReadPerDataId();
+        verifyCollectorSpreadsRetriesAcrossCyclesAndStopsAfterTimeout();
         std::cout << "dlt645_client_interval_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

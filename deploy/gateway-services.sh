@@ -23,6 +23,7 @@ stop_units() {
         'iec-driver@*.service' \
         'compute-engine@*.service' \
         'agc-avc@*.service' \
+        'ems-cluster@*.service' \
         'event-engine@*.service' \
         'local-display@*.service' \
         'local-display-qt@*.service' \
@@ -44,6 +45,7 @@ stop_units() {
         'iec-driver@*.service' \
         'compute-engine@*.service' \
         'agc-avc@*.service' \
+        'ems-cluster@*.service' \
         'event-engine@*.service' \
         'local-display@*.service' \
         'local-display-qt@*.service' \
@@ -372,14 +374,21 @@ if os.path.isfile(mqtt_path):
         compute_enabled = bool_value((app.get("computeEngine", {}) or {}).get("enabled"), False)
         event_enabled = bool_value((app.get("eventEngine", {}) or {}).get("enabled"), False)
         mqtt_driver_needed = mqtt_driver_process_needed(app)
+        ems_cluster_enabled = (
+            str(app.get("runtimeMode") or "").strip().lower() == "ems"
+            and bool_value((app.get("emsCluster", {}) or {}).get("enabled"), False)
+        )
     except Exception:
         compute_enabled = False
         event_enabled = False
         mqtt_driver_needed = False
+        ems_cluster_enabled = False
     if mqtt_driver_needed or event_enabled:
         emit_unit(stunnel_unit_for_app(mqtt_path))
     if compute_enabled:
         emit_unit(f"compute-engine@{mqtt_app_name}.service")
+    if ems_cluster_enabled:
+        emit_unit(f"ems-cluster@{mqtt_app_name}.service")
     if event_enabled:
         emit_unit(f"event-engine@{mqtt_app_name}.service")
     if mqtt_driver_needed:
