@@ -14,6 +14,7 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
@@ -280,6 +281,10 @@ int main(int argc, char* argv[]) {
         seenSharedMemoryNames.insert(appConfig.cameraService.sharedMemoryName).second) {
         sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
     }
+    if (appConfig.emsCluster.enabled && !appConfig.emsCluster.virtualSharedMemoryName.empty() &&
+        seenSharedMemoryNames.insert(appConfig.emsCluster.virtualSharedMemoryName).second) {
+        sharedMemoryNames.push_back(appConfig.emsCluster.virtualSharedMemoryName);
+    }
     for (const auto& camera : appConfig.cameraService.cameras) {
         if (!camera.enabled) {
             continue;
@@ -304,6 +309,7 @@ int main(int argc, char* argv[]) {
     }
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
     router.addRoutesFromCameraServiceConfig(appConfig.cameraService, topicMachineCode);
+    addEmsClusterPointRoutes(router, appConfig.emsCluster, topicMachineCode);
     std::shared_ptr<IMqttDriverPublisher> publisher;
     if (appConfig.mqtt.enabled) {
         publisher = std::make_shared<BuiltinMqttDriverPublisher>(appConfig.mqtt);

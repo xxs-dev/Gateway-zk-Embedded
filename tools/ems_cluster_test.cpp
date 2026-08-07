@@ -1,13 +1,18 @@
 #include "edge_gateway/ems_cluster.hpp"
 #include "edge_gateway/ems_cluster_network.hpp"
+#include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/ems_cluster_transport.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <limits>
+#include <map>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -51,6 +56,10 @@ struct SimNode {
     edge_gateway::EmsClusterConfig config;
     std::unique_ptr<edge_gateway::EmsClusterNode> node;
     edge_gateway::EmsClusterLoadSample load;
+    edge_gateway::EmsClusterCapability capability;
+    edge_gateway::EmsClusterPhasePower stationTarget;
+    bool stationTargetValid = false;
+    bool refreshControlInputs = true;
     bool active = true;
 };
 
@@ -60,13 +69,18 @@ public:
         std::string name,
         int count,
         std::vector<int> lockedCabinetNumbers = {},
-        int expectedMembers = 0
+        int expectedMembers = 0,
+        bool controlEnabled = false
     )
         : name_(std::move(name)) {
         for (int i = 0; i < count; ++i) {
             SimNode item;
             item.id = "COMM_TEST_" + std::to_string(i + 1);
             item.config = configFor(name_, expectedMembers > 0 ? expectedMembers : count);
+            item.config.controlEnabled = controlEnabled;
+            item.config.dispatchCycleMs = 100;
+            item.config.dispatchTtlMs = 400;
+            item.config.capabilityTtlMs = 400;
             item.config.consensusStateFile = tempPath(item.id + "-consensus.json");
             item.config.membershipFile = tempPath(item.id + "-membership.json");
             item.config.electionPriority = i == 0 ? 100 : 0;
@@ -79,6 +93,15 @@ public:
             item.load.controlQueueP95Ms = i == 0 ? 1.0 : 800.0;
             item.load.computeMetricsAvailable = i == 0;
             item.load.computeHealthy = true;
+            item.capability.controlEnabled = controlEnabled;
+            item.capability.ready = controlEnabled;
+            item.capability.interlocked = !controlEnabled;
+            item.capability.socPercent = 50.0;
+            item.capability.ratedActivePowerKw = 90.0;
+            item.capability.ratedApparentPowerKva = 100.0;
+            item.capability.availableChargePowerKw = 90.0;
+            item.capability.availableDischargePowerKw = 90.0;
+            item.capability.availableReactivePowerKvar = 60.0;
             item.node.reset(new edge_gateway::EmsClusterNode(item.config, item.id, "BOOT_" + item.id));
             nodes_.push_back(std::move(item));
         }
@@ -96,7 +119,18 @@ public:
         const auto end = nowMs_ + durationMs;
         while (nowMs_ < end) {
             nowMs_ += 25;
-            for (auto& item : nodes_) if (item.active) item.node->tick(nowMs_, item.load);
+            for (auto& item : nodes_) {
+                if (!item.active) continue;
+                if (item.refreshControlInputs) {
+                    item.node->updateControlInputs(
+                        item.capability,
+                        item.stationTarget,
+                        item.stationTargetValid,
+                        nowMs_
+                    );
+                }
+                item.node->tick(nowMs_, item.load);
+            }
             deliver();
             deliver();
         }
@@ -122,6 +156,7 @@ public:
     }
 
     SimNode& at(int index) { return nodes_.at(static_cast<std::size_t>(index)); }
+    const SimNode& at(int index) const { return nodes_.at(static_cast<std::size_t>(index)); }
     std::int64_t now() const { return nowMs_; }
 
 private:
@@ -170,10 +205,21 @@ void testProtocolAuthentication() {
     message.senderBootId = "BOOT_A";
     message.loadScore = 12.5;
     message.lockedCabinetNo = 2;
+    message.dispatchSequence = 99;
+    message.dispatchTtlMs = 3000;
+    message.dispatchCode = edge_gateway::EmsClusterDispatchCode::Clamped;
+    message.capability.socPercent = 63.5;
+    message.capability.ready = true;
+    message.requestedPower.paKw = 12.5;
+    message.acceptedPower.paKw = 10.0;
     message.assignments = {{"COMM_A", 1}, {"COMM_B", 2}};
     const auto frame = edge_gateway::EmsClusterProtocol::encode(message, config);
     const auto decoded = edge_gateway::EmsClusterProtocol::decode(frame.data(), frame.size(), config);
-    require(decoded.term == 7 && decoded.lockedCabinetNo == 2 && decoded.assignments.size() == 2,
+    require(decoded.term == 7 && decoded.lockedCabinetNo == 2 && decoded.assignments.size() == 2 &&
+            decoded.dispatchSequence == 99 &&
+            decoded.dispatchCode == edge_gateway::EmsClusterDispatchCode::Clamped &&
+            decoded.capability.ready && decoded.capability.socPercent == 63.5 &&
+            decoded.requestedPower.paKw == 12.5 && decoded.acceptedPower.paKw == 10.0,
             "authenticated KECP/1 frame must round-trip");
     auto wrong = config;
     wrong.psk = "different-test-key-123456";
@@ -181,6 +227,17 @@ void testProtocolAuthentication() {
     try { edge_gateway::EmsClusterProtocol::decode(frame.data(), frame.size(), wrong); }
     catch (const std::exception&) { rejected = true; }
     require(rejected, "KECP/1 frame signed with another PSK must be rejected");
+
+    auto nonFinite = message;
+    nonFinite.capability.socPercent = std::numeric_limits<double>::quiet_NaN();
+    rejected = false;
+    try {
+        const auto invalidFrame = edge_gateway::EmsClusterProtocol::encode(nonFinite, config);
+        edge_gateway::EmsClusterProtocol::decode(invalidFrame.data(), invalidFrame.size(), config);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    require(rejected, "KECP/1 decoder must reject non-finite capability and control values");
 }
 
 void testThreeNodeElectionAndMembership() {
@@ -369,6 +426,279 @@ void testMissingComputeMetricsArePenalized() {
             "missing compute metrics must not be treated as zero load");
 }
 
+void testCapabilityWeightedDispatchAllocation() {
+    std::map<std::string, edge_gateway::EmsClusterCapability> capabilities;
+    for (int i = 0; i < 3; ++i) {
+        edge_gateway::EmsClusterCapability capability;
+        capability.controlEnabled = true;
+        capability.ready = true;
+        capability.interlocked = false;
+        capability.socPercent = i == 0 ? 90.0 : (i == 1 ? 50.0 : 20.0);
+        capability.ratedActivePowerKw = 90.0;
+        capability.ratedApparentPowerKva = 100.0;
+        capability.availableChargePowerKw = 90.0;
+        capability.availableDischargePowerKw = 90.0;
+        capability.availableReactivePowerKvar = 60.0;
+        capabilities.emplace("N" + std::to_string(i + 1), capability);
+    }
+    edge_gateway::EmsClusterPhasePower target;
+    target.paKw = 45.0;
+    target.pbKw = 30.0;
+    target.pcKw = 15.0;
+    target.qaKvar = 15.0;
+    const auto allocated = edge_gateway::EmsClusterNode::allocateDispatch(target, capabilities);
+    double pa = 0.0;
+    double pb = 0.0;
+    double pc = 0.0;
+    double qa = 0.0;
+    for (const auto& entry : allocated) {
+        pa += entry.second.paKw;
+        pb += entry.second.pbKw;
+        pc += entry.second.pcKw;
+        qa += entry.second.qaKvar;
+    }
+    require(std::fabs(pa - target.paKw) < 1e-6 && std::fabs(pb - target.pbKw) < 1e-6 &&
+            std::fabs(pc - target.pcKw) < 1e-6 && std::fabs(qa - target.qaKvar) < 1e-6,
+            "water-fill allocation must preserve reachable station phase targets");
+    require(allocated.at("N1").paKw > allocated.at("N3").paKw,
+            "higher-SOC cabinet must carry more discharge when capability is otherwise equal");
+
+    target.paKw = -45.0;
+    const auto charging = edge_gateway::EmsClusterNode::allocateDispatch(target, capabilities);
+    require(std::fabs(charging.at("N3").paKw) > std::fabs(charging.at("N1").paKw),
+            "lower-SOC cabinet must carry more charging when capability is otherwise equal");
+}
+
+void testDispatchClosedLoopAndInterlock() {
+    Simulation simulation("dispatch", 3, {}, 0, true);
+    simulation.at(0).capability.socPercent = 85.0;
+    simulation.at(1).capability.socPercent = 55.0;
+    simulation.at(2).capability.socPercent = 25.0;
+    edge_gateway::EmsClusterPhasePower target;
+    target.paKw = 30.0;
+    target.pbKw = 24.0;
+    target.pcKw = 18.0;
+    target.qaKvar = 9.0;
+    target.qbKvar = 6.0;
+    target.qcKvar = 3.0;
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = target;
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(6000);
+    require(simulation.leaderCount() == 1, "control-stage cluster must retain one leader");
+
+    edge_gateway::EmsClusterPhasePower total;
+    for (int i = 0; i < 3; ++i) {
+        const auto dispatch = simulation.at(i).node->activeDispatch(simulation.now());
+        require(dispatch.valid, "every healthy cabinet must hold a live accepted dispatch");
+        total.paKw += dispatch.accepted.paKw;
+        total.pbKw += dispatch.accepted.pbKw;
+        total.pcKw += dispatch.accepted.pcKw;
+        total.qaKvar += dispatch.accepted.qaKvar;
+        total.qbKvar += dispatch.accepted.qbKvar;
+        total.qcKvar += dispatch.accepted.qcKvar;
+    }
+    require(std::fabs(total.paKw - target.paKw) < 1e-6 &&
+            std::fabs(total.pbKw - target.pbKw) < 1e-6 &&
+            std::fabs(total.pcKw - target.pcKw) < 1e-6 &&
+            std::fabs(total.qaKvar - target.qaKvar) < 1e-6,
+            "accepted cabinet targets must sum to the station target");
+
+    const auto leader = simulation.leaderIndex();
+    const auto leaderStatus = simulation.at(leader).node->status(simulation.now());
+    require(std::count_if(leaderStatus.members.begin(), leaderStatus.members.end(), [](const auto& member) {
+                return member.dispatch.valid;
+            }) >= 2,
+            "leader must receive dispatch ACK state from both remote cabinets");
+
+    const int interlocked = leader == 1 ? 2 : 1;
+    simulation.at(interlocked).capability.interlocked = true;
+    simulation.run(800);
+    const auto blocked = simulation.at(interlocked).node->activeDispatch(simulation.now());
+    require(!blocked.valid && blocked.code == edge_gateway::EmsClusterDispatchCode::Interlocked,
+            "interlocked cabinet must reject and clear cluster dispatch");
+}
+
+void testDispatchExpiresAcrossLeaderPartition() {
+    Simulation simulation("dispatch-partition", 3, {}, 0, true);
+    edge_gateway::EmsClusterPhasePower target;
+    target.paKw = 18.0;
+    target.pbKw = 18.0;
+    target.pcKw = 18.0;
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = target;
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    const auto oldLeader = simulation.leaderIndex();
+    require(oldLeader >= 0 && simulation.at(oldLeader).node->activeDispatch(simulation.now()).valid,
+            "partition test requires an active dispatch leader");
+    std::vector<int> majority;
+    for (int i = 0; i < 3; ++i) if (i != oldLeader) majority.push_back(i);
+    simulation.partition({oldLeader}, majority);
+    simulation.run(1500);
+    const auto isolated = simulation.at(oldLeader).node->activeDispatch(simulation.now());
+    require(!isolated.valid &&
+            (isolated.code == edge_gateway::EmsClusterDispatchCode::NoQuorum ||
+             isolated.code == edge_gateway::EmsClusterDispatchCode::NotLeader ||
+             isolated.code == edge_gateway::EmsClusterDispatchCode::Expired),
+            "isolated old leader must clear its local target after losing majority");
+    require(simulation.leaderCount() == 1, "majority side must elect one replacement control leader");
+}
+
+void testStationTargetUsesIndependentTtl() {
+    Simulation simulation("station-target-ttl", 3, {}, 0, true);
+    edge_gateway::EmsClusterPhasePower target;
+    target.paKw = 12.0;
+    target.pbKw = 12.0;
+    target.pcKw = 12.0;
+    for (int i = 0; i < 3; ++i) {
+        auto& node = simulation.at(i);
+        node.config.stationTargetTtlMs = 200;
+        node.config.capabilityTtlMs = 1000;
+        node.stationTarget = target;
+        node.stationTargetValid = true;
+        node.node.reset(new edge_gateway::EmsClusterNode(
+            node.config,
+            node.id,
+            "BOOT_" + node.id
+        ));
+    }
+    simulation.run(5000);
+    const auto leader = simulation.leaderIndex();
+    require(leader >= 0 && simulation.at(leader).node->activeDispatch(simulation.now()).valid,
+            "station-target TTL test requires an active leader dispatch");
+
+    simulation.at(leader).refreshControlInputs = false;
+    simulation.run(250);
+    const auto expired = simulation.at(leader).node->activeDispatch(simulation.now());
+    require(!expired.valid && expired.code == edge_gateway::EmsClusterDispatchCode::Expired,
+            "station target must expire using stationTargetTtlMs while capability remains fresh");
+}
+
+void testCapabilityIsObservableBeforeControlEnable() {
+    Simulation simulation("observe-capability", 3, {}, 0, false);
+    simulation.run(5000);
+    const auto leader = simulation.leaderIndex();
+    require(leader >= 0, "read-only capability test requires a leader");
+    const auto status = simulation.at(leader).node->status(simulation.now());
+    require(std::count_if(status.members.begin(), status.members.end(), [](const auto& member) {
+                return member.online && member.capabilityFresh && !member.capability.controlEnabled;
+            }) == 2,
+            "followers must report read-only capability before cluster control is enabled");
+    require(!status.controlConfigured && !status.controlActive,
+            "read-only capability exchange must not enable dispatch control");
+}
+
+void testClusterPointBridge() {
+    auto config = configFor("point-bridge", 2);
+    config.controlEnabled = true;
+    config.dispatchCycleMs = 100;
+    config.dispatchTtlMs = 400;
+    config.capabilityTtlMs = 400;
+    config.virtualSharedMemoryName = "ems_cluster_test_point_bridge";
+    config.virtualPointBaseIndex = 824000;
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(config.virtualSharedMemoryName);
+    {
+        edge_gateway::MemoryPointStore writer(config.virtualSharedMemoryName);
+        const auto put = [&](std::uint32_t offset, double value) {
+            edge_gateway::PointValue point;
+            point.index = config.virtualPointBaseIndex + offset;
+            point.machineCode = "COMM_BRIDGE";
+            point.meterCode = "EMS_CLUSTER";
+            point.pointCode = "TEST_" + std::to_string(offset);
+            point.value = value;
+            point.quality = 1;
+            point.ts = 1000;
+            point.expireAt = 10000;
+            writer.putLatest(point);
+        };
+        put(edge_gateway::ems_cluster_point::kEnable, 1);
+        put(edge_gateway::ems_cluster_point::kSoc, 66);
+        put(edge_gateway::ems_cluster_point::kRatedActivePower, 120);
+        put(edge_gateway::ems_cluster_point::kRatedApparentPower, 130);
+        put(edge_gateway::ems_cluster_point::kAvailableChargePower, 80);
+        put(edge_gateway::ems_cluster_point::kAvailableDischargePower, 90);
+        put(edge_gateway::ems_cluster_point::kAvailableReactivePower, 50);
+        put(edge_gateway::ems_cluster_point::kControlReady, 1);
+        put(edge_gateway::ems_cluster_point::kInterlocked, 0);
+        put(edge_gateway::ems_cluster_point::kManualOverride, 0);
+        put(edge_gateway::ems_cluster_point::kFeedbackPa, 4.5);
+        for (std::uint32_t offset = edge_gateway::ems_cluster_point::kStationTargetPa;
+             offset <= edge_gateway::ems_cluster_point::kStationTargetQc;
+             ++offset) {
+            put(offset, static_cast<double>(offset - edge_gateway::ems_cluster_point::kStationTargetPa + 1));
+        }
+
+        edge_gateway::EmsClusterPointBridge bridge(config, "COMM_BRIDGE");
+        const auto capability = bridge.sampleCapability(1200);
+        require(capability.controlEnabled && capability.ready && !capability.interlocked &&
+                capability.socPercent == 66 && capability.actual.paKw == 4.5,
+                "point bridge must read control capability from shared memory");
+        bool targetValid = false;
+        const auto stationTarget = bridge.sampleStationTarget(1200, targetValid);
+        require(targetValid && stationTarget.paKw == 1 && stationTarget.qcKvar == 6,
+                "point bridge must read all six station phase targets atomically enough for one cycle");
+        bridge.sampleStationTarget(5000, targetValid);
+        require(!targetValid, "point bridge must reject stale station targets");
+        require(!bridge.sampleCapability(2000).ready,
+                "point bridge must reject stale dynamic capability points");
+
+        edge_gateway::EmsClusterStatus status;
+        status.role = edge_gateway::EmsClusterRole::Follower;
+        status.cabinetNo = 2;
+        status.term = 7;
+        status.onlineMembers = 2;
+        status.quorumValid = true;
+        status.controlConfigured = true;
+        status.controlActive = true;
+        edge_gateway::EmsClusterDispatchState dispatch;
+        dispatch.valid = true;
+        dispatch.sequence = 9;
+        dispatch.code = edge_gateway::EmsClusterDispatchCode::Accepted;
+        dispatch.accepted.paKw = 7.5;
+        bridge.publish(status, dispatch, 2000);
+        const auto published = writer.getLatestByIndex(
+            config.virtualPointBaseIndex + edge_gateway::ems_cluster_point::kDispatchPa,
+            2000
+        );
+        require(published && published->quality == 1 && published->value == 7.5,
+                "point bridge must publish accepted dispatch to the cluster virtual store");
+        status.role = edge_gateway::EmsClusterRole::Leader;
+        status.capability.controlEnabled = true;
+        status.controlActive = false;
+        dispatch.valid = false;
+        dispatch.code = edge_gateway::EmsClusterDispatchCode::Expired;
+        bridge.publish(status, dispatch, 2100);
+        const auto stationStrategy = writer.getLatestByIndex(
+            config.virtualPointBaseIndex + edge_gateway::ems_cluster_point::kStationStrategyActive,
+            2100
+        );
+        require(stationStrategy && stationStrategy->value == 1.0,
+                "leader strategy gate must not depend on an already-active local dispatch");
+
+        edge_gateway::EmsClusterMemberStatus member;
+        member.nodeId = "COMM_MEMBER";
+        member.capabilityFresh = true;
+        member.capabilityAgeMs = 50;
+        member.capability.controlEnabled = true;
+        member.capability.ready = true;
+        member.dispatchAgeMs = 25;
+        member.dispatch.valid = true;
+        member.dispatch.code = edge_gateway::EmsClusterDispatchCode::Clamped;
+        status.members = {member};
+        const auto statusJson = edge_gateway::emsClusterStatusJson(status, 2100);
+        require(statusJson.find("\"capabilityFresh\":true") != std::string::npos &&
+                statusJson.find("\"dispatchAgeMs\":25") != std::string::npos &&
+                statusJson.find("\"code\":\"clamped\"") != std::string::npos,
+                "cluster status JSON must expose member capability, ACK and feedback diagnostics");
+        require(edge_gateway::emsClusterPointRoutes(config, "COMM_BRIDGE").size() >= 40,
+                "cluster point catalog must expose status, capability, dispatch and feedback routes");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(config.virtualSharedMemoryName);
+}
+
 #ifndef _WIN32
 void testEthernetTransportLoopback() {
     const auto basePort = 42000 + static_cast<int>(getpid() % 1000) * 4;
@@ -440,6 +770,12 @@ int main() {
         testDuplicateMachineCodeQuarantinesNode();
         testConfigAndAddressValidation();
         testMissingComputeMetricsArePenalized();
+        testCapabilityWeightedDispatchAllocation();
+        testDispatchClosedLoopAndInterlock();
+        testDispatchExpiresAcrossLeaderPartition();
+        testStationTargetUsesIndependentTtl();
+        testCapabilityIsObservableBeforeControlEnable();
+        testClusterPointBridge();
 #ifndef _WIN32
         testEthernetTransportLoopback();
 #endif

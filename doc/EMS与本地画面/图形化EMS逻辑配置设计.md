@@ -704,9 +704,12 @@ Windows 的“发布就绪 -> Graph 完全替代”同时检查：启用的 `gra
 | COS、电压、手动充放电、光伏、三相平衡 | `formula + switch + controlGate` |
 | 24 小时计划 | `scheduleSelect`，逐相渐变由公式和选择器显式展开 |
 | 当前本地日期/小时 | `timeSource(component=dayOfMonth/hour)` |
+| 多柜并机本柜目标入口 | `clusterDispatch`，只输出已通过任期、quorum、TTL 和拒绝码校验的三相 P/Q 候选 |
 | PCS 模式候选合并 | `phaseArbiter` |
 | 正反送、增容、P/Q/S、BMS功率、SOC限制 | `powerConstraint` |
 | PCS 六路写回 | 6 个固定目标 `controlWrite(valueMode=truncate)` |
+
+`clusterDispatch` 不是写设备节点。它读取 `ems_cluster_store` 中的 `724000/724001/724005`、`724030-724035` 和 `724050-724052`，输出本柜三相 P/Q 候选、有效标志、站级主控门控和拒绝原因。输入丢失、超时、无多数派或调度被拒绝时，生产配置 `zeroOnInvalid=true` 会清零候选；后续仍必须连接 `phaseArbiter -> powerConstraint -> controlWrite`，不能跳过本柜安全约束。
 
 `timeSource.component` 不是“配置几点”，而是选择写入虚拟点的时间分量。时间来自边端 Linux 系统时间和系统时区：`dayOfMonth` 输出 1-31，`hour` 输出 0-23，`minute` 输出 0-59，`second` 输出 0-59，`minuteOfDay` 输出 0-1439（例如 01:30 输出 90），`weekday` 输出 1-7（周一为 1、周日为 7）。`scheduleSelect` 当前直接读取设备本地小时，不依赖 `timeSource` 输出；需要日期或分钟条件时，应使用对应时间源输出点连接条件模块。
 

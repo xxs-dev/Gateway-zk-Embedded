@@ -31,7 +31,63 @@ enum class EmsClusterMessageType : std::uint8_t {
     StepDown = 8,
     MembershipProposal = 9,
     MembershipAck = 10,
-    MembershipCommit = 11
+    MembershipCommit = 11,
+    CapabilityReport = 12,
+    DispatchTarget = 13,
+    DispatchAck = 14,
+    Feedback = 15
+};
+
+enum class EmsClusterDispatchCode : std::uint16_t {
+    Accepted = 0,
+    Clamped = 1,
+    ControlDisabled = 10,
+    NoQuorum = 11,
+    NotLeader = 12,
+    TermMismatch = 13,
+    MembershipMismatch = 14,
+    StaleSequence = 15,
+    Expired = 16,
+    CapabilityStale = 17,
+    NotReady = 18,
+    Interlocked = 19,
+    ManualOverride = 20,
+    InvalidTarget = 21
+};
+
+struct EmsClusterPhasePower {
+    double paKw = 0.0;
+    double pbKw = 0.0;
+    double pcKw = 0.0;
+    double qaKvar = 0.0;
+    double qbKvar = 0.0;
+    double qcKvar = 0.0;
+};
+
+struct EmsClusterCapability {
+    double socPercent = 0.0;
+    double ratedActivePowerKw = 0.0;
+    double ratedApparentPowerKva = 0.0;
+    double availableChargePowerKw = 0.0;
+    double availableDischargePowerKw = 0.0;
+    double availableReactivePowerKvar = 0.0;
+    bool controlEnabled = false;
+    bool ready = false;
+    bool interlocked = true;
+    bool manualOverride = false;
+    EmsClusterPhasePower actual;
+};
+
+struct EmsClusterDispatchState {
+    bool valid = false;
+    std::uint64_t term = 0;
+    std::uint64_t membershipEpoch = 0;
+    std::uint64_t sequence = 0;
+    std::int64_t receivedAtMs = 0;
+    std::int64_t expireAtMs = 0;
+    EmsClusterDispatchCode code = EmsClusterDispatchCode::ControlDisabled;
+    EmsClusterPhasePower requested;
+    EmsClusterPhasePower accepted;
 };
 
 struct EmsClusterCabinetAssignment {
@@ -58,6 +114,12 @@ struct EmsClusterMessage {
     bool voteGranted = false;
     bool metricsComplete = false;
     bool computeHealthy = false;
+    std::uint64_t dispatchSequence = 0;
+    std::uint32_t dispatchTtlMs = 0;
+    EmsClusterDispatchCode dispatchCode = EmsClusterDispatchCode::Accepted;
+    EmsClusterCapability capability;
+    EmsClusterPhasePower requestedPower;
+    EmsClusterPhasePower acceptedPower;
     std::vector<EmsClusterCabinetAssignment> assignments;
 };
 
@@ -97,6 +159,11 @@ struct EmsClusterMemberStatus {
     bool compatible = false;
     bool online = false;
     bool duplicateIdentity = false;
+    bool capabilityFresh = false;
+    std::int64_t capabilityAgeMs = -1;
+    std::int64_t dispatchAgeMs = -1;
+    EmsClusterCapability capability;
+    EmsClusterDispatchState dispatch;
 };
 
 struct EmsClusterStatus {
@@ -112,6 +179,10 @@ struct EmsClusterStatus {
     bool metricsComplete = false;
     bool computeHealthy = false;
     double loadScore = 100.0;
+    bool controlConfigured = false;
+    bool controlActive = false;
+    EmsClusterCapability capability;
+    EmsClusterDispatchState dispatch;
     std::string reason;
     std::vector<EmsClusterMemberStatus> members;
 };
@@ -137,8 +208,15 @@ public:
 
     void tick(std::int64_t monotonicNowMs, const EmsClusterLoadSample& load);
     void receive(const EmsClusterInbound& inbound, std::int64_t monotonicNowMs);
+    void updateControlInputs(
+        const EmsClusterCapability& capability,
+        const EmsClusterPhasePower& stationTarget,
+        bool stationTargetValid,
+        std::int64_t monotonicNowMs
+    );
     std::vector<EmsClusterOutbound> drainOutgoing();
     EmsClusterStatus status(std::int64_t monotonicNowMs) const;
+    EmsClusterDispatchState activeDispatch(std::int64_t monotonicNowMs) const;
 
     const EmsClusterConfig& config() const { return config_; }
     const std::string& nodeId() const { return nodeId_; }
@@ -148,13 +226,19 @@ public:
 
     static void validateConfig(const EmsClusterConfig& config);
     static double calculateLoadScore(const EmsClusterLoadSample& load);
+    static std::map<std::string, EmsClusterPhasePower> allocateDispatch(
+        const EmsClusterPhasePower& stationTarget,
+        const std::map<std::string, EmsClusterCapability>& capabilities
+    );
     static const char* roleName(EmsClusterRole role);
+    static const char* dispatchCodeName(EmsClusterDispatchCode code);
 
 private:
     struct Member {
         EmsClusterMemberStatus status;
         std::uint64_t lastSequence = 0;
         std::int64_t lastAckMs = 0;
+        std::int64_t lastCapabilityMs = 0;
     };
 
     void loadPersistentState();
@@ -171,6 +255,18 @@ private:
     void handleMembershipCommit(const EmsClusterMessage& message, std::int64_t nowMs);
     void maybeProposeMembership(std::int64_t nowMs);
     void maybeCommitMembership(std::int64_t nowMs);
+    void tickDispatch(std::int64_t nowMs);
+    void handleCapabilityReport(const EmsClusterMessage& message, std::int64_t nowMs);
+    void handleDispatchTarget(const EmsClusterMessage& message, std::int64_t nowMs);
+    void handleDispatchAck(const EmsClusterMessage& message, std::int64_t nowMs);
+    void handleFeedback(const EmsClusterMessage& message, std::int64_t nowMs);
+    EmsClusterDispatchState acceptDispatch(
+        const EmsClusterPhasePower& requested,
+        std::uint64_t sequence,
+        int ttlMs,
+        std::int64_t nowMs
+    ) const;
+    void invalidateDispatch(EmsClusterDispatchCode code);
     void queue(EmsClusterMessageType type, const std::string& target = std::string(), bool discovery = false);
     EmsClusterMessage baseMessage(EmsClusterMessageType type) const;
     int effectiveQuorum() const;
@@ -211,6 +307,16 @@ private:
     std::int64_t pendingProposalLastSentMs_ = 0;
     std::vector<EmsClusterCabinetAssignment> pendingAssignments_;
     std::set<std::string> membershipAcks_;
+    EmsClusterCapability localCapability_;
+    std::int64_t localCapabilityAtMs_ = 0;
+    EmsClusterPhasePower stationTarget_;
+    bool stationTargetValid_ = false;
+    std::int64_t stationTargetAtMs_ = 0;
+    EmsClusterDispatchState localDispatch_;
+    std::uint64_t dispatchSequence_ = 0;
+    std::int64_t lastCapabilityReportMs_ = 0;
+    std::int64_t lastDispatchMs_ = 0;
+    std::int64_t lastFeedbackMs_ = 0;
     std::vector<EmsClusterOutbound> outgoing_;
 };
 

@@ -27,7 +27,7 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::uint32_t kProtocolMagic = 0x4b454331U;
-constexpr std::uint8_t kProtocolVersion = 1;
+constexpr std::uint8_t kProtocolVersion = 2;
 constexpr std::size_t kHeaderSize = 16;
 constexpr std::size_t kAuthTagSize = 32;
 constexpr std::size_t kMaxFrameSize = 64 * 1024;
@@ -200,6 +200,13 @@ void appendU64(std::vector<std::uint8_t>& out, std::uint64_t value) {
     for (int shift = 56; shift >= 0; shift -= 8) out.push_back(static_cast<std::uint8_t>(value >> shift));
 }
 
+void appendDouble(std::vector<std::uint8_t>& out, double value) {
+    std::uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value), "double must be 64-bit");
+    std::memcpy(&bits, &value, sizeof(bits));
+    appendU64(out, bits);
+}
+
 void appendString(std::vector<std::uint8_t>& out, const std::string& value) {
     if (value.size() > 1024) throw std::invalid_argument("KECP/1 string exceeds 1024 bytes");
     appendU16(out, static_cast<std::uint16_t>(value.size()));
@@ -226,6 +233,12 @@ public:
         require(8);
         std::uint64_t value = 0;
         for (int i = 0; i < 8; ++i) value = (value << 8U) | data_[offset_++];
+        return value;
+    }
+    double f64() {
+        const auto bits = u64();
+        double value = 0.0;
+        std::memcpy(&value, &bits, sizeof(value));
         return value;
     }
     std::string string() {
@@ -352,6 +365,91 @@ bool safeInterfaceName(const std::string& value) {
     });
 }
 
+bool validDispatchCode(std::uint16_t value) {
+    switch (static_cast<EmsClusterDispatchCode>(value)) {
+        case EmsClusterDispatchCode::Accepted:
+        case EmsClusterDispatchCode::Clamped:
+        case EmsClusterDispatchCode::ControlDisabled:
+        case EmsClusterDispatchCode::NoQuorum:
+        case EmsClusterDispatchCode::NotLeader:
+        case EmsClusterDispatchCode::TermMismatch:
+        case EmsClusterDispatchCode::MembershipMismatch:
+        case EmsClusterDispatchCode::StaleSequence:
+        case EmsClusterDispatchCode::Expired:
+        case EmsClusterDispatchCode::CapabilityStale:
+        case EmsClusterDispatchCode::NotReady:
+        case EmsClusterDispatchCode::Interlocked:
+        case EmsClusterDispatchCode::ManualOverride:
+        case EmsClusterDispatchCode::InvalidTarget:
+            return true;
+    }
+    return false;
+}
+
+void appendPhasePower(std::vector<std::uint8_t>& out, const EmsClusterPhasePower& value) {
+    appendDouble(out, value.paKw);
+    appendDouble(out, value.pbKw);
+    appendDouble(out, value.pcKw);
+    appendDouble(out, value.qaKvar);
+    appendDouble(out, value.qbKvar);
+    appendDouble(out, value.qcKvar);
+}
+
+EmsClusterPhasePower readPhasePower(ByteReader& reader) {
+    EmsClusterPhasePower value;
+    value.paKw = reader.f64();
+    value.pbKw = reader.f64();
+    value.pcKw = reader.f64();
+    value.qaKvar = reader.f64();
+    value.qbKvar = reader.f64();
+    value.qcKvar = reader.f64();
+    return value;
+}
+
+bool finitePhasePower(const EmsClusterPhasePower& value) {
+    return std::isfinite(value.paKw) && std::isfinite(value.pbKw) &&
+        std::isfinite(value.pcKw) && std::isfinite(value.qaKvar) &&
+        std::isfinite(value.qbKvar) && std::isfinite(value.qcKvar);
+}
+
+void appendCapability(std::vector<std::uint8_t>& out, const EmsClusterCapability& value) {
+    appendDouble(out, value.socPercent);
+    appendDouble(out, value.ratedActivePowerKw);
+    appendDouble(out, value.ratedApparentPowerKva);
+    appendDouble(out, value.availableChargePowerKw);
+    appendDouble(out, value.availableDischargePowerKw);
+    appendDouble(out, value.availableReactivePowerKvar);
+    out.push_back(value.controlEnabled ? 1U : 0U);
+    out.push_back(value.ready ? 1U : 0U);
+    out.push_back(value.interlocked ? 1U : 0U);
+    out.push_back(value.manualOverride ? 1U : 0U);
+    appendPhasePower(out, value.actual);
+}
+
+EmsClusterCapability readCapability(ByteReader& reader) {
+    EmsClusterCapability value;
+    value.socPercent = reader.f64();
+    value.ratedActivePowerKw = reader.f64();
+    value.ratedApparentPowerKva = reader.f64();
+    value.availableChargePowerKw = reader.f64();
+    value.availableDischargePowerKw = reader.f64();
+    value.availableReactivePowerKvar = reader.f64();
+    value.controlEnabled = reader.u8() != 0;
+    value.ready = reader.u8() != 0;
+    value.interlocked = reader.u8() != 0;
+    value.manualOverride = reader.u8() != 0;
+    value.actual = readPhasePower(reader);
+    return value;
+}
+
+bool finiteCapability(const EmsClusterCapability& value) {
+    return std::isfinite(value.socPercent) && std::isfinite(value.ratedActivePowerKw) &&
+        std::isfinite(value.ratedApparentPowerKva) &&
+        std::isfinite(value.availableChargePowerKw) &&
+        std::isfinite(value.availableDischargePowerKw) &&
+        std::isfinite(value.availableReactivePowerKvar) && finitePhasePower(value.actual);
+}
+
 }  // namespace
 
 std::vector<std::uint8_t> EmsClusterProtocol::encode(
@@ -368,10 +466,7 @@ std::vector<std::uint8_t> EmsClusterProtocol::encode(
     appendString(payload, message.senderNodeId);
     appendString(payload, message.senderBootId);
     appendString(payload, message.leaderNodeId);
-    std::uint64_t loadBits = 0;
-    static_assert(sizeof(loadBits) == sizeof(message.loadScore), "double must be 64-bit");
-    std::memcpy(&loadBits, &message.loadScore, sizeof(loadBits));
-    appendU64(payload, loadBits);
+    appendDouble(payload, message.loadScore);
     appendU32(payload, static_cast<std::uint32_t>(message.electionPriority));
     appendU16(payload, static_cast<std::uint16_t>(message.tcpPort));
     appendU16(payload, static_cast<std::uint16_t>(message.cabinetNo));
@@ -379,6 +474,12 @@ std::vector<std::uint8_t> EmsClusterProtocol::encode(
     payload.push_back(message.voteGranted ? 1U : 0U);
     payload.push_back(message.metricsComplete ? 1U : 0U);
     payload.push_back(message.computeHealthy ? 1U : 0U);
+    appendU64(payload, message.dispatchSequence);
+    appendU32(payload, message.dispatchTtlMs);
+    appendU16(payload, static_cast<std::uint16_t>(message.dispatchCode));
+    appendCapability(payload, message.capability);
+    appendPhasePower(payload, message.requestedPower);
+    appendPhasePower(payload, message.acceptedPower);
     appendU16(payload, static_cast<std::uint16_t>(message.assignments.size()));
     for (const auto& assignment : message.assignments) {
         appendString(payload, assignment.nodeId);
@@ -417,7 +518,7 @@ EmsClusterMessage EmsClusterProtocol::decode(
     if (header.u8() != kProtocolVersion) throw std::invalid_argument("unsupported KECP/1 version");
     const auto type = static_cast<EmsClusterMessageType>(header.u8());
     if (static_cast<int>(type) < static_cast<int>(EmsClusterMessageType::Discover) ||
-        static_cast<int>(type) > static_cast<int>(EmsClusterMessageType::MembershipCommit)) {
+        static_cast<int>(type) > static_cast<int>(EmsClusterMessageType::Feedback)) {
         throw std::invalid_argument("unsupported KECP/1 message type");
     }
     const auto flags = header.u16();
@@ -452,8 +553,7 @@ EmsClusterMessage EmsClusterProtocol::decode(
     message.senderNodeId = reader.string();
     message.senderBootId = reader.string();
     message.leaderNodeId = reader.string();
-    const auto loadBits = reader.u64();
-    std::memcpy(&message.loadScore, &loadBits, sizeof(loadBits));
+    message.loadScore = reader.f64();
     message.electionPriority = static_cast<int>(reader.u32());
     message.tcpPort = reader.u16();
     message.cabinetNo = reader.u16();
@@ -461,6 +561,20 @@ EmsClusterMessage EmsClusterProtocol::decode(
     message.voteGranted = reader.u8() != 0;
     message.metricsComplete = reader.u8() != 0;
     message.computeHealthy = reader.u8() != 0;
+    message.dispatchSequence = reader.u64();
+    message.dispatchTtlMs = reader.u32();
+    const auto dispatchCode = reader.u16();
+    if (!validDispatchCode(dispatchCode)) {
+        throw std::invalid_argument("KECP/1 frame contains an invalid dispatch code");
+    }
+    message.dispatchCode = static_cast<EmsClusterDispatchCode>(dispatchCode);
+    message.capability = readCapability(reader);
+    message.requestedPower = readPhasePower(reader);
+    message.acceptedPower = readPhasePower(reader);
+    if (!std::isfinite(message.loadScore) || !finiteCapability(message.capability) ||
+        !finitePhasePower(message.requestedPower) || !finitePhasePower(message.acceptedPower)) {
+        throw std::invalid_argument("KECP/1 frame contains non-finite control data");
+    }
     const auto assignmentCount = reader.u16();
     if (assignmentCount > 32) throw std::invalid_argument("KECP/1 assignment count exceeds limit");
     for (std::uint16_t i = 0; i < assignmentCount; ++i) {
@@ -482,7 +596,12 @@ std::uint64_t EmsClusterProtocol::configHash(const EmsClusterConfig& config) {
     normalized << "KECP/1|" << config.clusterId << '|' << config.transport << '|'
                << config.securityMode << '|' << config.expectedMembers << '|'
                << config.maxMembers << '|' << config.minimumQuorum << '|'
-               << config.heartbeatMs << '|' << config.leaderLeaseMs;
+               << config.heartbeatMs << '|' << config.leaderLeaseMs << '|'
+               << config.controlEnabled << '|' << config.dispatchCycleMs << '|'
+               << config.dispatchTtlMs << '|' << config.capabilityTtlMs << '|'
+               << config.stationTargetTtlMs << '|'
+               << config.zeroTargetOnLoss << '|' << config.virtualSharedMemoryName << '|'
+               << config.virtualPointBaseIndex;
     return fnv1a64(normalized.str());
 }
 
@@ -504,14 +623,14 @@ EmsClusterNode::EmsClusterNode(EmsClusterConfig config, std::string nodeId, std:
 void EmsClusterNode::validateConfig(const EmsClusterConfig& config) {
     if (!config.enabled) return;
     if (config.clusterId.empty()) throw std::invalid_argument("emsCluster.clusterId is required");
-    if (config.transport != "ethernet") throw std::invalid_argument("first-stage emsCluster transport must be ethernet");
+    if (config.transport != "ethernet") throw std::invalid_argument("emsCluster transport must currently be ethernet");
     if (!safeInterfaceName(config.clusterInterface)) throw std::invalid_argument("invalid emsCluster.clusterInterface");
     if (config.ipMode != "autoLinkLocal" && config.ipMode != "static") {
         throw std::invalid_argument("emsCluster.ipMode must be autoLinkLocal or static");
     }
     if (config.prefixLength < 8 || config.prefixLength > 30) throw std::invalid_argument("invalid emsCluster.prefixLength");
     if (config.securityMode != "psk" && config.securityMode != "none") {
-        throw std::invalid_argument("first-stage emsCluster supports securityMode=psk or none; mTLS is required before control-stage release");
+        throw std::invalid_argument("emsCluster currently supports securityMode=psk or none");
     }
     if (config.securityMode == "psk" && config.psk.size() < 16) {
         throw std::invalid_argument("emsCluster.psk must contain at least 16 characters");
@@ -543,6 +662,27 @@ void EmsClusterNode::validateConfig(const EmsClusterConfig& config) {
     if (config.memberTimeoutMs <= config.electionTimeoutMaxMs) {
         throw std::invalid_argument("emsCluster.memberTimeoutMs must exceed electionTimeoutMaxMs");
     }
+    if (config.controlEnabled && config.securityMode != "psk") {
+        throw std::invalid_argument("emsCluster control requires securityMode=psk");
+    }
+    if (config.dispatchCycleMs < config.heartbeatMs || config.dispatchCycleMs > 10000) {
+        throw std::invalid_argument("emsCluster.dispatchCycleMs must be heartbeatMs..10000");
+    }
+    if (config.dispatchTtlMs < config.dispatchCycleMs * 2 || config.dispatchTtlMs > 30000) {
+        throw std::invalid_argument("emsCluster.dispatchTtlMs must cover at least two dispatch cycles");
+    }
+    if (config.capabilityTtlMs < config.dispatchCycleMs * 2 || config.capabilityTtlMs > 30000) {
+        throw std::invalid_argument("emsCluster.capabilityTtlMs must cover at least two dispatch cycles");
+    }
+    if (config.stationTargetTtlMs < config.dispatchCycleMs * 2 || config.stationTargetTtlMs > 30000) {
+        throw std::invalid_argument("emsCluster.stationTargetTtlMs must cover at least two dispatch cycles");
+    }
+    if (config.virtualSharedMemoryName.empty()) {
+        throw std::invalid_argument("emsCluster.virtualSharedMemoryName is required");
+    }
+    if (config.virtualPointBaseIndex == 0 || config.virtualPointBaseIndex > 999999000U) {
+        throw std::invalid_argument("emsCluster.virtualPointBaseIndex is outside the supported range");
+    }
 }
 
 double EmsClusterNode::calculateLoadScore(const EmsClusterLoadSample& load) {
@@ -571,6 +711,26 @@ const char* EmsClusterNode::roleName(EmsClusterRole role) {
         case EmsClusterRole::Leader: return "leader";
         case EmsClusterRole::Quarantined: return "quarantined";
         case EmsClusterRole::Fault: return "fault";
+    }
+    return "unknown";
+}
+
+const char* EmsClusterNode::dispatchCodeName(EmsClusterDispatchCode code) {
+    switch (code) {
+        case EmsClusterDispatchCode::Accepted: return "accepted";
+        case EmsClusterDispatchCode::Clamped: return "clamped";
+        case EmsClusterDispatchCode::ControlDisabled: return "control_disabled";
+        case EmsClusterDispatchCode::NoQuorum: return "no_quorum";
+        case EmsClusterDispatchCode::NotLeader: return "not_leader";
+        case EmsClusterDispatchCode::TermMismatch: return "term_mismatch";
+        case EmsClusterDispatchCode::MembershipMismatch: return "membership_mismatch";
+        case EmsClusterDispatchCode::StaleSequence: return "stale_sequence";
+        case EmsClusterDispatchCode::Expired: return "expired";
+        case EmsClusterDispatchCode::CapabilityStale: return "capability_stale";
+        case EmsClusterDispatchCode::NotReady: return "not_ready";
+        case EmsClusterDispatchCode::Interlocked: return "interlocked";
+        case EmsClusterDispatchCode::ManualOverride: return "manual_override";
+        case EmsClusterDispatchCode::InvalidTarget: return "invalid_target";
     }
     return "unknown";
 }
@@ -646,6 +806,7 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
     if (role_ == EmsClusterRole::Leader) {
         if (!load.computeHealthy) {
             queue(EmsClusterMessageType::StepDown);
+            invalidateDispatch(EmsClusterDispatchCode::NotReady);
             becomeFollower(currentTerm_, {}, nowMs, "local ComputeEngine is unhealthy");
             return;
         }
@@ -663,11 +824,13 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
         if (acknowledgements >= effectiveQuorum()) lastQuorumMs_ = nowMs;
         if (lastQuorumMs_ > 0 && nowMs - lastQuorumMs_ > config_.leaderLeaseMs) {
             queue(EmsClusterMessageType::StepDown);
+            invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
             becomeFollower(currentTerm_, {}, nowMs, "leader lost majority lease");
             return;
         }
         maybeProposeMembership(nowMs);
         maybeCommitMembership(nowMs);
+        tickDispatch(nowMs);
         return;
     }
 
@@ -681,12 +844,14 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
             role_ = EmsClusterRole::Discovering;
             reason_ = "waiting for committed membership";
             resetElectionDeadline(nowMs);
+            tickDispatch(nowMs);
             return;
         }
         if (!load.computeHealthy) {
             role_ = EmsClusterRole::Discovering;
             reason_ = "local ComputeEngine is unhealthy and cannot become leader";
             resetElectionDeadline(nowMs);
+            tickDispatch(nowMs);
             return;
         }
         if (onlineCompatibleCount(nowMs) >= effectiveQuorum()) {
@@ -697,6 +862,7 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
             resetElectionDeadline(nowMs);
         }
     }
+    tickDispatch(nowMs);
 }
 
 void EmsClusterNode::refreshMember(const EmsClusterInbound& inbound, std::int64_t nowMs) {
@@ -800,6 +966,18 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
         case EmsClusterMessageType::MembershipCommit:
             handleMembershipCommit(message, nowMs);
             break;
+        case EmsClusterMessageType::CapabilityReport:
+            handleCapabilityReport(message, nowMs);
+            break;
+        case EmsClusterMessageType::DispatchTarget:
+            handleDispatchTarget(message, nowMs);
+            break;
+        case EmsClusterMessageType::DispatchAck:
+            handleDispatchAck(message, nowMs);
+            break;
+        case EmsClusterMessageType::Feedback:
+            handleFeedback(message, nowMs);
+            break;
     }
 }
 
@@ -825,6 +1003,7 @@ void EmsClusterNode::becomeFollower(
         pendingAssignments_.clear();
         membershipAcks_.clear();
         pendingProposalLastSentMs_ = 0;
+        invalidateDispatch(EmsClusterDispatchCode::TermMismatch);
     }
     reason_ = reason;
     resetElectionDeadline(nowMs);
@@ -839,6 +1018,7 @@ void EmsClusterNode::startElection(std::int64_t nowMs) {
     votesGranted_.clear();
     votesGranted_.insert(nodeId_);
     reason_ = "requesting majority vote";
+    invalidateDispatch(EmsClusterDispatchCode::NotLeader);
     resetElectionDeadline(nowMs);
     queue(EmsClusterMessageType::VoteRequest);
 }
@@ -848,6 +1028,8 @@ void EmsClusterNode::becomeLeader(std::int64_t nowMs) {
     leaderNodeId_ = nodeId_;
     lastQuorumMs_ = nowMs;
     lastHeartbeatMs_ = 0;
+    dispatchSequence_ = 0;
+    invalidateDispatch(EmsClusterDispatchCode::Expired);
     reason_ = "majority vote committed leader";
     queue(EmsClusterMessageType::LeaderCommit);
 }
@@ -1131,6 +1313,10 @@ EmsClusterStatus EmsClusterNode::status(std::int64_t nowMs) const {
     result.metricsComplete = load_.computeMetricsAvailable;
     result.computeHealthy = load_.computeHealthy;
     result.loadScore = loadScore_;
+    result.controlConfigured = config_.controlEnabled;
+    result.capability = localCapability_;
+    result.dispatch = activeDispatch(nowMs);
+    result.controlActive = result.dispatch.valid && result.quorumValid;
     result.reason = reason_;
     for (const auto& entry : members_) {
         auto member = entry.second.status;
@@ -1138,6 +1324,20 @@ EmsClusterStatus EmsClusterNode::status(std::int64_t nowMs) const {
         member.lastSeenAgeMs = member.lastSeenMs > 0 ? std::max<std::int64_t>(0, nowMs - member.lastSeenMs) : -1;
         member.online = member.compatible && member.lastSeenAgeMs >= 0 &&
             member.lastSeenAgeMs <= config_.memberTimeoutMs;
+        member.capabilityFresh = entry.second.lastCapabilityMs > 0 &&
+            nowMs - entry.second.lastCapabilityMs <= config_.capabilityTtlMs;
+        member.capabilityAgeMs = entry.second.lastCapabilityMs > 0
+            ? std::max<std::int64_t>(0, nowMs - entry.second.lastCapabilityMs)
+            : -1;
+        member.dispatchAgeMs = member.dispatch.receivedAtMs > 0
+            ? std::max<std::int64_t>(0, nowMs - member.dispatch.receivedAtMs)
+            : -1;
+        if (member.dispatch.valid && member.dispatch.expireAtMs > 0 &&
+            nowMs >= member.dispatch.expireAtMs) {
+            member.dispatch.valid = false;
+            member.dispatch.code = EmsClusterDispatchCode::Expired;
+            member.dispatch.accepted = {};
+        }
         result.members.push_back(std::move(member));
     }
     return result;
@@ -1146,8 +1346,8 @@ EmsClusterStatus EmsClusterNode::status(std::int64_t nowMs) const {
 std::string emsClusterStatusJson(const EmsClusterStatus& status, std::int64_t wallNowMs) {
     std::ostringstream out;
     out << std::fixed << std::setprecision(2)
-        << "{\"schemaVersion\":\"1.0\",\"ts\":" << wallNowMs
-        << ",\"phase\":1,\"controlWritesEnabled\":false"
+        << "{\"schemaVersion\":\"2.0\",\"ts\":" << wallNowMs
+        << ",\"phase\":2,\"controlWritesEnabled\":" << (status.controlConfigured ? "true" : "false")
         << ",\"role\":\"" << EmsClusterNode::roleName(status.role) << "\""
         << ",\"nodeId\":\"" << escapeJson(status.nodeId) << "\""
         << ",\"leaderNodeId\":\"" << escapeJson(status.leaderNodeId) << "\""
@@ -1160,6 +1360,18 @@ std::string emsClusterStatusJson(const EmsClusterStatus& status, std::int64_t wa
         << ",\"metricsComplete\":" << (status.metricsComplete ? "true" : "false")
         << ",\"computeHealthy\":" << (status.computeHealthy ? "true" : "false")
         << ",\"loadScore\":" << status.loadScore
+        << ",\"controlActive\":" << (status.controlActive ? "true" : "false")
+        << ",\"dispatch\":{\"valid\":" << (status.dispatch.valid ? "true" : "false")
+        << ",\"sequence\":" << status.dispatch.sequence
+        << ",\"code\":\"" << EmsClusterNode::dispatchCodeName(status.dispatch.code) << "\""
+        << ",\"requested\":[" << status.dispatch.requested.paKw << ','
+        << status.dispatch.requested.pbKw << ',' << status.dispatch.requested.pcKw << ','
+        << status.dispatch.requested.qaKvar << ',' << status.dispatch.requested.qbKvar << ','
+        << status.dispatch.requested.qcKvar << ']'
+        << ",\"accepted\":[" << status.dispatch.accepted.paKw << ','
+        << status.dispatch.accepted.pbKw << ',' << status.dispatch.accepted.pcKw << ','
+        << status.dispatch.accepted.qaKvar << ',' << status.dispatch.accepted.qbKvar << ','
+        << status.dispatch.accepted.qcKvar << "]}"
         << ",\"reason\":\"" << escapeJson(status.reason) << "\",\"members\":[";
     for (std::size_t i = 0; i < status.members.size(); ++i) {
         const auto& member = status.members[i];
@@ -1174,7 +1386,36 @@ std::string emsClusterStatusJson(const EmsClusterStatus& status, std::int64_t wa
             << ",\"compatible\":" << (member.compatible ? "true" : "false")
             << ",\"duplicateIdentity\":" << (member.duplicateIdentity ? "true" : "false")
             << ",\"metricsComplete\":" << (member.metricsComplete ? "true" : "false")
-            << ",\"computeHealthy\":" << (member.computeHealthy ? "true" : "false") << '}';
+            << ",\"computeHealthy\":" << (member.computeHealthy ? "true" : "false")
+            << ",\"capabilityFresh\":" << (member.capabilityFresh ? "true" : "false")
+            << ",\"capabilityAgeMs\":" << member.capabilityAgeMs
+            << ",\"capability\":{\"controlEnabled\":"
+            << (member.capability.controlEnabled ? "true" : "false")
+            << ",\"ready\":" << (member.capability.ready ? "true" : "false")
+            << ",\"interlocked\":" << (member.capability.interlocked ? "true" : "false")
+            << ",\"manualOverride\":" << (member.capability.manualOverride ? "true" : "false")
+            << ",\"socPercent\":" << member.capability.socPercent
+            << ",\"ratedActivePowerKw\":" << member.capability.ratedActivePowerKw
+            << ",\"ratedApparentPowerKva\":" << member.capability.ratedApparentPowerKva
+            << ",\"availableChargePowerKw\":" << member.capability.availableChargePowerKw
+            << ",\"availableDischargePowerKw\":" << member.capability.availableDischargePowerKw
+            << ",\"availableReactivePowerKvar\":" << member.capability.availableReactivePowerKvar
+            << ",\"actual\":[" << member.capability.actual.paKw << ','
+            << member.capability.actual.pbKw << ',' << member.capability.actual.pcKw << ','
+            << member.capability.actual.qaKvar << ',' << member.capability.actual.qbKvar << ','
+            << member.capability.actual.qcKvar << "]}"
+            << ",\"dispatchAgeMs\":" << member.dispatchAgeMs
+            << ",\"dispatch\":{\"valid\":" << (member.dispatch.valid ? "true" : "false")
+            << ",\"sequence\":" << member.dispatch.sequence
+            << ",\"code\":\"" << EmsClusterNode::dispatchCodeName(member.dispatch.code) << "\""
+            << ",\"requested\":[" << member.dispatch.requested.paKw << ','
+            << member.dispatch.requested.pbKw << ',' << member.dispatch.requested.pcKw << ','
+            << member.dispatch.requested.qaKvar << ',' << member.dispatch.requested.qbKvar << ','
+            << member.dispatch.requested.qcKvar << ']'
+            << ",\"accepted\":[" << member.dispatch.accepted.paKw << ','
+            << member.dispatch.accepted.pbKw << ',' << member.dispatch.accepted.pcKw << ','
+            << member.dispatch.accepted.qaKvar << ',' << member.dispatch.accepted.qbKvar << ','
+            << member.dispatch.accepted.qcKvar << "]}}";
     }
     out << "]}";
     return out.str();

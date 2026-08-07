@@ -18,6 +18,7 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/ems_cluster.hpp"
 #include "edge_gateway/ems_cluster_network.hpp"
+#include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/ems_cluster_transport.hpp"
 
 namespace {
@@ -212,25 +213,57 @@ int main(int argc, char* argv[]) {
 
         auto transport = makeEthernetClusterTransport(appConfig.emsCluster, identity.machineCode);
         transport->start();
+        EmsClusterPointBridge pointBridge(appConfig.emsCluster, identity.machineCode);
         LoadSampler loadSampler(appConfig.emsCluster.computeHealthFile);
         std::signal(SIGINT, handleSignal);
         std::signal(SIGTERM, handleSignal);
         std::int64_t lastStatusAt = 0;
+        bool pointStatePublished = false;
+        bool lastDispatchValid = false;
+        bool lastQuorumValid = false;
+        EmsClusterRole lastRole = EmsClusterRole::Disabled;
+        EmsClusterDispatchCode lastDispatchCode = EmsClusterDispatchCode::ControlDisabled;
+        std::uint64_t lastDispatchSequence = 0;
         do {
             const auto now = monotonicNowMs();
+            const auto wallNow = wallNowMs();
             for (const auto& inbound : transport->poll(50)) node.receive(inbound, now);
+            bool stationTargetValid = false;
+            const auto capability = pointBridge.sampleCapability(wallNow);
+            const auto stationTarget = pointBridge.sampleStationTarget(wallNow, stationTargetValid);
+            node.updateControlInputs(capability, stationTarget, stationTargetValid, now);
             node.tick(now, loadSampler.sample());
             for (const auto& outbound : node.drainOutgoing()) transport->send(outbound);
-            if (lastStatusAt == 0 || now - lastStatusAt >= appConfig.emsCluster.statusIntervalMs) {
-                const auto status = node.status(now);
-                const auto payload = emsClusterStatusJson(status, wallNowMs());
+            const auto status = node.status(now);
+            const auto dispatch = node.activeDispatch(now);
+            const bool pointStateChanged = !pointStatePublished ||
+                dispatch.valid != lastDispatchValid ||
+                dispatch.code != lastDispatchCode ||
+                dispatch.sequence != lastDispatchSequence ||
+                status.quorumValid != lastQuorumValid ||
+                status.role != lastRole;
+            const bool statusDue = lastStatusAt == 0 ||
+                now - lastStatusAt >= appConfig.emsCluster.statusIntervalMs;
+            if (pointStateChanged || statusDue) {
+                pointBridge.publish(status, dispatch, wallNow);
+                pointStatePublished = true;
+                lastDispatchValid = dispatch.valid;
+                lastDispatchCode = dispatch.code;
+                lastDispatchSequence = dispatch.sequence;
+                lastQuorumValid = status.quorumValid;
+                lastRole = status.role;
+            }
+            if (statusDue) {
+                const auto payload = emsClusterStatusJson(status, wallNow);
                 writeStatus(appConfig.emsCluster.statusFile, payload);
                 std::cout << "EMS cluster state role=" << EmsClusterNode::roleName(status.role)
                           << " term=" << status.term
                           << " leader=" << (status.leaderNodeId.empty() ? "none" : status.leaderNodeId)
                           << " online=" << status.onlineMembers
                           << " quorum=" << (status.quorumValid ? "valid" : "invalid")
-                          << " writes=disabled" << std::endl;
+                          << " control=" << (status.controlActive ? "active" : "inactive")
+                          << " dispatch=" << EmsClusterNode::dispatchCodeName(dispatch.code)
+                          << std::endl;
                 lastStatusAt = now;
             }
         } while (g_running && !once);
