@@ -16,6 +16,31 @@
 
 namespace edge_gateway {
 
+enum class SustainedThresholdTransition {
+    None,
+    Triggered,
+    Recovered
+};
+
+class SustainedThresholdAlert {
+public:
+    SustainedThresholdTransition update(
+        double value,
+        double triggerThreshold,
+        double recoveryThreshold,
+        int triggerConsecutiveSamples,
+        int recoveryConsecutiveSamples
+    );
+
+    bool active() const;
+
+private:
+    bool initialized_ = false;
+    bool active_ = false;
+    int triggerCount_ = 0;
+    int recoveryCount_ = 0;
+};
+
 class SystemMonitorService {
 public:
     SystemMonitorService(
@@ -160,6 +185,8 @@ private:
     std::int64_t lastTelemetryMs_ = 0;
     std::int64_t lastPointSnapshotMs_ = 0;
     std::map<std::string, std::int64_t> lastAlertPublishMs_;
+    std::map<std::string, bool> lastAlertActive_;
+    SustainedThresholdAlert cpuAlertState_;
     std::uint64_t lastCpuTotal_ = 0;
     std::uint64_t lastCpuIdle_ = 0;
     bool cpuBaselineReady_ = false;

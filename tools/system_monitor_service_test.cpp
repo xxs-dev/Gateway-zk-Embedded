@@ -234,6 +234,46 @@ std::string lastPayloadForTopic(const CapturingPublisher& publisher, const std::
 int main() {
     using namespace edge_gateway;
 
+    SustainedThresholdAlert cpuAlert;
+    require(
+        cpuAlert.update(95.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None,
+        "single CPU spike should not trigger"
+    );
+    require(
+        cpuAlert.update(96.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None,
+        "two CPU spikes should not trigger"
+    );
+    require(
+        cpuAlert.update(97.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::Triggered,
+        "third consecutive CPU spike should trigger"
+    );
+    require(cpuAlert.active(), "CPU alert should stay active after triggering");
+    require(
+        cpuAlert.update(85.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None,
+        "CPU alert should not recover inside the hysteresis band"
+    );
+    require(
+        cpuAlert.update(75.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None &&
+        cpuAlert.update(79.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None &&
+        cpuAlert.update(70.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::Recovered,
+        "three healthy CPU samples should recover"
+    );
+    require(!cpuAlert.active(), "CPU alert should be inactive after recovery");
+    require(
+        cpuAlert.update(91.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None &&
+        cpuAlert.update(92.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None &&
+        cpuAlert.update(93.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::Triggered,
+        "CPU alert should trigger again after recovery"
+    );
+
+    SustainedThresholdAlert initialCpuState;
+    require(
+        initialCpuState.update(20.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None &&
+        initialCpuState.update(21.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::None &&
+        initialCpuState.update(22.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::Recovered,
+        "startup health confirmation should clear a stale platform alert"
+    );
+
     const std::string root = "/tmp/system-monitor-service-test";
     ensureDir(root);
     const std::string small = root + "/small.json";

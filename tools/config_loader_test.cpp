@@ -573,6 +573,46 @@ void verifyScadaUpperComputerSafetyConfig() {
     require(config.directMaintenance.scadaUpperComputerProjectDirectory == "/srv/scada/current", "direct maintenance should share SCADA project directory");
 }
 
+void verifySystemMonitorCpuAlertConfig() {
+    const auto path = tempPath();
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << R"JSON({
+      "systemMonitor": {
+        "cpuAlertThreshold": 93,
+        "cpuAlertRecoveryThreshold": 84,
+        "cpuAlertConsecutiveSamples": 4,
+        "cpuRecoveryConsecutiveSamples": 2
+      }
+    })JSON";
+    output.close();
+
+    const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).systemMonitor;
+    std::remove(path.c_str());
+    require(config.cpuAlertThreshold == 93.0, "CPU alert threshold should parse");
+    require(config.cpuAlertRecoveryThreshold == 84.0, "CPU recovery threshold should parse");
+    require(config.cpuAlertConsecutiveSamples == 4, "CPU trigger samples should parse");
+    require(config.cpuRecoveryConsecutiveSamples == 2, "CPU recovery samples should parse");
+
+    const auto invalidPath = tempPath();
+    std::ofstream invalidOutput(invalidPath.c_str(), std::ios::binary | std::ios::trunc);
+    invalidOutput << R"JSON({
+      "systemMonitor": {
+        "cpuAlertThreshold": 150,
+        "cpuAlertRecoveryThreshold": 120,
+        "cpuAlertConsecutiveSamples": 0,
+        "cpuRecoveryConsecutiveSamples": 1000
+      }
+    })JSON";
+    invalidOutput.close();
+
+    const auto bounded = edge_gateway::ConfigLoader::loadAppConfigFromFile(invalidPath).systemMonitor;
+    std::remove(invalidPath.c_str());
+    require(bounded.cpuAlertThreshold == 100.0, "CPU alert threshold should be bounded");
+    require(bounded.cpuAlertRecoveryThreshold == 90.0, "CPU recovery threshold should stay below trigger");
+    require(bounded.cpuAlertConsecutiveSamples == 1, "CPU trigger samples should be bounded");
+    require(bounded.cpuRecoveryConsecutiveSamples == 60, "CPU recovery samples should be bounded");
+}
+
 void verifyIec103RecordingTransferConfig() {
     const auto path = tempPath();
     std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
@@ -692,6 +732,7 @@ int main() {
     verifyLocalDisplayStateBindingConfig();
     verifyLocalDisplayScadaConfig();
     verifyScadaUpperComputerSafetyConfig();
+    verifySystemMonitorCpuAlertConfig();
     verifyIec103RecordingTransferConfig();
     verifyDeliveryRuntimeConfig();
 

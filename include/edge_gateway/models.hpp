@@ -1146,6 +1146,9 @@ struct SystemMonitorConfig {
     int minIntervalMs = 500;
     int subscriptionTtlSec = 30;
     double cpuAlertThreshold = 90.0;
+    double cpuAlertRecoveryThreshold = 80.0;
+    int cpuAlertConsecutiveSamples = 3;
+    int cpuRecoveryConsecutiveSamples = 3;
     double memAlertThreshold = 90.0;
     double diskAlertThreshold = 90.0;
     int alertRepeatIntervalSec = 60;

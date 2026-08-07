@@ -1819,6 +1819,62 @@ void applyMmcliOutput(const std::string& output, CellularStatus* status) {
 
 }  // namespace
 
+SustainedThresholdTransition SustainedThresholdAlert::update(
+    double value,
+    double triggerThreshold,
+    double recoveryThreshold,
+    int triggerConsecutiveSamples,
+    int recoveryConsecutiveSamples
+) {
+    triggerConsecutiveSamples = std::max(1, triggerConsecutiveSamples);
+    recoveryConsecutiveSamples = std::max(1, recoveryConsecutiveSamples);
+
+    if (active_) {
+        triggerCount_ = 0;
+        if (value <= recoveryThreshold) {
+            ++recoveryCount_;
+            if (recoveryCount_ >= recoveryConsecutiveSamples) {
+                active_ = false;
+                initialized_ = true;
+                recoveryCount_ = 0;
+                return SustainedThresholdTransition::Recovered;
+            }
+        } else {
+            recoveryCount_ = 0;
+        }
+        return SustainedThresholdTransition::None;
+    }
+
+    if (value >= triggerThreshold) {
+        recoveryCount_ = 0;
+        ++triggerCount_;
+        if (triggerCount_ >= triggerConsecutiveSamples) {
+            active_ = true;
+            initialized_ = true;
+            triggerCount_ = 0;
+            return SustainedThresholdTransition::Triggered;
+        }
+        return SustainedThresholdTransition::None;
+    }
+
+    triggerCount_ = 0;
+    if (!initialized_ && value <= recoveryThreshold) {
+        ++recoveryCount_;
+        if (recoveryCount_ >= recoveryConsecutiveSamples) {
+            initialized_ = true;
+            recoveryCount_ = 0;
+            return SustainedThresholdTransition::Recovered;
+        }
+    } else {
+        recoveryCount_ = 0;
+    }
+    return SustainedThresholdTransition::None;
+}
+
+bool SustainedThresholdAlert::active() const {
+    return active_;
+}
+
 SystemMonitorService::SystemMonitorService(
     SystemMonitorConfig monitorConfig,
     MqttConfig mqttConfig,
@@ -2731,8 +2787,17 @@ void SystemMonitorService::publishTelemetry(const Sample& sample, std::int64_t n
 }
 
 void SystemMonitorService::evaluateAlerts(const Sample& sample, std::int64_t nowMs) {
-    if (sample.cpuUsage >= monitorConfig_.cpuAlertThreshold) {
+    const auto cpuTransition = cpuAlertState_.update(
+        sample.cpuUsage,
+        monitorConfig_.cpuAlertThreshold,
+        monitorConfig_.cpuAlertRecoveryThreshold,
+        monitorConfig_.cpuAlertConsecutiveSamples,
+        monitorConfig_.cpuRecoveryConsecutiveSamples
+    );
+    if (cpuTransition == SustainedThresholdTransition::Triggered || cpuAlertState_.active()) {
         publishAlert("cpuUsage", sample.cpuUsage, monitorConfig_.cpuAlertThreshold, true, nowMs, "cpu usage too high");
+    } else if (cpuTransition == SustainedThresholdTransition::Recovered) {
+        publishAlert("cpuUsage", sample.cpuUsage, monitorConfig_.cpuAlertThreshold, false, nowMs, "cpu usage recovered");
     }
     if (sample.memUsage >= monitorConfig_.memAlertThreshold) {
         publishAlert("memUsage", sample.memUsage, monitorConfig_.memAlertThreshold, true, nowMs, "memory usage too high");
@@ -2771,11 +2836,14 @@ void SystemMonitorService::publishAlert(
     if (mqttConfig_.systemMonitorAlertTopic.empty()) {
         return;
     }
+    const auto activeIt = lastAlertActive_.find(metric);
+    const bool stateChanged = activeIt == lastAlertActive_.end() || activeIt->second != active;
     const auto it = lastAlertPublishMs_.find(metric);
     const auto minInterval = static_cast<std::int64_t>(std::max(1, monitorConfig_.alertRepeatIntervalSec)) * 1000;
-    if (it != lastAlertPublishMs_.end() && nowMs - it->second < minInterval) {
+    if (!stateChanged && it != lastAlertPublishMs_.end() && nowMs - it->second < minInterval) {
         return;
     }
+    lastAlertActive_[metric] = active;
     lastAlertPublishMs_[metric] = nowMs;
     std::ostringstream payload;
     payload << "{\"type\":\"system-alert\",\"machineCode\":\"" << escapeJson(machineCode_) << "\""
