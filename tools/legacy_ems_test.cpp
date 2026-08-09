@@ -1536,6 +1536,67 @@ int main() {
         );
 
         writeTextFile(
+            "graph_ems_dynamic_rate_limit_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "dynamic_rate_limit",
+  "nodes": [
+    {
+      "id": "dynamic_pcs_power_rate_limit",
+      "type": "rateLimit",
+      "params": {
+        "inputIndex": 799900,
+        "outputIndex": 799901,
+        "risePerSecondIndex": 799902,
+        "fallPerSecondIndex": 799903,
+        "minValue": -50,
+        "maxValue": 50,
+        "initialValue": 0
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 799900, "DYNAMIC_RATE_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 799901, "DYNAMIC_RATE_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 799902, "DYNAMIC_RISE_RATE", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 799903, "DYNAMIC_FALL_RATE", genericConfig.memoryStore.sharedMemoryName, false);
+        genericSeedEngine.set(799900, 30.0, 608000);
+        genericSeedEngine.set(799902, 4.0, 608000);
+        genericSeedEngine.set(799903, 8.0, 608000);
+        edge_gateway::GraphEmsEngine dynamicRateLimitEngine(
+            edge_gateway::GraphEmsConfig::loadLegacyV1ForMigration("graph_ems_dynamic_rate_limit_test.json"),
+            genericRouter,
+            600000
+        );
+        dynamicRateLimitEngine.runOnce(608000);
+        dynamicRateLimitEngine.runOnce(608500);
+        requireNear(
+            genericRouter.getLatestByIndex(799901, 608500)->value,
+            2.0,
+            0.0001,
+            "dynamic rate limit rise mismatch"
+        );
+        genericSeedEngine.set(799900, -30.0, 608500);
+        dynamicRateLimitEngine.runOnce(609000);
+        requireNear(
+            genericRouter.getLatestByIndex(799901, 609000)->value,
+            -2.0,
+            0.0001,
+            "dynamic rate limit fall mismatch"
+        );
+        genericSeedEngine.set(799902, 10.0, 609000);
+        genericSeedEngine.set(799900, 30.0, 609000);
+        dynamicRateLimitEngine.runOnce(609500);
+        requireNear(
+            genericRouter.getLatestByIndex(799901, 609500)->value,
+            3.0,
+            0.0001,
+            "dynamic rate limit must use the latest configured rise speed"
+        );
+
+        writeTextFile(
             "graph_ems_boolean_filters_test.json",
             R"json({
   "schemaVersion": "1.2.0",

@@ -1595,20 +1595,37 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         if (paramIndex(node, "inputIndex") == paramIndex(node, "outputIndex")) {
             throw std::runtime_error("rateLimit inputIndex and outputIndex must differ");
         }
-        const char* requiredNumbers[] = {"risePerSecond", "fallPerSecond", "minValue", "maxValue"};
+        const char* requiredNumbers[] = {"minValue", "maxValue"};
         for (const auto* key : requiredNumbers) {
             if (!hasParam(node, key)) {
                 throw std::runtime_error(std::string("rateLimit ") + key + " is required");
             }
         }
-        const auto rise = paramDouble(node, "risePerSecond").value();
-        const auto fall = paramDouble(node, "fallPerSecond").value();
+        const auto validateRate = [&node](const char* valueKey, const char* indexKey) {
+            const auto hasValue = hasParam(node, valueKey);
+            const auto hasIndex = hasParam(node, indexKey);
+            if (!hasValue && !hasIndex) {
+                throw std::runtime_error(
+                    std::string("rateLimit ") + valueKey + " or " + indexKey + " is required"
+                );
+            }
+            if (hasValue) {
+                const auto value = paramDouble(node, valueKey).value();
+                if (!std::isfinite(value) || value <= 0.0) {
+                    throw std::runtime_error(
+                        std::string("rateLimit ") + valueKey + " must be a positive number"
+                    );
+                }
+            }
+            if (hasIndex) {
+                validatePositiveIndex(node, indexKey);
+            }
+        };
+        validateRate("risePerSecond", "risePerSecondIndex");
+        validateRate("fallPerSecond", "fallPerSecondIndex");
         const auto minValue = paramDouble(node, "minValue").value();
         const auto maxValue = paramDouble(node, "maxValue").value();
         const auto initialValue = paramDouble(node, "initialValue").value_or(0.0);
-        if (!std::isfinite(rise) || rise <= 0.0 || !std::isfinite(fall) || fall <= 0.0) {
-            throw std::runtime_error("rateLimit risePerSecond and fallPerSecond must be positive numbers");
-        }
         if (!std::isfinite(minValue) || !std::isfinite(maxValue) || minValue > maxValue) {
             throw std::runtime_error("rateLimit bounds must be finite and minValue <= maxValue");
         }
@@ -5639,6 +5656,27 @@ bool GraphEmsEngine::runRateLimit(
     if (*input < minValue || *input > maxValue) {
         throw std::runtime_error("rateLimit input outside configured bounds");
     }
+    const auto latestParam = [this, nowMs](std::uint32_t index) {
+        return latestValue(index, nowMs);
+    };
+    const auto risePerSecond = paramOrLatestValue(
+        node,
+        "risePerSecond",
+        "risePerSecondIndex",
+        latestParam
+    );
+    const auto fallPerSecond = paramOrLatestValue(
+        node,
+        "fallPerSecond",
+        "fallPerSecondIndex",
+        latestParam
+    );
+    if (!risePerSecond || !std::isfinite(*risePerSecond) || *risePerSecond <= 0.0) {
+        throw std::runtime_error("rateLimit rise speed is unavailable or not positive");
+    }
+    if (!fallPerSecond || !std::isfinite(*fallPerSecond) || *fallPerSecond <= 0.0) {
+        throw std::runtime_error("rateLimit fall speed is unavailable or not positive");
+    }
 
     const auto outputIndex = paramIndex(node, "outputIndex");
     auto& state = rateLimitStates_[node.id];
@@ -5652,9 +5690,9 @@ bool GraphEmsEngine::runRateLimit(
         const auto elapsedSeconds = static_cast<double>(nowMs - state.lastRunAt) / 1000.0;
         const auto delta = *input - state.output;
         if (delta > 0.0) {
-            next = state.output + std::min(delta, paramDouble(node, "risePerSecond").value() * elapsedSeconds);
+            next = state.output + std::min(delta, *risePerSecond * elapsedSeconds);
         } else if (delta < 0.0) {
-            next = state.output + std::max(delta, -paramDouble(node, "fallPerSecond").value() * elapsedSeconds);
+            next = state.output + std::max(delta, -*fallPerSecond * elapsedSeconds);
         }
     }
 

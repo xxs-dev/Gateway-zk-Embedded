@@ -27,7 +27,10 @@ EVENT_PID=$ROOT/run/event-engine.pid
 MQTT_PID=$ROOT/run/mqtt-driver.pid
 MODE_FILE=$ROOT/run/mode
 PROTOCOL_FILE=$ROOT/run/protocol
+SHARED_MEMORY_FILE=$ROOT/run/shared-memory-name
 GPIO_ROOT=$ROOT/run/gpio
+ROOT_TOKEN=$(basename "$ROOT" | tr '.-' '__')
+SYSTEM_MONITOR_SHARED_MEMORY=${GATEWAY_TEST_LAB_SYSTEM_MONITOR_SHARED_MEMORY:-gateway_test_lab_system_monitor_$ROOT_TOKEN}
 
 usage() {
     echo "Usage: gateway-test-lab start [normal|ramp|random|boundary] [--protocol modbus-tcp|modbus-rtu|dlt645|can|dio|iec104] [--mode virtual|hil]"
@@ -306,6 +309,7 @@ start_lab() {
         esac
     fi
     render_configs "$protocol" "$endpoint" "$port" "$monitor_host" "$monitor_port" "$mqtt_enabled" "$mqtt_broker" "$mode"
+    printf '%s\n' "$shared_memory" > "$SHARED_MEMORY_FILE"
 
     case "$protocol" in
         modbus-tcp) device_config=$ROOT/config/devices/device_modbus_tcp.json ;;
@@ -340,6 +344,7 @@ start_lab() {
 
     nohup "$SYSTEM_MONITOR_BIN" \
         --app-config "$ROOT/config/apps/monitor-service.json" \
+        --system-monitor-shared-memory "$SYSTEM_MONITOR_SHARED_MEMORY" \
         > "$ROOT/logs/system-monitor.log" 2>&1 &
     echo $! > "$MONITOR_PID"
     wait_started "$MONITOR_PID" SystemMonitor
@@ -382,10 +387,13 @@ stop_lab() {
     stop_process "$COMPUTE_PID" compute-engine
     stop_process "$DRIVER_PID" modbus-driver
     stop_process "$SIM_PID" simulator
+    shared_memory=
+    [ ! -f "$SHARED_MEMORY_FILE" ] || shared_memory=$(cat "$SHARED_MEMORY_FILE")
+    case "$shared_memory" in
+        gateway_test_lab_*) rm -f -- "/dev/shm/$shared_memory" ;;
+    esac
     rm -f -- "$CONTROL" "$STATUS_FILE" "$MODE_FILE" "$PROTOCOL_FILE" \
-        /dev/shm/gateway_test_lab_modbus /dev/shm/gateway_test_lab_modbus_rtu \
-        /dev/shm/gateway_test_lab_dlt645 /dev/shm/gateway_test_lab_can \
-        /dev/shm/gateway_test_lab_dio /dev/shm/gateway_test_lab_iec104
+        "$SHARED_MEMORY_FILE" "/dev/shm/$SYSTEM_MONITOR_SHARED_MEMORY"
     rm -rf -- "$GPIO_ROOT"
 }
 

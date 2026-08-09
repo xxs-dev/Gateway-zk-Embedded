@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "machineCode": "COMM202600103",
+  "productId": "ky-ems-stationary",
+  "productVersion": "1.0",
+  "deviceForm": "stationary-storage-cabinet",
+  "releaseStatus": "deployed-approved-baseline",
+  "scadaSource": "../../scada/base-project",
+  "runtimeSnapshot": "runtime",
+  "deployment": {
+    "packageVersion": "1.0.17",
+    "targetHost": "10.126.126.10",
+    "deployedAt": "2026-08-09T15:02:07+08:00",
+    "releasePath": "/opt/modbus-gateway/scada/releases/ky-ems-COMM202600103-1.0.17-20260809150207",
+    "packageSha256": "21ca52eb0ec2ccc99c1e52e05a268fb8b3ae37c0ca8487dca7282349338c09dd",
+    "rollbackPath": "/opt/modbus-gateway/backup/ems-stationary-1.0.16-before-1.0.17-20260809",
+    "screenCount": 15,
+    "assetCount": 57,
+    "runtimePointCount": 1968,
+    "tagCount": 1356,
+    "routeCount": 1288,
+    "retentionRouteCount": 48
+  },
+  "sourceAudit": {
+    "identityConfirmed": true,
+    "scadaIncluded": true,
+    "runtimeSnapshotCapturedAt": "2026-06-18T10:35:48.5213103Z",
+    "runtimeDevicesImported": 7,
+    "workstationConnectionAndAppConfigsExcluded": true,
+    "configurationPromoted": true,
+    "notes": [
+      "The original local edge-pull archive identified COMM202600103 but contained no SCADA project.",
+      "The target runtime and SCADA source were pulled and audited again before the 1.0.17 deployment.",
+      "Only device identity and runtime device snapshots are retained as source records; credentials and private keys remain excluded.",
+      "The 1.0.17 audit found no duplicate tags, routes or semantic roles.",
+      "The deployed services remained active with zero restarts and no warning-or-higher journal entries during delayed verification."
+    ]
+  }
+}

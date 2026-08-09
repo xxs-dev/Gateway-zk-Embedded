@@ -864,6 +864,11 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
             spec.maxValue = maxValue->asNumber();
         }
     }
+    if (const auto* startupValue = value->find("startupValue")) {
+        if (!startupValue->isNull()) {
+            spec.startupValue = startupValue->asNumber();
+        }
+    }
     spec.step = requireDouble(object, "step", spec.step);
     spec.allowedValues = parseDoubleArray(value->find("allowedValues"));
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
@@ -1039,6 +1044,12 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     point.reportOnChange = requireBool(object, "reportOnChange", point.reportOnChange);
     point.persistIntervalSec = requireInt(object, "persistIntervalSec", point.persistIntervalSec);
     point.collectPriority = std::max(0, requireInt(object, "collectPriority", point.collectPriority));
+    if (const auto* initialValue = value.find("initialValue")) {
+        if (!initialValue->isNull()) {
+            point.initialValue = initialValue->asNumber();
+        }
+    }
+    point.retain = requireBool(object, "retain", point.retain);
     point.tags = parseStringArray(value.find("tags"));
     point.read = parseReadSpec(value.find("read"));
     point.write = parseWriteSpec(value.find("write"));

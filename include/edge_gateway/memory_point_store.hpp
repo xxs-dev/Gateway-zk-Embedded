@@ -64,6 +64,7 @@ public:
     ) const;
 
     void submitWriteCommand(const PendingWriteCommand& command);
+    void submitWriteCommands(const std::vector<PendingWriteCommand>& commands);
     std::vector<PendingWriteCommand> drainPendingWriteCommands(std::size_t limit = 0);
     std::vector<PendingWriteCommand> drainPendingWriteCommandsByCmdId(
         const std::string& cmdId,
@@ -72,6 +73,10 @@ public:
     std::vector<PendingWriteCommand> peekPendingWriteCommands(std::size_t limit = 0) const;
     void recordWritebackResult(const WritebackResultRecord& result);
     Optional<WritebackResultRecord> getWritebackResult(const std::string& cmdId) const;
+    Optional<WritebackResultRecord> getWritebackResult(
+        const std::string& cmdId,
+        std::uint32_t index
+    ) const;
     MemoryStoreStats getStats() const;
 
     std::vector<PersistentPointSample> drainPersistentSamples();

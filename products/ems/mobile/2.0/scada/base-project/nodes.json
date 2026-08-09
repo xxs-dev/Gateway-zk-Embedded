@@ -1,0 +1,15 @@
+[
+  {
+    "nodeId": "edge-1",
+    "machineCode": "COMM202600104",
+    "displayName": "凯源移动储能车",
+    "connectionProfileId": "",
+    "fallbackConnectionProfileId": "",
+    "connectionPolicy": "auto",
+    "roles": [
+      "acquisition",
+      "control",
+      "safety"
+    ]
+  }
+]

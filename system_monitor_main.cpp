@@ -16,6 +16,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
+#include "edge_gateway/system_monitor_points.hpp"
 #include "edge_gateway/system_monitor_runtime_discovery.hpp"
 #include "edge_gateway/system_monitor_service.hpp"
 
@@ -95,12 +96,15 @@ int main(int argc, char* argv[]) {
     using namespace edge_gateway;
 
     std::string appConfigPath = "config/runtime/apps/mqtt-service.json";
+    std::string systemMonitorSharedMemoryName = system_monitor_points::kSharedMemoryName;
     bool directMaintenanceDisabled = false;
     bool once = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--app-config" && i + 1 < argc) {
             appConfigPath = argv[++i];
+        } else if (arg == "--system-monitor-shared-memory" && i + 1 < argc) {
+            systemMonitorSharedMemoryName = argv[++i];
         } else if (arg == "--no-direct-maintenance") {
             directMaintenanceDisabled = true;
         } else if (arg == "--once") {
@@ -161,6 +165,10 @@ int main(int argc, char* argv[]) {
     for (const auto& cameraService : runtimeDependencies.cameraServices) {
         router.addRoutesFromCameraServiceConfig(cameraService, machineCode);
     }
+    stores.emplace_back(new MemoryPointStore(systemMonitorSharedMemoryName));
+    router.addStore(systemMonitorSharedMemoryName, *stores.back());
+    system_monitor_points::registerStorePoints(*stores.back(), machineCode);
+    system_monitor_points::addRoutes(router, machineCode, systemMonitorSharedMemoryName);
 
     if (!machineCode.empty()) {
         appConfig.mqtt.topicMachineCode = machineCode;

@@ -232,13 +232,131 @@ void verifyWritableMappingAndStateRuleValidation() {
     removeTree(root);
 }
 
+void verifySameIndexAcrossIndependentStores() {
+    const auto root = createProjectDirectory(false);
+    const std::string storeAName = "gateway_scada_duplicate_a";
+    const std::string storeBName = "gateway_scada_duplicate_b";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeAName);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeBName);
+    try {
+        edge_gateway::MemoryStoreConfig storeAConfig;
+        storeAConfig.sharedMemoryName = storeAName;
+        storeAConfig.maxLatestPoints = 16;
+        edge_gateway::MemoryStoreConfig storeBConfig = storeAConfig;
+        storeBConfig.sharedMemoryName = storeBName;
+        edge_gateway::MemoryPointStore storeA(storeAConfig);
+        edge_gateway::MemoryPointStore storeB(storeBConfig);
+
+        auto deviceA = buildDeviceConfig(storeAName);
+        auto deviceB = buildDeviceConfig(storeBName);
+        deviceA.points.resize(1);
+        deviceB.points.resize(1);
+        deviceA.meterCode = "EMS_CORE";
+        deviceB.meterCode = "PCS001";
+        storeA.registerDevicePoints({deviceA});
+        storeB.registerDevicePoints({deviceB});
+
+        edge_gateway::PointStoreRouter router;
+        router.addStore(storeAName, storeA);
+        router.addStore(storeBName, storeB);
+        router.addRoutesFromDeviceConfigs({deviceA, deviceB}, storeAName);
+        require(static_cast<bool>(router.routeByLocation(storeAName, 100)), "store A route is missing");
+        require(static_cast<bool>(router.routeByLocation(storeBName, 100)), "store B route is missing");
+
+        edge_gateway::PointValue valueA;
+        valueA.index = 100;
+        valueA.value = 11.0;
+        valueA.quality = 1;
+        valueA.ts = 1000;
+        valueA.expireAt = 601000;
+        storeA.putLatest(valueA);
+        auto valueB = valueA;
+        valueB.value = 22.0;
+        storeB.putLatest(valueB);
+
+        auto project = edge_gateway::ScadaProjectLoader::loadFromDirectory(root);
+        project.runtimeMappings.front().sharedMemoryName = storeBName;
+        edge_gateway::ScadaRuntimeMap runtime(project, "COMM202600999", router);
+        const auto selected = runtime.readTag("pcs.power", 1000);
+        require(static_cast<bool>(selected) && selected->value == 22.0,
+            "SCADA did not read the route from its configured shared memory");
+
+        auto duplicate = *router.routeByLocation(storeBName, 100);
+        duplicate.pointCode = "DUPLICATE_IN_SAME_STORE";
+        bool rejected = false;
+        try {
+            router.addRoute(duplicate);
+        } catch (const std::invalid_argument& ex) {
+            rejected = std::string(ex.what()).find("duplicate point route location") != std::string::npos;
+        }
+        require(rejected, "same index in the same shared memory should still be rejected");
+    } catch (...) {
+        removeTree(root);
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeAName);
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeBName);
+        throw;
+    }
+    removeTree(root);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeAName);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeBName);
+}
+
+void verifyLocalAccessPermissionsValidation() {
+    const auto root = createProjectDirectory(false);
+    try {
+        writeFile(root + "/permissions.json", R"({
+          "roles":["operator","maintainer"],
+          "localAccess":{
+            "sessionTimeoutSeconds":900,
+            "protectedScreenPrefixes":["overview"],
+            "users":[{
+              "username":"operator",
+              "salt":"00112233445566778899aabbccddeeff",
+              "passwordSha256":"e818d3f9b975db3914dedfeb7f81d07324d445ba6bdacaccf4f2098fbb51c4a6",
+              "roles":["operator"]
+            }]
+          }
+        })");
+        const auto project = edge_gateway::ScadaProjectLoader::loadFromDirectory(root);
+        require(project.permissions.localAccess.enabled(), "local access permissions were not loaded");
+        require(project.permissions.localAccess.sessionTimeoutSeconds == 900, "local access timeout mismatch");
+        require(project.permissions.localAccess.users.size() == 1, "local access user mismatch");
+
+        auto invalidHash = project;
+        invalidHash.permissions.localAccess.users.front().passwordSha256 = "bad";
+        bool hashRejected = false;
+        try {
+            edge_gateway::ScadaProjectLoader::validate(invalidHash);
+        } catch (const std::runtime_error& ex) {
+            hashRejected = std::string(ex.what()).find("password record") != std::string::npos;
+        }
+        require(hashRejected, "invalid local password digest should fail");
+
+        auto incomplete = project;
+        incomplete.permissions.localAccess.users.clear();
+        bool incompleteRejected = false;
+        try {
+            edge_gateway::ScadaProjectLoader::validate(incomplete);
+        } catch (const std::runtime_error& ex) {
+            incompleteRejected = std::string(ex.what()).find("both protected screens and users") != std::string::npos;
+        }
+        require(incompleteRejected, "incomplete local access policy should fail");
+    } catch (...) {
+        removeTree(root);
+        throw;
+    }
+    removeTree(root);
+}
+
 }  // namespace
 
 int main() {
     try {
         verifyLoadResolveReadAndWrite();
+        verifySameIndexAcrossIndependentStores();
         verifyDuplicateRuntimeRouteRejected();
         verifyWritableMappingAndStateRuleValidation();
+        verifyLocalAccessPermissionsValidation();
         std::cout << "scada_runtime_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

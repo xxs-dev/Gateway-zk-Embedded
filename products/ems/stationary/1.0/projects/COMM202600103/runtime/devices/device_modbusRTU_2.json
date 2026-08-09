@@ -1,0 +1,5440 @@
+﻿{
+  "templateName": "legacy_modbusRTU_2",
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {
+    "type": "modbus_rtu",
+    "slave": 1,
+    "transport": {
+      "serialPort": "/dev/ttySP2",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 500,
+      "frameIntervalMs": 100,
+      "readRetryCount": 1
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 500,
+    "batchOptimize": true,
+    "maxBatchRegisters": 120,
+    "maxRequestRegisters": 120,
+    "offlineFailureThreshold": 3,
+    "recoverySuccessThreshold": 1,
+    "slaveFailureBackoffThreshold": 3,
+    "slaveFailureBackoffMs": 30000,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffMs": 180000,
+    "offlineProbeOnly": true,
+    "offlineProbeTaskCount": 2,
+    "adaptiveSplitOnFailure": true,
+    "adaptiveSplitMaxRegisters": 1,
+    "logAdaptiveSplitParentFailures": false,
+    "taskFailureBackoffMaxMs": 900000,
+    "realtimeTaskFailureBackoffMs": 5000,
+    "realtimeTaskFailureBackoffMaxMs": 30000,
+    "adaptiveSplitMaxDepth": 2,
+    "adaptiveSplitLeafProbeBudget": 3,
+    "realtimeAdaptiveSplitLeafProbeBudget": 24,
+    "runtimeMeterBatchSize": 16,
+    "maxTasksPerMeterPerCycle": 2,
+    "realtimeMaxTasksPerMeterPerCycle": 8,
+    "backgroundTaskIntervalMs": 5000,
+    "maxBackgroundTasksPerMeterPerCycle": 1,
+    "realtimeMaxBackgroundTasksPerMeterPerCycle": 8,
+    "failureGoodValueGraceMs": 0,
+    "failureBadQualityThreshold": 3
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ttySP2",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ttySP2.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "modbusRTU_2_slave_1",
+      "deviceName": "LED屏显",
+      "enabled": true,
+      "slave": 1,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM2",
+      "sourceAddress": 1,
+      "points": [
+        {
+          "index": 4500,
+          "legacyIndex": 4500,
+          "pointCode": "mb2_s1_4500",
+          "name": "数码管的数字",
+          "desc": "legacy R fc=3 add=0 dtype=UINT16",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4501,
+          "legacyIndex": 4501,
+          "pointCode": "mb2_s1_4501",
+          "name": "数码管小数点位置",
+          "desc": "legacy R fc=3 add=1 dtype=UINT16",
+          "category": "telemetry",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4502,
+          "legacyIndex": 4502,
+          "pointCode": "mb2_s1_4502",
+          "name": "整体控制",
+          "desc": "legacy R fc=3 add=2 dtype=UINT16",
+          "category": "telemetry",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4503,
+          "legacyIndex": 4503,
+          "pointCode": "mb2_s1_4503",
+          "name": "节目",
+          "desc": "legacy R fc=3 add=3 dtype=UINT16",
+          "category": "telemetry",
+          "address": 3,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4504,
+          "legacyIndex": 4504,
+          "pointCode": "mb2_s1_4504",
+          "name": "上电运行节目号",
+          "desc": "legacy R fc=3 add=4 dtype=UINT16",
+          "category": "telemetry",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4505,
+          "legacyIndex": 4505,
+          "pointCode": "mb2_s1_4505",
+          "name": "节目数值",
+          "desc": "legacy R fc=3 add=5 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4506,
+          "legacyIndex": 4506,
+          "pointCode": "mb2_s1_4506",
+          "name": "节目速度",
+          "desc": "legacy R fc=3 add=6 dtype=UINT16",
+          "category": "telemetry",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4507,
+          "legacyIndex": 4507,
+          "pointCode": "mb2_s1_4507",
+          "name": "节目主色",
+          "desc": "legacy R fc=3 add=11 dtype=UINT16",
+          "category": "telemetry",
+          "address": 11,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4508,
+          "legacyIndex": 4508,
+          "pointCode": "mb2_s1_4508",
+          "name": "节目主色",
+          "desc": "legacy R fc=3 add=12 dtype=UINT16",
+          "category": "telemetry",
+          "address": 12,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4509,
+          "legacyIndex": 4509,
+          "pointCode": "mb2_s1_4509",
+          "name": "节目主色",
+          "desc": "legacy R fc=3 add=13 dtype=UINT16",
+          "category": "telemetry",
+          "address": 13,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4510,
+          "legacyIndex": 4510,
+          "pointCode": "mb2_s1_4510",
+          "name": "节目辅色",
+          "desc": "legacy R fc=3 add=15 dtype=UINT16",
+          "category": "telemetry",
+          "address": 15,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4511,
+          "legacyIndex": 4511,
+          "pointCode": "mb2_s1_4511",
+          "name": "节目辅色",
+          "desc": "legacy R fc=3 add=16 dtype=UINT16",
+          "category": "telemetry",
+          "address": 16,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4512,
+          "legacyIndex": 4512,
+          "pointCode": "mb2_s1_4512",
+          "name": "节目辅色",
+          "desc": "legacy R fc=3 add=17 dtype=UINT16",
+          "category": "telemetry",
+          "address": 17,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4513,
+          "legacyIndex": 4513,
+          "pointCode": "mb2_s1_4513",
+          "name": "节目旋转点亮个数",
+          "desc": "legacy R fc=3 add=20 dtype=UINT16",
+          "category": "telemetry",
+          "address": 20,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4514,
+          "legacyIndex": 4514,
+          "pointCode": "mb2_s1_4514",
+          "name": "地址",
+          "desc": "legacy R fc=3 add=101 dtype=UINT16",
+          "category": "telemetry",
+          "address": 101,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4515,
+          "legacyIndex": 4515,
+          "pointCode": "mb2_s1_4515",
+          "name": "波特率",
+          "desc": "legacy R fc=3 add=102 dtype=UINT16",
+          "category": "telemetry",
+          "address": 102,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4516,
+          "legacyIndex": 4516,
+          "pointCode": "mb2_s1_4516",
+          "name": "消息",
+          "desc": "legacy R fc=3 add=5000 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5000,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4517,
+          "legacyIndex": 4517,
+          "pointCode": "mb2_s1_4517",
+          "name": "消息",
+          "desc": "legacy R fc=3 add=5001 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5001,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4518,
+          "legacyIndex": 4518,
+          "pointCode": "mb2_s1_4518",
+          "name": "消息",
+          "desc": "legacy R fc=3 add=5002 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5002,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4519,
+          "legacyIndex": 4519,
+          "pointCode": "mb2_s1_4519",
+          "name": "消息图标",
+          "desc": "legacy R fc=3 add=5004 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5004,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4520,
+          "legacyIndex": 4520,
+          "pointCode": "mb2_s1_4520",
+          "name": "消息图标",
+          "desc": "legacy R fc=3 add=5005 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5005,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4521,
+          "legacyIndex": 4521,
+          "pointCode": "mb2_s1_4521",
+          "name": "消息图标",
+          "desc": "legacy R fc=3 add=5006 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5006,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4522,
+          "legacyIndex": 4522,
+          "pointCode": "mb2_s1_4522",
+          "name": "备份1",
+          "desc": "legacy R fc=3 add=5008 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5008,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4523,
+          "legacyIndex": 4523,
+          "pointCode": "mb2_s1_4523",
+          "name": "备份1",
+          "desc": "legacy R fc=3 add=5009 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5009,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4524,
+          "legacyIndex": 4524,
+          "pointCode": "mb2_s1_4524",
+          "name": "备份1",
+          "desc": "legacy R fc=3 add=5010 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5010,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4525,
+          "legacyIndex": 4525,
+          "pointCode": "mb2_s1_4525",
+          "name": "运行",
+          "desc": "legacy R fc=3 add=5012 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5012,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4526,
+          "legacyIndex": 4526,
+          "pointCode": "mb2_s1_4526",
+          "name": "运行",
+          "desc": "legacy R fc=3 add=5013 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5013,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4527,
+          "legacyIndex": 4527,
+          "pointCode": "mb2_s1_4527",
+          "name": "运行",
+          "desc": "legacy R fc=3 add=5014 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5014,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4528,
+          "legacyIndex": 4528,
+          "pointCode": "mb2_s1_4528",
+          "name": "运行图标",
+          "desc": "legacy R fc=3 add=5016 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5016,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4529,
+          "legacyIndex": 4529,
+          "pointCode": "mb2_s1_4529",
+          "name": "运行图标",
+          "desc": "legacy R fc=3 add=5017 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5017,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4530,
+          "legacyIndex": 4530,
+          "pointCode": "mb2_s1_4530",
+          "name": "运行图标",
+          "desc": "legacy R fc=3 add=5018 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5018,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4531,
+          "legacyIndex": 4531,
+          "pointCode": "mb2_s1_4531",
+          "name": "待机图标",
+          "desc": "legacy R fc=3 add=5020 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5020,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4532,
+          "legacyIndex": 4532,
+          "pointCode": "mb2_s1_4532",
+          "name": "待机图标",
+          "desc": "legacy R fc=3 add=5021 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5021,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4533,
+          "legacyIndex": 4533,
+          "pointCode": "mb2_s1_4533",
+          "name": "待机图标",
+          "desc": "legacy R fc=3 add=5022 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5022,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4534,
+          "legacyIndex": 4534,
+          "pointCode": "mb2_s1_4534",
+          "name": "待机",
+          "desc": "legacy R fc=3 add=5024 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5024,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4535,
+          "legacyIndex": 4535,
+          "pointCode": "mb2_s1_4535",
+          "name": "待机",
+          "desc": "legacy R fc=3 add=5025 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5025,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4536,
+          "legacyIndex": 4536,
+          "pointCode": "mb2_s1_4536",
+          "name": "待机",
+          "desc": "legacy R fc=3 add=5026 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5026,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4537,
+          "legacyIndex": 4537,
+          "pointCode": "mb2_s1_4537",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5028 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5028,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4538,
+          "legacyIndex": 4538,
+          "pointCode": "mb2_s1_4538",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5029 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5029,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4539,
+          "legacyIndex": 4539,
+          "pointCode": "mb2_s1_4539",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5030 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5030,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4540,
+          "legacyIndex": 4540,
+          "pointCode": "mb2_s1_4540",
+          "name": "故障_图标",
+          "desc": "legacy R fc=3 add=5032 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5032,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4541,
+          "legacyIndex": 4541,
+          "pointCode": "mb2_s1_4541",
+          "name": "故障_图标",
+          "desc": "legacy R fc=3 add=5033 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5033,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4542,
+          "legacyIndex": 4542,
+          "pointCode": "mb2_s1_4542",
+          "name": "故障_图标",
+          "desc": "legacy R fc=3 add=5034 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5034,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4543,
+          "legacyIndex": 4543,
+          "pointCode": "mb2_s1_4543",
+          "name": "故障",
+          "desc": "legacy R fc=3 add=5036 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5036,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4544,
+          "legacyIndex": 4544,
+          "pointCode": "mb2_s1_4544",
+          "name": "故障",
+          "desc": "legacy R fc=3 add=5037 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5037,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4545,
+          "legacyIndex": 4545,
+          "pointCode": "mb2_s1_4545",
+          "name": "故障",
+          "desc": "legacy R fc=3 add=5038 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5038,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4546,
+          "legacyIndex": 4546,
+          "pointCode": "mb2_s1_4546",
+          "name": "告警",
+          "desc": "legacy R fc=3 add=5040 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5040,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4547,
+          "legacyIndex": 4547,
+          "pointCode": "mb2_s1_4547",
+          "name": "告警",
+          "desc": "legacy R fc=3 add=5041 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5041,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4548,
+          "legacyIndex": 4548,
+          "pointCode": "mb2_s1_4548",
+          "name": "告警",
+          "desc": "legacy R fc=3 add=5042 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5042,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4549,
+          "legacyIndex": 4549,
+          "pointCode": "mb2_s1_4549",
+          "name": "告警_图标",
+          "desc": "legacy R fc=3 add=5044 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5044,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4550,
+          "legacyIndex": 4550,
+          "pointCode": "mb2_s1_4550",
+          "name": "告警_图标",
+          "desc": "legacy R fc=3 add=5045 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5045,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4551,
+          "legacyIndex": 4551,
+          "pointCode": "mb2_s1_4551",
+          "name": "告警_图标",
+          "desc": "legacy R fc=3 add=5046 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5046,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4552,
+          "legacyIndex": 4552,
+          "pointCode": "mb2_s1_4552",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5048 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5048,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4553,
+          "legacyIndex": 4553,
+          "pointCode": "mb2_s1_4553",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5049 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5049,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4554,
+          "legacyIndex": 4554,
+          "pointCode": "mb2_s1_4554",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5050 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5050,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4555,
+          "legacyIndex": 4555,
+          "pointCode": "mb2_s1_4555",
+          "name": "停机",
+          "desc": "legacy R fc=3 add=5052 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5052,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4556,
+          "legacyIndex": 4556,
+          "pointCode": "mb2_s1_4556",
+          "name": "停机",
+          "desc": "legacy R fc=3 add=5053 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5053,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4557,
+          "legacyIndex": 4557,
+          "pointCode": "mb2_s1_4557",
+          "name": "停机",
+          "desc": "legacy R fc=3 add=5054 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5054,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4558,
+          "legacyIndex": 4558,
+          "pointCode": "mb2_s1_4558",
+          "name": "停机_图标",
+          "desc": "legacy R fc=3 add=5056 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5056,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4559,
+          "legacyIndex": 4559,
+          "pointCode": "mb2_s1_4559",
+          "name": "停机_图标",
+          "desc": "legacy R fc=3 add=5057 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5057,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4560,
+          "legacyIndex": 4560,
+          "pointCode": "mb2_s1_4560",
+          "name": "停机_图标",
+          "desc": "legacy R fc=3 add=5058 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5058,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4561,
+          "legacyIndex": 4561,
+          "pointCode": "mb2_s1_4561",
+          "name": "电压",
+          "desc": "legacy R fc=3 add=5164 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5164,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4699,
+          "legacyIndex": 4699,
+          "pointCode": "mb2_s1_4699",
+          "name": "在线状态",
+          "desc": "legacy COM_ST online status",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "online",
+            "status",
+            "modbusRTU_2",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 0,
+            "dataType": "device_online",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        }
+      ]
+    },
+    {
+      "meterCode": "modbusRTU_2_slave_2",
+      "deviceName": "LED屏显",
+      "enabled": true,
+      "slave": 2,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM2",
+      "sourceAddress": 2,
+      "points": [
+        {
+          "index": 4562,
+          "legacyIndex": 4562,
+          "pointCode": "mb2_s2_4562",
+          "name": "电压",
+          "desc": "legacy R fc=3 add=5165 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5165,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4563,
+          "legacyIndex": 4563,
+          "pointCode": "mb2_s2_4563",
+          "name": "电压",
+          "desc": "legacy R fc=3 add=5166 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5166,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4564,
+          "legacyIndex": 4564,
+          "pointCode": "mb2_s2_4564",
+          "name": "总",
+          "desc": "legacy R fc=3 add=5168 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5168,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4565,
+          "legacyIndex": 4565,
+          "pointCode": "mb2_s2_4565",
+          "name": "总",
+          "desc": "legacy R fc=3 add=5169 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5169,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4566,
+          "legacyIndex": 4566,
+          "pointCode": "mb2_s2_4566",
+          "name": "总",
+          "desc": "legacy R fc=3 add=5170 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5170,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4567,
+          "legacyIndex": 4567,
+          "pointCode": "mb2_s2_4567",
+          "name": "A",
+          "desc": "legacy R fc=3 add=5172 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5172,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4568,
+          "legacyIndex": 4568,
+          "pointCode": "mb2_s2_4568",
+          "name": "A",
+          "desc": "legacy R fc=3 add=5173 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5173,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4569,
+          "legacyIndex": 4569,
+          "pointCode": "mb2_s2_4569",
+          "name": "A",
+          "desc": "legacy R fc=3 add=5174 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5174,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4570,
+          "legacyIndex": 4570,
+          "pointCode": "mb2_s2_4570",
+          "name": "B",
+          "desc": "legacy R fc=3 add=5176 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5176,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4571,
+          "legacyIndex": 4571,
+          "pointCode": "mb2_s2_4571",
+          "name": "B",
+          "desc": "legacy R fc=3 add=5177 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5177,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4572,
+          "legacyIndex": 4572,
+          "pointCode": "mb2_s2_4572",
+          "name": "B",
+          "desc": "legacy R fc=3 add=5178 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5178,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4573,
+          "legacyIndex": 4573,
+          "pointCode": "mb2_s2_4573",
+          "name": "C",
+          "desc": "legacy R fc=3 add=5180 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5180,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4574,
+          "legacyIndex": 4574,
+          "pointCode": "mb2_s2_4574",
+          "name": "C",
+          "desc": "legacy R fc=3 add=5181 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5181,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4575,
+          "legacyIndex": 4575,
+          "pointCode": "mb2_s2_4575",
+          "name": "C",
+          "desc": "legacy R fc=3 add=5182 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5182,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4576,
+          "legacyIndex": 4576,
+          "pointCode": "mb2_s2_4576",
+          "name": "V",
+          "desc": "legacy R fc=3 add=5184 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5184,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4577,
+          "legacyIndex": 4577,
+          "pointCode": "mb2_s2_4577",
+          "name": "V",
+          "desc": "legacy R fc=3 add=5185 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5185,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4578,
+          "legacyIndex": 4578,
+          "pointCode": "mb2_s2_4578",
+          "name": "V",
+          "desc": "legacy R fc=3 add=5186 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5186,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4579,
+          "legacyIndex": 4579,
+          "pointCode": "mb2_s2_4579",
+          "name": "%",
+          "desc": "legacy R fc=3 add=5188 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5188,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4580,
+          "legacyIndex": 4580,
+          "pointCode": "mb2_s2_4580",
+          "name": "%",
+          "desc": "legacy R fc=3 add=5189 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5189,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4581,
+          "legacyIndex": 4581,
+          "pointCode": "mb2_s2_4581",
+          "name": "%",
+          "desc": "legacy R fc=3 add=5190 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5190,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4582,
+          "legacyIndex": 4582,
+          "pointCode": "mb2_s2_4582",
+          "name": "kVA",
+          "desc": "legacy R fc=3 add=5192 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5192,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4583,
+          "legacyIndex": 4583,
+          "pointCode": "mb2_s2_4583",
+          "name": "kVA",
+          "desc": "legacy R fc=3 add=5193 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5193,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4584,
+          "legacyIndex": 4584,
+          "pointCode": "mb2_s2_4584",
+          "name": "kVA",
+          "desc": "legacy R fc=3 add=5194 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5194,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4585,
+          "legacyIndex": 4585,
+          "pointCode": "mb2_s2_4585",
+          "name": "A",
+          "desc": "legacy R fc=3 add=5196 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5196,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4586,
+          "legacyIndex": 4586,
+          "pointCode": "mb2_s2_4586",
+          "name": "A",
+          "desc": "legacy R fc=3 add=5197 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5197,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4587,
+          "legacyIndex": 4587,
+          "pointCode": "mb2_s2_4587",
+          "name": "A",
+          "desc": "legacy R fc=3 add=5198 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5198,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4588,
+          "legacyIndex": 4588,
+          "pointCode": "mb2_s2_4588",
+          "name": "放电",
+          "desc": "legacy R fc=3 add=5200 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5200,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4589,
+          "legacyIndex": 4589,
+          "pointCode": "mb2_s2_4589",
+          "name": "放电",
+          "desc": "legacy R fc=3 add=5201 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5201,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4590,
+          "legacyIndex": 4590,
+          "pointCode": "mb2_s2_4590",
+          "name": "放电",
+          "desc": "legacy R fc=3 add=5202 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5202,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4591,
+          "legacyIndex": 4591,
+          "pointCode": "mb2_s2_4591",
+          "name": "静置",
+          "desc": "legacy R fc=3 add=5204 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5204,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4592,
+          "legacyIndex": 4592,
+          "pointCode": "mb2_s2_4592",
+          "name": "静置",
+          "desc": "legacy R fc=3 add=5205 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5205,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4593,
+          "legacyIndex": 4593,
+          "pointCode": "mb2_s2_4593",
+          "name": "静置",
+          "desc": "legacy R fc=3 add=5206 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5206,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4594,
+          "legacyIndex": 4594,
+          "pointCode": "mb2_s2_4594",
+          "name": "充电",
+          "desc": "legacy R fc=3 add=5208 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5208,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4595,
+          "legacyIndex": 4595,
+          "pointCode": "mb2_s2_4595",
+          "name": "充电",
+          "desc": "legacy R fc=3 add=5209 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5209,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4596,
+          "legacyIndex": 4596,
+          "pointCode": "mb2_s2_4596",
+          "name": "充电",
+          "desc": "legacy R fc=3 add=5210 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5210,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4597,
+          "legacyIndex": 4597,
+          "pointCode": "mb2_s2_4597",
+          "name": "电流",
+          "desc": "legacy R fc=3 add=5212 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5212,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4598,
+          "legacyIndex": 4598,
+          "pointCode": "mb2_s2_4598",
+          "name": "电流",
+          "desc": "legacy R fc=3 add=5213 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5213,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4599,
+          "legacyIndex": 4599,
+          "pointCode": "mb2_s2_4599",
+          "name": "电流",
+          "desc": "legacy R fc=3 add=5214 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5214,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4600,
+          "legacyIndex": 4600,
+          "pointCode": "mb2_s2_4600",
+          "name": "功率",
+          "desc": "legacy R fc=3 add=5216 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5216,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4601,
+          "legacyIndex": 4601,
+          "pointCode": "mb2_s2_4601",
+          "name": "功率",
+          "desc": "legacy R fc=3 add=5217 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5217,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4602,
+          "legacyIndex": 4602,
+          "pointCode": "mb2_s2_4602",
+          "name": "功率",
+          "desc": "legacy R fc=3 add=5218 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5218,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4603,
+          "legacyIndex": 4603,
+          "pointCode": "mb2_s2_4603",
+          "name": "电量",
+          "desc": "legacy R fc=3 add=5220 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5220,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4604,
+          "legacyIndex": 4604,
+          "pointCode": "mb2_s2_4604",
+          "name": "电量",
+          "desc": "legacy R fc=3 add=5221 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5221,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4605,
+          "legacyIndex": 4605,
+          "pointCode": "mb2_s2_4605",
+          "name": "电量",
+          "desc": "legacy R fc=3 add=5222 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5222,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4606,
+          "legacyIndex": 4606,
+          "pointCode": "mb2_s2_4606",
+          "name": "通讯",
+          "desc": "legacy R fc=3 add=5224 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5224,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4607,
+          "legacyIndex": 4607,
+          "pointCode": "mb2_s2_4607",
+          "name": "通讯",
+          "desc": "legacy R fc=3 add=5225 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5225,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4608,
+          "legacyIndex": 4608,
+          "pointCode": "mb2_s2_4608",
+          "name": "通讯",
+          "desc": "legacy R fc=3 add=5226 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5226,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4609,
+          "legacyIndex": 4609,
+          "pointCode": "mb2_s2_4609",
+          "name": "通讯_图标",
+          "desc": "legacy R fc=3 add=5228 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5228,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4610,
+          "legacyIndex": 4610,
+          "pointCode": "mb2_s2_4610",
+          "name": "通讯_图标",
+          "desc": "legacy R fc=3 add=5229 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5229,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4611,
+          "legacyIndex": 4611,
+          "pointCode": "mb2_s2_4611",
+          "name": "通讯_图标",
+          "desc": "legacy R fc=3 add=5230 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5230,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4612,
+          "legacyIndex": 4612,
+          "pointCode": "mb2_s2_4612",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5232 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5232,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4613,
+          "legacyIndex": 4613,
+          "pointCode": "mb2_s2_4613",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5233 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5233,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4614,
+          "legacyIndex": 4614,
+          "pointCode": "mb2_s2_4614",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5234 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5234,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4615,
+          "legacyIndex": 4615,
+          "pointCode": "mb2_s2_4615",
+          "name": "并网",
+          "desc": "legacy R fc=3 add=5236 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5236,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4616,
+          "legacyIndex": 4616,
+          "pointCode": "mb2_s2_4616",
+          "name": "并网",
+          "desc": "legacy R fc=3 add=5237 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5237,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4617,
+          "legacyIndex": 4617,
+          "pointCode": "mb2_s2_4617",
+          "name": "并网",
+          "desc": "legacy R fc=3 add=5238 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5238,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4618,
+          "legacyIndex": 4618,
+          "pointCode": "mb2_s2_4618",
+          "name": "并网_图标",
+          "desc": "legacy R fc=3 add=5240 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5240,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4619,
+          "legacyIndex": 4619,
+          "pointCode": "mb2_s2_4619",
+          "name": "并网_图标",
+          "desc": "legacy R fc=3 add=5241 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5241,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4620,
+          "legacyIndex": 4620,
+          "pointCode": "mb2_s2_4620",
+          "name": "并网_图标",
+          "desc": "legacy R fc=3 add=5242 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5242,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4621,
+          "legacyIndex": 4621,
+          "pointCode": "mb2_s2_4621",
+          "name": "混合_图标",
+          "desc": "legacy R fc=3 add=5244 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5244,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4622,
+          "legacyIndex": 4622,
+          "pointCode": "mb2_s2_4622",
+          "name": "混合_图标",
+          "desc": "legacy R fc=3 add=5245 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5245,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4623,
+          "legacyIndex": 4623,
+          "pointCode": "mb2_s2_4623",
+          "name": "混合_图标",
+          "desc": "legacy R fc=3 add=5246 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5246,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4624,
+          "legacyIndex": 4624,
+          "pointCode": "mb2_s2_4624",
+          "name": "混合",
+          "desc": "legacy R fc=3 add=5248 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5248,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        }
+      ]
+    },
+    {
+      "meterCode": "modbusRTU_2_slave_3",
+      "deviceName": "LED屏显",
+      "enabled": true,
+      "slave": 3,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM2",
+      "sourceAddress": 3,
+      "points": [
+        {
+          "index": 4625,
+          "legacyIndex": 4625,
+          "pointCode": "mb2_s3_4625",
+          "name": "混合",
+          "desc": "legacy R fc=3 add=5249 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5249,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4626,
+          "legacyIndex": 4626,
+          "pointCode": "mb2_s3_4626",
+          "name": "混合",
+          "desc": "legacy R fc=3 add=5250 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5250,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4627,
+          "legacyIndex": 4627,
+          "pointCode": "mb2_s3_4627",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5252 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5252,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4628,
+          "legacyIndex": 4628,
+          "pointCode": "mb2_s3_4628",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5253 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5253,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4629,
+          "legacyIndex": 4629,
+          "pointCode": "mb2_s3_4629",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5254 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5254,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4630,
+          "legacyIndex": 4630,
+          "pointCode": "mb2_s3_4630",
+          "name": "远方_图标",
+          "desc": "legacy R fc=3 add=5256 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5256,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4631,
+          "legacyIndex": 4631,
+          "pointCode": "mb2_s3_4631",
+          "name": "远方_图标",
+          "desc": "legacy R fc=3 add=5257 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5257,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4632,
+          "legacyIndex": 4632,
+          "pointCode": "mb2_s3_4632",
+          "name": "远方_图标",
+          "desc": "legacy R fc=3 add=5258 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5258,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4633,
+          "legacyIndex": 4633,
+          "pointCode": "mb2_s3_4633",
+          "name": "远方",
+          "desc": "legacy R fc=3 add=5260 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5260,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4634,
+          "legacyIndex": 4634,
+          "pointCode": "mb2_s3_4634",
+          "name": "远方",
+          "desc": "legacy R fc=3 add=5261 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5261,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4635,
+          "legacyIndex": 4635,
+          "pointCode": "mb2_s3_4635",
+          "name": "远方",
+          "desc": "legacy R fc=3 add=5262 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5262,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4636,
+          "legacyIndex": 4636,
+          "pointCode": "mb2_s3_4636",
+          "name": "就地",
+          "desc": "legacy R fc=3 add=5264 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5264,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4637,
+          "legacyIndex": 4637,
+          "pointCode": "mb2_s3_4637",
+          "name": "就地",
+          "desc": "legacy R fc=3 add=5265 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5265,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4638,
+          "legacyIndex": 4638,
+          "pointCode": "mb2_s3_4638",
+          "name": "就地",
+          "desc": "legacy R fc=3 add=5266 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5266,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4639,
+          "legacyIndex": 4639,
+          "pointCode": "mb2_s3_4639",
+          "name": "就地_图标",
+          "desc": "legacy R fc=3 add=5268 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5268,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4640,
+          "legacyIndex": 4640,
+          "pointCode": "mb2_s3_4640",
+          "name": "就地_图标",
+          "desc": "legacy R fc=3 add=5269 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5269,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4641,
+          "legacyIndex": 4641,
+          "pointCode": "mb2_s3_4641",
+          "name": "就地_图标",
+          "desc": "legacy R fc=3 add=5270 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5270,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4642,
+          "legacyIndex": 4642,
+          "pointCode": "mb2_s3_4642",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5272 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5272,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4643,
+          "legacyIndex": 4643,
+          "pointCode": "mb2_s3_4643",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5273 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5273,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4644,
+          "legacyIndex": 4644,
+          "pointCode": "mb2_s3_4644",
+          "name": "无",
+          "desc": "legacy R fc=3 add=5274 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5274,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4645,
+          "legacyIndex": 4645,
+          "pointCode": "mb2_s3_4645",
+          "name": "离网",
+          "desc": "legacy R fc=3 add=5276 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5276,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4646,
+          "legacyIndex": 4646,
+          "pointCode": "mb2_s3_4646",
+          "name": "离网",
+          "desc": "legacy R fc=3 add=5277 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5277,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4647,
+          "legacyIndex": 4647,
+          "pointCode": "mb2_s3_4647",
+          "name": "离网",
+          "desc": "legacy R fc=3 add=5278 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5278,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4648,
+          "legacyIndex": 4648,
+          "pointCode": "mb2_s3_4648",
+          "name": "离网_图标",
+          "desc": "legacy R fc=3 add=5280 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5280,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4649,
+          "legacyIndex": 4649,
+          "pointCode": "mb2_s3_4649",
+          "name": "离网_图标",
+          "desc": "legacy R fc=3 add=5281 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5281,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 4650,
+          "legacyIndex": 4650,
+          "pointCode": "mb2_s3_4650",
+          "name": "离网_图标",
+          "desc": "legacy R fc=3 add=5282 dtype=UINT16",
+          "category": "telemetry",
+          "address": 5282,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_2",
+            "slave_3"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        }
+      ]
+    }
+  ],
+  "northboundServer": {
+    "enabled": false,
+    "mode": "mapped",
+    "protocol": "modbus_tcp",
+    "bindHost": "0.0.0.0",
+    "port": 1502,
+    "requestTimeoutMs": 1000,
+    "maxClients": 8,
+    "writesEnabled": false,
+    "maxReadRegisters": 125,
+    "maxReadBits": 2000,
+    "allowedClientCidrs": []
+  }
+}

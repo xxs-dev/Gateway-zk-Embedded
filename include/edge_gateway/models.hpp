@@ -88,6 +88,7 @@ struct WriteSpec {
     std::string byteOrder = "AB";
     Optional<double> minValue;
     Optional<double> maxValue;
+    Optional<double> startupValue;
     double step = 0.0;
     std::vector<double> allowedValues;
     bool verifyAfterWrite = false;
@@ -161,6 +162,8 @@ struct PointDefinition {
     bool reportOnChange = false;
     int persistIntervalSec = 60;
     int collectPriority = 0;
+    Optional<double> initialValue;
+    bool retain = false;
     std::vector<std::string> tags;
     ReadSpec read;
     WriteSpec write;

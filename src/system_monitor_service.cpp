@@ -1,5 +1,7 @@
 #include "edge_gateway/system_monitor_service.hpp"
 
+#include "edge_gateway/system_monitor_points.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -1973,12 +1975,77 @@ void SystemMonitorService::runOnce(std::int64_t nowMs) {
     const int telemetryIntervalMs = std::max(monitorConfig_.minIntervalMs, monitorConfig_.defaultIntervalMs);
     if (lastTelemetryMs_ == 0 || nowMs - lastTelemetryMs_ >= telemetryIntervalMs) {
         const auto sample = collectSample();
+        publishCellularPoints(sample.cellular, nowMs);
         if (hasActiveLease(nowMs)) {
             publishTelemetry(sample, nowMs);
         }
         evaluateAlerts(sample, nowMs);
         lastTelemetryMs_ = nowMs;
     }
+}
+
+void SystemMonitorService::publishCellularPoints(
+    const Sample::CellularStatus& cellular,
+    std::int64_t nowMs
+) {
+    if (router_ == nullptr) {
+        return;
+    }
+
+    const auto expiresAt = nowMs + std::max(30000, monitorConfig_.cellular.probeIntervalMs * 3);
+    const auto put = [&](std::uint32_t index, double value, int quality) {
+        PointValue point;
+        point.index = index;
+        point.value = value;
+        point.quality = quality;
+        point.qualityMsg = quality == 1 ? "ok" : "cellular-data-unavailable";
+        point.ts = nowMs;
+        point.expireAt = expiresAt;
+        const auto result = router_->putLatestByIndex(std::move(point));
+        if (!result.accepted && result.message != "latest point route not found") {
+            throw std::runtime_error("failed to publish cellular point: " + result.message);
+        }
+    };
+
+    put(system_monitor_points::kCellularEnabled, cellular.enabled ? 1.0 : 0.0, 1);
+    put(system_monitor_points::kCellularPresent, cellular.present ? 1.0 : 0.0, 1);
+    put(system_monitor_points::kCellularConnected, cellular.connected ? 1.0 : 0.0, 1);
+    put(
+        system_monitor_points::kCellularUsingRoute,
+        cellular.usingCellular ? 1.0 : 0.0,
+        cellular.routeStateAvailable ? 1 : 0
+    );
+
+    const auto signalAvailable = cellular.connected && cellular.signalPercent >= 0.0;
+    put(
+        system_monitor_points::kCellularSignalPercent,
+        signalAvailable ? cellular.signalPercent : 0.0,
+        signalAvailable ? 1 : 0
+    );
+
+    const auto trafficAvailable = !cellular.interfaceName.empty();
+    constexpr double kBytesPerMiB = 1024.0 * 1024.0;
+    constexpr double kBytesPerKiB = 1024.0;
+    put(
+        system_monitor_points::kCellularRxTotalMiB,
+        static_cast<double>(cellular.rxBytes) / kBytesPerMiB,
+        trafficAvailable ? 1 : 0
+    );
+    put(
+        system_monitor_points::kCellularTxTotalMiB,
+        static_cast<double>(cellular.txBytes) / kBytesPerMiB,
+        trafficAvailable ? 1 : 0
+    );
+    put(
+        system_monitor_points::kCellularRxRateKiBps,
+        cellular.rxRateBps / kBytesPerKiB,
+        trafficAvailable ? 1 : 0
+    );
+    put(
+        system_monitor_points::kCellularTxRateKiBps,
+        cellular.txRateBps / kBytesPerKiB,
+        trafficAvailable ? 1 : 0
+    );
 }
 
 void SystemMonitorService::loop() {

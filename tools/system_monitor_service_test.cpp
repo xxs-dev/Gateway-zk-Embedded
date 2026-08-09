@@ -1,4 +1,5 @@
 #include "edge_gateway/system_monitor_service.hpp"
+#include "edge_gateway/system_monitor_points.hpp"
 
 #include <cstdlib>
 #include <cstdint>
@@ -489,6 +490,12 @@ int main() {
     MemoryPointStore store(storeName);
     PointStoreRouter router;
     router.addStore(storeName, store);
+    const std::string systemMonitorStoreName = "system_monitor_points_test_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(systemMonitorStoreName);
+    MemoryPointStore systemMonitorStore(systemMonitorStoreName);
+    system_monitor_points::registerStorePoints(systemMonitorStore, "GW_TEST");
+    router.addStore(systemMonitorStoreName, systemMonitorStore);
+    system_monitor_points::addRoutes(router, "GW_TEST", systemMonitorStoreName);
     PointStoreRoute route;
     route.index = 1001;
     route.machineCode = "GW_TEST";
@@ -555,6 +562,27 @@ int main() {
     require(routeTelemetry.find("\"preferCellular\":true") != std::string::npos, "telemetry should publish 4G priority policy");
     require(routeTelemetry.find("\"usingCellular\":true") != std::string::npos, "telemetry should publish the active 4G route");
     require(routeTelemetry.find("\"activeInterface\":\"usb0\"") != std::string::npos, "telemetry should publish the active route interface");
+    const auto cellularEnabled = router.getLatestByLocation(
+        systemMonitorStoreName,
+        system_monitor_points::kCellularEnabled,
+        1770000003000LL
+    );
+    require(cellularEnabled && cellularEnabled->quality == 1 && cellularEnabled->value == 0.0,
+            "disabled cellular monitoring should publish an explicit disabled point");
+    const auto cellularRoute = router.getLatestByLocation(
+        systemMonitorStoreName,
+        system_monitor_points::kCellularUsingRoute,
+        1770000003000LL
+    );
+    require(cellularRoute && cellularRoute->quality == 1 && cellularRoute->value == 1.0,
+            "cellular route state should be published to shared memory");
+    const auto cellularSignal = router.getLatestByLocation(
+        systemMonitorStoreName,
+        system_monitor_points::kCellularSignalPercent,
+        1770000003000LL
+    );
+    require(cellularSignal && cellularSignal->quality == 0,
+            "unavailable cellular signal must not be exposed as a real zero-percent value");
     leaseService.runOnce(1770000003300LL);
     require(countTopic(*leasePublisher, leaseMqtt.systemMonitorPointTopic) == 1, "monitor point snapshot should respect 500ms interval after immediate publish");
     leaseService.runOnce(1770000003500LL);

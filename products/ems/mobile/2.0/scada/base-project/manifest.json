@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2.0",
+  "projectId": "ky-mobile-ems-COMM202600104",
+  "projectName": "凯源移动储能车 EMS 2.0",
+  "packageVersion": "2.0.8",
+  "createdAt": "2026-08-06T03:50:20.0585906+00:00",
+  "createdBy": "Gateway EMS 2.0 generator",
+  "entryScreen": "Overview",
+  "packageRole": "project"
+}

@@ -69,6 +69,7 @@ add_library(edge_gateway
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
     src/system_monitor_runtime_discovery.cpp
+    src/system_monitor_points.cpp
     src/sysfs_gpio_port.cpp
     src/system_monitor_service.cpp
     src/timing_policy.cpp
@@ -143,23 +144,49 @@ target_compile_options(QtDisplayBridge PRIVATE -fdiagnostics-color=never)
 
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6Widgets_FOUND)
-    add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp local_display_qt_value_map.cpp)
+    add_executable(LocalDisplayQtEms
+        local_display_qt_ems_main.cpp
+        local_display_qt_scada_scene.cpp
+        local_display_qt_access_control.cpp
+        local_display_qt_pcs_power_control.cpp
+        local_display_qt_value_map.cpp
+    )
     target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt6::Widgets)
     target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
     add_executable(local_display_qt_value_map_test tools/local_display_qt_value_map_test.cpp local_display_qt_value_map.cpp)
     target_include_directories(local_display_qt_value_map_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(local_display_qt_value_map_test PRIVATE Qt6::Core)
     target_compile_options(local_display_qt_value_map_test PRIVATE -fdiagnostics-color=never)
+    add_executable(local_display_qt_access_test
+        tools/local_display_qt_access_test.cpp
+        local_display_qt_access_control.cpp
+    )
+    target_include_directories(local_display_qt_access_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(local_display_qt_access_test PRIVATE Qt6::Widgets)
+    target_compile_options(local_display_qt_access_test PRIVATE -fdiagnostics-color=never)
 else()
     find_package(Qt5 COMPONENTS Widgets QUIET)
     if(Qt5Widgets_FOUND)
-        add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp local_display_qt_value_map.cpp)
+        add_executable(LocalDisplayQtEms
+            local_display_qt_ems_main.cpp
+            local_display_qt_scada_scene.cpp
+            local_display_qt_access_control.cpp
+            local_display_qt_pcs_power_control.cpp
+            local_display_qt_value_map.cpp
+        )
         target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt5::Widgets)
         target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
         add_executable(local_display_qt_value_map_test tools/local_display_qt_value_map_test.cpp local_display_qt_value_map.cpp)
         target_include_directories(local_display_qt_value_map_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
         target_link_libraries(local_display_qt_value_map_test PRIVATE Qt5::Core)
         target_compile_options(local_display_qt_value_map_test PRIVATE -fdiagnostics-color=never)
+        add_executable(local_display_qt_access_test
+            tools/local_display_qt_access_test.cpp
+            local_display_qt_access_control.cpp
+        )
+        target_include_directories(local_display_qt_access_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(local_display_qt_access_test PRIVATE Qt5::Widgets)
+        target_compile_options(local_display_qt_access_test PRIVATE -fdiagnostics-color=never)
     else()
         message(STATUS "Qt Widgets not found; LocalDisplayQtEms target disabled")
     endif()
@@ -291,6 +318,10 @@ add_executable(point_store_router_normalize_test tools/point_store_router_normal
 target_link_libraries(point_store_router_normalize_test PRIVATE edge_gateway)
 target_compile_options(point_store_router_normalize_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(point_store_router_retention_test tools/point_store_router_retention_test.cpp)
+target_link_libraries(point_store_router_retention_test PRIVATE edge_gateway)
+target_compile_options(point_store_router_retention_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(scada_runtime_test tools/scada_runtime_test.cpp)
 target_link_libraries(scada_runtime_test PRIVATE edge_gateway)
 target_compile_options(scada_runtime_test PRIVATE -fdiagnostics-color=never)
@@ -360,6 +391,11 @@ target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE ed
 target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
 
 if(BUILD_TESTING)
+    add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
+    add_test(NAME scada_runtime COMMAND scada_runtime_test)
+    if(TARGET local_display_qt_access_test)
+        add_test(NAME local_display_qt_access COMMAND local_display_qt_access_test)
+    endif()
     add_test(NAME ems_cluster COMMAND ems_cluster_test)
     add_test(NAME gateway_test_lab_modbus COMMAND gateway_test_lab_modbus_test)
     add_test(NAME gateway_test_lab_serial COMMAND gateway_test_lab_serial_test)
@@ -398,6 +434,7 @@ if(BUILD_TESTING)
         graph_ems_voltage_quality
         graph_ems_cluster_dispatch
         legacy_ems_migration_parity
+        point_store_router_retention
         system_monitor_direct_maintenance_contract
         gateway_test_lab_modbus
         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

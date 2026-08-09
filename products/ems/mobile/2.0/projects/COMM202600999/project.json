@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "machineCode": "COMM202600999",
+  "productId": "ky-ems-mobile",
+  "productVersion": "2.0",
+  "deviceForm": "compatibility-test-device",
+  "releaseStatus": "test-only",
+  "scadaSource": "../../scada/base-project",
+  "displayName": "22.16 EMS compatibility test",
+  "productionDeploymentAllowed": false
+}

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "machineCode": "COMM202600104",
+  "productId": "ky-ems-mobile",
+  "productVersion": "2.0",
+  "deviceForm": "mobile-energy-storage-vehicle",
+  "releaseStatus": "approved-baseline",
+  "scadaSource": "../../scada/base-project",
+  "displayName": "凯源移动储能车"
+}

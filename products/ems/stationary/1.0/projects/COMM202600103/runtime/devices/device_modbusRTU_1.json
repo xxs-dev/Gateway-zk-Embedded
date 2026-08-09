@@ -1,0 +1,4341 @@
+﻿{
+  "templateName": "legacy_modbusRTU_1",
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {
+    "type": "modbus_rtu",
+    "slave": 1,
+    "transport": {
+      "serialPort": "/dev/ttySP1",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "E",
+      "timeoutMs": 500,
+      "frameIntervalMs": 100,
+      "readRetryCount": 1
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 500,
+    "batchOptimize": true,
+    "maxBatchRegisters": 120,
+    "maxRequestRegisters": 120,
+    "offlineFailureThreshold": 3,
+    "recoverySuccessThreshold": 1,
+    "slaveFailureBackoffThreshold": 3,
+    "slaveFailureBackoffMs": 30000,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffMs": 180000,
+    "offlineProbeOnly": true,
+    "offlineProbeTaskCount": 2,
+    "adaptiveSplitOnFailure": true,
+    "adaptiveSplitMaxRegisters": 1,
+    "logAdaptiveSplitParentFailures": false,
+    "taskFailureBackoffMaxMs": 900000,
+    "realtimeTaskFailureBackoffMs": 5000,
+    "realtimeTaskFailureBackoffMaxMs": 30000,
+    "adaptiveSplitMaxDepth": 2,
+    "adaptiveSplitLeafProbeBudget": 3,
+    "realtimeAdaptiveSplitLeafProbeBudget": 24,
+    "runtimeMeterBatchSize": 16,
+    "maxTasksPerMeterPerCycle": 2,
+    "realtimeMaxTasksPerMeterPerCycle": 8,
+    "backgroundTaskIntervalMs": 5000,
+    "maxBackgroundTasksPerMeterPerCycle": 1,
+    "realtimeMaxBackgroundTasksPerMeterPerCycle": 8,
+    "failureGoodValueGraceMs": 0,
+    "failureBadQualityThreshold": 3
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ttySP1",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ttySP1.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "modbusRTU_1_slave_1",
+      "deviceName": "储能电表",
+      "enabled": true,
+      "slave": 96,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM1",
+      "sourceAddress": 1,
+      "points": [
+        {
+          "index": 1100,
+          "legacyIndex": 1100,
+          "pointCode": "mb1_s1_1100",
+          "name": "当前组合有功总电能",
+          "desc": "legacy R fc=3 add=506 dtype=INT32",
+          "category": "telemetry",
+          "address": 506,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1101,
+          "legacyIndex": 1101,
+          "pointCode": "mb1_s1_1101",
+          "name": "当前组合有功尖电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1102,
+          "legacyIndex": 1102,
+          "pointCode": "mb1_s1_1102",
+          "name": "当前组合有功峰电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1103,
+          "legacyIndex": 1103,
+          "pointCode": "mb1_s1_1103",
+          "name": "当前组合有功平电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1104,
+          "legacyIndex": 1104,
+          "pointCode": "mb1_s1_1104",
+          "name": "当前组合有功谷电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1105,
+          "legacyIndex": 1105,
+          "pointCode": "mb1_s1_1105",
+          "name": "当前正向总有功电能",
+          "desc": "legacy R fc=3 add=500 dtype=INT32",
+          "category": "telemetry",
+          "address": 500,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1106,
+          "legacyIndex": 1106,
+          "pointCode": "mb1_s1_1106",
+          "name": "当前正向有功尖电能",
+          "desc": "legacy R fc=3 add=526 dtype=INT32",
+          "category": "telemetry",
+          "address": 526,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1107,
+          "legacyIndex": 1107,
+          "pointCode": "mb1_s1_1107",
+          "name": "当前正向有功峰电能",
+          "desc": "legacy R fc=3 add=530 dtype=INT32",
+          "category": "telemetry",
+          "address": 530,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1108,
+          "legacyIndex": 1108,
+          "pointCode": "mb1_s1_1108",
+          "name": "当前正向有功平电能",
+          "desc": "legacy R fc=3 add=534 dtype=INT32",
+          "category": "telemetry",
+          "address": 534,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1109,
+          "legacyIndex": 1109,
+          "pointCode": "mb1_s1_1109",
+          "name": "当前正向有功谷电能",
+          "desc": "legacy R fc=3 add=538 dtype=INT32",
+          "category": "telemetry",
+          "address": 538,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1110,
+          "legacyIndex": 1110,
+          "pointCode": "mb1_s1_1110",
+          "name": "当前反向总有功电能",
+          "desc": "legacy R fc=3 add=502 dtype=INT32",
+          "category": "telemetry",
+          "address": 502,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1111,
+          "legacyIndex": 1111,
+          "pointCode": "mb1_s1_1111",
+          "name": "当前反向有功尖电能",
+          "desc": "legacy R fc=3 add=528 dtype=INT32",
+          "category": "telemetry",
+          "address": 528,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1112,
+          "legacyIndex": 1112,
+          "pointCode": "mb1_s1_1112",
+          "name": "当前反向有功峰电能",
+          "desc": "legacy R fc=3 add=532 dtype=INT32",
+          "category": "telemetry",
+          "address": 532,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1113,
+          "legacyIndex": 1113,
+          "pointCode": "mb1_s1_1113",
+          "name": "当前反向有功平电能",
+          "desc": "legacy R fc=3 add=536 dtype=INT32",
+          "category": "telemetry",
+          "address": 536,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1114,
+          "legacyIndex": 1114,
+          "pointCode": "mb1_s1_1114",
+          "name": "当前反向有功谷电能",
+          "desc": "legacy R fc=3 add=540 dtype=INT32",
+          "category": "telemetry",
+          "address": 540,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1115,
+          "legacyIndex": 1115,
+          "pointCode": "mb1_s1_1115",
+          "name": "当前组合无功总电能",
+          "desc": "legacy R fc=3 add=514 dtype=INT32",
+          "category": "telemetry",
+          "address": 514,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1116,
+          "legacyIndex": 1116,
+          "pointCode": "mb1_s1_1116",
+          "name": "当前组合无功尖电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1117,
+          "legacyIndex": 1117,
+          "pointCode": "mb1_s1_1117",
+          "name": "当前组合无功峰电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1118,
+          "legacyIndex": 1118,
+          "pointCode": "mb1_s1_1118",
+          "name": "当前组合无功平电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1119,
+          "legacyIndex": 1119,
+          "pointCode": "mb1_s1_1119",
+          "name": "当前组合无功谷电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1120,
+          "legacyIndex": 1120,
+          "pointCode": "mb1_s1_1120",
+          "name": "当前正向总无功电能",
+          "desc": "legacy R fc=3 add=508 dtype=INT32",
+          "category": "telemetry",
+          "address": 508,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1121,
+          "legacyIndex": 1121,
+          "pointCode": "mb1_s1_1121",
+          "name": "当前正向无功尖电能",
+          "desc": "legacy R fc=3 add=558 dtype=INT32",
+          "category": "telemetry",
+          "address": 558,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1122,
+          "legacyIndex": 1122,
+          "pointCode": "mb1_s1_1122",
+          "name": "当前正向无功峰电能",
+          "desc": "legacy R fc=3 add=564 dtype=INT32",
+          "category": "telemetry",
+          "address": 564,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1123,
+          "legacyIndex": 1123,
+          "pointCode": "mb1_s1_1123",
+          "name": "当前正向无功平电能",
+          "desc": "legacy R fc=3 add=570 dtype=INT32",
+          "category": "telemetry",
+          "address": 570,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1124,
+          "legacyIndex": 1124,
+          "pointCode": "mb1_s1_1124",
+          "name": "当前正向无功谷电能",
+          "desc": "legacy R fc=3 add=576 dtype=INT32",
+          "category": "telemetry",
+          "address": 576,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1125,
+          "legacyIndex": 1125,
+          "pointCode": "mb1_s1_1125",
+          "name": "当前反向总无功电能",
+          "desc": "legacy R fc=3 add=510 dtype=INT32",
+          "category": "telemetry",
+          "address": 510,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1126,
+          "legacyIndex": 1126,
+          "pointCode": "mb1_s1_1126",
+          "name": "当前反向无功尖电能",
+          "desc": "legacy R fc=3 add=560 dtype=INT32",
+          "category": "telemetry",
+          "address": 560,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1127,
+          "legacyIndex": 1127,
+          "pointCode": "mb1_s1_1127",
+          "name": "当前反向无功峰电能",
+          "desc": "legacy R fc=3 add=566 dtype=INT32",
+          "category": "telemetry",
+          "address": 566,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1128,
+          "legacyIndex": 1128,
+          "pointCode": "mb1_s1_1128",
+          "name": "当前反向无功平电能",
+          "desc": "legacy R fc=3 add=572 dtype=INT32",
+          "category": "telemetry",
+          "address": 572,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1129,
+          "legacyIndex": 1129,
+          "pointCode": "mb1_s1_1129",
+          "name": "当前反向无功谷电能",
+          "desc": "legacy R fc=3 add=578 dtype=INT32",
+          "category": "telemetry",
+          "address": 578,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1130,
+          "legacyIndex": 1130,
+          "pointCode": "mb1_s1_1130",
+          "name": "A相电压",
+          "desc": "legacy R fc=3 add=0 dtype=FP32",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1131,
+          "legacyIndex": 1131,
+          "pointCode": "mb1_s1_1131",
+          "name": "B相电压",
+          "desc": "legacy R fc=3 add=2 dtype=FP32",
+          "category": "telemetry",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1132,
+          "legacyIndex": 1132,
+          "pointCode": "mb1_s1_1132",
+          "name": "C相电压",
+          "desc": "legacy R fc=3 add=4 dtype=FP32",
+          "category": "telemetry",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1133,
+          "legacyIndex": 1133,
+          "pointCode": "mb1_s1_1133",
+          "name": "A相电流",
+          "desc": "legacy R fc=3 add=16 dtype=FP32",
+          "category": "telemetry",
+          "address": 16,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1134,
+          "legacyIndex": 1134,
+          "pointCode": "mb1_s1_1134",
+          "name": "B相电流",
+          "desc": "legacy R fc=3 add=18 dtype=FP32",
+          "category": "telemetry",
+          "address": 18,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1135,
+          "legacyIndex": 1135,
+          "pointCode": "mb1_s1_1135",
+          "name": "C相电流",
+          "desc": "legacy R fc=3 add=20 dtype=FP32",
+          "category": "telemetry",
+          "address": 20,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1136,
+          "legacyIndex": 1136,
+          "pointCode": "mb1_s1_1136",
+          "name": "A相有功功率",
+          "desc": "legacy R fc=3 add=24 dtype=FP32",
+          "category": "telemetry",
+          "address": 24,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1137,
+          "legacyIndex": 1137,
+          "pointCode": "mb1_s1_1137",
+          "name": "B相有功功率",
+          "desc": "legacy R fc=3 add=26 dtype=FP32",
+          "category": "telemetry",
+          "address": 26,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1138,
+          "legacyIndex": 1138,
+          "pointCode": "mb1_s1_1138",
+          "name": "C相有功功率",
+          "desc": "legacy R fc=3 add=28 dtype=FP32",
+          "category": "telemetry",
+          "address": 28,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1139,
+          "legacyIndex": 1139,
+          "pointCode": "mb1_s1_1139",
+          "name": "总有功功率",
+          "desc": "legacy R fc=3 add=30 dtype=FP32",
+          "category": "telemetry",
+          "address": 30,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1140,
+          "legacyIndex": 1140,
+          "pointCode": "mb1_s1_1140",
+          "name": "A相无功功率",
+          "desc": "legacy R fc=3 add=32 dtype=FP32",
+          "category": "telemetry",
+          "address": 32,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1141,
+          "legacyIndex": 1141,
+          "pointCode": "mb1_s1_1141",
+          "name": "B相无功功率",
+          "desc": "legacy R fc=3 add=34 dtype=FP32",
+          "category": "telemetry",
+          "address": 34,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1142,
+          "legacyIndex": 1142,
+          "pointCode": "mb1_s1_1142",
+          "name": "C相无功功率",
+          "desc": "legacy R fc=3 add=36 dtype=FP32",
+          "category": "telemetry",
+          "address": 36,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1143,
+          "legacyIndex": 1143,
+          "pointCode": "mb1_s1_1143",
+          "name": "总无功功率",
+          "desc": "legacy R fc=3 add=38 dtype=FP32",
+          "category": "telemetry",
+          "address": 38,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1144,
+          "legacyIndex": 1144,
+          "pointCode": "mb1_s1_1144",
+          "name": "A相视在功率",
+          "desc": "legacy R fc=3 add=40 dtype=FP32",
+          "category": "telemetry",
+          "address": 40,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1145,
+          "legacyIndex": 1145,
+          "pointCode": "mb1_s1_1145",
+          "name": "B相视在功率",
+          "desc": "legacy R fc=3 add=42 dtype=FP32",
+          "category": "telemetry",
+          "address": 42,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1146,
+          "legacyIndex": 1146,
+          "pointCode": "mb1_s1_1146",
+          "name": "C相视在功率",
+          "desc": "legacy R fc=3 add=44 dtype=FP32",
+          "category": "telemetry",
+          "address": 44,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1147,
+          "legacyIndex": 1147,
+          "pointCode": "mb1_s1_1147",
+          "name": "总视在功率",
+          "desc": "legacy R fc=3 add=46 dtype=FP32",
+          "category": "telemetry",
+          "address": 46,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1148,
+          "legacyIndex": 1148,
+          "pointCode": "mb1_s1_1148",
+          "name": "A相功率因数",
+          "desc": "legacy R fc=3 add=48 dtype=FP32",
+          "category": "telemetry",
+          "address": 48,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1149,
+          "legacyIndex": 1149,
+          "pointCode": "mb1_s1_1149",
+          "name": "B相功率因数",
+          "desc": "legacy R fc=3 add=50 dtype=FP32",
+          "category": "telemetry",
+          "address": 50,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1150,
+          "legacyIndex": 1150,
+          "pointCode": "mb1_s1_1150",
+          "name": "C相功率因数",
+          "desc": "legacy R fc=3 add=52 dtype=FP32",
+          "category": "telemetry",
+          "address": 52,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1151,
+          "legacyIndex": 1151,
+          "pointCode": "mb1_s1_1151",
+          "name": "总功率因数",
+          "desc": "legacy R fc=3 add=54 dtype=FP32",
+          "category": "telemetry",
+          "address": 54,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1152,
+          "legacyIndex": 1152,
+          "pointCode": "mb1_s1_1152",
+          "name": "频率",
+          "desc": "legacy R fc=3 add=56 dtype=FP32",
+          "category": "telemetry",
+          "address": 56,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "Hz",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1153,
+          "legacyIndex": 1153,
+          "pointCode": "mb1_s1_1153",
+          "name": "AB线电压",
+          "desc": "legacy R fc=3 add=8 dtype=FP32",
+          "category": "telemetry",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1154,
+          "legacyIndex": 1154,
+          "pointCode": "mb1_s1_1154",
+          "name": "BC线电压",
+          "desc": "legacy R fc=3 add=10 dtype=FP32",
+          "category": "telemetry",
+          "address": 10,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1155,
+          "legacyIndex": 1155,
+          "pointCode": "mb1_s1_1155",
+          "name": "CA线电压",
+          "desc": "legacy R fc=3 add=12 dtype=FP32",
+          "category": "telemetry",
+          "address": 12,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1156,
+          "legacyIndex": 1156,
+          "pointCode": "mb1_s1_1156",
+          "name": "电压变比PT",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1157,
+          "legacyIndex": 1157,
+          "pointCode": "mb1_s1_1157",
+          "name": "电流变比CT",
+          "desc": "legacy R fc=3 add=6008 dtype=INT32",
+          "category": "telemetry",
+          "address": 6008,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1158,
+          "legacyIndex": 1158,
+          "pointCode": "mb1_s1_1158",
+          "name": "运行状态",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1159,
+          "legacyIndex": 1159,
+          "pointCode": "mb1_s1_1159",
+          "name": "零序电流",
+          "desc": "legacy R fc=3 add=1350 dtype=FP32",
+          "category": "telemetry",
+          "address": 1350,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1160,
+          "legacyIndex": 1160,
+          "pointCode": "mb1_s1_1160",
+          "name": "电压不平衡度",
+          "desc": "legacy R fc=3 add=1336 dtype=FP32",
+          "category": "telemetry",
+          "address": 1336,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1161,
+          "legacyIndex": 1161,
+          "pointCode": "mb1_s1_1161",
+          "name": "电流不平衡度",
+          "desc": "legacy R fc=3 add=1338 dtype=FP32",
+          "category": "telemetry",
+          "address": 1338,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1199,
+          "legacyIndex": 1199,
+          "pointCode": "mb1_s1_1199",
+          "name": "在线状态",
+          "desc": "legacy COM_ST online status",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "online",
+            "status",
+            "modbusRTU_1",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 0,
+            "dataType": "device_online",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        }
+      ]
+    },
+    {
+      "meterCode": "modbusRTU_1_slave_2",
+      "deviceName": "台区电表",
+      "enabled": true,
+      "slave": 2,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM1",
+      "sourceAddress": 2,
+      "points": [
+        {
+          "index": 1000,
+          "legacyIndex": 1000,
+          "pointCode": "mb1_s2_1000",
+          "name": "当前组合有功总电能",
+          "desc": "legacy R fc=3 add=506 dtype=INT32",
+          "category": "telemetry",
+          "address": 506,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1001,
+          "legacyIndex": 1001,
+          "pointCode": "mb1_s2_1001",
+          "name": "当前组合有功尖电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1002,
+          "legacyIndex": 1002,
+          "pointCode": "mb1_s2_1002",
+          "name": "当前组合有功峰电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1003,
+          "legacyIndex": 1003,
+          "pointCode": "mb1_s2_1003",
+          "name": "当前组合有功平电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1004,
+          "legacyIndex": 1004,
+          "pointCode": "mb1_s2_1004",
+          "name": "当前组合有功谷电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1005,
+          "legacyIndex": 1005,
+          "pointCode": "mb1_s2_1005",
+          "name": "当前正向总有功电能",
+          "desc": "legacy R fc=3 add=500 dtype=INT32",
+          "category": "telemetry",
+          "address": 500,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1006,
+          "legacyIndex": 1006,
+          "pointCode": "mb1_s2_1006",
+          "name": "当前正向有功尖电能",
+          "desc": "legacy R fc=3 add=526 dtype=INT32",
+          "category": "telemetry",
+          "address": 526,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1007,
+          "legacyIndex": 1007,
+          "pointCode": "mb1_s2_1007",
+          "name": "当前正向有功峰电能",
+          "desc": "legacy R fc=3 add=530 dtype=INT32",
+          "category": "telemetry",
+          "address": 530,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1008,
+          "legacyIndex": 1008,
+          "pointCode": "mb1_s2_1008",
+          "name": "当前正向有功平电能",
+          "desc": "legacy R fc=3 add=534 dtype=INT32",
+          "category": "telemetry",
+          "address": 534,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1009,
+          "legacyIndex": 1009,
+          "pointCode": "mb1_s2_1009",
+          "name": "当前正向有功谷电能",
+          "desc": "legacy R fc=3 add=538 dtype=INT32",
+          "category": "telemetry",
+          "address": 538,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1010,
+          "legacyIndex": 1010,
+          "pointCode": "mb1_s2_1010",
+          "name": "当前反向总有功电能",
+          "desc": "legacy R fc=3 add=502 dtype=INT32",
+          "category": "telemetry",
+          "address": 502,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1011,
+          "legacyIndex": 1011,
+          "pointCode": "mb1_s2_1011",
+          "name": "当前反向有功尖电能",
+          "desc": "legacy R fc=3 add=528 dtype=INT32",
+          "category": "telemetry",
+          "address": 528,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1012,
+          "legacyIndex": 1012,
+          "pointCode": "mb1_s2_1012",
+          "name": "当前反向有功峰电能",
+          "desc": "legacy R fc=3 add=532 dtype=INT32",
+          "category": "telemetry",
+          "address": 532,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1013,
+          "legacyIndex": 1013,
+          "pointCode": "mb1_s2_1013",
+          "name": "当前反向有功平电能",
+          "desc": "legacy R fc=3 add=536 dtype=INT32",
+          "category": "telemetry",
+          "address": 536,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1014,
+          "legacyIndex": 1014,
+          "pointCode": "mb1_s2_1014",
+          "name": "当前反向有功谷电能",
+          "desc": "legacy R fc=3 add=540 dtype=INT32",
+          "category": "telemetry",
+          "address": 540,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kWh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1015,
+          "legacyIndex": 1015,
+          "pointCode": "mb1_s2_1015",
+          "name": "当前组合无功总电能",
+          "desc": "legacy R fc=3 add=514 dtype=INT32",
+          "category": "telemetry",
+          "address": 514,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1016,
+          "legacyIndex": 1016,
+          "pointCode": "mb1_s2_1016",
+          "name": "当前组合无功尖电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1017,
+          "legacyIndex": 1017,
+          "pointCode": "mb1_s2_1017",
+          "name": "当前组合无功峰电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1018,
+          "legacyIndex": 1018,
+          "pointCode": "mb1_s2_1018",
+          "name": "当前组合无功平电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1019,
+          "legacyIndex": 1019,
+          "pointCode": "mb1_s2_1019",
+          "name": "当前组合无功谷电能",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1020,
+          "legacyIndex": 1020,
+          "pointCode": "mb1_s2_1020",
+          "name": "当前正向总无功电能",
+          "desc": "legacy R fc=3 add=508 dtype=INT32",
+          "category": "telemetry",
+          "address": 508,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1021,
+          "legacyIndex": 1021,
+          "pointCode": "mb1_s2_1021",
+          "name": "当前正向无功尖电能",
+          "desc": "legacy R fc=3 add=558 dtype=INT32",
+          "category": "telemetry",
+          "address": 558,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1022,
+          "legacyIndex": 1022,
+          "pointCode": "mb1_s2_1022",
+          "name": "当前正向无功峰电能",
+          "desc": "legacy R fc=3 add=564 dtype=INT32",
+          "category": "telemetry",
+          "address": 564,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1023,
+          "legacyIndex": 1023,
+          "pointCode": "mb1_s2_1023",
+          "name": "当前正向无功平电能",
+          "desc": "legacy R fc=3 add=570 dtype=INT32",
+          "category": "telemetry",
+          "address": 570,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1024,
+          "legacyIndex": 1024,
+          "pointCode": "mb1_s2_1024",
+          "name": "当前正向无功谷电能",
+          "desc": "legacy R fc=3 add=576 dtype=INT32",
+          "category": "telemetry",
+          "address": 576,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1025,
+          "legacyIndex": 1025,
+          "pointCode": "mb1_s2_1025",
+          "name": "当前反向总无功电能",
+          "desc": "legacy R fc=3 add=510 dtype=INT32",
+          "category": "telemetry",
+          "address": 510,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1026,
+          "legacyIndex": 1026,
+          "pointCode": "mb1_s2_1026",
+          "name": "当前反向无功尖电能",
+          "desc": "legacy R fc=3 add=560 dtype=INT32",
+          "category": "telemetry",
+          "address": 560,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1027,
+          "legacyIndex": 1027,
+          "pointCode": "mb1_s2_1027",
+          "name": "当前反向无功峰电能",
+          "desc": "legacy R fc=3 add=566 dtype=INT32",
+          "category": "telemetry",
+          "address": 566,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1028,
+          "legacyIndex": 1028,
+          "pointCode": "mb1_s2_1028",
+          "name": "当前反向无功平电能",
+          "desc": "legacy R fc=3 add=572 dtype=INT32",
+          "category": "telemetry",
+          "address": 572,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1029,
+          "legacyIndex": 1029,
+          "pointCode": "mb1_s2_1029",
+          "name": "当前反向无功谷电能",
+          "desc": "legacy R fc=3 add=578 dtype=INT32",
+          "category": "telemetry",
+          "address": 578,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1030,
+          "legacyIndex": 1030,
+          "pointCode": "mb1_s2_1030",
+          "name": "A相电压",
+          "desc": "legacy R fc=3 add=0 dtype=FP32",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1031,
+          "legacyIndex": 1031,
+          "pointCode": "mb1_s2_1031",
+          "name": "B相电压",
+          "desc": "legacy R fc=3 add=2 dtype=FP32",
+          "category": "telemetry",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1032,
+          "legacyIndex": 1032,
+          "pointCode": "mb1_s2_1032",
+          "name": "C相电压",
+          "desc": "legacy R fc=3 add=4 dtype=FP32",
+          "category": "telemetry",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1033,
+          "legacyIndex": 1033,
+          "pointCode": "mb1_s2_1033",
+          "name": "A相电流",
+          "desc": "legacy R fc=3 add=16 dtype=FP32",
+          "category": "telemetry",
+          "address": 16,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1034,
+          "legacyIndex": 1034,
+          "pointCode": "mb1_s2_1034",
+          "name": "B相电流",
+          "desc": "legacy R fc=3 add=18 dtype=FP32",
+          "category": "telemetry",
+          "address": 18,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1035,
+          "legacyIndex": 1035,
+          "pointCode": "mb1_s2_1035",
+          "name": "C相电流",
+          "desc": "legacy R fc=3 add=20 dtype=FP32",
+          "category": "telemetry",
+          "address": 20,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1036,
+          "legacyIndex": 1036,
+          "pointCode": "mb1_s2_1036",
+          "name": "A相有功功率",
+          "desc": "legacy R fc=3 add=24 dtype=FP32",
+          "category": "telemetry",
+          "address": 24,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1037,
+          "legacyIndex": 1037,
+          "pointCode": "mb1_s2_1037",
+          "name": "B相有功功率",
+          "desc": "legacy R fc=3 add=26 dtype=FP32",
+          "category": "telemetry",
+          "address": 26,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1038,
+          "legacyIndex": 1038,
+          "pointCode": "mb1_s2_1038",
+          "name": "C相有功功率",
+          "desc": "legacy R fc=3 add=28 dtype=FP32",
+          "category": "telemetry",
+          "address": 28,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1039,
+          "legacyIndex": 1039,
+          "pointCode": "mb1_s2_1039",
+          "name": "总有功功率",
+          "desc": "legacy R fc=3 add=30 dtype=FP32",
+          "category": "telemetry",
+          "address": 30,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1040,
+          "legacyIndex": 1040,
+          "pointCode": "mb1_s2_1040",
+          "name": "A相无功功率",
+          "desc": "legacy R fc=3 add=32 dtype=FP32",
+          "category": "telemetry",
+          "address": 32,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1041,
+          "legacyIndex": 1041,
+          "pointCode": "mb1_s2_1041",
+          "name": "B相无功功率",
+          "desc": "legacy R fc=3 add=34 dtype=FP32",
+          "category": "telemetry",
+          "address": 34,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1042,
+          "legacyIndex": 1042,
+          "pointCode": "mb1_s2_1042",
+          "name": "C相无功功率",
+          "desc": "legacy R fc=3 add=36 dtype=FP32",
+          "category": "telemetry",
+          "address": 36,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1043,
+          "legacyIndex": 1043,
+          "pointCode": "mb1_s2_1043",
+          "name": "总无功功率",
+          "desc": "legacy R fc=3 add=38 dtype=FP32",
+          "category": "telemetry",
+          "address": 38,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVarh",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1044,
+          "legacyIndex": 1044,
+          "pointCode": "mb1_s2_1044",
+          "name": "A相视在功率",
+          "desc": "legacy R fc=3 add=40 dtype=FP32",
+          "category": "telemetry",
+          "address": 40,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1045,
+          "legacyIndex": 1045,
+          "pointCode": "mb1_s2_1045",
+          "name": "B相视在功率",
+          "desc": "legacy R fc=3 add=42 dtype=FP32",
+          "category": "telemetry",
+          "address": 42,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1046,
+          "legacyIndex": 1046,
+          "pointCode": "mb1_s2_1046",
+          "name": "C相视在功率",
+          "desc": "legacy R fc=3 add=44 dtype=FP32",
+          "category": "telemetry",
+          "address": 44,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1047,
+          "legacyIndex": 1047,
+          "pointCode": "mb1_s2_1047",
+          "name": "总视在功率",
+          "desc": "legacy R fc=3 add=46 dtype=FP32",
+          "category": "telemetry",
+          "address": 46,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1048,
+          "legacyIndex": 1048,
+          "pointCode": "mb1_s2_1048",
+          "name": "A相功率因数",
+          "desc": "legacy R fc=3 add=48 dtype=FP32",
+          "category": "telemetry",
+          "address": 48,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1049,
+          "legacyIndex": 1049,
+          "pointCode": "mb1_s2_1049",
+          "name": "B相功率因数",
+          "desc": "legacy R fc=3 add=50 dtype=FP32",
+          "category": "telemetry",
+          "address": 50,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1050,
+          "legacyIndex": 1050,
+          "pointCode": "mb1_s2_1050",
+          "name": "C相功率因数",
+          "desc": "legacy R fc=3 add=52 dtype=FP32",
+          "category": "telemetry",
+          "address": 52,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1051,
+          "legacyIndex": 1051,
+          "pointCode": "mb1_s2_1051",
+          "name": "总功率因数",
+          "desc": "legacy R fc=3 add=54 dtype=FP32",
+          "category": "telemetry",
+          "address": 54,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1052,
+          "legacyIndex": 1052,
+          "pointCode": "mb1_s2_1052",
+          "name": "频率",
+          "desc": "legacy R fc=3 add=56 dtype=FP32",
+          "category": "telemetry",
+          "address": 56,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "Hz",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1053,
+          "legacyIndex": 1053,
+          "pointCode": "mb1_s2_1053",
+          "name": "AB线电压",
+          "desc": "legacy R fc=3 add=8 dtype=FP32",
+          "category": "telemetry",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1054,
+          "legacyIndex": 1054,
+          "pointCode": "mb1_s2_1054",
+          "name": "BC线电压",
+          "desc": "legacy R fc=3 add=10 dtype=FP32",
+          "category": "telemetry",
+          "address": 10,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1055,
+          "legacyIndex": 1055,
+          "pointCode": "mb1_s2_1055",
+          "name": "CA线电压",
+          "desc": "legacy R fc=3 add=12 dtype=FP32",
+          "category": "telemetry",
+          "address": 12,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1056,
+          "legacyIndex": 1056,
+          "pointCode": "mb1_s2_1056",
+          "name": "电压变比PT",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1057,
+          "legacyIndex": 1057,
+          "pointCode": "mb1_s2_1057",
+          "name": "电流变比CT",
+          "desc": "legacy R fc=3 add=6008 dtype=INT32",
+          "category": "telemetry",
+          "address": 6008,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "int32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1058,
+          "legacyIndex": 1058,
+          "pointCode": "mb1_s2_1058",
+          "name": "运行状态",
+          "desc": "legacy placeholder without address/rwtype/dtype",
+          "category": "placeholder",
+          "address": 0,
+          "enabled": false,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": false
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1059,
+          "legacyIndex": 1059,
+          "pointCode": "mb1_s2_1059",
+          "name": "零序电流",
+          "desc": "legacy R fc=3 add=1350 dtype=FP32",
+          "category": "telemetry",
+          "address": 1350,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1060,
+          "legacyIndex": 1060,
+          "pointCode": "mb1_s2_1060",
+          "name": "电压不平衡度",
+          "desc": "legacy R fc=3 add=1336 dtype=FP32",
+          "category": "telemetry",
+          "address": 1336,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1061,
+          "legacyIndex": 1061,
+          "pointCode": "mb1_s2_1061",
+          "name": "电流不平衡度",
+          "desc": "legacy R fc=3 add=1338 dtype=FP32",
+          "category": "telemetry",
+          "address": 1338,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 2,
+            "dataType": "float32",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "ABCD",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 1099,
+          "legacyIndex": 1099,
+          "pointCode": "mb1_s2_1099",
+          "name": "在线状态",
+          "desc": "legacy COM_ST online status",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "online",
+            "status",
+            "modbusRTU_1",
+            "slave_2"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 0,
+            "dataType": "device_online",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        }
+      ]
+    }
+  ],
+  "northboundServer": {
+    "enabled": false,
+    "mode": "mapped",
+    "protocol": "modbus_tcp",
+    "bindHost": "0.0.0.0",
+    "port": 1502,
+    "requestTimeoutMs": 1000,
+    "maxClients": 8,
+    "writesEnabled": false,
+    "maxReadRegisters": 125,
+    "maxReadBits": 2000,
+    "allowedClientCidrs": []
+  }
+}

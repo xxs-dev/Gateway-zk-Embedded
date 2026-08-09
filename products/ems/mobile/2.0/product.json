@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "productId": "ky-ems-mobile",
+  "productName": "凯源移动储能柜/移动储能车 EMS",
+  "productLine": "EMS 2.0",
+  "currentPackageVersion": "2.0.9-compact",
+  "deviceForm": "mobile-storage-cabinet-or-vehicle",
+  "screenProfile": "compact-17-pages",
+  "expectedScreenCount": 17,
+  "sourceProject": "scada/base-project",
+  "generator": "tools/generate-scada.ps1",
+  "releaseScript": "tools/release/build-ems-mobile.ps1",
+  "sharedRuntime": [
+    "src",
+    "include/edge_gateway",
+    "config/factory/runtime/devices/device_ems_virtual.json",
+    "config/factory/runtime/logic/shuntong_ems_graph.json"
+  ],
+  "knownProjects": [
+    "COMM202600104",
+    "COMM202600999"
+  ],
+  "compatibleProductIds": [
+    "ky-ems-mobile"
+  ]
+}

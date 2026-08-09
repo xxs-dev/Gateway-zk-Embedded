@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "removeWidgets": [
+    {
+      "screen": "IoMon",
+      "widgetIds": [
+        "qt_BreakerOnlineFrame",
+        "qt_BreakerOnlineTitle",
+        "qt_GridBreakerOnlineCaption",
+        "qt_StorageBreakerOnlineCaption",
+        "qt_LoadBreakerOnlineCaption",
+        "qt_GridBreakerOnlineStatus",
+        "qt_StorageBreakerOnlineStatus",
+        "qt_LoadBreakerOnlineStatus"
+      ]
+    }
+  ],
+  "clearBindingTagIds": [
+    "modbusRTU_4_slave_1.mb4_s1_1261",
+    "modbusRTU_4_slave_1.mb4_s1_1262",
+    "modbusRTU_4_slave_1.mb4_s1_1263",
+    "modbusRTU_4_slave_1.mb4_s1_1264",
+    "modbusRTU_4_slave_1.mb4_s1_1265"
+  ],
+  "removeTagIds": [
+    "COMM202600103_GRID_BREAKER.device_online",
+    "COMM202600103_STORAGE_BREAKER.device_online",
+    "COMM202600103_LOAD_BREAKER.device_online"
+  ],
+  "pruneUnreferencedInvalidRoutes": true
+}

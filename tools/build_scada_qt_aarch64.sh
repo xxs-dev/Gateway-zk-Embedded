@@ -72,6 +72,8 @@ common_flags=(
 sources=(
   "$ROOT_DIR/local_display_qt_ems_main.cpp"
   "$ROOT_DIR/local_display_qt_scada_scene.cpp"
+  "$ROOT_DIR/local_display_qt_access_control.cpp"
+  "$ROOT_DIR/local_display_qt_pcs_power_control.cpp"
   "$ROOT_DIR/local_display_qt_value_map.cpp"
 )
 objects=()

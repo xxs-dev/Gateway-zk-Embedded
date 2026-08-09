@@ -1669,9 +1669,100 @@ foreach ($graphOutput in $graphOutputs) {
 
 $virtualConfig = Get-Content -Raw -LiteralPath $VirtualSource | ConvertFrom-Json
 $virtualMeter = @($virtualConfig.meters)[0]
+$retainedInitialValues = @{
+    "ems_auto_mode" = 0.0
+    "ems_fault_reset" = 0.0
+    "ems_remote_enable" = 0.0
+    "ems_master_auto_mode" = 0.0
+    "ems_bms_soc_max" = 95.0
+    "ems_bms_soc_min" = 20.0
+    "ems_manual_charge_power" = 0.0
+    "ems_manual_charge_soc" = 95.0
+    "ems_positive_power_limit" = 0.0
+    "ems_positive_power_limit_enable" = 0.0
+    "ems_manual_discharge_power" = 0.0
+    "ems_manual_discharge_soc" = 20.0
+    "ems_negative_power_limit" = 0.0
+    "ems_negative_power_limit_enable" = 0.0
+    "ems_target_cos" = 0.95
+    "ems_power_step" = 1.0
+    "ems_pcs_s3_max" = 0.0
+    "ems_meter_average_window" = 10.0
+    "ems_lv_low" = 210.0
+    "ems_lv_high" = 215.0
+    "ems_hv_low" = 235.0
+    "ems_hv_high" = 240.0
+    "ems_phase_balance_percent" = 10.0
+    "ems_reserve_capacity_power" = 0.0
+    "ems_controller_override_p3" = 0.0
+    "ems_controller_override_q3" = 0.0
+    "ems_reserve_capacity_power_v2" = 0.0
+}
+
+function Set-EmsVirtualRuntimeDefaults([object]$Point) {
+    $category = [string]$Point.category
+    $pointCode = [string]$Point.pointCode
+    $tags = @($Point.tags | ForEach-Object { [string]$_ })
+    $initialValue = $null
+    $retain = $false
+
+    # EMS 1.0 uses these 48 hourly parameters directly. Keep their stable
+    # virtual indexes writable so both UI generations share one retained state.
+    if ($pointCode -match '^ems_schedule_power_([0-9]|1[0-9]|2[0-3])$') {
+        if ($null -eq $Point.write) {
+            $Point.write = [pscustomobject][ordered]@{}
+        }
+        $Point.write | Add-Member -NotePropertyName enable -NotePropertyValue $true -Force
+        $Point.write | Add-Member -NotePropertyName dataType -NotePropertyValue "float64" -Force
+    } elseif ($pointCode -match '^ems_schedule_soc_([0-9]|1[0-9]|2[0-3])$') {
+        if ($null -eq $Point.write) {
+            $Point.write = [pscustomobject][ordered]@{}
+        }
+        $Point.write | Add-Member -NotePropertyName enable -NotePropertyValue $true -Force
+        $Point.write | Add-Member -NotePropertyName dataType -NotePropertyValue "float64" -Force
+        $Point.write | Add-Member -NotePropertyName min -NotePropertyValue 0.0 -Force
+        $Point.write | Add-Member -NotePropertyName max -NotePropertyValue 100.0 -Force
+        $Point.write | Add-Member -NotePropertyName step -NotePropertyValue 0.1 -Force
+    }
+
+    if ($null -ne $Point.PSObject.Properties["initialValue"] -and $null -ne $Point.initialValue) {
+        $initialValue = [double]$Point.initialValue
+    } elseif ($null -ne $Point.write -and
+              $null -ne $Point.write.PSObject.Properties["startupValue"] -and
+              $null -ne $Point.write.startupValue) {
+        $initialValue = [double]$Point.write.startupValue
+    } elseif ($retainedInitialValues.ContainsKey($pointCode)) {
+        $initialValue = [double]$retainedInitialValues[$pointCode]
+    } elseif ($category -eq "setting" -and $pointCode -match "_(enable|mode)$") {
+        $initialValue = 0.0
+    } elseif ($category -eq "status") {
+        $initialValue = 0.0
+    } elseif ($category -eq "telemetry" -and $tags -contains "runtime" -and [bool]$Point.fullUpload) {
+        $initialValue = 0.0
+    }
+
+    if ($null -ne $Point.PSObject.Properties["retain"]) {
+        $retain = [bool]$Point.retain
+    }
+    if ($category -eq "status" -or
+        $retainedInitialValues.ContainsKey($pointCode) -or
+        ($category -eq "setting" -and $pointCode -match "_(enable|mode)$") -or
+        ($null -ne $Point.write -and [bool]$Point.write.enable)) {
+        $retain = $true
+    }
+
+    if ($null -ne $initialValue) {
+        $Point | Add-Member -NotePropertyName initialValue -NotePropertyValue $initialValue -Force
+    }
+    if ($retain) {
+        $Point | Add-Member -NotePropertyName retain -NotePropertyValue $true -Force
+    }
+}
+
 $existingIndexes = @{}
 foreach ($meter in $virtualConfig.meters) {
     foreach ($point in $meter.points) {
+        Set-EmsVirtualRuntimeDefaults $point
         $originalIndex = [int]$point.index
         if ($indexRemap.ContainsKey($originalIndex)) {
             $point.index = $indexRemap[$originalIndex]
@@ -1692,7 +1783,7 @@ function New-SemanticVirtualPoint(
     [string]$Category = "setting",
     [bool]$StoreHistory = $true
 ) {
-    [ordered]@{
+    $point = [ordered]@{
         index = $Index
         pointCode = $PointCode
         name = $Name
@@ -1730,6 +1821,23 @@ function New-SemanticVirtualPoint(
         alarms = @()
         tags = @("ems_virtual", $Category, "change", "full_upload")
     }
+    if ($Category -eq "setting" -or $Category -eq "status") {
+        $point.initialValue = 0.0
+        $point.retain = $true
+    } elseif ($Category -eq "telemetry") {
+        $point.initialValue = 0.0
+    }
+    if ($PointCode -match '^ems_schedule_power_([0-9]|1[0-9]|2[0-3])$') {
+        $point.write.enable = $true
+        $point.write.dataType = "float64"
+    } elseif ($PointCode -match '^ems_schedule_soc_([0-9]|1[0-9]|2[0-3])$') {
+        $point.write.enable = $true
+        $point.write.dataType = "float64"
+        $point.write.min = 0.0
+        $point.write.max = 100.0
+        $point.write.step = 0.1
+    }
+    $point
 }
 
 $semanticPoints = @(

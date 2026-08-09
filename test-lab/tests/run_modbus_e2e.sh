@@ -7,6 +7,7 @@ SIM_PORT=${GATEWAY_TEST_LAB_E2E_SIM_PORT:-25020}
 MONITOR_PORT=${GATEWAY_TEST_LAB_E2E_MONITOR_PORT:-29443}
 ROOT=$(mktemp -d /tmp/gateway-test-lab-e2e.XXXXXX)
 LAB_SCRIPT=$SOURCE_DIR/test-lab/scripts/gateway-test-lab.sh
+SYSTEM_MONITOR_SHARED_MEMORY=gateway_test_lab_system_monitor_$(basename "$ROOT" | tr '.-' '__')
 
 print_logs() {
     for log in "$ROOT"/logs/*.log; do
@@ -44,6 +45,7 @@ run_lab() {
     GATEWAY_TEST_LAB_ROOT="$ROOT" \
     GATEWAY_BIN_DIR="$BUILD_DIR" \
     GATEWAY_TEST_LAB_SIM_BIN="$ROOT/bin/gateway-test-lab-sim" \
+    GATEWAY_TEST_LAB_SYSTEM_MONITOR_SHARED_MEMORY="$SYSTEM_MONITOR_SHARED_MEMORY" \
         "$LAB_SCRIPT" "$@"
 }
 
@@ -84,4 +86,5 @@ grep -q '4321' "$ROOT/realtime-write.json"
 
 run_lab stop >/dev/null
 [ ! -e /dev/shm/gateway_test_lab_modbus ]
+[ ! -e "/dev/shm/$SYSTEM_MONITOR_SHARED_MEMORY" ]
 echo "gateway_test_lab_modbus_e2e passed"
