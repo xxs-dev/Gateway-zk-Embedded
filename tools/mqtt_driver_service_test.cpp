@@ -281,6 +281,31 @@ void testRealtimeSessionStopRequest() {
     cleanupFixture(fixture);
 }
 
+void testRealtimeUnsubscribeStopsSessionButNotFullUpload() {
+    auto fixture = makeFixture("unsubscribe_full", 1000);
+    fixture.service->runScanOnce(1770000035000LL);
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_STOP_FULL\",\"meterCode\":\"METER_1\",\"intervalMs\":100,\"ttlSec\":30}"
+    ));
+    fixture.service->runScanOnce(1770000035100LL);
+    require(fixture.publisher->onDemandCounts.size() == 1, "realtime session should publish immediately before unsubscribe");
+    require(fixture.publisher->fullSnapshotCounts.empty(), "full snapshot should not publish before interval");
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_STOP_FULL\",\"action\":\"unsubscribe\"}"
+    ));
+    fixture.service->runScanOnce(1770000035150LL);
+    fixture.service->runScanOnce(1770000035300LL);
+    require(fixture.publisher->onDemandCounts.size() == 1, "unsubscribed realtime session should not publish again");
+    require(fixture.publisher->fullSnapshotCounts.empty(), "realtime unsubscribe should not force a full snapshot");
+
+    fixture.service->runScanOnce(1770000036000LL);
+    require(fixture.publisher->onDemandCounts.size() == 1, "full upload should not revive realtime publishing");
+    require(fixture.publisher->fullSnapshotCounts.size() == 1, "full snapshot should continue after realtime unsubscribe");
+    require(fixture.publisher->fullSnapshotCounts.back() == 2, "full snapshot after unsubscribe should include configured full points");
+    cleanupFixture(fixture);
+}
+
 void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
     auto fixture = makeFixture("command_no_lease", 10000, true);
     fixture.service.reset();
@@ -475,6 +500,7 @@ int main() {
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
+        testRealtimeUnsubscribeStopsSessionButNotFullUpload();
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
         testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
