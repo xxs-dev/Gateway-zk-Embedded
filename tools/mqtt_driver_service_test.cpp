@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <chrono>
 #include <cmath>
@@ -27,10 +28,11 @@ void require(bool condition, const std::string& message) {
 class CapturingMqttDriverPublisher : public IMqttDriverPublisher {
 public:
     void publishFullSnapshot(
-        const std::string&,
+        const std::string& topic,
         const std::vector<StoredPointValue>& values,
         const std::string&
     ) override {
+        fullSnapshotTopics.push_back(topic);
         fullSnapshotCounts.push_back(values.size());
     }
 
@@ -44,10 +46,11 @@ public:
     }
 
     void publishOnDemand(
-        const std::string&,
+        const std::string& topic,
         const std::vector<StoredPointValue>& values,
         const std::string&
     ) override {
+        onDemandTopics.push_back(topic);
         onDemandCounts.push_back(values.size());
     }
 
@@ -92,7 +95,9 @@ public:
     }
 
     std::vector<MqttIncomingMessage> incoming;
+    std::vector<std::string> fullSnapshotTopics;
     std::vector<std::size_t> fullSnapshotCounts;
+    std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
     std::vector<std::string> statusPayloads;
     std::vector<int> pollTimeouts;
@@ -281,28 +286,82 @@ void testRealtimeSessionStopRequest() {
     cleanupFixture(fixture);
 }
 
-void testRealtimeUnsubscribeStopsSessionButNotFullUpload() {
-    auto fixture = makeFixture("unsubscribe_full", 1000);
-    fixture.service->runScanOnce(1770000035000LL);
+void testRealtimeSessionUnsubscribeIsIsolatedFromOtherSessionsAndFullUpload() {
+    auto fixture = makeFixture("unsubscribe_isolation", 1000);
+    const std::int64_t startedAt = 1770000035000LL;
+    require(
+        fixture.mqttConfig.realtimeTelemetryTopic != fixture.mqttConfig.fullTelemetryTopic,
+        "test fixture must use independent realtime and full topics"
+    );
+    fixture.service->runScanOnce(startedAt);
+
     fixture.publisher->incoming.push_back(realtimeRequest(
-        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_STOP_FULL\",\"meterCode\":\"METER_1\",\"intervalMs\":100,\"ttlSec\":30}"
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_TARGET\",\"indexes\":[1001],\"intervalMs\":100,\"ttlSec\":30}"
     ));
-    fixture.service->runScanOnce(1770000035100LL);
-    require(fixture.publisher->onDemandCounts.size() == 1, "realtime session should publish immediately before unsubscribe");
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_SURVIVOR\",\"indexes\":[1001,1002],\"intervalMs\":100,\"ttlSec\":30}"
+    ));
+    fixture.service->runScanOnce(startedAt + 100);
+    require(fixture.publisher->onDemandCounts.size() == 2, "both realtime sessions should publish immediately");
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 1) == 1,
+        "target realtime session should publish its configured point"
+    );
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 2) == 1,
+        "surviving realtime session should publish its configured points"
+    );
     require(fixture.publisher->fullSnapshotCounts.empty(), "full snapshot should not publish before interval");
 
     fixture.publisher->incoming.push_back(realtimeRequest(
-        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_STOP_FULL\",\"action\":\"unsubscribe\"}"
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"UNKNOWN_SESSION\",\"action\":\"unsubscribe\"}"
     ));
-    fixture.service->runScanOnce(1770000035150LL);
-    fixture.service->runScanOnce(1770000035300LL);
-    require(fixture.publisher->onDemandCounts.size() == 1, "unsubscribed realtime session should not publish again");
-    require(fixture.publisher->fullSnapshotCounts.empty(), "realtime unsubscribe should not force a full snapshot");
+    fixture.service->runScanOnce(startedAt + 150);
+    fixture.service->runScanOnce(startedAt + 200);
+    require(fixture.publisher->onDemandCounts.size() == 4, "unknown unsubscribe should leave both sessions active");
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 1) == 2 &&
+            std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 2) == 2,
+        "unknown unsubscribe should be a no-op for each realtime session"
+    );
 
-    fixture.service->runScanOnce(1770000036000LL);
-    require(fixture.publisher->onDemandCounts.size() == 1, "full upload should not revive realtime publishing");
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_TARGET\",\"action\":\"unsubscribe\"}"
+    ));
+    fixture.service->runScanOnce(startedAt + 250);
+    fixture.service->runScanOnce(startedAt + 300);
+    require(fixture.publisher->onDemandCounts.size() == 5, "only the surviving session should keep publishing");
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 1) == 2,
+        "target realtime session should stop after unsubscribe"
+    );
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 2) == 3,
+        "unsubscribing one session should not stop the other session"
+    );
+
+    fixture.service->runScanOnce(startedAt + 999);
+    require(fixture.publisher->fullSnapshotCounts.empty(), "full snapshot should wait for fullUploadIntervalMs");
+    fixture.service->runScanOnce(startedAt + 1000);
+    require(fixture.publisher->onDemandCounts.size() == 6, "full upload should not create a realtime publication");
     require(fixture.publisher->fullSnapshotCounts.size() == 1, "full snapshot should continue after realtime unsubscribe");
     require(fixture.publisher->fullSnapshotCounts.back() == 2, "full snapshot after unsubscribe should include configured full points");
+    require(
+        fixture.publisher->fullSnapshotTopics.front() == fixture.mqttConfig.fullTelemetryTopic,
+        "full snapshot should publish to fullTelemetryTopic"
+    );
+    require(
+        fixture.publisher->onDemandTopics.size() == fixture.publisher->onDemandCounts.size(),
+        "each realtime publication should capture its topic"
+    );
+    require(
+        std::all_of(
+            fixture.publisher->onDemandTopics.begin(),
+            fixture.publisher->onDemandTopics.end(),
+            [&](const std::string& topic) { return topic == fixture.mqttConfig.realtimeTelemetryTopic; }
+        ),
+        "realtime sessions should publish only to realtimeTelemetryTopic"
+    );
     cleanupFixture(fixture);
 }
 
@@ -500,7 +559,7 @@ int main() {
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
-        testRealtimeUnsubscribeStopsSessionButNotFullUpload();
+        testRealtimeSessionUnsubscribeIsIsolatedFromOtherSessionsAndFullUpload();
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
         testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
