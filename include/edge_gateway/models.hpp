@@ -464,7 +464,7 @@ struct IecProtocolConfig {
 struct Dlt645WriteSecurityConfig {
     bool enabled = false;
     std::string password;
-    std::string operatorCode = "00000000";
+    std::string operatorCode;
 };
 
 struct Dlt645ProtocolConfig {

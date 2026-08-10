@@ -339,6 +339,20 @@ void verifyDlt645WriteConfig() {
     }
     require(missingPasswordRejected, "enabled DLT645 write without password must be rejected");
 
+    bool missingOperatorCodeRejected = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadFromText(
+            R"JSON({
+              "protocol": { "type": "dlt645_2007" },
+              "dlt645": { "write": { "enabled": true, "password": "02000000", "operatorCode": "" } },
+              "meters": []
+            })JSON"
+        );
+    } catch (const std::invalid_argument&) {
+        missingOperatorCodeRejected = true;
+    }
+    require(missingOperatorCodeRejected, "enabled DLT645 write without operator code must be rejected");
+
     const auto templatePath = tempPath();
     std::ofstream templateOutput(templatePath.c_str(), std::ios::binary | std::ios::trunc);
     templateOutput << R"JSON({
@@ -677,6 +691,86 @@ void verifyDeliveryRuntimeConfig() {
     require(app.eventEngine.deliveryMaxLatencyMs == 50, "EventEngine maximum delivery latency should parse");
 }
 
+void verifyCameraAuthenticationFailsClosed() {
+    const auto path = tempPath();
+    {
+        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+        output << R"JSON({
+          "cameraService": {
+            "enabled": true,
+            "media": {
+              "auth": {
+                "enabled": true,
+                "mode": "basic",
+                "username": "injected-user",
+                "password": ""
+              }
+            }
+          }
+        })JSON";
+    }
+    bool rejectedMissingPassword = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+    } catch (const std::runtime_error& ex) {
+        rejectedMissingPassword = std::string(ex.what()).find("requires injected") != std::string::npos;
+    }
+    std::remove(path.c_str());
+    require(rejectedMissingPassword, "enabled camera basic auth should reject a missing password");
+
+    {
+        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+        output << R"JSON({
+          "cameraService": {
+            "enabled": true,
+            "cameras": [{
+              "cameraCode": "CAM_TEST",
+              "sourceAuth": {
+                "enabled": true,
+                "mode": "token_query",
+                "token": ""
+              }
+            }]
+          }
+        })JSON";
+    }
+    bool rejectedMissingToken = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+    } catch (const std::runtime_error& ex) {
+        rejectedMissingToken = std::string(ex.what()).find("requires an injected token") != std::string::npos;
+    }
+    std::remove(path.c_str());
+    require(rejectedMissingToken, "enabled camera token auth should reject a missing token");
+
+    {
+        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+        output << R"JSON({
+          "cameraService": {
+            "enabled": true,
+            "media": {"auth": {"enabled": false}}
+          }
+        })JSON";
+    }
+    const auto publicConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+    std::remove(path.c_str());
+    require(!publicConfig.cameraService.media.auth.enabled,
+        "explicitly public camera media should not require credentials");
+}
+
+void verifyPublicCameraExampleLoadsWithoutCredentials() {
+    const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(
+        "config/examples/camera-service-public-example.json"
+    );
+    require(!app.cameraService.media.auth.enabled,
+        "public camera example media authentication should be disabled");
+    require(!app.cameraService.cameras.empty(), "public camera example should include a camera");
+    for (const auto& camera : app.cameraService.cameras) {
+        require(!camera.sourceAuth.enabled,
+            "public camera example source authentication should be disabled");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -735,6 +829,8 @@ int main() {
     verifySystemMonitorCpuAlertConfig();
     verifyIec103RecordingTransferConfig();
     verifyDeliveryRuntimeConfig();
+    verifyCameraAuthenticationFailsClosed();
+    verifyPublicCameraExampleLoadsWithoutCredentials();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

@@ -22,9 +22,9 @@
     "standardPointsFile": "/opt/modbus-gateway/config/templates/dlt645_residual_current_breaker_20231101_comm104_verified_points.json",
     "standardPointsVersion": "1.2.0",
     "write": {
-      "enabled": true,
-      "password": "00000000",
-      "operatorCode": "00000000"
+      "enabled": false,
+      "password": "",
+      "operatorCode": ""
     }
   },
   "collect": {

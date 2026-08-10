@@ -407,8 +407,8 @@
       "presignExpireMinutes": 60,
       "minio": {
         "endpoint": "http://127.0.0.1:9000",
-        "accessKey": "minioadmin",
-        "secretKey": "minioadmin",
+        "accessKey": "",
+        "secretKey": "",
         "bucket": "edge-ota",
         "basePath": "packages",
         "publicBaseUrl": ""

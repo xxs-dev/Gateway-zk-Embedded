@@ -9,8 +9,8 @@
     "protocolVersion": "mqtt5",
     "broker": "tcp://192.168.22.102:1883",
     "clientId": "GW0001",
-    "username": "kyxn",
-    "password": "whkyxn027",
+    "username": "",
+    "password": "",
     "telemetryTopic": "edge/telemetry",
     "changeEventTopic": "edge/event/change",
     "commandRequestTopic": "edge/command/request",
@@ -372,8 +372,8 @@
       "presignExpireMinutes": 60,
       "minio": {
         "endpoint": "http://127.0.0.1:9000",
-        "accessKey": "minioadmin",
-        "secretKey": "minioadmin",
+        "accessKey": "",
+        "secretKey": "",
         "bucket": "edge-ota",
         "basePath": "packages",
         "publicBaseUrl": ""

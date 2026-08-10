@@ -75,6 +75,45 @@ int main() {
     std::string error;
     require(service.validateRequest(ok, &error), "valid ota request should pass");
 
+    OtaConfig minioConfig = config;
+    minioConfig.storage.provider = "minio";
+    minioConfig.storage.minio.publicBaseUrl.clear();
+    minioConfig.storage.minio.accessKey.clear();
+    minioConfig.storage.minio.secretKey.clear();
+    OtaService minioService(minioConfig);
+    auto unsignedMinioRequest = ok;
+    unsignedMinioRequest.version.clear();
+    unsignedMinioRequest.artifactUrl = "relative-package.tar.gz";
+    requireRejected(
+        minioService,
+        unsignedMinioRequest,
+        "pre-signed absolute artifactUrl or explicit publicBaseUrl"
+    );
+
+    auto preSignedMinioRequest = unsignedMinioRequest;
+    preSignedMinioRequest.artifactUrl = "https://example.invalid/pre-signed/package.tar.gz";
+    require(minioService.validateRequest(preSignedMinioRequest, &error),
+        "pre-signed MinIO artifact URL should pass without packaged credentials");
+
+    minioConfig.storage.minio.publicBaseUrl = "https://example.invalid/public-packages";
+    OtaService publicMinioService(minioConfig);
+    require(publicMinioService.validateRequest(unsignedMinioRequest, &error),
+        "explicit public MinIO base URL should allow relative artifacts");
+
+    minioConfig.storage.minio.accessKey = "synthetic-test-access";
+    minioConfig.storage.minio.secretKey = "synthetic-test-secret";
+    OtaService unsupportedAuthenticatedMinioService(minioConfig);
+    requireRejected(
+        unsupportedAuthenticatedMinioService,
+        unsignedMinioRequest,
+        "authenticated MinIO credentials are not supported"
+    );
+    requireRejected(
+        unsupportedAuthenticatedMinioService,
+        preSignedMinioRequest,
+        "authenticated MinIO credentials are not supported"
+    );
+
     auto tooLarge = ok;
     tooLarge.size = config.maxArtifactBytes + 1;
     requireRejected(service, tooLarge, "ota artifact size exceeds maxArtifactBytes");

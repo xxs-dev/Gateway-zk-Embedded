@@ -385,6 +385,7 @@ if tar -tzf "$PACKAGE_ARCHIVE" | grep -Eiq '(^|/)direct[-_]?agent([^/]*)$'; then
   echo "retired standalone maintenance agent was found in generated factory package" >&2
   exit 2
 fi
+python3 "$ROOT_DIR/tools/audit_release_credentials.py" "$PACKAGE_ARCHIVE"
 
 OUT_TMP="$OUT.tmp.$$"
 cp "$PACKAGE_ARCHIVE" "$OUT_TMP"

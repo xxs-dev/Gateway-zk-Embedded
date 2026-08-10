@@ -391,6 +391,13 @@ target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE ed
 target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
 
 if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(
+        NAME release_credential_audit
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/test_audit_release_credentials.py"
+    )
+    add_test(NAME config_loader COMMAND config_loader_test)
+    add_test(NAME ota_service COMMAND ota_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
     add_test(NAME scada_runtime COMMAND scada_runtime_test)
     if(TARGET local_display_qt_access_test)
@@ -437,6 +444,12 @@ if(BUILD_TESTING)
         point_store_router_retention
         system_monitor_direct_maintenance_contract
         gateway_test_lab_modbus
+        PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    set_tests_properties(
+        release_credential_audit
+        config_loader
+        ota_service
         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endif()

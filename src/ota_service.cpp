@@ -872,6 +872,15 @@ std::string OtaService::resolveArtifactPath(const OtaRequest& request) const {
 }
 
 std::string OtaService::resolveArtifactSource(const OtaRequest& request) const {
+    if (config_.storage.provider == "minio") {
+        const auto& minio = config_.storage.minio;
+        if (!minio.accessKey.empty() || !minio.secretKey.empty()) {
+            throw std::runtime_error(
+                "authenticated MinIO credentials are not supported; use a pre-signed absolute artifactUrl"
+            );
+        }
+    }
+
     if (!request.artifactUrl.empty()) {
         if (isHttpUrl(request.artifactUrl) || pathExists(request.artifactUrl)) {
             return request.artifactUrl;
@@ -897,6 +906,11 @@ std::string OtaService::resolveArtifactSource(const OtaRequest& request) const {
 
 std::string OtaService::buildMinioArtifactUrl(const OtaRequest& request) const {
     const auto& minio = config_.storage.minio;
+    if (!minio.accessKey.empty() || !minio.secretKey.empty()) {
+        throw std::runtime_error(
+            "authenticated MinIO credentials are not supported; use a pre-signed absolute artifactUrl"
+        );
+    }
     if (!minio.publicBaseUrl.empty()) {
         if (!request.artifactUrl.empty() && !isHttpUrl(request.artifactUrl)) {
             return joinPath(minio.publicBaseUrl, request.artifactUrl);
@@ -905,21 +919,9 @@ std::string OtaService::buildMinioArtifactUrl(const OtaRequest& request) const {
             return joinPath(minio.publicBaseUrl, request.version + "." + config_.packageType);
         }
     }
-    if (minio.endpoint.empty() || minio.bucket.empty()) {
-        return std::string();
-    }
-    std::string base = minio.endpoint;
-    base = joinPath(base, minio.bucket);
-    if (!minio.basePath.empty()) {
-        base = joinPath(base, minio.basePath);
-    }
-    if (!request.artifactUrl.empty() && !isHttpUrl(request.artifactUrl)) {
-        return joinPath(base, request.artifactUrl);
-    }
-    if (!request.version.empty()) {
-        return joinPath(base, request.version + "." + config_.packageType);
-    }
-    return std::string();
+    throw std::runtime_error(
+        "MinIO storage requires a pre-signed absolute artifactUrl or explicit publicBaseUrl"
+    );
 }
 
 void OtaService::ensureDirectory(const std::string& path) const {
