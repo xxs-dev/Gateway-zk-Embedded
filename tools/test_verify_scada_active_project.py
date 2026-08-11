@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-from __future__ import annotations
-
 import importlib.util
 import os
 import pathlib
@@ -30,7 +28,7 @@ class ScadaTreeManifestTests(unittest.TestCase):
             real_lstat = os.lstat
 
             def snapshot_with_directory_size(directory_size: int):
-                def fake_lstat(path: os.PathLike[str] | str):
+                def fake_lstat(path):
                     actual = real_lstat(path)
                     if stat.S_ISDIR(actual.st_mode):
                         return SimpleNamespace(

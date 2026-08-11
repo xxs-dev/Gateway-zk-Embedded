@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Verify the active SCADA release against the factory package contract."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -12,7 +10,7 @@ import re
 import stat
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
 
 ALGORITHM = "sorted-jsonl-tree-v1"
@@ -41,12 +39,12 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def stable_json_line(value: dict[str, Any]) -> str:
+def stable_json_line(value: Dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
 
-def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
+def reject_duplicate_keys(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
             raise VerificationError(f"duplicate-json-key:{key}")
@@ -81,12 +79,12 @@ def is_within(path: pathlib.Path, root: pathlib.Path) -> bool:
         return False
 
 
-def parse_install_state(path: pathlib.Path) -> dict[str, str]:
+def parse_install_state(path: pathlib.Path) -> Dict[str, str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         raise VerificationError("install-state-missing") from exc
-    state: dict[str, str] = {}
+    state: Dict[str, str] = {}
     for line in lines:
         if not line or "=" not in line:
             continue
@@ -97,10 +95,10 @@ def parse_install_state(path: pathlib.Path) -> dict[str, str]:
     return state
 
 
-def inspect_tree(root: pathlib.Path) -> dict[str, Any]:
-    canonical_lines: list[str] = []
-    content_lines: list[str] = []
-    regular_hashes: dict[str, str] = {}
+def inspect_tree(root: pathlib.Path) -> Dict[str, Any]:
+    canonical_lines: List[str] = []
+    content_lines: List[str] = []
+    regular_hashes: Dict[str, str] = {}
     counts = {"files": 0, "directories": 0, "bytes": 0}
 
     def visit(path: pathlib.Path, relative: str) -> None:
@@ -122,7 +120,7 @@ def inspect_tree(root: pathlib.Path) -> dict[str, Any]:
         else:
             raise VerificationError(f"tree-special-file-present:{relative}")
 
-        canonical: dict[str, Any] = {
+        canonical: Dict[str, Any] = {
             "path": relative,
             "mode": format(stat.S_IMODE(info.st_mode), "04o"),
             "uid": info.st_uid,
@@ -130,7 +128,7 @@ def inspect_tree(root: pathlib.Path) -> dict[str, Any]:
             "size": entry_size,
             "type": kind,
         }
-        content: dict[str, Any] = {
+        content: Dict[str, Any] = {
             "path": relative,
             "size": entry_size,
             "type": kind,
@@ -168,8 +166,8 @@ def inspect_tree(root: pathlib.Path) -> dict[str, Any]:
 def validate_project_metadata(
     active: pathlib.Path,
     machine_code: str,
-    regular_hashes: dict[str, str],
-) -> dict[str, Any]:
+    regular_hashes: Dict[str, str],
+) -> Dict[str, Any]:
     if not REQUIRED_DOCUMENTS.issubset(regular_hashes):
         missing = sorted(REQUIRED_DOCUMENTS - regular_hashes.keys())
         raise VerificationError("required-document-missing:" + ",".join(missing))
@@ -222,7 +220,7 @@ def validate_project_metadata(
     }
 
 
-def write_result(path: pathlib.Path, result: dict[str, Any]) -> None:
+def write_result(path: pathlib.Path, result: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
@@ -254,7 +252,7 @@ def main() -> int:
     args = parse_args()
     source_mode = "unknown"
     current_exists = args.current.exists()
-    result: dict[str, Any] = {
+    result: Dict[str, Any] = {
         "schemaVersion": "1.0",
         "algorithm": ALGORITHM,
         "directorySizePolicy": DIRECTORY_SIZE_POLICY,
