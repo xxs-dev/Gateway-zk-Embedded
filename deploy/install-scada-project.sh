@@ -462,8 +462,20 @@ def normalize_tree(path):
         normalized_mode = 0o644
     else:
         raise SystemExit(f"SCADA staging tree contains a special file: {path.relative_to(root)}")
-    os.chown(path, 0, 0, follow_symlinks=False)
-    os.chmod(path, normalized_mode, follow_symlinks=False)
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise SystemExit("SCADA metadata normalization requires O_NOFOLLOW support")
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if stat.S_ISDIR(info.st_mode):
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(str(path), flags)
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+            raise SystemExit(f"SCADA staging entry changed during normalization: {path.relative_to(root)}")
+        os.fchown(descriptor, 0, 0)
+        os.fchmod(descriptor, normalized_mode)
+    finally:
+        os.close(descriptor)
 
 normalize_tree(root)
 
