@@ -457,8 +457,12 @@ if isinstance(scada, dict):
     if source_mode == "embedded-package":
         relative = str(scada.get("path") or "").strip().replace("\\", "/")
         expected = str(scada.get("sha256") or "").strip().lower()
+        canonical = str(scada.get("canonicalManifestSha256") or "").strip().lower()
+        content = str(scada.get("contentManifestSha256") or "").strip().lower()
         if not relative.endswith(".kyscada") or len(expected) != 64:
             raise SystemExit("incomplete embedded SCADA project metadata")
+        if any(len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value) for value in (canonical, content)):
+            raise SystemExit("embedded SCADA project requires canonical/content SHA256 metadata")
         path = os.path.realpath(os.path.join(root, relative))
         if os.path.commonpath((root, path)) != root or not os.path.isfile(path):
             raise SystemExit(f"SCADA project path is missing or outside package: {relative}")
@@ -1067,6 +1071,8 @@ if [ -n "$SCADA_PROJECT_PACKAGE" ]; then
   "$GATEWAY_HOME/bin/install-scada-project.sh" \
     --package "$SCADA_PROJECT_PACKAGE" \
     --package-sha256 "$SCADA_PROJECT_SHA256" \
+    --canonical-manifest-sha256 "$SCADA_PROJECT_CANONICAL_SHA256" \
+    --content-manifest-sha256 "$SCADA_PROJECT_CONTENT_SHA256" \
     --machine-code "$INIT_MACHINE_CODE_VALUE" \
     --app-config "$GATEWAY_HOME/config/runtime/apps/monitor-service.json" \
     --scada-root "$GATEWAY_HOME/scada" \
@@ -1153,8 +1159,8 @@ if [ -n "$FACTORY_PACKAGE" ]; then
 fi
 if [ -n "$SCADA_PROJECT_PACKAGE" ]; then
   echo "factory SCADA project SHA256: $SCADA_PROJECT_SHA256"
-fi
-if [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ]; then
+  echo "factory SCADA runtime verified: canonical=$SCADA_PROJECT_CANONICAL_SHA256 content=$SCADA_PROJECT_CONTENT_SHA256"
+elif [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ]; then
   echo "external SCADA restore required before service start: canonical=$SCADA_PROJECT_CANONICAL_SHA256 content=$SCADA_PROJECT_CONTENT_SHA256"
 fi
 echo "factory config installed"

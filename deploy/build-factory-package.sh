@@ -109,6 +109,10 @@ if ! command -v tar >/dev/null 2>&1; then
   echo "tar command not found" >&2
   exit 1
 fi
+if ! command -v gzip >/dev/null 2>&1; then
+  echo "gzip command not found" >&2
+  exit 1
+fi
 
 manifest_binaries() {
   manifest="$1"
@@ -283,10 +287,13 @@ elif scada_canonical_sha256 or scada_content_sha256:
         "restartServicesDuringInstall": False,
     }
 
+created_at = datetime.datetime.fromtimestamp(
+    int(os.environ.get("SOURCE_DATE_EPOCH", "0")), datetime.timezone.utc
+).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 manifest.update({
     "schemaVersion": "1.2",
     "packageVersion": component_version,
-    "createdAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    "createdAt": created_at,
     "createdBy": "build-factory-package.sh",
     "packageProfile": profile,
     "sourceCommit": source_commit,
@@ -389,6 +396,17 @@ if [ "$SOURCE_DIRTY" = "true" ] && [ "$ALLOW_DIRTY_SOURCE" != "1" ]; then
   echo "source tree contains uncommitted source/config changes; commit them or set ALLOW_DIRTY_SOURCE=1 for a non-production package" >&2
   exit 2
 fi
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+  if [ "$SOURCE_COMMIT" != "unknown" ]; then
+    SOURCE_DATE_EPOCH=$(git -C "$ROOT_DIR" show -s --format=%ct "$SOURCE_COMMIT")
+  else
+    SOURCE_DATE_EPOCH=0
+  fi
+fi
+case "$SOURCE_DATE_EPOCH" in
+  ''|*[!0-9]*) echo "SOURCE_DATE_EPOCH must be a non-negative integer" >&2; exit 2 ;;
+esac
+export SOURCE_DATE_EPOCH
 
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR/gateway-factory-defaults/config"
@@ -484,8 +502,10 @@ SCADA_PROJECT_RELATIVE=""
 case " $PACKAGED_BINS " in
   *" KY-EMS "*)
     if [ -n "$SCADA_PROJECT_PACKAGE" ] || [ -n "$SCADA_PROJECT_SHA256" ]; then
-      if [ -z "$SCADA_PROJECT_PACKAGE" ] || [ -z "$SCADA_PROJECT_SHA256" ] || [ -z "$SCADA_PROJECT_MACHINE_CODE" ]; then
-        echo "embedded SCADA requires --scada-package, --scada-sha256 and --scada-machine-code" >&2
+      if [ -z "$SCADA_PROJECT_PACKAGE" ] || [ -z "$SCADA_PROJECT_SHA256" ] || \
+         [ -z "$SCADA_PROJECT_MACHINE_CODE" ] || [ -z "$SCADA_PROJECT_CANONICAL_SHA256" ] || \
+         [ -z "$SCADA_PROJECT_CONTENT_SHA256" ]; then
+        echo "embedded SCADA requires package, package SHA256, machine code and canonical/content SHA256 values" >&2
         exit 2
       fi
       [ -f "$SCADA_PROJECT_PACKAGE" ] || {
@@ -495,6 +515,8 @@ case " $PACKAGED_BINS " in
       sh "$ROOT_DIR/deploy/install-scada-project.sh" \
         --package "$SCADA_PROJECT_PACKAGE" \
         --package-sha256 "$SCADA_PROJECT_SHA256" \
+        --canonical-manifest-sha256 "$SCADA_PROJECT_CANONICAL_SHA256" \
+        --content-manifest-sha256 "$SCADA_PROJECT_CONTENT_SHA256" \
         --machine-code "$SCADA_PROJECT_MACHINE_CODE" \
         --app-config "$ROOT_DIR/config/factory/runtime/apps/monitor-service.json" \
         --scada-root "$TMP_DIR/scada-validation" \
@@ -542,7 +564,11 @@ assert_no_retired_maintenance_agent "$TMP_DIR/gateway-factory-defaults"
 
 mkdir -p "$(dirname "$OUT")"
 PACKAGE_ARCHIVE="$TMP_DIR/gateway-factory-defaults.tar.gz"
-tar -C "$TMP_DIR" -czf "$PACKAGE_ARCHIVE" gateway-factory-defaults
+PACKAGE_TAR="$TMP_DIR/gateway-factory-defaults.tar"
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  -C "$TMP_DIR" -cf "$PACKAGE_TAR" gateway-factory-defaults
+gzip -n -9 <"$PACKAGE_TAR" >"$PACKAGE_ARCHIVE"
+rm -f "$PACKAGE_TAR"
 tar -tzf "$PACKAGE_ARCHIVE" >/dev/null
 if tar -tzf "$PACKAGE_ARCHIVE" | grep -Eiq '(^|/)direct[-_]?agent([^/]*)$'; then
   echo "retired standalone maintenance agent was found in generated factory package" >&2

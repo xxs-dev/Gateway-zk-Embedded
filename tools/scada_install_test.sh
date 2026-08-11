@@ -8,11 +8,19 @@ APP_CONFIG="$ROOT/monitor.json"
 SCADA_ROOT="$ROOT/runtime"
 STATE_FILE="$ROOT/install-state.txt"
 INSTALLER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/deploy/install-scada-project.sh"
+TRAVERSAL_PACKAGE="$ROOT/traversal.kyscada"
+SYMLINK_PACKAGE="$ROOT/symlink.kyscada"
+SPECIAL_PACKAGE="$ROOT/special.kyscada"
 
 cleanup() {
     rm -rf "$ROOT"
 }
 trap cleanup EXIT INT TERM
+
+[ "$(id -u)" = "0" ] || {
+    echo "scada_install_test must run as root to verify deterministic ownership" >&2
+    exit 1
+}
 
 mkdir -p "$SOURCE/screens"
 python3 - "$PACKAGE" <<'PY'
@@ -64,7 +72,46 @@ PY
 
 PACKAGE_SHA256="$(sha256sum "$PACKAGE" | awk '{print $1}')"
 
+python3 - "$PACKAGE" "$TRAVERSAL_PACKAGE" "$SYMLINK_PACKAGE" "$SPECIAL_PACKAGE" <<'PY'
+import stat
+import sys
+import zipfile
+
+source_path, traversal_path, symlink_path, special_path = sys.argv[1:]
+
+def copy_with_entry(output_path, info, content):
+    with zipfile.ZipFile(source_path, "r") as source, zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as output:
+        for source_info in source.infolist():
+            output.writestr(source_info, source.read(source_info))
+        output.writestr(info, content)
+
+copy_with_entry(traversal_path, "../escape.json", b"{}\n")
+symlink = zipfile.ZipInfo("unsafe-link")
+symlink.create_system = 3
+symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
+copy_with_entry(symlink_path, symlink, b"manifest.json")
+special = zipfile.ZipInfo("unsafe-fifo")
+special.create_system = 3
+special.external_attr = (stat.S_IFIFO | 0o644) << 16
+copy_with_entry(special_path, special, b"")
+PY
+
 printf '%s\n' '{"localDisplay":{"enabled":false,"renderer":"webkit"}}' > "$APP_CONFIG"
+
+for unsafe_package in "$TRAVERSAL_PACKAGE" "$SYMLINK_PACKAGE" "$SPECIAL_PACKAGE"; do
+    if sh "$INSTALLER" \
+        --package "$unsafe_package" \
+        --machine-code COMM202600999 \
+        --app-config "$APP_CONFIG" \
+        --scada-root "$SCADA_ROOT" \
+        --require-local-scada \
+        --no-restart \
+        --dry-run >/dev/null 2>&1; then
+        echo "SCADA installer accepted unsafe package: $unsafe_package" >&2
+        exit 1
+    fi
+done
+[ ! -e "$SCADA_ROOT/current" ]
 
 if sh "$INSTALLER" \
     --package "$PACKAGE" \
@@ -75,6 +122,21 @@ if sh "$INSTALLER" \
     --require-local-scada \
     --no-restart >/dev/null 2>&1; then
     echo "SCADA installer accepted an incorrect package SHA256" >&2
+    exit 1
+fi
+[ ! -e "$SCADA_ROOT/current" ]
+
+if sh "$INSTALLER" \
+    --package "$PACKAGE" \
+    --package-sha256 "$PACKAGE_SHA256" \
+    --canonical-manifest-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+    --content-manifest-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+    --machine-code COMM202600999 \
+    --app-config "$APP_CONFIG" \
+    --scada-root "$SCADA_ROOT" \
+    --require-local-scada \
+    --no-restart >/dev/null 2>&1; then
+    echo "SCADA installer accepted incorrect canonical/content SHA256 values" >&2
     exit 1
 fi
 [ ! -e "$SCADA_ROOT/current" ]
@@ -102,6 +164,16 @@ sh "$INSTALLER" \
 [ -L "$SCADA_ROOT/current" ]
 [ -f "$SCADA_ROOT/current/manifest.json" ]
 [ -f "$STATE_FILE" ]
+find -L "$SCADA_ROOT/current" -type d -exec sh -c '
+    for path do
+        [ "$(stat -L -c "%a:%u:%g" "$path")" = "755:0:0" ] || exit 1
+    done
+' sh {} +
+find -L "$SCADA_ROOT/current" -type f -exec sh -c '
+    for path do
+        [ "$(stat -L -c "%a:%u:%g" "$path")" = "644:0:0" ] || exit 1
+    done
+' sh {} +
 python3 - "$APP_CONFIG" "$SCADA_ROOT/current" "$STATE_FILE" "$PACKAGE_SHA256" <<'PY'
 import json
 import sys
@@ -120,6 +192,10 @@ assert state["scadaRoot"] == expected_directory.rsplit("/current", 1)[0]
 assert state["scadaCurrentTarget"] == str(__import__("pathlib").Path(expected_directory).resolve())
 assert state["scadaVersion"] == "1.0.0"
 assert state["scadaPackageSha256"] == expected_package_sha256
+assert len(state["scadaCanonicalManifestSha256"]) == 64
+assert len(state["scadaContentManifestSha256"]) == 64
+assert int(state["scadaFileCount"]) == 7
+assert int(state["scadaDirectoryCount"]) == 2
 PY
 
 echo "scada_install_test passed"

@@ -3,6 +3,8 @@ set -eu
 
 PACKAGE=""
 PACKAGE_SHA256=""
+EXPECTED_CANONICAL_SHA256=""
+EXPECTED_CONTENT_SHA256=""
 APP_CONFIG="/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
 MACHINE_CODE=""
 SCADA_ROOT="/opt/modbus-gateway/scada"
@@ -16,6 +18,10 @@ usage() {
 Usage: install-scada-project.sh --package FILE --machine-code CODE [options]
   --package-sha256 SHA256
                       require the whole .kyscada file to match this SHA256
+  --canonical-manifest-sha256 SHA256
+                      require the normalized active release canonical manifest hash
+  --content-manifest-sha256 SHA256
+                      require the normalized active release content manifest hash
   --app-config FILE   monitor-service.json path
   --scada-root DIR    release root; default /opt/modbus-gateway/scada
   --dry-run           validate only
@@ -31,6 +37,8 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --package) PACKAGE="${2:-}"; shift 2 ;;
         --package-sha256) PACKAGE_SHA256="${2:-}"; shift 2 ;;
+        --canonical-manifest-sha256) EXPECTED_CANONICAL_SHA256="${2:-}"; shift 2 ;;
+        --content-manifest-sha256) EXPECTED_CONTENT_SHA256="${2:-}"; shift 2 ;;
         --machine-code) MACHINE_CODE="${2:-}"; shift 2 ;;
         --app-config) APP_CONFIG="${2:-}"; shift 2 ;;
         --scada-root) SCADA_ROOT="${2:-}"; shift 2 ;;
@@ -63,12 +71,14 @@ fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 2; }
 
 META_FILE="$(mktemp /tmp/gateway-scada-meta.XXXXXX)"
+TREE_META_FILE="$(mktemp /tmp/gateway-scada-tree.XXXXXX)"
 cleanup() {
-    rm -f "$META_FILE"
+    rm -f "$META_FILE" "$TREE_META_FILE"
 }
 trap cleanup EXIT INT TERM
 
-python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" "$PACKAGE_SHA256" <<'PY'
+python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" "$PACKAGE_SHA256" \
+    "$EXPECTED_CANONICAL_SHA256" "$EXPECTED_CONTENT_SHA256" <<'PY'
 import hashlib
 import json
 import os
@@ -77,7 +87,14 @@ import stat
 import sys
 import zipfile
 
-package, machine_code, meta_path, expected_package_sha256 = sys.argv[1:]
+(
+    package,
+    machine_code,
+    meta_path,
+    expected_package_sha256,
+    expected_canonical_sha256,
+    expected_content_sha256,
+) = sys.argv[1:]
 max_package = 512 * 1024 * 1024
 required = {"manifest.json", "topology.json", "nodes.json", "tags.json", "runtime-map.json"}
 
@@ -98,6 +115,17 @@ if expected_package_sha256:
             f"SCADA package SHA256 mismatch: expected={expected_package_sha256} actual={actual_package_sha256}"
         )
 
+expected_canonical_sha256 = expected_canonical_sha256.strip().lower()
+expected_content_sha256 = expected_content_sha256.strip().lower()
+if bool(expected_canonical_sha256) != bool(expected_content_sha256):
+    raise SystemExit("canonical/content manifest SHA256 values must be provided together")
+for label, value in (
+    ("canonical manifest", expected_canonical_sha256),
+    ("content manifest", expected_content_sha256),
+):
+    if value and (len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value)):
+        raise SystemExit(f"invalid SCADA {label} SHA256")
+
 with zipfile.ZipFile(package, "r") as archive:
     entries = {}
     total = 0
@@ -105,13 +133,18 @@ with zipfile.ZipFile(package, "r") as archive:
         raw = info.filename
         if "\\" in raw:
             raise SystemExit(f"unsafe SCADA path: {raw}")
-        raw_parts = raw.split("/")
-        path = pathlib.PurePosixPath(raw)
-        if raw.startswith("/") or any(part in ("", ".", "..") for part in raw_parts):
+        normalized_raw = raw[:-1] if raw.endswith("/") else raw
+        raw_parts = normalized_raw.split("/")
+        path = pathlib.PurePosixPath(normalized_raw)
+        if raw.startswith("/") or not normalized_raw or any(part in ("", ".", "..") for part in raw_parts):
             raise SystemExit(f"unsafe SCADA path: {raw}")
         mode = info.external_attr >> 16
-        if stat.S_ISLNK(mode):
+        file_type = stat.S_IFMT(mode)
+        if file_type == stat.S_IFLNK:
             raise SystemExit(f"SCADA package may not contain symlinks: {raw}")
+        allowed_types = (0, stat.S_IFDIR) if info.is_dir() else (0, stat.S_IFREG)
+        if file_type not in allowed_types:
+            raise SystemExit(f"SCADA package may not contain special files: {raw}")
         if info.is_dir():
             continue
         normalized = str(path)
@@ -192,7 +225,17 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
+[ "$(id -u)" = "0" ] || {
+    echo "SCADA project installation requires root to enforce deterministic ownership" >&2
+    exit 1
+}
+[ ! -L "$SCADA_ROOT" ] || { echo "SCADA root may not be a symlink: $SCADA_ROOT" >&2; exit 1; }
 mkdir -p "$SCADA_ROOT/releases" "$SCADA_ROOT/backup"
+for directory in "$SCADA_ROOT" "$SCADA_ROOT/releases" "$SCADA_ROOT/backup"; do
+    [ ! -L "$directory" ] || { echo "SCADA runtime directory may not be a symlink: $directory" >&2; exit 1; }
+    chown root:root "$directory"
+    chmod 0755 "$directory"
+done
 STAMP="$(date +%Y%m%d%H%M%S)"
 RELEASE_NAME="${PROJECT_ID}-${VERSION}-${STAMP}"
 STAGING="$SCADA_ROOT/releases/.${RELEASE_NAME}.staging"
@@ -229,26 +272,180 @@ rollback() {
 trap rollback EXIT INT TERM
 
 mkdir -p "$STAGING"
-python3 - "$PACKAGE" "$STAGING" <<'PY'
+python3 - "$PACKAGE" "$STAGING" "$PACKAGE_SHA256_ACTUAL" \
+    "$EXPECTED_CANONICAL_SHA256" "$EXPECTED_CONTENT_SHA256" "$TREE_META_FILE" <<'PY'
+import hashlib
+import json
+import os
 import pathlib
+import stat
 import sys
 import zipfile
 
-package, destination = sys.argv[1:]
+(
+    package,
+    destination,
+    expected_package_sha256,
+    expected_canonical_sha256,
+    expected_content_sha256,
+    tree_meta_path,
+) = sys.argv[1:]
 root = pathlib.Path(destination)
+
+if os.geteuid() != 0:
+    raise SystemExit("SCADA extraction requires root")
+
+def digest_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+if digest_file(pathlib.Path(package)) != expected_package_sha256:
+    raise SystemExit("SCADA package changed after validation")
+
+root = root.resolve(strict=True)
 with zipfile.ZipFile(package, "r") as archive:
+    entries = {}
     for info in archive.infolist():
+        raw = info.filename
+        if "\\" in raw:
+            raise SystemExit(f"unsafe SCADA path during extraction: {raw}")
+        normalized_raw = raw[:-1] if raw.endswith("/") else raw
+        parts = normalized_raw.split("/")
+        if raw.startswith("/") or not normalized_raw or any(part in ("", ".", "..") for part in parts):
+            raise SystemExit(f"unsafe SCADA path during extraction: {raw}")
+        relative = pathlib.PurePosixPath(normalized_raw)
+        normalized = str(relative)
+        if normalized in entries:
+            raise SystemExit(f"duplicate SCADA entry during extraction: {normalized}")
+        mode = info.external_attr >> 16
+        file_type = stat.S_IFMT(mode)
+        if file_type == stat.S_IFLNK:
+            raise SystemExit(f"SCADA package may not contain symlinks: {raw}")
+        allowed_types = (0, stat.S_IFDIR) if info.is_dir() else (0, stat.S_IFREG)
+        if file_type not in allowed_types:
+            raise SystemExit(f"SCADA package may not contain special files: {raw}")
+        entries[normalized] = info
+
+    file_paths = {path for path, info in entries.items() if not info.is_dir()}
+    for path in entries:
+        parent = pathlib.PurePosixPath(path).parent
+        while str(parent) != ".":
+            if str(parent) in file_paths:
+                raise SystemExit(f"SCADA path has a regular-file parent: {path}")
+            parent = parent.parent
+
+    for normalized, info in entries.items():
         if info.is_dir():
             continue
-        target = root.joinpath(*pathlib.PurePosixPath(info.filename).parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with archive.open(info, "r") as source, target.open("wb") as output:
+        target = root.joinpath(*pathlib.PurePosixPath(normalized).parts)
+        try:
+            target.relative_to(root)
+        except ValueError:
+            raise SystemExit(f"SCADA extraction path escapes staging root: {normalized}")
+        target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+        parent = target.parent
+        while parent != root.parent:
+            parent_info = os.lstat(parent)
+            if not stat.S_ISDIR(parent_info.st_mode) or stat.S_ISLNK(parent_info.st_mode):
+                raise SystemExit(f"unsafe SCADA extraction parent: {normalized}")
+            if parent == root:
+                break
+            parent = parent.parent
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(target, flags, 0o600)
+        with archive.open(info, "r") as source, os.fdopen(descriptor, "wb") as output:
             while True:
                 chunk = source.read(65536)
                 if not chunk:
                     break
                 output.write(chunk)
+
+def normalize_tree(path):
+    info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode):
+        raise SystemExit(f"SCADA staging tree contains a symlink: {path.relative_to(root)}")
+    if stat.S_ISDIR(info.st_mode):
+        with os.scandir(path) as listing:
+            children = list(listing)
+        for child in children:
+            normalize_tree(pathlib.Path(child.path))
+        normalized_mode = 0o755
+    elif stat.S_ISREG(info.st_mode):
+        normalized_mode = 0o644
+    else:
+        raise SystemExit(f"SCADA staging tree contains a special file: {path.relative_to(root)}")
+    os.chown(path, 0, 0, follow_symlinks=False)
+    os.chmod(path, normalized_mode, follow_symlinks=False)
+
+normalize_tree(root)
+
+canonical_lines = []
+content_lines = []
+counts = {"files": 0, "directories": 0, "bytes": 0}
+
+def collect(path, relative):
+    info = os.lstat(path)
+    canonical = {
+        "path": relative,
+        "mode": format(stat.S_IMODE(info.st_mode), "04o"),
+        "uid": info.st_uid,
+        "gid": info.st_gid,
+        "size": info.st_size,
+    }
+    content = {"path": relative, "size": info.st_size}
+    if stat.S_ISREG(info.st_mode):
+        kind = "file"
+        counts["files"] += 1
+        counts["bytes"] += info.st_size
+        file_sha256 = digest_file(path)
+        canonical["sha256"] = file_sha256
+        content["sha256"] = file_sha256
+    elif stat.S_ISDIR(info.st_mode):
+        kind = "directory"
+        counts["directories"] += 1
+    else:
+        raise SystemExit(f"SCADA normalized tree contains an unsafe entry: {relative}")
+    canonical["type"] = kind
+    content["type"] = kind
+    canonical_lines.append(json.dumps(canonical, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
+    content_lines.append(json.dumps(content, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
+    if kind == "directory":
+        with os.scandir(path) as listing:
+            children = sorted(listing, key=lambda item: item.name)
+        for child in children:
+            child_relative = child.name if relative == "." else relative + "/" + child.name
+            collect(pathlib.Path(child.path), child_relative)
+
+collect(root, ".")
+canonical_sha256 = hashlib.sha256(("\n".join(canonical_lines) + "\n").encode()).hexdigest()
+content_sha256 = hashlib.sha256(("\n".join(content_lines) + "\n").encode()).hexdigest()
+if expected_canonical_sha256 and canonical_sha256 != expected_canonical_sha256:
+    raise SystemExit(
+        f"SCADA canonical manifest SHA256 mismatch: expected={expected_canonical_sha256} actual={canonical_sha256}"
+    )
+if expected_content_sha256 and content_sha256 != expected_content_sha256:
+    raise SystemExit(
+        f"SCADA content manifest SHA256 mismatch: expected={expected_content_sha256} actual={content_sha256}"
+    )
+pathlib.Path(tree_meta_path).write_text(json.dumps({
+    "canonicalManifestSha256": canonical_sha256,
+    "contentManifestSha256": content_sha256,
+    "fileCount": counts["files"],
+    "directoryCount": counts["directories"],
+    "totalRegularFileBytes": counts["bytes"],
+}, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
 PY
+ACTUAL_CANONICAL_SHA256="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["canonicalManifestSha256"])' "$TREE_META_FILE")"
+ACTUAL_CONTENT_SHA256="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["contentManifestSha256"])' "$TREE_META_FILE")"
+SCADA_FILE_COUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fileCount"])' "$TREE_META_FILE")"
+SCADA_DIRECTORY_COUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["directoryCount"])' "$TREE_META_FILE")"
+SCADA_TOTAL_FILE_BYTES="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["totalRegularFileBytes"])' "$TREE_META_FILE")"
+echo "SCADA normalized runtime verified: canonical=$ACTUAL_CANONICAL_SHA256 content=$ACTUAL_CONTENT_SHA256"
 mv "$STAGING" "$RELEASE"
 cp -p "$APP_CONFIG" "$CONFIG_BACKUP"
 
@@ -319,6 +516,11 @@ if [ -n "$STATE_FILE" ]; then
         echo "scadaProjectId=$PROJECT_ID"
         echo "scadaVersion=$VERSION"
         echo "scadaPackageSha256=$PACKAGE_SHA256_ACTUAL"
+        echo "scadaCanonicalManifestSha256=$ACTUAL_CANONICAL_SHA256"
+        echo "scadaContentManifestSha256=$ACTUAL_CONTENT_SHA256"
+        echo "scadaFileCount=$SCADA_FILE_COUNT"
+        echo "scadaDirectoryCount=$SCADA_DIRECTORY_COUNT"
+        echo "scadaTotalRegularFileBytes=$SCADA_TOTAL_FILE_BYTES"
     } > "$STATE_TMP"
     mv "$STATE_TMP" "$STATE_FILE"
 fi
