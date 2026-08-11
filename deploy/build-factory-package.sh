@@ -36,7 +36,7 @@ Profiles:
 
 All current driver binaries are recorded as version 1.0 in the generated manifest.
 Packages containing KY-EMS must either embed a hash-pinned SCADA project or
-declare the canonical/content hashes required from an external active-project restore.
+declare the package/canonical/content hashes required from an external active-project restore.
 EOF
 }
 
@@ -257,6 +257,8 @@ if scada_relative:
         "machineCode": scada_machine_code.strip(),
         "runtimeRoot": "/opt/modbus-gateway/scada",
         "currentLink": "/opt/modbus-gateway/scada/current",
+        "canonicalAlgorithm": "sorted-jsonl-tree-v1",
+        "directorySizePolicy": "fixed-4096",
         "restartServicesDuringInstall": False,
     }
     if scada_canonical_sha256 or scada_content_sha256:
@@ -268,9 +270,10 @@ if scada_relative:
         scada_project["canonicalManifestSha256"] = canonical
         scada_project["contentManifestSha256"] = content
 elif scada_canonical_sha256 or scada_content_sha256:
+    package_sha256 = scada_sha256.strip().lower()
     canonical = scada_canonical_sha256.strip().lower()
     content = scada_content_sha256.strip().lower()
-    for label, value in (("canonical", canonical), ("content", content)):
+    for label, value in (("package", package_sha256), ("canonical", canonical), ("content", content)):
         if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
             raise SystemExit(f"invalid external SCADA {label} SHA256")
     if not scada_machine_code.strip():
@@ -278,11 +281,14 @@ elif scada_canonical_sha256 or scada_content_sha256:
     scada_project = {
         "required": True,
         "sourceMode": "external-active-project",
+        "sha256": package_sha256,
         "machineCode": scada_machine_code.strip(),
         "canonicalManifestSha256": canonical,
         "contentManifestSha256": content,
         "runtimeRoot": "/opt/modbus-gateway/scada",
         "currentLink": "/opt/modbus-gateway/scada/current",
+        "canonicalAlgorithm": "sorted-jsonl-tree-v1",
+        "directorySizePolicy": "fixed-4096",
         "requiredBeforeServiceStart": True,
         "restartServicesDuringInstall": False,
     }
@@ -501,8 +507,8 @@ fi
 SCADA_PROJECT_RELATIVE=""
 case " $PACKAGED_BINS " in
   *" KY-EMS "*)
-    if [ -n "$SCADA_PROJECT_PACKAGE" ] || [ -n "$SCADA_PROJECT_SHA256" ]; then
-      if [ -z "$SCADA_PROJECT_PACKAGE" ] || [ -z "$SCADA_PROJECT_SHA256" ] || \
+    if [ -n "$SCADA_PROJECT_PACKAGE" ]; then
+      if [ -z "$SCADA_PROJECT_SHA256" ] || \
          [ -z "$SCADA_PROJECT_MACHINE_CODE" ] || [ -z "$SCADA_PROJECT_CANONICAL_SHA256" ] || \
          [ -z "$SCADA_PROJECT_CONTENT_SHA256" ]; then
         echo "embedded SCADA requires package, package SHA256, machine code and canonical/content SHA256 values" >&2
@@ -526,9 +532,10 @@ case " $PACKAGED_BINS " in
       SCADA_PROJECT_RELATIVE="scada/active-project.kyscada"
       mkdir -p "$TMP_DIR/gateway-factory-defaults/scada"
       cp "$SCADA_PROJECT_PACKAGE" "$TMP_DIR/gateway-factory-defaults/$SCADA_PROJECT_RELATIVE"
-    elif [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ] || [ -n "$SCADA_PROJECT_CONTENT_SHA256" ]; then
-      if [ -z "$SCADA_PROJECT_CANONICAL_SHA256" ] || [ -z "$SCADA_PROJECT_CONTENT_SHA256" ] || [ -z "$SCADA_PROJECT_MACHINE_CODE" ]; then
-        echo "external SCADA restore requires canonical SHA256, content SHA256 and machine code" >&2
+    elif [ -n "$SCADA_PROJECT_SHA256" ] || [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ] || [ -n "$SCADA_PROJECT_CONTENT_SHA256" ]; then
+      if [ -z "$SCADA_PROJECT_SHA256" ] || [ -z "$SCADA_PROJECT_CANONICAL_SHA256" ] || \
+         [ -z "$SCADA_PROJECT_CONTENT_SHA256" ] || [ -z "$SCADA_PROJECT_MACHINE_CODE" ]; then
+        echo "external SCADA restore requires package SHA256, canonical SHA256, content SHA256 and machine code" >&2
         exit 2
       fi
     else

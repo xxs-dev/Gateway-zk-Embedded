@@ -77,7 +77,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" "$PACKAGE_SHA256" \
+python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" "$TREE_META_FILE" "$PACKAGE_SHA256" \
     "$EXPECTED_CANONICAL_SHA256" "$EXPECTED_CONTENT_SHA256" <<'PY'
 import hashlib
 import json
@@ -91,6 +91,7 @@ import zipfile
     package,
     machine_code,
     meta_path,
+    tree_meta_path,
     expected_package_sha256,
     expected_canonical_sha256,
     expected_content_sha256,
@@ -128,6 +129,7 @@ for label, value in (
 
 with zipfile.ZipFile(package, "r") as archive:
     entries = {}
+    seen_paths = set()
     total = 0
     for info in archive.infolist():
         raw = info.filename
@@ -145,15 +147,24 @@ with zipfile.ZipFile(package, "r") as archive:
         allowed_types = (0, stat.S_IFDIR) if info.is_dir() else (0, stat.S_IFREG)
         if file_type not in allowed_types:
             raise SystemExit(f"SCADA package may not contain special files: {raw}")
+        normalized = str(path)
+        if normalized in seen_paths:
+            raise SystemExit(f"duplicate SCADA entry: {normalized}")
+        seen_paths.add(normalized)
         if info.is_dir():
             continue
-        normalized = str(path)
-        if normalized in entries:
-            raise SystemExit(f"duplicate SCADA file: {normalized}")
         total += info.file_size
         if total > max_package:
             raise SystemExit("SCADA package expanded size exceeds 512 MiB")
         entries[normalized] = info
+
+    file_paths = set(entries)
+    for relative in entries:
+        parent = pathlib.PurePosixPath(relative).parent
+        while str(parent) != ".":
+            if str(parent) in file_paths:
+                raise SystemExit(f"SCADA path has a regular-file parent: {relative}")
+            parent = parent.parent
 
     missing = required - entries.keys()
     if missing:
@@ -191,6 +202,75 @@ with zipfile.ZipFile(package, "r") as archive:
         if not policy.get("retainLocalSafetyRules", False):
             raise SystemExit("upper-computer package must retain local safety rules")
 
+    directories = {"."}
+    for relative in entries:
+        parent = pathlib.PurePosixPath(relative).parent
+        while str(parent) != ".":
+            directories.add(str(parent))
+            parent = parent.parent
+    children = {directory: [] for directory in directories}
+    for directory in directories - {"."}:
+        parent = str(pathlib.PurePosixPath(directory).parent)
+        children[parent].append(directory)
+    for relative in entries:
+        parent = str(pathlib.PurePosixPath(relative).parent)
+        children[parent].append(relative)
+
+    canonical_lines = []
+    content_lines = []
+    counts = {"files": 0, "directories": 0, "bytes": 0}
+
+    def collect_virtual(relative):
+        if relative in directories:
+            kind = "directory"
+            size = 4096
+            mode_value = "0755"
+            counts["directories"] += 1
+        else:
+            kind = "file"
+            info = entries[relative]
+            size = info.file_size
+            mode_value = "0644"
+            counts["files"] += 1
+            counts["bytes"] += size
+        canonical = {
+            "path": relative,
+            "mode": mode_value,
+            "uid": 0,
+            "gid": 0,
+            "size": size,
+            "type": kind,
+        }
+        content = {"path": relative, "size": size, "type": kind}
+        if kind == "file":
+            file_sha256 = hashlib.sha256(archive.read(entries[relative])).hexdigest()
+            canonical["sha256"] = file_sha256
+            content["sha256"] = file_sha256
+        canonical_lines.append(json.dumps(canonical, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
+        content_lines.append(json.dumps(content, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
+        if kind == "directory":
+            for child in sorted(children[relative], key=lambda value: pathlib.PurePosixPath(value).name):
+                collect_virtual(child)
+
+    collect_virtual(".")
+    canonical_sha256 = hashlib.sha256(("\n".join(canonical_lines) + "\n").encode()).hexdigest()
+    content_sha256 = hashlib.sha256(("\n".join(content_lines) + "\n").encode()).hexdigest()
+    if expected_canonical_sha256 and canonical_sha256 != expected_canonical_sha256:
+        raise SystemExit(
+            f"SCADA canonical manifest SHA256 mismatch: expected={expected_canonical_sha256} actual={canonical_sha256}"
+        )
+    if expected_content_sha256 and content_sha256 != expected_content_sha256:
+        raise SystemExit(
+            f"SCADA content manifest SHA256 mismatch: expected={expected_content_sha256} actual={content_sha256}"
+        )
+    pathlib.Path(tree_meta_path).write_text(json.dumps({
+        "canonicalManifestSha256": canonical_sha256,
+        "contentManifestSha256": content_sha256,
+        "fileCount": counts["files"],
+        "directoryCount": counts["directories"],
+        "totalRegularFileBytes": counts["bytes"],
+    }, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
+
     with open(meta_path, "w", encoding="utf-8") as output:
         json.dump({
             "projectId": project_id,
@@ -222,6 +302,9 @@ fi
 
 echo "SCADA validation passed: project=$PROJECT_ID version=$VERSION node=$NODE_ID localScada=$LOCAL_SCADA sha256=$PACKAGE_SHA256_ACTUAL"
 if [ "$DRY_RUN" -eq 1 ]; then
+    ACTUAL_CANONICAL_SHA256="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["canonicalManifestSha256"])' "$TREE_META_FILE")"
+    ACTUAL_CONTENT_SHA256="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["contentManifestSha256"])' "$TREE_META_FILE")"
+    echo "SCADA verify-only normalized runtime passed: canonical=$ACTUAL_CANONICAL_SHA256 content=$ACTUAL_CONTENT_SHA256"
     exit 0
 fi
 
@@ -390,14 +473,15 @@ counts = {"files": 0, "directories": 0, "bytes": 0}
 
 def collect(path, relative):
     info = os.lstat(path)
+    entry_size = 4096 if stat.S_ISDIR(info.st_mode) else info.st_size
     canonical = {
         "path": relative,
         "mode": format(stat.S_IMODE(info.st_mode), "04o"),
         "uid": info.st_uid,
         "gid": info.st_gid,
-        "size": info.st_size,
+        "size": entry_size,
     }
-    content = {"path": relative, "size": info.st_size}
+    content = {"path": relative, "size": entry_size}
     if stat.S_ISREG(info.st_mode):
         kind = "file"
         counts["files"] += 1
@@ -506,18 +590,23 @@ if [ -n "$STATE_FILE" ]; then
     STATE_TMP="${STATE_FILE}.tmp.$$"
     umask 077
     {
+        echo "scadaStatus=ready"
         echo "scadaRoot=$SCADA_ROOT"
         echo "scadaPreviousTarget=$OLD_TARGET_RESOLVED"
         echo "scadaCurrentTarget=$RELEASE"
         echo "scadaConfigBackup=$CONFIG_BACKUP"
         echo "scadaAppConfig=$APP_CONFIG"
         echo "scadaService=$SCADA_SERVICE"
+        echo "scadaMachineCode=$MACHINE_CODE"
         echo "scadaNodeId=$NODE_ID"
         echo "scadaProjectId=$PROJECT_ID"
         echo "scadaVersion=$VERSION"
+        echo "scadaLocalScada=$LOCAL_SCADA"
         echo "scadaPackageSha256=$PACKAGE_SHA256_ACTUAL"
         echo "scadaCanonicalManifestSha256=$ACTUAL_CANONICAL_SHA256"
         echo "scadaContentManifestSha256=$ACTUAL_CONTENT_SHA256"
+        echo "scadaAlgorithm=sorted-jsonl-tree-v1"
+        echo "scadaDirectorySizePolicy=fixed-4096"
         echo "scadaFileCount=$SCADA_FILE_COUNT"
         echo "scadaDirectoryCount=$SCADA_DIRECTORY_COUNT"
         echo "scadaTotalRegularFileBytes=$SCADA_TOTAL_FILE_BYTES"

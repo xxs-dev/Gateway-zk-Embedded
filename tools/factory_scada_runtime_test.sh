@@ -8,7 +8,9 @@ MOCK_BIN="$TEST_ROOT/mock-bin"
 SCADA_PACKAGE="$TEST_ROOT/site-a.kyscada"
 FACTORY_PACKAGE="$TEST_ROOT/gateway-factory-full.tar.gz"
 FACTORY_PACKAGE_SECOND="$TEST_ROOT/gateway-factory-full-second.tar.gz"
+EXTERNAL_FACTORY_PACKAGE="$TEST_ROOT/gateway-factory-external.tar.gz"
 PACKAGE_EXTRACT_ROOT="$TEST_ROOT/package"
+EXTERNAL_PACKAGE_EXTRACT_ROOT="$TEST_ROOT/external-package"
 REFERENCE_ROOT="$TEST_ROOT/reference"
 REFERENCE_SUMMARY="$TEST_ROOT/reference-summary.json"
 FIXED_SCADA_PACKAGE_SHA256="9205c94b95fc6da153f53851967403d6d1772a44f6c60301cf401a1b97da2297"
@@ -20,11 +22,6 @@ cleanup() {
   rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT INT TERM
-
-[ "$(id -u)" = "0" ] || {
-  echo "factory_scada_runtime_test must run as root to verify root:root canonical metadata" >&2
-  exit 1
-}
 
 mkdir -p "$PAYLOAD_ROOT/build-aarch64" "$PAYLOAD_ROOT/ky-ems" "$MOCK_BIN"
 for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine \
@@ -111,13 +108,10 @@ with zipfile.ZipFile(package, "r") as archive:
 for directory, dirs, files in os.walk(root, topdown=False, followlinks=False):
     for name in files:
         path = pathlib.Path(directory, name)
-        os.chown(path, 0, 0, follow_symlinks=False)
         os.chmod(path, 0o644, follow_symlinks=False)
     for name in dirs:
         path = pathlib.Path(directory, name)
-        os.chown(path, 0, 0, follow_symlinks=False)
         os.chmod(path, 0o755, follow_symlinks=False)
-os.chown(root, 0, 0, follow_symlinks=False)
 os.chmod(root, 0o755, follow_symlinks=False)
 
 def digest_file(path):
@@ -133,14 +127,16 @@ counts = {"files": 0, "directories": 0, "bytes": 0, "symlinks": 0, "other": 0}
 
 def walk(path, relative):
     info = os.lstat(path)
+    entry_size = 4096 if stat.S_ISDIR(info.st_mode) else info.st_size
+    normalized_mode = "0755" if stat.S_ISDIR(info.st_mode) else "0644"
     canonical = {
         "path": relative,
-        "mode": format(stat.S_IMODE(info.st_mode), "04o"),
-        "uid": info.st_uid,
-        "gid": info.st_gid,
-        "size": info.st_size,
+        "mode": normalized_mode,
+        "uid": 0,
+        "gid": 0,
+        "size": entry_size,
     }
-    content = {"path": relative, "size": info.st_size}
+    content = {"path": relative, "size": entry_size}
     if stat.S_ISREG(info.st_mode):
         kind = "file"
         counts["files"] += 1
@@ -247,6 +243,34 @@ if ALLOW_DIRTY_SOURCE=1 \
   echo "factory package accepted embedded SCADA without canonical/content hashes" >&2
   exit 1
 fi
+if ALLOW_DIRTY_SOURCE=1 \
+  FACTORY_BINARY_SOURCE_DIR="$PAYLOAD_ROOT/build-aarch64" \
+  FACTORY_KY_EMS_BINARY="$PAYLOAD_ROOT/ky-ems/KY-EMS" \
+  SCADA_PROJECT_PACKAGE="$SCADA_PACKAGE" \
+  SCADA_PROJECT_SHA256="$SCADA_SHA256" \
+  SCADA_PROJECT_MACHINE_CODE=COMM202600999 \
+  SCADA_PROJECT_CANONICAL_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
+  SCADA_PROJECT_CONTENT_SHA256="$SCADA_CONTENT_SHA256" \
+  sh "$ROOT_DIR/deploy/build-factory-package.sh" --profile full --out "$TEST_ROOT/wrong-canonical.tar.gz" \
+    >/dev/null 2>&1; then
+  echo "factory package accepted an incorrect expected SCADA canonical hash" >&2
+  exit 1
+fi
+[ ! -e "$TEST_ROOT/wrong-canonical.tar.gz" ]
+if ALLOW_DIRTY_SOURCE=1 \
+  FACTORY_BINARY_SOURCE_DIR="$PAYLOAD_ROOT/build-aarch64" \
+  FACTORY_KY_EMS_BINARY="$PAYLOAD_ROOT/ky-ems/KY-EMS" \
+  SCADA_PROJECT_PACKAGE="$SCADA_PACKAGE" \
+  SCADA_PROJECT_SHA256="$SCADA_SHA256" \
+  SCADA_PROJECT_MACHINE_CODE=COMM202600999 \
+  SCADA_PROJECT_CANONICAL_SHA256="$SCADA_CANONICAL_SHA256" \
+  SCADA_PROJECT_CONTENT_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
+  sh "$ROOT_DIR/deploy/build-factory-package.sh" --profile full --out "$TEST_ROOT/wrong-content.tar.gz" \
+    >/dev/null 2>&1; then
+  echo "factory package accepted an incorrect expected SCADA content hash" >&2
+  exit 1
+fi
+[ ! -e "$TEST_ROOT/wrong-content.tar.gz" ]
 
 build_factory_package() {
   output="$1"
@@ -268,6 +292,14 @@ sleep 1
 build_factory_package "$FACTORY_PACKAGE_SECOND"
 cmp "$FACTORY_PACKAGE" "$FACTORY_PACKAGE_SECOND" || {
   echo "factory package builds are not byte-identical" >&2
+  exit 1
+}
+if [ "${FACTORY_BUILD_VERIFY_ONLY:-0}" = "1" ]; then
+  echo "factory_scada_build_verify_test passed"
+  exit 0
+fi
+[ "$(id -u)" = "0" ] || {
+  echo "factory_scada_runtime_test installation phase requires root" >&2
   exit 1
 }
 
@@ -351,14 +383,15 @@ counts = {"files": 0, "directories": 0, "bytes": 0, "symlinks": 0, "other": 0}
 
 def walk(path, relative):
     info = os.lstat(path)
+    entry_size = 4096 if stat.S_ISDIR(info.st_mode) else info.st_size
     canonical = {
         "path": relative,
         "mode": format(stat.S_IMODE(info.st_mode), "04o"),
         "uid": info.st_uid,
         "gid": info.st_gid,
-        "size": info.st_size,
+        "size": entry_size,
     }
-    content = {"path": relative, "size": info.st_size}
+    content = {"path": relative, "size": entry_size}
     if stat.S_ISREG(info.st_mode):
         kind = "file"
         counts["files"] += 1
@@ -519,5 +552,155 @@ PY
 
 run_install 022
 run_install 077
+
+ALLOW_DIRTY_SOURCE=1 \
+FACTORY_BINARY_SOURCE_DIR="$PAYLOAD_ROOT/build-aarch64" \
+FACTORY_KY_EMS_BINARY="$PAYLOAD_ROOT/ky-ems/KY-EMS" \
+COMPONENT_VERSION=1.0.0-test \
+EDGE_TOOLCHAIN_ID=test-fixture \
+SCADA_PROJECT_SHA256="$SCADA_SHA256" \
+SCADA_PROJECT_MACHINE_CODE=COMM202600999 \
+SCADA_PROJECT_CANONICAL_SHA256="$SCADA_CANONICAL_SHA256" \
+SCADA_PROJECT_CONTENT_SHA256="$SCADA_CONTENT_SHA256" \
+sh "$ROOT_DIR/deploy/build-factory-package.sh" --profile full --out "$EXTERNAL_FACTORY_PACKAGE"
+
+mkdir -p "$EXTERNAL_PACKAGE_EXTRACT_ROOT"
+tar -xzf "$EXTERNAL_FACTORY_PACKAGE" -C "$EXTERNAL_PACKAGE_EXTRACT_ROOT"
+EXTERNAL_PACKAGE_ROOT="$EXTERNAL_PACKAGE_EXTRACT_ROOT/gateway-factory-defaults"
+EXTERNAL_RUN_ROOT="$TEST_ROOT/external-run"
+EXTERNAL_GATEWAY_HOME="$EXTERNAL_RUN_ROOT/gateway"
+EXTERNAL_SYSTEMCTL_LOG="$EXTERNAL_RUN_ROOT/systemctl.log"
+mkdir -p "$EXTERNAL_RUN_ROOT"
+: >"$EXTERNAL_SYSTEMCTL_LOG"
+
+run_external_factory_install() {
+  start_services="$1"
+  PATH="$MOCK_BIN:$PATH" \
+  SYSTEMCTL_LOG="$EXTERNAL_SYSTEMCTL_LOG" \
+  GATEWAY_HOME="$EXTERNAL_GATEWAY_HOME" \
+  BACKUP_DIR="$EXTERNAL_RUN_ROOT/backup" \
+  SOURCE_ROOT="$EXTERNAL_PACKAGE_ROOT" \
+  FACTORY_DIR="$EXTERNAL_PACKAGE_ROOT/config/factory" \
+  DEPLOY_DIR="$EXTERNAL_PACKAGE_ROOT/deploy" \
+  FACTORY_PROMPT=0 \
+  INIT_RUNTIME_MODE=ems \
+  INIT_MACHINE_CODE=COMM202600999 \
+  INIT_MQTT_BROKER=tcp://127.0.0.1:1883 \
+  INIT_MQTT_TLS_ENABLED=false \
+  START_SERVICES="$start_services" \
+  RESET_SHM=0 \
+  INSTALL_SYSTEMD=0 \
+  sh "$EXTERNAL_PACKAGE_ROOT/deploy/install-factory-config.sh"
+}
+
+run_external_factory_install 0
+python3 - "$EXTERNAL_GATEWAY_HOME/scada/factory-readiness.json" <<'PY'
+import json
+import pathlib
+import sys
+
+state = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert state["status"] == "pending"
+assert state["sourceMode"] == "external-active-project"
+assert state["currentExists"] is False
+assert state["requiredBeforeServiceStart"] is True
+PY
+[ "$(grep -Ec '^(start|restart) ' "$EXTERNAL_SYSTEMCTL_LOG" || true)" = "0" ]
+
+: >"$EXTERNAL_SYSTEMCTL_LOG"
+if run_external_factory_install 1 >/dev/null 2>&1; then
+  echo "external factory install accepted currentExists=0 with START_SERVICES=1" >&2
+  exit 1
+fi
+[ "$(grep -Ec '^(start|restart) ' "$EXTERNAL_SYSTEMCTL_LOG" || true)" = "0" ] || {
+  echo "external factory failure started or restarted services" >&2
+  exit 1
+}
+: >"$EXTERNAL_SYSTEMCTL_LOG"
+if PATH="$MOCK_BIN:$PATH" \
+  SYSTEMCTL_LOG="$EXTERNAL_SYSTEMCTL_LOG" \
+  GATEWAY_HOME="$EXTERNAL_GATEWAY_HOME" \
+  sh "$EXTERNAL_GATEWAY_HOME/bin/gateway-services.sh" start >/dev/null 2>&1; then
+  echo "gateway-services bypassed pending external SCADA readiness" >&2
+  exit 1
+fi
+[ "$(grep -Ec '^(start|restart) ' "$EXTERNAL_SYSTEMCTL_LOG" || true)" = "0" ] || {
+  echo "pending gateway-services gate started or restarted services" >&2
+  exit 1
+}
+INSTALLED_EXTERNAL_MANIFEST="$EXTERNAL_GATEWAY_HOME/config/runtime/edge-package-manifest.json"
+INSTALLED_EXTERNAL_MANIFEST_BACKUP="$TEST_ROOT/installed-external-manifest.json"
+cp "$INSTALLED_EXTERNAL_MANIFEST" "$INSTALLED_EXTERNAL_MANIFEST_BACKUP"
+printf '%s\n' '{}' >"$INSTALLED_EXTERNAL_MANIFEST"
+: >"$EXTERNAL_SYSTEMCTL_LOG"
+if PATH="$MOCK_BIN:$PATH" \
+  SYSTEMCTL_LOG="$EXTERNAL_SYSTEMCTL_LOG" \
+  GATEWAY_HOME="$EXTERNAL_GATEWAY_HOME" \
+  sh "$EXTERNAL_GATEWAY_HOME/bin/gateway-services.sh" start >/dev/null 2>&1; then
+  echo "gateway-services accepted a malformed package manifest" >&2
+  exit 1
+fi
+[ "$(grep -Ec '^(start|restart) ' "$EXTERNAL_SYSTEMCTL_LOG" || true)" = "0" ]
+cp "$INSTALLED_EXTERNAL_MANIFEST_BACKUP" "$INSTALLED_EXTERNAL_MANIFEST"
+
+"$EXTERNAL_GATEWAY_HOME/bin/install-scada-project.sh" \
+  --package "$SCADA_PACKAGE" \
+  --package-sha256 "$SCADA_SHA256" \
+  --canonical-manifest-sha256 "$SCADA_CANONICAL_SHA256" \
+  --content-manifest-sha256 "$SCADA_CONTENT_SHA256" \
+  --machine-code COMM202600999 \
+  --app-config "$EXTERNAL_GATEWAY_HOME/config/runtime/apps/monitor-service.json" \
+  --scada-root "$EXTERNAL_GATEWAY_HOME/scada" \
+  --require-local-scada \
+  --no-restart \
+  --state-file "$EXTERNAL_GATEWAY_HOME/scada/factory-install-state.txt"
+
+EXTERNAL_MANIFEST="$EXTERNAL_PACKAGE_ROOT/edge-package-manifest.json"
+EXTERNAL_MANIFEST_BACKUP="$TEST_ROOT/external-edge-package-manifest.json"
+cp "$EXTERNAL_MANIFEST" "$EXTERNAL_MANIFEST_BACKUP"
+for field in sha256 canonicalManifestSha256 contentManifestSha256 machineCode; do
+  python3 - "$EXTERNAL_MANIFEST" "$field" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+field = sys.argv[2]
+manifest = json.loads(path.read_text(encoding="utf-8"))
+manifest["scadaProject"][field] = "WRONG_MACHINE" if field == "machineCode" else "0" * 64
+path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+  : >"$EXTERNAL_SYSTEMCTL_LOG"
+  if run_external_factory_install 1 >/dev/null 2>&1; then
+    echo "external factory install accepted mismatched SCADA $field" >&2
+    exit 1
+  fi
+  [ "$(grep -Ec '^(start|restart) ' "$EXTERNAL_SYSTEMCTL_LOG" || true)" = "0" ] || {
+    echo "external SCADA $field failure started or restarted services" >&2
+    exit 1
+  }
+  cp "$EXTERNAL_MANIFEST_BACKUP" "$EXTERNAL_MANIFEST"
+done
+
+: >"$EXTERNAL_SYSTEMCTL_LOG"
+run_external_factory_install 1
+[ "$(grep -Ec '^restart gateway-services\.service$' "$EXTERNAL_SYSTEMCTL_LOG" || true)" = "1" ] || {
+  echo "verified external SCADA did not restart gateway-services exactly once" >&2
+  exit 1
+}
+python3 - "$EXTERNAL_GATEWAY_HOME/scada/factory-readiness.json" "$SCADA_SHA256" \
+  "$SCADA_CANONICAL_SHA256" "$SCADA_CONTENT_SHA256" <<'PY'
+import json
+import pathlib
+import sys
+
+state = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert state["status"] == "ready"
+assert state["currentExists"] is True
+assert state["expected"]["packageSha256"] == sys.argv[2]
+assert state["actual"]["canonicalManifestSha256"] == sys.argv[3]
+assert state["actual"]["contentManifestSha256"] == sys.argv[4]
+assert state["actual"]["machineCode"] == "COMM202600999"
+PY
 
 echo "factory_scada_runtime_test passed"

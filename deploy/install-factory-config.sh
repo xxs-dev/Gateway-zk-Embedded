@@ -450,10 +450,16 @@ if "KY-EMS" in packaged_names and not isinstance(scada, dict):
 if isinstance(scada, dict):
     source_mode = str(scada.get("sourceMode") or "embedded-package").strip()
     machine_code = str(scada.get("machineCode") or "").strip()
+    canonical_algorithm = str(scada.get("canonicalAlgorithm") or "").strip()
+    directory_size_policy = str(scada.get("directorySizePolicy") or "").strip()
     if scada.get("required") is not True:
         raise SystemExit("SCADA project must be marked required")
     if not machine_code:
         raise SystemExit("SCADA project machine code is required")
+    if canonical_algorithm != "sorted-jsonl-tree-v1":
+        raise SystemExit("SCADA project canonical algorithm is unsupported")
+    if directory_size_policy != "fixed-4096":
+        raise SystemExit("SCADA project directory size policy is unsupported")
     if source_mode == "embedded-package":
         relative = str(scada.get("path") or "").strip().replace("\\", "/")
         expected = str(scada.get("sha256") or "").strip().lower()
@@ -476,10 +482,11 @@ if isinstance(scada, dict):
         if expected_size is not None and int(expected_size) != os.path.getsize(path):
             raise SystemExit("SCADA project size mismatch")
     elif source_mode == "external-active-project":
+        expected = str(scada.get("sha256") or "").strip().lower()
         canonical = str(scada.get("canonicalManifestSha256") or "").strip().lower()
         content = str(scada.get("contentManifestSha256") or "").strip().lower()
-        if any(len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value) for value in (canonical, content)):
-            raise SystemExit("external SCADA project requires canonical/content SHA256 metadata")
+        if any(len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value) for value in (expected, canonical, content)):
+            raise SystemExit("external SCADA project requires package/canonical/content SHA256 metadata")
         if scada.get("requiredBeforeServiceStart") is not True:
             raise SystemExit("external SCADA project must be required before service start")
     else:
@@ -545,6 +552,7 @@ SCADA_PROJECT_SHA256=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" sha256)
 SCADA_PROJECT_MACHINE_CODE=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" machineCode)
 SCADA_PROJECT_CANONICAL_SHA256=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" canonicalManifestSha256)
 SCADA_PROJECT_CONTENT_SHA256=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" contentManifestSha256)
+SCADA_PROJECT_SOURCE_MODE=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" sourceMode)
 SCADA_PROJECT_PACKAGE=""
 if [ -n "$SCADA_PROJECT_RELATIVE" ]; then
   SCADA_PROJECT_PACKAGE="$PACKAGE_CONTENT_ROOT/$SCADA_PROJECT_RELATIVE"
@@ -973,6 +981,8 @@ install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/produ
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
+install_required_deploy_file "gateway-scada-readiness.sh" "$GATEWAY_HOME/bin/gateway-scada-readiness.sh"
+install_required_deploy_file "verify-scada-active-project.py" "$GATEWAY_HOME/bin/verify-scada-active-project.py"
 install_required_deploy_file "gateway-ky-ems-readiness.sh" "$GATEWAY_HOME/bin/gateway-ky-ems-readiness.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"
@@ -1079,6 +1089,14 @@ if [ -n "$SCADA_PROJECT_PACKAGE" ]; then
     --require-local-scada \
     --no-restart \
     --state-file "$GATEWAY_HOME/scada/factory-install-state.txt"
+fi
+
+if [ -n "$SCADA_PROJECT_MACHINE_CODE" ]; then
+  SCADA_READINESS_MODE="strict-required"
+  if [ "$SCADA_PROJECT_SOURCE_MODE" = "external-active-project" ] && [ "$START_SERVICES" = "0" ]; then
+    SCADA_READINESS_MODE="allow-pending"
+  fi
+  "$GATEWAY_HOME/bin/gateway-scada-readiness.sh" "$SCADA_READINESS_MODE"
 fi
 
 echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"

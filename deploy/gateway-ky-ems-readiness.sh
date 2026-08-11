@@ -6,6 +6,7 @@ DISPLAY_SOCKET="${DISPLAY_SOCKET:-/tmp/.X11-unix/X0}"
 XAUTHORITY_FILE="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/ky-ems}"
 WAIT_SECONDS="${DISPLAY_WAIT_TIMEOUT_SECONDS:-60}"
+GATEWAY_HOME="${GATEWAY_HOME:-/opt/modbus-gateway}"
 
 case "$WAIT_SECONDS" in
   ''|*[!0-9]*)
@@ -14,6 +15,13 @@ case "$WAIT_SECONDS" in
     ;;
 esac
 
+if [ -f "$GATEWAY_HOME/config/runtime/edge-package-manifest.json" ]; then
+  [ -x "$GATEWAY_HOME/bin/gateway-scada-readiness.sh" ] || {
+    echo "SCADA readiness verifier is missing" >&2
+    exit 1
+  }
+  "$GATEWAY_HOME/bin/gateway-scada-readiness.sh" strict-required
+fi
 [ -d "$PROJECT_DIR" ] || {
   echo "SCADA project directory does not exist: $PROJECT_DIR" >&2
   exit 1

@@ -9,6 +9,21 @@ MONITOR_APP_NAME="${MONITOR_APP_NAME:-monitor-service}"
 CAMERA_APP_NAME="${CAMERA_APP_NAME:-camera-service}"
 AGC_AVC_APP_NAME="${AGC_AVC_APP_NAME:-agc-avc-service}"
 
+require_scada_readiness() {
+  manifest="$BASE_DIR/config/runtime/edge-package-manifest.json"
+  [ -f "$manifest" ] || return 0
+  verifier="$BASE_DIR/bin/gateway-scada-readiness.sh"
+  [ -x "$verifier" ] || {
+    echo "[gateway-services] SCADA readiness verifier is missing: $verifier" >&2
+    return 1
+  }
+  mode="strict"
+  if desired_units | grep -Fx 'ky-ems.service' >/dev/null; then
+    mode="strict-required"
+  fi
+  "$verifier" "$mode"
+}
+
 stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
     return 0
@@ -478,10 +493,12 @@ start_units() {
 
 case "${1:-apply}" in
   apply|restart)
+    require_scada_readiness
     stop_units
     start_units
     ;;
   start)
+    require_scada_readiness
     start_units
     ;;
   stop)

@@ -11,6 +11,7 @@ INSTALLER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/deploy/install-scada-
 TRAVERSAL_PACKAGE="$ROOT/traversal.kyscada"
 SYMLINK_PACKAGE="$ROOT/symlink.kyscada"
 SPECIAL_PACKAGE="$ROOT/special.kyscada"
+FILE_PARENT_PACKAGE="$ROOT/file-parent.kyscada"
 
 cleanup() {
     rm -rf "$ROOT"
@@ -72,12 +73,14 @@ PY
 
 PACKAGE_SHA256="$(sha256sum "$PACKAGE" | awk '{print $1}')"
 
-python3 - "$PACKAGE" "$TRAVERSAL_PACKAGE" "$SYMLINK_PACKAGE" "$SPECIAL_PACKAGE" <<'PY'
+python3 - "$PACKAGE" "$TRAVERSAL_PACKAGE" "$SYMLINK_PACKAGE" "$SPECIAL_PACKAGE" "$FILE_PARENT_PACKAGE" <<'PY'
+import hashlib
+import json
 import stat
 import sys
 import zipfile
 
-source_path, traversal_path, symlink_path, special_path = sys.argv[1:]
+source_path, traversal_path, symlink_path, special_path, file_parent_path = sys.argv[1:]
 
 def copy_with_entry(output_path, info, content):
     with zipfile.ZipFile(source_path, "r") as source, zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as output:
@@ -94,11 +97,21 @@ special = zipfile.ZipInfo("unsafe-fifo")
 special.create_system = 3
 special.external_attr = (stat.S_IFIFO | 0o644) << 16
 copy_with_entry(special_path, special, b"")
+file_parent_content = b"not-a-directory\n"
+with zipfile.ZipFile(source_path, "r") as source, zipfile.ZipFile(file_parent_path, "w", zipfile.ZIP_DEFLATED) as output:
+    for source_info in source.infolist():
+        content = source.read(source_info)
+        if source_info.filename == "checksums.json":
+            checksums = json.loads(content)
+            checksums["screens"] = hashlib.sha256(file_parent_content).hexdigest()
+            content = (json.dumps(checksums, indent=2) + "\n").encode("utf-8")
+        output.writestr(source_info, content)
+    output.writestr("screens", file_parent_content)
 PY
 
 printf '%s\n' '{"localDisplay":{"enabled":false,"renderer":"webkit"}}' > "$APP_CONFIG"
 
-for unsafe_package in "$TRAVERSAL_PACKAGE" "$SYMLINK_PACKAGE" "$SPECIAL_PACKAGE"; do
+for unsafe_package in "$TRAVERSAL_PACKAGE" "$SYMLINK_PACKAGE" "$SPECIAL_PACKAGE" "$FILE_PARENT_PACKAGE"; do
     if sh "$INSTALLER" \
         --package "$unsafe_package" \
         --machine-code COMM202600999 \
@@ -191,11 +204,35 @@ state = dict(line.rstrip("\n").split("=", 1) for line in open(state_path, encodi
 assert state["scadaRoot"] == expected_directory.rsplit("/current", 1)[0]
 assert state["scadaCurrentTarget"] == str(__import__("pathlib").Path(expected_directory).resolve())
 assert state["scadaVersion"] == "1.0.0"
+assert state["scadaStatus"] == "ready"
+assert state["scadaMachineCode"] == "COMM202600999"
+assert state["scadaLocalScada"] == "true"
+assert state["scadaAlgorithm"] == "sorted-jsonl-tree-v1"
+assert state["scadaDirectorySizePolicy"] == "fixed-4096"
 assert state["scadaPackageSha256"] == expected_package_sha256
 assert len(state["scadaCanonicalManifestSha256"]) == 64
 assert len(state["scadaContentManifestSha256"]) == 64
 assert int(state["scadaFileCount"]) == 7
 assert int(state["scadaDirectoryCount"]) == 2
 PY
+
+CURRENT_BEFORE_FAILURE="$(readlink -f "$SCADA_ROOT/current")"
+if sh "$INSTALLER" \
+    --package "$PACKAGE" \
+    --package-sha256 "$PACKAGE_SHA256" \
+    --canonical-manifest-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+    --content-manifest-sha256 "$(sed -n 's/^scadaContentManifestSha256=//p' "$STATE_FILE")" \
+    --machine-code COMM202600999 \
+    --app-config "$APP_CONFIG" \
+    --scada-root "$SCADA_ROOT" \
+    --require-local-scada \
+    --no-restart >/dev/null 2>&1; then
+    echo "SCADA installer accepted an incorrect canonical hash after activation" >&2
+    exit 1
+fi
+[ "$(readlink -f "$SCADA_ROOT/current")" = "$CURRENT_BEFORE_FAILURE" ] || {
+    echo "failed SCADA verification changed the active current target" >&2
+    exit 1
+}
 
 echo "scada_install_test passed"

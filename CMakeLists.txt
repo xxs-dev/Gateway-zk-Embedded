@@ -396,6 +396,10 @@ if(BUILD_TESTING)
         NAME release_credential_audit
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/test_audit_release_credentials.py"
     )
+    add_test(
+        NAME scada_tree_manifest
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tools/test_verify_scada_active_project.py"
+    )
     add_test(NAME config_loader COMMAND config_loader_test)
     add_test(NAME ota_service COMMAND ota_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
@@ -443,7 +447,21 @@ if(BUILD_TESTING)
             NAME factory_scada_runtime
             COMMAND sh "${CMAKE_SOURCE_DIR}/tools/factory_scada_runtime_test.sh"
         )
-        set_tests_properties(factory_scada_runtime PROPERTIES TIMEOUT 30)
+        add_test(
+            NAME factory_scada_build_verify
+            COMMAND "${CMAKE_COMMAND}" -E env FACTORY_BUILD_VERIFY_ONLY=1
+                sh "${CMAKE_SOURCE_DIR}/tools/factory_scada_runtime_test.sh"
+        )
+        set_tests_properties(factory_scada_runtime PROPERTIES TIMEOUT 60)
+        set_tests_properties(factory_scada_build_verify PROPERTIES TIMEOUT 60)
+        if(EXISTS "/dev/shm")
+            add_test(
+                NAME factory_scada_runtime_tmpfs
+                COMMAND "${CMAKE_COMMAND}" -E env TMPDIR=/dev/shm
+                    sh "${CMAKE_SOURCE_DIR}/tools/factory_scada_runtime_test.sh"
+            )
+            set_tests_properties(factory_scada_runtime_tmpfs PROPERTIES TIMEOUT 60)
+        endif()
     endif()
     set_tests_properties(
         graph_ems_v2_loader
