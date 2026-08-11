@@ -9,6 +9,9 @@ BACKUP_DIR="${BACKUP_DIR:-$GATEWAY_HOME/backup}"
 START_SERVICES="${START_SERVICES:-1}"
 RESET_SHM="${RESET_SHM:-0}"
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+SYSTEM_DEFAULT_DIR="${SYSTEM_DEFAULT_DIR:-/etc/default}"
+SYSTEMD_SYSTEM_CONF_DIR="${SYSTEMD_SYSTEM_CONF_DIR:-/etc/systemd/system.conf.d}"
 FACTORY_PACKAGE_NAME="${FACTORY_PACKAGE_NAME:-gateway-factory-defaults.tar.gz}"
 PACKAGE_PROFILE="${PACKAGE_PROFILE:-}"
 EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
@@ -247,6 +250,29 @@ install_required_deploy_file() {
   install_file_if_exists "$src" "$dst"
 }
 
+install_deploy_file_with_mode_if_exists() {
+  name="$1"
+  dst="$2"
+  mode="$3"
+  src=$(deploy_file "$name" || true)
+  [ -n "$src" ] || return 0
+  install_file_if_exists "$src" "$dst"
+  chmod "$mode" "$dst"
+}
+
+install_required_deploy_file_with_mode() {
+  name="$1"
+  dst="$2"
+  mode="$3"
+  src=$(deploy_file "$name" || true)
+  if [ -z "$src" ]; then
+    echo "required deploy file missing: $name" >&2
+    exit 2
+  fi
+  install_file_if_exists "$src" "$dst"
+  chmod "$mode" "$dst"
+}
+
 find_first_file() {
   for path in "$@"; do
     if [ -f "$path" ]; then
@@ -389,12 +415,13 @@ with open(manifest_path, "r", encoding="utf-8") as fh:
 components = manifest.get("components")
 schema = str(manifest.get("schemaVersion") or "")
 if not isinstance(components, list) or not components:
-    if schema.startswith("1.1"):
-        raise SystemExit("schema 1.1 package manifest must contain hashed components")
+    if schema.startswith(("1.1", "1.2")):
+        raise SystemExit(f"schema {schema} package manifest must contain hashed components")
     print("warning: legacy package manifest has no component hashes", file=sys.stderr)
     raise SystemExit(0)
 
 root = os.path.realpath(package_root)
+packaged_names = set()
 for component in components:
     if not isinstance(component, dict):
         raise SystemExit("invalid component entry in package manifest")
@@ -403,6 +430,7 @@ for component in components:
     expected = str(component.get("sha256") or "").strip().lower()
     if not name or not relative or len(expected) != 64:
         raise SystemExit(f"incomplete component hash metadata: {name or '<unknown>'}")
+    packaged_names.add(name)
     path = os.path.realpath(os.path.join(root, relative))
     if os.path.commonpath((root, path)) != root or not os.path.isfile(path):
         raise SystemExit(f"component path is missing or outside package: {relative}")
@@ -415,7 +443,61 @@ for component in components:
     expected_size = component.get("sizeBytes")
     if expected_size is not None and int(expected_size) != os.path.getsize(path):
         raise SystemExit(f"component size mismatch: {name}")
-print(f"verified package component hashes: {len(components)}")
+
+scada = manifest.get("scadaProject")
+if "KY-EMS" in packaged_names and not isinstance(scada, dict):
+    raise SystemExit("package contains KY-EMS but has no required SCADA project")
+if isinstance(scada, dict):
+    source_mode = str(scada.get("sourceMode") or "embedded-package").strip()
+    machine_code = str(scada.get("machineCode") or "").strip()
+    if scada.get("required") is not True:
+        raise SystemExit("SCADA project must be marked required")
+    if not machine_code:
+        raise SystemExit("SCADA project machine code is required")
+    if source_mode == "embedded-package":
+        relative = str(scada.get("path") or "").strip().replace("\\", "/")
+        expected = str(scada.get("sha256") or "").strip().lower()
+        if not relative.endswith(".kyscada") or len(expected) != 64:
+            raise SystemExit("incomplete embedded SCADA project metadata")
+        path = os.path.realpath(os.path.join(root, relative))
+        if os.path.commonpath((root, path)) != root or not os.path.isfile(path):
+            raise SystemExit(f"SCADA project path is missing or outside package: {relative}")
+        digest = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected:
+            raise SystemExit("SCADA project SHA-256 mismatch")
+        expected_size = scada.get("sizeBytes")
+        if expected_size is not None and int(expected_size) != os.path.getsize(path):
+            raise SystemExit("SCADA project size mismatch")
+    elif source_mode == "external-active-project":
+        canonical = str(scada.get("canonicalManifestSha256") or "").strip().lower()
+        content = str(scada.get("contentManifestSha256") or "").strip().lower()
+        if any(len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value) for value in (canonical, content)):
+            raise SystemExit("external SCADA project requires canonical/content SHA256 metadata")
+        if scada.get("requiredBeforeServiceStart") is not True:
+            raise SystemExit("external SCADA project must be required before service start")
+    else:
+        raise SystemExit(f"unsupported SCADA project sourceMode: {source_mode}")
+print(f"verified package component hashes: {len(components)}; scadaMode={scada.get('sourceMode') if isinstance(scada, dict) else 'none'}")
+PY
+}
+
+manifest_scada_value() {
+  manifest="$1"
+  key="$2"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+  python3 - "$manifest" "$key" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    project = json.load(fh).get("scadaProject")
+if isinstance(project, dict):
+    value = project.get(sys.argv[2])
+    if isinstance(value, str):
+        print(value)
 PY
 }
 
@@ -432,6 +514,12 @@ if [ -z "$EDGE_PACKAGE_MANIFEST" ]; then
     "$DEFAULT_SOURCE_ROOT/edge-package-manifest.json" || true)
 fi
 
+PACKAGE_CONTENT_ROOT=$(pick_existing_dir \
+  "$PACKAGE_ROOT" \
+  "$SOURCE_ROOT" \
+  "$DEFAULT_SOURCE_ROOT" \
+  "$ROOT_DIR" || true)
+
 if [ -z "$PACKAGE_PROFILE" ]; then
   PACKAGE_PROFILE=$(manifest_profile "$EDGE_PACKAGE_MANIFEST" || true)
 fi
@@ -447,7 +535,16 @@ case "$PACKAGE_PROFILE" in
   *) echo "invalid package profile: $PACKAGE_PROFILE" >&2; exit 2 ;;
 esac
 
-verify_manifest_components "$EDGE_PACKAGE_MANIFEST" "$PACKAGE_ROOT"
+verify_manifest_components "$EDGE_PACKAGE_MANIFEST" "$PACKAGE_CONTENT_ROOT"
+SCADA_PROJECT_RELATIVE=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" path)
+SCADA_PROJECT_SHA256=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" sha256)
+SCADA_PROJECT_MACHINE_CODE=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" machineCode)
+SCADA_PROJECT_CANONICAL_SHA256=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" canonicalManifestSha256)
+SCADA_PROJECT_CONTENT_SHA256=$(manifest_scada_value "$EDGE_PACKAGE_MANIFEST" contentManifestSha256)
+SCADA_PROJECT_PACKAGE=""
+if [ -n "$SCADA_PROJECT_RELATIVE" ]; then
+  SCADA_PROJECT_PACKAGE="$PACKAGE_CONTENT_ROOT/$SCADA_PROJECT_RELATIVE"
+fi
 
 json_string_value() {
   file="$1"
@@ -872,10 +969,11 @@ install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/produ
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
+install_required_deploy_file "gateway-ky-ems-readiness.sh" "$GATEWAY_HOME/bin/gateway-ky-ems-readiness.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"
-if [ ! -f /etc/default/gateway-network-failover ]; then
-  install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"
+if [ ! -f "$SYSTEM_DEFAULT_DIR/gateway-network-failover" ]; then
+  install_deploy_file_with_mode_if_exists "gateway-network-failover.default" "$SYSTEM_DEFAULT_DIR/gateway-network-failover" 0644
 fi
 install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
@@ -914,7 +1012,7 @@ FACTORY_MQTT_CERT_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "certFile" || tr
 FACTORY_MQTT_KEY_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "keyFile" || true)
 FACTORY_MQTT_TLS_INSECURE=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "insecureSkipVerify" || true)
 
-DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
+DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$SCADA_PROJECT_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
 DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
 DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
 DEFAULT_MQTT_PASSWORD=$(first_nonempty "${INIT_MQTT_PASSWORD:-}" "$EXISTING_MQTT_PASSWORD" "$FACTORY_MQTT_PASSWORD")
@@ -965,6 +1063,18 @@ apply_direct_maintenance_config \
   "$INIT_DIRECT_LISTEN_HOSTS_VALUE" \
   "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
+if [ -n "$SCADA_PROJECT_PACKAGE" ]; then
+  "$GATEWAY_HOME/bin/install-scada-project.sh" \
+    --package "$SCADA_PROJECT_PACKAGE" \
+    --package-sha256 "$SCADA_PROJECT_SHA256" \
+    --machine-code "$INIT_MACHINE_CODE_VALUE" \
+    --app-config "$GATEWAY_HOME/config/runtime/apps/monitor-service.json" \
+    --scada-root "$GATEWAY_HOME/scada" \
+    --require-local-scada \
+    --no-restart \
+    --state-file "$GATEWAY_HOME/scada/factory-install-state.txt"
+fi
+
 echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"
 echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"
 echo "initialized mqtt broker: $INIT_MQTT_BROKER_VALUE"
@@ -988,31 +1098,32 @@ fi
 
 if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   SYSTEMD_MANAGER_REEXEC_REQUIRED=0
-  install_required_deploy_file "gateway-services.service" "/etc/systemd/system/gateway-services.service"
-  install_deploy_file_if_exists "modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
-  install_deploy_file_if_exists "dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
-  install_deploy_file_if_exists "dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
-  install_deploy_file_if_exists "can-driver@.service" "/etc/systemd/system/can-driver@.service"
-  install_deploy_file_if_exists "iec-driver@.service" "/etc/systemd/system/iec-driver@.service"
-  install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
-  install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
-  install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
-  install_deploy_file_if_exists "ems-cluster@.service" "/etc/systemd/system/ems-cluster@.service"
+  mkdir -p "$SYSTEMD_UNIT_DIR"
+  install_required_deploy_file_with_mode "gateway-services.service" "$SYSTEMD_UNIT_DIR/gateway-services.service" 0644
+  install_deploy_file_with_mode_if_exists "modbus-rtu@.service" "$SYSTEMD_UNIT_DIR/modbus-rtu@.service" 0644
+  install_deploy_file_with_mode_if_exists "dlt645-driver@.service" "$SYSTEMD_UNIT_DIR/dlt645-driver@.service" 0644
+  install_deploy_file_with_mode_if_exists "dio-driver@.service" "$SYSTEMD_UNIT_DIR/dio-driver@.service" 0644
+  install_deploy_file_with_mode_if_exists "can-driver@.service" "$SYSTEMD_UNIT_DIR/can-driver@.service" 0644
+  install_deploy_file_with_mode_if_exists "iec-driver@.service" "$SYSTEMD_UNIT_DIR/iec-driver@.service" 0644
+  install_deploy_file_with_mode_if_exists "mqtt-driver@.service" "$SYSTEMD_UNIT_DIR/mqtt-driver@.service" 0644
+  install_deploy_file_with_mode_if_exists "event-engine@.service" "$SYSTEMD_UNIT_DIR/event-engine@.service" 0644
+  install_deploy_file_with_mode_if_exists "compute-engine@.service" "$SYSTEMD_UNIT_DIR/compute-engine@.service" 0644
+  install_deploy_file_with_mode_if_exists "ems-cluster@.service" "$SYSTEMD_UNIT_DIR/ems-cluster@.service" 0644
   if [ "$INIT_RUNTIME_MODE_VALUE" = "agc_avc" ]; then
-    install_deploy_file_if_exists "agc-avc@.service" "/etc/systemd/system/agc-avc@.service"
+    install_deploy_file_with_mode_if_exists "agc-avc@.service" "$SYSTEMD_UNIT_DIR/agc-avc@.service" 0644
   fi
-  install_deploy_file_if_exists "local-display@.service" "/etc/systemd/system/local-display@.service"
-  install_deploy_file_if_exists "local-kiosk@.service" "/etc/systemd/system/local-kiosk@.service"
-  install_deploy_file_if_exists "qt-display-bridge.service" "/etc/systemd/system/qt-display-bridge.service"
-  install_deploy_file_if_exists "ky-ems.service" "/etc/systemd/system/ky-ems.service"
-  install_deploy_file_if_exists "camera-service@.service" "/etc/systemd/system/camera-service@.service"
-  install_deploy_file_if_exists "system-monitor@.service" "/etc/systemd/system/system-monitor@.service"
-  install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
-  install_deploy_file_if_exists "gateway-network-failover.service" "/etc/systemd/system/gateway-network-failover.service"
-  install_deploy_file_if_exists "gateway-cellular.service" "/etc/systemd/system/gateway-cellular.service"
+  install_deploy_file_with_mode_if_exists "local-display@.service" "$SYSTEMD_UNIT_DIR/local-display@.service" 0644
+  install_deploy_file_with_mode_if_exists "local-kiosk@.service" "$SYSTEMD_UNIT_DIR/local-kiosk@.service" 0644
+  install_deploy_file_with_mode_if_exists "qt-display-bridge.service" "$SYSTEMD_UNIT_DIR/qt-display-bridge.service" 0644
+  install_deploy_file_with_mode_if_exists "ky-ems.service" "$SYSTEMD_UNIT_DIR/ky-ems.service" 0644
+  install_deploy_file_with_mode_if_exists "camera-service@.service" "$SYSTEMD_UNIT_DIR/camera-service@.service" 0644
+  install_deploy_file_with_mode_if_exists "system-monitor@.service" "$SYSTEMD_UNIT_DIR/system-monitor@.service" 0644
+  install_deploy_file_with_mode_if_exists "mqtt-tls-tunnel@.service" "$SYSTEMD_UNIT_DIR/mqtt-tls-tunnel@.service" 0644
+  install_deploy_file_with_mode_if_exists "gateway-network-failover.service" "$SYSTEMD_UNIT_DIR/gateway-network-failover.service" 0644
+  install_deploy_file_with_mode_if_exists "gateway-cellular.service" "$SYSTEMD_UNIT_DIR/gateway-cellular.service" 0644
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
-    mkdir -p /etc/systemd/system.conf.d
-    install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"
+    mkdir -p "$SYSTEMD_SYSTEM_CONF_DIR"
+    install_deploy_file_with_mode_if_exists "10-gateway-watchdog.conf" "$SYSTEMD_SYSTEM_CONF_DIR/10-gateway-watchdog.conf" 0644
     SYSTEMD_MANAGER_REEXEC_REQUIRED=1
   fi
   systemctl daemon-reload
@@ -1039,5 +1150,11 @@ fi
 
 if [ -n "$FACTORY_PACKAGE" ]; then
   echo "factory package: $FACTORY_PACKAGE"
+fi
+if [ -n "$SCADA_PROJECT_PACKAGE" ]; then
+  echo "factory SCADA project SHA256: $SCADA_PROJECT_SHA256"
+fi
+if [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ]; then
+  echo "external SCADA restore required before service start: canonical=$SCADA_PROJECT_CANONICAL_SHA256 content=$SCADA_PROJECT_CONTENT_SHA256"
 fi
 echo "factory config installed"

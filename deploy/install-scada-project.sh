@@ -2,20 +2,27 @@
 set -eu
 
 PACKAGE=""
+PACKAGE_SHA256=""
 APP_CONFIG="/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
 MACHINE_CODE=""
 SCADA_ROOT="/opt/modbus-gateway/scada"
 DRY_RUN=0
 RESTART=0
+REQUIRE_LOCAL_SCADA=0
 STATE_FILE=""
 
 usage() {
     cat <<'EOF'
 Usage: install-scada-project.sh --package FILE --machine-code CODE [options]
+  --package-sha256 SHA256
+                      require the whole .kyscada file to match this SHA256
   --app-config FILE   monitor-service.json path
   --scada-root DIR    release root; default /opt/modbus-gateway/scada
   --dry-run           validate only
   --restart           restart only the configured local SCADA display service
+  --no-restart        explicitly keep services stopped; this is the default
+  --require-local-scada
+                      reject edge-node packages that do not provide local SCADA
   --state-file FILE   write rollback metadata after successful activation
 EOF
 }
@@ -23,11 +30,14 @@ EOF
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --package) PACKAGE="${2:-}"; shift 2 ;;
+        --package-sha256) PACKAGE_SHA256="${2:-}"; shift 2 ;;
         --machine-code) MACHINE_CODE="${2:-}"; shift 2 ;;
         --app-config) APP_CONFIG="${2:-}"; shift 2 ;;
         --scada-root) SCADA_ROOT="${2:-}"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         --restart) RESTART=1; shift ;;
+        --no-restart) RESTART=0; shift ;;
+        --require-local-scada) REQUIRE_LOCAL_SCADA=1; shift ;;
         --state-file) STATE_FILE="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -58,7 +68,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" <<'PY'
+python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" "$PACKAGE_SHA256" <<'PY'
 import hashlib
 import json
 import os
@@ -67,12 +77,26 @@ import stat
 import sys
 import zipfile
 
-package, machine_code, meta_path = sys.argv[1:]
+package, machine_code, meta_path, expected_package_sha256 = sys.argv[1:]
 max_package = 512 * 1024 * 1024
 required = {"manifest.json", "topology.json", "nodes.json", "tags.json", "runtime-map.json"}
 
 if os.path.getsize(package) > max_package:
     raise SystemExit("SCADA package compressed size exceeds 512 MiB")
+
+package_digest = hashlib.sha256()
+with open(package, "rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        package_digest.update(chunk)
+actual_package_sha256 = package_digest.hexdigest()
+expected_package_sha256 = expected_package_sha256.strip().lower()
+if expected_package_sha256:
+    if len(expected_package_sha256) != 64 or any(ch not in "0123456789abcdef" for ch in expected_package_sha256):
+        raise SystemExit("invalid SCADA package SHA256")
+    if actual_package_sha256 != expected_package_sha256:
+        raise SystemExit(
+            f"SCADA package SHA256 mismatch: expected={expected_package_sha256} actual={actual_package_sha256}"
+        )
 
 with zipfile.ZipFile(package, "r") as archive:
     entries = {}
@@ -141,6 +165,7 @@ with zipfile.ZipFile(package, "r") as archive:
             "nodeId": matching[0].get("nodeId", ""),
             "mode": mode,
             "localScada": mode == "integrated" and manifest.get("packageRole", "project") != "edgeNode",
+            "packageSha256": actual_package_sha256,
         }, output, ensure_ascii=True)
 PY
 
@@ -148,6 +173,11 @@ PROJECT_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["p
 VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$META_FILE")"
 NODE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nodeId"])' "$META_FILE")"
 LOCAL_SCADA="$(python3 -c 'import json,sys; print("true" if json.load(open(sys.argv[1]))["localScada"] else "false")' "$META_FILE")"
+PACKAGE_SHA256_ACTUAL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["packageSha256"])' "$META_FILE")"
+if [ "$REQUIRE_LOCAL_SCADA" -eq 1 ] && [ "$LOCAL_SCADA" != "true" ]; then
+    echo "SCADA package does not provide an integrated local project" >&2
+    exit 1
+fi
 SCADA_SERVICE=""
 if [ "$LOCAL_SCADA" = "true" ] && command -v systemctl >/dev/null 2>&1; then
     if systemctl list-unit-files ky-ems.service --no-legend 2>/dev/null | grep -q '^ky-ems.service'; then
@@ -157,7 +187,7 @@ if [ "$LOCAL_SCADA" = "true" ] && command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
-echo "SCADA validation passed: project=$PROJECT_ID version=$VERSION node=$NODE_ID localScada=$LOCAL_SCADA"
+echo "SCADA validation passed: project=$PROJECT_ID version=$VERSION node=$NODE_ID localScada=$LOCAL_SCADA sha256=$PACKAGE_SHA256_ACTUAL"
 if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
@@ -191,7 +221,7 @@ rollback() {
     fi
     [ ! -f "$CONFIG_BACKUP" ] || cp -p "$CONFIG_BACKUP" "$APP_CONFIG"
     rm -rf "$STAGING" "$RELEASE"
-    if [ -n "$SCADA_SERVICE" ]; then
+    if [ "$RESTART" -eq 1 ] && [ -n "$SCADA_SERVICE" ]; then
         systemctl restart "$SCADA_SERVICE" >/dev/null 2>&1 || true
     fi
     exit "$status"
@@ -233,6 +263,9 @@ with open(path, "r", encoding="utf-8") as source:
     root = json.load(source)
 local_display = root.setdefault("localDisplay", {})
 scada = local_display.setdefault("scada", {})
+if enabled == "true":
+    local_display["enabled"] = True
+    local_display["renderer"] = "nativeQt"
 scada.update({
     "enabled": enabled == "true",
     "projectDirectory": project_directory,
@@ -285,6 +318,7 @@ if [ -n "$STATE_FILE" ]; then
         echo "scadaNodeId=$NODE_ID"
         echo "scadaProjectId=$PROJECT_ID"
         echo "scadaVersion=$VERSION"
+        echo "scadaPackageSha256=$PACKAGE_SHA256_ACTUAL"
     } > "$STATE_TMP"
     mv "$STATE_TMP" "$STATE_FILE"
 fi

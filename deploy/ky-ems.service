@@ -12,11 +12,16 @@ User=root
 WorkingDirectory=/opt/modbus-gateway/ky-ems
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
-Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XDG_RUNTIME_DIR=/run/ky-ems
 Environment=QT_QPA_PLATFORM=xcb
+Environment=DISPLAY_WAIT_TIMEOUT_SECONDS=60
+RuntimeDirectory=ky-ems
+RuntimeDirectoryMode=0700
+ExecStartPre=/opt/modbus-gateway/bin/gateway-ky-ems-readiness.sh
 ExecStart=/opt/modbus-gateway/ky-ems/KY-EMS --app-config /opt/modbus-gateway/config/runtime/apps/monitor-service.json
 Restart=on-failure
 RestartSec=3
+TimeoutStartSec=75
 TimeoutStopSec=15
 KillSignal=SIGTERM
 KillMode=mixed

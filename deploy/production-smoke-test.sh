@@ -244,7 +244,7 @@ check_runtime_files() {
   for bin in $(required_runtime_binaries); do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
-  for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-cellular.sh gateway-network-failover.sh; do
+  for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-ky-ems-readiness.sh gateway-cellular.sh gateway-network-failover.sh; do
     exec_exists "$BIN_DIR/$script" "$script"
   done
 }

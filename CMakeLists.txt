@@ -435,6 +435,15 @@ if(BUILD_TESTING)
             NAME gateway_services_boot
             COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_boot_test.sh"
         )
+        add_test(
+            NAME scada_install
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/scada_install_test.sh"
+        )
+        add_test(
+            NAME factory_scada_runtime
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/factory_scada_runtime_test.sh"
+        )
+        set_tests_properties(factory_scada_runtime PROPERTIES TIMEOUT 30)
     endif()
     set_tests_properties(
         graph_ems_v2_loader

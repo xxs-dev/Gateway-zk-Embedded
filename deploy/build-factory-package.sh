@@ -9,6 +9,13 @@ EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
 COMPONENT_VERSION="${COMPONENT_VERSION:-1.0}"
 EDGE_TOOLCHAIN_ID="${EDGE_TOOLCHAIN_ID:-unknown}"
 EDGE_PACKAGE_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-}"
+FACTORY_BINARY_SOURCE_DIR="${FACTORY_BINARY_SOURCE_DIR:-$ROOT_DIR/build-aarch64}"
+FACTORY_KY_EMS_BINARY="${FACTORY_KY_EMS_BINARY:-$ROOT_DIR/ky-ems/KY-EMS}"
+SCADA_PROJECT_PACKAGE="${SCADA_PROJECT_PACKAGE:-}"
+SCADA_PROJECT_SHA256="${SCADA_PROJECT_SHA256:-}"
+SCADA_PROJECT_MACHINE_CODE="${SCADA_PROJECT_MACHINE_CODE:-}"
+SCADA_PROJECT_CANONICAL_SHA256="${SCADA_PROJECT_CANONICAL_SHA256:-}"
+SCADA_PROJECT_CONTENT_SHA256="${SCADA_PROJECT_CONTENT_SHA256:-}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-0}"
 TMP_DIR="${TMPDIR:-/tmp}/gateway-factory-defaults.$$"
 OUT_TMP=""
@@ -16,6 +23,11 @@ OUT_TMP=""
 usage() {
   cat >&2 <<'EOF'
 Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT]
+                                [--scada-package FILE --scada-sha256 SHA256
+                                 --scada-machine-code CODE]
+                                [--scada-canonical-sha256 SHA256
+                                 --scada-content-sha256 SHA256
+                                 --scada-machine-code CODE]
 
 Profiles:
   base     Package only SystemMonitor, MqttDriver and pointctl.
@@ -23,6 +35,8 @@ Profiles:
   full     Package all current drivers and tools; default for backward compatibility.
 
 All current driver binaries are recorded as version 1.0 in the generated manifest.
+Packages containing KY-EMS must either embed a hash-pinned SCADA project or
+declare the canonical/content hashes required from an external active-project restore.
 EOF
 }
 
@@ -41,6 +55,31 @@ while [ "$#" -gt 0 ]; do
     --out)
       [ "$#" -ge 2 ] || { echo "--out requires a value" >&2; exit 2; }
       OUT="$2"
+      shift 2
+      ;;
+    --scada-package)
+      [ "$#" -ge 2 ] || { echo "--scada-package requires a value" >&2; exit 2; }
+      SCADA_PROJECT_PACKAGE="$2"
+      shift 2
+      ;;
+    --scada-sha256)
+      [ "$#" -ge 2 ] || { echo "--scada-sha256 requires a value" >&2; exit 2; }
+      SCADA_PROJECT_SHA256="$2"
+      shift 2
+      ;;
+    --scada-machine-code)
+      [ "$#" -ge 2 ] || { echo "--scada-machine-code requires a value" >&2; exit 2; }
+      SCADA_PROJECT_MACHINE_CODE="$2"
+      shift 2
+      ;;
+    --scada-canonical-sha256)
+      [ "$#" -ge 2 ] || { echo "--scada-canonical-sha256 requires a value" >&2; exit 2; }
+      SCADA_PROJECT_CANONICAL_SHA256="$2"
+      shift 2
+      ;;
+    --scada-content-sha256)
+      [ "$#" -ge 2 ] || { echo "--scada-content-sha256 requires a value" >&2; exit 2; }
+      SCADA_PROJECT_CONTENT_SHA256="$2"
       shift 2
       ;;
     -h|--help)
@@ -122,12 +161,19 @@ finalize_package_manifest() {
   packaged_bins="$5"
   source_commit="$6"
   source_dirty="$7"
+  scada_relative="$8"
+  scada_sha256="$9"
+  scada_machine_code="${10}"
+  scada_canonical_sha256="${11}"
+  scada_content_sha256="${12}"
   if ! command -v python3 >/dev/null 2>&1; then
     echo "python3 command not found, cannot generate verifiable package manifest" >&2
     exit 2
   fi
   python3 - "$out" "$profile" "$payload_root" "$required_bins" "$packaged_bins" \
-    "$source_commit" "$source_dirty" "$COMPONENT_VERSION" "$EDGE_TOOLCHAIN_ID" <<'PY'
+    "$source_commit" "$source_dirty" "$COMPONENT_VERSION" "$EDGE_TOOLCHAIN_ID" \
+    "$scada_relative" "$scada_sha256" "$scada_machine_code" \
+    "$scada_canonical_sha256" "$scada_content_sha256" <<'PY'
 import datetime
 import hashlib
 import json
@@ -144,6 +190,11 @@ import sys
     source_dirty_raw,
     component_version,
     toolchain_id,
+    scada_relative,
+    scada_sha256,
+    scada_machine_code,
+    scada_canonical_sha256,
+    scada_content_sha256,
 ) = sys.argv[1:]
 
 try:
@@ -174,8 +225,66 @@ for binary in packaged:
         "sha256": digest.hexdigest(),
     })
 
+scada_project = None
+if scada_relative:
+    relative = scada_relative.replace("\\", "/")
+    expected = scada_sha256.strip().lower()
+    if len(expected) != 64 or any(ch not in "0123456789abcdef" for ch in expected):
+        raise SystemExit("invalid SCADA project SHA256")
+    if not scada_machine_code.strip():
+        raise SystemExit("SCADA project machine code is required")
+    root = os.path.realpath(payload_root)
+    path = os.path.realpath(os.path.join(root, relative))
+    if os.path.commonpath((root, path)) != root or not os.path.isfile(path):
+        raise SystemExit(f"SCADA project is missing or outside package: {relative}")
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != expected:
+        raise SystemExit(f"SCADA project SHA256 mismatch: expected={expected} actual={actual}")
+    scada_project = {
+        "required": True,
+        "sourceMode": "embedded-package",
+        "path": relative,
+        "sizeBytes": os.path.getsize(path),
+        "sha256": actual,
+        "machineCode": scada_machine_code.strip(),
+        "runtimeRoot": "/opt/modbus-gateway/scada",
+        "currentLink": "/opt/modbus-gateway/scada/current",
+        "restartServicesDuringInstall": False,
+    }
+    if scada_canonical_sha256 or scada_content_sha256:
+        canonical = scada_canonical_sha256.strip().lower()
+        content = scada_content_sha256.strip().lower()
+        for label, value in (("canonical", canonical), ("content", content)):
+            if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+                raise SystemExit(f"invalid embedded SCADA {label} SHA256")
+        scada_project["canonicalManifestSha256"] = canonical
+        scada_project["contentManifestSha256"] = content
+elif scada_canonical_sha256 or scada_content_sha256:
+    canonical = scada_canonical_sha256.strip().lower()
+    content = scada_content_sha256.strip().lower()
+    for label, value in (("canonical", canonical), ("content", content)):
+        if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+            raise SystemExit(f"invalid external SCADA {label} SHA256")
+    if not scada_machine_code.strip():
+        raise SystemExit("SCADA project machine code is required")
+    scada_project = {
+        "required": True,
+        "sourceMode": "external-active-project",
+        "machineCode": scada_machine_code.strip(),
+        "canonicalManifestSha256": canonical,
+        "contentManifestSha256": content,
+        "runtimeRoot": "/opt/modbus-gateway/scada",
+        "currentLink": "/opt/modbus-gateway/scada/current",
+        "requiredBeforeServiceStart": True,
+        "restartServicesDuringInstall": False,
+    }
+
 manifest.update({
-    "schemaVersion": "1.1",
+    "schemaVersion": "1.2",
     "packageVersion": component_version,
     "createdAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "createdBy": "build-factory-package.sh",
@@ -189,6 +298,10 @@ manifest.update({
     ],
     "components": components,
 })
+if scada_project is None:
+    manifest.pop("scadaProject", None)
+else:
+    manifest["scadaProject"] = scada_project
 tmp = output + ".tmp"
 with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
     json.dump(manifest, fh, ensure_ascii=False, indent=2)
@@ -304,7 +417,7 @@ if [ -d "$ROOT_DIR/deploy" ]; then
     [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
   done
 fi
-if [ -d "$ROOT_DIR/build-aarch64" ]; then
+if [ -d "$FACTORY_BINARY_SOURCE_DIR" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver pointctl"
   ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
@@ -334,37 +447,82 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
   PACKAGED_BINS="$REQUIRED_BINS"
   for bin in $REQUIRED_BINS; do
     if [ "$bin" = "KY-EMS" ]; then
-      [ -d "$ROOT_DIR/ky-ems" ] && [ -f "$ROOT_DIR/ky-ems/KY-EMS" ] || {
-        echo "required KY-EMS payload missing: ky-ems/KY-EMS" >&2
+      [ -d "$ROOT_DIR/ky-ems" ] && [ -f "$FACTORY_KY_EMS_BINARY" ] || {
+        echo "required KY-EMS payload missing: $FACTORY_KY_EMS_BINARY" >&2
         exit 2
       }
       continue
     fi
-    if [ ! -f "$ROOT_DIR/build-aarch64/$bin" ]; then
-      echo "required factory binary missing: build-aarch64/$bin" >&2
+    if [ ! -f "$FACTORY_BINARY_SOURCE_DIR/$bin" ]; then
+      echo "required factory binary missing: $FACTORY_BINARY_SOURCE_DIR/$bin" >&2
       exit 2
     fi
-    cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+    cp "$FACTORY_BINARY_SOURCE_DIR/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
   done
   for bin in $OPTIONAL_BINS; do
     [ "$bin" = "KY-EMS" ] && continue
-    if [ -f "$ROOT_DIR/build-aarch64/$bin" ]; then
-      cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+    if [ -f "$FACTORY_BINARY_SOURCE_DIR/$bin" ]; then
+      cp "$FACTORY_BINARY_SOURCE_DIR/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
       PACKAGED_BINS=$(printf '%s\n' $PACKAGED_BINS "$bin" | unique_words | tr '\n' ' ')
     fi
   done
 else
-  echo "build-aarch64 directory not found; cross compile before packaging" >&2
+  echo "factory binary source directory not found: $FACTORY_BINARY_SOURCE_DIR" >&2
   exit 2
 fi
 
-if [ -d "$ROOT_DIR/ky-ems" ]; then
+if [ -d "$ROOT_DIR/ky-ems" ] && [ -f "$FACTORY_KY_EMS_BINARY" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/ky-ems"
   cp -a "$ROOT_DIR/ky-ems"/. "$TMP_DIR/gateway-factory-defaults/ky-ems"/
+  cp "$FACTORY_KY_EMS_BINARY" "$TMP_DIR/gateway-factory-defaults/ky-ems/KY-EMS"
   case " $REQUIRED_BINS $OPTIONAL_BINS " in
     *" KY-EMS "*) PACKAGED_BINS=$(printf '%s\n' $PACKAGED_BINS KY-EMS | unique_words | tr '\n' ' ') ;;
   esac
 fi
+
+SCADA_PROJECT_RELATIVE=""
+case " $PACKAGED_BINS " in
+  *" KY-EMS "*)
+    if [ -n "$SCADA_PROJECT_PACKAGE" ] || [ -n "$SCADA_PROJECT_SHA256" ]; then
+      if [ -z "$SCADA_PROJECT_PACKAGE" ] || [ -z "$SCADA_PROJECT_SHA256" ] || [ -z "$SCADA_PROJECT_MACHINE_CODE" ]; then
+        echo "embedded SCADA requires --scada-package, --scada-sha256 and --scada-machine-code" >&2
+        exit 2
+      fi
+      [ -f "$SCADA_PROJECT_PACKAGE" ] || {
+        echo "SCADA project package not found: $SCADA_PROJECT_PACKAGE" >&2
+        exit 2
+      }
+      sh "$ROOT_DIR/deploy/install-scada-project.sh" \
+        --package "$SCADA_PROJECT_PACKAGE" \
+        --package-sha256 "$SCADA_PROJECT_SHA256" \
+        --machine-code "$SCADA_PROJECT_MACHINE_CODE" \
+        --app-config "$ROOT_DIR/config/factory/runtime/apps/monitor-service.json" \
+        --scada-root "$TMP_DIR/scada-validation" \
+        --require-local-scada \
+        --no-restart \
+        --dry-run
+      SCADA_PROJECT_RELATIVE="scada/active-project.kyscada"
+      mkdir -p "$TMP_DIR/gateway-factory-defaults/scada"
+      cp "$SCADA_PROJECT_PACKAGE" "$TMP_DIR/gateway-factory-defaults/$SCADA_PROJECT_RELATIVE"
+    elif [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ] || [ -n "$SCADA_PROJECT_CONTENT_SHA256" ]; then
+      if [ -z "$SCADA_PROJECT_CANONICAL_SHA256" ] || [ -z "$SCADA_PROJECT_CONTENT_SHA256" ] || [ -z "$SCADA_PROJECT_MACHINE_CODE" ]; then
+        echo "external SCADA restore requires canonical SHA256, content SHA256 and machine code" >&2
+        exit 2
+      fi
+    else
+      echo "packages containing KY-EMS require an embedded SCADA package or fixed external canonical/content SHA256 values" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    if [ -n "$SCADA_PROJECT_PACKAGE" ] || [ -n "$SCADA_PROJECT_SHA256" ] || \
+       [ -n "$SCADA_PROJECT_CANONICAL_SHA256" ] || [ -n "$SCADA_PROJECT_CONTENT_SHA256" ] || \
+       [ -n "$SCADA_PROJECT_MACHINE_CODE" ]; then
+      echo "SCADA project input requires a packaged KY-EMS runtime" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 finalize_package_manifest \
   "$TMP_DIR/gateway-factory-defaults/edge-package-manifest.json" \
@@ -373,7 +531,12 @@ finalize_package_manifest \
   "$REQUIRED_BINS" \
   "$PACKAGED_BINS" \
   "$SOURCE_COMMIT" \
-  "$SOURCE_DIRTY"
+  "$SOURCE_DIRTY" \
+  "$SCADA_PROJECT_RELATIVE" \
+  "$SCADA_PROJECT_SHA256" \
+  "$SCADA_PROJECT_MACHINE_CODE" \
+  "$SCADA_PROJECT_CANONICAL_SHA256" \
+  "$SCADA_PROJECT_CONTENT_SHA256"
 
 assert_no_retired_maintenance_agent "$TMP_DIR/gateway-factory-defaults"
 
