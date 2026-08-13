@@ -12,9 +12,17 @@
 
 namespace edge_gateway {
 
+enum class MemoryStoreOpenMode {
+    CreateOrOpen,
+    OpenExisting
+};
+
 class MemoryPointStore {
 public:
-    explicit MemoryPointStore(const std::string& segmentName = "gateway_point_store");
+    explicit MemoryPointStore(
+        const std::string& segmentName = "gateway_point_store",
+        MemoryStoreOpenMode openMode = MemoryStoreOpenMode::CreateOrOpen
+    );
     explicit MemoryPointStore(const MemoryStoreConfig& config);
     ~MemoryPointStore();
 

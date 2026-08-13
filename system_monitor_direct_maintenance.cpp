@@ -668,9 +668,13 @@ void appendControlTimingJson(
         << ",\"highPriority\":" << (result.highPriority ? "true" : "false");
 }
 
-std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirectMaintenanceConfig& config) {
+std::unique_ptr<RealtimeContext> createRealtimeContext(
+    const SystemMonitorDirectMaintenanceConfig& config,
+    bool failOnRequiredStoreError = false
+) {
     using namespace edge_gateway;
     std::unique_ptr<RealtimeContext> context(new RealtimeContext());
+    context->router.setFailOnStoreReadError(failOnRequiredStoreError);
     context->appConfig = ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
     context->router.setPowerControlOwnershipFile(
         context->appConfig.mqttDriver.powerControlOwnershipFile,
@@ -700,7 +704,8 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
             sharedMemoryNames.push_back(name);
         }
     }
-    if (!context->appConfig.cameraService.sharedMemoryName.empty() &&
+    if (context->appConfig.cameraService.enabled &&
+        !context->appConfig.cameraService.sharedMemoryName.empty() &&
         seen.insert(context->appConfig.cameraService.sharedMemoryName).second) {
         sharedMemoryNames.push_back(context->appConfig.cameraService.sharedMemoryName);
     }
@@ -711,9 +716,22 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
     context->stores.reserve(sharedMemoryNames.size());
     for (const auto& name : sharedMemoryNames) {
         try {
-            context->stores.emplace_back(new MemoryPointStore(name));
+            context->stores.emplace_back(new MemoryPointStore(
+                name,
+                failOnRequiredStoreError
+                    ? MemoryStoreOpenMode::OpenExisting
+                    : MemoryStoreOpenMode::CreateOrOpen
+            ));
+            if (failOnRequiredStoreError) {
+                (void)context->stores.back()->getStats();
+            }
             context->router.addStore(name, *context->stores.back());
         } catch (const std::exception& ex) {
+            if (failOnRequiredStoreError) {
+                throw std::runtime_error(
+                    "required shared memory store is unavailable: " + name + ": " + ex.what()
+                );
+            }
             std::cerr << "SystemMonitor direct maintenance skipped shared memory "
                       << name
                       << ": "
@@ -810,7 +828,7 @@ std::string authStateJson(const AuthState& state) {
 }
 
 std::string realtimePointsJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& meterCode) {
-    auto context = createRealtimeContext(config);
+    auto context = createRealtimeContext(config, true);
     const auto ts = nowMs();
     const auto machineCode = resolveMachineCode(config, context->appConfig);
     const auto values = meterCode.empty()
@@ -849,7 +867,7 @@ std::string realtimePointsJson(const SystemMonitorDirectMaintenanceConfig& confi
 }
 
 std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config) {
-    auto context = createRealtimeContext(config);
+    auto context = createRealtimeContext(config, true);
     auto machineCode = resolveMachineCode(config, context->appConfig);
     const auto ts = nowMs();
     const auto values = context->router.getAllLatest(ts);

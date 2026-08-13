@@ -431,6 +431,10 @@ void PointStoreRouter::addStore(const std::string& sharedMemoryName, MemoryPoint
     }
 }
 
+void PointStoreRouter::setFailOnStoreReadError(bool enabled) {
+    failOnStoreReadError_ = enabled;
+}
+
 void PointStoreRouter::addRoutesFromDeviceConfigs(
     const std::vector<DeviceConfig>& deviceConfigs,
     const std::string& fallbackSharedMemoryName
@@ -634,6 +638,9 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
     for (const auto& entry : grouped) {
         const auto storeIt = stores_.find(entry.first);
         if (storeIt == stores_.end() || storeIt->second == nullptr) {
+            if (failOnStoreReadError_) {
+                throw std::runtime_error("required shared memory store is unavailable: " + entry.first);
+            }
             continue;
         }
         std::vector<StoredPointValue> values;
@@ -641,6 +648,11 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
             values = storeIt->second->getLatestByIndexes(entry.second, nowMs);
         } catch (const std::exception& ex) {
             logStoreReadFailure("getLatestByIndexes", entry.first, ex);
+            if (failOnStoreReadError_) {
+                throw std::runtime_error(
+                    "required shared memory store read failed: " + entry.first + ": " + ex.what()
+                );
+            }
             continue;
         }
         for (auto& value : values) {
@@ -1202,6 +1214,11 @@ Optional<StoredPointValue> PointStoreRouter::getRawLatestByRoute(
         value = store->getLatestByIndex(route.index, nowMs);
     } catch (const std::exception& ex) {
         logStoreReadFailure("getLatestByIndex", route.sharedMemoryName, ex);
+        if (failOnStoreReadError_) {
+            throw std::runtime_error(
+                "required shared memory store read failed: " + route.sharedMemoryName + ": " + ex.what()
+            );
+        }
         return NullOpt;
     }
     if (!value) {

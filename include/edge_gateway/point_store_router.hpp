@@ -65,6 +65,7 @@ public:
         const std::string& machineCode
     );
     void addRoute(const PointStoreRoute& route);
+    void setFailOnStoreReadError(bool enabled);
     void setPowerControlOwnershipFile(const std::string& path, const std::string& owner);
     void setEmsVirtualParameterDirectory(const std::string& directory);
 
@@ -133,6 +134,7 @@ private:
     void restoreEmsVirtualParameter(const PointStoreRoute& route);
 
     std::unordered_map<std::string, MemoryPointStore*> stores_;
+    bool failOnStoreReadError_ = false;
     std::unordered_map<std::uint32_t, PointStoreRoute> routes_;
     std::unordered_map<std::string, PointStoreRoute> routesByLocation_;
     std::uint32_t nextDerivedIndex_ = 900000000U;

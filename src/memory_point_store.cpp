@@ -759,7 +759,7 @@ void initializePosixMutex(pthread_mutex_t& mutex) {
 
 }  // namespace
 
-MemoryPointStore::MemoryPointStore(const std::string& segmentName)
+MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOpenMode openMode)
     : segmentName_(normalizeSegmentName(segmentName)),
       ownerId_(makeOwnerId()),
       ownerSource_("pid-" +
@@ -770,16 +770,18 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
 #endif
       ) {
 #ifdef _WIN32
-    mappingHandle_ = CreateFileMappingA(
-        INVALID_HANDLE_VALUE,
-        nullptr,
-        PAGE_READWRITE,
-        0,
-        static_cast<DWORD>(sizeof(SharedStoreLayout)),
-        segmentName_.c_str()
-    );
+    mappingHandle_ = openMode == MemoryStoreOpenMode::OpenExisting
+        ? OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, segmentName_.c_str())
+        : CreateFileMappingA(
+            INVALID_HANDLE_VALUE,
+            nullptr,
+            PAGE_READWRITE,
+            0,
+            static_cast<DWORD>(sizeof(SharedStoreLayout)),
+            segmentName_.c_str()
+        );
     if (mappingHandle_ == nullptr) {
-        throw std::runtime_error("CreateFileMappingA failed");
+        throw std::runtime_error("shared memory open failed: " + segmentName_);
     }
 
     sharedView_ = MapViewOfFile(static_cast<HANDLE>(mappingHandle_), FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedStoreLayout));
@@ -790,7 +792,9 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
     }
 
     const auto mutexName = segmentName_ + "_mutex";
-    mutexHandle_ = CreateMutexA(nullptr, FALSE, mutexName.c_str());
+    mutexHandle_ = openMode == MemoryStoreOpenMode::OpenExisting
+        ? OpenMutexA(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, mutexName.c_str())
+        : CreateMutexA(nullptr, FALSE, mutexName.c_str());
     if (mutexHandle_ == nullptr) {
         UnmapViewOfFile(sharedView_);
         CloseHandle(static_cast<HANDLE>(mappingHandle_));
@@ -799,24 +803,39 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         throw std::runtime_error("CreateMutexA failed");
     }
 
-    SharedLockGuard lock(mutexHandle_);
-    auto* layout = layoutFrom(sharedView_);
-    if (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion) {
-        std::memset(layout, 0, sizeof(SharedStoreLayout));
-        layout->header.magic = kSharedStoreMagic;
-        layout->header.version = kSharedStoreVersion;
-    }
-    latestSlotByIndex_.clear();
-    latestSlotByIndex_.reserve(layout->header.latestCount);
-    for (std::size_t i = 0; i < kMaxLatestSlots; ++i) {
-        if (layout->latest[i].occupied) {
-            latestSlotByIndex_[layout->latest[i].index] = i;
+    try {
+        SharedLockGuard lock(mutexHandle_);
+        auto* layout = layoutFrom(sharedView_);
+        if (openMode == MemoryStoreOpenMode::OpenExisting &&
+            (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion)) {
+            throw std::runtime_error("shared memory version mismatch: " + segmentName_);
         }
+        if (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion) {
+            std::memset(layout, 0, sizeof(SharedStoreLayout));
+            layout->header.magic = kSharedStoreMagic;
+            layout->header.version = kSharedStoreVersion;
+        }
+        latestSlotByIndex_.clear();
+        latestSlotByIndex_.reserve(layout->header.latestCount);
+        for (std::size_t i = 0; i < kMaxLatestSlots; ++i) {
+            if (layout->latest[i].occupied) {
+                latestSlotByIndex_[layout->latest[i].index] = i;
+            }
+        }
+    } catch (...) {
+        UnmapViewOfFile(sharedView_);
+        CloseHandle(static_cast<HANDLE>(mutexHandle_));
+        CloseHandle(static_cast<HANDLE>(mappingHandle_));
+        sharedView_ = nullptr;
+        mutexHandle_ = nullptr;
+        mappingHandle_ = nullptr;
+        throw;
     }
 #else
-    const int fd = shm_open(segmentName_.c_str(), O_CREAT | O_RDWR, 0600);
+    const int flags = openMode == MemoryStoreOpenMode::OpenExisting ? O_RDWR : O_CREAT | O_RDWR;
+    const int fd = shm_open(segmentName_.c_str(), flags, 0600);
     if (fd < 0) {
-        throw std::runtime_error("shm_open failed");
+        throw std::runtime_error("shared memory open failed: " + segmentName_ + ": " + std::strerror(errno));
     }
     mappingHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(fd) + 1);
     PosixFileLockGuard fileLock(fd);
@@ -830,6 +849,12 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
     }
 
     const bool needsInitialization = shmStat.st_size == 0;
+    if (openMode == MemoryStoreOpenMode::OpenExisting &&
+        shmStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
+        close(fd);
+        mappingHandle_ = nullptr;
+        throw std::runtime_error("shared memory size mismatch: " + segmentName_);
+    }
     if (needsInitialization) {
         if (ftruncate(fd, static_cast<off_t>(sizeof(SharedStoreLayout))) != 0) {
             close(fd);
