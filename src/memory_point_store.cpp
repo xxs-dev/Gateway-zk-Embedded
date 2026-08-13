@@ -761,6 +761,7 @@ void initializePosixMutex(pthread_mutex_t& mutex) {
 
 MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOpenMode openMode)
     : segmentName_(normalizeSegmentName(segmentName)),
+      openMode_(openMode),
       ownerId_(makeOwnerId()),
       ownerSource_("pid-" +
 #ifdef _WIN32
@@ -878,9 +879,10 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
     }
 
     auto* layout = layoutFrom(sharedView_);
+    const bool hasZeroHeader = layout->header.magic == 0 && layout->header.version == 0;
     if (needsInitialization ||
         shmStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout)) ||
-        (layout->header.magic == 0 && layout->header.version == 0)) {
+        (openMode_ == MemoryStoreOpenMode::CreateOrOpen && hasZeroHeader)) {
         std::memset(layout, 0, sizeof(SharedStoreLayout));
         initializePosixMutex(layout->header.mutex);
         layout->header.magic = kSharedStoreMagic;
@@ -892,7 +894,7 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
         mappingHandle_ = nullptr;
         throw std::runtime_error("shared memory version mismatch, rebuild all processes and restart");
     }
-    {
+    try {
         SharedLockGuard sharedLock(&layout->header.mutex);
         latestSlotByIndex_.clear();
         latestSlotByIndex_.reserve(layout->header.latestCount);
@@ -901,6 +903,12 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
                 latestSlotByIndex_[layout->latest[i].index] = i;
             }
         }
+    } catch (...) {
+        munmap(sharedView_, sizeof(SharedStoreLayout));
+        close(fd);
+        sharedView_ = nullptr;
+        mappingHandle_ = nullptr;
+        throw;
     }
 #endif
 }
@@ -991,6 +999,11 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
     const int existingFd = static_cast<int>(reinterpret_cast<std::intptr_t>(mappingHandle_) - 1);
     const int currentFd = shm_open(segmentName_.c_str(), O_RDWR, 0600);
     if (currentFd < 0) {
+        if (openMode_ == MemoryStoreOpenMode::OpenExisting) {
+            throw std::runtime_error(
+                "required shared memory store disappeared: " + segmentName_ + ": " + std::strerror(errno)
+            );
+        }
         return;
     }
 
@@ -1000,6 +1013,9 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
     std::memset(&currentStat, 0, sizeof(currentStat));
     if (fstat(existingFd, &existingStat) != 0 || fstat(currentFd, &currentStat) != 0) {
         close(currentFd);
+        if (openMode_ == MemoryStoreOpenMode::OpenExisting) {
+            throw std::runtime_error("fstat failed while refreshing required shared memory mapping");
+        }
         return;
     }
 

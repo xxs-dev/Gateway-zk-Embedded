@@ -30,6 +30,7 @@
 #include "edge_gateway/scada_control_lease.hpp"
 #include "edge_gateway/scada_upper_computer_safety.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
+#include "edge_gateway/system_monitor_runtime_discovery.hpp"
 
 #ifndef _WIN32
 #include <arpa/inet.h>
@@ -685,36 +686,60 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(
     if (!context->appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(context->appConfig.identityConfigFile);
     }
-    context->deviceConfigs = ConfigLoader::loadMany(context->appConfig.deviceConfigFiles, identity);
-
-    std::vector<std::string> sharedMemoryNames = context->appConfig.mqttDriver.sharedMemoryNames;
-    if (sharedMemoryNames.empty() && !context->appConfig.mqttDriver.sharedMemoryName.empty()) {
-        sharedMemoryNames.push_back(context->appConfig.mqttDriver.sharedMemoryName);
+    const auto runtimeDependencies = discoverSystemMonitorRuntimeDependencies(
+        config.appConfigFile,
+        context->appConfig
+    );
+    for (const auto& warning : runtimeDependencies.warnings) {
+        std::cerr << "SystemMonitor direct maintenance skipped sibling app config "
+                  << warning << std::endl;
     }
+    context->deviceConfigs = ConfigLoader::loadMany(context->appConfig.deviceConfigFiles, identity);
+    std::unordered_set<std::string> primaryDeviceFiles(
+        context->appConfig.deviceConfigFiles.begin(),
+        context->appConfig.deviceConfigFiles.end()
+    );
+    for (const auto& file : runtimeDependencies.deviceConfigFiles) {
+        if (primaryDeviceFiles.find(file) != primaryDeviceFiles.end()) {
+            continue;
+        }
+        try {
+            context->deviceConfigs.push_back(ConfigLoader::loadFromFile(file, identity));
+        } catch (const std::exception& ex) {
+            std::cerr << "SystemMonitor direct maintenance skipped sibling device config "
+                      << file << ": " << ex.what() << std::endl;
+        }
+    }
+
+    std::vector<DeviceConfig> mailboxDeviceConfigs;
+    std::vector<std::string> mailboxSharedMemoryNames;
     context->agcAvcCommandMailbox = appendSiblingAgcAvcRuntime(
         config.appConfigFile,
         identity,
-        context->deviceConfigs,
-        sharedMemoryNames
+        mailboxDeviceConfigs,
+        mailboxSharedMemoryNames
     );
-    std::unordered_set<std::string> seen(sharedMemoryNames.begin(), sharedMemoryNames.end());
-    for (const auto& deviceConfig : context->deviceConfigs) {
-        const auto& name = deviceConfig.memoryStore.sharedMemoryName;
-        if (!name.empty() && seen.insert(name).second) {
-            sharedMemoryNames.push_back(name);
-        }
-    }
-    if (context->appConfig.cameraService.enabled &&
-        !context->appConfig.cameraService.sharedMemoryName.empty() &&
-        seen.insert(context->appConfig.cameraService.sharedMemoryName).second) {
-        sharedMemoryNames.push_back(context->appConfig.cameraService.sharedMemoryName);
-    }
-    if (sharedMemoryNames.empty()) {
-        sharedMemoryNames.push_back("gateway_point_store");
+    context->router.addRoutesFromDeviceConfigs(
+        context->deviceConfigs,
+        context->appConfig.mqttDriver.sharedMemoryName
+    );
+    const auto machineCode = !identity.machineCode.empty()
+        ? identity.machineCode
+        : context->appConfig.mqtt.clientId;
+    for (const auto& cameraService : runtimeDependencies.cameraServices) {
+        context->router.addRoutesFromCameraServiceConfig(cameraService, machineCode);
     }
 
-    context->stores.reserve(sharedMemoryNames.size());
-    for (const auto& name : sharedMemoryNames) {
+    std::vector<std::string> requiredStoreNames;
+    std::unordered_set<std::string> seen;
+    for (const auto& entry : context->router.routes()) {
+        const auto& name = entry.second.sharedMemoryName;
+        if (!name.empty() && seen.insert(name).second) {
+            requiredStoreNames.push_back(name);
+        }
+    }
+    context->stores.reserve(requiredStoreNames.size());
+    for (const auto& name : requiredStoreNames) {
         try {
             context->stores.emplace_back(new MemoryPointStore(
                 name,
@@ -739,15 +764,6 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(
                       << std::endl;
         }
     }
-    context->router.addRoutesFromDeviceConfigs(
-        context->deviceConfigs,
-        context->appConfig.mqttDriver.sharedMemoryName
-    );
-
-    const auto machineCode = !identity.machineCode.empty()
-        ? identity.machineCode
-        : context->appConfig.mqtt.clientId;
-    context->router.addRoutesFromCameraServiceConfig(context->appConfig.cameraService, machineCode);
     return context;
 }
 

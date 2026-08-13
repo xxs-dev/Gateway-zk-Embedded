@@ -3,6 +3,15 @@
 #include <stdexcept>
 #include <string>
 
+#ifndef _WIN32
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
 
@@ -112,12 +121,100 @@ void verifyReaderRemapsRecreatedNamedSegment() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+#ifndef _WIN32
+std::string normalizeName(const std::string& name) {
+    return name.empty() || name.front() == '/' ? name : "/" + name;
+}
+
+void unlinkSegment(const std::string& name) {
+    if (::shm_unlink(normalizeName(name).c_str()) != 0 && errno != ENOENT) {
+        throw std::runtime_error("failed to unlink test segment: " + std::string(std::strerror(errno)));
+    }
+}
+
+void verifyStrictReaderRejectsZeroHeaderWithoutMutatingIt() {
+    const std::string storeName = "gateway_memory_zero_header_test";
+    unlinkSegment(storeName);
+
+    std::size_t storeSize = 0;
+    {
+        edge_gateway::MemoryPointStore writer(storeName);
+        const int fd = ::shm_open(normalizeName(storeName).c_str(), O_RDWR, 0600);
+        require(fd >= 0, "failed to inspect initialized segment");
+        struct stat info{};
+        require(::fstat(fd, &info) == 0, "failed to stat initialized segment");
+        storeSize = static_cast<std::size_t>(info.st_size);
+        ::close(fd);
+    }
+    unlinkSegment(storeName);
+
+    const int fd = ::shm_open(normalizeName(storeName).c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
+    require(fd >= 0, "failed to create zero-header segment");
+    require(::ftruncate(fd, static_cast<off_t>(storeSize)) == 0, "failed to size zero-header segment");
+    ::close(fd);
+
+    bool rejected = false;
+    try {
+        edge_gateway::MemoryPointStore reader(
+            storeName,
+            edge_gateway::MemoryStoreOpenMode::OpenExisting
+        );
+    } catch (const std::exception&) {
+        rejected = true;
+    }
+    require(rejected, "strict reader accepted a full-size zero-header segment");
+
+    const int inspectFd = ::shm_open(normalizeName(storeName).c_str(), O_RDONLY, 0600);
+    require(inspectFd >= 0, "failed to reopen zero-header segment");
+    unsigned char header[8]{};
+    require(::read(inspectFd, header, sizeof(header)) == static_cast<ssize_t>(sizeof(header)),
+            "failed to read zero-header segment");
+    ::close(inspectFd);
+    for (const auto byte : header) {
+        require(byte == 0, "strict reader mutated the zero header");
+    }
+    unlinkSegment(storeName);
+}
+
+void verifyStrictReaderRejectsUnlinkedMapping() {
+    const std::string storeName = "gateway_memory_strict_unlink_test";
+    unlinkSegment(storeName);
+    std::unique_ptr<edge_gateway::MemoryPointStore> reader;
+    {
+        edge_gateway::MemoryPointStore writer(storeName);
+        const auto point = buildPoint();
+        writer.registerPoint("GW_TEST", "METER_TEST", point);
+        writer.putLatest(buildValue(1000));
+        reader.reset(new edge_gateway::MemoryPointStore(
+            storeName,
+            edge_gateway::MemoryStoreOpenMode::OpenExisting
+        ));
+        require(static_cast<bool>(reader->getLatestByIndex(point.index, 1000)),
+                "strict reader should see the initial value");
+    }
+
+    unlinkSegment(storeName);
+    bool rejected = false;
+    try {
+        (void)reader->getLatestByIndex(610001, 1000);
+    } catch (const std::exception&) {
+        rejected = true;
+    }
+    require(rejected, "strict reader returned stale data after shm_unlink");
+    reader.reset();
+}
+#endif
+
 }  // namespace
 
 int main() {
     try {
         verifyReaderDoesNotUnlinkNamedSegment();
         verifyReaderRemapsRecreatedNamedSegment();
+#ifndef _WIN32
+        verifyStrictReaderRejectsZeroHeaderWithoutMutatingIt();
+        verifyStrictReaderRejectsUnlinkedMapping();
+#endif
         std::cout << "memory_point_store_lifecycle_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

@@ -117,6 +117,7 @@ private:
     std::size_t maxPendingWrites_ = 4096;
     std::size_t maxPersistentSamples_ = 20000;
     std::string segmentName_;
+    MemoryStoreOpenMode openMode_ = MemoryStoreOpenMode::CreateOrOpen;
     std::uint64_t ownerId_ = 0;
     std::string ownerSource_;
     mutable void* mappingHandle_ = nullptr;
