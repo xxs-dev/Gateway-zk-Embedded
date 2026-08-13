@@ -213,6 +213,23 @@ install_file_if_exists() {
   fi
 }
 
+set_root_file_mode() {
+  path="$1"
+  mode="$2"
+  chown root:root "$path"
+  chmod "$mode" "$path"
+}
+
+install_file_with_mode_if_exists() {
+  src="$1"
+  dst="$2"
+  mode="$3"
+  if [ -f "$src" ]; then
+    install_file_if_exists "$src" "$dst"
+    set_root_file_mode "$dst" "$mode"
+  fi
+}
+
 deploy_file() {
   name="$1"
   for candidate in \
@@ -256,8 +273,7 @@ install_deploy_file_with_mode_if_exists() {
   mode="$3"
   src=$(deploy_file "$name" || true)
   [ -n "$src" ] || return 0
-  install_file_if_exists "$src" "$dst"
-  chmod "$mode" "$dst"
+  install_file_with_mode_if_exists "$src" "$dst" "$mode"
 }
 
 install_required_deploy_file_with_mode() {
@@ -269,8 +285,7 @@ install_required_deploy_file_with_mode() {
     echo "required deploy file missing: $name" >&2
     exit 2
   fi
-  install_file_if_exists "$src" "$dst"
-  chmod "$mode" "$dst"
+  install_file_with_mode_if_exists "$src" "$dst" "$mode"
 }
 
 find_first_file() {
@@ -296,7 +311,7 @@ install_required_binary() {
     echo "required binary missing: $bin" >&2
     exit 2
   }
-  install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
+  install_file_with_mode_if_exists "$src" "$GATEWAY_HOME/bin/$bin" 0755
 }
 
 install_optional_binary() {
@@ -309,7 +324,7 @@ install_optional_binary() {
     "$SOURCE_ROOT/bin/$bin" \
     "$SOURCE_ROOT/$bin" \
   ) || return 0
-  install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
+  install_file_with_mode_if_exists "$src" "$GATEWAY_HOME/bin/$bin" 0755
 }
 
 install_ky_ems_payload() {
@@ -337,7 +352,7 @@ install_ky_ems_payload() {
   fi
   mkdir -p "$GATEWAY_HOME/ky-ems"
   cp -a "$src"/. "$GATEWAY_HOME/ky-ems"/
-  chmod +x "$GATEWAY_HOME/ky-ems/KY-EMS" 2>/dev/null || true
+  set_root_file_mode "$GATEWAY_HOME/ky-ems/KY-EMS" 0755
 }
 
 manifest_profile() {
@@ -973,25 +988,23 @@ for bin in $OPTIONAL_BINS; do
   fi
 done
 
-install_required_deploy_file "gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
-install_required_deploy_file "gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
-install_required_deploy_file "gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
-install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
-install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
-install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
-install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
-install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
-install_required_deploy_file "gateway-scada-readiness.sh" "$GATEWAY_HOME/bin/gateway-scada-readiness.sh"
-install_required_deploy_file "verify-scada-active-project.py" "$GATEWAY_HOME/bin/verify-scada-active-project.py"
-install_required_deploy_file "gateway-ky-ems-readiness.sh" "$GATEWAY_HOME/bin/gateway-ky-ems-readiness.sh"
-install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
-install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"
+install_required_deploy_file_with_mode "gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh" 0755
+install_required_deploy_file_with_mode "gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh" 0755
+install_required_deploy_file_with_mode "gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh" 0755
+install_required_deploy_file_with_mode "install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh" 0755
+install_required_deploy_file_with_mode "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh" 0755
+install_required_deploy_file_with_mode "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh" 0755
+install_required_deploy_file_with_mode "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh" 0755
+install_required_deploy_file_with_mode "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh" 0755
+install_required_deploy_file_with_mode "gateway-scada-readiness.sh" "$GATEWAY_HOME/bin/gateway-scada-readiness.sh" 0755
+install_required_deploy_file_with_mode "verify-scada-active-project.py" "$GATEWAY_HOME/bin/verify-scada-active-project.py" 0755
+install_required_deploy_file_with_mode "gateway-ky-ems-readiness.sh" "$GATEWAY_HOME/bin/gateway-ky-ems-readiness.sh" 0755
+install_deploy_file_with_mode_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh" 0755
+install_deploy_file_with_mode_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh" 0755
 if [ ! -f "$SYSTEM_DEFAULT_DIR/gateway-network-failover" ]; then
   install_deploy_file_with_mode_if_exists "gateway-network-failover.default" "$SYSTEM_DEFAULT_DIR/gateway-network-failover" 0644
 fi
-install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
-chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
-chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
+install_deploy_file_with_mode_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py" 0755
 
 EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"

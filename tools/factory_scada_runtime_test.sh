@@ -27,10 +27,10 @@ mkdir -p "$PAYLOAD_ROOT/build-aarch64" "$PAYLOAD_ROOT/ky-ems" "$MOCK_BIN"
 for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine \
   EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl LocalDisplay QtDisplayBridge CameraService stress_runner; do
   printf '#!/bin/sh\nexit 0\n' >"$PAYLOAD_ROOT/build-aarch64/$bin"
-  chmod +x "$PAYLOAD_ROOT/build-aarch64/$bin"
+  chmod 0755 "$PAYLOAD_ROOT/build-aarch64/$bin"
 done
 printf '#!/bin/sh\nexit 0\n' >"$PAYLOAD_ROOT/ky-ems/KY-EMS"
-chmod +x "$PAYLOAD_ROOT/ky-ems/KY-EMS"
+chmod 0755 "$PAYLOAD_ROOT/ky-ems/KY-EMS"
 
 if [ -n "$FIXED_SCADA_INPUT" ]; then
   [ -f "$FIXED_SCADA_INPUT" ] || {
@@ -509,7 +509,17 @@ run_install() {
     sh "$PACKAGE_ROOT/deploy/install-factory-config.sh"
   )
 
-  [ -x "$gateway_home/bin/gateway-ky-ems-readiness.sh" ]
+  for executable in "$gateway_home/bin"/* "$gateway_home/ky-ems/KY-EMS"; do
+    [ -f "$executable" ] || {
+      echo "expected installed executable is missing: $executable" >&2
+      exit 1
+    }
+    owner_mode="$(stat -c '%U:%G %a' "$executable")"
+    [ "$owner_mode" = "root:root 755" ] || {
+      echo "installed executable metadata is not root:root 0755: $executable ($owner_mode)" >&2
+      exit 1
+    }
+  done
   for unit in "$systemd_root/system"/*.service; do
     [ "$(stat -c '%a' "$unit")" = "644" ] || {
       echo "systemd unit mode is not 0644: $unit" >&2
@@ -550,8 +560,8 @@ assert expected["checksumCount"] > 0
 PY
 }
 
-run_install 022
 run_install 077
+run_install 022
 
 ALLOW_DIRTY_SOURCE=1 \
 FACTORY_BINARY_SOURCE_DIR="$PAYLOAD_ROOT/build-aarch64" \
