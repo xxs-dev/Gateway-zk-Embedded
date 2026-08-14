@@ -28,7 +28,7 @@
 - Java 多接口批量配置页面已支持 `can_socketcan`，可配置 CAN 接口参数、逻辑设备、在线帧和 CAN 点表。
 - 测点 Excel 模板已补充 CAN 读写字段；导入时如填写 `readCanFrameId` 或 `writeCanFrameId`，会生成 `read.can` 或 `write.can`。
 - 示例文件已新增 `config/examples/device_can0_example.json`。
-- Win 端通用设备点表模板已支持按协议文档生成 CAN 全量点位。正华同安复合探测器、优旦 BMS EMS CAN、盛弘 BMS-PCS CAN、华塑 BMS-PCS CAN2.0 模板会生成 `protocol.can`、`read.can`、`write.can`、`meters[].onlineFrameIds` 和必要的 `startupWrites`。正华同安复合探测器默认启动写入自动上传周期 `1s`，避免现场必须人工下发频率后设备才开始主动上报。
+- Win 端通用设备点表模板已支持按协议文档生成 CAN 全量点位。正华同安复合探测器、优旦 BMS EMS CAN、盛弘 BMS-PCS CAN、华塑 BMS-PCS CAN2.0 模板会生成 `protocol.can`、`read.can`、`write.can`、`meters[].onlineFrameIds`，并仅在设备确实需要时生成 `startupWrites`。EMS 项目的正华同安复合探测器由现场一次性设置自动上传周期，服务启动时只接收主动上报，不重复下发设置命令。
 
 已验证：
 
@@ -437,12 +437,14 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
 
 部分 CAN 设备默认不会主动上报，必须先设置上传周期或订阅参数。为了避免现场每次重启后都要人工下发频率，CAN 配置支持顶层 `startupWrites[]`。
 
+该能力不是 EMS 的默认行为。设备已经由调试人员完成一次性设置时，应配置为 `"startupWrites": []`。`COMM202600105` 的正华同安复合探测器已手动设置自动上传周期，EMS 服务启动和重启时只接收主动上报，不得再次写入上传周期。
+
 ```json
 {
   "startupWrites": [
     {
-      "pointCode": "fire_detector_auto_upload_period",
-      "meterCode": "CAN1_ZH_DET_001",
+      "pointCode": "sensor_report_period",
+      "meterCode": "CAN_SENSOR_001",
       "value": 1,
       "enabled": true,
       "delayMs": 300,

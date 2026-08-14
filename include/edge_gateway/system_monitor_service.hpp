@@ -134,6 +134,7 @@ private:
     void handleConfigFileOperationRequest(const std::string& payload, std::int64_t nowMs, const std::string& operation);
     Sample collectSample() const;
     Sample::CellularStatus collectCellularStatus(std::int64_t nowMs) const;
+    void publishCellularPoints(const Sample::CellularStatus& cellular, std::int64_t nowMs);
     void publishTelemetry(const Sample& sample, std::int64_t nowMs);
     void evaluateAlerts(const Sample& sample, std::int64_t nowMs);
     void publishAlert(

@@ -447,7 +447,16 @@ case "$PACKAGE_PROFILE" in
   *) echo "invalid package profile: $PACKAGE_PROFILE" >&2; exit 2 ;;
 esac
 
-verify_manifest_components "$EDGE_PACKAGE_MANIFEST" "$PACKAGE_ROOT"
+COMPONENT_PAYLOAD_ROOT=$(pick_source_root \
+  "$PACKAGE_ROOT" \
+  "$SOURCE_ROOT" \
+  "$DEFAULT_SOURCE_ROOT" \
+  "$ROOT_DIR" || true)
+if [ -z "$COMPONENT_PAYLOAD_ROOT" ]; then
+  echo "package payload root not found for component verification" >&2
+  exit 2
+fi
+verify_manifest_components "$EDGE_PACKAGE_MANIFEST" "$COMPONENT_PAYLOAD_ROOT"
 
 json_string_value() {
   file="$1"

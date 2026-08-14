@@ -22,7 +22,8 @@ Profiles:
   project  Package base components plus drivers listed in edge-package-manifest.json.
   full     Package all current drivers and tools; default for backward compatibility.
 
-All current driver binaries are recorded as version 1.0 in the generated manifest.
+Components default to version 1.0. A project manifest may declare a component-specific
+version, for example KY-EMS 2.0.9-compact, and that version is preserved.
 EOF
 }
 
@@ -152,6 +153,19 @@ try:
 except FileNotFoundError:
     manifest = {}
 
+declared_versions = {}
+for key in ("requiredDrivers", "components", "runtimeComponents"):
+    for item in manifest.get(key) or []:
+        if not isinstance(item, dict):
+            continue
+        binary = str(item.get("binary") or item.get("name") or item.get("id") or "").strip()
+        version = str(item.get("version") or "").strip()
+        if binary and version and binary not in declared_versions:
+            declared_versions[binary] = version
+
+def component_version_for(binary):
+    return declared_versions.get(binary, component_version)
+
 required = list(dict.fromkeys(required_raw.split()))
 packaged = list(dict.fromkeys(packaged_raw.split()))
 components = []
@@ -167,7 +181,7 @@ for binary in packaged:
     components.append({
         "binary": binary,
         "name": binary,
-        "version": component_version,
+        "version": component_version_for(binary),
         "required": binary in required,
         "path": relative.replace(os.sep, "/"),
         "sizeBytes": os.path.getsize(path),
@@ -184,7 +198,7 @@ manifest.update({
     "sourceDirty": source_dirty_raw == "true",
     "toolchain": toolchain_id,
     "requiredDrivers": [
-        {"binary": binary, "name": binary, "version": component_version}
+        {"binary": binary, "name": binary, "version": component_version_for(binary)}
         for binary in required
     ],
     "components": components,

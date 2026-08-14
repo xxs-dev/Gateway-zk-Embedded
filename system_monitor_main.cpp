@@ -16,6 +16,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
+#include "edge_gateway/system_monitor_points.hpp"
 #include "edge_gateway/system_monitor_runtime_discovery.hpp"
 #include "edge_gateway/system_monitor_service.hpp"
 
@@ -161,6 +162,10 @@ int main(int argc, char* argv[]) {
     for (const auto& cameraService : runtimeDependencies.cameraServices) {
         router.addRoutesFromCameraServiceConfig(cameraService, machineCode);
     }
+    stores.emplace_back(new MemoryPointStore(system_monitor_points::kSharedMemoryName));
+    router.addStore(system_monitor_points::kSharedMemoryName, *stores.back());
+    system_monitor_points::registerStorePoints(*stores.back(), machineCode);
+    system_monitor_points::addRoutes(router, machineCode);
 
     if (!machineCode.empty()) {
         appConfig.mqtt.topicMachineCode = machineCode;

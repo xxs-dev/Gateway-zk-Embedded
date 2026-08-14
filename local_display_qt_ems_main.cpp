@@ -25,11 +25,13 @@
 #include <QColor>
 #include <QDateTime>
 #include <QFrame>
+#include <QGuiApplication>
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScreen>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
@@ -40,8 +42,10 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/scada_project_loader.hpp"
 #include "edge_gateway/scada_runtime_map.hpp"
+#include "edge_gateway/system_monitor_points.hpp"
 #include "local_display_qt_scada_scene.hpp"
 
 namespace {
@@ -65,6 +69,32 @@ void setProcessName(const std::string& name) {
 #else
     (void)name;
 #endif
+}
+
+void showRuntimeWindow(QWidget& window, bool fullscreen) {
+    if (!fullscreen) {
+        window.resize(1280, 720);
+        window.show();
+        return;
+    }
+
+    window.setWindowFlag(Qt::FramelessWindowHint, true);
+    QScreen* screen = QGuiApplication::primaryScreen();
+    if (screen != nullptr) {
+        window.setGeometry(screen->geometry());
+    }
+    window.show();
+
+    // With no desktop window manager, showFullScreen() can leave an X11
+    // top-level window at its 200x100 size hint. Reapply the screen geometry
+    // after the first event-loop turn so kiosk sessions remain truly full-screen.
+    QTimer::singleShot(0, &window, [&window, screen]() {
+        if (screen != nullptr) {
+            window.setGeometry(screen->geometry());
+        }
+        window.raise();
+        window.activateWindow();
+    });
 }
 
 QString qs(const std::string& value) {
@@ -219,6 +249,7 @@ std::vector<std::string> collectSharedMemoryNames(
     for (const auto& config : deviceConfigs) {
         addName(config.memoryStore.sharedMemoryName);
     }
+    addName(edge_gateway::system_monitor_points::kSharedMemoryName);
     if (names.empty()) {
         addName("gateway_point_store");
     }
@@ -249,8 +280,13 @@ public:
     EdgeScadaRuntimeSource(
         const edge_gateway::ScadaProject& project,
         std::string machineCode,
-        edge_gateway::PointStoreRouter& router
-    ) : runtime_(project, std::move(machineCode), router) {}
+        edge_gateway::PointStoreRouter& router,
+        std::string priorityControlLeaseFile,
+        int priorityControlLeaseTtlMs
+    ) : router_(router),
+        runtime_(project, std::move(machineCode), router),
+        priorityControlLease_(std::move(priorityControlLeaseFile), "local-display-scada"),
+        priorityControlLeaseTtlMs_(std::max(1000, priorityControlLeaseTtlMs)) {}
 
     const std::string& nodeId() const override {
         return runtime_.resolver().nodeId();
@@ -259,7 +295,17 @@ public:
     edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
         const auto resolved = runtime_.resolver().resolveTag(tagId);
         if (!resolved) return edge_gateway::NullOpt;
-        return ScadaSceneResolvedTag{resolved->tag, resolved->mapping};
+        ScadaSceneResolvedTag result{resolved->tag, resolved->mapping};
+        const auto route = router_.routeByLocation(
+            resolved->mapping.sharedMemoryName,
+            resolved->mapping.index
+        );
+        if (route) {
+            result.writeMinValue = route->write.minValue;
+            result.writeMaxValue = route->write.maxValue;
+            result.writeStep = route->write.step;
+        }
+        return result;
     }
 
     edge_gateway::Optional<edge_gateway::StoredPointValue> readTag(
@@ -280,12 +326,70 @@ public:
         const std::string& tagId,
         edge_gateway::PendingWriteCommand command
     ) override {
+        const auto resolved = runtime_.resolver().resolveTag(tagId);
+        if (!resolved) return {false, "SCADA control tag or runtime mapping is missing"};
+        const auto leaseResult = acquirePriorityLease(command, *resolved);
+        if (!leaseResult.accepted) return leaseResult;
+        const auto cmdId = command.cmdId;
         const auto result = runtime_.submitWrite(tagId, std::move(command));
+        if (!result.accepted && leaseResult.message == "priority lease acquired") {
+            priorityControlLease_.release(cmdId);
+        }
         return {result.accepted, result.message};
     }
 
+    ScadaSceneWriteResult submitWriteGroup(
+        const std::vector<ScadaSceneWriteTarget>& targets,
+        edge_gateway::PendingWriteCommand command
+    ) override {
+        if (targets.empty()) return {false, "SCADA write group is empty"};
+        const auto first = runtime_.resolver().resolveTag(targets.front().tagId);
+        if (!first) return {false, "SCADA control tag or runtime mapping is missing"};
+        const auto leaseResult = acquirePriorityLease(command, *first);
+        if (!leaseResult.accepted) return leaseResult;
+
+        std::vector<edge_gateway::ScadaWriteTarget> mappedTargets;
+        mappedTargets.reserve(targets.size());
+        for (const auto& target : targets) mappedTargets.push_back({target.tagId, target.value});
+        const auto result = runtime_.submitWriteGroup(mappedTargets, command);
+        if (!result.accepted && leaseResult.message == "priority lease acquired") {
+            priorityControlLease_.release(command.cmdId);
+        }
+        return {result.accepted, result.message};
+    }
+
+    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(
+        const std::string& tagId,
+        const std::string& cmdId
+    ) const override {
+        return runtime_.getWritebackResult(tagId, cmdId);
+    }
+
 private:
+    ScadaSceneWriteResult acquirePriorityLease(
+        const edge_gateway::PendingWriteCommand& command,
+        const edge_gateway::ScadaResolvedTag& resolved
+    ) {
+        if (!command.highPriority) return {true, "normal priority"};
+        const auto timestamp = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
+        const auto active = priorityControlLease_.activeLease(timestamp);
+        if (active && active->cmdId != command.cmdId) {
+            return {false, "priority control in progress"};
+        }
+        priorityControlLease_.acquire(
+            command.cmdId,
+            resolved.tag.meterCode,
+            resolved.mapping.index,
+            timestamp,
+            priorityControlLeaseTtlMs_
+        );
+        return {true, "priority lease acquired"};
+    }
+
+    edge_gateway::PointStoreRouter& router_;
     edge_gateway::ScadaRuntimeMap runtime_;
+    edge_gateway::PriorityControlLease priorityControlLease_;
+    int priorityControlLeaseTtlMs_ = 30000;
 };
 
 class EmsQtWindow : public QWidget {
@@ -761,6 +865,7 @@ int main(int argc, char* argv[]) {
         const auto machineCode = resolveMachineCode(identity, appConfig, deviceConfigs);
         router.addRoutesFromDeviceConfigs(deviceConfigs, fallbackSharedMemoryName);
         router.addRoutesFromCameraServiceConfig(appConfig.cameraService, machineCode);
+        edge_gateway::system_monitor_points::addRoutes(router, machineCode);
         const auto pointMeta = buildPointMeta(deviceConfigs, fallbackSharedMemoryName);
 
         QApplication app(argc, argv);
@@ -771,18 +876,19 @@ int main(int argc, char* argv[]) {
                     ? appConfig.localDisplay.refreshIntervalMs
                     : refreshMs,
                 appConfig.localDisplay.scada.autoReload,
-                [&machineCode, &router](const edge_gateway::ScadaProject& project) {
+                [&machineCode, &router, &appConfig](const edge_gateway::ScadaProject& project) {
                     return std::unique_ptr<ScadaSceneRuntimeSource>(
-                        new EdgeScadaRuntimeSource(project, machineCode, router)
+                        new EdgeScadaRuntimeSource(
+                            project,
+                            machineCode,
+                            router,
+                            appConfig.mqttDriver.priorityControlLeaseFile,
+                            appConfig.mqttDriver.priorityControlLeaseTtlMs
+                        )
                     );
                 }
             );
-            if (fullscreen) {
-                window.showFullScreen();
-            } else {
-                window.resize(1280, 720);
-                window.show();
-            }
+            showRuntimeWindow(window, fullscreen);
             return app.exec();
         }
 
@@ -794,12 +900,7 @@ int main(int argc, char* argv[]) {
             refreshMs,
             maxPoints
         );
-        if (fullscreen) {
-            window.showFullScreen();
-        } else {
-            window.resize(1280, 720);
-            window.show();
-        }
+        showRuntimeWindow(window, fullscreen);
         return app.exec();
     } catch (const std::exception& ex) {
         std::cerr << "local EMS Qt display failed: " << ex.what() << std::endl;

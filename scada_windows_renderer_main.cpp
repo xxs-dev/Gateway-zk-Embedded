@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
+#include <deque>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -78,6 +80,10 @@ public:
         edge_gateway::PendingWriteCommand command
     ) {
         command.index = resolved.mapping.index;
+        {
+            std::lock_guard<std::mutex> lock(resultsMutex_);
+            pendingResultIndexes_[command.cmdId].push_back(command.index);
+        }
         QJsonObject message;
         message.insert(QStringLiteral("type"), QStringLiteral("control"));
         message.insert(QStringLiteral("requestId"), QString::fromStdString(command.cmdId));
@@ -92,6 +98,17 @@ public:
         message.insert(QStringLiteral("ts"), static_cast<qint64>(command.ts));
         writeMessage(message);
         return {true, "control submitted to GatewayDesktop host"};
+    }
+
+    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(
+        const std::string& cmdId,
+        std::uint32_t index
+    ) const {
+        std::lock_guard<std::mutex> lock(resultsMutex_);
+        const auto item = writebackResults_.find(resultKey(cmdId, index));
+        return item == writebackResults_.end()
+            ? edge_gateway::Optional<edge_gateway::WritebackResultRecord>(edge_gateway::NullOpt)
+            : edge_gateway::Optional<edge_gateway::WritebackResultRecord>(item->second);
     }
 
     void acceptInput(const std::string& line) {
@@ -118,7 +135,11 @@ public:
             writeMessage(reply);
             return;
         }
-        if (type != QStringLiteral("controlResult") && !type.isEmpty()) {
+        if (type == QStringLiteral("controlResult")) {
+            acceptControlResult(root);
+            return;
+        }
+        if (!type.isEmpty()) {
             writeProtocolError("unsupported_message", type.toStdString());
         }
     }
@@ -136,6 +157,45 @@ public:
     }
 
 private:
+    static std::string resultKey(const std::string& cmdId, std::uint32_t index) {
+        return cmdId + '\x1f' + std::to_string(index);
+    }
+
+    static QJsonValue valueFor(const QJsonObject& object, const char* lower, const char* upper) {
+        const auto lowerValue = object.value(QString::fromLatin1(lower));
+        return lowerValue.isUndefined() ? object.value(QString::fromLatin1(upper)) : lowerValue;
+    }
+
+    void acceptControlResult(const QJsonObject& root) {
+        const auto cmdId = root.value(QStringLiteral("requestId")).toString().toStdString();
+        if (cmdId.empty()) return;
+
+        std::uint32_t index = 0;
+        {
+            std::lock_guard<std::mutex> lock(resultsMutex_);
+            auto pending = pendingResultIndexes_.find(cmdId);
+            if (pending == pendingResultIndexes_.end() || pending->second.empty()) return;
+            index = pending->second.front();
+            pending->second.pop_front();
+            if (pending->second.empty()) pendingResultIndexes_.erase(pending);
+
+            edge_gateway::WritebackResultRecord result;
+            result.cmdId = cmdId;
+            result.index = index;
+            result.value = valueFor(root, "value", "Value").toDouble();
+            result.success = root.value(QStringLiteral("success")).toBool(false);
+            result.stage = valueFor(root, "stage", "Stage").toString().toStdString();
+            result.message = valueFor(root, "message", "Message").toString().toStdString();
+            result.queueDelayMs = static_cast<std::int64_t>(valueFor(root, "queueDelayMs", "QueueDelayMs").toDouble());
+            result.deviceWriteMs = static_cast<std::int64_t>(valueFor(root, "deviceWriteMs", "DeviceWriteMs").toDouble());
+            result.edgeElapsedMs = static_cast<std::int64_t>(valueFor(root, "edgeElapsedMs", "EdgeElapsedMs").toDouble());
+            result.totalElapsedMs = static_cast<std::int64_t>(valueFor(root, "totalElapsedMs", "TotalElapsedMs").toDouble());
+            result.verifyAttempted = valueFor(root, "verifyAttempted", "VerifyAttempted").toBool(false);
+            result.verifyPassed = valueFor(root, "verifyPassed", "VerifyPassed").toBool(false);
+            writebackResults_[resultKey(cmdId, index)] = std::move(result);
+        }
+    }
+
     void applyPointBatch(const QJsonArray& points) {
         std::lock_guard<std::mutex> lock(valuesMutex_);
         for (const auto& item : points) {
@@ -176,9 +236,12 @@ private:
     std::string machineCode_;
     mutable std::mutex valuesMutex_;
     mutable std::mutex subscriptionMutex_;
+    mutable std::mutex resultsMutex_;
     std::mutex outputMutex_;
     std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> values_;
     std::vector<std::uint32_t> subscription_;
+    std::unordered_map<std::string, std::deque<std::uint32_t>> pendingResultIndexes_;
+    std::unordered_map<std::string, edge_gateway::WritebackResultRecord> writebackResults_;
 };
 
 class BridgeRuntimeSource final : public ScadaSceneRuntimeSource {
@@ -209,7 +272,13 @@ public:
         const auto tag = tags_.find(tagId);
         const auto mapping = mappings_.find(tagId);
         if (tag == tags_.end() || mapping == mappings_.end()) return edge_gateway::NullOpt;
-        return ScadaSceneResolvedTag{tag->second, mapping->second};
+        return ScadaSceneResolvedTag{
+            tag->second,
+            mapping->second,
+            edge_gateway::NullOpt,
+            edge_gateway::NullOpt,
+            0.0
+        };
     }
 
     edge_gateway::Optional<edge_gateway::StoredPointValue> readTag(
@@ -240,6 +309,40 @@ public:
         return hub_->submit(*resolved, std::move(command));
     }
 
+    ScadaSceneWriteResult submitWriteGroup(
+        const std::vector<ScadaSceneWriteTarget>& targets,
+        edge_gateway::PendingWriteCommand command
+    ) override {
+        if (targets.empty()) return {false, "SCADA write group is empty"};
+        std::vector<std::pair<ScadaSceneResolvedTag, double>> resolvedTargets;
+        resolvedTargets.reserve(targets.size());
+        for (const auto& target : targets) {
+            const auto resolved = resolveTag(target.tagId);
+            if (!resolved) return {false, "SCADA control tag or runtime mapping is missing"};
+            if (resolved->tag.access == edge_gateway::ScadaTagAccess::Read || !resolved->mapping.writable) {
+                return {false, "SCADA tag is read-only"};
+            }
+            resolvedTargets.push_back({*resolved, target.value});
+        }
+        for (const auto& target : resolvedTargets) {
+            auto item = command;
+            item.value = target.second;
+            const auto submitted = hub_->submit(target.first, std::move(item));
+            if (!submitted.accepted) return submitted;
+        }
+        return {true, "control group submitted to GatewayDesktop host"};
+    }
+
+    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(
+        const std::string& tagId,
+        const std::string& cmdId
+    ) const override {
+        const auto resolved = resolveTag(tagId);
+        return resolved
+            ? hub_->getWritebackResult(cmdId, resolved->mapping.index)
+            : edge_gateway::Optional<edge_gateway::WritebackResultRecord>(edge_gateway::NullOpt);
+    }
+
 private:
     std::string machineCode_;
     std::string nodeId_;
@@ -251,7 +354,8 @@ private:
 void printUsage(const char* executable) {
     std::cout << "usage: " << executable
               << " --project-dir <directory> --machine-code <code>"
-              << " [--fullscreen] [--refresh-ms 500] [--auto-reload] [--screenshot <png>]"
+              << " [--screen-id <id>] [--fullscreen] [--refresh-ms 500] [--auto-reload] [--screenshot <png>]"
+              << "\nProtected screenshots read KY_SCADA_RENDER_USERNAME and KY_SCADA_RENDER_PASSWORD from the environment."
               << std::endl;
 }
 
@@ -264,6 +368,7 @@ int main(int argc, char* argv[]) {
     bool fullscreen = false;
     bool autoReload = false;
     std::string screenshotPath;
+    std::string screenId;
 
     try {
         for (int index = 1; index < argc; ++index) {
@@ -278,6 +383,7 @@ int main(int argc, char* argv[]) {
             else if (argument == "--fullscreen") fullscreen = true;
             else if (argument == "--auto-reload") autoReload = true;
             else if (argument == "--screenshot") screenshotPath = requireValue(argument);
+            else if (argument == "--screen-id") screenId = requireValue(argument);
             else if (argument == "--help" || argument == "-h") {
                 printUsage(argv[0]);
                 return 0;
@@ -304,23 +410,71 @@ int main(int argc, char* argv[]) {
             }
         );
         std::cerr << "renderer stage=project-ready screens=" << window.project().screens.size() << std::endl;
-        std::thread([hub]() {
-            std::string line;
-            while (std::getline(std::cin, line)) {
-                if (!line.empty()) hub->acceptInput(line);
+        int screenshotWidth = 1920;
+        int screenshotHeight = 1080;
+        if (!screenId.empty()) {
+            const auto screen = std::find_if(
+                window.project().screens.begin(),
+                window.project().screens.end(),
+                [&](const auto& item) { return item.screenId == screenId; }
+            );
+            if (screen == window.project().screens.end()) {
+                throw std::runtime_error("SCADA screen does not exist: " + screenId);
             }
-            QMetaObject::invokeMethod(qApp, []() { qApp->quit(); }, Qt::QueuedConnection);
-        }).detach();
+            if (!screenshotPath.empty() && window.screenRequiresLocalAuthentication(screenId)) {
+                const auto* usernameValue = std::getenv("KY_SCADA_RENDER_USERNAME");
+                const auto* passwordValue = std::getenv("KY_SCADA_RENDER_PASSWORD");
+                if (passwordValue == nullptr || *passwordValue == '\0') {
+                    throw std::runtime_error("protected screenshot requires KY_SCADA_RENDER_PASSWORD");
+                }
+                std::string message;
+                if (!window.authenticateLocalAccess(
+                    usernameValue == nullptr || *usernameValue == '\0' ? "operator" : usernameValue,
+                    passwordValue,
+                    &message
+                )) {
+                    throw std::runtime_error("protected screenshot login failed: " + message);
+                }
+            }
+            window.showScreen(screenId);
+            screenshotWidth = static_cast<int>(screen->width);
+            screenshotHeight = static_cast<int>(screen->height);
+        } else if (!window.project().screens.empty()) {
+            screenshotWidth = static_cast<int>(window.project().screens.front().width);
+            screenshotHeight = static_cast<int>(window.project().screens.front().height);
+        }
+        if (screenshotPath.empty()) {
+            std::thread([hub]() {
+                std::string line;
+                while (std::getline(std::cin, line)) {
+                    if (!line.empty()) hub->acceptInput(line);
+                }
+                QMetaObject::invokeMethod(qApp, []() { qApp->quit(); }, Qt::QueuedConnection);
+            }).detach();
+        }
 
-        if (fullscreen) window.showFullScreen();
+        if (!screenshotPath.empty()) {
+            window.setWindowFlag(Qt::FramelessWindowHint, true);
+            window.resize(screenshotWidth, screenshotHeight);
+            window.show();
+        } else if (fullscreen) window.showFullScreen();
         else {
             window.resize(1280, 720);
             window.showMaximized();
         }
         hub->writeReady(window.project());
         if (!screenshotPath.empty()) {
-            QTimer::singleShot(750, &window, [&window, screenshotPath]() {
-                if (!window.grab().save(QString::fromStdString(screenshotPath))) {
+            QTimer::singleShot(750, &window, [&window, screenshotPath, screenshotWidth, screenshotHeight]() {
+                auto screenshot = window.grab();
+                if (screenshot.width() != screenshotWidth || screenshot.height() != screenshotHeight) {
+                    screenshot = screenshot.scaled(
+                        screenshotWidth,
+                        screenshotHeight,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation
+                    );
+                }
+                if (!screenshot.save(QString::fromStdString(screenshotPath))) {
                     std::cerr << "failed to save SCADA screenshot: " << screenshotPath << std::endl;
                 }
                 qApp->quit();

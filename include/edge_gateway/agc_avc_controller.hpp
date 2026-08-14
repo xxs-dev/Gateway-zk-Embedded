@@ -100,6 +100,9 @@ struct AgcAvcCycleOutput {
     double availableReactivePowerKvar = 0.0;
     double unservedActivePowerKw = 0.0;
     double unservedReactivePowerKvar = 0.0;
+    double primaryActivePowerKw = 0.0;
+    double batteryActivePowerKw = 0.0;
+    int limitationFlags = 0;
     int lastWriteStatus = 0;
     int consecutiveWriteFailures = 0;
     std::vector<AgcAvcPcsAssignment> pcs;

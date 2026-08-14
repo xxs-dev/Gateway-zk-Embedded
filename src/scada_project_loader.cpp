@@ -352,10 +352,6 @@ double numberValue(const JsonValue& object, const char* key, double fallback = 0
     return requireType(value, JsonValue::Type::Number, key).numberValue;
 }
 
-const std::vector<JsonValue>& arrayValue(const JsonValue& object, const char* key) {
-    return requireType(object.find(key), JsonValue::Type::Array, key).arrayValue;
-}
-
 std::vector<std::string> stringArray(const JsonValue& object, const char* key) {
     std::vector<std::string> result;
     const auto* value = object.find(key);
@@ -392,6 +388,34 @@ ScadaManifest parseManifest(const JsonValue& root) {
     result.packageVersion = stringValue(root, "packageVersion", result.packageVersion);
     result.entryScreen = stringValue(root, "entryScreen");
     result.packageRole = stringValue(root, "packageRole", result.packageRole);
+    return result;
+}
+
+ScadaPermissions parsePermissions(const JsonValue& root) {
+    requireType(&root, JsonValue::Type::Object, "permissions");
+    ScadaPermissions result;
+    result.roles = stringArray(root, "roles");
+    const auto* localAccess = root.find("localAccess");
+    if (localAccess == nullptr || localAccess->type == JsonValue::Type::Null) return result;
+
+    requireType(localAccess, JsonValue::Type::Object, "localAccess");
+    result.localAccess.sessionTimeoutSeconds = static_cast<int>(numberValue(
+        *localAccess,
+        "sessionTimeoutSeconds",
+        result.localAccess.sessionTimeoutSeconds
+    ));
+    result.localAccess.protectedScreenPrefixes = stringArray(*localAccess, "protectedScreenPrefixes");
+    const auto* users = localAccess->find("users");
+    if (users == nullptr || users->type == JsonValue::Type::Null) return result;
+    for (const auto& item : requireType(users, JsonValue::Type::Array, "users").arrayValue) {
+        requireType(&item, JsonValue::Type::Object, "local access user");
+        ScadaLocalAccessUser user;
+        user.username = stringValue(item, "username");
+        user.salt = stringValue(item, "salt");
+        user.passwordSha256 = stringValue(item, "passwordSha256");
+        user.roles = stringArray(item, "roles");
+        result.localAccess.users.push_back(std::move(user));
+    }
     return result;
 }
 
@@ -676,6 +700,10 @@ ScadaProject ScadaProjectLoader::loadFromDirectory(const std::string& directory)
     if (isRegularFile(trendsPath)) {
         project.trends = parseTrends(readJson(trendsPath));
     }
+    const auto permissionsPath = joinPath(directory, "permissions.json");
+    if (isRegularFile(permissionsPath)) {
+        project.permissions = parsePermissions(readJson(permissionsPath));
+    }
 
     const auto screensDirectory = joinPath(directory, "screens");
     if (isDirectory(screensDirectory)) {
@@ -782,6 +810,56 @@ void ScadaProjectLoader::validate(const ScadaProject& project) {
         }
     }
 
+    const auto validHex = [](const std::string& value, std::size_t expectedSize) {
+        return value.size() == expectedSize && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+        });
+    };
+    const auto& localAccess = project.permissions.localAccess;
+    if (localAccess.protectedScreenPrefixes.empty() != localAccess.users.empty()) {
+        throw std::runtime_error("SCADA local access must define both protected screens and users");
+    }
+    if (localAccess.enabled()) {
+        if (localAccess.sessionTimeoutSeconds < 60 || localAccess.sessionTimeoutSeconds > 86400) {
+            throw std::runtime_error("SCADA local access session timeout is out of range");
+        }
+        std::unordered_set<std::string> declaredRoles(
+            project.permissions.roles.begin(),
+            project.permissions.roles.end()
+        );
+        std::unordered_set<std::string> prefixes;
+        for (const auto& prefix : localAccess.protectedScreenPrefixes) {
+            if (!stableId(prefix) || !prefixes.insert(prefix).second) {
+                throw std::runtime_error("invalid or duplicate SCADA protected screen prefix: " + prefix);
+            }
+        }
+        std::unordered_set<std::string> usernames;
+        for (const auto& user : localAccess.users) {
+            if (!stableId(user.username) || !usernames.insert(user.username).second) {
+                throw std::runtime_error("invalid or duplicate SCADA local username: " + user.username);
+            }
+            if (!validHex(user.salt, 32) || !validHex(user.passwordSha256, 64)) {
+                throw std::runtime_error("invalid SCADA local password record: " + user.username);
+            }
+            if (user.roles.empty()) {
+                throw std::runtime_error("SCADA local user has no role: " + user.username);
+            }
+            for (const auto& role : user.roles) {
+                if (declaredRoles.count(role) == 0) {
+                    throw std::runtime_error("SCADA local user references undeclared role: " + role);
+                }
+            }
+        }
+    }
+
+    const auto screenProtected = [&](const std::string& screenId) {
+        return std::any_of(
+            localAccess.protectedScreenPrefixes.begin(),
+            localAccess.protectedScreenPrefixes.end(),
+            [&](const std::string& prefix) { return screenId.compare(0, prefix.size(), prefix) == 0; }
+        );
+    };
+
     std::unordered_set<std::string> screenIds;
     for (const auto& screen : project.screens) {
         if (!stableId(screen.screenId) || screen.width <= 0 || screen.height <= 0) throw std::runtime_error("invalid SCADA screen");
@@ -820,6 +898,9 @@ void ScadaProjectLoader::validate(const ScadaProject& project) {
                 throw std::runtime_error("unsupported SCADA action type: " + widget.action.type);
             }
             if (controlAction) {
+                if (localAccess.enabled() && !screenProtected(screen.screenId)) {
+                    throw std::runtime_error("SCADA control action is outside a protected screen: " + screen.screenId);
+                }
                 const auto actionTag = tags.find(tagKey(widget.action.nodeId, widget.action.tagId));
                 if (actionTag == tags.end()) throw std::runtime_error("SCADA action references unknown tag");
                 if (actionTag->second->access == ScadaTagAccess::Read) throw std::runtime_error("SCADA action targets read-only tag");
@@ -828,6 +909,18 @@ void ScadaProjectLoader::validate(const ScadaProject& project) {
                     throw std::runtime_error("invalid SCADA setpoint value");
                 }
             }
+            if (localAccess.enabled() && widget.type == "pcsPhasePowerControl" &&
+                !screenProtected(screen.screenId)) {
+                throw std::runtime_error("SCADA PCS control is outside a protected screen: " + screen.screenId);
+            }
+        }
+    }
+    if (localAccess.enabled()) {
+        for (const auto& prefix : localAccess.protectedScreenPrefixes) {
+            const auto matched = std::any_of(screenIds.begin(), screenIds.end(), [&](const std::string& screenId) {
+                return screenId.compare(0, prefix.size(), prefix) == 0;
+            });
+            if (!matched) throw std::runtime_error("SCADA protected screen prefix matches no screen: " + prefix);
         }
     }
     if (!project.manifest.entryScreen.empty() && screenIds.count(project.manifest.entryScreen) == 0) {

@@ -1,8 +1,12 @@
+#include <chrono>
+#include <cstdio>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "edge_gateway/compute_engine_service.hpp"
@@ -93,11 +97,67 @@ void testRuleBudgetUsesRoundRobinFairness() {
     MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void testHealthReportContainsDetailedMetrics() {
+    const std::string storeName = "compute_engine_service_health_test";
+    const std::string healthFile = "/tmp/compute_engine_service_health_test.json";
+    std::remove(healthFile.c_str());
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    MemoryStoreConfig storeConfig;
+    storeConfig.sharedMemoryName = storeName;
+    storeConfig.maxLatestPoints = 8;
+    std::unique_ptr<MemoryPointStore> store(new MemoryPointStore(storeConfig));
+
+    PointStoreRouter router;
+    router.addStore(storeName, *store);
+    PointStoreRoute route;
+    route.index = 630001;
+    route.sourceIndex = route.index;
+    route.machineCode = "GW_COMPUTE_HEALTH_TEST";
+    route.meterCode = "COMPUTE_HEALTH_TEST";
+    route.pointCode = "health_output";
+    route.sharedMemoryName = storeName;
+    router.addRoute(route);
+
+    ComputeEngineConfig config;
+    config.enabled = true;
+    config.scanIntervalMs = 5;
+    config.maxRuleEvalPerScan = 1;
+    config.healthFile = healthFile;
+    config.healthPublishIntervalMs = 1;
+    config.healthWindowCycles = 20;
+    config.rules = {makeConstantRule("health_rule", 630001, 7.0)};
+
+    {
+        ComputeEngineService service(config, router);
+        service.start();
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        service.stop();
+    }
+
+    std::ifstream input(healthFile);
+    const std::string payload((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    require(!payload.empty(), "compute health file must be written");
+    require(payload.find("\"scanP50Ms\"") != std::string::npos, "compute health missing scanP50Ms");
+    require(payload.find("\"scanP99Ms\"") != std::string::npos, "compute health missing scanP99Ms");
+    require(payload.find("\"deadlineMissCycles\"") != std::string::npos,
+        "compute health missing deadlineMissCycles");
+    require(payload.find("\"evaluatedRules\":1") != std::string::npos,
+        "compute health must count evaluated rules");
+    require(payload.find("\"outputsWritten\":1") != std::string::npos,
+        "compute health must count output writes");
+
+    std::remove(healthFile.c_str());
+    store.reset();
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
     try {
         testRuleBudgetUsesRoundRobinFairness();
+        testHealthReportContainsDetailedMetrics();
         std::cout << "compute_engine_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

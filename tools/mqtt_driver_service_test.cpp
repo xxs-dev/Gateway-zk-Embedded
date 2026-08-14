@@ -124,7 +124,12 @@ PointDefinition makePoint(std::uint32_t index, const std::string& pointCode) {
     return point;
 }
 
-ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, bool firstPointWritable = false) {
+ServiceFixture makeFixture(
+    const std::string& suffix,
+    int fullUploadIntervalMs,
+    bool firstPointWritable = false,
+    const std::string& healthFile = std::string()
+) {
     ServiceFixture fixture;
     fixture.shmName = "mqtt_driver_service_test_" + suffix;
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -172,6 +177,9 @@ ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, 
     fixture.driverConfig.publishFullOnStart = false;
     fixture.driverConfig.publishAllOnFull = false;
     fixture.driverConfig.fullUploadIndexes = {1001, 1002};
+    fixture.driverConfig.healthFile = healthFile;
+    fixture.driverConfig.healthPublishIntervalMs = 100;
+    fixture.driverConfig.healthWindowCycles = 20;
 
     fixture.publisher.reset(new CapturingMqttDriverPublisher());
     fixture.service.reset(new MqttDriverService(
@@ -211,6 +219,9 @@ std::string readFile(const std::string& path) {
 
 void cleanupFixture(ServiceFixture& fixture) {
     std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
+    if (!fixture.driverConfig.healthFile.empty()) {
+        std::remove(fixture.driverConfig.healthFile.c_str());
+    }
     fixture.service.reset();
     fixture.store.reset();
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -307,6 +318,28 @@ void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
     require(pending.size() == 1, "normal command should enqueue pending write");
     require(pending.front().cmdId == "CMD_NORMAL", "normal pending write cmdId mismatch");
     require(!pending.front().highPriority, "normal pending write should not be high priority");
+    cleanupFixture(fixture);
+}
+
+void testHealthReportContainsDetailedMetrics() {
+    const std::string healthFile = "/tmp/mqtt_driver_service_health_test.json";
+    std::remove(healthFile.c_str());
+    auto fixture = makeFixture("health", 1000, false, healthFile);
+
+    fixture.service->runScanOnce(1770000100000LL);
+    fixture.service->runEventReplayOnce(1770000100050LL);
+    fixture.service->runScanOnce(1770000101000LL);
+
+    const auto payload = readFile(healthFile);
+    require(!payload.empty(), "mqtt health file must be written");
+    require(payload.find("\"scanP50Ms\"") != std::string::npos, "mqtt health missing scanP50Ms");
+    require(payload.find("\"scanP99Ms\"") != std::string::npos, "mqtt health missing scanP99Ms");
+    require(payload.find("\"totalScanCycles\":2") != std::string::npos,
+        "mqtt health must count scan cycles");
+    require(payload.find("\"totalReplayCycles\":1") != std::string::npos,
+        "mqtt health must count replay cycles");
+    require(payload.find("\"fullSnapshotsPublished\":1") != std::string::npos,
+        "mqtt health must count full snapshots");
     cleanupFixture(fixture);
 }
 
@@ -480,6 +513,7 @@ int main() {
         testHighPriorityCommandRequestCreatesPriorityControlLease();
         testCommandRequestRejectedDuringActivePriorityControl();
         testAgcAvcCommandMailboxCommitsLatestWithoutWriteback();
+        testHealthReportContainsDetailedMetrics();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

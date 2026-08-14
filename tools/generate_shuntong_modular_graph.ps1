@@ -6,6 +6,8 @@ param(
     [string]$VirtualOutput = "config/examples/device_ems_modular_virtual.json",
     [string]$RuntimeVirtualOutput = "config/factory/runtime/devices/device_ems_virtual.json",
     [string]$IndexRemapFile = "",
+    [int]$PhaseControlModeIndex = 0,
+    [double]$PhaseControlModeValue = [double]::NaN,
     [string]$CompatibilityOutput = "config/examples/shuntong_ems_graph.json"
 )
 
@@ -1245,6 +1247,13 @@ for ($phase = 0; $phase -lt 3; $phase++) {
 }
 $effectiveSocUpper = New-Index
 Add-Switch "force_full_soc_upper" ([ordered]@{ conditionIndex = [int]$force.params.runOutput }) ([ordered]@{ trueValue = [double]$force.params.targetSoc }) ([ordered]@{ falseIndex = [int]$solve.params.bmsSocMaxIndex }) $effectiveSocUpper
+$gridRequestedActiveTotal = 690001
+$gridRequestedReactiveTotal = 690002
+$gridDeliveredActiveTotal = 690003
+$gridDeliveredReactiveTotal = 690004
+$gridUnservedActiveTotal = 690005
+$gridUnservedReactiveTotal = 690006
+$gridLimitationFlags = 690007
 Add-Node "power_constraints" "powerConstraint" ([ordered]@{
     activeInputIndexes = $constraintActive
     reactiveInputIndexes = $constraintReactive
@@ -1261,6 +1270,7 @@ Add-Node "power_constraints" "powerConstraint" ([ordered]@{
     activeAbsLimitIndex = [int]$solve.params.pMaxIndex
     reactiveAbsLimitIndex = [int]$solve.params.qMaxIndex
     apparentTotalLimitIndex = [int]$solve.params.s3MaxIndex
+    pqPriority = "reactivePowerFirst"
     positiveTotalLimitIndex = [int]$solve.params.chargeKwAllowIndex
     negativeTotalLimitIndex = [int]$solve.params.dischargeKwAllowIndex
     stateIndex = [int]$solve.params.bmsSocIndex
@@ -1269,6 +1279,13 @@ Add-Node "power_constraints" "powerConstraint" ([ordered]@{
     lowStateClearReactive = $true
     lowStateClearIndexes = @((Param-Int $solve.params "cosRunOutput" 8), (Param-Int $solve.params "lvRunOutput" 10))
     highStateClearIndexes = @((Param-Int $solve.params "hvRunOutput" 12), (Param-Int $solve.params "gfRunOutput" 22))
+    requestedActiveTotalOutputIndex = $gridRequestedActiveTotal
+    requestedReactiveTotalOutputIndex = $gridRequestedReactiveTotal
+    deliveredActiveTotalOutputIndex = $gridDeliveredActiveTotal
+    deliveredReactiveTotalOutputIndex = $gridDeliveredReactiveTotal
+    unservedActiveTotalOutputIndex = $gridUnservedActiveTotal
+    unservedReactiveTotalOutputIndex = $gridUnservedReactiveTotal
+    limitationFlagsOutputIndex = $gridLimitationFlags
 })
 
 $energy = Source-Node "energy_saving"
@@ -1421,6 +1438,18 @@ Set-NodeProfiles $liquidEnergyStart -Optional @([string]$energy.params.liquidPro
 
 $cycleSafetyStart = $nodes.Count
 $safety = $cycle.params.safety
+$resolvedPhaseControlModeIndex = if ($PhaseControlModeIndex -gt 0) {
+    $PhaseControlModeIndex
+} else {
+    [int]$safety.phaseControlModeIndex
+}
+$resolvedPhaseControlModeValue = if (-not [double]::IsNaN($PhaseControlModeValue)) {
+    $PhaseControlModeValue
+} elseif ($null -ne $safety.PSObject.Properties["phaseControlModeValue"]) {
+    [double]$safety.phaseControlModeValue
+} else {
+    0.0
+}
 $cycleBasicSafety = New-Index
 Add-Node "cycle_basic_safety_gate" "controlGate" ([ordered]@{
     combine = "all"
@@ -1525,15 +1554,15 @@ Add-Node "cycle_start_hold_value" "controlGate" ([ordered]@{
     )
     outputIndex = $cycleStartValue
 })
-$cyclePhaseModeZero = New-Index
-Add-Formula "cycle_phase_mode_zero" "add" @((Input-Value 0), (Input-Value 0)) $cyclePhaseModeZero
+$cyclePhaseModeTarget = New-Index
+Add-Formula "cycle_phase_mode_target" "add" @((Input-Value $resolvedPhaseControlModeValue), (Input-Value 0)) $cyclePhaseModeTarget
 Add-Node "cycle_phase_control_mode" "controlWrite" ([ordered]@{
     submitWrites = $true
-    inputIndex = $cyclePhaseModeZero
-    targetIndex = [int]$safety.phaseControlModeIndex
+    inputIndex = $cyclePhaseModeTarget
+    targetIndex = $resolvedPhaseControlModeIndex
     valueMode = "round"
-    minValue = 0
-    maxValue = 1
+    minValue = $resolvedPhaseControlModeValue
+    maxValue = $resolvedPhaseControlModeValue
     permitIndex = $cycleDirectionAllowed
     permitValue = 1
     deadband = 0
@@ -1555,31 +1584,20 @@ Add-Node "cycle_runtime_safety_gate" "controlGate" ([ordered]@{
         [ordered]@{ index = $cycleDirectionAllowed; operator = "eq"; value = 1 },
         [ordered]@{ index = [int]$safety.pcsStopStatusIndex; operator = "eq"; value = 0 },
         [ordered]@{ index = $cycleOperableState; operator = "eq"; value = 1 },
-        [ordered]@{ index = [int]$safety.phaseControlModeIndex; operator = "eq"; value = 0 }
+        [ordered]@{ index = $resolvedPhaseControlModeIndex; operator = "eq"; value = $resolvedPhaseControlModeValue }
     )
     outputIndex = $cycleRuntimeSafety
 })
 $cycleZero = New-Index
 Add-Formula "cycle_zero" "add" @((Input-Value 0), (Input-Value 0)) $cycleZero
-Add-Node "cycle_stop_clear" "controlWrite" ([ordered]@{
-    submitWrites = $true
-    inputIndex = $cycleZero
-    targetIndex = [int]$safety.pcsStopIndex
-    valueMode = "round"
-    minValue = 0
-    maxValue = 1
-    permitIndex = $cycleDirectionAllowed
-    permitValue = 1
-    deadband = 0
-})
 Add-Node "cycle_start" "controlWrite" ([ordered]@{
     submitWrites = $true
     inputIndex = $cycleStartValue
     targetIndex = [int]$safety.pcsStartIndex
     valueMode = "round"
-    minValue = 0
+    minValue = 1
     maxValue = 1
-    permitIndex = $cycleDirectionAllowed
+    permitIndex = $cycleStartValue
     permitValue = 1
     deadband = 0
 })
@@ -1669,9 +1687,100 @@ foreach ($graphOutput in $graphOutputs) {
 
 $virtualConfig = Get-Content -Raw -LiteralPath $VirtualSource | ConvertFrom-Json
 $virtualMeter = @($virtualConfig.meters)[0]
+$retainedInitialValues = @{
+    "ems_auto_mode" = 0.0
+    "ems_fault_reset" = 0.0
+    "ems_remote_enable" = 0.0
+    "ems_master_auto_mode" = 0.0
+    "ems_bms_soc_max" = 95.0
+    "ems_bms_soc_min" = 20.0
+    "ems_manual_charge_power" = 0.0
+    "ems_manual_charge_soc" = 95.0
+    "ems_positive_power_limit" = 0.0
+    "ems_positive_power_limit_enable" = 0.0
+    "ems_manual_discharge_power" = 0.0
+    "ems_manual_discharge_soc" = 20.0
+    "ems_negative_power_limit" = 0.0
+    "ems_negative_power_limit_enable" = 0.0
+    "ems_target_cos" = 0.95
+    "ems_power_step" = 1.0
+    "ems_pcs_s3_max" = 0.0
+    "ems_meter_average_window" = 10.0
+    "ems_lv_low" = 210.0
+    "ems_lv_high" = 215.0
+    "ems_hv_low" = 235.0
+    "ems_hv_high" = 240.0
+    "ems_phase_balance_percent" = 10.0
+    "ems_reserve_capacity_power" = 0.0
+    "ems_controller_override_p3" = 0.0
+    "ems_controller_override_q3" = 0.0
+    "ems_reserve_capacity_power_v2" = 0.0
+}
+
+function Set-EmsVirtualRuntimeDefaults([object]$Point) {
+    $category = [string]$Point.category
+    $pointCode = [string]$Point.pointCode
+    $tags = @($Point.tags | ForEach-Object { [string]$_ })
+    $initialValue = $null
+    $retain = $false
+
+    # EMS 1.0 uses these 48 hourly parameters directly. Keep their stable
+    # virtual indexes writable so both UI generations share one retained state.
+    if ($pointCode -match '^ems_schedule_power_([0-9]|1[0-9]|2[0-3])$') {
+        if ($null -eq $Point.write) {
+            $Point.write = [pscustomobject][ordered]@{}
+        }
+        $Point.write | Add-Member -NotePropertyName enable -NotePropertyValue $true -Force
+        $Point.write | Add-Member -NotePropertyName dataType -NotePropertyValue "float64" -Force
+    } elseif ($pointCode -match '^ems_schedule_soc_([0-9]|1[0-9]|2[0-3])$') {
+        if ($null -eq $Point.write) {
+            $Point.write = [pscustomobject][ordered]@{}
+        }
+        $Point.write | Add-Member -NotePropertyName enable -NotePropertyValue $true -Force
+        $Point.write | Add-Member -NotePropertyName dataType -NotePropertyValue "float64" -Force
+        $Point.write | Add-Member -NotePropertyName min -NotePropertyValue 0.0 -Force
+        $Point.write | Add-Member -NotePropertyName max -NotePropertyValue 100.0 -Force
+        $Point.write | Add-Member -NotePropertyName step -NotePropertyValue 0.1 -Force
+    }
+
+    if ($null -ne $Point.PSObject.Properties["initialValue"] -and $null -ne $Point.initialValue) {
+        $initialValue = [double]$Point.initialValue
+    } elseif ($null -ne $Point.write -and
+              $null -ne $Point.write.PSObject.Properties["startupValue"] -and
+              $null -ne $Point.write.startupValue) {
+        $initialValue = [double]$Point.write.startupValue
+    } elseif ($retainedInitialValues.ContainsKey($pointCode)) {
+        $initialValue = [double]$retainedInitialValues[$pointCode]
+    } elseif ($category -eq "setting" -and $pointCode -match "_(enable|mode)$") {
+        $initialValue = 0.0
+    } elseif ($category -eq "status") {
+        $initialValue = 0.0
+    } elseif ($category -eq "telemetry" -and $tags -contains "runtime" -and [bool]$Point.fullUpload) {
+        $initialValue = 0.0
+    }
+
+    if ($null -ne $Point.PSObject.Properties["retain"]) {
+        $retain = [bool]$Point.retain
+    }
+    if ($category -eq "status" -or
+        $retainedInitialValues.ContainsKey($pointCode) -or
+        ($category -eq "setting" -and $pointCode -match "_(enable|mode)$") -or
+        ($null -ne $Point.write -and [bool]$Point.write.enable)) {
+        $retain = $true
+    }
+
+    if ($null -ne $initialValue) {
+        $Point | Add-Member -NotePropertyName initialValue -NotePropertyValue $initialValue -Force
+    }
+    if ($retain) {
+        $Point | Add-Member -NotePropertyName retain -NotePropertyValue $true -Force
+    }
+}
+
 $existingIndexes = @{}
 foreach ($meter in $virtualConfig.meters) {
     foreach ($point in $meter.points) {
+        Set-EmsVirtualRuntimeDefaults $point
         $originalIndex = [int]$point.index
         if ($indexRemap.ContainsKey($originalIndex)) {
             $point.index = $indexRemap[$originalIndex]
@@ -1692,7 +1801,7 @@ function New-SemanticVirtualPoint(
     [string]$Category = "setting",
     [bool]$StoreHistory = $true
 ) {
-    [ordered]@{
+    $point = [ordered]@{
         index = $Index
         pointCode = $PointCode
         name = $Name
@@ -1730,6 +1839,23 @@ function New-SemanticVirtualPoint(
         alarms = @()
         tags = @("ems_virtual", $Category, "change", "full_upload")
     }
+    if ($Category -eq "setting" -or $Category -eq "status") {
+        $point.initialValue = 0.0
+        $point.retain = $true
+    } elseif ($Category -eq "telemetry") {
+        $point.initialValue = 0.0
+    }
+    if ($PointCode -match '^ems_schedule_power_([0-9]|1[0-9]|2[0-3])$') {
+        $point.write.enable = $true
+        $point.write.dataType = "float64"
+    } elseif ($PointCode -match '^ems_schedule_soc_([0-9]|1[0-9]|2[0-3])$') {
+        $point.write.enable = $true
+        $point.write.dataType = "float64"
+        $point.write.min = 0.0
+        $point.write.max = 100.0
+        $point.write.step = 0.1
+    }
+    $point
 }
 
 $semanticPoints = @(
@@ -1762,7 +1888,14 @@ $semanticPoints = @(
     @(477, "ems_station_hourly_negative_mask_low", "台区分时反向限制使能 0-15 时", "station_hourly_negative_mask_low", "H_CL_TQXZ_neg_EN_0_15", "", "setting", $true),
     @(478, "ems_station_hourly_negative_mask_high", "台区分时反向限制使能 16-23 时", "station_hourly_negative_mask_high", "H_CL_TQXZ_neg_EN_16_23", "", "setting", $true),
     @(582, "ems_pv_tracking_power", "光伏跟踪目标功率", "pv_tracking_power", "H_CL_GF_Tracking_Power", "kW", "setting", $true),
-    @(595, "ems_reserve_capacity_power_v2", "动态增容单相储备功率", "reserve_capacity_power_v2", "H_CL_ZR_P1", "kW", "setting", $true)
+    @(595, "ems_reserve_capacity_power_v2", "动态增容单相储备功率", "reserve_capacity_power_v2", "H_CL_ZR_P1", "kW", "setting", $true),
+    @(690001, "ems_grid_requested_active_power", "电网友好请求总有功", "grid_requested_active_power", "", "kW", "telemetry", $false),
+    @(690002, "ems_grid_requested_reactive_power", "电网友好请求总无功", "grid_requested_reactive_power", "", "kvar", "telemetry", $false),
+    @(690003, "ems_grid_delivered_active_power", "电网友好实际总有功", "grid_delivered_active_power", "", "kW", "telemetry", $false),
+    @(690004, "ems_grid_delivered_reactive_power", "电网友好实际总无功", "grid_delivered_reactive_power", "", "kvar", "telemetry", $false),
+    @(690005, "ems_grid_unserved_active_power", "电网友好未满足有功", "grid_unserved_active_power", "", "kW", "telemetry", $false),
+    @(690006, "ems_grid_unserved_reactive_power", "电网友好未满足无功", "grid_unserved_reactive_power", "", "kvar", "telemetry", $false),
+    @(690007, "ems_grid_limitation_flags", "电网友好限制原因位", "grid_limitation_flags", "", "", "telemetry", $false)
 )
 
 for ($hour = 0; $hour -lt 24; $hour++) {

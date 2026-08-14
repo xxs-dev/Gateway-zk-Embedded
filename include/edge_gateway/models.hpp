@@ -88,6 +88,7 @@ struct WriteSpec {
     std::string byteOrder = "AB";
     Optional<double> minValue;
     Optional<double> maxValue;
+    Optional<double> startupValue;
     double step = 0.0;
     std::vector<double> allowedValues;
     bool verifyAfterWrite = false;
@@ -161,6 +162,8 @@ struct PointDefinition {
     bool reportOnChange = false;
     int persistIntervalSec = 60;
     int collectPriority = 0;
+    Optional<double> initialValue;
+    bool retain = false;
     std::vector<std::string> tags;
     ReadSpec read;
     WriteSpec write;
@@ -717,6 +720,9 @@ struct MqttDriverConfig {
     int commandRateMaxPerWindow = 20;
     int commandDedupTtlMs = 60000;
     int controlResultWaitTimeoutMs = 5000;
+    std::string healthFile;
+    int healthPublishIntervalMs = 1000;
+    std::size_t healthWindowCycles = 300;
 };
 
 struct AlarmStoreConfig {
@@ -907,6 +913,9 @@ struct AgcAvcPcsConfig {
     std::string meterCode;
     bool enabled = true;
     std::string deviceType = "storagePcs";
+    // auto: storage PCS uses the battery tier; grid-tied inverter and other
+    // explicitly non-storage resources use the primary tier.
+    std::string activeResourceTier = "auto";
     double weight = 1.0;
     std::string capacityScope = "deviceTotal";
     AgcAvcCapabilityValueConfig ratedActivePowerKw;
@@ -953,6 +962,9 @@ struct AgcAvcOutputConfig {
     AgcAvcPointRefConfig availableReactivePower;
     AgcAvcPointRefConfig unservedActivePower;
     AgcAvcPointRefConfig unservedReactivePower;
+    AgcAvcPointRefConfig primaryActivePower;
+    AgcAvcPointRefConfig batteryActivePower;
+    AgcAvcPointRefConfig limitationFlags;
     AgcAvcPointRefConfig lastCommandStatus;
     AgcAvcPointRefConfig lastWriteStatus;
     AgcAvcPointRefConfig consecutiveWriteFailures;
@@ -972,6 +984,7 @@ struct AgcAvcConfig {
     std::string signConvention = "positiveDischarge";
     std::string reactiveSignConvention = "positiveInductive";
     std::string pqPriority = "activePowerFirst";
+    std::string activeResourcePriority = "nonBatteryFirst";
     std::vector<std::string> sharedMemoryNames;
     std::string outputSharedMemoryName = "gateway_point_store_agc_avc";
     std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";

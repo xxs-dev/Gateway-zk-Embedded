@@ -16,6 +16,11 @@ struct ScadaResolvedTag {
     ScadaRuntimeMapping mapping;
 };
 
+struct ScadaWriteTarget {
+    std::string tagId;
+    double value = 0.0;
+};
+
 class ScadaTagResolver {
 public:
     ScadaTagResolver(const ScadaProject& project, const std::string& machineCode);
@@ -59,7 +64,15 @@ public:
         std::int64_t nowMs
     ) const;
     std::vector<StoredPointValue> readScreen(const ScadaScreen& screen, std::int64_t nowMs) const;
+    Optional<WritebackResultRecord> getWritebackResult(
+        const std::string& tagId,
+        const std::string& cmdId
+    ) const;
     CommandSubmitResult submitWrite(const std::string& tagId, PendingWriteCommand command);
+    CommandGroupSubmitResult submitWriteGroup(
+        const std::vector<ScadaWriteTarget>& targets,
+        PendingWriteCommand command
+    );
 
 private:
     ScadaTagResolver resolver_;

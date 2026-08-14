@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "productId": "ky-ems-stationary",
+  "productName": "凯源非移动储能柜 EMS",
+  "productLine": "EMS 1.0",
+  "currentPackageVersion": "1.0.17",
+  "deviceForm": "stationary-storage-cabinet",
+  "screenProfile": "round-15-pages",
+  "expectedScreenCount": 15,
+  "sourceProject": "scada/base-project",
+  "generator": "tools/upgrade-retention.ps1",
+  "releaseScript": "tools/release/build-ems-stationary.ps1",
+  "sharedRuntime": [
+    "src",
+    "include/edge_gateway",
+    "config/factory/runtime/devices/device_ems_virtual.json"
+  ],
+  "knownProjects": [
+    "COMM202600103"
+  ],
+  "compatibleProductIds": [
+    "ky-ems-stationary"
+  ]
+}

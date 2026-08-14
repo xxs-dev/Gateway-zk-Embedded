@@ -57,11 +57,18 @@ void ensureDirectory(const std::string& path) {
 #endif
 }
 
-double percentile95(std::vector<double> values) {
+double percentile(std::vector<double> values, double ratio) {
     if (values.empty()) return 0.0;
     std::sort(values.begin(), values.end());
-    const auto index = static_cast<std::size_t>(std::ceil(values.size() * 0.95)) - 1;
+    const auto boundedRatio = std::max(0.0, std::min(1.0, ratio));
+    const auto index = boundedRatio <= 0.0
+        ? 0
+        : static_cast<std::size_t>(std::ceil(values.size() * boundedRatio)) - 1;
     return values[std::min(index, values.size() - 1)];
+}
+
+double maximum(const std::vector<double>& values) {
+    return values.empty() ? 0.0 : *std::max_element(values.begin(), values.end());
 }
 
 void writeComputeHealthFile(const std::string& path, const std::string& payload) {
@@ -612,10 +619,19 @@ void ComputeEngineService::loop() {
 
 void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed, std::int64_t wallNowMs) {
     const auto window = std::max<std::size_t>(10, config_.healthWindowCycles);
+    const bool deadlineMissed = durationMs > std::max(1, config_.scanIntervalMs);
+    if (healthStartedAtMs_ == 0) healthStartedAtMs_ = wallNowMs;
+    ++totalCycles_;
+    if (deadlineMissed) ++deadlineMissCycles_;
+    if (failed) ++failedCycles_;
     cycleDurationsMs_.push_back(durationMs);
-    cycleFailures_.push_back(failed || durationMs > std::max(1, config_.scanIntervalMs));
+    cycleFailures_.push_back(failed || deadlineMissed);
+    cycleDeadlineMisses_.push_back(deadlineMissed);
+    cycleExecutionFailures_.push_back(failed);
     while (cycleDurationsMs_.size() > window) cycleDurationsMs_.pop_front();
     while (cycleFailures_.size() > window) cycleFailures_.pop_front();
+    while (cycleDeadlineMisses_.size() > window) cycleDeadlineMisses_.pop_front();
+    while (cycleExecutionFailures_.size() > window) cycleExecutionFailures_.pop_front();
     if (config_.healthFile.empty() ||
         (lastHealthPublishMs_ > 0 && wallNowMs - lastHealthPublishMs_ < std::max(100, config_.healthPublishIntervalMs))) {
         return;
@@ -630,18 +646,58 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
         }
     }
     const auto failures = static_cast<std::size_t>(std::count(cycleFailures_.begin(), cycleFailures_.end(), true));
+    const auto deadlineMisses = static_cast<std::size_t>(
+        std::count(cycleDeadlineMisses_.begin(), cycleDeadlineMisses_.end(), true)
+    );
+    const auto executionFailures = static_cast<std::size_t>(
+        std::count(cycleExecutionFailures_.begin(), cycleExecutionFailures_.end(), true)
+    );
     const auto timeoutPercent = cycleFailures_.empty()
         ? 100.0
         : 100.0 * static_cast<double>(failures) / static_cast<double>(cycleFailures_.size());
+    const auto deadlineMissPercent = cycleDeadlineMisses_.empty()
+        ? 100.0
+        : 100.0 * static_cast<double>(deadlineMisses) / static_cast<double>(cycleDeadlineMisses_.size());
+    const auto executionFailurePercent = cycleExecutionFailures_.empty()
+        ? 100.0
+        : 100.0 * static_cast<double>(executionFailures) /
+            static_cast<double>(cycleExecutionFailures_.size());
+    const auto elapsedMs = std::max<std::int64_t>(1, wallNowMs - healthStartedAtMs_);
+    const auto rulesPerSecond = static_cast<double>(evaluatedRulesTotal_) * 1000.0 /
+        static_cast<double>(elapsedMs);
+    const auto scanP50Ms = percentile(durations, 0.50);
+    const auto scanP95Ms = percentile(durations, 0.95);
+    const auto scanP99Ms = percentile(durations, 0.99);
+    const auto scanMaxMs = maximum(durations);
+    const auto queueP50Ms = percentile(queueDelays, 0.50);
+    const auto queueP95Ms = percentile(queueDelays, 0.95);
+    const auto queueP99Ms = percentile(queueDelays, 0.99);
+    const auto queueMaxMs = maximum(queueDelays);
     const bool healthy = !cycleFailures_.empty() && timeoutPercent < 20.0;
     std::ostringstream payload;
     payload << std::fixed << std::setprecision(2)
-            << "{\"schemaVersion\":\"1.0\",\"ts\":" << wallNowMs
+            << "{\"schemaVersion\":\"1.1\",\"ts\":" << wallNowMs
             << ",\"healthy\":" << (healthy ? "true" : "false")
             << ",\"windowCycles\":" << cycleFailures_.size()
+            << ",\"totalCycles\":" << totalCycles_
+            << ",\"deadlineMissCycles\":" << deadlineMissCycles_
+            << ",\"failedCycles\":" << failedCycles_
             << ",\"timeoutPercent\":" << timeoutPercent
-            << ",\"scanP95Ms\":" << percentile95(std::move(durations))
-            << ",\"controlQueueP95Ms\":" << percentile95(std::move(queueDelays))
+            << ",\"deadlineMissPercent\":" << deadlineMissPercent
+            << ",\"executionFailurePercent\":" << executionFailurePercent
+            << ",\"scanP50Ms\":" << scanP50Ms
+            << ",\"scanP95Ms\":" << scanP95Ms
+            << ",\"scanP99Ms\":" << scanP99Ms
+            << ",\"scanMaxMs\":" << scanMaxMs
+            << ",\"scanUtilizationP95Percent\":"
+            << (scanP95Ms * 100.0 / static_cast<double>(std::max(1, config_.scanIntervalMs)))
+            << ",\"evaluatedRules\":" << evaluatedRulesTotal_
+            << ",\"outputsWritten\":" << outputsWrittenTotal_
+            << ",\"rulesPerSecond\":" << rulesPerSecond
+            << ",\"controlQueueP50Ms\":" << queueP50Ms
+            << ",\"controlQueueP95Ms\":" << queueP95Ms
+            << ",\"controlQueueP99Ms\":" << queueP99Ms
+            << ",\"controlQueueMaxMs\":" << queueMaxMs
             << ",\"pendingWrites\":" << router_.peekPendingWrites(2048).size()
             << '}';
     writeComputeHealthFile(config_.healthFile, payload.str());
@@ -680,6 +736,7 @@ void ComputeEngineService::runOnce(std::int64_t nowMs) {
         ruleStates_[safeRuleCode(rule)].lastEvalMs = nowMs;
         ruleStates_[safeRuleCode(rule)].lastInputs = std::move(currentInputs);
         ++evaluated;
+        ++evaluatedRulesTotal_;
         if (evaluated >= config_.maxRuleEvalPerScan) {
             ++visited;
             break;
@@ -739,6 +796,7 @@ void ComputeEngineService::evaluateRule(
                 : 0;
             const auto result = graphEmsEngineFor(rule).runOnce(nowMs, remainingWrites);
             deviceWritesThisScan += result.deviceWrites;
+            outputsWrittenTotal_ += result.latestWrites + result.deviceWrites;
             if (result.writeLimitReached) {
                 std::cerr << "graph EMS write skipped maxWritesPerScan reached before submit"
                           << " rule=" << safeRuleCode(rule)
@@ -813,6 +871,8 @@ void ComputeEngineService::evaluateRule(
                           << " index=" << output.index
                           << " message=" << routed.message
                           << std::endl;
+            } else {
+                ++outputsWrittenTotal_;
             }
         }
 
@@ -841,6 +901,7 @@ void ComputeEngineService::evaluateRule(
                           << std::endl;
             } else {
                 ++deviceWritesThisScan;
+                ++outputsWrittenTotal_;
             }
         }
 

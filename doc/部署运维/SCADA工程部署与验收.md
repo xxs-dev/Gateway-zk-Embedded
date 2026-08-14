@@ -27,6 +27,8 @@ screens/
 - 压缩前和解压后的总大小均不能超过 512MiB。
 - 禁止绝对路径、`..`、反斜杠路径、重复文件和符号链接。
 - 上位机节点包必须保留本地安全规则。
+- EMS 2.0 一体化工程必须包含 `permissions.json`，并同时配置受保护页面和至少一个本地账号。
+- 本地密码记录只能包含随机盐和 SHA-256 摘要，禁止在工程包中放明文密码。
 
 ## 3. 手工检查与安装
 
@@ -49,6 +51,35 @@ screens/
 ```
 
 正常输出先出现 `SCADA validation passed`，最后出现 `SCADA release activated`。
+
+### 3.1 本地登录验收
+
+EMS 2.0 默认保护 `Strategy-*` 和 `Control-*`，默认无操作超时 900 秒。现场验收顺序：
+
+1. 未登录状态打开总览、设备、告警、趋势和运维，确认可直接查看。
+2. 点击策略，确认先出现“操作员登录”，取消后仍停留在原公开页面。
+3. 使用屏幕软键盘输入账号和密码，确认登录后才显示策略页。
+4. 打开控制页，仅检查页面与绑定状态，不点击启动、停机、功率确认或 DI/DO 控制。
+5. 点击右上角“账号 · 退出”，确认立即回到总览。
+6. 再次点击控制，确认重新弹出登录框。
+7. 检查 `ky-ems.service` 的 PID 未变化且 `NRestarts=0`。
+
+账号由工程生成参数决定。密码必须通过 `SecureString` 传给生成器，明文密码只保存在项目交付记录中，不得写入仓库或部署脚本。
+
+### 3.2 4G 画面验收
+
+安装包含 4G 监测的工程前，必须同时更新 `SystemMonitor` 和 `KY-SCADA`。只更新工程包会导致 Tag 存在但共享内存没有数据源。
+
+现场验收顺序：
+
+1. 在总览确认“设备健康”中的 4G 状态与运维页一致。
+2. 在运维页确认模块状态、网络连接和当前出口能区分“未启用”“未检测到模块”“未连接”和“已连接”。
+3. 有 4G 网络时观察信号条、实时上下行速率和累计流量；产生网络流量后，方向与数值变化必须一致。
+4. 无法识别蜂窝接口或读取内核统计时，流量显示 `--`；接口存在且计数器可读但尚无流量时显示真实 `0 MiB`/`0 KiB/s`。
+5. 未连接或信号无效时，信号条为灰色并显示 `--`，不能显示为真实 `0%`。
+6. 检查 `system-monitor@monitor-service.service`、`ky-ems.service` 均为 `active`，PID 稳定且 `NRestarts=0`。
+
+累计上传/下载来自蜂窝接口的内核计数，可能随接口重建、驱动重载或设备重启清零，不作为运营商月度流量结算数据。
 
 ## 4. OTA 安装
 
@@ -167,3 +198,43 @@ SystemMonitor 的 MQTT 和直连配置拉取接口都支持请求字段：
 - 仅重启 `system-monitor@monitor-service.service`；服务 PID `3063656`、`NRestarts=0`，MQTT、总服务和 KY-EMS 未重启。
 - 直连请求返回 82 个文件、9,115,329 bytes，包含页面和资源且不包含普通设备配置。
 - 旧二进制备份位于 `/opt/modbus-gateway/backup/system-monitor/SystemMonitor.20260725005642`，需要回滚时只恢复该文件并重启监测服务。
+
+## 11. 2026-08-07 EMS 2.0 验收记录
+
+本节实际 release 名称中的 `2.1.1-compact` 属于开发阶段误标，产品版本统一归入 EMS 2.0。
+
+- 设备：`192.168.22.16 / COMM202600999`。
+- release：`ky-mobile-ems-COMM202600999-2.1.1-compact-20260807161758`。
+- 工程：17 个 `1920x1080` 页面，策略 4 页、控制 2 页、趋势 4 页，趋势默认最近 1 小时。
+- `KY-EMS` SHA-256：`de0d627e4ca79ac01533d566fa782767e6d4b64426ddeb81c3d901bffca93167`。
+- `.kyscada` SHA-256：`d0e8c2ff00f5f69347f8d9b495f5b9d85bb779fed471ee233061414582699e60`。
+- 屏幕键盘登录、策略页显示、控制页只读打开、主动退出和重新认证均通过。
+- 不同共享内存复用相同 `index` 的路由兼容已在 ARM 实机测试通过；同一共享内存重复 `index` 仍会阻止启动。
+- 最终 `ky-ems.service=active`、`NRestarts=0`，现场停留在公开总览页。
+
+## 12. 2026-08-07 EMS 2.0 4G 监测验收记录
+
+本节实际 release 名称中的 `2.1.2-compact` 属于开发阶段误标，保留原路径仅用于审计。
+
+- 设备：`192.168.22.16 / COMM202600999`。
+- release：`ky-mobile-ems-COMM202600999-2.1.2-compact-20260807173446`；原 `2.1.1-compact` release 未删除。
+- `SystemMonitor`：1,325,640 bytes，SHA-256 `cdad4d2051d0f360f3f39adbb413704a7d3fa9b11572aa2961c46bc41f7a395a`。
+- `KY-SCADA`：946,424 bytes，SHA-256 `b187f3695c5fff12c61b92c79d846055c8afbd743f2ab1f9e2f019ddbc19c409`。
+- `.kyscada`：103,936 bytes，SHA-256 `bcc89dfd2f6069588da394e7fef764e9f51b6c23b9feec49e0257494aace08ca`。
+- `gateway_point_store_system_monitor` 已创建；`920000001..920000009` 共 9 个点位和工程中的 9 条运行映射均存在。
+- 实机 4G 状态为：监测启用、模块可识别、网络未连接、默认出口不可判定、信号质量无效；`usb0` 为 DOWN，收发计数均为 `0`。因此画面信号为灰色 `--`，内核流量计数显示有效 `0`。
+- `system_monitor_service_test` 和 `scada_runtime_test` 已使用 `qemu-aarch64-static` 加全志工具链 sysroot 执行通过。
+- 部署后持续观察超过 2 分钟，`system-monitor@monitor-service.service` 和 `ky-ems.service` PID 未变化，均为 `active`、`NRestarts=0`，无新增 warning/error。
+- 二进制和旧 release 回退记录保存在 `/opt/modbus-gateway/backup/ems-cellular-20260807174000`。
+
+## 13. 2026-08-07 COMM202600104 4G 实网验收记录
+
+- 设备：`10.126.126.9 / COMM202600104`。
+- 源工程：设备当前 `2.0.8` release，共 1,896 个 Tag/运行映射；生成时保留全部设备绑定并追加 9 个 4G 系统点。
+- 当前历史 release：`ky-mobile-ems-COMM202600104-2.1.2-compact-20260807194107`；该名称属于 EMS 2.0 的历史误标，原 `2.0.8` release 未删除。
+- `.kyscada`：104,773 bytes，SHA-256 `ce4731da653bca4ea5628cb6cd41bba1384fbcd6b258d891e24f2e86124e1018`。
+- `SystemMonitor` 和 `KY-SCADA` 与 22.16 使用同一份已验证二进制，SHA-256 分别为 `cdad4d2051d0f360f3f39adbb413704a7d3fa9b11572aa2961c46bc41f7a395a` 和 `b187f3695c5fff12c61b92c79d846055c8afbd743f2ab1f9e2f019ddbc19c409`。
+- 实机点位为：4G 监测启用、模块存在、网络已连接、当前使用 4G 出口，信号 `100%`，全部质量为 `1`。
+- 12 秒观测期间，累计下行从约 `810.309 MiB` 增至 `810.335 MiB`，累计上行从约 `3194.43 MiB` 增至 `3194.50 MiB`；最终实时下行约 `2.17 KiB/s`、上行约 `6.94 KiB/s`。
+- `system-monitor@monitor-service.service` 和 `ky-ems.service` PID 稳定，均为 `active`、`NRestarts=0`，无新增 warning/error。
+- 二进制和原 release 回退记录保存在 `/opt/modbus-gateway/backup/ems-cellular-104-20260807180000`。

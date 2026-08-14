@@ -1,0 +1,1201 @@
+﻿{
+  "templateName": "legacy_modbusRTU_5",
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {
+    "type": "modbus_rtu",
+    "slave": 3,
+    "transport": {
+      "serialPort": "/dev/ttySP5",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 500,
+      "frameIntervalMs": 200,
+      "readRetryCount": 1
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 500,
+    "batchOptimize": true,
+    "maxBatchRegisters": 2,
+    "maxRequestRegisters": 20,
+    "offlineFailureThreshold": 3,
+    "recoverySuccessThreshold": 1,
+    "slaveFailureBackoffThreshold": 3,
+    "slaveFailureBackoffMs": 30000,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffMs": 180000,
+    "offlineProbeOnly": true,
+    "offlineProbeTaskCount": 2,
+    "adaptiveSplitOnFailure": true,
+    "adaptiveSplitMaxRegisters": 1,
+    "logAdaptiveSplitParentFailures": false,
+    "taskFailureBackoffMaxMs": 900000,
+    "realtimeTaskFailureBackoffMs": 5000,
+    "realtimeTaskFailureBackoffMaxMs": 30000,
+    "adaptiveSplitMaxDepth": 2,
+    "adaptiveSplitLeafProbeBudget": 3,
+    "realtimeAdaptiveSplitLeafProbeBudget": 24,
+    "runtimeMeterBatchSize": 16,
+    "maxTasksPerMeterPerCycle": 3,
+    "realtimeMaxTasksPerMeterPerCycle": 8,
+    "backgroundTaskIntervalMs": 5000,
+    "maxBackgroundTasksPerMeterPerCycle": 1,
+    "realtimeMaxBackgroundTasksPerMeterPerCycle": 8,
+    "failureGoodValueGraceMs": 0,
+    "failureBadQualityThreshold": 3
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ttySP5",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ttySP5.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "modbusRTU_5_slave_3",
+      "deviceName": "制冷主机",
+      "enabled": true,
+      "slave": 1,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM5",
+      "sourceAddress": 1,
+      "points": [
+        {
+          "index": 127,
+          "legacyIndex": 127,
+          "pointCode": "mb5_s3_127",
+          "name": "通讯状态",
+          "desc": "device online status",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606",
+            "online",
+            "status"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "device_online",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 203,
+          "legacyIndex": 203,
+          "pointCode": "mb5_s3_203",
+          "name": "水泵运行状态",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=0, 1=运行,0=停止",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "停止",
+            "1": "运行"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 204,
+          "legacyIndex": 204,
+          "pointCode": "mb5_s3_204",
+          "name": "#1压缩机运行状态",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=1, 1=运行,0=停止",
+          "category": "status",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "停止",
+            "1": "运行"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 205,
+          "legacyIndex": 205,
+          "pointCode": "mb5_s3_205",
+          "name": "#2压缩机运行状态",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=2, dual-system only",
+          "category": "status",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "停止",
+            "1": "运行"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 206,
+          "legacyIndex": 206,
+          "pointCode": "mb5_s3_206",
+          "name": "电加热运行状态",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=3, 1=运行,0=停止",
+          "category": "status",
+          "address": 3,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "停止",
+            "1": "运行"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 207,
+          "legacyIndex": 207,
+          "pointCode": "mb5_s3_207",
+          "name": "冷凝风机运行状态",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=4, 1=运行,0=停止",
+          "category": "status",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "停止",
+            "1": "运行"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 131,
+          "legacyIndex": 131,
+          "pointCode": "mb5_s3_131",
+          "name": "机组出水温度",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=5, accuracy 0.1℃; preserves old 供液温度 index",
+          "category": "telemetry",
+          "address": 5,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 10
+        },
+        {
+          "index": 132,
+          "legacyIndex": 132,
+          "pointCode": "mb5_s3_132",
+          "name": "机组回水温度",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=6, accuracy 0.1℃; preserves old 回液温度 index",
+          "category": "telemetry",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 10
+        },
+        {
+          "index": 141,
+          "legacyIndex": 141,
+          "pointCode": "mb5_s3_141",
+          "name": "机组出水压力",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=7, accuracy 0.01Bar; preserves old 供水压力 index",
+          "category": "telemetry",
+          "address": 7,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "Bar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 10
+        },
+        {
+          "index": 142,
+          "legacyIndex": 142,
+          "pointCode": "mb5_s3_142",
+          "name": "机组回水压力",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=8, accuracy 0.01Bar; preserves old 回水压力 index",
+          "category": "telemetry",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "Bar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 10
+        },
+        {
+          "index": 135,
+          "legacyIndex": 135,
+          "pointCode": "mb5_s3_135",
+          "name": "机组外环境温度",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=9, accuracy 0.1℃; preserves old 环境温度 index",
+          "category": "telemetry",
+          "address": 9,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 10
+        },
+        {
+          "index": 208,
+          "legacyIndex": 208,
+          "pointCode": "mb5_s3_208",
+          "name": "补液水泵状态",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=10, 1=开,0=关",
+          "category": "status",
+          "address": 10,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "关",
+            "1": "开"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 153,
+          "legacyIndex": 153,
+          "pointCode": "mb5_s3_153",
+          "name": "故障告警代码",
+          "desc": "Xinmiao liquid cooling protocol: fc=4 addr=11; preserves old 系统总故障代码 index",
+          "category": "alarm",
+          "address": 11,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 10
+        },
+        {
+          "index": 128,
+          "legacyIndex": 128,
+          "pointCode": "mb5_s3_128",
+          "name": "液冷机组控制模式",
+          "desc": "Xinmiao liquid cooling protocol: read fc=3 addr=200; preserves old 机组运行状态/模式 index",
+          "category": "telemetry",
+          "address": 200,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "1": "水泵循环",
+            "2": "制冷模式",
+            "3": "制热模式",
+            "4": "自动控制"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 164,
+          "legacyIndex": 164,
+          "pointCode": "mb5_s3_164",
+          "name": "液冷机组控制模式设定",
+          "desc": "Xinmiao liquid cooling protocol: write fc=6 addr=200, write codes 0=自动控制, 1=制冷模式, 2=制热模式, 3=水泵循环; readback codes 1=水泵循环,2=制冷模式,3=制热模式,4=自动控制",
+          "category": "control",
+          "address": 200,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": false,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": false,
+            "function": 0,
+            "length": 0,
+            "dataType": "",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "verifyAfterWrite": false,
+            "verifyDelayMs": 100,
+            "verifyByRead": false,
+            "allowedValues": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "min": 0,
+            "minValue": 0,
+            "max": 3,
+            "maxValue": 3,
+            "step": 1
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "自动控制(写)",
+            "1": "制冷模式(写)",
+            "2": "制热模式(写)",
+            "3": "水泵循环(写)"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 163,
+          "legacyIndex": 163,
+          "pointCode": "mb5_s3_163",
+          "name": "机组开关机使能",
+          "desc": "Xinmiao liquid cooling protocol: fc=3/fc=6 addr=201, 0=关机,1=开机; preserves old 启动模式 index",
+          "category": "control",
+          "address": 201,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "verifyAfterWrite": false,
+            "verifyDelayMs": 100,
+            "verifyByRead": false,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "min": 0,
+            "minValue": 0,
+            "max": 1,
+            "maxValue": 1,
+            "step": 1
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "关机",
+            "1": "开机"
+          },
+          "collectPriority": 10
+        },
+        {
+          "index": 166,
+          "legacyIndex": 166,
+          "pointCode": "mb5_s3_166",
+          "name": "机组设定温度",
+          "desc": "Xinmiao liquid cooling protocol: fc=3/fc=6 addr=205, accuracy 0.1℃; preserves old 制冷预设温度 index",
+          "category": "control",
+          "address": 205,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "xinmiao",
+            "liquid_cooling",
+            "modbusRTU_5",
+            "slave_1",
+            "pdf_202606"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "verifyAfterWrite": false,
+            "verifyDelayMs": 100,
+            "verifyByRead": false,
+            "step": 0.1
+          },
+          "alarms": [],
+          "collectPriority": 10
+        }
+      ]
+    },
+    {
+      "meterCode": "modbusRTU_5_slave_5",
+      "deviceName": "除湿主机",
+      "enabled": true,
+      "slave": 2,
+      "protocolType": "modbus_rtu",
+      "sourceCom": "COM5",
+      "sourceAddress": 2,
+      "points": [
+        {
+          "index": 188,
+          "legacyIndex": 188,
+          "pointCode": "mb5_s5_188",
+          "name": "通讯状态",
+          "desc": "device online status",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617",
+            "online",
+            "status"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "device_online",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": []
+        },
+        {
+          "index": 190,
+          "legacyIndex": 190,
+          "pointCode": "mb5_s5_190",
+          "name": "环境湿度",
+          "desc": "除湿器V3: 04读 0032H, 范围20~99, 环境湿度20%~99%RH; preserves old 实时湿度 index",
+          "category": "telemetry",
+          "address": 50,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "%RH",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 0
+        },
+        {
+          "index": 189,
+          "legacyIndex": 189,
+          "pointCode": "mb5_s5_189",
+          "name": "环境温度",
+          "desc": "除湿器V3: 04读 0034H, 范围0~109, 对应-10~99℃; actual=raw-10; preserves old 实时温度 index",
+          "category": "telemetry",
+          "address": 52,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 1,
+            "offset": -10,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 0
+        },
+        {
+          "index": 196,
+          "legacyIndex": 196,
+          "pointCode": "mb5_s5_196",
+          "name": "除湿器工作状态",
+          "desc": "除湿器V3: 04读/05写 0035H, 0000=关, FF00=开; preserves old 除湿工作状态 index",
+          "category": "status",
+          "address": 53,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "verifyAfterWrite": false,
+            "verifyDelayMs": 100,
+            "verifyByRead": false,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "min": 0,
+            "minValue": 0,
+            "max": 1,
+            "maxValue": 1,
+            "step": 1
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "关",
+            "65280": "开"
+          },
+          "collectPriority": 0
+        },
+        {
+          "index": 199,
+          "legacyIndex": 199,
+          "pointCode": "mb5_s5_199",
+          "name": "故障码",
+          "desc": "除湿器V3: 04读 0038H, 1=有故障,0=无故障; Bit9温湿度传感器故障, Bit10 NTC故障, Bit11制冷片故障",
+          "category": "alarm",
+          "address": 56,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "collectPriority": 0
+        },
+        {
+          "index": 209,
+          "legacyIndex": 209,
+          "pointCode": "mb5_s5_209",
+          "name": "温湿度传感器故障",
+          "desc": "除湿器V3: 04读 0038H Bit9, 1=温湿度传感器故障",
+          "category": "alarm",
+          "address": 56,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "bit": 9
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "正常",
+            "1": "故障"
+          },
+          "collectPriority": 0
+        },
+        {
+          "index": 210,
+          "legacyIndex": 210,
+          "pointCode": "mb5_s5_210",
+          "name": "NTC故障",
+          "desc": "除湿器V3: 04读 0038H Bit10, 1=NTC故障",
+          "category": "alarm",
+          "address": 56,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "bit": 10
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "正常",
+            "1": "故障"
+          },
+          "collectPriority": 0
+        },
+        {
+          "index": 211,
+          "legacyIndex": 211,
+          "pointCode": "mb5_s5_211",
+          "name": "制冷片故障",
+          "desc": "除湿器V3: 04读 0038H Bit11, 1=制冷片故障",
+          "category": "alarm",
+          "address": 56,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "dehumidifier_v3",
+            "modbusRTU_5",
+            "slave_2",
+            "pdf_20260617"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500,
+            "bit": 11
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "正常",
+            "1": "故障"
+          },
+          "collectPriority": 0
+        }
+      ]
+    }
+  ],
+  "northboundServer": {
+    "enabled": false,
+    "mode": "mapped",
+    "protocol": "modbus_tcp",
+    "bindHost": "0.0.0.0",
+    "port": 1502,
+    "requestTimeoutMs": 1000,
+    "maxClients": 8,
+    "writesEnabled": false,
+    "maxReadRegisters": 125,
+    "maxReadBits": 2000,
+    "allowedClientCidrs": []
+  }
+}

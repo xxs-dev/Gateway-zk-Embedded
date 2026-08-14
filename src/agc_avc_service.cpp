@@ -289,6 +289,15 @@ std::vector<AgcAvcValidationIssue> AgcAvcService::validate() const {
     if (config_.pcs.empty()) {
         issues.push_back({"error", "agcAvc.pcs", "at least one PCS or inverter is required"});
     }
+    if (config_.pqPriority != "activePowerFirst" &&
+        config_.pqPriority != "reactivePowerFirst" &&
+        config_.pqPriority != "proportional") {
+        issues.push_back({"error", "agcAvc.pqPriority", "unsupported P/Q priority"});
+    }
+    if (config_.activeResourcePriority != "nonBatteryFirst" &&
+        config_.activeResourcePriority != "capacityWeighted") {
+        issues.push_back({"error", "agcAvc.activeResourcePriority", "unsupported active resource priority"});
+    }
 
     validateRef(config_.interlocks.remoteEnable, "agcAvc.interlocks.remoteEnable", pointBus_, issues);
     validateRef(config_.interlocks.emergencyStop, "agcAvc.interlocks.emergencyStop", pointBus_, issues);
@@ -312,6 +321,12 @@ std::vector<AgcAvcValidationIssue> AgcAvcService::validate() const {
         const auto prefix = "agcAvc.pcs[" + std::to_string(i) + "]";
         if (pcs.meterCode.empty()) {
             issues.push_back({"error", prefix + ".meterCode", "meterCode is required"});
+        }
+        if (pcs.activeResourceTier != "auto" &&
+            pcs.activeResourceTier != "primary" &&
+            pcs.activeResourceTier != "nonBattery" &&
+            pcs.activeResourceTier != "battery") {
+            issues.push_back({"error", prefix + ".activeResourceTier", "resource tier must be auto, primary, nonBattery, or battery"});
         }
         const double ratedP = pcs.ratedActivePowerKw.commissionedLimit;
         const double ratedS = pcs.ratedApparentPowerKva.commissionedLimit;
@@ -363,6 +378,9 @@ std::vector<AgcAvcValidationIssue> AgcAvcService::validate() const {
         {"availableReactivePower", config_.outputs.availableReactivePower},
         {"unservedActivePower", config_.outputs.unservedActivePower},
         {"unservedReactivePower", config_.outputs.unservedReactivePower},
+        {"primaryActivePower", config_.outputs.primaryActivePower},
+        {"batteryActivePower", config_.outputs.batteryActivePower},
+        {"limitationFlags", config_.outputs.limitationFlags},
         {"lastCommandStatus", config_.outputs.lastCommandStatus},
         {"lastWriteStatus", config_.outputs.lastWriteStatus},
         {"consecutiveWriteFailures", config_.outputs.consecutiveWriteFailures},
@@ -655,6 +673,9 @@ void AgcAvcService::publishOutputs(const AgcAvcCycleOutput& output, std::int64_t
         {config_.outputs.availableReactivePower, output.availableReactivePowerKvar},
         {config_.outputs.unservedActivePower, output.unservedActivePowerKw},
         {config_.outputs.unservedReactivePower, output.unservedReactivePowerKvar},
+        {config_.outputs.primaryActivePower, output.primaryActivePowerKw},
+        {config_.outputs.batteryActivePower, output.batteryActivePowerKw},
+        {config_.outputs.limitationFlags, static_cast<double>(output.limitationFlags)},
         {config_.outputs.lastCommandStatus, output.commandSequence > 0 ? 1.0 : 0.0},
         {config_.outputs.lastWriteStatus, static_cast<double>(output.lastWriteStatus)},
         {config_.outputs.consecutiveWriteFailures, static_cast<double>(output.consecutiveWriteFailures)},

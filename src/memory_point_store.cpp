@@ -586,7 +586,9 @@ void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord&
 
 Optional<WritebackResultRecord> findWritebackResult(
     const SharedStoreLayout* layout,
-    const std::string& cmdId
+    const std::string& cmdId,
+    std::uint32_t index,
+    bool matchIndex
 ) {
     if (cmdId.empty()) {
         return NullOpt;
@@ -595,7 +597,8 @@ Optional<WritebackResultRecord> findWritebackResult(
     Optional<WritebackResultRecord> found = NullOpt;
     while (head != layout->header.writebackResultTail) {
         const auto& slot = layout->writebackResults[head];
-        if (slot.occupied && readString(slot.cmdId, kCmdIdSize) == cmdId) {
+        if (slot.occupied && readString(slot.cmdId, kCmdIdSize) == cmdId &&
+            (!matchIndex || slot.index == index)) {
             WritebackResultRecord result;
             result.cmdId = readString(slot.cmdId, kCmdIdSize);
             result.index = slot.index;
@@ -1574,6 +1577,45 @@ void MemoryPointStore::submitWriteCommand(const PendingWriteCommand& command) {
     pushPendingWrite(layout2, command, maxPendingWrites_);
 }
 
+void MemoryPointStore::submitWriteCommands(const std::vector<PendingWriteCommand>& commands) {
+    if (commands.empty()) {
+        return;
+    }
+    const auto& cmdId = commands.front().cmdId;
+    if (cmdId.empty()) {
+        throw std::invalid_argument("pending write group cmdId must not be empty");
+    }
+    for (const auto& command : commands) {
+        if (command.index == 0) {
+            throw std::invalid_argument("pending write index must be non-zero");
+        }
+        if (command.cmdId != cmdId) {
+            throw std::invalid_argument("pending write group must use one cmdId");
+        }
+    }
+
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    auto* layout2 = layoutFrom(sharedView_);
+    const auto pendingCount = ringCount(
+        layout2->header.pendingWriteHead,
+        layout2->header.pendingWriteTail,
+        kMaxPendingWriteSlots
+    );
+    if (commands.size() > maxPendingWrites_ - std::min(maxPendingWrites_, pendingCount)) {
+        throw std::runtime_error("shared pending write queue is full");
+    }
+    for (const auto& command : commands) {
+        pushPendingWrite(layout2, command, maxPendingWrites_);
+    }
+}
+
 std::vector<PendingWriteCommand> MemoryPointStore::drainPendingWriteCommands(std::size_t limit) {
     ensureCurrentMapping();
     std::set<std::uint32_t> registeredIndexes;
@@ -1657,7 +1699,27 @@ Optional<WritebackResultRecord> MemoryPointStore::getWritebackResult(const std::
     SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
     const auto* layout2 = layoutFrom(sharedView_);
-    return findWritebackResult(layout2, cmdId);
+    return findWritebackResult(layout2, cmdId, 0, false);
+}
+
+Optional<WritebackResultRecord> MemoryPointStore::getWritebackResult(
+    const std::string& cmdId,
+    std::uint32_t index
+) const {
+    if (cmdId.empty() || index == 0) {
+        return NullOpt;
+    }
+
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    const auto* layout2 = layoutFrom(sharedView_);
+    return findWritebackResult(layout2, cmdId, index, true);
 }
 
 MemoryStoreStats MemoryPointStore::getStats() const {

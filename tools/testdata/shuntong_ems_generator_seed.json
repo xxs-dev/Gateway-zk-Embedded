@@ -438,6 +438,7 @@
           "pcsStandbyStatusIndex": 1210,
           "pcsRunStatusIndex": 1211,
           "phaseControlModeIndex": 1341,
+          "phaseControlModeValue": 0,
           "pcsStartIndex": 1201,
           "pcsStopIndex": 1202,
           "powerMin": -41.6,

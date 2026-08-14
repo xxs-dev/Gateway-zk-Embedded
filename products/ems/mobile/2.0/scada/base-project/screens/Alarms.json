@@ -1,0 +1,1596 @@
+{
+  "screenId": "Alarms",
+  "title": "凯源移动储能车 - 告警",
+  "width": 1920,
+  "height": 1080,
+  "background": "",
+  "widgets": [
+    {
+      "widgetId": "chrome-header",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1920.0,
+        "height": 112.0
+      },
+      "zIndex": -10,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#071B26",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "chrome-brand",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 30.0,
+        "y": 34.0,
+        "width": 38.0,
+        "height": 38.0
+      },
+      "zIndex": 1,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#D9F4F7",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "chrome-brand-text",
+      "type": "qtLabel",
+      "title": "KY",
+      "geometry": {
+        "x": 37.0,
+        "y": 42.0,
+        "width": 28.0,
+        "height": 24.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "KY",
+        "qtTextColor": "#09202B",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Center",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "chrome-title",
+      "type": "qtLabel",
+      "title": "凯源移动储能车",
+      "geometry": {
+        "x": 82.0,
+        "y": 25.0,
+        "width": 390.0,
+        "height": 34.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "凯源移动储能车",
+        "qtTextColor": "#F3F8FA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 21,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "chrome-subtitle",
+      "type": "qtLabel",
+      "title": "COMM202600104 · 现场监控中心",
+      "geometry": {
+        "x": 82.0,
+        "y": 62.0,
+        "width": 390.0,
+        "height": 26.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "COMM202600104 · 现场监控中心",
+        "qtTextColor": "#74B9D0",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "nav-Overview",
+      "type": "qtButton",
+      "title": "总览",
+      "geometry": {
+        "x": 623.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Overview",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "总览",
+        "qtTextColor": "#A9C0CA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 16,
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "nav-Strategy",
+      "type": "qtButton",
+      "title": "策略执行",
+      "geometry": {
+        "x": 735.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Strategy",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "策略执行",
+        "qtTextColor": "#A9C0CA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 16,
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "nav-Devices",
+      "type": "qtButton",
+      "title": "设备",
+      "geometry": {
+        "x": 847.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Devices",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "设备",
+        "qtTextColor": "#A9C0CA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 16,
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "nav-Alarms",
+      "type": "qtButton",
+      "title": "告警",
+      "geometry": {
+        "x": 959.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Alarms",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "告警",
+        "qtTextColor": "#FFFFFF",
+        "qtBackgroundColor": "#14576B",
+        "qtFontSize": 16,
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "nav-Trends",
+      "type": "qtButton",
+      "title": "趋势",
+      "geometry": {
+        "x": 1071.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Trends",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "趋势",
+        "qtTextColor": "#A9C0CA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 16,
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "nav-Control",
+      "type": "qtButton",
+      "title": "控制",
+      "geometry": {
+        "x": 1183.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Control",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "控制",
+        "qtTextColor": "#A9C0CA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 16,
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "nav-Maintenance",
+      "type": "qtButton",
+      "title": "运维",
+      "geometry": {
+        "x": 1295.0,
+        "y": 24.0,
+        "width": 104.0,
+        "height": 64.0
+      },
+      "zIndex": 20,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": {
+        "type": "navigate",
+        "targetScreen": "Maintenance",
+        "nodeId": "edge-1",
+        "tagId": "",
+        "value": "",
+        "requiresConfirmation": false,
+        "highPriority": false
+      },
+      "properties": {
+        "qtText": "运维",
+        "qtTextColor": "#A9C0CA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 16,
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "chrome-runtime",
+      "type": "qtLabel",
+      "title": "● 边端本地运行",
+      "geometry": {
+        "x": 1510.0,
+        "y": 37.0,
+        "width": 360.0,
+        "height": 28.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "● 边端本地运行",
+        "qtTextColor": "#55E0AA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 15,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-frame-0",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 0.0,
+        "y": 112.0,
+        "width": 384.0,
+        "height": 106.0
+      },
+      "zIndex": -5,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#091F2B",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-label-0",
+      "type": "qtLabel",
+      "title": "并网有功",
+      "geometry": {
+        "x": 20.0,
+        "y": 137.0,
+        "width": 150.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "并网有功",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-value-0",
+      "type": "qtValue",
+      "title": "",
+      "geometry": {
+        "x": 20.0,
+        "y": 166.0,
+        "width": 245.0,
+        "height": 36.0
+      },
+      "zIndex": 6,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600664.mb1_s2_1039",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "--",
+        "qtTextColor": "#55D8E8",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 23,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true,
+        "valueMapJson": ""
+      }
+    },
+    {
+      "widgetId": "kpi-unit-0",
+      "type": "qtLabel",
+      "title": "kW",
+      "geometry": {
+        "x": 270.0,
+        "y": 171.0,
+        "width": 92.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "kW",
+        "qtTextColor": "#9CB4BE",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-frame-1",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 384.0,
+        "y": 112.0,
+        "width": 384.0,
+        "height": 106.0
+      },
+      "zIndex": -5,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#0A2430",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-divider-1",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 384.0,
+        "y": 112.0,
+        "width": 1.0,
+        "height": 106.0
+      },
+      "zIndex": 0,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#244957",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-label-1",
+      "type": "qtLabel",
+      "title": "SOC",
+      "geometry": {
+        "x": 404.0,
+        "y": 137.0,
+        "width": 150.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "SOC",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-value-1",
+      "type": "qtValue",
+      "title": "",
+      "geometry": {
+        "x": 404.0,
+        "y": 166.0,
+        "width": 245.0,
+        "height": 36.0
+      },
+      "zIndex": 6,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600659.mb3_s2_1569",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "--",
+        "qtTextColor": "#F3F8FA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 23,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true,
+        "valueMapJson": ""
+      }
+    },
+    {
+      "widgetId": "kpi-unit-1",
+      "type": "qtLabel",
+      "title": "%",
+      "geometry": {
+        "x": 654.0,
+        "y": 171.0,
+        "width": 92.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "%",
+        "qtTextColor": "#9CB4BE",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-frame-2",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 768.0,
+        "y": 112.0,
+        "width": 384.0,
+        "height": 106.0
+      },
+      "zIndex": -5,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#091F2B",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-divider-2",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 768.0,
+        "y": 112.0,
+        "width": 1.0,
+        "height": 106.0
+      },
+      "zIndex": 0,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#244957",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-label-2",
+      "type": "qtLabel",
+      "title": "今日充电",
+      "geometry": {
+        "x": 788.0,
+        "y": 137.0,
+        "width": 150.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "今日充电",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-value-2",
+      "type": "qtValue",
+      "title": "",
+      "geometry": {
+        "x": 788.0,
+        "y": 166.0,
+        "width": 245.0,
+        "height": 36.0
+      },
+      "zIndex": 6,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600659.mb3_s2_1615",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "--",
+        "qtTextColor": "#55D8E8",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 23,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true,
+        "valueMapJson": ""
+      }
+    },
+    {
+      "widgetId": "kpi-unit-2",
+      "type": "qtLabel",
+      "title": "kWh",
+      "geometry": {
+        "x": 1038.0,
+        "y": 171.0,
+        "width": 92.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "kWh",
+        "qtTextColor": "#9CB4BE",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-frame-3",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 1152.0,
+        "y": 112.0,
+        "width": 384.0,
+        "height": 106.0
+      },
+      "zIndex": -5,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#0A2430",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-divider-3",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 1152.0,
+        "y": 112.0,
+        "width": 1.0,
+        "height": 106.0
+      },
+      "zIndex": 0,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#244957",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-label-3",
+      "type": "qtLabel",
+      "title": "今日放电",
+      "geometry": {
+        "x": 1172.0,
+        "y": 137.0,
+        "width": 150.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "今日放电",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-value-3",
+      "type": "qtValue",
+      "title": "",
+      "geometry": {
+        "x": 1172.0,
+        "y": 166.0,
+        "width": 245.0,
+        "height": 36.0
+      },
+      "zIndex": 6,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600659.mb3_s2_1616",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "--",
+        "qtTextColor": "#F9CC44",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 23,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true,
+        "valueMapJson": ""
+      }
+    },
+    {
+      "widgetId": "kpi-unit-3",
+      "type": "qtLabel",
+      "title": "kWh",
+      "geometry": {
+        "x": 1422.0,
+        "y": 171.0,
+        "width": 92.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "kWh",
+        "qtTextColor": "#9CB4BE",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-frame-4",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 1536.0,
+        "y": 112.0,
+        "width": 384.0,
+        "height": 106.0
+      },
+      "zIndex": -5,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#091F2B",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-divider-4",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 1536.0,
+        "y": 112.0,
+        "width": 1.0,
+        "height": 106.0
+      },
+      "zIndex": 0,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#244957",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "kpi-label-4",
+      "type": "qtLabel",
+      "title": "可放电量",
+      "geometry": {
+        "x": 1556.0,
+        "y": 137.0,
+        "width": 150.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "可放电量",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "kpi-value-4",
+      "type": "qtValue",
+      "title": "",
+      "geometry": {
+        "x": 1556.0,
+        "y": 166.0,
+        "width": 245.0,
+        "height": 36.0
+      },
+      "zIndex": 6,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600659.mb3_s2_1591",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "--",
+        "qtTextColor": "#55E0AA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 23,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true,
+        "valueMapJson": ""
+      }
+    },
+    {
+      "widgetId": "kpi-unit-4",
+      "type": "qtLabel",
+      "title": "kWh",
+      "geometry": {
+        "x": 1806.0,
+        "y": 171.0,
+        "width": 92.0,
+        "height": 24.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "kWh",
+        "qtTextColor": "#9CB4BE",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 14,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "chrome-footer",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 0.0,
+        "y": 1038.0,
+        "width": 1920.0,
+        "height": 42.0
+      },
+      "zIndex": -10,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#061720",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "footer-source",
+      "type": "qtLabel",
+      "title": "数据源：共享内存直读 · 页面刷新：500 ms",
+      "geometry": {
+        "x": 24.0,
+        "y": 1049.0,
+        "width": 620.0,
+        "height": 24.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "数据源：共享内存直读 · 页面刷新：500 ms",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 13,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "footer-machine",
+      "type": "qtLabel",
+      "title": "COMM202600104",
+      "geometry": {
+        "x": 1540.0,
+        "y": 1049.0,
+        "width": 350.0,
+        "height": 24.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "COMM202600104",
+        "qtTextColor": "#78B6CC",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 13,
+        "qtFontWeight": "Normal",
+        "qtTextAlignment": "Right",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "alarms-summary-panel",
+      "type": "qtFrame",
+      "title": "",
+      "geometry": {
+        "x": 24.0,
+        "y": 240.0,
+        "width": 348.0,
+        "height": 786.0
+      },
+      "zIndex": 0,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "",
+        "qtBackgroundColor": "#081E29",
+        "qtTransparent": false
+      }
+    },
+    {
+      "widgetId": "alarms-summary-title",
+      "type": "qtLabel",
+      "title": "设备告警摘要",
+      "geometry": {
+        "x": 44.0,
+        "y": 258.0,
+        "width": 300.0,
+        "height": 30.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtText": "设备告警摘要",
+        "qtTextColor": "#EAF6FA",
+        "qtBackgroundColor": "transparent",
+        "qtFontSize": 18,
+        "qtFontWeight": "Bold",
+        "qtTextAlignment": "Left",
+        "qtTransparent": true
+      }
+    },
+    {
+      "widgetId": "alarms-summary-pcs-fault",
+      "type": "statusLamp",
+      "title": "PCS 总故障",
+      "geometry": {
+        "x": 44.0,
+        "y": 304.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600657.mb4_s1_1212",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "MTR20250600657.mb4_s1_1212",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "故障",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "MTR20250600657.mb4_s1_1212",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-summary-pcs-alarm",
+      "type": "statusLamp",
+      "title": "PCS 总报警",
+      "geometry": {
+        "x": 44.0,
+        "y": 390.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600657.mb4_s1_1213",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "MTR20250600657.mb4_s1_1213",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "报警",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "MTR20250600657.mb4_s1_1213",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-summary-bms-fault",
+      "type": "statusLamp",
+      "title": "BMS 故障",
+      "geometry": {
+        "x": 44.0,
+        "y": 476.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "MTR20250600659.mb3_s2_1462",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "MTR20250600659.mb3_s2_1462",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "故障",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "MTR20250600659.mb3_s2_1462",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-summary-cooling",
+      "type": "statusLamp",
+      "title": "液冷故障码",
+      "geometry": {
+        "x": 44.0,
+        "y": 562.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "COMM202600104_LIQUID_COOLING.mb5_s3_153",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_LIQUID_COOLING.mb5_s3_153",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "故障",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_LIQUID_COOLING.mb5_s3_153",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-summary-fire-alarm",
+      "type": "statusLamp",
+      "title": "消防综合报警",
+      "geometry": {
+        "x": 44.0,
+        "y": 648.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "COMM202600104_FIRE_DETECTOR.can0_zh_addr043_alarm",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_FIRE_DETECTOR.can0_zh_addr043_alarm",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "报警",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_FIRE_DETECTOR.can0_zh_addr043_alarm",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-summary-fire-fault",
+      "type": "statusLamp",
+      "title": "消防综合故障",
+      "geometry": {
+        "x": 44.0,
+        "y": 734.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "COMM202600104_FIRE_DETECTOR.can0_zh_addr043_fault",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_FIRE_DETECTOR.can0_zh_addr043_fault",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "故障",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_FIRE_DETECTOR.can0_zh_addr043_fault",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-summary-emergency",
+      "type": "statusLamp",
+      "title": "急停回路",
+      "geometry": {
+        "x": 44.0,
+        "y": 820.0,
+        "width": 308.0,
+        "height": 74.0
+      },
+      "zIndex": 3,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [
+        {
+          "nodeId": "edge-1",
+          "tagId": "COMM202600104_DIO.KY02200878",
+          "slot": "value"
+        }
+      ],
+      "stateRules": [
+        {
+          "code": "normal",
+          "label": "正常",
+          "color": "#20C879",
+          "image": "",
+          "priority": 20,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_DIO.KY02200878",
+              "comparison": "eq",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "code": "abnormal",
+          "label": "动作",
+          "color": "#E45858",
+          "image": "",
+          "priority": 10,
+          "match": "all",
+          "conditions": [
+            {
+              "nodeId": "edge-1",
+              "tagId": "COMM202600104_DIO.KY02200878",
+              "comparison": "ne",
+              "value": "0"
+            }
+          ]
+        }
+      ],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#0B2633",
+        "qtTextColor": "#F3F8FA",
+        "qtFontSize": 16,
+        "defaultStateLabel": "未知",
+        "defaultStateColor": "#71808A",
+        "stateColorMode": "indicator"
+      }
+    },
+    {
+      "widgetId": "alarms-device-table",
+      "type": "alarmTable",
+      "title": "活动设备告警",
+      "geometry": {
+        "x": 390.0,
+        "y": 240.0,
+        "width": 1506.0,
+        "height": 786.0
+      },
+      "zIndex": 2,
+      "visible": true,
+      "styleClass": "ems2",
+      "bindings": [],
+      "stateRules": [],
+      "action": null,
+      "properties": {
+        "qtBackgroundColor": "#071A2D",
+        "qtTextColor": "#E8F0F2",
+        "qtFontSize": 16
+      }
+    }
+  ]
+}

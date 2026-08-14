@@ -175,6 +175,50 @@ void testPqEnvelope() {
     requireNear(output.effectiveTargetQkvar, 60.0, 0.001, "P/Q capability circle must clip Q");
 }
 
+void testReactivePowerPriorityIsAppliedPerPcs() {
+    auto config = baseConfig();
+    config.pqPriority = "reactivePowerFirst";
+    edge_gateway::AgcAvcController controller(config);
+    auto input = baseInput(15000);
+    input.command.targetPkw = 80.0;
+    input.command.targetQkvar = 80.0;
+    const auto output = controller.step(input);
+    requireNear(output.effectiveTargetPkw, 60.0, 0.001, "reactive priority must clip P at the PCS envelope");
+    requireNear(output.effectiveTargetQkvar, 80.0, 0.001, "reactive priority must preserve Q at the PCS envelope");
+}
+
+void testNonBatteryResourcePrecedesBatteryResidual() {
+    auto config = baseConfig();
+    config.stationLimits.ratedActivePowerKw = 200.0;
+    config.stationLimits.ratedApparentPowerKva = 200.0;
+    config.stationLimits.maxExportPowerKw = 200.0;
+    config.agc.maxKw = 200.0;
+    config.pcs[0].deviceType = "gridTieInverter";
+    config.pcs[0].maxDischargePowerKw = 20.0;
+    config.pcs[0].ratedActivePowerKw.commissionedLimit = 20.0;
+    config.pcs[0].ratedApparentPowerKva.commissionedLimit = 20.0;
+    auto battery = config.pcs[0];
+    battery.meterCode = "BATTERY_PCS";
+    battery.deviceType = "storagePcs";
+    battery.maxDischargePowerKw = 100.0;
+    battery.ratedActivePowerKw.commissionedLimit = 100.0;
+    battery.ratedApparentPowerKva.commissionedLimit = 100.0;
+    config.pcs.push_back(battery);
+
+    edge_gateway::AgcAvcController controller(config);
+    auto input = baseInput(16000);
+    input.command.targetPkw = 60.0;
+    auto batteryRuntime = input.pcs[0];
+    batteryRuntime.meterCode = "BATTERY_PCS";
+    input.pcs.push_back(batteryRuntime);
+    const auto output = controller.step(input);
+    requireNear(output.pcs[0].targetPkw, 20.0, 0.001, "primary inverter should be exhausted first");
+    requireNear(output.pcs[1].targetPkw, 40.0, 0.001, "battery should serve only the residual");
+    requireNear(output.primaryActivePowerKw, 20.0, 0.001, "primary diagnostic mismatch");
+    requireNear(output.batteryActivePowerKw, 40.0, 0.001, "battery diagnostic mismatch");
+    require((output.limitationFlags & 2) != 0, "battery-assist flag should be set");
+}
+
 void testDynamicCapacityAndRedistribution() {
     auto config = baseConfig();
     config.stationLimits.ratedActivePowerKw = 200.0;
@@ -421,6 +465,7 @@ void testAgcAvcConfigParsing() {
         "shadowMode": true,
         "submitWrites": false,
         "cycleMs": 250,
+        "activeResourcePriority": "capacityWeighted",
         "stationLimits": {"ratedActivePowerKw": 100, "ratedApparentPowerKva": 110},
         "agc": {
           "target": {"source": "sharedCommand", "semanticRole": "agc.target", "index": 720010, "required": true},
@@ -431,6 +476,7 @@ void testAgcAvcConfigParsing() {
         "pcs": [{
           "machineCode": "GW_TEST",
           "meterCode": "PCS_1",
+          "activeResourceTier": "primary",
           "ratedActivePowerKw": 100,
           "ratedApparentPowerKva": {
             "commissionedLimit": 110,
@@ -455,6 +501,8 @@ void testAgcAvcConfigParsing() {
     require(config.agcAvc.enabled, "AGC/AVC config should parse enabled flag");
     require(config.agcAvc.cycleMs == 250, "AGC/AVC cycle should parse");
     require(config.agcAvc.pcs.size() == 1, "AGC/AVC PCS list should parse");
+    require(config.agcAvc.activeResourcePriority == "capacityWeighted", "active resource priority should parse");
+    require(config.agcAvc.pcs[0].activeResourceTier == "primary", "PCS resource tier should parse");
     require(config.agcAvc.pcs[0].ratedApparentPowerKva.hasSourcePoint, "capability source point should parse");
     require(config.agcAvc.pcs[0].points.activeTargets[0].source == "sharedWriteback", "writeback source should parse");
     std::remove(path.c_str());
@@ -465,6 +513,8 @@ void testAgcAvcConfigParsing() {
 int main() {
     try {
         testPqEnvelope();
+        testReactivePowerPriorityIsAppliedPerPcs();
+        testNonBatteryResourcePrecedesBatteryResidual();
         testDynamicCapacityAndRedistribution();
         testExpiredCommand();
         testMinimumStablePowerAndSocDerating();

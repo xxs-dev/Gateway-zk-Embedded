@@ -117,6 +117,9 @@ private:
         std::size_t requestedCount,
         std::int64_t nowMs
     );
+    void recordScanHealth(double durationMs, bool failed, std::int64_t nowMs);
+    void recordReplayHealth(double durationMs, bool failed);
+    void publishHealthFileLocked(std::int64_t nowMs);
     void enrichValue(StoredPointValue& value) const;
     std::vector<StoredPointValue> enrichValues(std::vector<StoredPointValue> values) const;
     std::string primaryMachineCode() const;
@@ -151,6 +154,16 @@ private:
     std::thread scanThread_;
     std::thread replayThread_;
     std::thread otaThread_;
+    std::mutex healthMutex_;
+    std::deque<double> scanDurationsMs_;
+    std::deque<double> replayDurationsMs_;
+    std::uint64_t totalScanCycles_ = 0;
+    std::uint64_t scanDeadlineMissCycles_ = 0;
+    std::uint64_t scanFailedCycles_ = 0;
+    std::uint64_t totalReplayCycles_ = 0;
+    std::uint64_t replayFailedCycles_ = 0;
+    std::atomic<std::uint64_t> fullSnapshotsPublished_{0};
+    std::int64_t lastHealthPublishMs_ = 0;
 };
 
 }  // namespace edge_gateway
