@@ -225,7 +225,11 @@ GatewayDaemon::GatewayDaemon(
         config_.mqttDriver.priorityControlLeaseFile,
         config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
     ),
-    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    sqliteWriter_(
+        config_.memoryStore.sqlitePath,
+        config_.memoryStore.sqliteLibraryPath,
+        config_.memoryStore.historyRetentionDays
+    ),
     mqttPublisher_(std::move(mqttPublisher)),
     collectorFactory_(std::move(collectorFactory)),
     commandExecutorFactory_(std::move(commandExecutorFactory)),

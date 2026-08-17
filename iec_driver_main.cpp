@@ -107,6 +107,7 @@ int main(int argc, char* argv[]) {
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
+    config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "iec104" && config.protocol.type != "iec101" &&
         config.protocol.type != "iec103" && config.protocol.type != "iec103_tcp" &&

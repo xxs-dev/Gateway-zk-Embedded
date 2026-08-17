@@ -16,6 +16,7 @@
 
 - `runtime/device_identity.json`：网关身份模板，默认 `machineCode=GW_FACTORY_001`。
 - `runtime/apps/mqtt-service.json`：第三方 MQTT 转发、事件、OTA 配置。
+- `runtime/apps/mqtt-service.json:pointHistory.retentionDays`：所有协议驱动共用的点位历史保留期限，出厂默认 30 天，仅作用于 `isStore=true` 的点位。
 - `runtime/apps/monitor-service.json`：主站监测、诊断、配置拉取、本地画面配置。
 - `runtime/apps/camera-service.json`：摄像头推流配置，出厂默认关闭。
 - `runtime/logic/shuntong_ems_graph.json`：舜通 EMS 图形化逻辑模板，当前为 V2 单文件，包含 487 个执行节点、489 条有类型源链接，折叠 `pointInput` 后形成 486 条运行依赖；量产初始化为网关模式时会保留模板文件但不会加入运行规则。
@@ -62,6 +63,7 @@ sh deploy/production-init.sh \
 - `deviceConfigFiles[]` 默认不引用 `device_ems_virtual.json`，因此 EMS 本体虚拟点不会进入共享内存和 MQTT 上报范围。
 - `device_can0.json` 只作为模板随包发布，未被 `deviceConfigFiles[]` 引用时不会启动 `can-driver@*.service`。
 - `mqtt-service.json:mqtt.enabled=true` 且默认开启 MQTT 上传、事件 outbox、OTA 和控制通道，因此会启动 `mqtt-driver@mqtt-service.service`。
+- `mqtt-service.json:pointHistory.retentionDays=30`，所有已启动协议驱动的持久化点位统一保留 30 天。
 - `mqtt-service.json:eventEngine.enabled=true`，因此默认会启动 `event-engine@mqtt-service.service`。
 - `mqtt-service.json:computeEngine.enabled=true` 时会启动 `compute-engine@mqtt-service.service`；默认 `gateway` 模式不会执行 `runtime/logic/shuntong_ems_graph.json` 中的 EMS 图形逻辑。
 - `monitor-service.json:systemMonitor.enabled=true`，因此默认会启动 `system-monitor@monitor-service.service`。

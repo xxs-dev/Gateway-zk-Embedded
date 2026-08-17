@@ -1,5 +1,6 @@
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
+#include <chrono>
 #include <stdexcept>
 #include <string>
 
@@ -27,11 +28,15 @@ using sqlite3_step_fn = int (*)(sqlite3_stmt*);
 using sqlite3_finalize_fn = int (*)(sqlite3_stmt*);
 using sqlite3_errmsg_fn = const char* (*)(sqlite3*);
 using sqlite3_free_fn = void (*)(void*);
+using sqlite3_changes_fn = int (*)(sqlite3*);
 
 constexpr int kSqliteOk = 0;
 constexpr int kSqliteDone = 101;
 constexpr int kSqliteOpenReadWrite = 0x00000002;
 constexpr int kSqliteOpenCreate = 0x00000004;
+constexpr std::int64_t kMillisecondsPerDay = 24LL * 60 * 60 * 1000;
+constexpr std::int64_t kCleanupIntervalMs = kMillisecondsPerDay;
+constexpr int kCleanupBatchSize = 100000;
 
 sqlite3_open_v2_fn g_sqlite3_open_v2 = nullptr;
 sqlite3_close_v2_fn g_sqlite3_close_v2 = nullptr;
@@ -44,6 +49,7 @@ sqlite3_step_fn g_sqlite3_step = nullptr;
 sqlite3_finalize_fn g_sqlite3_finalize = nullptr;
 sqlite3_errmsg_fn g_sqlite3_errmsg = nullptr;
 sqlite3_free_fn g_sqlite3_free = nullptr;
+sqlite3_changes_fn g_sqlite3_changes = nullptr;
 
 void* loadSymbol(void* handle, const char* name) {
 #ifdef _WIN32
@@ -76,10 +82,21 @@ void execOrThrow(sqlite3* db, const char* sql) {
     }
 }
 
+std::int64_t currentTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
 }  // namespace
 
-SqliteSampleWriter::SqliteSampleWriter(std::string dbPath, std::string libraryPath)
-    : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)) {
+SqliteSampleWriter::SqliteSampleWriter(
+    std::string dbPath,
+    std::string libraryPath,
+    int retentionDays
+) : dbPath_(std::move(dbPath)),
+    libraryPath_(std::move(libraryPath)),
+    retentionDays_(retentionDays > 0 ? retentionDays : 30) {
     if (dbPath_.empty()) {
         return;
     }
@@ -95,40 +112,96 @@ SqliteSampleWriter::~SqliteSampleWriter() {
 }
 
 void SqliteSampleWriter::writeSamples(const std::vector<PersistentPointSample>& samples) {
-    if (!enabled_ || samples.empty()) {
+    writeSamples(samples, currentTimeMs());
+}
+
+void SqliteSampleWriter::writeSamples(
+    const std::vector<PersistentPointSample>& samples,
+    std::int64_t referenceTimeMs
+) {
+    if (!enabled_) {
+        return;
+    }
+
+    if (!samples.empty()) {
+        auto* db = static_cast<sqlite3*>(databaseHandle_);
+        execOrThrow(db, "BEGIN IMMEDIATE TRANSACTION;");
+
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql =
+            "INSERT INTO point_samples(point_index, ts, value) VALUES(?, ?, ?) "
+            "ON CONFLICT(point_index, ts) DO UPDATE SET value=excluded.value;";
+        if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
+            execOrThrow(db, "ROLLBACK;");
+            throw std::runtime_error(sqliteError(db));
+        }
+
+        try {
+            for (const auto& sample : samples) {
+                if (g_sqlite3_bind_int(stmt, 1, static_cast<int>(sample.index)) != kSqliteOk ||
+                    g_sqlite3_bind_int64(stmt, 2, static_cast<long long>(sample.ts)) != kSqliteOk ||
+                    g_sqlite3_bind_double(stmt, 3, sample.value) != kSqliteOk) {
+                    throw std::runtime_error(sqliteError(db));
+                }
+                if (g_sqlite3_step(stmt) != kSqliteDone) {
+                    throw std::runtime_error(sqliteError(db));
+                }
+                g_sqlite3_finalize(stmt);
+                stmt = nullptr;
+                if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
+                    throw std::runtime_error(sqliteError(db));
+                }
+            }
+            g_sqlite3_finalize(stmt);
+            execOrThrow(db, "COMMIT;");
+        } catch (...) {
+            if (stmt != nullptr) {
+                g_sqlite3_finalize(stmt);
+            }
+            execOrThrow(db, "ROLLBACK;");
+            throw;
+        }
+    }
+
+    cleanupExpiredSamples(referenceTimeMs);
+}
+
+void SqliteSampleWriter::cleanupExpiredSamples(std::int64_t referenceTimeMs) {
+    if (referenceTimeMs <= 0 ||
+        (lastCompletedCleanupMs_ > 0 &&
+         referenceTimeMs - lastCompletedCleanupMs_ < kCleanupIntervalMs)) {
         return;
     }
 
     auto* db = static_cast<sqlite3*>(databaseHandle_);
     execOrThrow(db, "BEGIN IMMEDIATE TRANSACTION;");
-
     sqlite3_stmt* stmt = nullptr;
     const char* sql =
-        "INSERT INTO point_samples(point_index, ts, value) VALUES(?, ?, ?) "
-        "ON CONFLICT(point_index, ts) DO UPDATE SET value=excluded.value;";
-    if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
-        execOrThrow(db, "ROLLBACK;");
-        throw std::runtime_error(sqliteError(db));
-    }
+        "DELETE FROM point_samples WHERE rowid IN ("
+        "SELECT rowid FROM point_samples WHERE ts < ? ORDER BY rowid LIMIT 100000"
+        ");";
 
     try {
-        for (const auto& sample : samples) {
-            if (g_sqlite3_bind_int(stmt, 1, static_cast<int>(sample.index)) != kSqliteOk ||
-                g_sqlite3_bind_int64(stmt, 2, static_cast<long long>(sample.ts)) != kSqliteOk ||
-                g_sqlite3_bind_double(stmt, 3, sample.value) != kSqliteOk) {
-                throw std::runtime_error(sqliteError(db));
-            }
-            if (g_sqlite3_step(stmt) != kSqliteDone) {
-                throw std::runtime_error(sqliteError(db));
-            }
+        if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk ||
+            g_sqlite3_bind_int64(
+                stmt,
+                1,
+                static_cast<long long>(
+                    referenceTimeMs - static_cast<std::int64_t>(retentionDays_) * kMillisecondsPerDay
+                )
+            ) != kSqliteOk ||
+            g_sqlite3_step(stmt) != kSqliteDone) {
+            throw std::runtime_error(sqliteError(db));
+        }
+        const auto removed = g_sqlite3_changes(db);
+        if (stmt != nullptr) {
             g_sqlite3_finalize(stmt);
             stmt = nullptr;
-            if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
-                throw std::runtime_error(sqliteError(db));
-            }
         }
-        g_sqlite3_finalize(stmt);
         execOrThrow(db, "COMMIT;");
+        if (removed < kCleanupBatchSize) {
+            lastCompletedCleanupMs_ = referenceTimeMs;
+        }
     } catch (...) {
         if (stmt != nullptr) {
             g_sqlite3_finalize(stmt);
@@ -179,6 +252,7 @@ void SqliteSampleWriter::loadLibrary() {
     g_sqlite3_finalize = reinterpret_cast<sqlite3_finalize_fn>(loadSymbol(libraryHandle_, "sqlite3_finalize"));
     g_sqlite3_errmsg = reinterpret_cast<sqlite3_errmsg_fn>(loadSymbol(libraryHandle_, "sqlite3_errmsg"));
     g_sqlite3_free = reinterpret_cast<sqlite3_free_fn>(loadSymbol(libraryHandle_, "sqlite3_free"));
+    g_sqlite3_changes = reinterpret_cast<sqlite3_changes_fn>(loadSymbol(libraryHandle_, "sqlite3_changes"));
 }
 
 void SqliteSampleWriter::openDatabase() {

@@ -185,7 +185,11 @@ CanDriverService::CanDriverService(
     std::shared_ptr<IMqttPublisher> mqttPublisher
 ) : config_(std::move(config)),
     store_(store),
-    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    sqliteWriter_(
+        config_.memoryStore.sqlitePath,
+        config_.memoryStore.sqliteLibraryPath,
+        config_.memoryStore.historyRetentionDays
+    ),
     priorityControlLease_(
         config_.mqttDriver.priorityControlLeaseFile,
         config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName

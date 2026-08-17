@@ -28,6 +28,7 @@ constexpr std::size_t kMqttMaxBatchSize = 1000U;
 constexpr int kMqttMaxFlushIntervalMs = 60000;
 constexpr int kMqttMaxRetentionMonths = 24;
 constexpr int kMqttMaxCleanupIntervalHours = 168;
+constexpr int kMaxPointHistoryRetentionDays = 3650;
 
 bool isAbsolutePath(const std::string& path) {
     if (path.empty()) {
@@ -1744,6 +1745,20 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.persistFlushIntervalMs = requireInt(object, "persistFlushIntervalMs", config.persistFlushIntervalMs);
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
+    return config;
+}
+
+PointHistoryConfig parsePointHistoryConfig(const JsonValue* value) {
+    PointHistoryConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    config.retentionDays = boundedInt(
+        requireInt(object, "retentionDays", config.retentionDays),
+        1,
+        kMaxPointHistoryRetentionDays
+    );
     return config;
 }
 
@@ -3583,6 +3598,7 @@ AppConfig parseAppConfig(const std::string& text) {
     }
     config.identityConfigFile = requireString(root.asObject(), "identityConfigFile", config.identityConfigFile);
     config.deviceConfigFiles = parseStringArray(root.find("deviceConfigFiles"));
+    config.pointHistory = parsePointHistoryConfig(root.find("pointHistory"));
     config.timingPolicy = parseTimingPolicy(root.find("timingPolicy"));
     config.mqtt = parseMqttConfig(root.find("mqtt"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));

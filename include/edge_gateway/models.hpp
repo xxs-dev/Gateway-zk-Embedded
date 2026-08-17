@@ -580,9 +580,14 @@ struct MemoryStoreConfig {
     std::size_t maxPersistentSamples = 20000;
     std::string sqlitePath = "point_samples.db";
     std::string sqliteLibraryPath;
+    int historyRetentionDays = 30;
     int persistFlushIntervalMs = 60000;
     int writebackIntervalMs = 500;
     std::size_t writebackBatchSize = 100;
+};
+
+struct PointHistoryConfig {
+    int retentionDays = 30;
 };
 
 struct NorthboundServerConfig {
@@ -1372,6 +1377,7 @@ struct AppConfig {
     std::string runtimeMode = "gateway";
     std::string identityConfigFile;
     std::vector<std::string> deviceConfigFiles;
+    PointHistoryConfig pointHistory;
     TimingPolicyConfig timingPolicy;
     MqttConfig mqtt;
     MqttDriverConfig mqttDriver;

@@ -322,6 +322,10 @@ add_executable(point_store_router_retention_test tools/point_store_router_retent
 target_link_libraries(point_store_router_retention_test PRIVATE edge_gateway)
 target_compile_options(point_store_router_retention_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(sqlite_sample_writer_retention_test tools/sqlite_sample_writer_retention_test.cpp)
+target_link_libraries(sqlite_sample_writer_retention_test PRIVATE edge_gateway)
+target_compile_options(sqlite_sample_writer_retention_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(scada_runtime_test tools/scada_runtime_test.cpp)
 target_link_libraries(scada_runtime_test PRIVATE edge_gateway)
 target_compile_options(scada_runtime_test PRIVATE -fdiagnostics-color=never)
@@ -403,6 +407,7 @@ if(BUILD_TESTING)
     add_test(NAME config_loader COMMAND config_loader_test)
     add_test(NAME ota_service COMMAND ota_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
+    add_test(NAME sqlite_sample_writer_retention COMMAND sqlite_sample_writer_retention_test)
     add_test(NAME memory_point_store_lifecycle COMMAND memory_point_store_lifecycle_test)
     add_test(NAME system_monitor_runtime_discovery COMMAND system_monitor_runtime_discovery_test)
     add_test(NAME scada_runtime COMMAND scada_runtime_test)

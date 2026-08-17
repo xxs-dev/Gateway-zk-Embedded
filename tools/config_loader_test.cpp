@@ -691,6 +691,32 @@ void verifyDeliveryRuntimeConfig() {
     require(app.eventEngine.deliveryMaxLatencyMs == 50, "EventEngine maximum delivery latency should parse");
 }
 
+void verifyPointHistoryConfig() {
+    const auto load = [](const std::string& json) {
+        const auto path = tempPath();
+        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+        output << json;
+        output.close();
+        const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).pointHistory;
+        std::remove(path.c_str());
+        return config;
+    };
+
+    require(load("{}").retentionDays == 30, "point history retention should default to 30 days");
+    require(
+        load(R"JSON({"pointHistory":{"retentionDays":45}})JSON").retentionDays == 45,
+        "point history retention should parse from the global app config"
+    );
+    require(
+        load(R"JSON({"pointHistory":{"retentionDays":0}})JSON").retentionDays == 1,
+        "point history retention should have a finite lower bound"
+    );
+    require(
+        load(R"JSON({"pointHistory":{"retentionDays":99999}})JSON").retentionDays == 3650,
+        "point history retention should be bounded"
+    );
+}
+
 void verifyCameraAuthenticationFailsClosed() {
     const auto path = tempPath();
     {
@@ -829,6 +855,7 @@ int main() {
     verifySystemMonitorCpuAlertConfig();
     verifyIec103RecordingTransferConfig();
     verifyDeliveryRuntimeConfig();
+    verifyPointHistoryConfig();
     verifyCameraAuthenticationFailsClosed();
     verifyPublicCameraExampleLoadsWithoutCredentials();
 
