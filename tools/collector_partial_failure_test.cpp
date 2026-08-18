@@ -1243,7 +1243,7 @@ void verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter() {
     {
         auto config = buildConfig(storeName);
         config.collect.cycleBackoffEnabled = false;
-        config.collect.offlineFailureThreshold = 1;
+        config.collect.offlineFailureThreshold = 3;
         config.collect.slaveFailureBackoffThreshold = 100;
         config.collect.taskFailureBackoffMs = 0;
         config.collect.taskFailureBackoffMaxMs = 0;
@@ -1262,23 +1262,39 @@ void verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter() {
         } catch (const std::exception&) {
         }
         const auto readsAfterFailure = client->readCount(0) + client->readCount(10);
-        require(readsAfterFailure > 0, "confirmed-offline meter should be probed initially");
+        require(readsAfterFailure > 0, "meter should be probed initially");
 
         try {
             (void)collector.collectOnce(4500);
         } catch (const std::exception&) {
         }
+        const auto readsBeforeConfirmedOffline = client->readCount(0) + client->readCount(10);
         require(
-            client->readCount(0) + client->readCount(10) == readsAfterFailure,
-            "offline probe interval should suppress early retry"
+            readsBeforeConfirmedOffline > readsAfterFailure,
+            "transient failures below the offline threshold must not be throttled"
         );
 
         try {
             (void)collector.collectOnce(5000);
         } catch (const std::exception&) {
         }
+        const auto readsAfterConfirmedOffline = client->readCount(0) + client->readCount(10);
+
+        try {
+            (void)collector.collectOnce(5500);
+        } catch (const std::exception&) {
+        }
         require(
-            client->readCount(0) + client->readCount(10) > readsAfterFailure,
+            client->readCount(0) + client->readCount(10) == readsAfterConfirmedOffline,
+            "offline probe interval should suppress retries only after confirmed offline"
+        );
+
+        try {
+            (void)collector.collectOnce(6000);
+        } catch (const std::exception&) {
+        }
+        require(
+            client->readCount(0) + client->readCount(10) > readsAfterConfirmedOffline,
             "offline probe should resume after configured interval"
         );
     }
