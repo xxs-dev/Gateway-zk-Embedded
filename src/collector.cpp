@@ -404,12 +404,12 @@ void Collector::noteReadSuccess(std::int64_t nowMs) {
 void Collector::noteReadFailure(std::int64_t nowMs) {
     consecutiveSuccesses_ = 0;
     ++consecutiveFailures_;
-    if (consecutiveFailures_ >= std::max(1, config_.collect.offlineFailureThreshold)) {
+    const auto offlineFailureThreshold = std::max(1, config_.collect.offlineFailureThreshold);
+    if (consecutiveFailures_ >= offlineFailureThreshold) {
         online_ = false;
-    }
-    if (!online_ && config_.collect.offlineProbeOnly &&
-        config_.collect.offlineProbeIntervalMs > 0) {
-        offlineProbeNextAttemptMs_ = nowMs + config_.collect.offlineProbeIntervalMs;
+        if (config_.collect.offlineProbeOnly && config_.collect.offlineProbeIntervalMs > 0) {
+            offlineProbeNextAttemptMs_ = nowMs + config_.collect.offlineProbeIntervalMs;
+        }
     }
     if (consecutiveFailures_ >= std::max(1, config_.collect.slaveFailureBackoffThreshold)) {
         if (config_.collect.cycleBackoffEnabled) {
