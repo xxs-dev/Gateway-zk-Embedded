@@ -1301,6 +1301,61 @@ void verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter() {
     cleanupStore(storeName);
 }
 
+void verifyOfflineProbeIntervalThrottlesFailedTaskOnly() {
+    const std::string storeName = "gateway_collector_offline_probe_task_interval_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.offlineFailureThreshold = 3;
+        config.collect.taskFailureBackoffThreshold = 1;
+        config.collect.taskFailureBackoffMs = 0;
+        config.collect.taskFailureBackoffMaxMs = 0;
+        config.collect.offlineProbeOnly = true;
+        config.collect.offlineProbeIntervalMs = 1000;
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(0, 123);
+        client->failStart(10);
+
+        edge_gateway::Collector collector(config, store, client);
+        for (const auto nowMs : {4000, 4500}) {
+            try {
+                (void)collector.collectOnce(nowMs);
+            } catch (const std::exception&) {
+            }
+        }
+        const auto failedTaskReadsBeforeConfirmation = client->readCount(10);
+        require(failedTaskReadsBeforeConfirmation == 2,
+            "failed task should be retried before task offline threshold");
+
+        try {
+            (void)collector.collectOnce(5000);
+        } catch (const std::exception&) {
+        }
+        const auto failedTaskReadsAfterConfirmation = client->readCount(10);
+        require(failedTaskReadsAfterConfirmation == 3,
+            "failed task should be probed at the confirmation boundary");
+
+        try {
+            (void)collector.collectOnce(5500);
+        } catch (const std::exception&) {
+        }
+        require(client->readCount(10) == failedTaskReadsAfterConfirmation,
+            "confirmed failed task should be wall-clock throttled");
+        require(client->readCount(0) > 3,
+            "healthy task must continue while another task is throttled");
+
+        try {
+            (void)collector.collectOnce(6000);
+        } catch (const std::exception&) {
+        }
+        require(client->readCount(10) > failedTaskReadsAfterConfirmation,
+            "failed task probe should resume after interval");
+    }
+    cleanupStore(storeName);
+}
+
 }  // namespace
 
 int main() {
@@ -1333,6 +1388,7 @@ int main() {
         verifyRealtimeFocusedOverridesPreviousLongTaskBackoff();
         verifyOfflineProbeOnlyRotatesTasks();
         verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter();
+        verifyOfflineProbeIntervalThrottlesFailedTaskOnly();
         std::cout << "collector_partial_failure_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

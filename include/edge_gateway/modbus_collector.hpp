@@ -82,6 +82,7 @@ private:
     struct TaskFailureState {
         int consecutiveFailures = 0;
         std::int64_t backoffUntilMs = 0;
+        std::int64_t offlineProbeUntilMs = 0;
         std::int64_t nextAttemptCycle = 0;
         std::int64_t lastFailureMs = 0;
         std::string lastMessage;
