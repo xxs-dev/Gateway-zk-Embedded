@@ -42,6 +42,7 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"realtimeMaxTasksPerMeterPerCycle\":7,"
         "\"adaptiveSplitLeafProbeBudget\":4,"
         "\"realtimeAdaptiveSplitLeafProbeBudget\":11,"
+        "\"offlineProbeIntervalMs\":30000,"
         "\"backgroundTaskIntervalMs\":2500,"
         "\"maxBackgroundTasksPerMeterPerCycle\":3,"
         "\"failureBadQualityThreshold\":5,"
@@ -54,6 +55,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "realtime task budget should parse");
     require(config.collect.realtimeAdaptiveSplitLeafProbeBudget == 11,
         "realtime adaptive split budget should parse");
+    require(config.collect.offlineProbeIntervalMs == 30000,
+        "offline probe interval should parse");
     require(config.collect.backgroundTaskIntervalMs == 2500, "background task interval should parse");
     require(
         config.collect.maxBackgroundTasksPerMeterPerCycle == 3,
@@ -108,6 +111,7 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"realtimeMaxTasksPerMeterPerCycle\":1,"
         "\"adaptiveSplitLeafProbeBudget\":5,"
         "\"realtimeAdaptiveSplitLeafProbeBudget\":1,"
+        "\"offlineProbeIntervalMs\":-1,"
         "\"backgroundTaskIntervalMs\":-1,"
         "\"maxBackgroundTasksPerMeterPerCycle\":2,"
         "\"failureBadQualityThreshold\":0,"
@@ -136,6 +140,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         normalized.collect.realtimeAdaptiveSplitLeafProbeBudget == 5,
         "small realtime adaptive split budget should normalize to the normal split budget"
     );
+    require(normalized.collect.offlineProbeIntervalMs == 0,
+        "negative offline probe interval should normalize to zero");
     require(
         normalized.collect.failureBadQualityThreshold == 1,
         "small failure bad-quality threshold should normalize to one"

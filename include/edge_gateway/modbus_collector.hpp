@@ -75,6 +75,7 @@ private:
     int consecutiveSuccesses_ = 0;
     int consecutiveFailures_ = 0;
     bool online_ = false;
+    std::int64_t offlineProbeNextAttemptMs_ = 0;
     std::int64_t collectCycle_ = 0;
     std::int64_t slaveNextAttemptCycle_ = 0;
     std::int64_t backoffUntilMs_ = 0;
