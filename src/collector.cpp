@@ -430,7 +430,7 @@ bool Collector::shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowM
     if (it == taskFailureStates_.end()) {
         return false;
     }
-    if (!realtimeFocused && config_.collect.offlineProbeOnly &&
+    if (config_.collect.offlineProbeOnly &&
         it->second.offlineProbeUntilMs > 0 && nowMs < it->second.offlineProbeUntilMs) {
         return true;
     }
