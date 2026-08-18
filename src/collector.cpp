@@ -379,9 +379,14 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
 
 bool Collector::shouldSkipForBackoff(std::int64_t nowMs) const {
     if (config_.collect.cycleBackoffEnabled) {
-        return slaveNextAttemptCycle_ > collectCycle_;
+        if (slaveNextAttemptCycle_ > collectCycle_) {
+            return true;
+        }
+    } else if (backoffUntilMs_ > 0 && nowMs < backoffUntilMs_) {
+        return true;
     }
-    return backoffUntilMs_ > 0 && nowMs < backoffUntilMs_;
+    return config_.collect.offlineProbeOnly && !online_ && consecutiveFailures_ > 0 &&
+        offlineProbeNextAttemptMs_ > 0 && nowMs < offlineProbeNextAttemptMs_;
 }
 
 void Collector::noteReadSuccess(std::int64_t nowMs) {
@@ -389,6 +394,7 @@ void Collector::noteReadSuccess(std::int64_t nowMs) {
     consecutiveFailures_ = 0;
     slaveNextAttemptCycle_ = 0;
     backoffUntilMs_ = 0;
+    offlineProbeNextAttemptMs_ = 0;
     ++consecutiveSuccesses_;
     if (consecutiveSuccesses_ >= std::max(1, config_.collect.recoverySuccessThreshold)) {
         online_ = true;
@@ -400,6 +406,10 @@ void Collector::noteReadFailure(std::int64_t nowMs) {
     ++consecutiveFailures_;
     if (consecutiveFailures_ >= std::max(1, config_.collect.offlineFailureThreshold)) {
         online_ = false;
+    }
+    if (!online_ && config_.collect.offlineProbeOnly &&
+        config_.collect.offlineProbeIntervalMs > 0) {
+        offlineProbeNextAttemptMs_ = nowMs + config_.collect.offlineProbeIntervalMs;
     }
     if (consecutiveFailures_ >= std::max(1, config_.collect.slaveFailureBackoffThreshold)) {
         if (config_.collect.cycleBackoffEnabled) {

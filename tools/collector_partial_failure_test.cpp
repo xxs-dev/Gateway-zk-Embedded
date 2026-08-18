@@ -1237,6 +1237,54 @@ void verifyOfflineProbeOnlyRotatesTasks() {
     cleanupStore(storeName);
 }
 
+void verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter() {
+    const std::string storeName = "gateway_collector_offline_probe_interval_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.cycleBackoffEnabled = false;
+        config.collect.offlineFailureThreshold = 1;
+        config.collect.slaveFailureBackoffThreshold = 100;
+        config.collect.taskFailureBackoffMs = 0;
+        config.collect.taskFailureBackoffMaxMs = 0;
+        config.collect.offlineProbeOnly = true;
+        config.collect.offlineProbeTaskCount = 1;
+        config.collect.offlineProbeIntervalMs = 1000;
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->failStart(0);
+        client->failStart(10);
+
+        edge_gateway::Collector collector(config, store, client);
+        try {
+            (void)collector.collectOnce(4000);
+        } catch (const std::exception&) {
+        }
+        const auto readsAfterFailure = client->readCount(0) + client->readCount(10);
+        require(readsAfterFailure > 0, "confirmed-offline meter should be probed initially");
+
+        try {
+            (void)collector.collectOnce(4500);
+        } catch (const std::exception&) {
+        }
+        require(
+            client->readCount(0) + client->readCount(10) == readsAfterFailure,
+            "offline probe interval should suppress early retry"
+        );
+
+        try {
+            (void)collector.collectOnce(5000);
+        } catch (const std::exception&) {
+        }
+        require(
+            client->readCount(0) + client->readCount(10) > readsAfterFailure,
+            "offline probe should resume after configured interval"
+        );
+    }
+    cleanupStore(storeName);
+}
+
 }  // namespace
 
 int main() {
@@ -1268,6 +1316,7 @@ int main() {
         verifyRealtimeFocusedUsesShortTaskBackoff();
         verifyRealtimeFocusedOverridesPreviousLongTaskBackoff();
         verifyOfflineProbeOnlyRotatesTasks();
+        verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter();
         std::cout << "collector_partial_failure_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {
