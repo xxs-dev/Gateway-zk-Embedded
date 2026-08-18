@@ -430,6 +430,10 @@ bool Collector::shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowM
     if (it == taskFailureStates_.end()) {
         return false;
     }
+    if (!realtimeFocused && config_.collect.offlineProbeOnly &&
+        it->second.offlineProbeUntilMs > 0 && nowMs < it->second.offlineProbeUntilMs) {
+        return true;
+    }
     if (config_.collect.cycleBackoffEnabled) {
         return it->second.nextAttemptCycle > collectCycle_;
     }
@@ -469,6 +473,14 @@ void Collector::noteTaskReadFailure(
         } else {
             state.backoffUntilMs = nowMs + taskFailureBackoffDurationMs(state.consecutiveFailures, realtimeFocused);
         }
+    }
+    const auto offlineProbeThreshold = std::max(
+        std::max(1, config_.collect.offlineFailureThreshold),
+        std::max(1, config_.collect.taskFailureBackoffThreshold)
+    );
+    if (config_.collect.offlineProbeOnly && config_.collect.offlineProbeIntervalMs > 0 &&
+        state.consecutiveFailures >= offlineProbeThreshold) {
+        state.offlineProbeUntilMs = nowMs + config_.collect.offlineProbeIntervalMs;
     }
 }
 
