@@ -712,6 +712,8 @@ struct MqttForwardConfig {
     std::string broker;
     std::string clientId;
     std::string fullTelemetryTopic;
+    std::vector<std::uint32_t> pointIndexes;
+    std::string payloadFormat = "compactArray";
     std::string username;
     std::string password;
     int qos = 1;

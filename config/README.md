@@ -13,7 +13,7 @@
 
 - `runtime/devices` 放协议驱动直接加载的设备采集配置，包括 `ModbusRtu`、`Dlt645Driver`、`DioDriver`、`CanDriver`
 - `runtime/apps` 放应用级服务配置，包括 `mqtt-service.json`、`monitor-service.json`
-- `mqtt-service.json:mqttForward` 是独立第三方 MQTT 全量转发配置；缺少该节点或 `enabled=false` 时不会启动转发器
+- `mqtt-service.json:mqttForward` 是独立第三方 MQTT 最新值转发配置；缺少该节点或 `enabled=false` 时不会启动转发器
 - `runtime/device_identity.json` 放网关本机身份，包括 `machineCode`、`imei`、序列号、型号和版本信息
 - `runtime/tls` 放生产环境 MQTT TLS CA、客户端证书和可选 stunnel 兜底配置
 - 这些文件会被程序实际读取，修改后会影响运行结果
@@ -70,6 +70,10 @@
 ```bash
 ./MqttForwarder --app-config config/runtime/apps/mqtt-service.json
 ```
+
+`mqttForward.pointIndexes` 是第三方专属点位数组。启用转发时必须至少配置一个不重复的 uint32 index；转发器每周期只读取这些点位的最新值，不读取或回退到点位的 `fullUpload` 标记，也不复用 `mqttDriver.fullUploadIndexes`、`publishAllOnFull` 或 `fullUploadJsonFormat`。`mqttForward.payloadFormat` 默认 `compactArray`，也可显式设为 `object`，其他值会被配置加载器拒绝。
+
+第三方进程保持 TX-only：只向 `mqttForward.fullTelemetryTopic` 发布，不订阅、不处理控制或实时监测命令，也不做离线补发。主 MQTT 的 realtime/full 启停与第三方周期转发互不影响。
 
 多串口：
 

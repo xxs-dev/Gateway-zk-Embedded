@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -2000,6 +2001,8 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "broker",
         "clientId",
         "fullTelemetryTopic",
+        "pointIndexes",
+        "payloadFormat",
         "username",
         "password",
         "qos",
@@ -2029,6 +2032,40 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     config.broker = requireString(object, "broker", config.broker);
     config.clientId = requireString(object, "clientId", config.clientId);
     config.fullTelemetryTopic = requireString(object, "fullTelemetryTopic", config.fullTelemetryTopic);
+    if (const auto* indexes = value->find("pointIndexes")) {
+        if (!indexes->isArray()) {
+            throw std::invalid_argument("mqttForward.pointIndexes must be a JSON uint32 array");
+        }
+        for (const auto& item : indexes->asArray().values) {
+            if (!item->isNumber()) {
+                throw std::invalid_argument("mqttForward.pointIndexes entries must be uint32 integers");
+            }
+            const double number = item->asNumber();
+            if (!std::isfinite(number) ||
+                number < 0.0 ||
+                number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+                std::floor(number) != number) {
+                throw std::invalid_argument("mqttForward.pointIndexes entries must be uint32 integers");
+            }
+            const auto index = static_cast<std::uint32_t>(number);
+            if (std::find(config.pointIndexes.begin(), config.pointIndexes.end(), index) !=
+                config.pointIndexes.end()) {
+                throw std::invalid_argument(
+                    "mqttForward.pointIndexes must not contain duplicate index " + std::to_string(index)
+                );
+            }
+            config.pointIndexes.push_back(index);
+        }
+    }
+    if (const auto* payloadFormat = value->find("payloadFormat")) {
+        if (!payloadFormat->isString()) {
+            throw std::invalid_argument("mqttForward.payloadFormat must be compactArray or object");
+        }
+        config.payloadFormat = payloadFormat->asString();
+        if (config.payloadFormat != "compactArray" && config.payloadFormat != "object") {
+            throw std::invalid_argument("mqttForward.payloadFormat must be compactArray or object");
+        }
+    }
     config.username = requireString(object, "username", config.username);
     config.password = requireString(object, "password", config.password);
     config.qos = requireInt(object, "qos", config.qos);
@@ -2103,6 +2140,9 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     }
     if (config.intervalMs <= 0) {
         throw std::invalid_argument("mqttForward.intervalMs must be greater than 0");
+    }
+    if (config.pointIndexes.empty()) {
+        throw std::invalid_argument("mqttForward.pointIndexes must not be empty when enabled");
     }
     return config;
 }

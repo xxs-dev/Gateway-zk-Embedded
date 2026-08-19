@@ -62,7 +62,7 @@ sh deploy/production-init.sh \
 - `deviceConfigFiles[]` 默认不引用 `device_ems_virtual.json`，因此 EMS 本体虚拟点不会进入共享内存和 MQTT 上报范围。
 - `device_can0.json` 只作为模板随包发布，未被 `deviceConfigFiles[]` 引用时不会启动 `can-driver@*.service`。
 - `mqtt-service.json:mqtt.enabled=true` 且默认开启 MQTT 上传、事件 outbox、OTA 和控制通道，因此会启动 `mqtt-driver@mqtt-service.service`。
-- `mqtt-service.json:mqttForward.enabled=false`，因此出厂默认不启动 `mqtt-forwarder@mqtt-service.service`；启用后该进程只向第三方 Broker 发布 full snapshot。
+- `mqtt-service.json:mqttForward.enabled=false`，因此出厂默认不启动 `mqtt-forwarder@mqtt-service.service`；启用前必须独立填写非空、无重复的 `pointIndexes`，该进程只向第三方 Broker 发布这些点位的最新快照。
 - `mqtt-service.json:eventEngine.enabled=true`，因此默认会启动 `event-engine@mqtt-service.service`。
 - `mqtt-service.json:computeEngine.enabled=true` 时会启动 `compute-engine@mqtt-service.service`；默认 `gateway` 模式不会执行 `runtime/logic/shuntong_ems_graph.json` 中的 EMS 图形逻辑。
 - `monitor-service.json:systemMonitor.enabled=true`，因此默认会启动 `system-monitor@monitor-service.service`。
@@ -99,7 +99,7 @@ MQTT 配置中只填写基础 topic。运行时边端会自动追加 `/<machineC
 
 下行命令、OTA、系统监测、诊断和配置拉取都必须发布到带 `machineCode` 后缀的实际 topic，避免同 broker 下所有网关同时收到请求。
 
-第三方转发的 `mqttForward.fullTelemetryTopic` 同样填写基础 topic，实际发布到 `<fullTelemetryTopic>/<machineCode>`。未配置 `mqttForward.clientId` 时，第三方连接的实际 ClientId 为 `<machineCode>-forward`，不会复用主 MQTT ClientId。
+第三方转发的 `mqttForward.fullTelemetryTopic` 同样填写基础 topic，实际发布到 `<fullTelemetryTopic>/<machineCode>`。未配置 `mqttForward.clientId` 时，第三方连接的实际 ClientId 为 `<machineCode>-forward`，不会复用主 MQTT ClientId。`mqttForward.pointIndexes` 和 `payloadFormat`（仅 `compactArray`/`object`）均为第三方专属配置，不继承点位 `fullUpload` 标记或主 `mqttDriver` 的 full 点集、全量开关及报文格式。
 
 不要在串口或协议设备配置中维护 `machineCode`。运行时代码从 `device_identity.json` 注入网关身份。
 
