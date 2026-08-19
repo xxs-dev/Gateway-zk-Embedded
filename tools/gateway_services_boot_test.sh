@@ -20,6 +20,13 @@ cat >"$GATEWAY_HOME/config/runtime/apps/monitor-service.json" <<'JSON'
 }
 JSON
 
+cat >"$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" <<'JSON'
+{
+  "mqtt": { "enabled": true },
+  "mqttDriver": { "enabled": true }
+}
+JSON
+
 cat >"$GATEWAY_HOME/config/runtime/devices/device_test.json" <<'JSON'
 {
   "enabled": true,
@@ -38,6 +45,11 @@ export GATEWAY_HOME SYSTEMCTL_LOG
 PATH="$MOCK_BIN:$PATH" sh "$ROOT_DIR/deploy/gateway-services.sh" start >/dev/null
 
 grep -Fx 'start modbus-rtu@device_test.service' "$SYSTEMCTL_LOG" >/dev/null
+grep -Fx 'start mqtt-driver@mqtt-service.service' "$SYSTEMCTL_LOG" >/dev/null
+if grep -F 'mqtt-forwarder@' "$SYSTEMCTL_LOG" >/dev/null; then
+  echo "mqtt-forwarder must stay stopped when mqttForward is missing" >&2
+  exit 1
+fi
 grep -Fx 'start --no-block ky-ems.service' "$SYSTEMCTL_LOG" >/dev/null
 if grep -Fx 'start ky-ems.service' "$SYSTEMCTL_LOG" >/dev/null; then
   echo "ky-ems.service must not be started synchronously during boot" >&2
@@ -104,5 +116,17 @@ if KY_EMS_PROJECT_DIR="$PROJECT_DIR" \
   echo "KY-EMS readiness must reject a missing Xauthority file" >&2
   exit 1
 fi
+
+cat >"$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" <<'JSON'
+{
+  "mqtt": { "enabled": true },
+  "mqttDriver": { "enabled": true },
+  "mqttForward": { "enabled": true, "broker": "tcp://127.0.0.1:1884", "fullTelemetryTopic": "third/full" }
+}
+JSON
+: >"$SYSTEMCTL_LOG"
+PATH="$MOCK_BIN:$PATH" sh "$ROOT_DIR/deploy/gateway-services.sh" start >/dev/null
+grep -Fx 'start mqtt-driver@mqtt-service.service' "$SYSTEMCTL_LOG" >/dev/null
+grep -Fx 'start mqtt-forwarder@mqtt-service.service' "$SYSTEMCTL_LOG" >/dev/null
 
 echo "gateway_services_boot_test passed"

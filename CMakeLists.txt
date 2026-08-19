@@ -52,6 +52,7 @@ add_library(edge_gateway
     src/builtin_mqtt_driver_publisher.cpp
     src/mqtt_event_outbox.cpp
     src/mqtt_driver_service.cpp
+    src/mqtt_forwarder_service.cpp
     src/mqtt_realtime_ring_buffer.cpp
     src/modbus_northbound_server.cpp
     src/modbus_rtu_client.cpp
@@ -113,6 +114,10 @@ target_compile_options(pointctl PRIVATE -fdiagnostics-color=never)
 add_executable(MqttDriver mqtt_driver_main.cpp)
 target_link_libraries(MqttDriver PRIVATE edge_gateway)
 target_compile_options(MqttDriver PRIVATE -fdiagnostics-color=never)
+
+add_executable(MqttForwarder mqtt_forwarder_main.cpp)
+target_link_libraries(MqttForwarder PRIVATE edge_gateway)
+target_compile_options(MqttForwarder PRIVATE -fdiagnostics-color=never)
 
 add_executable(EventEngine event_engine_main.cpp)
 target_link_libraries(EventEngine PRIVATE edge_gateway)
@@ -342,6 +347,10 @@ add_executable(mqtt_driver_service_test tools/mqtt_driver_service_test.cpp)
 target_link_libraries(mqtt_driver_service_test PRIVATE edge_gateway)
 target_compile_options(mqtt_driver_service_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(mqtt_forwarder_service_test tools/mqtt_forwarder_service_test.cpp)
+target_link_libraries(mqtt_forwarder_service_test PRIVATE edge_gateway)
+target_compile_options(mqtt_forwarder_service_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(event_engine_service_test tools/event_engine_service_test.cpp)
 target_link_libraries(event_engine_service_test PRIVATE edge_gateway)
 target_compile_options(event_engine_service_test PRIVATE -fdiagnostics-color=never)
@@ -405,6 +414,7 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tools/test_verify_scada_active_project.py"
     )
     add_test(NAME config_loader COMMAND config_loader_test)
+    add_test(NAME mqtt_forwarder_service COMMAND mqtt_forwarder_service_test)
     add_test(NAME ota_service COMMAND ota_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
     add_test(NAME sqlite_sample_writer_retention COMMAND sqlite_sample_writer_retention_test)
@@ -483,6 +493,7 @@ if(BUILD_TESTING)
     set_tests_properties(
         release_credential_audit
         config_loader
+        mqtt_forwarder_service
         ota_service
         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )

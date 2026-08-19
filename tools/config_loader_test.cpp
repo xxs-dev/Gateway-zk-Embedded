@@ -784,6 +784,139 @@ void verifyCameraAuthenticationFailsClosed() {
         "explicitly public camera media should not require credentials");
 }
 
+void verifyMqttForwardDefaultsAndValidation() {
+    const auto load = [](const std::string& json) {
+        const auto path = tempPath();
+        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+        output << json;
+        output.close();
+        const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+        std::remove(path.c_str());
+        return app;
+    };
+
+    const auto missing = load(R"JSON({
+      "mqtt": {
+        "enabled": true,
+        "broker": "tcp://127.0.0.1:1883",
+        "clientId": "GW_OLD",
+        "fullTelemetryTopic": "edge/telemetry/full",
+        "commandRequestTopic": "edge/command/request"
+      }
+    })JSON");
+    require(!missing.mqttForward.enabled, "missing mqttForward must default to disabled");
+    require(missing.mqttForward.broker.empty(), "missing mqttForward must not invent a broker");
+    require(missing.mqttForward.fullTelemetryTopic.empty(), "missing mqttForward must not invent a topic");
+    require(missing.mqttForward.qos == 1, "missing mqttForward qos should keep the safe default");
+    require(missing.mqttForward.intervalMs == 60000, "missing mqttForward interval should keep the safe default");
+    require(!missing.mqttForward.tls.enabled, "missing mqttForward TLS should stay disabled");
+    require(!missing.mqttForward.tls.insecureSkipVerify, "insecureSkipVerify must default to false");
+    require(missing.mqtt.enabled, "existing mqtt.enabled must stay unchanged");
+    require(missing.mqtt.broker == "tcp://127.0.0.1:1883", "existing mqtt.broker must stay unchanged");
+    require(missing.mqtt.clientId == "GW_OLD", "existing mqtt.clientId must stay unchanged");
+    require(
+        missing.mqtt.fullTelemetryTopic == "edge/telemetry/full",
+        "existing mqtt.fullTelemetryTopic must stay unchanged"
+    );
+    require(
+        missing.mqtt.commandRequestTopic == "edge/command/request",
+        "existing mqtt control topics must stay unchanged"
+    );
+
+    const auto sample = edge_gateway::ConfigLoader::loadAppConfigFromFile(
+        "config/examples/mqtt-forward-disabled.json"
+    );
+    require(!sample.mqttForward.enabled, "sample mqttForward must stay disabled");
+    require(sample.mqttForward.broker.empty(), "disabled sample must not point at a live broker");
+    require(sample.mqtt.enabled, "sample must preserve the existing mqtt block");
+
+    const auto enabled = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "protocolVersion": "mqtt3",
+        "broker": "tcp://10.0.0.8:1883",
+        "fullTelemetryTopic": "third/full",
+        "username": "fwd",
+        "password": "secret",
+        "qos": 1,
+        "intervalMs": 15000,
+        "tls": {
+          "enabled": false,
+          "caFile": "",
+          "certFile": "",
+          "keyFile": "",
+          "insecureSkipVerify": false
+        }
+      }
+    })JSON");
+    require(enabled.mqttForward.enabled, "enabled mqttForward should parse");
+    require(enabled.mqttForward.broker == "tcp://10.0.0.8:1883", "enabled mqttForward broker should parse");
+    require(enabled.mqttForward.fullTelemetryTopic == "third/full", "enabled mqttForward topic should parse");
+    require(enabled.mqttForward.intervalMs == 15000, "enabled mqttForward interval should parse");
+    require(!enabled.mqtt.enabled, "mqttForward must not implicitly enable the main mqtt block");
+
+    const auto expectRejected = [&](const std::string& json, const char* needle, const char* message) {
+        bool rejected = false;
+        try {
+            (void)load(json);
+        } catch (const std::exception& ex) {
+            rejected = std::string(ex.what()).find(needle) != std::string::npos;
+        }
+        require(rejected, message);
+    };
+
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"fullTelemetryTopic":"third/full"}})JSON",
+        "broker",
+        "enabled mqttForward must require broker"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883"}})JSON",
+        "fullTelemetryTopic",
+        "enabled mqttForward must require fullTelemetryTopic"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","qos":3}})JSON",
+        "qos",
+        "mqttForward qos must be 0/1/2"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","intervalMs":0}})JSON",
+        "intervalMs",
+        "mqttForward intervalMs must be greater than 0"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","tls":{"enabled":true}}})JSON",
+        "caFile",
+        "enabled TLS must require a CA file"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"mqtts://10.0.0.8:8883","fullTelemetryTopic":"third/full"}})JSON",
+        "caFile",
+        "TLS broker schemes must require a CA file"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"tls":{"certFile":"client.crt"}}})JSON",
+        "together",
+        "TLS client cert and key must be provided as a pair"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"subscribe":true}})JSON",
+        "subscribe",
+        "mqttForward must reject a subscribe escape hatch"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"allowControlTopics":true}})JSON",
+        "allowControlTopics",
+        "mqttForward must reject an allowControlTopics escape hatch"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"commandRequestTopic":"edge/command/request"}})JSON",
+        "commandRequestTopic",
+        "mqttForward must reject control request topics"
+    );
+}
+
 void verifyPublicCameraExampleLoadsWithoutCredentials() {
     const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(
         "config/examples/camera-service-public-example.json"
@@ -856,6 +989,7 @@ int main() {
     verifyIec103RecordingTransferConfig();
     verifyDeliveryRuntimeConfig();
     verifyPointHistoryConfig();
+    verifyMqttForwardDefaultsAndValidation();
     verifyCameraAuthenticationFailsClosed();
     verifyPublicCameraExampleLoadsWithoutCredentials();
 

@@ -1,0 +1,37 @@
+{
+  "identityConfigFile": "runtime/device_identity.json",
+  "deviceConfigFiles": [
+    "runtime/devices/device_slave_ttySP1.json"
+  ],
+  "mqtt": {
+    "enabled": true,
+    "protocolVersion": "mqtt3",
+    "broker": "tcp://127.0.0.1:1883",
+    "clientId": "GW0001",
+    "fullTelemetryTopic": "edge/telemetry/full",
+    "realtimeTelemetryTopic": "edge/telemetry/realtime",
+    "commandRequestTopic": "edge/command/request",
+    "commandReplyTopic": "edge/command/reply"
+  },
+  "mqttForward": {
+    "enabled": false,
+    "protocolVersion": "mqtt3",
+    "broker": "",
+    "fullTelemetryTopic": "",
+    "username": "",
+    "password": "",
+    "qos": 1,
+    "intervalMs": 60000,
+    "tls": {
+      "enabled": false,
+      "caFile": "",
+      "certFile": "",
+      "keyFile": "",
+      "insecureSkipVerify": false
+    }
+  },
+  "mqttDriver": {
+    "enabled": true,
+    "sharedMemoryName": "gateway_point_store"
+  }
+}

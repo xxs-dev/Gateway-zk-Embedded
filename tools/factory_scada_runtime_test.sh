@@ -24,7 +24,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$PAYLOAD_ROOT/build-aarch64" "$PAYLOAD_ROOT/ky-ems" "$MOCK_BIN"
-for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine \
+for bin in ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine \
   EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl LocalDisplay QtDisplayBridge CameraService stress_runner; do
   printf '#!/bin/sh\nexit 0\n' >"$PAYLOAD_ROOT/build-aarch64/$bin"
   chmod 0755 "$PAYLOAD_ROOT/build-aarch64/$bin"
@@ -535,7 +535,24 @@ run_install() {
   [ -L "$gateway_home/scada/current" ]
   [ -f "$gateway_home/scada/current/manifest.json" ]
   [ -f "$gateway_home/scada/factory-install-state.txt" ]
+  [ -d "$gateway_home/run" ]
   verify_install "$gateway_home" "$gateway_home/config/runtime/edge-package-manifest.json" "$REFERENCE_SUMMARY"
+  python3 - "$gateway_home/config/runtime/apps/mqtt-service.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    config = json.load(stream)
+assert config["mqtt"]["broker"] == "tcp://127.0.0.1:1883"
+forward = config["mqttForward"]
+assert forward["enabled"] is False
+assert forward["broker"] == ""
+assert forward["username"] == ""
+assert forward["password"] == ""
+assert forward["tls"]["caFile"] == ""
+assert forward["tls"]["certFile"] == ""
+assert forward["tls"]["keyFile"] == ""
+PY
   python3 - "$gateway_home/config/runtime/apps/monitor-service.json" "$gateway_home/scada/current" \
     "$REFERENCE_SUMMARY" <<'PY'
 import json
