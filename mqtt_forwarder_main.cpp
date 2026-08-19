@@ -141,26 +141,11 @@ int main(int argc, char* argv[]) {
     router.addRoutesFromDeviceConfigs(deviceConfigs, appConfig.mqttDriver.sharedMemoryName);
     router.addRoutesFromCameraServiceConfig(appConfig.cameraService, topicMachineCode);
     addEmsClusterPointRoutes(router, appConfig.emsCluster, topicMachineCode);
-    for (const auto& camera : appConfig.cameraService.cameras) {
-        if (!camera.enabled) {
-            continue;
-        }
-        const auto addCameraStatusIndex = [&](std::uint32_t index) {
-            if (index != 0) {
-                appConfig.mqttDriver.fullUploadIndexes.push_back(index);
-            }
-        };
-        addCameraStatusIndex(camera.statusPointIndexes.online);
-        addCameraStatusIndex(camera.statusPointIndexes.fps);
-        addCameraStatusIndex(camera.statusPointIndexes.bitrateKbps);
-        addCameraStatusIndex(camera.statusPointIndexes.errorCode);
-    }
 
     const auto txConfig = MqttForwarderService::makeTxOnlyMqttConfig(appConfig.mqttForward, topicMachineCode);
     auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(txConfig, MqttPublisherMode::TxOnly);
     MqttForwarderService service(
         appConfig.mqttForward,
-        appConfig.mqttDriver,
         router,
         publisher,
         "/opt/modbus-gateway/run/mqtt-forwarder-health.json"

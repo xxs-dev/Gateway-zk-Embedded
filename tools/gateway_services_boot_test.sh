@@ -121,7 +121,13 @@ cat >"$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" <<'JSON'
 {
   "mqtt": { "enabled": true },
   "mqttDriver": { "enabled": true },
-  "mqttForward": { "enabled": true, "broker": "tcp://127.0.0.1:1884", "fullTelemetryTopic": "third/full" }
+  "mqttForward": {
+    "enabled": true,
+    "broker": "tcp://127.0.0.1:1884",
+    "fullTelemetryTopic": "third/full",
+    "pointIndexes": [1001],
+    "payloadFormat": "compactArray"
+  }
 }
 JSON
 : >"$SYSTEMCTL_LOG"
