@@ -26,6 +26,7 @@ PRODUCTION_TARGETS=(
   CanDriver
   IecDriver
   MqttDriver
+  MqttForwarder
   EventEngine
   ComputeEngine
   EmsClusterCoordinator

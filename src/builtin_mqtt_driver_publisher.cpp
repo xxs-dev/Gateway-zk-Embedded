@@ -1620,8 +1620,11 @@ struct BuiltinMqttDriverPublisher::MqttConnectionHandle {
     MqttConnection connection;
 };
 
-BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config)
-    : config_(std::move(config)) {
+BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config, MqttPublisherMode mode)
+    : config_(std::move(config)), mode_(mode) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        config_.offlineBufferEnabled = false;
+    }
     if (config_.offlineBufferEnabled) {
         try {
             realtimeRing_.reset(new MqttRealtimeRingBuffer(
@@ -1674,6 +1677,9 @@ void BuiltinMqttDriverPublisher::publishAlarm(
     const std::string& alarmType,
     bool active
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     publishEventJson("alarm", topic, encodeAlarmJson(index, value, alarmType, active), value.ts);
 }
@@ -1683,6 +1689,9 @@ void BuiltinMqttDriverPublisher::publishOnDemand(
     const std::vector<StoredPointValue>& values,
     const std::string& valueFormat
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     const auto format = pointValueJsonFormat(valueFormat);
     for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes, format, config_.topicMachineCode)) {
@@ -1694,6 +1703,9 @@ void BuiltinMqttDriverPublisher::publishChangeEvent(
     const std::string& topic,
     const StoredPointValue& value
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     publishEventJson("change", topic, encodeChangeEventJson(value), value.ts);
 }
@@ -1702,6 +1714,9 @@ void BuiltinMqttDriverPublisher::publishCommandReply(
     const std::string& topic,
     const MqttCommandReply& reply
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     publishJson(topic, encodeCommandReplyJson(reply));
 }
@@ -1710,6 +1725,9 @@ void BuiltinMqttDriverPublisher::publishOtaReply(
     const std::string& topic,
     const OtaReply& reply
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     publishJson(topic, encodeOtaReplyJson(reply));
 }
@@ -1718,6 +1736,9 @@ void BuiltinMqttDriverPublisher::publishOtaStatus(
     const std::string& topic,
     const OtaStatus& status
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     publishEventJson("ota_status", topic, encodeOtaStatusJson(status), status.ts);
 }
@@ -1726,6 +1747,9 @@ void BuiltinMqttDriverPublisher::publishJsonMessage(
     const std::string& topic,
     const std::string& payload
 ) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     publishJson(topic, payload);
 }
@@ -1736,6 +1760,9 @@ void BuiltinMqttDriverPublisher::maintain() {
 }
 
 std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int timeoutMs) {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        return {};
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<MqttIncomingMessage> messages;
     maintainTxConnection();
@@ -1875,6 +1902,9 @@ void BuiltinMqttDriverPublisher::publishRealtimeJson(const std::string& topic, c
     try {
         sendJsonNow(scoped, payload);
     } catch (...) {
+        if (mode_ == MqttPublisherMode::TxOnly) {
+            throw;
+        }
         if (realtimeRing_) {
             realtimeRing_->enqueue(scoped, payload);
         } else {
@@ -2126,7 +2156,10 @@ void BuiltinMqttDriverPublisher::ensureTxConnected() {
     }
     std::unique_ptr<MqttConnectionHandle> handle(new MqttConnectionHandle(connectMqttTransport(config_)));
     auto& connection = handle->connection;
-    sendAll(connection, buildConnectPacket(config_, "-tx"));
+    sendAll(
+        connection,
+        buildConnectPacket(config_, mode_ == MqttPublisherMode::TxOnly ? "" : "-tx")
+    );
     validateConnAck(config_, readPacket(connection));
     txConnection_ = std::move(handle);
     txConnected_ = true;
@@ -2185,6 +2218,9 @@ void BuiltinMqttDriverPublisher::closeTx(bool graceful) {
 }
 
 void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        throw std::logic_error("mqtt publisher is TX-only and must not create an RX subscription");
+    }
     if (subscriberConnected_) {
         return;
     }

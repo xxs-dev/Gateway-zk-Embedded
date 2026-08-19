@@ -14,9 +14,17 @@
 
 namespace edge_gateway {
 
+enum class MqttPublisherMode {
+    Bidirectional,
+    TxOnly
+};
+
 class BuiltinMqttDriverPublisher : public IMqttDriverPublisher {
 public:
-    explicit BuiltinMqttDriverPublisher(MqttConfig config);
+    explicit BuiltinMqttDriverPublisher(
+        MqttConfig config,
+        MqttPublisherMode mode = MqttPublisherMode::Bidirectional
+    );
     ~BuiltinMqttDriverPublisher() override;
 
     BuiltinMqttDriverPublisher(const BuiltinMqttDriverPublisher&) = delete;
@@ -103,6 +111,7 @@ private:
     };
 
     MqttConfig config_;
+    MqttPublisherMode mode_ = MqttPublisherMode::Bidirectional;
     std::unique_ptr<MqttConnectionHandle> txConnection_;
     bool txConnected_ = false;
     std::int64_t lastTxActivityMs_ = 0;

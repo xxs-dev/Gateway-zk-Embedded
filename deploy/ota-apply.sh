@@ -257,6 +257,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/CanDriver",
     "/opt/modbus-gateway/bin/IecDriver",
     "/opt/modbus-gateway/bin/MqttDriver",
+    "/opt/modbus-gateway/bin/MqttForwarder",
     "/opt/modbus-gateway/bin/EventEngine",
     "/opt/modbus-gateway/bin/ComputeEngine",
     "/opt/modbus-gateway/bin/AgcAvcController",
@@ -292,6 +293,7 @@ allowed_systemd_targets = {
     "/etc/systemd/system/ky-ems.service",
     "/etc/systemd/system/camera-service@.service",
     "/etc/systemd/system/mqtt-driver@.service",
+    "/etc/systemd/system/mqtt-forwarder@.service",
     "/etc/systemd/system/system-monitor@.service",
     "/etc/systemd/system/mqtt-tls-tunnel@.service",
 }
@@ -314,6 +316,7 @@ allowed_service_prefixes = (
     "local-kiosk@",
     "camera-service@",
     "mqtt-driver@",
+    "mqtt-forwarder@",
     "system-monitor@",
     "mqtt-tls-tunnel@",
 )
@@ -508,7 +511,7 @@ fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
   case "\$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
+    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|mqtt-forwarder@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
     *)
       echo "[$TIMESTAMP] [ota-apply] skip unsafe restart service \$service" >> "$LOG_FILE"
       continue

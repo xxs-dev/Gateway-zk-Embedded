@@ -466,19 +466,25 @@ json_string_value() {
   fi
 }
 
-json_tls_bool_value() {
+json_mqtt_value() {
   file="$1"
-  key="$2"
-  if [ -f "$file" ]; then
-    awk -v key="$key" '
-      /"tls"[[:space:]]*:/ { in_tls=1 }
-      in_tls && $0 ~ "\"" key "\"[[:space:]]*:" {
-        if ($0 ~ /true/) { print "true"; exit }
-        if ($0 ~ /false/) { print "false"; exit }
-      }
-      in_tls && /}/ { in_tls=0 }
-    ' "$file" | sed -n '1p'
-  fi
+  path="$2"
+  [ -f "$file" ] || return 0
+  python3 - "$file" "$path" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    value = json.load(stream).get("mqtt", {})
+for key in sys.argv[2].split("."):
+    if not isinstance(value, dict) or key not in value:
+        raise SystemExit(0)
+    value = value[key]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (str, int, float)):
+    print(value)
+PY
 }
 
 set_json_string_value() {
@@ -508,29 +514,41 @@ set_json_string_value() {
   fi
 }
 
-set_tls_bool_value() {
+set_main_mqtt_values() {
   file="$1"
-  key="$2"
-  value="$3"
-  if [ ! -f "$file" ]; then
-    return 0
-  fi
-  case "$value" in
-    true|false) ;;
-    *) return 0 ;;
-  esac
-  tmp="$file.tmp.$$"
-  awk -v key="$key" -v value="$value" '
-    /"tls"[[:space:]]*:/ { in_tls=1 }
-    in_tls {
-      pattern = "\"" key "\"[[:space:]]*:[[:space:]]*(true|false)"
-      replacement = "\"" key "\": " value
-      sub(pattern, replacement)
-    }
-    in_tls && /}/ { in_tls=0 }
-    { print }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
+  shift
+  [ -f "$file" ] || return 0
+  python3 - "$file" "$@" <<'PY'
+import json
+import os
+import stat
+import sys
+
+path = sys.argv[1]
+values = sys.argv[2:]
+with open(path, "r", encoding="utf-8") as stream:
+    root = json.load(stream)
+mqtt = root.get("mqtt")
+if not isinstance(mqtt, dict):
+    raise SystemExit(0)
+for key, value in zip(("clientId", "broker", "username", "password"), values[:4]):
+    if key in mqtt:
+        mqtt[key] = value
+tls = mqtt.get("tls")
+if isinstance(tls, dict):
+    for key, value in zip(("caFile", "certFile", "keyFile"), values[4:7]):
+        if key in tls:
+            tls[key] = value
+    for key, value in zip(("enabled", "insecureSkipVerify"), values[7:9]):
+        if key in tls and value in ("true", "false"):
+            tls[key] = value == "true"
+temporary = path + ".tmp." + str(os.getpid())
+with open(temporary, "w", encoding="utf-8") as stream:
+    json.dump(root, stream, ensure_ascii=False, indent=2)
+    stream.write("\n")
+os.chmod(temporary, stat.S_IMODE(os.stat(path).st_mode))
+os.replace(temporary, path)
+PY
 }
 
 first_nonempty() {
@@ -743,15 +761,10 @@ apply_runtime_identity_and_mqtt() {
   set_json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" "$machine_code"
   for app_file in "$GATEWAY_HOME"/config/runtime/apps/*.json; do
     [ -f "$app_file" ] || continue
-    set_json_string_value "$app_file" "clientId" "$machine_code"
-    set_json_string_value "$app_file" "broker" "$mqtt_broker"
-    set_json_string_value "$app_file" "username" "$mqtt_username"
-    set_json_string_value "$app_file" "password" "$mqtt_password"
-    set_json_string_value "$app_file" "caFile" "$mqtt_ca_file"
-    set_json_string_value "$app_file" "certFile" "$mqtt_cert_file"
-    set_json_string_value "$app_file" "keyFile" "$mqtt_key_file"
-    set_tls_bool_value "$app_file" "enabled" "$mqtt_tls_enabled"
-    set_tls_bool_value "$app_file" "insecureSkipVerify" "$mqtt_tls_insecure"
+    set_main_mqtt_values "$app_file" \
+      "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" \
+      "$mqtt_ca_file" "$mqtt_cert_file" "$mqtt_key_file" \
+      "$mqtt_tls_enabled" "$mqtt_tls_insecure"
   done
 }
 
@@ -806,7 +819,7 @@ os.replace(tmp, path)
 PY
 }
 
-mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$BACKUP_DIR"
+mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl stop gateway-services.service 2>/dev/null || true
@@ -815,8 +828,8 @@ if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
-BASE_BINS="SystemMonitor MqttDriver pointctl"
-ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
+BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
 EXISTING_RUNTIME_MODE=$(json_string_value "$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" "runtimeMode" || true)
 DEFAULT_INSTALL_RUNTIME_MODE=$(first_nonempty "${INIT_RUNTIME_MODE:-}" "$EXISTING_RUNTIME_MODE" "gateway")
@@ -892,14 +905,14 @@ chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 
 EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
-EXISTING_MQTT_BROKER=$(json_string_value "$EXISTING_MQTT_FILE" "broker" || true)
-EXISTING_MQTT_USERNAME=$(json_string_value "$EXISTING_MQTT_FILE" "username" || true)
-EXISTING_MQTT_PASSWORD=$(json_string_value "$EXISTING_MQTT_FILE" "password" || true)
-EXISTING_MQTT_TLS_ENABLED=$(json_tls_bool_value "$EXISTING_MQTT_FILE" "enabled" || true)
-EXISTING_MQTT_CA_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "caFile" || true)
-EXISTING_MQTT_CERT_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "certFile" || true)
-EXISTING_MQTT_KEY_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "keyFile" || true)
-EXISTING_MQTT_TLS_INSECURE=$(json_tls_bool_value "$EXISTING_MQTT_FILE" "insecureSkipVerify" || true)
+EXISTING_MQTT_BROKER=$(json_mqtt_value "$EXISTING_MQTT_FILE" "broker" || true)
+EXISTING_MQTT_USERNAME=$(json_mqtt_value "$EXISTING_MQTT_FILE" "username" || true)
+EXISTING_MQTT_PASSWORD=$(json_mqtt_value "$EXISTING_MQTT_FILE" "password" || true)
+EXISTING_MQTT_TLS_ENABLED=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.enabled" || true)
+EXISTING_MQTT_CA_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.caFile" || true)
+EXISTING_MQTT_CERT_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.certFile" || true)
+EXISTING_MQTT_KEY_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.keyFile" || true)
+EXISTING_MQTT_TLS_INSECURE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.insecureSkipVerify" || true)
 
 ts=$(date +%Y%m%d%H%M%S)
 if [ -d "$GATEWAY_HOME/config/runtime" ]; then
@@ -914,14 +927,14 @@ fi
 
 FACTORY_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 FACTORY_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
-FACTORY_MQTT_BROKER=$(json_string_value "$FACTORY_MQTT_FILE" "broker" || true)
-FACTORY_MQTT_USERNAME=$(json_string_value "$FACTORY_MQTT_FILE" "username" || true)
-FACTORY_MQTT_PASSWORD=$(json_string_value "$FACTORY_MQTT_FILE" "password" || true)
-FACTORY_MQTT_TLS_ENABLED=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "enabled" || true)
-FACTORY_MQTT_CA_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "caFile" || true)
-FACTORY_MQTT_CERT_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "certFile" || true)
-FACTORY_MQTT_KEY_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "keyFile" || true)
-FACTORY_MQTT_TLS_INSECURE=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "insecureSkipVerify" || true)
+FACTORY_MQTT_BROKER=$(json_mqtt_value "$FACTORY_MQTT_FILE" "broker" || true)
+FACTORY_MQTT_USERNAME=$(json_mqtt_value "$FACTORY_MQTT_FILE" "username" || true)
+FACTORY_MQTT_PASSWORD=$(json_mqtt_value "$FACTORY_MQTT_FILE" "password" || true)
+FACTORY_MQTT_TLS_ENABLED=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.enabled" || true)
+FACTORY_MQTT_CA_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.caFile" || true)
+FACTORY_MQTT_CERT_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.certFile" || true)
+FACTORY_MQTT_KEY_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.keyFile" || true)
+FACTORY_MQTT_TLS_INSECURE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.insecureSkipVerify" || true)
 
 DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
 DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
@@ -1004,6 +1017,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "can-driver@.service" "/etc/systemd/system/can-driver@.service"
   install_deploy_file_if_exists "iec-driver@.service" "/etc/systemd/system/iec-driver@.service"
   install_deploy_file_if_exists "mqtt-driver@.service" "/etc/systemd/system/mqtt-driver@.service"
+  install_deploy_file_if_exists "mqtt-forwarder@.service" "/etc/systemd/system/mqtt-forwarder@.service"
   install_deploy_file_if_exists "event-engine@.service" "/etc/systemd/system/event-engine@.service"
   install_deploy_file_if_exists "compute-engine@.service" "/etc/systemd/system/compute-engine@.service"
   install_deploy_file_if_exists "ems-cluster@.service" "/etc/systemd/system/ems-cluster@.service"
