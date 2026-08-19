@@ -706,6 +706,19 @@ struct MqttConfig {
     std::size_t maxPayloadBytes = 163840;
 };
 
+struct MqttForwardConfig {
+    bool enabled = false;
+    std::string protocolVersion = "mqtt3";
+    std::string broker;
+    std::string clientId;
+    std::string fullTelemetryTopic;
+    std::string username;
+    std::string password;
+    int qos = 1;
+    int intervalMs = 60000;
+    MqttTlsConfig tls;
+};
+
 struct MqttAlarmRule {
     std::uint32_t index = 0;
     Optional<double> high;
@@ -1400,6 +1413,7 @@ struct AppConfig {
     std::vector<std::string> deviceConfigFiles;
     TimingPolicyConfig timingPolicy;
     MqttConfig mqtt;
+    MqttForwardConfig mqttForward;
     MqttDriverConfig mqttDriver;
     AlarmStoreConfig alarmStore;
     EventEngineConfig eventEngine;

@@ -18,7 +18,7 @@ usage() {
 Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT]
 
 Profiles:
-  base     Package only SystemMonitor, MqttDriver and pointctl.
+  base     Package SystemMonitor, MqttDriver, MqttForwarder and pointctl.
   project  Package base components plus drivers listed in edge-package-manifest.json.
   full     Package all current drivers and tools; default for backward compatibility.
 
@@ -320,8 +320,8 @@ if [ -d "$ROOT_DIR/deploy" ]; then
 fi
 if [ -d "$ROOT_DIR/build-aarch64" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
-  BASE_BINS="SystemMonitor MqttDriver pointctl"
-  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
+  BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
+  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
   OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then

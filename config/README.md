@@ -13,6 +13,7 @@
 
 - `runtime/devices` 放协议驱动直接加载的设备采集配置，包括 `ModbusRtu`、`Dlt645Driver`、`DioDriver`、`CanDriver`
 - `runtime/apps` 放应用级服务配置，包括 `mqtt-service.json`、`monitor-service.json`
+- `mqtt-service.json:mqttForward` 是独立第三方 MQTT 全量转发配置；缺少该节点或 `enabled=false` 时不会启动转发器
 - `runtime/device_identity.json` 放网关本机身份，包括 `machineCode`、`imei`、序列号、型号和版本信息
 - `runtime/tls` 放生产环境 MQTT TLS CA、客户端证书和可选 stunnel 兜底配置
 - 这些文件会被程序实际读取，修改后会影响运行结果
@@ -64,6 +65,12 @@
 ./SystemMonitor --app-config config/runtime/apps/monitor-service.json
 ```
 
+启用 `mqttForward.enabled=true` 后，第三方链路使用独立进程：
+
+```bash
+./MqttForwarder --app-config config/runtime/apps/mqtt-service.json
+```
+
 多串口：
 
 ```bash
@@ -101,6 +108,7 @@ systemctl start gateway-services.service
 
 `gateway-services.sh` 会根据 `runtime/apps/mqtt-service.json` 和 `runtime/apps/monitor-service.json` 中的 `deviceConfigFiles[]` 自动决定启动哪些协议驱动；`runtime/devices` 目录里未被 app 配置引用的 JSON 不会被启动。MQTT、事件、计算、监测、本地画面和摄像头服务也只在对应配置开关或通道启用时进入启动清单。
 如果 app 的 `mqtt.broker` 指向本机 stunnel 监听端口，且 `runtime/tls/*-stunnel.conf` 存在，统一服务入口会在 MQTT 相关服务前自动启动对应 `mqtt-tls-tunnel@*.service`。
+`mqttForward.enabled=true` 时会额外启动 `mqtt-forwarder@mqtt-service.service`。该服务只建立第三方 TX 连接；出厂默认关闭，因此不在下面的默认清单中。
 
 当前出厂默认服务发现结果应包含：
 
@@ -131,7 +139,7 @@ sh deploy/install-factory-config.sh
 - `START_SERVICES=0` 只安装配置，不启动服务
 - `RESET_SHM=1` 停服务后清理旧共享内存，再恢复出厂配置
 
-初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时会把运行 app 配置里的 `clientId` 同步为该 `machineCode`。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；EMS 项目传 `ems`，AGC/AVC 项目传 `agc_avc` 并同时提供独立运行模式包。
+初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时只把运行 app 配置中主 `mqtt.clientId` 同步为该 `machineCode`。`mqttForward` 的 broker、账号、密码、TLS 和可选 clientId 始终独立，不会继承主 MQTT 凭据。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；EMS 项目传 `ems`，AGC/AVC 项目传 `agc_avc` 并同时提供独立运行模式包。
 
 日常运维入口：
 

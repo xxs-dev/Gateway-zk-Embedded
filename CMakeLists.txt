@@ -54,6 +54,7 @@ add_library(edge_gateway
     src/builtin_mqtt_driver_publisher.cpp
     src/mqtt_event_outbox.cpp
     src/mqtt_driver_service.cpp
+    src/mqtt_forwarder_service.cpp
     src/mqtt_realtime_ring_buffer.cpp
     src/modbus_northbound_server.cpp
     src/modbus_rtu_client.cpp
@@ -117,6 +118,10 @@ target_compile_options(pointctl PRIVATE -fdiagnostics-color=never)
 add_executable(MqttDriver mqtt_driver_main.cpp)
 target_link_libraries(MqttDriver PRIVATE edge_gateway)
 target_compile_options(MqttDriver PRIVATE -fdiagnostics-color=never)
+
+add_executable(MqttForwarder mqtt_forwarder_main.cpp)
+target_link_libraries(MqttForwarder PRIVATE edge_gateway)
+target_compile_options(MqttForwarder PRIVATE -fdiagnostics-color=never)
 
 add_executable(EventEngine event_engine_main.cpp)
 target_link_libraries(EventEngine PRIVATE edge_gateway)
@@ -359,6 +364,10 @@ add_executable(mqtt_driver_service_test tools/mqtt_driver_service_test.cpp)
 target_link_libraries(mqtt_driver_service_test PRIVATE edge_gateway)
 target_compile_options(mqtt_driver_service_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(mqtt_forwarder_service_test tools/mqtt_forwarder_service_test.cpp)
+target_link_libraries(mqtt_forwarder_service_test PRIVATE edge_gateway)
+target_compile_options(mqtt_forwarder_service_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(event_engine_service_test tools/event_engine_service_test.cpp)
 target_link_libraries(event_engine_service_test PRIVATE edge_gateway)
 target_compile_options(event_engine_service_test PRIVATE -fdiagnostics-color=never)
@@ -421,6 +430,7 @@ target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -
 
 if(BUILD_TESTING)
     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
+    add_test(NAME mqtt_forwarder_service COMMAND mqtt_forwarder_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
     add_test(NAME scada_runtime COMMAND scada_runtime_test)
     if(TARGET local_display_qt_access_test)
@@ -530,6 +540,7 @@ if(BUILD_TESTING)
         modbus_rtu_client_resync
         modbus_tcp_client_limit
         mqtt_driver_service
+        mqtt_forwarder_service
         ota_service
         point_store_router_normalize
         priority_control_lease

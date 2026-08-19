@@ -180,8 +180,8 @@ runtime_package_profile() {
 
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
-  base_bins="SystemMonitor MqttDriver pointctl"
-  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
+  base_bins="SystemMonitor MqttDriver MqttForwarder pointctl"
+  full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
   if [ "$(app_runtime_mode "$APP_CONFIG")" = "agc_avc" ]; then
     full_bins="$full_bins AgcAvcController"
   fi
@@ -737,6 +737,7 @@ check_services() {
       'ky-ems.service' \
       'camera-service@*.service' \
       'mqtt-driver@*.service' \
+      'mqtt-forwarder@*.service' \
       'system-monitor@*.service' \
       'mqtt-tls-tunnel@*.service' 2>/dev/null |
       awk '{print $1}' > "$active_units_file"
@@ -755,6 +756,7 @@ check_services() {
       'ky-ems.service' \
       'camera-service@*.service' \
       'mqtt-driver@*.service' \
+      'mqtt-forwarder@*.service' \
       'system-monitor@*.service' \
       'mqtt-tls-tunnel@*.service' 2>/dev/null |
       awk '$2 ~ /^enabled/ {print $1}' > "$enabled_units_file"

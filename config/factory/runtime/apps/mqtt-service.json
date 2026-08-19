@@ -67,6 +67,23 @@
     "alarmTopic": "edge/alarm",
     "statusTopic": "edge/status"
   },
+  "mqttForward": {
+    "enabled": false,
+    "protocolVersion": "mqtt3",
+    "broker": "",
+    "fullTelemetryTopic": "",
+    "username": "",
+    "password": "",
+    "qos": 1,
+    "intervalMs": 60000,
+    "tls": {
+      "enabled": false,
+      "caFile": "",
+      "certFile": "",
+      "keyFile": "",
+      "insecureSkipVerify": false
+    }
+  },
   "mqttDriver": {
     "enabled": true,
     "sharedMemoryName": "gateway_point_store_ttySP1",

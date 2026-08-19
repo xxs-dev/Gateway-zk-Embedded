@@ -1956,6 +1956,157 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     return config;
 }
 
+void rejectMqttForwardKey(const std::string& key) {
+    throw std::invalid_argument("mqttForward must not include " + key);
+}
+
+MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
+    MqttForwardConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    const auto& object = value->asObject();
+    static const char* forbiddenKeys[] = {
+        "subscribe",
+        "allowControlTopics",
+        "allowControl",
+        "telemetryTopic",
+        "realtimeTelemetryTopic",
+        "realtimeRequestTopic",
+        "changeEventTopic",
+        "alarmTopic",
+        "statusTopic",
+        "commandRequestTopic",
+        "commandReplyTopic",
+        "otaRequestTopic",
+        "otaReplyTopic",
+        "otaStatusTopic",
+        "systemMonitorRequestTopic",
+        "systemMonitorReplyTopic",
+        "diagRequestTopic",
+        "diagReplyTopic",
+        "configPullRequestTopic",
+        "configApplyRequestTopic",
+        "configDeleteRequestTopic",
+        "configRestoreRequestTopic",
+        "recordingRequestTopic",
+        "recordingReplyTopic",
+        "recordingAckTopic",
+        "offlineBuffer"
+    };
+    static const char* allowedKeys[] = {
+        "enabled",
+        "protocolVersion",
+        "broker",
+        "clientId",
+        "fullTelemetryTopic",
+        "username",
+        "password",
+        "qos",
+        "intervalMs",
+        "tls"
+    };
+    for (const auto& entry : object.values) {
+        bool allowed = false;
+        for (const auto* key : allowedKeys) {
+            if (entry.key == key) {
+                allowed = true;
+                break;
+            }
+        }
+        if (!allowed) {
+            for (const auto* key : forbiddenKeys) {
+                if (entry.key == key) {
+                    rejectMqttForwardKey(entry.key);
+                }
+            }
+            throw std::invalid_argument("mqttForward has unsupported key " + entry.key);
+        }
+    }
+
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.protocolVersion = requireString(object, "protocolVersion", config.protocolVersion);
+    config.broker = requireString(object, "broker", config.broker);
+    config.clientId = requireString(object, "clientId", config.clientId);
+    config.fullTelemetryTopic = requireString(object, "fullTelemetryTopic", config.fullTelemetryTopic);
+    config.username = requireString(object, "username", config.username);
+    config.password = requireString(object, "password", config.password);
+    config.qos = requireInt(object, "qos", config.qos);
+    config.intervalMs = requireInt(object, "intervalMs", config.intervalMs);
+    if (const auto* tls = value->find("tls")) {
+        const auto& tlsObject = tls->asObject();
+        static const char* allowedTlsKeys[] = {
+            "enabled",
+            "caFile",
+            "certFile",
+            "keyFile",
+            "insecureSkipVerify"
+        };
+        for (const auto& entry : tlsObject.values) {
+            bool allowed = false;
+            for (const auto* key : allowedTlsKeys) {
+                if (entry.key == key) {
+                    allowed = true;
+                    break;
+                }
+            }
+            if (!allowed) {
+                throw std::invalid_argument("mqttForward.tls has unsupported key " + entry.key);
+            }
+        }
+        config.tls.enabled = requireBool(tlsObject, "enabled", config.tls.enabled);
+        config.tls.caFile = requireString(tlsObject, "caFile", config.tls.caFile);
+        config.tls.certFile = requireString(tlsObject, "certFile", config.tls.certFile);
+        config.tls.keyFile = requireString(tlsObject, "keyFile", config.tls.keyFile);
+        config.tls.insecureSkipVerify = requireBool(
+            tlsObject,
+            "insecureSkipVerify",
+            config.tls.insecureSkipVerify
+        );
+    }
+
+    if (findValue(object, "protocolVersion") != nullptr &&
+        config.protocolVersion != "mqtt3" &&
+        config.protocolVersion != "mqtt5") {
+        throw std::invalid_argument("mqttForward.protocolVersion must be mqtt3 or mqtt5");
+    }
+    if (findValue(object, "qos") != nullptr && (config.qos < 0 || config.qos > 2)) {
+        throw std::invalid_argument("mqttForward.qos must be 0, 1 or 2");
+    }
+    if (findValue(object, "intervalMs") != nullptr && config.intervalMs <= 0) {
+        throw std::invalid_argument("mqttForward.intervalMs must be greater than 0");
+    }
+    if (config.tls.certFile.empty() != config.tls.keyFile.empty()) {
+        throw std::invalid_argument("mqttForward.tls certFile and keyFile must be provided together");
+    }
+    const bool brokerEnablesTls =
+        config.broker.compare(0, 6, "ssl://") == 0 ||
+        config.broker.compare(0, 6, "tls://") == 0 ||
+        config.broker.compare(0, 8, "mqtts://") == 0;
+    if ((config.tls.enabled || brokerEnablesTls) && config.tls.caFile.empty()) {
+        throw std::invalid_argument("mqttForward.tls.caFile is required when TLS is enabled");
+    }
+    if (!config.enabled) {
+        return config;
+    }
+    if (config.protocolVersion != "mqtt3" && config.protocolVersion != "mqtt5") {
+        throw std::invalid_argument("mqttForward.protocolVersion must be mqtt3 or mqtt5");
+    }
+    if (config.broker.empty()) {
+        throw std::invalid_argument("mqttForward.broker is required when enabled");
+    }
+    if (config.fullTelemetryTopic.empty()) {
+        throw std::invalid_argument("mqttForward.fullTelemetryTopic is required when enabled");
+    }
+    if (config.qos < 0 || config.qos > 2) {
+        throw std::invalid_argument("mqttForward.qos must be 0, 1 or 2");
+    }
+    if (config.intervalMs <= 0) {
+        throw std::invalid_argument("mqttForward.intervalMs must be greater than 0");
+    }
+    return config;
+}
+
 MqttAlarmRule parseMqttAlarmRule(const JsonValue& value) {
     MqttAlarmRule rule;
     const auto& object = value.asObject();
@@ -3620,6 +3771,7 @@ AppConfig parseAppConfig(const std::string& text) {
     config.deviceConfigFiles = parseStringArray(root.find("deviceConfigFiles"));
     config.timingPolicy = parseTimingPolicy(root.find("timingPolicy"));
     config.mqtt = parseMqttConfig(root.find("mqtt"));
+    config.mqttForward = parseMqttForwardConfig(root.find("mqttForward"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
     config.alarmStore = parseAlarmStoreConfig(root.find("alarmStore"));
     config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
