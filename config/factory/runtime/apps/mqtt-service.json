@@ -72,6 +72,8 @@
     "protocolVersion": "mqtt3",
     "broker": "",
     "fullTelemetryTopic": "",
+    "pointIndexes": [],
+    "payloadFormat": "compactArray",
     "username": "",
     "password": "",
     "qos": 1,

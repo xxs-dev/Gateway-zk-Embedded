@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 
 namespace edge_gateway {
@@ -80,35 +81,37 @@ void clearControlTopics(MqttConfig& mqtt) {
 
 MqttForwarderService::MqttForwarderService(
     MqttForwardConfig forwardConfig,
-    MqttDriverConfig driverConfig,
     PointStoreRouter& router,
     std::shared_ptr<IMqttDriverPublisher> publisher,
     std::string healthFile
 )
     : forwardConfig_(std::move(forwardConfig)),
-      driverConfig_(std::move(driverConfig)),
       router_(router),
       publisher_(std::move(publisher)),
       healthFile_(std::move(healthFile)) {
     if (!publisher_) {
         throw std::invalid_argument("mqtt forwarder requires a publisher");
     }
-    router_.setFailOnStoreReadError(true);
-    bool hasRoutedFullUploadPoint = false;
-    for (const auto& entry : router_.routes()) {
-        if (entry.second.fullUpload) {
-            driverConfig_.fullUploadIndexes.push_back(entry.first);
-            hasRoutedFullUploadPoint = true;
+    if (forwardConfig_.payloadFormat != "compactArray" && forwardConfig_.payloadFormat != "object") {
+        throw std::invalid_argument("mqttForward.payloadFormat must be compactArray or object");
+    }
+    if (forwardConfig_.enabled && forwardConfig_.pointIndexes.empty()) {
+        throw std::invalid_argument("mqttForward.pointIndexes must not be empty when enabled");
+    }
+    std::unordered_set<std::uint32_t> uniqueIndexes;
+    for (const auto index : forwardConfig_.pointIndexes) {
+        if (!uniqueIndexes.insert(index).second) {
+            throw std::invalid_argument(
+                "mqttForward.pointIndexes must not contain duplicate index " + std::to_string(index)
+            );
+        }
+        if (forwardConfig_.enabled && router_.routes().find(index) == router_.routes().end()) {
+            throw std::invalid_argument(
+                "mqttForward.pointIndexes contains unrouted index " + std::to_string(index)
+            );
         }
     }
-    if (hasRoutedFullUploadPoint) {
-        driverConfig_.publishAllOnFull = false;
-    }
-    std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
-    driverConfig_.fullUploadIndexes.erase(
-        std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
-        driverConfig_.fullUploadIndexes.end()
-    );
+    router_.setFailOnStoreReadError(true);
 }
 
 MqttForwarderService::~MqttForwarderService() {
@@ -169,13 +172,11 @@ void MqttForwarderService::runOnce(std::int64_t nowMs) {
     }
     lastPublishMs_ = nowMs;
     try {
-        const auto values = driverConfig_.publishAllOnFull || driverConfig_.fullUploadIndexes.empty()
-            ? router_.getAllLatest(nowMs)
-            : router_.getLatestByIndexes(driverConfig_.fullUploadIndexes, nowMs);
+        const auto values = router_.getLatestByIndexes(forwardConfig_.pointIndexes, nowMs);
         publisher_->publishFullSnapshot(
             forwardConfig_.fullTelemetryTopic,
             values,
-            driverConfig_.fullUploadJsonFormat
+            forwardConfig_.payloadFormat
         );
         writeHealth(true, {}, values.size(), nowMs);
     } catch (const std::exception& ex) {

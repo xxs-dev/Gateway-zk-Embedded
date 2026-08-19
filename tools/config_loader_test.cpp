@@ -1,10 +1,12 @@
 #include "edge_gateway/config_loader.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -767,6 +769,11 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(!missing.mqttForward.enabled, "missing mqttForward must default to disabled");
     require(missing.mqttForward.broker.empty(), "missing mqttForward must not invent a broker");
     require(missing.mqttForward.fullTelemetryTopic.empty(), "missing mqttForward must not invent a topic");
+    require(missing.mqttForward.pointIndexes.empty(), "missing mqttForward must not invent a point set");
+    require(
+        missing.mqttForward.payloadFormat == "compactArray",
+        "missing mqttForward payloadFormat should use compactArray"
+    );
     require(missing.mqttForward.qos == 1, "missing mqttForward qos should keep the safe default");
     require(missing.mqttForward.intervalMs == 60000, "missing mqttForward interval should keep the safe default");
     require(!missing.mqttForward.tls.enabled, "missing mqttForward TLS should stay disabled");
@@ -788,6 +795,8 @@ void verifyMqttForwardDefaultsAndValidation() {
     );
     require(!sample.mqttForward.enabled, "sample mqttForward must stay disabled");
     require(sample.mqttForward.broker.empty(), "disabled sample must not point at a live broker");
+    require(sample.mqttForward.pointIndexes.empty(), "disabled sample should keep an empty third-party point set");
+    require(sample.mqttForward.payloadFormat == "compactArray", "disabled sample should declare compactArray");
     require(sample.mqtt.enabled, "sample must preserve the existing mqtt block");
 
     const auto enabled = load(R"JSON({
@@ -796,6 +805,8 @@ void verifyMqttForwardDefaultsAndValidation() {
         "protocolVersion": "mqtt3",
         "broker": "tcp://10.0.0.8:1883",
         "fullTelemetryTopic": "third/full",
+        "pointIndexes": [101, 102],
+        "payloadFormat": "object",
         "username": "fwd",
         "password": "secret",
         "qos": 1,
@@ -812,6 +823,11 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(enabled.mqttForward.enabled, "enabled mqttForward should parse");
     require(enabled.mqttForward.broker == "tcp://10.0.0.8:1883", "enabled mqttForward broker should parse");
     require(enabled.mqttForward.fullTelemetryTopic == "third/full", "enabled mqttForward topic should parse");
+    require(
+        enabled.mqttForward.pointIndexes == std::vector<std::uint32_t>({101, 102}),
+        "enabled mqttForward pointIndexes should parse in configured order"
+    );
+    require(enabled.mqttForward.payloadFormat == "object", "enabled mqttForward payloadFormat should parse");
     require(enabled.mqttForward.intervalMs == 15000, "enabled mqttForward interval should parse");
     require(!enabled.mqtt.enabled, "mqttForward must not implicitly enable the main mqtt block");
 
@@ -844,6 +860,51 @@ void verifyMqttForwardDefaultsAndValidation() {
         R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","intervalMs":0}})JSON",
         "intervalMs",
         "mqttForward intervalMs must be greater than 0"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[]}})JSON",
+        "pointIndexes",
+        "enabled mqttForward must require a non-empty pointIndexes array"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"pointIndexes":101}})JSON",
+        "JSON uint32 array",
+        "mqttForward pointIndexes must be an array"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"pointIndexes":["101"]}})JSON",
+        "uint32 integers",
+        "mqttForward pointIndexes must reject strings"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"pointIndexes":[-1]}})JSON",
+        "uint32 integers",
+        "mqttForward pointIndexes must reject negative values"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"pointIndexes":[1.5]}})JSON",
+        "uint32 integers",
+        "mqttForward pointIndexes must reject fractional values"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"pointIndexes":[4294967296]}})JSON",
+        "uint32 integers",
+        "mqttForward pointIndexes must reject values above uint32"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"pointIndexes":[101,101]}})JSON",
+        "duplicate index 101",
+        "mqttForward pointIndexes must reject duplicates"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"payloadFormat":"array"}})JSON",
+        "compactArray or object",
+        "mqttForward payloadFormat must reject unsupported aliases"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"payloadFormat":1}})JSON",
+        "compactArray or object",
+        "mqttForward payloadFormat must be a string"
     );
     expectRejected(
         R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","tls":{"enabled":true}}})JSON",

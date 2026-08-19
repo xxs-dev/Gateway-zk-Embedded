@@ -16,7 +16,6 @@ class MqttForwarderService {
 public:
     MqttForwarderService(
         MqttForwardConfig forwardConfig,
-        MqttDriverConfig driverConfig,
         PointStoreRouter& router,
         std::shared_ptr<IMqttDriverPublisher> publisher,
         std::string healthFile = {}
@@ -46,7 +45,6 @@ private:
     ) const;
 
     MqttForwardConfig forwardConfig_;
-    MqttDriverConfig driverConfig_;
     PointStoreRouter& router_;
     std::shared_ptr<IMqttDriverPublisher> publisher_;
     std::string healthFile_;

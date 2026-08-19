@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
@@ -42,10 +43,17 @@ public:
     void publishFullSnapshot(
         const std::string& topic,
         const std::vector<StoredPointValue>& values,
-        const std::string&
+        const std::string& jsonFormat
     ) override {
         fullSnapshotTopics.push_back(topic);
         fullSnapshotCounts.push_back(values.size());
+        fullSnapshotFormats.push_back(jsonFormat);
+        std::vector<std::uint32_t> indexes;
+        indexes.reserve(values.size());
+        for (const auto& value : values) {
+            indexes.push_back(value.index);
+        }
+        fullSnapshotIndexes.push_back(std::move(indexes));
     }
 
     void publishAlarm(
@@ -112,6 +120,8 @@ public:
     std::vector<MqttIncomingMessage> incoming;
     std::vector<std::string> fullSnapshotTopics;
     std::vector<std::size_t> fullSnapshotCounts;
+    std::vector<std::string> fullSnapshotFormats;
+    std::vector<std::vector<std::uint32_t>> fullSnapshotIndexes;
     std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
     std::vector<int> pollTimeouts;
@@ -151,6 +161,8 @@ void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
     forward.fullTelemetryTopic = "third/full";
+    forward.pointIndexes = {2002};
+    forward.payloadFormat = "object";
     forward.qos = 1;
     forward.intervalMs = 1000;
 
@@ -196,9 +208,7 @@ void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
     require(router.putLatestByIndex(excludedValue).accepted, "failed to seed non-full point");
 
     auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
-    MqttDriverConfig driverConfig;
-    driverConfig.fullUploadJsonFormat = "compactArray";
-    MqttForwarderService service(forward, driverConfig, router, publisher);
+    MqttForwarderService service(forward, router, publisher);
     service.runOnce(1770000100000LL);
     require(publisher->pollTimeouts.empty(), "forwarder must never call pollIncoming");
     require(publisher->onDemandCounts.empty(), "forwarder must not publish realtime");
@@ -208,7 +218,12 @@ void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
     require(publisher->jsonCount == 0, "forwarder must not publish status JSON");
     require(publisher->fullSnapshotTopics.size() == 1, "forwarder should publish one full snapshot");
     require(publisher->fullSnapshotTopics.front() == "third/full", "forwarder should use mqttForward.fullTelemetryTopic");
-    require(publisher->fullSnapshotCounts.front() == 1, "forwarder full snapshot should include only fullUpload points");
+    require(publisher->fullSnapshotCounts.front() == 1, "forwarder should publish only its configured point set");
+    require(
+        publisher->fullSnapshotIndexes.front() == std::vector<std::uint32_t>{2002},
+        "forwarder pointIndexes must be independent from point.fullUpload"
+    );
+    require(publisher->fullSnapshotFormats.front() == "object", "forwarder should use mqttForward.payloadFormat");
 
     service.runOnce(1770000100500LL);
     require(publisher->fullSnapshotTopics.size() == 1, "forwarder should wait for intervalMs");
@@ -223,6 +238,7 @@ void testUnavailablePointStoreFailsClosed() {
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
     forward.fullTelemetryTopic = "third/full";
+    forward.pointIndexes = {2101};
     forward.intervalMs = 1000;
 
     const std::string shmName = "mqtt_forwarder_missing_store";
@@ -242,8 +258,7 @@ void testUnavailablePointStoreFailsClosed() {
     const std::string healthFile = "/tmp/mqtt_forwarder_missing_store_test.json";
 #endif
     auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
-    MqttDriverConfig driverConfig;
-    MqttForwarderService service(forward, driverConfig, router, publisher, healthFile);
+    MqttForwarderService service(forward, router, publisher, healthFile);
     service.runOnce(1770000450000LL);
     require(publisher->fullSnapshotTopics.empty(), "missing PointStore must not publish a partial full snapshot");
 
@@ -272,14 +287,33 @@ void testDisabledForwarderPublishesNothing() {
     router.addStore(shmName, store);
 
     auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
-    MqttDriverConfig driverConfig;
-    MqttForwarderService service(forward, driverConfig, router, publisher);
+    MqttForwarderService service(forward, router, publisher);
     service.start();
     require(!service.isRunning(), "disabled forwarder must not start a publish loop");
     service.runOnce(1770000400000LL);
     require(publisher->fullSnapshotTopics.empty(), "disabled forwarder must not publish");
     require(publisher->pollTimeouts.empty(), "disabled forwarder must not poll incoming");
     MemoryPointStore::cleanupOrphanedSegment(shmName);
+}
+
+void testUnroutedPointIndexIsRejected() {
+    MqttForwardConfig forward;
+    forward.enabled = true;
+    forward.broker = "tcp://127.0.0.1:1883";
+    forward.fullTelemetryTopic = "third/full";
+    forward.pointIndexes = {2301};
+
+    PointStoreRouter router;
+    auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
+    try {
+        MqttForwarderService service(forward, router, publisher);
+        throw std::runtime_error("unrouted mqttForward point index was accepted");
+    } catch (const std::invalid_argument& ex) {
+        require(
+            std::string(ex.what()).find("unrouted index 2301") != std::string::npos,
+            "unrouted point rejection should identify the configured index"
+        );
+    }
 }
 
 class ThrowingMqttDriverPublisher : public CapturingMqttDriverPublisher {
@@ -298,6 +332,7 @@ void testForwarderFailureWritesHealthAndDoesNotPoll() {
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
     forward.fullTelemetryTopic = "third/full";
+    forward.pointIndexes = {2201};
     forward.intervalMs = 1000;
 
     const std::string shmName = "mqtt_forwarder_health";
@@ -307,6 +342,14 @@ void testForwarderFailureWritesHealthAndDoesNotPoll() {
     MemoryPointStore store(storeConfig);
     PointStoreRouter router;
     router.addStore(shmName, store);
+    DeviceConfig deviceConfig;
+    deviceConfig.machineCode = "GW_TEST";
+    deviceConfig.memoryStore.sharedMemoryName = shmName;
+    LogicalDeviceConfig meter;
+    meter.meterCode = "METER_1";
+    meter.points.push_back(makePoint(2201, "P_HEALTH"));
+    deviceConfig.meters.push_back(meter);
+    router.addRoutesFromDeviceConfigs({deviceConfig}, shmName);
 
 #ifdef _WIN32
     const std::string healthFile = std::tmpnam(nullptr);
@@ -314,8 +357,7 @@ void testForwarderFailureWritesHealthAndDoesNotPoll() {
     const std::string healthFile = "/tmp/mqtt_forwarder_health_test.json";
 #endif
     auto publisher = std::make_shared<ThrowingMqttDriverPublisher>();
-    MqttDriverConfig driverConfig;
-    MqttForwarderService service(forward, driverConfig, router, publisher, healthFile);
+    MqttForwarderService service(forward, router, publisher, healthFile);
     service.runOnce(1770000500000LL);
     require(publisher->pollTimeouts.empty(), "failed full publish must still skip pollIncoming");
 
@@ -342,7 +384,7 @@ void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
     LogicalDeviceConfig meter;
     meter.meterCode = "METER_1";
     meter.points.push_back(makePoint(3001, "P_1"));
-    meter.points.push_back(makePoint(3002, "P_2"));
+    meter.points.push_back(makePoint(3002, "P_2", false));
     deviceConfig.meters.push_back(meter);
     router.addStore(shmName, store);
     router.addRoutesFromDeviceConfigs({deviceConfig}, shmName);
@@ -375,7 +417,8 @@ void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
     driverConfig.fullUploadIntervalMs = 1000;
     driverConfig.publishFullOnStart = false;
     driverConfig.publishAllOnFull = false;
-    driverConfig.fullUploadIndexes = {3001, 3002};
+    driverConfig.fullUploadIndexes = {3001};
+    driverConfig.fullUploadJsonFormat = "object";
 
     auto driverPublisher = std::make_shared<CapturingMqttDriverPublisher>();
     MqttDriverService driver(
@@ -390,9 +433,11 @@ void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1884";
     forward.fullTelemetryTopic = "third/full";
+    forward.pointIndexes = {3002};
+    forward.payloadFormat = "compactArray";
     forward.intervalMs = 1000;
     auto forwardPublisher = std::make_shared<CapturingMqttDriverPublisher>();
-    MqttForwarderService forwarder(forward, driverConfig, router, forwardPublisher);
+    MqttForwarderService forwarder(forward, router, forwardPublisher);
 
     const std::int64_t startedAt = 1770000200000LL;
     driver.runScanOnce(startedAt);
@@ -419,11 +464,24 @@ void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
         driverPublisher->fullSnapshotTopics.front() == mqttConfig.fullTelemetryTopic,
         "main full should stay on the owned broker topic"
     );
+    require(
+        driverPublisher->fullSnapshotIndexes.front() == std::vector<std::uint32_t>{3001},
+        "main full should keep its own point selection"
+    );
+    require(driverPublisher->fullSnapshotFormats.front() == "object", "main full should keep its own payload format");
     require(forwardPublisher->pollTimeouts.empty(), "forwarder must stay TX-only after realtime stop");
     require(forwardPublisher->onDemandCounts.empty(), "forwarder must not publish realtime");
     require(forwardPublisher->fullSnapshotCounts.size() == 1, "third-party full should continue after realtime stop");
     require(forwardPublisher->fullSnapshotTopics.front() == "third/full", "third-party full should use mqttForward topic");
-    require(forwardPublisher->fullSnapshotCounts.front() == 2, "third-party full should republish the latest PointStore");
+    require(forwardPublisher->fullSnapshotCounts.front() == 1, "third-party full should publish its configured point set");
+    require(
+        forwardPublisher->fullSnapshotIndexes.front() == std::vector<std::uint32_t>{3002},
+        "main full point settings must not affect third-party forwarding"
+    );
+    require(
+        forwardPublisher->fullSnapshotFormats.front() == "compactArray",
+        "main full payload format must not affect third-party forwarding"
+    );
 
     MemoryPointStore::cleanupOrphanedSegment(shmName);
 }
@@ -713,6 +771,8 @@ int main() {
         testTxOnlyConfigClearsControlTopicsAndNeverPolls();
         std::cerr << "running disabled forwarder test" << std::endl;
         testDisabledForwarderPublishesNothing();
+        std::cerr << "running unrouted point test" << std::endl;
+        testUnroutedPointIndexIsRejected();
         std::cerr << "running unavailable PointStore test" << std::endl;
         testUnavailablePointStoreFailsClosed();
         std::cerr << "running forwarder health test" << std::endl;
