@@ -27,6 +27,12 @@ void require(bool condition, const std::string& message) {
 
 class CapturingMqttDriverPublisher : public IMqttDriverPublisher {
 public:
+    struct RealtimePublication {
+        std::string topic;
+        std::string sessionId;
+        std::vector<StoredPointValue> values;
+    };
+
     void publishFullSnapshot(
         const std::string& topic,
         const std::vector<StoredPointValue>& values,
@@ -52,6 +58,18 @@ public:
     ) override {
         onDemandTopics.push_back(topic);
         onDemandCounts.push_back(values.size());
+        realtimePublications.push_back(RealtimePublication{topic, std::string(), values});
+    }
+
+    void publishRealtime(
+        const std::string& topic,
+        const std::vector<StoredPointValue>& values,
+        const std::string&,
+        const std::string& sessionId
+    ) override {
+        onDemandTopics.push_back(topic);
+        onDemandCounts.push_back(values.size());
+        realtimePublications.push_back(RealtimePublication{topic, sessionId, values});
     }
 
     void publishChangeEvent(
@@ -99,6 +117,7 @@ public:
     std::vector<std::size_t> fullSnapshotCounts;
     std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
+    std::vector<RealtimePublication> realtimePublications;
     std::vector<std::string> statusPayloads;
     std::vector<int> pollTimeouts;
     int commandReplyCount = 0;
@@ -129,7 +148,12 @@ PointDefinition makePoint(std::uint32_t index, const std::string& pointCode) {
     return point;
 }
 
-ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, bool firstPointWritable = false) {
+ServiceFixture makeFixture(
+    const std::string& suffix,
+    int fullUploadIntervalMs,
+    bool firstPointWritable = false,
+    bool includeSecondMeter = false
+) {
     ServiceFixture fixture;
     fixture.shmName = "mqtt_driver_service_test_" + suffix;
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -144,6 +168,12 @@ ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, 
     meter.points.push_back(makePoint(1002, "P_2"));
     meter.points[0].write.enable = firstPointWritable;
     fixture.deviceConfig.meters.push_back(meter);
+    if (includeSecondMeter) {
+        LogicalDeviceConfig secondMeter;
+        secondMeter.meterCode = "METER_2";
+        secondMeter.points.push_back(makePoint(2001, "P_3"));
+        fixture.deviceConfig.meters.push_back(secondMeter);
+    }
 
     fixture.router.addStore(fixture.shmName, *fixture.store);
     fixture.router.addRoutesFromDeviceConfigs({fixture.deviceConfig}, fixture.shmName);
@@ -162,6 +192,15 @@ ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, 
     value2.expireAt = 1770000600000LL;
     require(fixture.router.putLatestByIndex(value2).accepted, "failed to seed point 1002");
 
+    if (includeSecondMeter) {
+        PointValue value3;
+        value3.index = 2001;
+        value3.value = 78.9;
+        value3.ts = 1770000000000LL;
+        value3.expireAt = 1770000600000LL;
+        require(fixture.router.putLatestByIndex(value3).accepted, "failed to seed point 2001");
+    }
+
     fixture.mqttConfig.enabled = true;
     fixture.mqttConfig.topicMachineCode = "GW_TEST";
     fixture.mqttConfig.telemetryTopic = "edge/telemetry";
@@ -177,6 +216,9 @@ ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, 
     fixture.driverConfig.publishFullOnStart = false;
     fixture.driverConfig.publishAllOnFull = false;
     fixture.driverConfig.fullUploadIndexes = {1001, 1002};
+    if (includeSecondMeter) {
+        fixture.driverConfig.fullUploadIndexes.push_back(2001);
+    }
 
     fixture.publisher.reset(new CapturingMqttDriverPublisher());
     fixture.service.reset(new MqttDriverService(
@@ -242,6 +284,10 @@ void testOneShotRealtimeRequestDoesNotCreatePeriodicSession() {
     fixture.service->runScanOnce(1770000010100LL);
     require(fixture.publisher->onDemandCounts.size() == 1, "one-shot realtime request should publish immediately");
     require(fixture.publisher->onDemandCounts.back() == 2, "meter realtime request should include meter points");
+    require(
+        fixture.publisher->realtimePublications.back().sessionId.empty(),
+        "legacy one-shot realtime response should remain unscoped"
+    );
 
     fixture.service->runScanOnce(1770000010200LL);
     fixture.service->runScanOnce(1770000010500LL);
@@ -362,6 +408,70 @@ void testRealtimeSessionUnsubscribeIsIsolatedFromOtherSessionsAndFullUpload() {
         ),
         "realtime sessions should publish only to realtimeTelemetryTopic"
     );
+    cleanupFixture(fixture);
+}
+
+void testRealtimeSessionsKeepMeterAndIndexSelectorsIsolated() {
+    auto fixture = makeFixture("session_selector_isolation", 1000, false, true);
+    const std::int64_t startedAt = 1770000037000LL;
+    fixture.service->runScanOnce(startedAt);
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_A\",\"meterCode\":\"METER_1\",\"intervalMs\":100,\"ttlSec\":30}"
+    ));
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_B\",\"indexes\":[2001],\"intervalMs\":100,\"ttlSec\":30}"
+    ));
+    fixture.service->runScanOnce(startedAt + 100);
+
+    const auto countSession = [&](const std::string& sessionId) {
+        return std::count_if(
+            fixture.publisher->realtimePublications.begin(),
+            fixture.publisher->realtimePublications.end(),
+            [&](const CapturingMqttDriverPublisher::RealtimePublication& publication) {
+                return publication.sessionId == sessionId;
+            }
+        );
+    };
+    const auto assertSessionValues = [&](const std::string& sessionId, const std::string& meterCode, std::uint32_t index) {
+        for (const auto& publication : fixture.publisher->realtimePublications) {
+            if (publication.sessionId != sessionId) {
+                continue;
+            }
+            require(!publication.values.empty(), "session realtime publication should contain values");
+            for (const auto& value : publication.values) {
+                require(value.meterCode == meterCode, "session realtime publication leaked another meter");
+                if (index != 0) {
+                    require(value.index == index, "session realtime publication leaked another index");
+                }
+            }
+        }
+    };
+
+    require(countSession("SESSION_A") == 1, "meter-scoped session should publish immediately with its sessionId");
+    require(countSession("SESSION_B") == 1, "index-scoped session should publish immediately with its sessionId");
+    assertSessionValues("SESSION_A", "METER_1", 0);
+    assertSessionValues("SESSION_B", "METER_2", 2001);
+
+    fixture.service->runScanOnce(startedAt + 200);
+    require(countSession("SESSION_A") == 2, "meter-scoped session should keep its sessionId periodically");
+    require(countSession("SESSION_B") == 2, "index-scoped session should keep its sessionId periodically");
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_A\",\"action\":\"unsubscribe\"}"
+    ));
+    fixture.service->runScanOnce(startedAt + 250);
+    fixture.service->runScanOnce(startedAt + 300);
+    require(countSession("SESSION_A") == 2, "unsubscribed session A should stop publishing");
+    require(countSession("SESSION_B") == 3, "session B should continue after session A unsubscribes");
+    assertSessionValues("SESSION_A", "METER_1", 0);
+    assertSessionValues("SESSION_B", "METER_2", 2001);
+
+    fixture.service->runScanOnce(startedAt + 1000);
+    require(countSession("SESSION_A") == 2, "full upload must not restart stopped session A");
+    require(countSession("SESSION_B") == 4, "session B should continue alongside full upload");
+    require(fixture.publisher->fullSnapshotCounts.size() == 1, "full upload should continue after session A stops");
+    require(fixture.publisher->fullSnapshotCounts.front() == 3, "full upload configuration should remain unchanged");
     cleanupFixture(fixture);
 }
 
@@ -560,6 +670,7 @@ int main() {
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
         testRealtimeSessionUnsubscribeIsIsolatedFromOtherSessionsAndFullUpload();
+        testRealtimeSessionsKeepMeterAndIndexSelectorsIsolated();
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
         testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();

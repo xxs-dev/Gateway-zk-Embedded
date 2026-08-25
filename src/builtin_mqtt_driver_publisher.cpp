@@ -544,6 +544,7 @@ std::string randomChunkId() {
 std::string buildRealtimeChunkJson(
     const std::string& type,
     const std::string& machineCode,
+    const std::string& sessionId,
     const std::string& chunkId,
     std::size_t chunkIndex,
     std::size_t chunkCount,
@@ -551,8 +552,11 @@ std::string buildRealtimeChunkJson(
 ) {
     std::ostringstream out;
     out << "{\"type\":\"" << escapeJson(type) << "\""
-        << ",\"machineCode\":\"" << escapeJson(machineCode) << "\""
-        << ",\"chunked\":true"
+        << ",\"machineCode\":\"" << escapeJson(machineCode) << "\"";
+    if (!sessionId.empty()) {
+        out << ",\"sessionId\":\"" << escapeJson(sessionId) << "\"";
+    }
+    out << ",\"chunked\":true"
         << ",\"chunkId\":\"" << escapeJson(chunkId) << "\""
         << ",\"chunkIndex\":" << chunkIndex
         << ",\"chunkCount\":" << chunkCount
@@ -577,9 +581,10 @@ std::string buildRealtimeChunkJson(
 std::size_t realtimeChunkBaseBytes(
     const std::string& type,
     const std::string& machineCode,
+    const std::string& sessionId,
     const std::string& chunkId
 ) {
-    return buildRealtimeChunkJson(type, machineCode, chunkId, 1, 1, {}).size();
+    return buildRealtimeChunkJson(type, machineCode, sessionId, chunkId, 1, 1, {}).size();
 }
 
 std::size_t meterWrapperBytes(const std::string& meterCode) {
@@ -592,7 +597,8 @@ std::vector<std::string> encodeRealtimeChunks(
     const std::vector<StoredPointValue>& values,
     std::size_t maxPayloadBytes,
     PointValueJsonFormat format,
-    const std::string& fallbackMachineCode = std::string()
+    const std::string& fallbackMachineCode = std::string(),
+    const std::string& sessionId = std::string()
 ) {
     const auto limit = std::max<std::size_t>(4096, maxPayloadBytes);
     const auto machineCode = firstMachineCode(values, fallbackMachineCode);
@@ -601,7 +607,7 @@ std::vector<std::string> encodeRealtimeChunks(
     std::vector<std::pair<std::string, std::vector<std::string>>> currentMeters;
     std::vector<std::pair<std::string, std::vector<const StoredPointValue*>>> groupedValues;
     std::unordered_map<std::string, std::size_t> groupedIndexByMeter;
-    const auto baseBytes = realtimeChunkBaseBytes(type, machineCode, chunkId);
+    const auto baseBytes = realtimeChunkBaseBytes(type, machineCode, sessionId, chunkId);
     std::size_t currentBytes = baseBytes;
 
     const auto flushCurrent = [&]() {
@@ -675,7 +681,7 @@ std::vector<std::string> encodeRealtimeChunks(
     std::vector<std::string> payloads;
     payloads.reserve(chunks.size());
     for (std::size_t i = 0; i < chunks.size(); ++i) {
-        payloads.push_back(buildRealtimeChunkJson(type, machineCode, chunkId, i + 1, chunks.size(), chunks[i]));
+        payloads.push_back(buildRealtimeChunkJson(type, machineCode, sessionId, chunkId, i + 1, chunks.size(), chunks[i]));
     }
     return payloads;
 }
@@ -1683,9 +1689,25 @@ void BuiltinMqttDriverPublisher::publishOnDemand(
     const std::vector<StoredPointValue>& values,
     const std::string& valueFormat
 ) {
+    publishRealtime(topic, values, valueFormat, std::string());
+}
+
+void BuiltinMqttDriverPublisher::publishRealtime(
+    const std::string& topic,
+    const std::vector<StoredPointValue>& values,
+    const std::string& valueFormat,
+    const std::string& sessionId
+) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto format = pointValueJsonFormat(valueFormat);
-    for (const auto& payload : encodeRealtimeChunks("telemetry", values, config_.maxPayloadBytes, format, config_.topicMachineCode)) {
+    for (const auto& payload : encodeRealtimeChunks(
+        "telemetry",
+        values,
+        config_.maxPayloadBytes,
+        format,
+        config_.topicMachineCode,
+        sessionId
+    )) {
         publishRealtimeJson(topic, payload);
     }
 }

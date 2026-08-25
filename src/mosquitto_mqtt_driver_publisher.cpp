@@ -150,10 +150,15 @@ std::vector<std::string> meterCodesFromValues(const std::vector<StoredPointValue
 std::string encodeValuesJson(
     const std::vector<StoredPointValue>& values,
     PointValueJsonFormat format,
-    const std::string& fallbackMachineCode = std::string()
+    const std::string& fallbackMachineCode = std::string(),
+    const std::string& sessionId = std::string()
 ) {
     std::ostringstream out;
-    out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\",\"meters\":[";
+    out << "{\"type\":\"telemetry\",\"machineCode\":\"" << escapeJson(firstMachineCode(values, fallbackMachineCode)) << "\"";
+    if (!sessionId.empty()) {
+        out << ",\"sessionId\":\"" << escapeJson(sessionId) << "\"";
+    }
+    out << ",\"meters\":[";
     const auto devices = meterCodesFromValues(values);
     for (std::size_t d = 0; d < devices.size(); ++d) {
         if (d > 0) {
@@ -422,7 +427,21 @@ void MosquittoMqttDriverPublisher::publishOnDemand(
     const std::vector<StoredPointValue>& values,
     const std::string& valueFormat
 ) {
-    publishJson(topic, encodeValuesJson(values, pointValueJsonFormat(valueFormat), config_.topicMachineCode));
+    publishRealtime(topic, values, valueFormat, std::string());
+}
+
+void MosquittoMqttDriverPublisher::publishRealtime(
+    const std::string& topic,
+    const std::vector<StoredPointValue>& values,
+    const std::string& valueFormat,
+    const std::string& sessionId
+) {
+    publishJson(topic, encodeValuesJson(
+        values,
+        pointValueJsonFormat(valueFormat),
+        config_.topicMachineCode,
+        sessionId
+    ));
 }
 
 void MosquittoMqttDriverPublisher::publishChangeEvent(

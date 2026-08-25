@@ -850,18 +850,19 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
 
 void MqttDriverService::publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) {
     const auto values = indexes.empty() ? enrichValues(router_.getAllLatest(nowMs)) : filterValues(indexes, nowMs);
-    publishRealtimeValues(values, indexes.size(), nowMs);
+    publishRealtimeValues(values, indexes.size(), nowMs, std::string());
 }
 
 void MqttDriverService::publishRealtimeValues(
     std::vector<StoredPointValue> values,
     std::size_t requestedCount,
-    std::int64_t nowMs
+    std::int64_t nowMs,
+    const std::string& sessionId
 ) {
     const auto& topic = mqttConfig_.realtimeTelemetryTopic.empty()
         ? mqttConfig_.telemetryTopic
         : mqttConfig_.realtimeTelemetryTopic;
-    publisher_->publishOnDemand(topic, values, driverConfig_.fullUploadJsonFormat);
+    publisher_->publishRealtime(topic, values, driverConfig_.fullUploadJsonFormat, sessionId);
     publishStatusEvent(
         "on-demand",
         nowMs,
@@ -901,15 +902,26 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
         }
         try {
             if (!session.indexes.empty()) {
-                publishRealtimeValues(filterValues(session.indexes, nowMs), session.requestedCount, nowMs);
+                publishRealtimeValues(
+                    filterValues(session.indexes, nowMs),
+                    session.requestedCount,
+                    nowMs,
+                    session.sessionId
+                );
             } else if (!session.meterCode.empty()) {
                 publishRealtimeValues(
                     filterValuesByMeter(session.machineCode, session.meterCode, nowMs),
                     session.requestedCount,
-                    nowMs
+                    nowMs,
+                    session.sessionId
                 );
             } else {
-                publishOnDemandNow({}, nowMs);
+                publishRealtimeValues(
+                    enrichValues(router_.getAllLatest(nowMs)),
+                    session.requestedCount,
+                    nowMs,
+                    session.sessionId
+                );
             }
         } catch (...) {
         }
@@ -1355,12 +1367,17 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
     }
 
     if (!request.indexes.empty()) {
-        publishOnDemandNow(request.indexes, nowMs);
+        publishRealtimeValues(
+            filterValues(request.indexes, nowMs),
+            request.indexes.size(),
+            nowMs,
+            request.sessionId
+        );
     } else if (!request.meterCode.empty()) {
         auto values = filterValuesByMeter(machineCode, request.meterCode, nowMs);
-        publishRealtimeValues(std::move(values), 0, nowMs);
+        publishRealtimeValues(std::move(values), 0, nowMs, request.sessionId);
     } else {
-        publishOnDemandNow({}, nowMs);
+        publishRealtimeValues(enrichValues(router_.getAllLatest(nowMs)), 0, nowMs, request.sessionId);
     }
 
     if (!sessionRequest) {
@@ -1369,6 +1386,7 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
 
     const auto ttlSec = request.ttlSec > 0 ? request.ttlSec : 30;
     RealtimeSession session;
+    session.sessionId = request.sessionId;
     session.machineCode = machineCode;
     session.meterCode = request.meterCode;
     session.indexes = request.indexes;
