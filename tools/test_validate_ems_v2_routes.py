@@ -233,6 +233,58 @@ class RouteValidatorFixtureTests(unittest.TestCase):
                 {issue.code for issue in report.structural_issues},
             )
 
+    def test_all_runtime_devices_catches_unreferenced_duplicate_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = FixtureProject(
+                Path(directory),
+                [device_document([virtual_point(700001, "EMS")])],
+                graph_with_output(700001, 700001),
+            )
+            write_json(
+                project.runtime / "devices" / "unreferenced_physical.json",
+                device_document([virtual_point(700001, "PHYSICAL")]),
+            )
+
+            scoped_report = VALIDATOR.audit_app(project.app_path)
+            full_report = VALIDATOR.audit_app(
+                project.app_path,
+                include_all_runtime_devices=True,
+            )
+
+            self.assertNotIn(
+                "duplicate_global_index",
+                {issue.code for issue in scoped_report.structural_issues},
+            )
+            self.assertIn(
+                "duplicate_global_index",
+                {issue.code for issue in full_report.structural_issues},
+            )
+
+    def test_all_runtime_devices_accepts_site_remapped_virtual_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            graph = graph_with_output(801615, 801615)
+            graph["compile"]["virtualIndexEnd"] = 899999
+            project = FixtureProject(
+                Path(directory),
+                [device_document([virtual_point(801615, "EMS")])],
+                graph,
+            )
+            write_json(
+                project.runtime / "devices" / "unreferenced_physical.json",
+                device_document([virtual_point(1615, "PHYSICAL")]),
+            )
+
+            report = VALIDATOR.audit_app(
+                project.app_path,
+                include_all_runtime_devices=True,
+            )
+
+            self.assertNotIn(
+                "duplicate_global_index",
+                {issue.code for issue in report.structural_issues},
+            )
+            self.assertEqual([], report.structural_issues)
+
     def test_binding_index_must_match_runtime_parameter(self):
         with tempfile.TemporaryDirectory() as directory:
             project = FixtureProject(

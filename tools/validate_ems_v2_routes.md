@@ -27,6 +27,17 @@ python tools/validate_ems_v2_routes.py `
 
 普通审计会阻断图结构、虚拟路由和全局 Index 错误，但只警告尚未随通用包提供的项目物理点。
 
+部署或恢复现场运行配置后，必须把完整设备目录纳入全局 Index 门禁，避免 app 未引用的物理点与 EMS 虚拟点冲突：
+
+```powershell
+python tools/validate_ems_v2_routes.py `
+  --app /opt/modbus-gateway/config/runtime/apps/mqtt-service.json `
+  --runtime-root /opt/modbus-gateway/config/runtime `
+  --all-runtime-devices
+```
+
+`--all-runtime-devices` 会扫描 `runtime/devices/*.json`；发现重复 Index 时返回非零，服务不得启动。
+
 项目发布前必须执行严格审计：
 
 ```powershell
