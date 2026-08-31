@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -136,6 +137,24 @@ std::uint16_t packetId(const std::vector<std::uint8_t>& packet) {
     return static_cast<std::uint16_t>((packet[cursor] << 8) | packet[cursor + 1]);
 }
 
+std::string packetPayload(const std::vector<std::uint8_t>& packet) {
+    std::size_t cursor = 1;
+    while (cursor < packet.size() && (packet[cursor++] & 0x80) != 0) {
+    }
+    if (cursor + 2 > packet.size()) {
+        return {};
+    }
+    const auto topicLength = (static_cast<std::size_t>(packet[cursor]) << 8) | packet[cursor + 1];
+    cursor += 2 + topicLength;
+    if (((packet[0] >> 1) & 0x03) > 0) {
+        cursor += 2;
+    }
+    if (cursor > packet.size()) {
+        return {};
+    }
+    return std::string(packet.begin() + static_cast<std::ptrdiff_t>(cursor), packet.end());
+}
+
 std::uint16_t ackPacketId(const std::vector<std::uint8_t>& packet) {
     if (packet.size() < 4) {
         return 0;
@@ -177,10 +196,11 @@ class TestMqttBroker {
 public:
     struct PublishedMessage {
         std::string topic;
+        std::string payload;
         int qos = 0;
     };
 
-    explicit TestMqttBroker(int expectedPublishes)
+    explicit TestMqttBroker(int expectedPublishes, int requestedPort = 0)
         : expectedPublishes_(expectedPublishes) {
         listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
         if (listenFd_ < 0) {
@@ -191,7 +211,7 @@ public:
         sockaddr_in addr {};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        addr.sin_port = 0;
+        addr.sin_port = htons(static_cast<std::uint16_t>(requestedPort));
         if (bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
             throw std::runtime_error("test broker bind failed");
         }
@@ -222,21 +242,27 @@ public:
     }
 
     std::vector<std::string> topics() const {
+        const auto captured = messages();
         std::vector<std::string> result;
-        result.reserve(messages_.size());
-        for (const auto& message : messages_) {
+        result.reserve(captured.size());
+        for (const auto& message : captured) {
             result.push_back(message.topic);
         }
         return result;
     }
 
     std::vector<PublishedMessage> messages() const {
+        std::lock_guard<std::mutex> lock(messagesMutex_);
         return messages_;
+    }
+
+    int publishCount() const {
+        return publishCount_.load();
     }
 
 private:
     void run() {
-        while (!stop_.load() && static_cast<int>(messages_.size()) < expectedPublishes_) {
+        while (!stop_.load() && publishCount_.load() < expectedPublishes_) {
             const int fd = accept(listenFd_, nullptr, nullptr);
             if (fd < 0) {
                 continue;
@@ -246,14 +272,18 @@ private:
                 require(!connect.empty() && (connect[0] & 0xF0) == 0x10, "test broker expected connect");
                 const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
                 send(fd, connAck, sizeof(connAck), 0);
-                while (!stop_.load() && static_cast<int>(messages_.size()) < expectedPublishes_) {
+                while (!stop_.load() && publishCount_.load() < expectedPublishes_) {
                     const auto publish = readMqttPacket(fd);
                     if (publish.empty() || (publish[0] & 0xF0) == 0xE0) {
                         break;
                     }
                     require((publish[0] & 0xF0) == 0x30, "test broker expected publish");
                     const auto qos = static_cast<int>((publish[0] >> 1) & 0x03);
-                    messages_.push_back(PublishedMessage{packetTopic(publish), qos});
+                    {
+                        std::lock_guard<std::mutex> lock(messagesMutex_);
+                        messages_.push_back(PublishedMessage{packetTopic(publish), packetPayload(publish), qos});
+                    }
+                    publishCount_.fetch_add(1);
                     const auto id = packetId(publish);
                     if (qos == 1) {
                         sendPubAck(fd, id);
@@ -275,9 +305,26 @@ private:
     int listenFd_ = -1;
     int port_ = 0;
     std::atomic<bool> stop_ {false};
+    std::atomic<int> publishCount_ {0};
     std::thread thread_;
+    mutable std::mutex messagesMutex_;
     std::vector<PublishedMessage> messages_;
 };
+
+int unusedTcpPort() {
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
+    require(fd >= 0, "unused port socket failed");
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    require(bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "unused port bind failed");
+    socklen_t len = sizeof(addr);
+    require(getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0, "unused port lookup failed");
+    const int port = ntohs(addr.sin_port);
+    close(fd);
+    return port;
+}
 
 class ReconnectMqttBroker {
 public:
@@ -477,6 +524,208 @@ void testOfflineReplayRemovesSentRecords() {
     rmdir(dir.c_str());
 }
 
+void testOfflinePublishSurvivesRestartAndReplaysInOrder() {
+    const auto dir = std::string("/tmp/gateway_mqtt_restart_replay_test_") + std::to_string(getpid());
+    const auto mkdirCommand = std::string("mkdir -p ") + dir;
+    require(std::system(mkdirCommand.c_str()) == 0, "restart replay mkdir failed");
+    const auto queuePath = dir + "/mqtt_offline_queue.log";
+    const auto port = unusedTcpPort();
+
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.clientId = "GW_RESTART_REPLAY";
+    config.topicMachineCode = "GW_RESTART_REPLAY";
+    config.statusTopic = "edge/status";
+    config.qos = 1;
+    config.offlineBufferEnabled = true;
+    config.offlineBufferDir = dir;
+    config.offlineBufferMaxMemoryMessages = 1;
+    config.offlineBufferFlushBatchSize = 1;
+    config.offlineBufferFlushIntervalMs = 0;
+    config.offlineBufferReplayBatchSize = 10;
+    config.offlineRealtimeFile = dir + "/realtime_ring.dat";
+    config.eventOutboxSqlitePath = dir + "/event_outbox.db";
+
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishJsonMessage(config.statusTopic, "{\"sequence\":1}");
+        publisher.publishJsonMessage(config.statusTopic, "{\"sequence\":2}");
+    }
+
+    std::ifstream queued(queuePath.c_str());
+    std::vector<std::string> queuedLines;
+    std::string line;
+    while (std::getline(queued, line)) {
+        queuedLines.push_back(line);
+    }
+    require(queuedLines.size() == 2, "offline publishes were not persisted before restart");
+
+    {
+        TestMqttBroker broker(3, port);
+        edge_gateway::BuiltinMqttDriverPublisher restarted(config);
+        restarted.publishJsonMessage(config.statusTopic, "{\"sequence\":3}");
+        for (int attempt = 0; attempt < 100 && broker.publishCount() < 3; ++attempt) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto messages = broker.messages();
+        require(messages.size() == 3, "restarted publisher did not replay all persisted messages");
+        require(messages[0].payload == "{\"sequence\":1}", "offline replay changed first message order");
+        require(messages[1].payload == "{\"sequence\":2}", "offline replay changed second message order");
+        require(messages[2].payload == "{\"sequence\":3}", "current message must follow offline replay");
+    }
+
+    std::ifstream remaining(queuePath.c_str());
+    require(!remaining.is_open() || remaining.peek() == std::ifstream::traits_type::eof(),
+        "offline queue must be empty after successful replay");
+    std::remove(queuePath.c_str());
+    std::remove((queuePath + ".lock").c_str());
+    std::remove((queuePath + ".tmp").c_str());
+    std::remove((dir + "/realtime_ring.dat").c_str());
+    std::remove((dir + "/event_outbox.db").c_str());
+    std::remove((dir + "/event_outbox.db-shm").c_str());
+    std::remove((dir + "/event_outbox.db-wal").c_str());
+    rmdir(dir.c_str());
+}
+
+void testRealtimeRingSurvivesRestartAndReplaysBeforeCurrentSnapshot() {
+    const auto dir = std::string("/tmp/gateway_mqtt_realtime_replay_test_") + std::to_string(getpid());
+    const auto mkdirCommand = std::string("mkdir -p ") + dir;
+    require(std::system(mkdirCommand.c_str()) == 0, "realtime replay mkdir failed");
+    const auto port = unusedTcpPort();
+
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.clientId = "GW_REALTIME_REPLAY";
+    config.topicMachineCode = "GW_REALTIME_REPLAY";
+    config.fullTelemetryTopic = "edge/telemetry/full";
+    config.qos = 1;
+    config.offlineBufferEnabled = true;
+    config.offlineBufferDir = dir;
+    config.offlineBufferReplayBatchSize = 10;
+    config.offlineRealtimeFile = dir + "/realtime_ring.dat";
+    config.offlineRealtimeFileSizeBytes = 64 * 1024;
+    config.offlineMaxRealtimeMessageBytes = 4096;
+    config.eventOutboxSqlitePath = dir + "/event_outbox.db";
+
+    edge_gateway::StoredPointValue point;
+    point.index = 910001;
+    point.machineCode = config.topicMachineCode;
+    point.meterCode = "SIM_METER_01";
+    point.pointCode = "POWER";
+    point.value = 11.5;
+    point.ts = 1000;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+    }
+
+    std::ifstream ring(config.offlineRealtimeFile.c_str(), std::ios::binary | std::ios::ate);
+    require(ring.is_open() && ring.tellg() > 0, "offline realtime snapshot was not persisted");
+
+    {
+        TestMqttBroker broker(2, port);
+        point.value = 22.5;
+        point.ts = 2000;
+        edge_gateway::BuiltinMqttDriverPublisher restarted(config);
+        restarted.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+        for (int attempt = 0; attempt < 100 && broker.publishCount() < 2; ++attempt) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto messages = broker.messages();
+        require(messages.size() == 2, "restarted publisher did not replay realtime snapshot");
+        require(messages[0].payload.find("\"value\":11.5") != std::string::npos,
+            "persisted realtime snapshot was not replayed first");
+        require(messages[1].payload.find("\"value\":22.5") != std::string::npos,
+            "current realtime snapshot did not follow replay");
+    }
+
+    std::remove(config.offlineRealtimeFile.c_str());
+    std::remove((dir + "/mqtt_offline_queue.log").c_str());
+    std::remove((dir + "/mqtt_offline_queue.log.lock").c_str());
+    std::remove((dir + "/event_outbox.db").c_str());
+    std::remove((dir + "/event_outbox.db-shm").c_str());
+    std::remove((dir + "/event_outbox.db-wal").c_str());
+    rmdir(dir.c_str());
+}
+
+void testEventOutboxSurvivesRestartAndClearsAfterReplay() {
+    const auto dir = std::string("/tmp/gateway_mqtt_event_replay_test_") + std::to_string(getpid());
+    const auto mkdirCommand = std::string("mkdir -p ") + dir;
+    require(std::system(mkdirCommand.c_str()) == 0, "event replay mkdir failed");
+    const auto port = unusedTcpPort();
+
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.clientId = "GW_EVENT_REPLAY";
+    config.topicMachineCode = "GW_EVENT_REPLAY";
+    config.changeEventTopic = "edge/event/change";
+    config.qos = 1;
+    config.offlineBufferEnabled = true;
+    config.offlineBufferDir = dir;
+    config.offlineBufferReplayBatchSize = 10;
+    config.offlineRealtimeFile = dir + "/realtime_ring.dat";
+    config.offlineRealtimeFileSizeBytes = 64 * 1024;
+    config.eventOutboxSqlitePath = dir + "/event_outbox.db";
+    config.eventOutboxReplayBatchSize = 10;
+
+    edge_gateway::StoredPointValue point;
+    point.index = 910002;
+    point.machineCode = config.topicMachineCode;
+    point.meterCode = "SIM_METER_01";
+    point.pointCode = "RUN_STATE";
+    point.value = 1;
+    point.ts = 1000;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishChangeEvent(config.changeEventTopic, point);
+    }
+    {
+        edge_gateway::MqttEventOutbox outbox(
+            config.eventOutboxSqlitePath,
+            config.eventOutboxSqliteLibraryPath,
+            config.eventOutboxRetentionMonths,
+            config.eventOutboxCleanupIntervalHours,
+            config.eventOutboxReplayBatchSize,
+            config.eventOutboxMaxDiskBytes);
+        require(outbox.pendingCount() == 1, "offline event was not persisted in SQLite outbox");
+    }
+
+    {
+        TestMqttBroker broker(2, port);
+        point.value = 2;
+        point.ts = 2000;
+        edge_gateway::BuiltinMqttDriverPublisher restarted(config);
+        restarted.publishChangeEvent(config.changeEventTopic, point);
+        for (int attempt = 0; attempt < 100 && broker.publishCount() < 2; ++attempt) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto messages = broker.messages();
+        require(messages.size() == 2, "restarted publisher did not replay event outbox");
+        require(messages[0].payload.find("\"value\":1") != std::string::npos,
+            "persisted event was not replayed first");
+        require(messages[1].payload.find("\"value\":2") != std::string::npos,
+            "current event did not follow replay");
+    }
+    {
+        edge_gateway::MqttEventOutbox outbox(
+            config.eventOutboxSqlitePath,
+            config.eventOutboxSqliteLibraryPath,
+            config.eventOutboxRetentionMonths,
+            config.eventOutboxCleanupIntervalHours,
+            config.eventOutboxReplayBatchSize,
+            config.eventOutboxMaxDiskBytes);
+        require(outbox.pendingCount() == 0, "event outbox must be empty after successful replay");
+    }
+
+    std::remove(config.offlineRealtimeFile.c_str());
+    std::remove((dir + "/mqtt_offline_queue.log").c_str());
+    std::remove((dir + "/mqtt_offline_queue.log.lock").c_str());
+    std::remove(config.eventOutboxSqlitePath.c_str());
+    std::remove((config.eventOutboxSqlitePath + "-shm").c_str());
+    std::remove((config.eventOutboxSqlitePath + "-wal").c_str());
+    rmdir(dir.c_str());
+}
+
 void testControlTopicsUseQos2() {
     TestMqttBroker broker(4);
     edge_gateway::MqttConfig config;
@@ -562,6 +811,9 @@ int main() {
 
 #ifndef _WIN32
     testOfflineReplayRemovesSentRecords();
+    testOfflinePublishSurvivesRestartAndReplaysInOrder();
+    testRealtimeRingSurvivesRestartAndReplaysBeforeCurrentSnapshot();
+    testEventOutboxSurvivesRestartAndClearsAfterReplay();
     testControlTopicsUseQos2();
     testClosedTxConnectionReconnectsBeforeNextPublish();
 #endif

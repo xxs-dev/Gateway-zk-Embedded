@@ -161,6 +161,28 @@ struct ScadaTrend {
     std::vector<ScadaTagReference> series;
 };
 
+struct ScadaLocalAccessUser {
+    std::string username;
+    std::string salt;
+    std::string passwordSha256;
+    std::vector<std::string> roles;
+};
+
+struct ScadaLocalAccess {
+    int sessionTimeoutSeconds = 900;
+    std::vector<std::string> protectedScreenPrefixes;
+    std::vector<ScadaLocalAccessUser> users;
+
+    bool enabled() const {
+        return !protectedScreenPrefixes.empty() && !users.empty();
+    }
+};
+
+struct ScadaPermissions {
+    std::vector<std::string> roles;
+    ScadaLocalAccess localAccess;
+};
+
 struct ScadaProject {
     ScadaManifest manifest;
     ScadaTopology topology;
@@ -170,6 +192,7 @@ struct ScadaProject {
     std::vector<ScadaScreen> screens;
     std::vector<ScadaAlarm> alarms;
     std::vector<ScadaTrend> trends;
+    ScadaPermissions permissions;
     std::string rootDirectory;
 };
 

@@ -401,7 +401,13 @@ abs(Q_cmd) <= min(ratedReactivePowerKvar, dynamicReactivePowerKvar)
 
 `S_available` 默认不超过 `ratedApparentPowerKva`，并可根据温度、电压和厂家 P/Q 能力曲线进一步降额。若厂家不是标准圆形能力曲线，应支持配置分段能力曲线，不能强行按额定 KVA 圆计算。
 
-默认采用 `activePowerFirst`：优先保证 AGC 有功目标，超出视在功率能力时先裁剪 Q。项目也可以配置 `reactivePowerFirst` 或 `proportional`，但必须显式选择。
+通用模型为兼容旧项目仍默认 `activePowerFirst`：优先保证 AGC 有功目标，超出视在功率能力时先裁剪 Q。项目也可以配置 `reactivePowerFirst` 或 `proportional`，但必须显式选择；出厂的电网友好 AGC/AVC 配置已显式使用 `reactivePowerFirst`。
+
+电网友好项目推荐显式使用 `reactivePowerFirst`。控制器必须在站级能力圆和单台 PCS 分配两层都执行同一优先级，不能只裁剪站级目标后又在设备层固定先分配 P。
+
+有功资源增加两级仲裁：`activeResourcePriority=nonBatteryFirst` 时，`activeResourceTier=primary/nonBattery` 的光伏逆变器或柔性负荷先执行，`activeResourceTier=battery` 的储能 PCS 只补剩余量。`auto` 会把 `storagePcs/batteryPcs` 识别为储能资源。诊断点 `720063-720065` 分别输出一级有功、储能兜底有功和限制原因位。
+
+完整约束、Graph EMS 对应输出和验收方法见《电网友好策略两级资源仲裁设计》。
 
 ### 10.4 多 PCS 分配
 

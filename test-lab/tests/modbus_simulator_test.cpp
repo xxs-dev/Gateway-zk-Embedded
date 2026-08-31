@@ -60,6 +60,14 @@ int main() {
         require(normal.size() == 2, "normal register read should return two values");
         require(normal[0] >= 2200 && normal[0] < 2220, "normal voltage waveform mismatch");
 
+        const auto traceStart = simulator.traceEvidence();
+        const auto sequenceStart = client.readHoldingRegisters(1, 65000, 1).front();
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        const auto sequenceEnd = client.readHoldingRegisters(1, 65000, 1).front();
+        require(traceStart.epochMs > 0, "trace evidence must expose a wall-clock epoch");
+        require(traceStart.periodMs == 100, "trace evidence period mismatch");
+        require(sequenceEnd != sequenceStart, "trace sequence register must advance");
+
         client.writeSingleRegister(1, 10, 4321);
         require(client.readHoldingRegisters(1, 10, 1).front() == 4321,
                 "single register write should be readable");

@@ -98,6 +98,7 @@ void writeStatus(
 ) {
     if (path.empty()) return;
     const auto stats = simulator.stats();
+    const auto trace = simulator.traceEvidence();
     const auto temporary = path + ".tmp";
     const test_lab_fs::path target(path);
     if (!target.parent_path().empty()) test_lab_fs::create_directories(target.parent_path());
@@ -111,7 +112,10 @@ void writeStatus(
                << ",\"reads\":" << stats.reads
                << ",\"writes\":" << stats.writes
                << ",\"injectedFaults\":" << stats.injectedFaults
-               << ",\"protocolErrors\":" << stats.protocolErrors << "}\n";
+               << ",\"protocolErrors\":" << stats.protocolErrors
+               << ",\"traceEpochMs\":" << trace.epochMs
+               << ",\"tracePeriodMs\":" << trace.periodMs
+               << ",\"traceSequence\":" << trace.sequence << "}\n";
     }
     std::error_code error;
     test_lab_fs::remove(target, error);
@@ -127,6 +131,7 @@ void writeSerialStatus(
 ) {
     if (path.empty()) return;
     const auto stats = simulator.stats();
+    const auto trace = simulator.traceEvidence();
     const auto temporary = path + ".tmp";
     const test_lab_fs::path target(path);
     if (!target.parent_path().empty()) test_lab_fs::create_directories(target.parent_path());
@@ -141,7 +146,13 @@ void writeSerialStatus(
                << ",\"reads\":" << stats.reads
                << ",\"writes\":" << stats.writes
                << ",\"injectedFaults\":" << stats.injectedFaults
-               << ",\"protocolErrors\":" << stats.protocolErrors << "}\n";
+               << ",\"protocolErrors\":" << stats.protocolErrors;
+        if (protocol == gateway_test_lab::SerialProtocol::ModbusRtu) {
+            output << ",\"traceEpochMs\":" << trace.epochMs
+                   << ",\"tracePeriodMs\":" << trace.periodMs
+                   << ",\"traceSequence\":" << trace.sequence;
+        }
+        output << "}\n";
     }
     std::error_code error;
     test_lab_fs::remove(target, error);

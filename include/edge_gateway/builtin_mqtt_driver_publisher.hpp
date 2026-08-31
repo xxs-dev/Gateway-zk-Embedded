@@ -95,6 +95,7 @@ private:
     void closeTx(bool graceful = true);
     void ensureSubscriberConnected();
     void closeSubscriber(bool graceful = true);
+    std::string scopedPublishTopic(const std::string& topic) const;
 
     struct OfflineMessage {
         std::string topic;

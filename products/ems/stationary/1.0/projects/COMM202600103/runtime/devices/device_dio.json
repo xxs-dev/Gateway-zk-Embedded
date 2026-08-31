@@ -1,0 +1,891 @@
+﻿{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "source": "xlsm:DIDO",
+  "protocol": {
+    "type": "local_dio",
+    "backend": "sysfs_gpio",
+    "gpioBasePath": "/sys/class/gpio"
+  },
+  "collect": {
+    "defaultIntervalMs": 2,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1,
+    "maxRequestRegisters": 120
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_dio",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_dio.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 100,
+    "writebackBatchSize": 64
+  },
+  "meters": [
+    {
+      "meterCode": "LOCAL_DIO",
+      "deviceName": "本机 DI/DO",
+      "enabled": true,
+      "points": [
+        {
+          "index": 984,
+          "legacyIndex": 984,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 1,
+          "hardwareChannel": "DO1",
+          "pointCode": "KY02201770",
+          "name": "运行指示灯",
+          "desc": "运行指示灯 W DO输出控制",
+          "category": "control",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 231,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 985,
+          "legacyIndex": 985,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 2,
+          "hardwareChannel": "DO2",
+          "pointCode": "KY02201771",
+          "name": "并网脱扣继电器",
+          "desc": "并网脱扣继电器 W DO输出控制",
+          "category": "control",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 238,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 987,
+          "legacyIndex": 987,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 4,
+          "hardwareChannel": "DO4",
+          "pointCode": "KY02201773",
+          "name": "充电指示灯",
+          "desc": "充电指示灯 W DO输出控制",
+          "category": "control",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 129,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 988,
+          "legacyIndex": 988,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 5,
+          "hardwareChannel": "DO5",
+          "pointCode": "KY02201774",
+          "name": "放电指示灯",
+          "desc": "放电指示灯 W DO输出控制",
+          "category": "control",
+          "address": 5,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 130,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 989,
+          "legacyIndex": 989,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 6,
+          "hardwareChannel": "DO6",
+          "pointCode": "do_6",
+          "name": "DO6",
+          "desc": "DO6 W DO输出控制",
+          "category": "control",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 131,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 990,
+          "legacyIndex": 990,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 7,
+          "hardwareChannel": "DO7",
+          "pointCode": "KY02301775",
+          "name": "HPLC继电器给1断开",
+          "desc": "HPLC继电器给1断开 W DO输出控制",
+          "category": "control",
+          "address": 7,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 132,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 991,
+          "legacyIndex": 991,
+          "legacyRwType": "W",
+          "legacyDidoRole": "digital_output",
+          "legacyDidoChannel": 8,
+          "hardwareChannel": "DO8",
+          "pointCode": "KY02300877",
+          "name": "风机继电器",
+          "desc": "风机继电器 W DO输出控制",
+          "category": "control",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "digital_output",
+            "legacy_w",
+            "writable"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 100,
+            "gpio": 133,
+            "activeHigh": false,
+            "debounceMs": 0,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_output",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "allowedValues": [
+              0,
+              1
+            ],
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 50,
+            "verifyByRead": true
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 992,
+          "legacyIndex": 992,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 1,
+          "hardwareChannel": "DI6",
+          "pointCode": "KY02200878",
+          "name": "急停反馈-1正常",
+          "desc": "急停反馈-1正常 R 干接点输入",
+          "category": "status",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 134,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 993,
+          "legacyIndex": 993,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 2,
+          "hardwareChannel": "DI7",
+          "pointCode": "KY02200879",
+          "name": "浪涌保护器-1动作",
+          "desc": "浪涌保护器-1动作 R 干接点输入",
+          "category": "status",
+          "address": 7,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 135,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 995,
+          "legacyIndex": 995,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 4,
+          "hardwareChannel": "DI9",
+          "pointCode": "KY02200881",
+          "name": "气溶胶-1动作",
+          "desc": "气溶胶-1动作 R 干接点输入",
+          "category": "status",
+          "address": 9,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 137,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 996,
+          "legacyIndex": 996,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 5,
+          "hardwareChannel": "DI10",
+          "pointCode": "KY02200882",
+          "name": "前门反馈-1开门",
+          "desc": "前门反馈-1开门 R 干接点输入",
+          "category": "status",
+          "address": 10,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 138,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 997,
+          "legacyIndex": 997,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 6,
+          "hardwareChannel": "DI11",
+          "pointCode": "KY02200883",
+          "name": "后门反馈-1开门",
+          "desc": "后门反馈-1开门 R 干接点输入",
+          "category": "status",
+          "address": 11,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 143,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 998,
+          "legacyIndex": 998,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 7,
+          "hardwareChannel": "DI12",
+          "pointCode": "KY02200884",
+          "name": "并网断路器-1合位",
+          "desc": "并网断路器-1合位 R 干接点输入",
+          "category": "status",
+          "address": 12,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 128,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        },
+        {
+          "index": 999,
+          "legacyIndex": 999,
+          "legacyRwType": "R",
+          "legacyDidoRole": "dry_contact_input",
+          "legacyDidoChannel": 8,
+          "hardwareChannel": "DI13",
+          "pointCode": "di_8",
+          "name": "DI8",
+          "desc": "DI8 R 干接点输入",
+          "category": "status",
+          "address": 13,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "dry_contact",
+            "legacy_r"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "digital_input",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 2,
+            "gpio": 139,
+            "activeHigh": false,
+            "debounceMs": 10,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "断开",
+            "1": "闭合"
+          }
+        }
+      ]
+    }
+  ],
+  "northboundServer": {
+    "enabled": false,
+    "mode": "mapped",
+    "protocol": "modbus_tcp",
+    "bindHost": "0.0.0.0",
+    "port": 1502,
+    "requestTimeoutMs": 1000,
+    "maxClients": 8,
+    "writesEnabled": false,
+    "maxReadRegisters": 125,
+    "maxReadBits": 2000,
+    "allowedClientCidrs": []
+  }
+}

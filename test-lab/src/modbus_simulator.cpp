@@ -43,6 +43,14 @@ namespace gateway_test_lab {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+constexpr int kTraceRegisterAddress = 65000;
+constexpr int kTracePeriodMs = 100;
+
+std::int64_t wallClockMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
 
 std::string trim(std::string value) {
     const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
@@ -304,7 +312,7 @@ void StateFile::save(const std::string& path, const ControlState& state) {
 class ModbusTcpSimulator::Impl {
 public:
     explicit Impl(SimulatorOptions options)
-        : options_(std::move(options)), startedAt_(Clock::now()) {}
+        : options_(std::move(options)), startedAt_(Clock::now()), startedAtWallMs_(wallClockMs()) {}
 
     ~Impl() {
         stop();
@@ -401,6 +409,17 @@ public:
         result.injectedFaults = injectedFaults_.load();
         result.protocolErrors = protocolErrors_.load();
         return result;
+    }
+
+    TraceEvidence traceEvidence() const {
+        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - startedAt_
+        ).count();
+        TraceEvidence evidence;
+        evidence.epochMs = startedAtWallMs_;
+        evidence.periodMs = kTracePeriodMs;
+        evidence.sequence = static_cast<std::uint16_t>((elapsedMs / kTracePeriodMs) & 0xFFFF);
+        return evidence;
     }
 
 private:
@@ -692,6 +711,9 @@ private:
         const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             Clock::now() - startedAt_
         ).count();
+        if ((area == "holding" || area == "input") && address == kTraceRegisterAddress) {
+            return static_cast<std::uint16_t>((elapsedMs / kTracePeriodMs) & 0xFFFF);
+        }
         if (area == "coil" || area == "discrete") {
             return static_cast<std::uint16_t>(((elapsedMs / 1000) + slave + address) % 2);
         }
@@ -761,6 +783,7 @@ private:
 
     SimulatorOptions options_;
     Clock::time_point startedAt_;
+    std::int64_t startedAtWallMs_ = 0;
     std::atomic<bool> running_{false};
     SocketHandle listener_ = kInvalidSocket;
     std::uint16_t actualPort_ = 0;
@@ -795,5 +818,7 @@ void ModbusTcpSimulator::stop() { impl_->stop(); }
 bool ModbusTcpSimulator::running() const { return impl_->running(); }
 std::uint16_t ModbusTcpSimulator::port() const { return impl_->port(); }
 SimulatorStats ModbusTcpSimulator::stats() const { return impl_->stats(); }
+
+TraceEvidence ModbusTcpSimulator::traceEvidence() const { return impl_->traceEvidence(); }
 
 }  // namespace gateway_test_lab

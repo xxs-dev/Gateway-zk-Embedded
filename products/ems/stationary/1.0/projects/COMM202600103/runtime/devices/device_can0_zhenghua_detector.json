@@ -1,0 +1,1711 @@
+﻿{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "machineCode": "COMM202600103",
+  "protocol": {
+    "type": "can_socketcan",
+    "can": {
+      "interfaceName": "can0",
+      "interfaceCode": "CAN_1",
+      "bitrate": 100000,
+      "samplePoint": 0.875,
+      "restartMs": 100,
+      "listenOnly": false,
+      "loopback": false,
+      "fdEnabled": false,
+      "dataBitrate": 2000000,
+      "manageInterface": true,
+      "rxQueueSize": 4096,
+      "txQueueSize": 1024
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 100,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1,
+    "maxRequestRegisters": 1,
+    "writebackIntervalMs": 500,
+    "interfaceCheckIntervalMs": 1000
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_can0_zhenghua",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_can0_zhenghua.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 128
+  },
+  "meters": [
+    {
+      "meterCode": "CAN0_ZH_DET_043",
+      "deviceName": "CAN0 正华复合探测器 43",
+      "address": "43",
+      "enabled": true,
+      "onlineTimeoutMs": 30000,
+      "onlineFrameIds": [
+        "0x00002B04",
+        "0x00002B06"
+      ],
+      "points": [
+        {
+          "index": 310000,
+          "pointCode": "can0_zh_addr043_device_online",
+          "name": "CAN0 正华复合探测器43 在线",
+          "desc": "CAN0 正华复合探测器43 在线",
+          "category": "online",
+          "address": 43,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 0,
+            "dataType": "device_online",
+            "unit": "",
+            "intervalMs": 1000,
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {
+            "0": "离线",
+            "1": "在线"
+          }
+        },
+        {
+          "index": 310001,
+          "pointCode": "can0_zh_addr043_device_type_raw",
+          "name": "CAN0 探测器43 设备类型原始值",
+          "desc": "CAN0 探测器43 设备类型原始值",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 0,
+              "bitOffset": 0,
+              "bitLength": 16,
+              "bitOrder": "lsb0",
+              "endian": "big",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310002,
+          "pointCode": "can0_zh_addr043_device_type_high",
+          "name": "CAN0 探测器43 设备类型高字节",
+          "desc": "CAN0 探测器43 设备类型高字节",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint8",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 0,
+              "bitOffset": 0,
+              "bitLength": 8,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310003,
+          "pointCode": "can0_zh_addr043_device_type_low",
+          "name": "CAN0 探测器43 设备类型低字节",
+          "desc": "CAN0 探测器43 设备类型低字节",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint8",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 1,
+              "bitOffset": 0,
+              "bitLength": 8,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310010,
+          "pointCode": "can0_zh_addr043_status_d2_raw",
+          "name": "CAN0 探测器43 状态D2原始值",
+          "desc": "CAN0 探测器43 状态D2原始值",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint8",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 2,
+              "bitOffset": 0,
+              "bitLength": 8,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310011,
+          "pointCode": "can0_zh_addr043_valve_open",
+          "name": "CAN0 探测器43 阀开启",
+          "desc": "CAN0 探测器43 阀开启",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 2,
+              "bitOffset": 0,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310012,
+          "pointCode": "can0_zh_addr043_alarm",
+          "name": "CAN0 探测器43 综合报警",
+          "desc": "CAN0 探测器43 综合报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 2,
+              "bitOffset": 1,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310013,
+          "pointCode": "can0_zh_addr043_fault",
+          "name": "CAN0 探测器43 综合故障",
+          "desc": "CAN0 探测器43 综合故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 2,
+              "bitOffset": 2,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310020,
+          "pointCode": "can0_zh_addr043_temperature_alarm",
+          "name": "CAN0 探测器43 温度报警",
+          "desc": "CAN0 探测器43 温度报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 0,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310021,
+          "pointCode": "can0_zh_addr043_smoke_alarm",
+          "name": "CAN0 探测器43 烟雾报警",
+          "desc": "CAN0 探测器43 烟雾报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 1,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310022,
+          "pointCode": "can0_zh_addr043_co_alarm",
+          "name": "CAN0 探测器43 CO报警",
+          "desc": "CAN0 探测器43 CO报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 2,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310023,
+          "pointCode": "can0_zh_addr043_h2_alarm",
+          "name": "CAN0 探测器43 H2报警",
+          "desc": "CAN0 探测器43 H2报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 3,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310024,
+          "pointCode": "can0_zh_addr043_voc_alarm",
+          "name": "CAN0 探测器43 VOC报警",
+          "desc": "CAN0 探测器43 VOC报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 4,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310025,
+          "pointCode": "can0_zh_addr043_level1_alarm",
+          "name": "CAN0 探测器43 一级预警",
+          "desc": "CAN0 探测器43 一级预警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 5,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310026,
+          "pointCode": "can0_zh_addr043_level2_alarm",
+          "name": "CAN0 探测器43 二级报警",
+          "desc": "CAN0 探测器43 二级报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 6,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310027,
+          "pointCode": "can0_zh_addr043_level3_alarm",
+          "name": "CAN0 探测器43 三级报警",
+          "desc": "CAN0 探测器43 三级报警",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 3,
+              "bitOffset": 7,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310030,
+          "pointCode": "can0_zh_addr043_temperature_fault",
+          "name": "CAN0 探测器43 温度故障",
+          "desc": "CAN0 探测器43 温度故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 0,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310031,
+          "pointCode": "can0_zh_addr043_smoke_fault",
+          "name": "CAN0 探测器43 烟雾故障",
+          "desc": "CAN0 探测器43 烟雾故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 1,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310032,
+          "pointCode": "can0_zh_addr043_co_fault",
+          "name": "CAN0 探测器43 CO故障",
+          "desc": "CAN0 探测器43 CO故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 2,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310033,
+          "pointCode": "can0_zh_addr043_h2_fault",
+          "name": "CAN0 探测器43 H2故障",
+          "desc": "CAN0 探测器43 H2故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 3,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310034,
+          "pointCode": "can0_zh_addr043_voc_fault",
+          "name": "CAN0 探测器43 VOC故障",
+          "desc": "CAN0 探测器43 VOC故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 4,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310035,
+          "pointCode": "can0_zh_addr043_valve_fault",
+          "name": "CAN0 探测器43 阀故障",
+          "desc": "CAN0 探测器43 阀故障",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 5,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310040,
+          "pointCode": "can0_zh_addr043_temperature_shield",
+          "name": "CAN0 探测器43 温度屏蔽",
+          "desc": "CAN0 探测器43 温度屏蔽",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 5,
+              "bitOffset": 0,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310041,
+          "pointCode": "can0_zh_addr043_smoke_shield",
+          "name": "CAN0 探测器43 烟雾屏蔽",
+          "desc": "CAN0 探测器43 烟雾屏蔽",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 5,
+              "bitOffset": 1,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310042,
+          "pointCode": "can0_zh_addr043_co_shield",
+          "name": "CAN0 探测器43 CO屏蔽",
+          "desc": "CAN0 探测器43 CO屏蔽",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 5,
+              "bitOffset": 2,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310043,
+          "pointCode": "can0_zh_addr043_h2_shield",
+          "name": "CAN0 探测器43 H2屏蔽",
+          "desc": "CAN0 探测器43 H2屏蔽",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 5,
+              "bitOffset": 3,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310044,
+          "pointCode": "can0_zh_addr043_voc_shield",
+          "name": "CAN0 探测器43 VOC屏蔽",
+          "desc": "CAN0 探测器43 VOC屏蔽",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 5,
+              "bitOffset": 4,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310045,
+          "pointCode": "can0_zh_addr043_auto_valve",
+          "name": "CAN0 探测器43 自动开阀",
+          "desc": "CAN0 探测器43 自动开阀",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 5,
+              "bitOffset": 5,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310050,
+          "pointCode": "can0_zh_addr043_fb1_valid",
+          "name": "CAN0 探测器43 反馈FB1有效",
+          "desc": "CAN0 探测器43 反馈FB1有效",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 6,
+              "bitOffset": 0,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310051,
+          "pointCode": "can0_zh_addr043_fb2_valid",
+          "name": "CAN0 探测器43 反馈FB2有效",
+          "desc": "CAN0 探测器43 反馈FB2有效",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "bool",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B04",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 6,
+              "bitOffset": 1,
+              "bitLength": 1,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310101,
+          "pointCode": "can0_zh_addr043_temperature_c",
+          "name": "CAN0 探测器43 温度",
+          "desc": "CAN0 探测器43 温度",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint8",
+            "scale": 1,
+            "offset": -55,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "C",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B06",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 0,
+              "bitOffset": 0,
+              "bitLength": 8,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310102,
+          "pointCode": "can0_zh_addr043_smoke_pct",
+          "name": "CAN0 探测器43 烟雾减光率",
+          "desc": "CAN0 探测器43 烟雾减光率",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint8",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "%",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B06",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 1,
+              "bitOffset": 0,
+              "bitLength": 8,
+              "bitOrder": "lsb0",
+              "endian": "little",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310103,
+          "pointCode": "can0_zh_addr043_co_ppm",
+          "name": "CAN0 探测器43 CO浓度",
+          "desc": "CAN0 探测器43 CO浓度",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "ppm",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B06",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 2,
+              "bitOffset": 0,
+              "bitLength": 16,
+              "bitOrder": "lsb0",
+              "endian": "big",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310104,
+          "pointCode": "can0_zh_addr043_h2_ppm",
+          "name": "CAN0 探测器43 H2浓度",
+          "desc": "CAN0 探测器43 H2浓度",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "ppm",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B06",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 4,
+              "bitOffset": 0,
+              "bitLength": 16,
+              "bitOrder": "lsb0",
+              "endian": "big",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        },
+        {
+          "index": 310105,
+          "pointCode": "can0_zh_addr043_voc_ppm",
+          "name": "CAN0 探测器43 VOC浓度",
+          "desc": "CAN0 探测器43 VOC浓度",
+          "category": "telemetry",
+          "address": 0,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "ppm",
+            "intervalMs": 1000,
+            "can": {
+              "frameId": "0x00002B06",
+              "extended": true,
+              "dlc": 8,
+              "byteOffset": 6,
+              "bitOffset": 0,
+              "bitLength": 16,
+              "bitOrder": "lsb0",
+              "endian": "big",
+              "receiveTimeoutMs": 30000
+            },
+            "cachePolicy": {
+              "storeLatest": true,
+              "storeHistory": true,
+              "historySize": 100,
+              "ttlMs": 600000
+            }
+          },
+          "write": {
+            "enable": false
+          },
+          "alarms": [],
+          "valueMap": {}
+        }
+      ]
+    }
+  ],
+  "northboundServer": {
+    "enabled": false,
+    "mode": "mapped",
+    "protocol": "modbus_tcp",
+    "bindHost": "0.0.0.0",
+    "port": 1502,
+    "requestTimeoutMs": 1000,
+    "maxClients": 8,
+    "writesEnabled": false,
+    "maxReadRegisters": 125,
+    "maxReadBits": 2000,
+    "allowedClientCidrs": []
+  }
+}

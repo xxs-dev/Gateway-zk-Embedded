@@ -98,6 +98,14 @@ private:
     std::size_t ruleCursor_ = 0;
     std::deque<double> cycleDurationsMs_;
     std::deque<bool> cycleFailures_;
+    std::deque<bool> cycleDeadlineMisses_;
+    std::deque<bool> cycleExecutionFailures_;
+    std::uint64_t totalCycles_ = 0;
+    std::uint64_t deadlineMissCycles_ = 0;
+    std::uint64_t failedCycles_ = 0;
+    std::uint64_t evaluatedRulesTotal_ = 0;
+    std::uint64_t outputsWrittenTotal_ = 0;
+    std::int64_t healthStartedAtMs_ = 0;
     std::int64_t lastHealthPublishMs_ = 0;
 };
 

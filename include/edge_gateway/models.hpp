@@ -88,6 +88,7 @@ struct WriteSpec {
     std::string byteOrder = "AB";
     Optional<double> minValue;
     Optional<double> maxValue;
+    Optional<double> startupValue;
     double step = 0.0;
     std::vector<double> allowedValues;
     bool verifyAfterWrite = false;
@@ -161,6 +162,8 @@ struct PointDefinition {
     bool reportOnChange = false;
     int persistIntervalSec = 60;
     int collectPriority = 0;
+    Optional<double> initialValue;
+    bool retain = false;
     std::vector<std::string> tags;
     ReadSpec read;
     WriteSpec write;
@@ -622,6 +625,12 @@ struct MqttTlsConfig {
     bool insecureSkipVerify = false;
 };
 
+struct LegacyTelemetryPointMapping {
+    std::uint32_t index = 0;
+    std::string meterCode;
+    std::string pointCode;
+};
+
 struct MqttConfig {
     bool enabled = false;
     std::string protocolVersion = "mqtt3";
@@ -633,6 +642,14 @@ struct MqttConfig {
     std::string telemetryTopic = "edge/telemetry";
     std::string realtimeTelemetryTopic = "edge/telemetry/realtime";
     std::string fullTelemetryTopic = "edge/telemetry/full";
+    // Optional legacy publisher. It is deliberately separate from the new
+    // telemetry topic so old consumers keep their payload and route.
+    bool legacyTelemetryEnabled = false;
+    std::string legacyTelemetryTopic;
+    std::string legacyTopicMachineCode;
+    int legacyTelemetryIntervalMs = 10000;
+    bool legacyTelemetryMappedOnly = false;
+    std::vector<LegacyTelemetryPointMapping> legacyTelemetryPointMappings;
     std::string realtimeRequestTopic = "edge/telemetry/realtime/request";
     std::string changeEventTopic = "edge/event/change";
     std::string alarmTopic = "edge/alarm";
@@ -717,6 +734,9 @@ struct MqttDriverConfig {
     int commandRateMaxPerWindow = 20;
     int commandDedupTtlMs = 60000;
     int controlResultWaitTimeoutMs = 5000;
+    std::string healthFile;
+    int healthPublishIntervalMs = 1000;
+    std::size_t healthWindowCycles = 300;
 };
 
 struct AlarmStoreConfig {
@@ -907,6 +927,9 @@ struct AgcAvcPcsConfig {
     std::string meterCode;
     bool enabled = true;
     std::string deviceType = "storagePcs";
+    // auto: storage PCS uses the battery tier; grid-tied inverter and other
+    // explicitly non-storage resources use the primary tier.
+    std::string activeResourceTier = "auto";
     double weight = 1.0;
     std::string capacityScope = "deviceTotal";
     AgcAvcCapabilityValueConfig ratedActivePowerKw;
@@ -953,6 +976,9 @@ struct AgcAvcOutputConfig {
     AgcAvcPointRefConfig availableReactivePower;
     AgcAvcPointRefConfig unservedActivePower;
     AgcAvcPointRefConfig unservedReactivePower;
+    AgcAvcPointRefConfig primaryActivePower;
+    AgcAvcPointRefConfig batteryActivePower;
+    AgcAvcPointRefConfig limitationFlags;
     AgcAvcPointRefConfig lastCommandStatus;
     AgcAvcPointRefConfig lastWriteStatus;
     AgcAvcPointRefConfig consecutiveWriteFailures;
@@ -972,6 +998,7 @@ struct AgcAvcConfig {
     std::string signConvention = "positiveDischarge";
     std::string reactiveSignConvention = "positiveInductive";
     std::string pqPriority = "activePowerFirst";
+    std::string activeResourcePriority = "nonBatteryFirst";
     std::vector<std::string> sharedMemoryNames;
     std::string outputSharedMemoryName = "gateway_point_store_agc_avc";
     std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";

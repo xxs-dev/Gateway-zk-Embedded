@@ -542,6 +542,10 @@ public:
         return result;
     }
 
+    TraceEvidence traceEvidence() const {
+        return modbusTcp_ ? modbusTcp_->traceEvidence() : TraceEvidence{};
+    }
+
 private:
     void run() {
         std::vector<std::uint8_t> buffer;
@@ -714,5 +718,7 @@ void SerialProtocolSimulator::stop() { impl_->stop(); }
 bool SerialProtocolSimulator::running() const { return impl_->running(); }
 std::string SerialProtocolSimulator::peerDevice() const { return impl_->peerDevice(); }
 SerialSimulatorStats SerialProtocolSimulator::stats() const { return impl_->stats(); }
+
+TraceEvidence SerialProtocolSimulator::traceEvidence() const { return impl_->traceEvidence(); }
 
 }  // namespace gateway_test_lab

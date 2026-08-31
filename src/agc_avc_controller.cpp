@@ -1,6 +1,8 @@
 #include "edge_gateway/agc_avc_controller.hpp"
+#include "edge_gateway/grid_friendly_dispatch.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -47,87 +49,26 @@ double effectiveCapability(const AgcAvcCapabilityValueConfig& config, double col
     return std::min(commissioned, collected);
 }
 
-std::vector<double> allocateByCapacity(
-    double total,
-    const std::vector<double>& capacities,
-    const std::vector<double>& weights
-) {
-    std::vector<double> result(capacities.size(), 0.0);
-    double remaining = std::abs(total);
-    if (remaining <= 1e-9 || capacities.empty()) {
-        return result;
-    }
-
-    std::vector<bool> active(capacities.size(), false);
-    for (std::size_t i = 0; i < capacities.size(); ++i) {
-        active[i] = capacities[i] > 1e-9 && weights[i] > 0.0;
-    }
-
-    for (std::size_t pass = 0; pass < capacities.size() + 1 && remaining > 1e-9; ++pass) {
-        double weightSum = 0.0;
-        for (std::size_t i = 0; i < active.size(); ++i) {
-            if (active[i]) {
-                weightSum += weights[i];
-            }
-        }
-        if (weightSum <= 1e-12) {
-            break;
-        }
-
-        double distributed = 0.0;
-        const double roundRemaining = remaining;
-        for (std::size_t i = 0; i < active.size(); ++i) {
-            if (!active[i]) {
-                continue;
-            }
-            const double room = std::max(0.0, capacities[i] - result[i]);
-            const double share = roundRemaining * weights[i] / weightSum;
-            const double applied = std::min(room, share);
-            result[i] += applied;
-            distributed += applied;
-            if (room - applied <= 1e-9) {
-                active[i] = false;
-            }
-        }
-        if (distributed <= 1e-9) {
-            break;
-        }
-        remaining -= distributed;
-    }
-
-    if (total < 0.0) {
-        for (auto& value : result) {
-            value = -value;
-        }
-    }
-    return result;
+std::string normalizedResourceToken(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char ch) {
+        return ch == '_' || ch == '-' || std::isspace(ch) != 0;
+    }), value.end());
+    return value;
 }
 
-std::vector<double> allocateWithMinimum(
-    double total,
-    const std::vector<double>& capacities,
-    const std::vector<double>& minimums,
-    const std::vector<double>& weights
-) {
-    auto effectiveCapacities = capacities;
-    for (std::size_t pass = 0; pass <= capacities.size(); ++pass) {
-        auto result = allocateByCapacity(total, effectiveCapacities, weights);
-        std::size_t belowMinimum = result.size();
-        double smallestAllocation = std::numeric_limits<double>::infinity();
-        for (std::size_t i = 0; i < result.size(); ++i) {
-            const double magnitude = std::abs(result[i]);
-            const double minimum = i < minimums.size() ? std::max(0.0, minimums[i]) : 0.0;
-            if (magnitude > 1e-9 && magnitude + 1e-9 < minimum && magnitude < smallestAllocation) {
-                belowMinimum = i;
-                smallestAllocation = magnitude;
-            }
-        }
-        if (belowMinimum == result.size()) {
-            return result;
-        }
-        effectiveCapacities[belowMinimum] = 0.0;
+bool isBatteryResource(const AgcAvcPcsConfig& config) {
+    const auto configured = normalizedResourceToken(config.activeResourceTier);
+    if (configured == "battery") {
+        return true;
     }
-    return std::vector<double>(capacities.size(), 0.0);
+    if (configured == "primary" || configured == "nonbattery") {
+        return false;
+    }
+    const auto deviceType = normalizedResourceToken(config.deviceType);
+    return deviceType == "storagepcs" || deviceType == "batterypcs" || deviceType == "battery";
 }
 
 double risingDerateFactor(double value, double stop, double full) {
@@ -413,6 +354,7 @@ AgcAvcCycleOutput AgcAvcController::step(const AgcAvcCycleInput& input) {
     std::vector<double> qCapacity;
     std::vector<double> weights;
     std::vector<double> ratedApparent;
+    std::vector<GridFriendlyResourceTier> activeResourceTiers;
     output.pcs.reserve(config_.pcs.size());
     for (std::size_t i = 0; i < config_.pcs.size(); ++i) {
         const auto& pcsConfig = config_.pcs[i];
@@ -439,6 +381,9 @@ AgcAvcCycleOutput AgcAvcController::step(const AgcAvcCycleInput& input) {
             qCapacity.push_back(0.0);
             weights.push_back(0.0);
             ratedApparent.push_back(0.0);
+            activeResourceTiers.push_back(isBatteryResource(pcsConfig)
+                ? GridFriendlyResourceTier::Battery
+                : GridFriendlyResourceTier::Primary);
             output.pcs.push_back(std::move(assignment));
             continue;
         }
@@ -511,18 +456,63 @@ AgcAvcCycleOutput AgcAvcController::step(const AgcAvcCycleInput& input) {
         qCapacity.push_back(std::min(reactive, ratedS));
         weights.push_back(std::max(0.0, pcsConfig.weight) * std::max(selectedP, 1.0));
         ratedApparent.push_back(ratedS);
+        activeResourceTiers.push_back(isBatteryResource(pcsConfig)
+            ? GridFriendlyResourceTier::Battery
+            : GridFriendlyResourceTier::Primary);
         output.availableActivePowerKw += selectedP;
         output.availableReactivePowerKvar += std::min(reactive, ratedS);
         output.pcs.push_back(std::move(assignment));
     }
 
-    const auto pAllocated = allocateWithMinimum(requestedP, pCapacity, pMinimum, weights);
-    std::vector<double> qAfterP(qCapacity.size(), 0.0);
-    for (std::size_t i = 0; i < qAfterP.size(); ++i) {
-        const double ratedS = ratedApparent[i];
-        qAfterP[i] = std::min(qCapacity[i], std::sqrt(std::max(0.0, ratedS * ratedS - pAllocated[i] * pAllocated[i])));
+    const auto dispatchActive = [&](const std::vector<double>& capacities) {
+        TieredPowerDispatchInput dispatch;
+        dispatch.requestedPowerKw = requestedP;
+        dispatch.resources.reserve(capacities.size());
+        for (std::size_t i = 0; i < capacities.size(); ++i) {
+            TieredPowerResource resource;
+            resource.tier = activeResourceTiers[i];
+            if (normalizedResourceToken(config_.activeResourcePriority) == "capacityweighted") {
+                resource.tier = GridFriendlyResourceTier::Primary;
+            }
+            if (requestedP >= 0.0) {
+                resource.maxDischargeKw = capacities[i];
+                resource.minimumStableDischargeKw = pMinimum[i];
+            } else {
+                resource.maxChargeKw = capacities[i];
+                resource.minimumStableChargeKw = pMinimum[i];
+            }
+            resource.weight = weights[i];
+            dispatch.resources.push_back(resource);
+        }
+        return dispatchTieredPower(dispatch);
+    };
+
+    TieredPowerDispatchOutput pDispatch;
+    std::vector<double> qAllocated;
+    if (normalizedResourceToken(config_.pqPriority) == "reactivepowerfirst") {
+        qAllocated = allocatePowerByCapacity(requestedQ, qCapacity, weights);
+        std::vector<double> pAfterQ(pCapacity.size(), 0.0);
+        for (std::size_t i = 0; i < pAfterQ.size(); ++i) {
+            const double apparentRemaining = std::sqrt(std::max(
+                0.0,
+                ratedApparent[i] * ratedApparent[i] - qAllocated[i] * qAllocated[i]
+            ));
+            pAfterQ[i] = std::min(pCapacity[i], apparentRemaining);
+        }
+        pDispatch = dispatchActive(pAfterQ);
+    } else {
+        pDispatch = dispatchActive(pCapacity);
+        std::vector<double> qAfterP(qCapacity.size(), 0.0);
+        for (std::size_t i = 0; i < qAfterP.size(); ++i) {
+            const double ratedS = ratedApparent[i];
+            qAfterP[i] = std::min(qCapacity[i], std::sqrt(std::max(
+                0.0,
+                ratedS * ratedS - pDispatch.assignmentsKw[i] * pDispatch.assignmentsKw[i]
+            )));
+        }
+        qAllocated = allocatePowerByCapacity(requestedQ, qAfterP, weights);
     }
-    const auto qAllocated = allocateByCapacity(requestedQ, qAfterP, weights);
+    const auto& pAllocated = pDispatch.assignmentsKw;
 
     double deliveredP = 0.0;
     double deliveredQ = 0.0;
@@ -554,11 +544,28 @@ AgcAvcCycleOutput AgcAvcController::step(const AgcAvcCycleInput& input) {
         previousPcsQkvar_[i] = targetQ;
         deliveredP += targetP;
         deliveredQ += targetQ;
+        if (activeResourceTiers[i] == GridFriendlyResourceTier::Battery) {
+            output.batteryActivePowerKw += targetP;
+        } else {
+            output.primaryActivePowerKw += targetP;
+        }
     }
     output.effectiveTargetPkw = deliveredP;
     output.effectiveTargetQkvar = deliveredQ;
     output.unservedActivePowerKw = requestedP - deliveredP;
     output.unservedReactivePowerKvar = requestedQ - deliveredQ;
+    if (pDispatch.primaryCapacityExhausted && std::abs(requestedP) > 1e-6) {
+        output.limitationFlags |= 1;
+    }
+    if (std::abs(output.batteryActivePowerKw) > 1e-6) {
+        output.limitationFlags |= 2;
+    }
+    if (std::abs(output.unservedActivePowerKw) > std::max(0.1, config_.agc.deadbandKw)) {
+        output.limitationFlags |= 4;
+    }
+    if (std::abs(output.unservedReactivePowerKvar) > std::max(0.1, config_.avc.deadbandKvar)) {
+        output.limitationFlags |= 8;
+    }
     const bool degraded = std::abs(output.unservedActivePowerKw) > std::max(0.1, config_.agc.deadbandKw) ||
         std::abs(output.unservedReactivePowerKvar) > std::max(0.1, config_.avc.deadbandKvar);
     output.state = degraded ? AgcAvcRuntimeState::Degraded : AgcAvcRuntimeState::Active;

@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -78,9 +79,10 @@ public:
     }
 
     void publishJsonMessage(
-        const std::string&,
+        const std::string& topic,
         const std::string& payload
     ) override {
+        jsonTopics.push_back(topic);
         statusPayloads.push_back(payload);
     }
 
@@ -95,6 +97,7 @@ public:
     std::vector<std::size_t> fullSnapshotCounts;
     std::vector<std::size_t> onDemandCounts;
     std::vector<std::string> statusPayloads;
+    std::vector<std::string> jsonTopics;
     std::vector<int> pollTimeouts;
     int commandReplyCount = 0;
     std::vector<MqttCommandReply> commandReplies;
@@ -124,7 +127,12 @@ PointDefinition makePoint(std::uint32_t index, const std::string& pointCode) {
     return point;
 }
 
-ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, bool firstPointWritable = false) {
+ServiceFixture makeFixture(
+    const std::string& suffix,
+    int fullUploadIntervalMs,
+    bool firstPointWritable = false,
+    const std::string& healthFile = std::string()
+) {
     ServiceFixture fixture;
     fixture.shmName = "mqtt_driver_service_test_" + suffix;
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -172,6 +180,9 @@ ServiceFixture makeFixture(const std::string& suffix, int fullUploadIntervalMs, 
     fixture.driverConfig.publishFullOnStart = false;
     fixture.driverConfig.publishAllOnFull = false;
     fixture.driverConfig.fullUploadIndexes = {1001, 1002};
+    fixture.driverConfig.healthFile = healthFile;
+    fixture.driverConfig.healthPublishIntervalMs = 100;
+    fixture.driverConfig.healthWindowCycles = 20;
 
     fixture.publisher.reset(new CapturingMqttDriverPublisher());
     fixture.service.reset(new MqttDriverService(
@@ -211,6 +222,9 @@ std::string readFile(const std::string& path) {
 
 void cleanupFixture(ServiceFixture& fixture) {
     std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
+    if (!fixture.driverConfig.healthFile.empty()) {
+        std::remove(fixture.driverConfig.healthFile.c_str());
+    }
     fixture.service.reset();
     fixture.store.reset();
     MemoryPointStore::cleanupOrphanedSegment(fixture.shmName);
@@ -307,6 +321,151 @@ void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
     require(pending.size() == 1, "normal command should enqueue pending write");
     require(pending.front().cmdId == "CMD_NORMAL", "normal pending write cmdId mismatch");
     require(!pending.front().highPriority, "normal pending write should not be high priority");
+    cleanupFixture(fixture);
+}
+
+void testLegacyTelemetryUsesOldTopicAndPayloadShape() {
+    auto fixture = makeFixture("legacy_topic", 1000);
+    fixture.mqttConfig.legacyTelemetryEnabled = true;
+    fixture.mqttConfig.legacyTelemetryTopic = "ky/peidian/GW_LEGACY";
+    fixture.mqttConfig.legacyTopicMachineCode = "GW_LEGACY";
+    fixture.mqttConfig.legacyTelemetryIntervalMs = 1000;
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.service->runScanOnce(1770000000000LL);
+    fixture.service->runScanOnce(1770000001000LL);
+    auto legacyIt = std::find(
+        fixture.publisher->jsonTopics.begin(),
+        fixture.publisher->jsonTopics.end(),
+        fixture.mqttConfig.legacyTelemetryTopic
+    );
+    require(legacyIt != fixture.publisher->jsonTopics.end(), "legacy telemetry topic was not published");
+    const auto payloadIndex = static_cast<std::size_t>(legacyIt - fixture.publisher->jsonTopics.begin());
+    const auto& payload = fixture.publisher->statusPayloads.at(payloadIndex);
+    require(payload.find(R"({"data":[{"meterid":"METER_1","metrics":[)") == 0,
+        "legacy telemetry payload header mismatch");
+    require(payload.find(R"("metrics":[{"P_1":"12.3000","P_2":"45.6000"}])") !=
+            std::string::npos,
+        "legacy telemetry must place all meter points in one metrics object");
+    require(payload.find(R"("msgid":1770000001000)") != std::string::npos,
+        "legacy telemetry must include the publish time as msgid");
+    require(payload.find(R"("split":"false")") != std::string::npos,
+        "legacy telemetry must include the legacy split marker");
+    require(payload.find(R"("timestamp":1770000001000)") != std::string::npos,
+        "legacy telemetry must include the publish timestamp");
+    cleanupFixture(fixture);
+}
+
+void testLegacyTelemetryRestoresLogicalMeterMapping() {
+    auto fixture = makeFixture("legacy_mapping", 1000);
+    fixture.mqttConfig.legacyTelemetryEnabled = true;
+    fixture.mqttConfig.legacyTelemetryTopic = "ky/peidian/GW_LEGACY";
+    fixture.mqttConfig.legacyTopicMachineCode = "GW_LEGACY";
+    fixture.mqttConfig.legacyTelemetryIntervalMs = 1000;
+    LegacyTelemetryPointMapping mapping;
+    mapping.index = 1002;
+    mapping.meterCode = "LEGACY_METER_2";
+    mapping.pointCode = "LEGACY_POINT";
+    fixture.mqttConfig.legacyTelemetryPointMappings.push_back(mapping);
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.service->runScanOnce(1770000000000LL);
+    fixture.service->runScanOnce(1770000001000LL);
+    const auto legacyIt = std::find(
+        fixture.publisher->jsonTopics.begin(),
+        fixture.publisher->jsonTopics.end(),
+        fixture.mqttConfig.legacyTelemetryTopic
+    );
+    require(legacyIt != fixture.publisher->jsonTopics.end(), "mapped legacy telemetry was not published");
+    const auto payloadIndex = static_cast<std::size_t>(legacyIt - fixture.publisher->jsonTopics.begin());
+    const auto& payload = fixture.publisher->statusPayloads.at(payloadIndex);
+    require(payload.find(R"({"meterid":"METER_1","metrics":[{"P_1":"12.3000"}]})") !=
+            std::string::npos,
+        "unmapped legacy point must keep its original meter and point codes");
+    require(payload.find(
+            R"({"meterid":"LEGACY_METER_2","metrics":[{"LEGACY_POINT":"45.6000"}]})"
+        ) != std::string::npos,
+        "mapped legacy point must use the configured logical meter and point codes");
+    require(payload.find("P_2") == std::string::npos,
+        "mapped legacy point must not remain under its collapsed point code");
+    cleanupFixture(fixture);
+}
+
+void testLegacyTelemetryMappedOnlyFiltersUnmappedPoints() {
+    auto fixture = makeFixture("legacy_mapped_only", 1000);
+    fixture.mqttConfig.legacyTelemetryEnabled = true;
+    fixture.mqttConfig.legacyTelemetryTopic = "ky/peidian/GW_LEGACY";
+    fixture.mqttConfig.legacyTopicMachineCode = "GW_LEGACY";
+    fixture.mqttConfig.legacyTelemetryIntervalMs = 1000;
+    fixture.mqttConfig.legacyTelemetryMappedOnly = true;
+    LegacyTelemetryPointMapping mapping;
+    mapping.index = 1002;
+    mapping.meterCode = "LEGACY_METER_2";
+    mapping.pointCode = "LEGACY_POINT";
+    fixture.mqttConfig.legacyTelemetryPointMappings.push_back(mapping);
+    LegacyTelemetryPointMapping missingMapping;
+    missingMapping.index = 1003;
+    missingMapping.meterCode = "LEGACY_METER_2";
+    missingMapping.pointCode = "LEGACY_OFFLINE_POINT";
+    fixture.mqttConfig.legacyTelemetryPointMappings.push_back(missingMapping);
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.service->runScanOnce(1770000000000LL);
+    fixture.service->runScanOnce(1770000001000LL);
+    const auto legacyIt = std::find(
+        fixture.publisher->jsonTopics.begin(),
+        fixture.publisher->jsonTopics.end(),
+        fixture.mqttConfig.legacyTelemetryTopic
+    );
+    require(legacyIt != fixture.publisher->jsonTopics.end(), "mapped-only legacy telemetry was not published");
+    const auto payloadIndex = static_cast<std::size_t>(legacyIt - fixture.publisher->jsonTopics.begin());
+    const auto& payload = fixture.publisher->statusPayloads.at(payloadIndex);
+    require(payload.find("METER_1") == std::string::npos,
+        "mapped-only legacy telemetry must omit unmapped physical points");
+    require(payload.find(
+            R"({"meterid":"LEGACY_METER_2","metrics":[{"LEGACY_POINT":"45.6000","LEGACY_OFFLINE_POINT":"0.0000"}]})"
+        ) != std::string::npos,
+        "mapped-only legacy telemetry must keep mapped logical points and zero-fill offline mappings");
+    cleanupFixture(fixture);
+}
+
+void testHealthReportContainsDetailedMetrics() {
+    const std::string healthFile = "/tmp/mqtt_driver_service_health_test.json";
+    std::remove(healthFile.c_str());
+    auto fixture = makeFixture("health", 1000, false, healthFile);
+
+    fixture.service->runScanOnce(1770000100000LL);
+    fixture.service->runEventReplayOnce(1770000100050LL);
+    fixture.service->runScanOnce(1770000101000LL);
+
+    const auto payload = readFile(healthFile);
+    require(!payload.empty(), "mqtt health file must be written");
+    require(payload.find("\"scanP50Ms\"") != std::string::npos, "mqtt health missing scanP50Ms");
+    require(payload.find("\"scanP99Ms\"") != std::string::npos, "mqtt health missing scanP99Ms");
+    require(payload.find("\"totalScanCycles\":2") != std::string::npos,
+        "mqtt health must count scan cycles");
+    require(payload.find("\"totalReplayCycles\":1") != std::string::npos,
+        "mqtt health must count replay cycles");
+    require(payload.find("\"fullSnapshotsPublished\":1") != std::string::npos,
+        "mqtt health must count full snapshots");
     cleanupFixture(fixture);
 }
 
@@ -472,6 +631,9 @@ void testAgcAvcCommandMailboxCommitsLatestWithoutWriteback() {
 int main() {
     try {
         testFullUploadOnlyWithoutRealtimeSession();
+        testLegacyTelemetryUsesOldTopicAndPayloadShape();
+        testLegacyTelemetryRestoresLogicalMeterMapping();
+        testLegacyTelemetryMappedOnlyFiltersUnmappedPoints();
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
@@ -480,6 +642,7 @@ int main() {
         testHighPriorityCommandRequestCreatesPriorityControlLease();
         testCommandRequestRejectedDuringActivePriorityControl();
         testAgcAvcCommandMailboxCommitsLatestWithoutWriteback();
+        testHealthReportContainsDetailedMetrics();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

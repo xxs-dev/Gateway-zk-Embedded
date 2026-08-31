@@ -864,6 +864,11 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
             spec.maxValue = maxValue->asNumber();
         }
     }
+    if (const auto* startupValue = value->find("startupValue")) {
+        if (!startupValue->isNull()) {
+            spec.startupValue = startupValue->asNumber();
+        }
+    }
     spec.step = requireDouble(object, "step", spec.step);
     spec.allowedValues = parseDoubleArray(value->find("allowedValues"));
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
@@ -1039,6 +1044,12 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     point.reportOnChange = requireBool(object, "reportOnChange", point.reportOnChange);
     point.persistIntervalSec = requireInt(object, "persistIntervalSec", point.persistIntervalSec);
     point.collectPriority = std::max(0, requireInt(object, "collectPriority", point.collectPriority));
+    if (const auto* initialValue = value.find("initialValue")) {
+        if (!initialValue->isNull()) {
+            point.initialValue = initialValue->asNumber();
+        }
+    }
+    point.retain = requireBool(object, "retain", point.retain);
     point.tags = parseStringArray(value.find("tags"));
     point.read = parseReadSpec(value.find("read"));
     point.write = parseWriteSpec(value.find("write"));
@@ -1757,6 +1768,24 @@ NorthboundServerConfig parseNorthboundServerConfig(const JsonValue* value) {
     return config;
 }
 
+std::vector<LegacyTelemetryPointMapping> parseLegacyTelemetryPointMappings(const JsonValue* value) {
+    std::vector<LegacyTelemetryPointMapping> mappings;
+    if (value == nullptr || value->isNull()) {
+        return mappings;
+    }
+    for (const auto& item : value->asArray().values) {
+        const auto& object = item->asObject();
+        LegacyTelemetryPointMapping mapping;
+        mapping.index = static_cast<std::uint32_t>(requireSize(object, "index", 0));
+        mapping.meterCode = requireString(object, "meterCode", mapping.meterCode);
+        mapping.pointCode = requireString(object, "pointCode", mapping.pointCode);
+        if (mapping.index > 0 && !mapping.meterCode.empty() && !mapping.pointCode.empty()) {
+            mappings.push_back(std::move(mapping));
+        }
+    }
+    return mappings;
+}
+
 MqttConfig parseMqttConfig(const JsonValue* value) {
     MqttConfig config;
     if (value == nullptr || value->isNull()) {
@@ -1779,6 +1808,22 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
         object,
         "fullTelemetryTopic",
         topicWithSuffix(config.telemetryTopic, "full")
+    );
+    config.legacyTelemetryEnabled = requireBool(object, "legacyTelemetryEnabled", config.legacyTelemetryEnabled);
+    config.legacyTelemetryTopic = requireString(object, "legacyTelemetryTopic", config.legacyTelemetryTopic);
+    config.legacyTopicMachineCode = requireString(object, "legacyTopicMachineCode", config.legacyTopicMachineCode);
+    config.legacyTelemetryIntervalMs = boundedInt(
+        requireInt(object, "legacyTelemetryIntervalMs", config.legacyTelemetryIntervalMs),
+        1000,
+        24 * 60 * 60 * 1000
+    );
+    config.legacyTelemetryMappedOnly = requireBool(
+        object,
+        "legacyTelemetryMappedOnly",
+        config.legacyTelemetryMappedOnly
+    );
+    config.legacyTelemetryPointMappings = parseLegacyTelemetryPointMappings(
+        value->find("legacyTelemetryPointMappings")
     );
     config.realtimeRequestTopic = requireString(
         object,
@@ -2000,6 +2045,13 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         0,
         3600000
     );
+    config.healthFile = requireString(object, "healthFile", config.healthFile);
+    config.healthPublishIntervalMs = boundedInt(
+        requireInt(object, "healthPublishIntervalMs", config.healthPublishIntervalMs),
+        100,
+        60000
+    );
+    config.healthWindowCycles = requireSize(object, "healthWindowCycles", config.healthWindowCycles);
     config.controlResultWaitTimeoutMs = boundedInt(
         requireInt(object, "controlResultWaitTimeoutMs", config.controlResultWaitTimeoutMs),
         0,
@@ -2199,6 +2251,11 @@ AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
     config.signConvention = requireString(object, "signConvention", config.signConvention);
     config.reactiveSignConvention = requireString(object, "reactiveSignConvention", config.reactiveSignConvention);
     config.pqPriority = requireString(object, "pqPriority", config.pqPriority);
+    config.activeResourcePriority = requireString(
+        object,
+        "activeResourcePriority",
+        config.activeResourcePriority
+    );
     config.sharedMemoryNames = parseStringArray(value->find("sharedMemoryNames"));
     config.outputSharedMemoryName = requireString(object, "outputSharedMemoryName", config.outputSharedMemoryName);
     config.priorityControlLeaseFile = requireString(
@@ -2290,6 +2347,11 @@ AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
             pcs.meterCode = requireString(pcsObject, "meterCode", pcs.meterCode);
             pcs.enabled = requireBool(pcsObject, "enabled", pcs.enabled);
             pcs.deviceType = requireString(pcsObject, "deviceType", pcs.deviceType);
+            pcs.activeResourceTier = requireString(
+                pcsObject,
+                "activeResourceTier",
+                pcs.activeResourceTier
+            );
             pcs.weight = requireDouble(pcsObject, "weight", pcs.weight);
             pcs.capacityScope = requireString(pcsObject, "capacityScope", pcs.capacityScope);
             pcs.ratedActivePowerKw = parseAgcAvcCapabilityValue(item->find("ratedActivePowerKw"));
@@ -2354,6 +2416,9 @@ AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
         config.outputs.availableReactivePower = parseAgcAvcPointRef(outputs->find("availableReactivePower"), "sharedVirtual");
         config.outputs.unservedActivePower = parseAgcAvcPointRef(outputs->find("unservedActivePower"), "sharedVirtual");
         config.outputs.unservedReactivePower = parseAgcAvcPointRef(outputs->find("unservedReactivePower"), "sharedVirtual");
+        config.outputs.primaryActivePower = parseAgcAvcPointRef(outputs->find("primaryActivePower"), "sharedVirtual");
+        config.outputs.batteryActivePower = parseAgcAvcPointRef(outputs->find("batteryActivePower"), "sharedVirtual");
+        config.outputs.limitationFlags = parseAgcAvcPointRef(outputs->find("limitationFlags"), "sharedVirtual");
         config.outputs.lastCommandStatus = parseAgcAvcPointRef(outputs->find("lastCommandStatus"), "sharedVirtual");
         config.outputs.lastWriteStatus = parseAgcAvcPointRef(outputs->find("lastWriteStatus"), "sharedVirtual");
         config.outputs.consecutiveWriteFailures = parseAgcAvcPointRef(

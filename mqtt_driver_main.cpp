@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -93,6 +95,14 @@ std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(const 
 class StdoutMqttDriverPublisher : public edge_gateway::IMqttDriverPublisher {
 public:
     explicit StdoutMqttDriverPublisher(edge_gateway::MqttConfig config) : config_(std::move(config)) {
+        const auto* rawIndex = std::getenv("GATEWAY_MQTT_STDOUT_EVIDENCE_INDEX");
+        if (rawIndex != nullptr && *rawIndex != '\0') {
+            try {
+                evidenceIndex_ = static_cast<std::uint32_t>(std::stoul(rawIndex));
+            } catch (const std::exception&) {
+                throw std::invalid_argument("GATEWAY_MQTT_STDOUT_EVIDENCE_INDEX must be an integer");
+            }
+        }
     }
 
     void publishFullSnapshot(
@@ -103,8 +113,24 @@ public:
         std::cout << "mqtt full version=" << config_.protocolVersion
                   << " topic=" << scopedTopic(topic, config_.topicMachineCode)
                   << " format=" << valueFormat
-                  << " count=" << values.size()
-                  << std::endl;
+                  << " count=" << values.size();
+        if (evidenceIndex_ != 0) {
+            const auto evidence = std::find_if(values.begin(), values.end(), [this](const auto& value) {
+                return value.index == evidenceIndex_;
+            });
+            if (evidence != values.end()) {
+                const auto publishedAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()
+                ).count();
+                std::cout << " evidenceIndex=" << evidence->index
+                          << " evidenceValue=" << evidence->value
+                          << " evidencePointTs=" << evidence->ts
+                          << " publishedAt=" << publishedAt;
+            } else {
+                std::cout << " evidenceIndex=" << evidenceIndex_ << " evidenceMissing=1";
+            }
+        }
+        std::cout << std::endl;
     }
 
     void publishAlarm(
@@ -200,6 +226,7 @@ public:
 
 private:
     edge_gateway::MqttConfig config_;
+    std::uint32_t evidenceIndex_ = 0;
 };
 
 std::int64_t nowMs() {

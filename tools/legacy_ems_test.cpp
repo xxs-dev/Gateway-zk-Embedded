@@ -1172,7 +1172,14 @@ int main() {
         "negativeTotalLimitIndex": 700134,
         "stateIndex": 700135,
         "stateUpperIndex": 700136,
-        "stateLowerIndex": 700137
+        "stateLowerIndex": 700137,
+        "requestedActiveTotalOutputIndex": 700170,
+        "requestedReactiveTotalOutputIndex": 700171,
+        "deliveredActiveTotalOutputIndex": 700172,
+        "deliveredReactiveTotalOutputIndex": 700173,
+        "unservedActiveTotalOutputIndex": 700174,
+        "unservedReactiveTotalOutputIndex": 700175,
+        "limitationFlagsOutputIndex": 700176
       }
     }
   ],
@@ -1180,6 +1187,9 @@ int main() {
 })json"
         );
         for (std::uint32_t index = 700101; index <= 700146; ++index) {
+            addRouteIfMissing(genericRouter, index, "MODULAR_POWER_" + std::to_string(index), genericConfig.memoryStore.sharedMemoryName, false);
+        }
+        for (std::uint32_t index = 700170; index <= 700176; ++index) {
             addRouteIfMissing(genericRouter, index, "MODULAR_POWER_" + std::to_string(index), genericConfig.memoryStore.sharedMemoryName, false);
         }
         genericSeedEngine.set(700101, 10.0, 19000000);
@@ -1213,6 +1223,13 @@ int main() {
         requireNear(genericRouter.getLatestByIndex(700144, 19000000)->value, 2.0, 0.0001, "modular QA mismatch");
         requireNear(genericRouter.getLatestByIndex(700111, 19000000)->value, 1.0, 0.0001, "charge candidate run feedback mismatch");
         requireNear(genericRouter.getLatestByIndex(700112, 19000000)->value, 1.0, 0.0001, "balance candidate run feedback mismatch");
+        requireNear(genericRouter.getLatestByIndex(700170, 19000000)->value, 61.0, 0.0001, "requested active diagnostic mismatch");
+        requireNear(genericRouter.getLatestByIndex(700171, 19000000)->value, 9.0, 0.0001, "requested reactive diagnostic mismatch");
+        requireNear(genericRouter.getLatestByIndex(700172, 19000000)->value, 30.0, 0.0001, "delivered active diagnostic mismatch");
+        requireNear(genericRouter.getLatestByIndex(700173, 19000000)->value, 9.0, 0.0001, "delivered reactive diagnostic mismatch");
+        requireNear(genericRouter.getLatestByIndex(700174, 19000000)->value, 31.0, 0.0001, "unserved active diagnostic mismatch");
+        requireNear(genericRouter.getLatestByIndex(700175, 19000000)->value, 0.0, 0.0001, "unserved reactive diagnostic mismatch");
+        requireNear(genericRouter.getLatestByIndex(700176, 19000000)->value, 9.0, 0.0001, "constraint limitation flags mismatch");
         genericSeedEngine.set(700107, 0.0, 19001000);
         genericSeedEngine.set(700108, 0.0, 19001000);
         genericSeedEngine.set(700109, 0.0, 19001000);
@@ -1533,6 +1550,67 @@ int main() {
             -25.0,
             0.0001,
             "restarted rate limit rise mismatch"
+        );
+
+        writeTextFile(
+            "graph_ems_dynamic_rate_limit_test.json",
+            R"json({
+  "schemaVersion": "1.2.0",
+  "graphCode": "dynamic_rate_limit",
+  "nodes": [
+    {
+      "id": "dynamic_pcs_power_rate_limit",
+      "type": "rateLimit",
+      "params": {
+        "inputIndex": 799900,
+        "outputIndex": 799901,
+        "risePerSecondIndex": 799902,
+        "fallPerSecondIndex": 799903,
+        "minValue": -50,
+        "maxValue": 50,
+        "initialValue": 0
+      }
+    }
+  ],
+  "edges": []
+})json"
+        );
+        addRouteIfMissing(genericRouter, 799900, "DYNAMIC_RATE_INPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 799901, "DYNAMIC_RATE_OUTPUT", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 799902, "DYNAMIC_RISE_RATE", genericConfig.memoryStore.sharedMemoryName, false);
+        addRouteIfMissing(genericRouter, 799903, "DYNAMIC_FALL_RATE", genericConfig.memoryStore.sharedMemoryName, false);
+        genericSeedEngine.set(799900, 30.0, 608000);
+        genericSeedEngine.set(799902, 4.0, 608000);
+        genericSeedEngine.set(799903, 8.0, 608000);
+        edge_gateway::GraphEmsEngine dynamicRateLimitEngine(
+            edge_gateway::GraphEmsConfig::loadLegacyV1ForMigration("graph_ems_dynamic_rate_limit_test.json"),
+            genericRouter,
+            600000
+        );
+        dynamicRateLimitEngine.runOnce(608000);
+        dynamicRateLimitEngine.runOnce(608500);
+        requireNear(
+            genericRouter.getLatestByIndex(799901, 608500)->value,
+            2.0,
+            0.0001,
+            "dynamic rate limit rise mismatch"
+        );
+        genericSeedEngine.set(799900, -30.0, 608500);
+        dynamicRateLimitEngine.runOnce(609000);
+        requireNear(
+            genericRouter.getLatestByIndex(799901, 609000)->value,
+            -2.0,
+            0.0001,
+            "dynamic rate limit fall mismatch"
+        );
+        genericSeedEngine.set(799902, 10.0, 609000);
+        genericSeedEngine.set(799900, 30.0, 609000);
+        dynamicRateLimitEngine.runOnce(609500);
+        requireNear(
+            genericRouter.getLatestByIndex(799901, 609500)->value,
+            3.0,
+            0.0001,
+            "dynamic rate limit must use the latest configured rise speed"
         );
 
         writeTextFile(

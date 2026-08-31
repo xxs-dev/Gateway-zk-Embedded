@@ -84,6 +84,15 @@
           "write": {"enable": false}
         },
         {
+          "index": 910099,
+          "pointCode": "SIM01_TRACE_SEQUENCE",
+          "name": "测试链路序列",
+          "address": 65000,
+          "enabled": true,
+          "read": {"enable": true, "function": 3, "length": 1, "dataType": "uint16", "intervalMs": 100},
+          "write": {"enable": false}
+        },
+        {
           "index": 910004,
           "pointCode": "SIM01_SETPOINT",
           "name": "模拟设定值",

@@ -44,12 +44,16 @@ if [ -n "$GATEWAY_BIN_SOURCE_DIR" ]; then
         [ -f "$source_file" ] || { echo "gateway binary not found: $source_file" >&2; exit 2; }
         install -m 0755 "$source_file" "$ROOT/bin/$binary"
     done
+    if [ -f "$GATEWAY_BIN_SOURCE_DIR/pointctl" ]; then
+        install -m 0755 "$GATEWAY_BIN_SOURCE_DIR/pointctl" "$ROOT/bin/pointctl"
+    fi
 fi
 if [ -n "$SYSTEM_MONITOR_BIN" ]; then
     [ -f "$SYSTEM_MONITOR_BIN" ] || { echo "invalid --system-monitor-bin: $SYSTEM_MONITOR_BIN" >&2; exit 2; }
     install -m 0755 "$SYSTEM_MONITOR_BIN" "$ROOT/bin/SystemMonitor"
 fi
 install -m 0755 "$SOURCE_DIR/scripts/gateway-test-lab.sh" "$ROOT/bin/gateway-test-lab"
+install -m 0755 "$SOURCE_DIR/scripts/gateway-test-lab-performance.sh" "$ROOT/bin/gateway-test-lab-performance.sh"
 install -m 0644 "$SOURCE_DIR/templates/device_identity.json" "$ROOT/templates/device_identity.json"
 install -m 0644 "$SOURCE_DIR/templates/device_modbus_tcp.json" "$ROOT/templates/device_modbus_tcp.json"
 install -m 0644 "$SOURCE_DIR/templates/device_modbus_rtu.json" "$ROOT/templates/device_modbus_rtu.json"

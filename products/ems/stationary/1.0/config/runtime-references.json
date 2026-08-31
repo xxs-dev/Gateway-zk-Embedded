@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0",
+  "productId": "ky-ems-stationary",
+  "virtualPointConfig": "config/factory/runtime/devices/device_ems_virtual.json",
+  "retainedPointRange": {
+    "sharedMemoryName": "gateway_point_store_ems_virtual",
+    "startIndex": 400,
+    "endIndex": 447,
+    "count": 48
+  },
+  "retainedDataDirectory": "/opt/modbus-gateway/data/ems-virtual-parameters"
+}

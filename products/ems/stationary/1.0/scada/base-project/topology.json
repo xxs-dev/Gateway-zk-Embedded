@@ -1,0 +1,14 @@
+{
+  "mode": "integrated",
+  "scadaHost": "edge",
+  "emsHost": "edge",
+  "dataTransport": "sharedMemory",
+  "offlinePolicy": "continueLocal",
+  "upperComputerOfflinePolicy": {
+    "timeoutMs": 10000,
+    "action": "executeConfiguredActions",
+    "retainLocalSafetyRules": true,
+    "requireFreshLeaseForControl": true,
+    "safetyActions": []
+  }
+}

@@ -36222,6 +36222,7 @@
         "activeAbsLimitIndex": 535,
         "reactiveAbsLimitIndex": 504,
         "apparentTotalLimitIndex": 151,
+        "pqPriority": "reactivePowerFirst",
         "positiveTotalLimitIndex": 1552,
         "negativeTotalLimitIndex": 1553,
         "stateIndex": 1570,
@@ -36235,7 +36236,14 @@
         "highStateClearIndexes": [
           12,
           22
-        ]
+        ],
+        "requestedActiveTotalOutputIndex": 690001,
+        "requestedReactiveTotalOutputIndex": 690002,
+        "deliveredActiveTotalOutputIndex": 690003,
+        "deliveredReactiveTotalOutputIndex": 690004,
+        "unservedActiveTotalOutputIndex": 690005,
+        "unservedReactiveTotalOutputIndex": 690006,
+        "limitationFlagsOutputIndex": 690007
       },
       "ports": [
         {
@@ -36367,6 +36375,38 @@
           }
         },
         {
+          "id": "deliveredactivetotaloutputindex",
+          "displayName": "deliveredActiveTotalOutputIndex",
+          "direction": "output",
+          "valueType": "power",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/deliveredActiveTotalOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690003,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "deliveredreactivetotaloutputindex",
+          "displayName": "deliveredReactiveTotalOutputIndex",
+          "direction": "output",
+          "valueType": "power",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/deliveredReactiveTotalOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690004,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
           "id": "highstateclearindexes_0",
           "displayName": "highStateClearIndexes",
           "direction": "input",
@@ -36393,6 +36433,22 @@
           "binding": {
             "kind": "point",
             "index": 22,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "limitationflagsoutputindex",
+          "displayName": "limitationFlagsOutputIndex",
+          "direction": "output",
+          "valueType": "number",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/limitationFlagsOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690007,
             "pointCode": "",
             "semanticRole": "",
             "constant": null
@@ -36687,6 +36743,38 @@
           }
         },
         {
+          "id": "requestedactivetotaloutputindex",
+          "displayName": "requestedActiveTotalOutputIndex",
+          "direction": "output",
+          "valueType": "power",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/requestedActiveTotalOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690001,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "requestedreactivetotaloutputindex",
+          "displayName": "requestedReactiveTotalOutputIndex",
+          "direction": "output",
+          "valueType": "power",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/requestedReactiveTotalOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690002,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
           "id": "reserveenableindex",
           "displayName": "reserveEnableIndex",
           "direction": "input",
@@ -36777,6 +36865,38 @@
           "binding": {
             "kind": "point",
             "index": 700314,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "unservedactivetotaloutputindex",
+          "displayName": "unservedActiveTotalOutputIndex",
+          "direction": "output",
+          "valueType": "power",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/unservedActiveTotalOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690005,
+            "pointCode": "",
+            "semanticRole": "",
+            "constant": null
+          }
+        },
+        {
+          "id": "unservedreactivetotaloutputindex",
+          "displayName": "unservedReactiveTotalOutputIndex",
+          "direction": "output",
+          "valueType": "power",
+          "unit": "",
+          "required": true,
+          "runtimePath": "/unservedReactiveTotalOutputIndex",
+          "binding": {
+            "kind": "point",
+            "index": 690006,
             "pointCode": "",
             "semanticRole": "",
             "constant": null
@@ -39860,10 +39980,10 @@
       }
     },
     {
-      "id": "cycle_phase_mode_zero",
+      "id": "cycle_phase_mode_target",
       "type": "formula",
       "typeVersion": "1.0.0",
-      "displayName": "cycle_phase_mode_zero",
+      "displayName": "cycle_phase_mode_target",
       "enabled": true,
       "order": 462,
       "groupId": "",
@@ -39918,8 +40038,8 @@
         "inputIndex": 700341,
         "targetIndex": 1341,
         "valueMode": "round",
-        "minValue": 0,
-        "maxValue": 1,
+        "minValue": 0.0,
+        "maxValue": 0.0,
         "permitIndex": 700338,
         "permitValue": 1,
         "deadband": 0,
@@ -40098,7 +40218,7 @@
           {
             "index": 1341,
             "operator": "eq",
-            "value": 0
+            "value": 0.0
           }
         ],
         "outputIndex": 700343,
@@ -40256,98 +40376,21 @@
       }
     },
     {
-      "id": "cycle_stop_clear",
-      "type": "controlWrite",
-      "typeVersion": "1.0.0",
-      "displayName": "cycle_stop_clear",
-      "enabled": true,
-      "order": 467,
-      "groupId": "",
-      "parameters": {
-        "submitWrites": true,
-        "inputIndex": 700344,
-        "targetIndex": 1202,
-        "valueMode": "round",
-        "minValue": 0,
-        "maxValue": 1,
-        "permitIndex": 700338,
-        "permitValue": 1,
-        "deadband": 0,
-        "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
-      },
-      "ports": [
-        {
-          "id": "inputindex",
-          "displayName": "inputIndex",
-          "direction": "input",
-          "valueType": "number",
-          "unit": "",
-          "required": true,
-          "runtimePath": "/inputIndex",
-          "binding": {
-            "kind": "point",
-            "index": 700344,
-            "pointCode": "",
-            "semanticRole": "",
-            "constant": null
-          }
-        },
-        {
-          "id": "permitindex",
-          "displayName": "permitIndex",
-          "direction": "input",
-          "valueType": "boolean",
-          "unit": "",
-          "required": true,
-          "runtimePath": "/permitIndex",
-          "binding": {
-            "kind": "point",
-            "index": 700338,
-            "pointCode": "",
-            "semanticRole": "",
-            "constant": null
-          }
-        },
-        {
-          "id": "targetindex",
-          "displayName": "targetIndex",
-          "direction": "target",
-          "valueType": "number",
-          "unit": "",
-          "required": true,
-          "runtimePath": "/targetIndex",
-          "binding": {
-            "kind": "point",
-            "index": 1202,
-            "pointCode": "",
-            "semanticRole": "",
-            "constant": null
-          }
-        }
-      ],
-      "layout": {
-        "x": 1160,
-        "y": 25600.0,
-        "width": 280,
-        "height": 180
-      }
-    },
-    {
       "id": "cycle_start",
       "type": "controlWrite",
       "typeVersion": "1.0.0",
       "displayName": "cycle_start",
       "enabled": true,
-      "order": 468,
+      "order": 467,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
         "inputIndex": 700340,
         "targetIndex": 1201,
         "valueMode": "round",
-        "minValue": 0,
+        "minValue": 1,
         "maxValue": 1,
-        "permitIndex": 700338,
+        "permitIndex": 700340,
         "permitValue": 1,
         "deadband": 0,
         "optionalProfileKey": "CHARGE_DISCHARGE_TEST"
@@ -40379,7 +40422,7 @@
           "runtimePath": "/permitIndex",
           "binding": {
             "kind": "point",
-            "index": 700338,
+            "index": 700340,
             "pointCode": "",
             "semanticRole": "",
             "constant": null
@@ -40403,8 +40446,8 @@
         }
       ],
       "layout": {
-        "x": 80,
-        "y": 25820.0,
+        "x": 1160,
+        "y": 25600.0,
         "width": 280,
         "height": 180
       }
@@ -40415,7 +40458,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_safe_p0",
       "enabled": true,
-      "order": 469,
+      "order": 468,
       "groupId": "",
       "parameters": {
         "outputIndex": 700345,
@@ -40475,7 +40518,7 @@
         }
       ],
       "layout": {
-        "x": 440,
+        "x": 80,
         "y": 25820.0,
         "width": 280,
         "height": 180
@@ -40487,7 +40530,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_safe_p1",
       "enabled": true,
-      "order": 470,
+      "order": 469,
       "groupId": "",
       "parameters": {
         "outputIndex": 700346,
@@ -40547,7 +40590,7 @@
         }
       ],
       "layout": {
-        "x": 800,
+        "x": 440,
         "y": 25820.0,
         "width": 280,
         "height": 180
@@ -40559,7 +40602,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_safe_p2",
       "enabled": true,
-      "order": 471,
+      "order": 470,
       "groupId": "",
       "parameters": {
         "outputIndex": 700347,
@@ -40619,7 +40662,7 @@
         }
       ],
       "layout": {
-        "x": 1160,
+        "x": 800,
         "y": 25820.0,
         "width": 280,
         "height": 180
@@ -40631,7 +40674,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_safe_q0",
       "enabled": true,
-      "order": 472,
+      "order": 471,
       "groupId": "",
       "parameters": {
         "outputIndex": 700348,
@@ -40691,8 +40734,8 @@
         }
       ],
       "layout": {
-        "x": 80,
-        "y": 26040.0,
+        "x": 1160,
+        "y": 25820.0,
         "width": 280,
         "height": 180
       }
@@ -40703,7 +40746,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_safe_q1",
       "enabled": true,
-      "order": 473,
+      "order": 472,
       "groupId": "",
       "parameters": {
         "outputIndex": 700349,
@@ -40763,7 +40806,7 @@
         }
       ],
       "layout": {
-        "x": 440,
+        "x": 80,
         "y": 26040.0,
         "width": 280,
         "height": 180
@@ -40775,7 +40818,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_safe_q2",
       "enabled": true,
-      "order": 474,
+      "order": 473,
       "groupId": "",
       "parameters": {
         "outputIndex": 700350,
@@ -40835,7 +40878,7 @@
         }
       ],
       "layout": {
-        "x": 800,
+        "x": 440,
         "y": 26040.0,
         "width": 280,
         "height": 180
@@ -40847,7 +40890,7 @@
       "typeVersion": "1.0.0",
       "displayName": "pcs_control_write_0",
       "enabled": true,
-      "order": 475,
+      "order": 474,
       "groupId": "",
       "parameters": {
         "submitWrites": false,
@@ -40911,7 +40954,7 @@
         }
       ],
       "layout": {
-        "x": 1160,
+        "x": 800,
         "y": 26040.0,
         "width": 280,
         "height": 180
@@ -40923,7 +40966,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_pcs_control_write_0",
       "enabled": true,
-      "order": 476,
+      "order": 475,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
@@ -40988,8 +41031,8 @@
         }
       ],
       "layout": {
-        "x": 80,
-        "y": 26260.0,
+        "x": 1160,
+        "y": 26040.0,
         "width": 280,
         "height": 180
       }
@@ -41000,7 +41043,7 @@
       "typeVersion": "1.0.0",
       "displayName": "pcs_control_write_1",
       "enabled": true,
-      "order": 477,
+      "order": 476,
       "groupId": "",
       "parameters": {
         "submitWrites": false,
@@ -41064,7 +41107,7 @@
         }
       ],
       "layout": {
-        "x": 440,
+        "x": 80,
         "y": 26260.0,
         "width": 280,
         "height": 180
@@ -41076,7 +41119,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_pcs_control_write_1",
       "enabled": true,
-      "order": 478,
+      "order": 477,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
@@ -41141,7 +41184,7 @@
         }
       ],
       "layout": {
-        "x": 800,
+        "x": 440,
         "y": 26260.0,
         "width": 280,
         "height": 180
@@ -41153,7 +41196,7 @@
       "typeVersion": "1.0.0",
       "displayName": "pcs_control_write_2",
       "enabled": true,
-      "order": 479,
+      "order": 478,
       "groupId": "",
       "parameters": {
         "submitWrites": false,
@@ -41217,7 +41260,7 @@
         }
       ],
       "layout": {
-        "x": 1160,
+        "x": 800,
         "y": 26260.0,
         "width": 280,
         "height": 180
@@ -41229,7 +41272,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_pcs_control_write_2",
       "enabled": true,
-      "order": 480,
+      "order": 479,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
@@ -41294,8 +41337,8 @@
         }
       ],
       "layout": {
-        "x": 80,
-        "y": 26480.0,
+        "x": 1160,
+        "y": 26260.0,
         "width": 280,
         "height": 180
       }
@@ -41306,7 +41349,7 @@
       "typeVersion": "1.0.0",
       "displayName": "pcs_control_write_3",
       "enabled": true,
-      "order": 481,
+      "order": 480,
       "groupId": "",
       "parameters": {
         "submitWrites": false,
@@ -41370,7 +41413,7 @@
         }
       ],
       "layout": {
-        "x": 440,
+        "x": 80,
         "y": 26480.0,
         "width": 280,
         "height": 180
@@ -41382,7 +41425,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_pcs_control_write_3",
       "enabled": true,
-      "order": 482,
+      "order": 481,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
@@ -41447,7 +41490,7 @@
         }
       ],
       "layout": {
-        "x": 800,
+        "x": 440,
         "y": 26480.0,
         "width": 280,
         "height": 180
@@ -41459,7 +41502,7 @@
       "typeVersion": "1.0.0",
       "displayName": "pcs_control_write_4",
       "enabled": true,
-      "order": 483,
+      "order": 482,
       "groupId": "",
       "parameters": {
         "submitWrites": false,
@@ -41523,7 +41566,7 @@
         }
       ],
       "layout": {
-        "x": 1160,
+        "x": 800,
         "y": 26480.0,
         "width": 280,
         "height": 180
@@ -41535,7 +41578,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_pcs_control_write_4",
       "enabled": true,
-      "order": 484,
+      "order": 483,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
@@ -41600,8 +41643,8 @@
         }
       ],
       "layout": {
-        "x": 80,
-        "y": 26700.0,
+        "x": 1160,
+        "y": 26480.0,
         "width": 280,
         "height": 180
       }
@@ -41612,7 +41655,7 @@
       "typeVersion": "1.0.0",
       "displayName": "pcs_control_write_5",
       "enabled": true,
-      "order": 485,
+      "order": 484,
       "groupId": "",
       "parameters": {
         "submitWrites": false,
@@ -41676,7 +41719,7 @@
         }
       ],
       "layout": {
-        "x": 440,
+        "x": 80,
         "y": 26700.0,
         "width": 280,
         "height": 180
@@ -41688,7 +41731,7 @@
       "typeVersion": "1.0.0",
       "displayName": "cycle_pcs_control_write_5",
       "enabled": true,
-      "order": 486,
+      "order": 485,
       "groupId": "",
       "parameters": {
         "submitWrites": true,
@@ -41753,7 +41796,7 @@
         }
       ],
       "layout": {
-        "x": 800,
+        "x": 440,
         "y": 26700.0,
         "width": 280,
         "height": 180
@@ -45942,14 +45985,14 @@
       "kind": "dependency",
       "fromNodeId": "cycle_start_hold_value",
       "fromPortId": "",
-      "toNodeId": "cycle_phase_mode_zero",
+      "toNodeId": "cycle_phase_mode_target",
       "toPortId": "",
       "inferred": false
     },
     {
       "id": "edge_0462_00",
       "kind": "data",
-      "fromNodeId": "cycle_phase_mode_zero",
+      "fromNodeId": "cycle_phase_mode_target",
       "fromPortId": "outputindex",
       "toNodeId": "cycle_phase_control_mode",
       "toPortId": "inputindex",
@@ -45983,25 +46026,16 @@
       "inferred": false
     },
     {
-      "id": "edge_0466_00",
-      "kind": "data",
-      "fromNodeId": "cycle_zero",
-      "fromPortId": "outputindex",
-      "toNodeId": "cycle_stop_clear",
-      "toPortId": "inputindex",
-      "inferred": true
-    },
-    {
-      "id": "edge_0467",
+      "id": "edge_0466",
       "kind": "dependency",
-      "fromNodeId": "cycle_stop_clear",
+      "fromNodeId": "cycle_zero",
       "fromPortId": "",
       "toNodeId": "cycle_start",
       "toPortId": "",
       "inferred": false
     },
     {
-      "id": "edge_0468",
+      "id": "edge_0467",
       "kind": "dependency",
       "fromNodeId": "cycle_start",
       "fromPortId": "",
@@ -46010,7 +46044,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0469",
+      "id": "edge_0468",
       "kind": "dependency",
       "fromNodeId": "cycle_safe_p0",
       "fromPortId": "",
@@ -46019,7 +46053,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0470",
+      "id": "edge_0469",
       "kind": "dependency",
       "fromNodeId": "cycle_safe_p1",
       "fromPortId": "",
@@ -46028,7 +46062,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0471",
+      "id": "edge_0470",
       "kind": "dependency",
       "fromNodeId": "cycle_safe_p2",
       "fromPortId": "",
@@ -46037,7 +46071,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0472",
+      "id": "edge_0471",
       "kind": "dependency",
       "fromNodeId": "cycle_safe_q0",
       "fromPortId": "",
@@ -46046,7 +46080,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0473",
+      "id": "edge_0472",
       "kind": "dependency",
       "fromNodeId": "cycle_safe_q1",
       "fromPortId": "",
@@ -46055,7 +46089,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0474",
+      "id": "edge_0473",
       "kind": "dependency",
       "fromNodeId": "cycle_safe_q2",
       "fromPortId": "",
@@ -46064,7 +46098,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0475",
+      "id": "edge_0474",
       "kind": "dependency",
       "fromNodeId": "pcs_control_write_0",
       "fromPortId": "",
@@ -46073,7 +46107,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0476",
+      "id": "edge_0475",
       "kind": "dependency",
       "fromNodeId": "cycle_pcs_control_write_0",
       "fromPortId": "",
@@ -46082,7 +46116,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0477",
+      "id": "edge_0476",
       "kind": "dependency",
       "fromNodeId": "pcs_control_write_1",
       "fromPortId": "",
@@ -46091,7 +46125,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0478",
+      "id": "edge_0477",
       "kind": "dependency",
       "fromNodeId": "cycle_pcs_control_write_1",
       "fromPortId": "",
@@ -46100,7 +46134,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0479",
+      "id": "edge_0478",
       "kind": "dependency",
       "fromNodeId": "pcs_control_write_2",
       "fromPortId": "",
@@ -46109,7 +46143,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0480",
+      "id": "edge_0479",
       "kind": "dependency",
       "fromNodeId": "cycle_pcs_control_write_2",
       "fromPortId": "",
@@ -46118,7 +46152,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0481",
+      "id": "edge_0480",
       "kind": "dependency",
       "fromNodeId": "pcs_control_write_3",
       "fromPortId": "",
@@ -46127,7 +46161,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0482",
+      "id": "edge_0481",
       "kind": "dependency",
       "fromNodeId": "cycle_pcs_control_write_3",
       "fromPortId": "",
@@ -46136,7 +46170,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0483",
+      "id": "edge_0482",
       "kind": "dependency",
       "fromNodeId": "pcs_control_write_4",
       "fromPortId": "",
@@ -46145,7 +46179,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0484",
+      "id": "edge_0483",
       "kind": "dependency",
       "fromNodeId": "cycle_pcs_control_write_4",
       "fromPortId": "",
@@ -46154,7 +46188,7 @@
       "inferred": false
     },
     {
-      "id": "edge_0485",
+      "id": "edge_0484",
       "kind": "dependency",
       "fromNodeId": "pcs_control_write_5",
       "fromPortId": "",

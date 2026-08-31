@@ -687,6 +687,14 @@ int main() {
     output <<
         "{"
         "\"mqtt\":{"
+        "\"legacyTelemetryEnabled\":true,"
+        "\"legacyTelemetryTopic\":\"ky/peidian/COMM_TEST\","
+        "\"legacyTopicMachineCode\":\"COMM_TEST\","
+        "\"legacyTelemetryIntervalMs\":10000,"
+        "\"legacyTelemetryMappedOnly\":true,"
+        "\"legacyTelemetryPointMappings\":["
+        "{\"index\":1002,\"meterCode\":\"LEGACY_METER\",\"pointCode\":\"LEGACY_POINT\"}"
+        "],"
         "\"maxPayloadBytes\":9999999,"
         "\"offlineBuffer\":{"
         "\"realtimeFileSizeBytes\":9999999999,"
@@ -722,6 +730,18 @@ int main() {
     require(config.eventOutboxCleanupIntervalHours == 168, "outbox cleanup interval should be bounded");
     require(config.eventOutboxReplayBatchSize == 1000U, "outbox replay batch should be bounded");
     require(config.eventOutboxMaxDiskBytes == 256U * 1024U * 1024U, "outbox disk should be bounded");
+    require(config.legacyTelemetryEnabled, "legacy telemetry should parse");
+    require(config.legacyTelemetryTopic == "ky/peidian/COMM_TEST", "legacy telemetry topic should parse");
+    require(config.legacyTopicMachineCode == "COMM_TEST", "legacy topic machine code should parse");
+    require(config.legacyTelemetryIntervalMs == 10000, "legacy telemetry interval should parse");
+    require(config.legacyTelemetryMappedOnly, "legacy mapped-only mode should parse");
+    require(config.legacyTelemetryPointMappings.size() == 1, "legacy telemetry mapping should parse");
+    require(config.legacyTelemetryPointMappings.front().index == 1002,
+        "legacy telemetry mapping index should parse");
+    require(config.legacyTelemetryPointMappings.front().meterCode == "LEGACY_METER",
+        "legacy telemetry mapping meter should parse");
+    require(config.legacyTelemetryPointMappings.front().pointCode == "LEGACY_POINT",
+        "legacy telemetry mapping point should parse");
 
     verifyDeviceCollectBackgroundTaskConfig();
     verifyTimingPolicyConfig();

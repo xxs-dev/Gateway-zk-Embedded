@@ -37,7 +37,9 @@ add_library(edge_gateway
     src/ems_cluster_transport.cpp
     src/common/gateway_daemon.cpp
     src/common/gateway_daemon_modbus.cpp
+    src/flexible_phase_balance.cpp
     src/graph_ems_engine.cpp
+    src/grid_friendly_dispatch.cpp
     src/iec_client.cpp
     src/iec_codec.cpp
     src/iec103_recording_command.cpp
@@ -69,6 +71,7 @@ add_library(edge_gateway
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
     src/system_monitor_runtime_discovery.cpp
+    src/system_monitor_points.cpp
     src/sysfs_gpio_port.cpp
     src/system_monitor_service.cpp
     src/timing_policy.cpp
@@ -143,23 +146,49 @@ target_compile_options(QtDisplayBridge PRIVATE -fdiagnostics-color=never)
 
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6Widgets_FOUND)
-    add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp local_display_qt_value_map.cpp)
+    add_executable(LocalDisplayQtEms
+        local_display_qt_ems_main.cpp
+        local_display_qt_scada_scene.cpp
+        local_display_qt_access_control.cpp
+        local_display_qt_pcs_power_control.cpp
+        local_display_qt_value_map.cpp
+    )
     target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt6::Widgets)
     target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
     add_executable(local_display_qt_value_map_test tools/local_display_qt_value_map_test.cpp local_display_qt_value_map.cpp)
     target_include_directories(local_display_qt_value_map_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(local_display_qt_value_map_test PRIVATE Qt6::Core)
     target_compile_options(local_display_qt_value_map_test PRIVATE -fdiagnostics-color=never)
+    add_executable(local_display_qt_access_test
+        tools/local_display_qt_access_test.cpp
+        local_display_qt_access_control.cpp
+    )
+    target_include_directories(local_display_qt_access_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(local_display_qt_access_test PRIVATE Qt6::Widgets)
+    target_compile_options(local_display_qt_access_test PRIVATE -fdiagnostics-color=never)
 else()
     find_package(Qt5 COMPONENTS Widgets QUIET)
     if(Qt5Widgets_FOUND)
-        add_executable(LocalDisplayQtEms local_display_qt_ems_main.cpp local_display_qt_scada_scene.cpp local_display_qt_value_map.cpp)
+        add_executable(LocalDisplayQtEms
+            local_display_qt_ems_main.cpp
+            local_display_qt_scada_scene.cpp
+            local_display_qt_access_control.cpp
+            local_display_qt_pcs_power_control.cpp
+            local_display_qt_value_map.cpp
+        )
         target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt5::Widgets)
         target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
         add_executable(local_display_qt_value_map_test tools/local_display_qt_value_map_test.cpp local_display_qt_value_map.cpp)
         target_include_directories(local_display_qt_value_map_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
         target_link_libraries(local_display_qt_value_map_test PRIVATE Qt5::Core)
         target_compile_options(local_display_qt_value_map_test PRIVATE -fdiagnostics-color=never)
+        add_executable(local_display_qt_access_test
+            tools/local_display_qt_access_test.cpp
+            local_display_qt_access_control.cpp
+        )
+        target_include_directories(local_display_qt_access_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(local_display_qt_access_test PRIVATE Qt5::Widgets)
+        target_compile_options(local_display_qt_access_test PRIVATE -fdiagnostics-color=never)
     else()
         message(STATUS "Qt Widgets not found; LocalDisplayQtEms target disabled")
     endif()
@@ -291,6 +320,10 @@ add_executable(point_store_router_normalize_test tools/point_store_router_normal
 target_link_libraries(point_store_router_normalize_test PRIVATE edge_gateway)
 target_compile_options(point_store_router_normalize_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(point_store_router_retention_test tools/point_store_router_retention_test.cpp)
+target_link_libraries(point_store_router_retention_test PRIVATE edge_gateway)
+target_compile_options(point_store_router_retention_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(scada_runtime_test tools/scada_runtime_test.cpp)
 target_link_libraries(scada_runtime_test PRIVATE edge_gateway)
 target_compile_options(scada_runtime_test PRIVATE -fdiagnostics-color=never)
@@ -331,6 +364,14 @@ add_executable(graph_ems_cluster_dispatch_test tools/graph_ems_cluster_dispatch_
 target_link_libraries(graph_ems_cluster_dispatch_test PRIVATE edge_gateway)
 target_compile_options(graph_ems_cluster_dispatch_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(flexible_phase_balance_test tools/flexible_phase_balance_test.cpp)
+target_link_libraries(flexible_phase_balance_test PRIVATE edge_gateway)
+target_compile_options(flexible_phase_balance_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(grid_friendly_dispatch_test tools/grid_friendly_dispatch_test.cpp)
+target_link_libraries(grid_friendly_dispatch_test PRIVATE edge_gateway)
+target_compile_options(grid_friendly_dispatch_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(graph_ems_v2_loader_test tools/graph_ems_v2_loader_test.cpp)
 target_link_libraries(graph_ems_v2_loader_test PRIVATE edge_gateway)
 target_compile_options(graph_ems_v2_loader_test PRIVATE -fdiagnostics-color=never)
@@ -360,11 +401,45 @@ target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE ed
 target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
 
 if(BUILD_TESTING)
+    add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
+    add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
+    add_test(NAME scada_runtime COMMAND scada_runtime_test)
+    if(TARGET local_display_qt_access_test)
+        add_test(NAME local_display_qt_access COMMAND local_display_qt_access_test)
+    endif()
     add_test(NAME ems_cluster COMMAND ems_cluster_test)
     add_test(NAME gateway_test_lab_modbus COMMAND gateway_test_lab_modbus_test)
     add_test(NAME gateway_test_lab_serial COMMAND gateway_test_lab_serial_test)
     add_test(NAME gateway_test_lab_iec104 COMMAND gateway_test_lab_iec104_test)
+    add_test(NAME am5se_iec103_codec COMMAND am5se_iec103_codec_test)
+    add_test(NAME am5se_iec103_passive_tcp COMMAND am5se_iec103_client_integration_test)
+    add_test(NAME iec103_recording_command COMMAND iec103_recording_command_test)
+    add_test(NAME iec103_recording_transfer COMMAND iec103_recording_transfer_service_test)
+    add_test(NAME iec104_client_integration COMMAND iec104_client_integration_test)
+    add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
+    add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
+    add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
+    add_test(NAME config_loader COMMAND config_loader_test)
+    add_test(NAME dio_smoke COMMAND dio_smoke_test)
+    add_test(NAME dlt645_client_interval COMMAND dlt645_client_interval_test)
+    add_test(NAME dlt645_command_executor COMMAND dlt645_command_executor_test)
+    add_test(NAME event_engine_service COMMAND event_engine_service_test)
+    add_test(NAME gateway_daemon_realtime_priority COMMAND gateway_daemon_realtime_priority_test)
+    add_test(NAME iec_codec COMMAND iec_codec_test)
+    add_test(NAME memory_point_store_lifecycle COMMAND memory_point_store_lifecycle_test)
+    add_test(NAME modbus_northbound_server COMMAND modbus_northbound_server_test)
+    add_test(NAME modbus_rtu_client_resync COMMAND modbus_rtu_client_resync_test)
+    add_test(NAME modbus_tcp_client_limit COMMAND modbus_tcp_client_limit_test)
+    add_test(NAME mqtt_driver_service COMMAND mqtt_driver_service_test)
+    add_test(NAME ota_service COMMAND ota_service_test)
+    add_test(NAME point_store_router_normalize COMMAND point_store_router_normalize_test)
+    add_test(NAME priority_control_lease COMMAND priority_control_lease_test)
+    add_test(NAME scada_upper_computer_safety COMMAND scada_upper_computer_safety_test)
+    add_test(NAME system_monitor_runtime_discovery COMMAND system_monitor_runtime_discovery_test)
+    add_test(NAME system_monitor_service COMMAND system_monitor_service_test)
+    add_test(NAME timing_policy COMMAND timing_policy_test)
     if(UNIX)
+        add_test(NAME mqtt_offline_restart_replay COMMAND builtin_mqtt_driver_publisher_test)
         add_test(
             NAME gateway_test_lab_modbus_e2e
             COMMAND sh
@@ -372,7 +447,7 @@ if(BUILD_TESTING)
                 "${CMAKE_SOURCE_DIR}"
                 "${CMAKE_BINARY_DIR}"
         )
-        set_tests_properties(gateway_test_lab_modbus_e2e PROPERTIES TIMEOUT 45)
+        set_tests_properties(gateway_test_lab_modbus_e2e PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
         add_test(
             NAME gateway_test_lab_protocol_e2e
             COMMAND sh
@@ -380,11 +455,21 @@ if(BUILD_TESTING)
                 "${CMAKE_SOURCE_DIR}"
                 "${CMAKE_BINARY_DIR}"
         )
-        set_tests_properties(gateway_test_lab_protocol_e2e PROPERTIES TIMEOUT 90)
+        set_tests_properties(gateway_test_lab_protocol_e2e PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+        add_test(
+            NAME gateway_test_lab_performance_report_e2e
+            COMMAND sh
+                "${CMAKE_SOURCE_DIR}/test-lab/tests/run_performance_report_e2e.sh"
+                "${CMAKE_SOURCE_DIR}"
+                "${CMAKE_BINARY_DIR}"
+        )
+        set_tests_properties(gateway_test_lab_performance_report_e2e PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     endif()
     add_test(NAME graph_ems_v2_loader COMMAND graph_ems_v2_loader_test)
     add_test(NAME graph_ems_voltage_quality COMMAND graph_ems_voltage_quality_test)
     add_test(NAME graph_ems_cluster_dispatch COMMAND graph_ems_cluster_dispatch_test)
+    add_test(NAME flexible_phase_balance COMMAND flexible_phase_balance_test)
+    add_test(NAME grid_friendly_dispatch COMMAND grid_friendly_dispatch_test)
     add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
     add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
     set_tests_properties(
@@ -392,8 +477,37 @@ if(BUILD_TESTING)
         graph_ems_voltage_quality
         graph_ems_cluster_dispatch
         legacy_ems_migration_parity
+        point_store_router_retention
         system_monitor_direct_maintenance_contract
         gateway_test_lab_modbus
+        am5se_iec103_codec
+        am5se_iec103_passive_tcp
+        iec103_recording_command
+        iec103_recording_transfer
+        iec104_client_integration
+        can_signal_codec
+        collector_partial_failure
+        compute_engine_service
+        config_loader
+        dio_smoke
+        dlt645_client_interval
+        dlt645_command_executor
+        event_engine_service
+        gateway_daemon_realtime_priority
+        iec_codec
+        memory_point_store_lifecycle
+        modbus_northbound_server
+        modbus_rtu_client_resync
+        modbus_tcp_client_limit
+        mqtt_driver_service
+        ota_service
+        point_store_router_normalize
+        priority_control_lease
+        scada_upper_computer_safety
+        system_monitor_runtime_discovery
+        system_monitor_service
+        timing_policy
         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
+    set_tests_properties(system_monitor_service PROPERTIES RUN_SERIAL TRUE)
 endif()

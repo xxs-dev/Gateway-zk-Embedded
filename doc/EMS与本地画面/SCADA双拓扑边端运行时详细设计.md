@@ -117,6 +117,8 @@ unit
 
 同一语义解析到多个运行点时返回冲突，不允许随机取第一个。
 
+共享内存路由的精确键是 `sharedMemoryName + index`。不同共享内存允许出现相同 `index`，同一共享内存内的重复 `index` 必须拒绝。仅按 `index` 的兼容接口只能用于路由唯一的场景；读取 SCADA Tag 和单点写回必须使用精确键，批量原子写入遇到跨共享内存同号歧义时直接拒绝。
+
 ## 7. 数据读取
 
 一体化模式：
@@ -142,6 +144,37 @@ Tag -> RuntimeMap -> writable 校验 -> 控制权校验 -> 高优先级租约 ->
 ```
 
 禁止 Qt Runtime 直接修改共享内存值伪造设备响应。
+
+### 8.1 本地屏登录保护
+
+本地认证由工程根目录的 `permissions.json` 定义：
+
+```json
+{
+  "roles": ["operator", "maintainer"],
+  "localAccess": {
+    "sessionTimeoutSeconds": 900,
+    "protectedScreenPrefixes": ["Strategy-", "Control-"],
+    "users": [
+      {
+        "username": "operator",
+        "salt": "<32位小写十六进制随机盐>",
+        "passwordSha256": "<64位小写十六进制摘要>",
+        "roles": ["operator"]
+      }
+    ]
+  }
+}
+```
+
+运行约束：
+
+- 未登录不创建受保护页面，点击页面入口后才显示触屏登录框。
+- 密码摘要按 `SHA-256(salt + ":" + password)` 计算，并使用定时无关比较。
+- 鼠标、触摸、键盘或滚轮活动会刷新会话，默认 900 秒无操作退出。
+- 受保护页面提供显式退出按钮；退出或超时后销毁受保护页面并回到入口页。
+- 工程发布校验拒绝公开页中的 `writeSetpoint`、`pulse`、`toggle`、`pcsPhasePowerControl`。
+- 登录只决定页面访问权限，不绕过 Tag 可写、控制权、高优先级租约、驱动写队列和回读确认。
 
 Windows 上位机控制必须使用 `scada-windows:` 来源前缀。直连和 MQTT 控制入口只对该来源检查 SCADA 租约；普通维护、边端 EMS 和 AGC/AVC 继续使用各自现有控制边界。控制入口失败后由调用方返回结果，不允许自动换通道重发。
 
@@ -203,7 +236,9 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 - ZIP 路径穿越、重复文件和校验和测试。
 - Tag 精确解析、语义冲突和 Index fallback 测试。
 - 多共享内存批量读取测试。
+- 跨共享内存同号 `index` 精确读取、同一共享内存重复拒绝和歧义批量写拒绝测试。
 - 可写点、只读点和高优先级控制测试。
+- 本地账号错误、登录成功、活动续期、900 秒超时、主动退出和受保护页懒加载测试。
 - 上位机断线安全策略测试。
 - 上位机租约来源隔离、同周期动作去重和节点动作裁剪测试。
 - 1920x1080 Qt 截图对比和 500 Tag 性能测试。
@@ -211,7 +246,7 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 
 ## 13. 当前实现与边界
 
-截至 2026-07-20 已完成：
+截至 2026-08-07 已完成：
 
 - Schema 2.0 工程目录加载和结构检查。
 - 节点、Tag、页面、状态规则和 runtime-map 解析。
@@ -225,6 +260,9 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 - SystemMonitor 上位机心跳监测、明确安全动作提交和同一失联周期去重。
 - 直连实时快照与 MQTT 实时订阅续租；两个控制入口统一检查 `scada-windows:` 新鲜租约。
 - `MqttDriver` 使用轻量租约解析，不链接完整 SCADA 工程解析器。
+- `permissions.json` 本地账号解析、随机盐密码摘要、触屏登录键盘、策略/控制页保护、活动续期和主动退出。
+- 未登录时不实例化 `Strategy-*`、`Control-*`，公开页写控件在工程加载阶段被拒绝。
+- SCADA 读写按 `sharedMemoryName + index` 精确路由，兼容不同共享内存复用同一 `index`。
 
 仍需后续专项验收：
 
@@ -278,3 +316,18 @@ SystemMonitor 加载新工程后从当前时间开始计算超时，避免安装
 允许文件为固定元数据 `manifest.json`、`topology.json`、`nodes.json`、`tags.json`、`runtime-map.json`、`symbols.json`、`alarms.json`、`trends.json`、`permissions.json`、`checksums.json`，以及 `screens/**`、`assets/**`。实现复用现有 MQTT 分片、缺片补发、直连 HTTP、大小限制和安全路径检查，不建立第二套传输协议。
 
 22.16 实测候选二进制先使用关闭 MQTT 和直连端口的临时配置执行 `--once`，再经 `ldd` 预检和自动回滚脚本原子替换。新服务稳定后，直连 `scope=scada` 在约 0.9 秒内返回 82 个文件、9,115,329 bytes；Windows 能重建 checksums 完整的 `.kyscada`，第二次相同内容命中缓存。生产采集驱动、MqttDriver 和 KY-EMS 未因本次替换重启。
+
+## 18. 2026-08-07 EMS 2.0 本地权限实机验证
+
+本节记录中的 `2.1.1-compact` 是开发阶段误标的 release 名称，产品归属按 EMS 2.0 处理；该路径保留用于现场审计，不再作为新版本命名依据。
+
+- 测试边端：`192.168.22.16 / COMM202600999`。
+- 当前 release：`/opt/modbus-gateway/scada/releases/ky-mobile-ems-COMM202600999-2.1.1-compact-20260807161758`。
+- `KY-EMS` SHA-256：`de0d627e4ca79ac01533d566fa782767e6d4b64426ddeb81c3d901bffca93167`。
+- 工程包 SHA-256：`d0e8c2ff00f5f69347f8d9b495f5b9d85bb779fed471ee233061414582699e60`。
+- 17 个页面均为 `1920x1080`；四个趋势页默认最近 1 小时。
+- 未登录点击策略或控制会显示登录框；使用屏幕软键盘完整输入账号和含大小写、数字、`!`、`#`、`@` 的密码后，策略页和控制页均能打开。
+- 控制页仅查看，未执行启动、停机、功率或 DI/DO 写入。
+- 点击“退出”后立即回到公开总览，再点击控制会重新要求认证。
+- 首次部署发现虚拟点和采集点在不同共享内存复用 `index=1615`；修复为复合路由后，ARM 原生 `scada_runtime_test` 和本地认证测试通过。
+- 最终 `ky-ems.service=active`、`NRestarts=0`，登录、退出和页面切换期间主进程 PID 未变化，最终现场停留在总览。

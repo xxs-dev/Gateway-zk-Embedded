@@ -1,5 +1,7 @@
 #include "edge_gateway/graph_ems_engine.hpp"
 
+#include "edge_gateway/flexible_phase_balance.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -1085,6 +1087,77 @@ void validateIndexArray(
 }
 
 void validateGenericNode(const GraphEmsNodeConfig& node) {
+    if (node.type == "flexiblePhaseBalance") {
+        static const char* requiredIndexes[] = {
+            "phaseAIndex", "phaseBIndex", "phaseCIndex",
+            "paOutput", "pbOutput", "pcOutput", "modeOutput", "runOutput"
+        };
+        for (const auto* key : requiredIndexes) {
+            if (!hasParam(node, key)) {
+                throw std::runtime_error(std::string("flexiblePhaseBalance ") + key + " is required");
+            }
+            validatePositiveIndex(node, key);
+        }
+
+        static const char* optionalIndexes[] = {
+            "pcsMaxChargeKwIndex", "pcsMaxChargeKwAIndex", "pcsMaxChargeKwBIndex", "pcsMaxChargeKwCIndex",
+            "pcsMaxDischargeKwIndex", "pcsMaxDischargeKwAIndex", "pcsMaxDischargeKwBIndex", "pcsMaxDischargeKwCIndex",
+            "allowedSpreadKwIndex", "allowedSpreadPercentIndex",
+            "batteryMaxChargeKwIndex", "batteryMaxDischargeKwIndex", "socIndex",
+            "pcsTransferPaOutput", "pcsTransferPbOutput", "pcsTransferPcOutput",
+            "batteryAssistPaOutput", "batteryAssistPbOutput", "batteryAssistPcOutput",
+            "inputSpreadOutput", "pcsOnlySpreadOutput", "finalSpreadOutput",
+            "unservedSpreadOutput", "batteryNetPowerOutput", "targetGridPhasePowerOutput"
+        };
+        for (const auto* key : optionalIndexes) {
+            validatePositiveIndex(node, key);
+        }
+
+        const auto hasSource = [&](const std::string& base, const char* phase) {
+            return hasParam(node, base) || hasParam(node, base + "Index") ||
+                hasParam(node, base + phase) || hasParam(node, base + phase + "Index");
+        };
+        const char* phases[] = {"A", "B", "C"};
+        for (const auto* phase : phases) {
+            if (!hasSource("pcsMaxChargeKw", phase) || !hasSource("pcsMaxDischargeKw", phase)) {
+                throw std::runtime_error(
+                    std::string("flexiblePhaseBalance PCS charge/discharge limit is missing for phase ") + phase
+                );
+            }
+        }
+        const bool hasAllowedKw = hasParam(node, "allowedSpreadKw") || hasParam(node, "allowedSpreadKwIndex");
+        const bool hasAllowedPercent = hasParam(node, "allowedSpreadPercent") ||
+            hasParam(node, "allowedSpreadPercentIndex");
+        if (hasAllowedKw == hasAllowedPercent) {
+            throw std::runtime_error(
+                "flexiblePhaseBalance requires exactly one allowedSpreadKw or allowedSpreadPercent source"
+            );
+        }
+
+        static const char* nonNegativeValues[] = {
+            "pcsMaxChargeKw", "pcsMaxChargeKwA", "pcsMaxChargeKwB", "pcsMaxChargeKwC",
+            "pcsMaxDischargeKw", "pcsMaxDischargeKwA", "pcsMaxDischargeKwB", "pcsMaxDischargeKwC",
+            "allowedSpreadKw", "allowedSpreadPercent", "batteryMaxChargeKw", "batteryMaxDischargeKw"
+        };
+        for (const auto* key : nonNegativeValues) {
+            const auto value = paramDouble(node, key);
+            if (value && (!std::isfinite(*value) || *value < 0.0)) {
+                throw std::runtime_error(std::string("flexiblePhaseBalance ") + key + " must be non-negative");
+            }
+        }
+        const double commandSign = paramDouble(node, "commandSign").value_or(1.0);
+        if (std::abs(std::abs(commandSign) - 1.0) > 1e-9) {
+            throw std::runtime_error("flexiblePhaseBalance commandSign must be 1 or -1");
+        }
+        const double socMin = paramDouble(node, "socMin").value_or(0.0);
+        const double socMax = paramDouble(node, "socMax").value_or(100.0);
+        if (!std::isfinite(socMin) || !std::isfinite(socMax) || socMin < 0.0 || socMax > 100.0 ||
+            socMin >= socMax) {
+            throw std::runtime_error("flexiblePhaseBalance SOC range must satisfy 0 <= socMin < socMax <= 100");
+        }
+        return;
+    }
+
     if (node.type == "timeSource") {
         const auto component = normalizedToken(
             node.params.count("component") ? node.params.at("component") : "hour"
@@ -1435,7 +1508,11 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
             "reserveEnableIndex", "reserveMarginIndex", "reserveRunOutputIndex",
             "activeAbsLimitIndex", "reactiveAbsLimitIndex", "apparentTotalLimitIndex",
             "positiveTotalLimitIndex", "negativeTotalLimitIndex",
-            "stateIndex", "stateUpperIndex", "stateLowerIndex"
+            "stateIndex", "stateUpperIndex", "stateLowerIndex",
+            "requestedActiveTotalOutputIndex", "requestedReactiveTotalOutputIndex",
+            "deliveredActiveTotalOutputIndex", "deliveredReactiveTotalOutputIndex",
+            "unservedActiveTotalOutputIndex", "unservedReactiveTotalOutputIndex",
+            "limitationFlagsOutputIndex"
         };
         for (const auto* key : optionalIndexes) {
             validatePositiveIndex(node, key);
@@ -1451,6 +1528,22 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         };
         validateClearIndexes("lowStateClearIndexes");
         validateClearIndexes("highStateClearIndexes");
+        const auto validateOptionalPhaseOutputs = [&](const std::string& key) {
+            const auto count = paramCount(node, key);
+            if (count == 0) return;
+            validateIndexArray(node, key);
+            if (count != phaseCount) {
+                throw std::runtime_error("powerConstraint " + key + " count must match phases");
+            }
+        };
+        validateOptionalPhaseOutputs("unservedActiveOutputIndexes");
+        validateOptionalPhaseOutputs("unservedReactiveOutputIndexes");
+        if (hasParam(node, "pqPriority")) {
+            const auto priority = normalizedToken(node.params.at("pqPriority"));
+            if (priority != "activepowerfirst" && priority != "reactivepowerfirst" && priority != "proportional") {
+                throw std::runtime_error("powerConstraint pqPriority is unsupported");
+            }
+        }
         return;
     }
 
@@ -1595,20 +1688,37 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         if (paramIndex(node, "inputIndex") == paramIndex(node, "outputIndex")) {
             throw std::runtime_error("rateLimit inputIndex and outputIndex must differ");
         }
-        const char* requiredNumbers[] = {"risePerSecond", "fallPerSecond", "minValue", "maxValue"};
+        const char* requiredNumbers[] = {"minValue", "maxValue"};
         for (const auto* key : requiredNumbers) {
             if (!hasParam(node, key)) {
                 throw std::runtime_error(std::string("rateLimit ") + key + " is required");
             }
         }
-        const auto rise = paramDouble(node, "risePerSecond").value();
-        const auto fall = paramDouble(node, "fallPerSecond").value();
+        const auto validateRate = [&node](const char* valueKey, const char* indexKey) {
+            const auto hasValue = hasParam(node, valueKey);
+            const auto hasIndex = hasParam(node, indexKey);
+            if (!hasValue && !hasIndex) {
+                throw std::runtime_error(
+                    std::string("rateLimit ") + valueKey + " or " + indexKey + " is required"
+                );
+            }
+            if (hasValue) {
+                const auto value = paramDouble(node, valueKey).value();
+                if (!std::isfinite(value) || value <= 0.0) {
+                    throw std::runtime_error(
+                        std::string("rateLimit ") + valueKey + " must be a positive number"
+                    );
+                }
+            }
+            if (hasIndex) {
+                validatePositiveIndex(node, indexKey);
+            }
+        };
+        validateRate("risePerSecond", "risePerSecondIndex");
+        validateRate("fallPerSecond", "fallPerSecondIndex");
         const auto minValue = paramDouble(node, "minValue").value();
         const auto maxValue = paramDouble(node, "maxValue").value();
         const auto initialValue = paramDouble(node, "initialValue").value_or(0.0);
-        if (!std::isfinite(rise) || rise <= 0.0 || !std::isfinite(fall) || fall <= 0.0) {
-            throw std::runtime_error("rateLimit risePerSecond and fallPerSecond must be positive numbers");
-        }
         if (!std::isfinite(minValue) || !std::isfinite(maxValue) || minValue > maxValue) {
             throw std::runtime_error("rateLimit bounds must be finite and minValue <= maxValue");
         }
@@ -1758,6 +1868,7 @@ bool isKnownNodeType(const std::string& type) {
         "timedChargeDischarge",
         "photovoltaicCharge",
         "phaseBalance",
+        "flexiblePhaseBalance",
         "skOverride",
         "reserveCapacity",
         "pcsPowerSolve",
@@ -2721,6 +2832,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
                 runPhotovoltaicCharge(node, nowMs, result);
             } else if (node.type == "phaseBalance") {
                 runPhaseBalance(node, nowMs, result);
+            } else if (node.type == "flexiblePhaseBalance") {
+                runFlexiblePhaseBalance(node, nowMs, result);
             } else if (node.type == "skOverride") {
                 runSkOverride(node, nowMs, result);
             } else if (node.type == "reserveCapacity") {
@@ -3464,6 +3577,18 @@ std::vector<std::uint32_t> GraphEmsEngine::stateOutputIndexes() const {
             add(paramIndex(node, "pbOutput", 624));
             add(paramIndex(node, "pcOutput", 625));
             add(paramIndex(node, "runOutput", 20));
+        } else if (node.type == "flexiblePhaseBalance") {
+            static const char* outputs[] = {
+                "paOutput", "pbOutput", "pcOutput",
+                "pcsTransferPaOutput", "pcsTransferPbOutput", "pcsTransferPcOutput",
+                "batteryAssistPaOutput", "batteryAssistPbOutput", "batteryAssistPcOutput",
+                "inputSpreadOutput", "pcsOnlySpreadOutput", "finalSpreadOutput",
+                "unservedSpreadOutput", "batteryNetPowerOutput", "targetGridPhasePowerOutput",
+                "modeOutput", "runOutput"
+            };
+            for (const auto* output : outputs) {
+                add(paramIndex(node, output, 0));
+            }
         } else if (node.type == "skOverride") {
             add(paramIndex(node, "runOutput", 26));
         } else if (node.type == "reserveCapacity") {
@@ -4493,6 +4618,134 @@ bool GraphEmsEngine::runPhaseBalance(
     return updated;
 }
 
+bool GraphEmsEngine::runFlexiblePhaseBalance(
+    const GraphEmsNodeConfig& node,
+    std::int64_t nowMs,
+    GraphEmsRunResult& result
+) {
+    const auto pa = latestValue(paramIndex(node, "phaseAIndex"), nowMs);
+    const auto pb = latestValue(paramIndex(node, "phaseBIndex"), nowMs);
+    const auto pc = latestValue(paramIndex(node, "phaseCIndex"), nowMs);
+    if (!pa || !pb || !pc) {
+        return false;
+    }
+
+    const auto latestParam = [&](std::uint32_t index) {
+        return latestValue(index, nowMs);
+    };
+    const auto readLimit = [&](const std::string& base, const char* phase) -> Optional<double> {
+        const auto phaseValue = paramOrLatestValue(
+            node,
+            base + phase,
+            base + phase + "Index",
+            latestParam
+        );
+        if (phaseValue) {
+            return phaseValue;
+        }
+        return paramOrLatestValue(node, base, base + "Index", latestParam);
+    };
+
+    FlexiblePhaseBalanceInput input;
+    input.loadPowerKw = {*pa, *pb, *pc};
+    const char* phases[] = {"A", "B", "C"};
+    for (std::size_t i = 0; i < 3; ++i) {
+        const auto charge = readLimit("pcsMaxChargeKw", phases[i]);
+        const auto discharge = readLimit("pcsMaxDischargeKw", phases[i]);
+        if (!charge || !discharge) {
+            return false;
+        }
+        input.pcsMaxChargeKw[i] = *charge;
+        input.pcsMaxDischargeKw[i] = *discharge;
+    }
+
+    const auto directAllowedSpread = paramOrLatestValue(
+        node,
+        "allowedSpreadKw",
+        "allowedSpreadKwIndex",
+        latestParam
+    );
+    if (directAllowedSpread) {
+        input.allowedSpreadKw = *directAllowedSpread;
+    } else {
+        const auto allowedPercent = paramOrLatestValue(
+            node,
+            "allowedSpreadPercent",
+            "allowedSpreadPercentIndex",
+            latestParam
+        );
+        if (!allowedPercent) {
+            return false;
+        }
+        const double reference = std::max(std::abs(*pa), std::max(std::abs(*pb), std::abs(*pc)));
+        input.allowedSpreadKw = reference * *allowedPercent / 100.0;
+    }
+
+    input.batteryMaxChargeKw = paramOrLatestValue(
+        node,
+        "batteryMaxChargeKw",
+        "batteryMaxChargeKwIndex",
+        latestParam
+    ).value_or(0.0);
+    input.batteryMaxDischargeKw = paramOrLatestValue(
+        node,
+        "batteryMaxDischargeKw",
+        "batteryMaxDischargeKwIndex",
+        latestParam
+    ).value_or(0.0);
+    const bool batteryAssistEnabled = paramBool(node, "batteryAssistEnabled", true);
+    input.batteryChargeAllowed = batteryAssistEnabled;
+    input.batteryDischargeAllowed = batteryAssistEnabled;
+    const auto socIndex = paramIndex(node, "socIndex", 0);
+    if (socIndex != 0) {
+        const auto soc = latestValue(socIndex, nowMs);
+        if (!soc) {
+            input.batteryChargeAllowed = false;
+            input.batteryDischargeAllowed = false;
+        } else {
+            input.batteryChargeAllowed = input.batteryChargeAllowed &&
+                *soc < paramDouble(node, "socMax").value_or(100.0);
+            input.batteryDischargeAllowed = input.batteryDischargeAllowed &&
+                *soc > paramDouble(node, "socMin").value_or(0.0);
+        }
+    }
+
+    const auto solved = solveFlexiblePhaseBalance(input);
+    const double commandSign = paramDouble(node, "commandSign").value_or(1.0);
+    bool updated = false;
+    const auto emit = [&](const char* key, double value) {
+        const auto index = paramIndex(node, key, 0);
+        if (index == 0) {
+            return;
+        }
+        const auto routed = set(index, value, nowMs);
+        if (!routed.accepted) {
+            throw std::runtime_error(std::string("flexiblePhaseBalance output rejected: ") + routed.message);
+        }
+        ++result.latestWrites;
+        updated = true;
+    };
+
+    emit("paOutput", solved.finalCompensationKw[0] * commandSign);
+    emit("pbOutput", solved.finalCompensationKw[1] * commandSign);
+    emit("pcOutput", solved.finalCompensationKw[2] * commandSign);
+    emit("pcsTransferPaOutput", solved.pcsTransferKw[0]);
+    emit("pcsTransferPbOutput", solved.pcsTransferKw[1]);
+    emit("pcsTransferPcOutput", solved.pcsTransferKw[2]);
+    emit("batteryAssistPaOutput", solved.batteryAssistDeltaKw[0]);
+    emit("batteryAssistPbOutput", solved.batteryAssistDeltaKw[1]);
+    emit("batteryAssistPcOutput", solved.batteryAssistDeltaKw[2]);
+    emit("inputSpreadOutput", solved.inputSpreadKw);
+    emit("pcsOnlySpreadOutput", solved.pcsOnlySpreadKw);
+    emit("finalSpreadOutput", solved.finalSpreadKw);
+    emit("unservedSpreadOutput", solved.unservedSpreadKw);
+    emit("batteryNetPowerOutput", solved.batteryNetPowerKw);
+    emit("targetGridPhasePowerOutput", solved.targetGridPhasePowerKw);
+    emit("modeOutput", static_cast<double>(static_cast<int>(solved.mode)));
+    emit("runOutput", solved.mode == FlexiblePhaseBalanceMode::Idle ? 0.0 : 1.0);
+    return updated;
+}
+
 bool GraphEmsEngine::runSkOverride(
     const GraphEmsNodeConfig& node,
     std::int64_t nowMs,
@@ -5283,6 +5536,9 @@ bool GraphEmsEngine::runPowerConstraint(
         active[phase] = *p;
         reactive[phase] = *q;
     }
+    const auto requestedActive = active;
+    const auto requestedReactive = reactive;
+    int limitationFlags = 0;
 
     std::vector<Optional<double>> loads(phaseCount);
     const auto loadIndexes = paramIndexes(node, "loadIndexes");
@@ -5324,6 +5580,7 @@ bool GraphEmsEngine::runPowerConstraint(
             if (reserveTarget < 0.0) {
                 active[phase] = std::min(active[phase], reserveTarget);
                 reserveRun = 1.0;
+                limitationFlags |= 32;
             }
         }
     }
@@ -5348,14 +5605,27 @@ bool GraphEmsEngine::runPowerConstraint(
     const auto apparentTotalLimit = latestValue(paramIndex(node, "apparentTotalLimitIndex", 0), nowMs);
     if (apparentTotalLimit && *apparentTotalLimit > 0.0) {
         const auto phaseLimit = *apparentTotalLimit / static_cast<double>(phaseCount);
+        const auto priority = normalizedToken(node.params.count("pqPriority")
+            ? node.params.at("pqPriority") : "reactivePowerFirst");
         for (std::size_t phase = 0; phase < phaseCount; ++phase) {
             const auto apparent = apparentPower(active[phase], reactive[phase]);
             if (apparent <= phaseLimit) {
                 continue;
             }
-            const auto remaining = std::max(0.0, phaseLimit * phaseLimit - reactive[phase] * reactive[phase]);
-            active[phase] = active[phase] > 0.0 ? std::sqrt(remaining)
-                : active[phase] < 0.0 ? -std::sqrt(remaining) : 0.0;
+            limitationFlags |= 4;
+            if (priority == "activepowerfirst") {
+                active[phase] = std::max(-phaseLimit, std::min(active[phase], phaseLimit));
+                const auto remaining = std::max(0.0, phaseLimit * phaseLimit - active[phase] * active[phase]);
+                reactive[phase] = std::copysign(std::sqrt(remaining), reactive[phase]);
+            } else if (priority == "proportional") {
+                const auto ratio = phaseLimit / apparent;
+                active[phase] *= ratio;
+                reactive[phase] *= ratio;
+            } else {
+                reactive[phase] = std::max(-phaseLimit, std::min(reactive[phase], phaseLimit));
+                const auto remaining = std::max(0.0, phaseLimit * phaseLimit - reactive[phase] * reactive[phase]);
+                active[phase] = std::copysign(std::sqrt(remaining), active[phase]);
+            }
         }
     }
 
@@ -5363,6 +5633,7 @@ bool GraphEmsEngine::runPowerConstraint(
     if (activeTotal > 0.0) {
         const auto limit = latestValue(paramIndex(node, "positiveTotalLimitIndex", 0), nowMs);
         if (limit && activeTotal > *limit) {
+            limitationFlags |= 8;
             const auto positive = std::accumulate(active.begin(), active.end(), 0.0, [](double total, double value) {
                 return total + (value > 0.0 ? value : 0.0);
             });
@@ -5377,6 +5648,7 @@ bool GraphEmsEngine::runPowerConstraint(
     } else if (activeTotal < 0.0) {
         const auto limit = latestValue(paramIndex(node, "negativeTotalLimitIndex", 0), nowMs);
         if (limit && activeTotal < -*limit) {
+            limitationFlags |= 8;
             const auto positive = std::accumulate(active.begin(), active.end(), 0.0, [](double total, double value) {
                 return total + (value > 0.0 ? value : 0.0);
             });
@@ -5403,7 +5675,19 @@ bool GraphEmsEngine::runPowerConstraint(
             if (highState && active[phase] > 0.0) active[phase] = 0.0;
             if (lowState && paramBool(node, "lowStateClearReactive", true)) reactive[phase] = 0.0;
         }
+        if (lowState || highState) {
+            limitationFlags |= 16;
+        }
     }
+
+    double unservedActive = 0.0;
+    double unservedReactive = 0.0;
+    for (std::size_t phase = 0; phase < phaseCount; ++phase) {
+        unservedActive += std::abs(requestedActive[phase] - active[phase]);
+        unservedReactive += std::abs(requestedReactive[phase] - reactive[phase]);
+    }
+    if (unservedActive > 1e-9) limitationFlags |= 1;
+    if (unservedReactive > 1e-9) limitationFlags |= 2;
 
     bool updated = false;
     const auto write = [&](std::uint32_t index, double value) {
@@ -5419,6 +5703,27 @@ bool GraphEmsEngine::runPowerConstraint(
         write(activeOutputs[phase], active[phase]);
         write(reactiveOutputs[phase], reactive[phase]);
     }
+    const auto unservedActiveOutputs = paramIndexes(node, "unservedActiveOutputIndexes");
+    const auto unservedReactiveOutputs = paramIndexes(node, "unservedReactiveOutputIndexes");
+    for (std::size_t phase = 0; phase < phaseCount; ++phase) {
+        if (phase < unservedActiveOutputs.size()) {
+            write(unservedActiveOutputs[phase], requestedActive[phase] - active[phase]);
+        }
+        if (phase < unservedReactiveOutputs.size()) {
+            write(unservedReactiveOutputs[phase], requestedReactive[phase] - reactive[phase]);
+        }
+    }
+    write(paramIndex(node, "requestedActiveTotalOutputIndex", 0),
+        std::accumulate(requestedActive.begin(), requestedActive.end(), 0.0));
+    write(paramIndex(node, "requestedReactiveTotalOutputIndex", 0),
+        std::accumulate(requestedReactive.begin(), requestedReactive.end(), 0.0));
+    write(paramIndex(node, "deliveredActiveTotalOutputIndex", 0),
+        std::accumulate(active.begin(), active.end(), 0.0));
+    write(paramIndex(node, "deliveredReactiveTotalOutputIndex", 0),
+        std::accumulate(reactive.begin(), reactive.end(), 0.0));
+    write(paramIndex(node, "unservedActiveTotalOutputIndex", 0), unservedActive);
+    write(paramIndex(node, "unservedReactiveTotalOutputIndex", 0), unservedReactive);
+    write(paramIndex(node, "limitationFlagsOutputIndex", 0), static_cast<double>(limitationFlags));
     write(paramIndex(node, "reserveRunOutputIndex", 0), reserveRun);
     if (lowState) {
         for (const auto index : paramIndexes(node, "lowStateClearIndexes")) write(index, 0.0);
@@ -5639,6 +5944,27 @@ bool GraphEmsEngine::runRateLimit(
     if (*input < minValue || *input > maxValue) {
         throw std::runtime_error("rateLimit input outside configured bounds");
     }
+    const auto latestParam = [this, nowMs](std::uint32_t index) {
+        return latestValue(index, nowMs);
+    };
+    const auto risePerSecond = paramOrLatestValue(
+        node,
+        "risePerSecond",
+        "risePerSecondIndex",
+        latestParam
+    );
+    const auto fallPerSecond = paramOrLatestValue(
+        node,
+        "fallPerSecond",
+        "fallPerSecondIndex",
+        latestParam
+    );
+    if (!risePerSecond || !std::isfinite(*risePerSecond) || *risePerSecond <= 0.0) {
+        throw std::runtime_error("rateLimit rise speed is unavailable or not positive");
+    }
+    if (!fallPerSecond || !std::isfinite(*fallPerSecond) || *fallPerSecond <= 0.0) {
+        throw std::runtime_error("rateLimit fall speed is unavailable or not positive");
+    }
 
     const auto outputIndex = paramIndex(node, "outputIndex");
     auto& state = rateLimitStates_[node.id];
@@ -5652,9 +5978,9 @@ bool GraphEmsEngine::runRateLimit(
         const auto elapsedSeconds = static_cast<double>(nowMs - state.lastRunAt) / 1000.0;
         const auto delta = *input - state.output;
         if (delta > 0.0) {
-            next = state.output + std::min(delta, paramDouble(node, "risePerSecond").value() * elapsedSeconds);
+            next = state.output + std::min(delta, *risePerSecond * elapsedSeconds);
         } else if (delta < 0.0) {
-            next = state.output + std::max(delta, -paramDouble(node, "fallPerSecond").value() * elapsedSeconds);
+            next = state.output + std::max(delta, -*fallPerSecond * elapsedSeconds);
         }
     }
 

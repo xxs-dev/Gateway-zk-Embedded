@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0",
+  "productId": "ky-ems-mobile",
+  "factoryRuntimeDirectory": "config/factory/runtime",
+  "virtualPointConfig": "config/factory/runtime/devices/device_ems_virtual.json",
+  "strategyGraph": "config/factory/runtime/logic/shuntong_ems_graph.json",
+  "retainedDataDirectory": "/opt/modbus-gateway/data/ems-virtual-parameters",
+  "protectedScreenPrefixes": [
+    "Strategy-",
+    "Control-"
+  ],
+  "defaultTrendWindowMinutes": 60
+}

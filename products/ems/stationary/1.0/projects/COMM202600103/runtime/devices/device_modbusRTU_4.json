@@ -1,0 +1,4714 @@
+﻿{
+  "templateName": "legacy_modbusRTU_4",
+  "schemaVersion": "1.1.0",
+  "enabled": true,
+  "protocol": {
+    "type": "modbus_rtu",
+    "slave": 1,
+    "transport": {
+      "serialPort": "/dev/ttySP4",
+      "baudRate": 19200,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 500,
+      "frameIntervalMs": 100,
+      "readRetryCount": 1
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 500,
+    "batchOptimize": true,
+    "maxBatchRegisters": 120,
+    "maxRequestRegisters": 120,
+    "offlineFailureThreshold": 3,
+    "recoverySuccessThreshold": 1,
+    "slaveFailureBackoffThreshold": 3,
+    "slaveFailureBackoffMs": 30000,
+    "taskFailureBackoffThreshold": 1,
+    "taskFailureBackoffMs": 180000,
+    "offlineProbeOnly": true,
+    "offlineProbeTaskCount": 2,
+    "adaptiveSplitOnFailure": true,
+    "adaptiveSplitMaxRegisters": 1,
+    "logAdaptiveSplitParentFailures": false,
+    "taskFailureBackoffMaxMs": 900000,
+    "realtimeTaskFailureBackoffMs": 5000,
+    "realtimeTaskFailureBackoffMaxMs": 30000,
+    "adaptiveSplitMaxDepth": 2,
+    "adaptiveSplitLeafProbeBudget": 3,
+    "realtimeAdaptiveSplitLeafProbeBudget": 24,
+    "runtimeMeterBatchSize": 16,
+    "maxTasksPerMeterPerCycle": 2,
+    "realtimeMaxTasksPerMeterPerCycle": 8,
+    "backgroundTaskIntervalMs": 5000,
+    "maxBackgroundTasksPerMeterPerCycle": 1,
+    "realtimeMaxBackgroundTasksPerMeterPerCycle": 8,
+    "failureGoodValueGraceMs": 0,
+    "failureBadQualityThreshold": 3
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ttySP4",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ttySP4.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "modbusRTU_4_slave_1",
+      "deviceName": "PCS",
+      "enabled": true,
+      "slave": 1,
+      "protocolType": "modbus_rtu",
+      "templateName": "PCS",
+      "sourceCom": "COM4",
+      "sourceAddress": 1,
+      "sourceName": "PCS",
+      "matchStatus": "legacy_import",
+      "points": [
+        {
+          "index": 1399,
+          "pointCode": "mb4_s1_1399",
+          "name": "通讯状态",
+          "desc": "legacy import modbusRTU_4 slave 1 online status",
+          "category": "status",
+          "address": 0,
+          "enabled": true,
+          "isStore": false,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "online",
+            "status",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 0,
+            "length": 0,
+            "dataType": "device_online",
+            "scale": 1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1200,
+          "pointCode": "mb4_s1_1200",
+          "name": "故障复位",
+          "desc": "legacy import modbusRTU_4 slave 1 register 1",
+          "category": "telemetry",
+          "address": 1,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1201,
+          "pointCode": "mb4_s1_1201",
+          "name": "设备启动",
+          "desc": "legacy import modbusRTU_4 slave 1 register 2",
+          "category": "telemetry",
+          "address": 2,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1202,
+          "pointCode": "mb4_s1_1202",
+          "name": "设备停机",
+          "desc": "legacy import modbusRTU_4 slave 1 register 3",
+          "category": "telemetry",
+          "address": 3,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1203,
+          "pointCode": "mb4_s1_1203",
+          "name": "远程急停",
+          "desc": "legacy import modbusRTU_4 slave 1 register 4",
+          "category": "telemetry",
+          "address": 4,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1204,
+          "pointCode": "mb4_s1_1204",
+          "name": "累计充电电量清零",
+          "desc": "legacy import modbusRTU_4 slave 1 register 5",
+          "category": "telemetry",
+          "address": 5,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1205,
+          "pointCode": "mb4_s1_1205",
+          "name": "累计放电电量清零",
+          "desc": "legacy import modbusRTU_4 slave 1 register 6",
+          "category": "telemetry",
+          "address": 6,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1206,
+          "pointCode": "mb4_s1_1206",
+          "name": "远程/就地设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 7",
+          "category": "telemetry",
+          "address": 7,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1207,
+          "pointCode": "mb4_s1_1207",
+          "name": "设备待机",
+          "desc": "legacy import modbusRTU_4 slave 1 register 8",
+          "category": "telemetry",
+          "address": 8,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1208,
+          "pointCode": "mb4_s1_1208",
+          "name": "外部电操开关",
+          "desc": "legacy import modbusRTU_4 slave 1 register 9",
+          "category": "telemetry",
+          "address": 9,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 1,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 5,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 1,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1209,
+          "pointCode": "mb4_s1_1209",
+          "name": "停机状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 81",
+          "category": "telemetry",
+          "address": 81,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1210,
+          "pointCode": "mb4_s1_1210",
+          "name": "待机状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 82",
+          "category": "telemetry",
+          "address": 82,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1211,
+          "pointCode": "mb4_s1_1211",
+          "name": "运行状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 83",
+          "category": "telemetry",
+          "address": 83,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1212,
+          "pointCode": "mb4_s1_1212",
+          "name": "总故障状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 84",
+          "category": "telemetry",
+          "address": 84,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1213,
+          "pointCode": "mb4_s1_1213",
+          "name": "总报警状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 85",
+          "category": "telemetry",
+          "address": 85,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1214,
+          "pointCode": "mb4_s1_1214",
+          "name": "远程/就地状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 86",
+          "category": "telemetry",
+          "address": 86,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1215,
+          "pointCode": "mb4_s1_1215",
+          "name": "急停输入状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 87",
+          "category": "telemetry",
+          "address": 87,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1216,
+          "pointCode": "mb4_s1_1216",
+          "name": "PCS运行状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 88",
+          "category": "telemetry",
+          "address": 88,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1217,
+          "pointCode": "mb4_s1_1217",
+          "name": "PCS并离网状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 89",
+          "category": "telemetry",
+          "address": 89,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1218,
+          "pointCode": "mb4_s1_1218",
+          "name": "过载降容",
+          "desc": "legacy import modbusRTU_4 slave 1 register 90",
+          "category": "telemetry",
+          "address": 90,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1219,
+          "pointCode": "mb4_s1_1219",
+          "name": "BMS干接点输入",
+          "desc": "legacy import modbusRTU_4 slave 1 register 94",
+          "category": "telemetry",
+          "address": 94,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 2,
+            "length": 1,
+            "dataType": "bit",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1220,
+          "pointCode": "mb4_s1_1220",
+          "name": "PCS 端口 A 相电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 201",
+          "category": "telemetry",
+          "address": 201,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1221,
+          "pointCode": "mb4_s1_1221",
+          "name": "PCS 端口 B 相电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 202",
+          "category": "telemetry",
+          "address": 202,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1222,
+          "pointCode": "mb4_s1_1222",
+          "name": "PCS 端口 C 相电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 203",
+          "category": "telemetry",
+          "address": 203,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1223,
+          "pointCode": "mb4_s1_1223",
+          "name": "PCS 输出 A 相电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 204",
+          "category": "telemetry",
+          "address": 204,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1224,
+          "pointCode": "mb4_s1_1224",
+          "name": "PCS 输出 B 相电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 205",
+          "category": "telemetry",
+          "address": 205,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1225,
+          "pointCode": "mb4_s1_1225",
+          "name": "PCS 输出 C 相电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 206",
+          "category": "telemetry",
+          "address": 206,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1226,
+          "pointCode": "mb4_s1_1226",
+          "name": "电网频率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 207",
+          "category": "telemetry",
+          "address": 207,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "Hz",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1227,
+          "pointCode": "mb4_s1_1227",
+          "name": "PCS A 相输出有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 208",
+          "category": "telemetry",
+          "address": 208,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1228,
+          "pointCode": "mb4_s1_1228",
+          "name": "PCS B 相输出有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 209",
+          "category": "telemetry",
+          "address": 209,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1229,
+          "pointCode": "mb4_s1_1229",
+          "name": "PCS C 相输出有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 210",
+          "category": "telemetry",
+          "address": 210,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1230,
+          "pointCode": "mb4_s1_1230",
+          "name": "PCS 总输出有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 211",
+          "category": "telemetry",
+          "address": 211,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1231,
+          "pointCode": "mb4_s1_1231",
+          "name": "PCS A 相输出无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 212",
+          "category": "telemetry",
+          "address": 212,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1232,
+          "pointCode": "mb4_s1_1232",
+          "name": "PCS B 相输出无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 213",
+          "category": "telemetry",
+          "address": 213,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1233,
+          "pointCode": "mb4_s1_1233",
+          "name": "PCS C 相输出无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 214",
+          "category": "telemetry",
+          "address": 214,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1234,
+          "pointCode": "mb4_s1_1234",
+          "name": "PCS 总输出无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 215",
+          "category": "telemetry",
+          "address": 215,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1235,
+          "pointCode": "mb4_s1_1235",
+          "name": "PCS A 相输出视在功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 216",
+          "category": "telemetry",
+          "address": 216,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1236,
+          "pointCode": "mb4_s1_1236",
+          "name": "PCS B 相输出视在功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 217",
+          "category": "telemetry",
+          "address": 217,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1237,
+          "pointCode": "mb4_s1_1237",
+          "name": "PCS C 相输出视在功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 218",
+          "category": "telemetry",
+          "address": 218,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1238,
+          "pointCode": "mb4_s1_1238",
+          "name": "PCS 总输出视在功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 219",
+          "category": "telemetry",
+          "address": 219,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kVA",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1239,
+          "pointCode": "mb4_s1_1239",
+          "name": "PCS 输出 A 相功率因数",
+          "desc": "legacy import modbusRTU_4 slave 1 register 220",
+          "category": "telemetry",
+          "address": 220,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.001,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1240,
+          "pointCode": "mb4_s1_1240",
+          "name": "PCS 输出 B 相功率因数",
+          "desc": "legacy import modbusRTU_4 slave 1 register 221",
+          "category": "telemetry",
+          "address": 221,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.001,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1241,
+          "pointCode": "mb4_s1_1241",
+          "name": "PCS 输出 C 相功率因数",
+          "desc": "legacy import modbusRTU_4 slave 1 register 222",
+          "category": "telemetry",
+          "address": 222,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.001,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1242,
+          "pointCode": "mb4_s1_1242",
+          "name": "PCS 输出总功率因数",
+          "desc": "legacy import modbusRTU_4 slave 1 register 223",
+          "category": "telemetry",
+          "address": 223,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.001,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1243,
+          "pointCode": "mb4_s1_1243",
+          "name": "PCS 输入功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 224",
+          "category": "telemetry",
+          "address": 224,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1244,
+          "pointCode": "mb4_s1_1244",
+          "name": "PCS 输入电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 225",
+          "category": "telemetry",
+          "address": 225,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1245,
+          "pointCode": "mb4_s1_1245",
+          "name": "PCS 输入电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 226",
+          "category": "telemetry",
+          "address": 226,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1246,
+          "pointCode": "mb4_s1_1246",
+          "name": "PCS运行状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 229",
+          "category": "telemetry",
+          "address": 229,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1247,
+          "pointCode": "mb4_s1_1247",
+          "name": "PCS 交流累计充电电量",
+          "desc": "legacy import modbusRTU_4 slave 1 register 230",
+          "category": "telemetry",
+          "address": 230,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kWh",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": false
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1248,
+          "pointCode": "mb4_s1_1248",
+          "name": "PCS 交流累计放电电量",
+          "desc": "legacy import modbusRTU_4 slave 1 register 232",
+          "category": "telemetry",
+          "address": 232,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kWh",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": false
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1249,
+          "pointCode": "mb4_s1_1249",
+          "name": "PCS 直流累计充电电量",
+          "desc": "legacy import modbusRTU_4 slave 1 register 234",
+          "category": "telemetry",
+          "address": 234,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kWh",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": false
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1250,
+          "pointCode": "mb4_s1_1250",
+          "name": "PCS 直流累计放电电量",
+          "desc": "legacy import modbusRTU_4 slave 1 register 236",
+          "category": "telemetry",
+          "address": 236,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kWh",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": false
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1252,
+          "pointCode": "mb4_s1_1252",
+          "name": "系统时钟-秒",
+          "desc": "legacy import modbusRTU_4 slave 1 register 239",
+          "category": "telemetry",
+          "address": 239,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1253,
+          "pointCode": "mb4_s1_1253",
+          "name": "系统时钟-分",
+          "desc": "legacy import modbusRTU_4 slave 1 register 240",
+          "category": "telemetry",
+          "address": 240,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1254,
+          "pointCode": "mb4_s1_1254",
+          "name": "系统时钟-时",
+          "desc": "legacy import modbusRTU_4 slave 1 register 241",
+          "category": "telemetry",
+          "address": 241,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1255,
+          "pointCode": "mb4_s1_1255",
+          "name": "系统时钟-日",
+          "desc": "legacy import modbusRTU_4 slave 1 register 242",
+          "category": "telemetry",
+          "address": 242,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1256,
+          "pointCode": "mb4_s1_1256",
+          "name": "系统时钟-月",
+          "desc": "legacy import modbusRTU_4 slave 1 register 243",
+          "category": "telemetry",
+          "address": 243,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1257,
+          "pointCode": "mb4_s1_1257",
+          "name": "系统时钟-年",
+          "desc": "legacy import modbusRTU_4 slave 1 register 244",
+          "category": "telemetry",
+          "address": 244,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1258,
+          "pointCode": "mb4_s1_1258",
+          "name": "PCS 程序版本",
+          "desc": "legacy import modbusRTU_4 slave 1 register 245",
+          "category": "telemetry",
+          "address": 245,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1260,
+          "pointCode": "mb4_s1_1260",
+          "name": "N 相电流有效值",
+          "desc": "legacy import modbusRTU_4 slave 1 register 247",
+          "category": "telemetry",
+          "address": 247,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1261,
+          "pointCode": "mb4_s1_1261",
+          "name": "PCS控制软件故障字1",
+          "desc": "legacy import modbusRTU_4 slave 1 register 609",
+          "category": "telemetry",
+          "address": 609,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1262,
+          "pointCode": "mb4_s1_1262",
+          "name": "PCS控制软件故障字2",
+          "desc": "legacy import modbusRTU_4 slave 1 register 610",
+          "category": "telemetry",
+          "address": 610,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1263,
+          "pointCode": "mb4_s1_1263",
+          "name": "PCS控制软件故障字3",
+          "desc": "legacy import modbusRTU_4 slave 1 register 611",
+          "category": "telemetry",
+          "address": 611,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1264,
+          "pointCode": "mb4_s1_1264",
+          "name": "PCS控制软件故障字4",
+          "desc": "legacy import modbusRTU_4 slave 1 register 612",
+          "category": "telemetry",
+          "address": 612,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1265,
+          "pointCode": "mb4_s1_1265",
+          "name": "PCS控制软件故障字5",
+          "desc": "legacy import modbusRTU_4 slave 1 register 613",
+          "category": "telemetry",
+          "address": 613,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1266,
+          "pointCode": "mb4_s1_1266",
+          "name": "PCS通讯软件故障字1",
+          "desc": "legacy import modbusRTU_4 slave 1 register 617",
+          "category": "telemetry",
+          "address": 617,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1267,
+          "pointCode": "mb4_s1_1267",
+          "name": "PCS通讯软件故障字2",
+          "desc": "legacy import modbusRTU_4 slave 1 register 618",
+          "category": "telemetry",
+          "address": 618,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1268,
+          "pointCode": "mb4_s1_1268",
+          "name": "PCS通讯软件故障字3",
+          "desc": "legacy import modbusRTU_4 slave 1 register 619",
+          "category": "telemetry",
+          "address": 619,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1269,
+          "pointCode": "mb4_s1_1269",
+          "name": "PCS通讯软件故障字4",
+          "desc": "legacy import modbusRTU_4 slave 1 register 620",
+          "category": "telemetry",
+          "address": 620,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1270,
+          "pointCode": "mb4_s1_1270",
+          "name": "IGBT 温度 1",
+          "desc": "legacy import modbusRTU_4 slave 1 register 604",
+          "category": "telemetry",
+          "address": 604,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1271,
+          "pointCode": "mb4_s1_1271",
+          "name": "IGBT 温度 1",
+          "desc": "legacy import modbusRTU_4 slave 1 register 600",
+          "category": "telemetry",
+          "address": 600,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1272,
+          "pointCode": "mb4_s1_1272",
+          "name": "IGBT 温度 2",
+          "desc": "legacy import modbusRTU_4 slave 1 register 601",
+          "category": "telemetry",
+          "address": 601,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1273,
+          "pointCode": "mb4_s1_1273",
+          "name": "IGBT 温度 3",
+          "desc": "legacy import modbusRTU_4 slave 1 register 602",
+          "category": "telemetry",
+          "address": 602,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1274,
+          "pointCode": "mb4_s1_1274",
+          "name": "IGBT 温度 4",
+          "desc": "legacy import modbusRTU_4 slave 1 register 603",
+          "category": "telemetry",
+          "address": 603,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1275,
+          "pointCode": "mb4_s1_1275",
+          "name": "腔内温度",
+          "desc": "legacy import modbusRTU_4 slave 1 register 605",
+          "category": "telemetry",
+          "address": 605,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1276,
+          "pointCode": "mb4_s1_1276",
+          "name": "出风口温度",
+          "desc": "legacy import modbusRTU_4 slave 1 register 606",
+          "category": "telemetry",
+          "address": 606,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1277,
+          "pointCode": "mb4_s1_1277",
+          "name": "控制芯片结温",
+          "desc": "legacy import modbusRTU_4 slave 1 register 607",
+          "category": "telemetry",
+          "address": 607,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1278,
+          "pointCode": "mb4_s1_1278",
+          "name": "通讯芯片结温",
+          "desc": "legacy import modbusRTU_4 slave 1 register 608",
+          "category": "telemetry",
+          "address": 608,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1279,
+          "pointCode": "mb4_s1_1279",
+          "name": "BMS/CMS 工作状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 280",
+          "category": "telemetry",
+          "address": 280,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1280,
+          "pointCode": "mb4_s1_1280",
+          "name": "BMS/CMS 允许充电电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 281",
+          "category": "telemetry",
+          "address": 281,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1281,
+          "pointCode": "mb4_s1_1281",
+          "name": "BMS/CMS 允许放电电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 282",
+          "category": "telemetry",
+          "address": 282,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1282,
+          "pointCode": "mb4_s1_1282",
+          "name": "BMS/CMS SOC",
+          "desc": "legacy import modbusRTU_4 slave 1 register 283",
+          "category": "telemetry",
+          "address": 283,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "%",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1283,
+          "pointCode": "mb4_s1_1283",
+          "name": "BMS/CMS 可充电电量",
+          "desc": "legacy import modbusRTU_4 slave 1 register 284",
+          "category": "telemetry",
+          "address": 284,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kWh",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": false
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1284,
+          "pointCode": "mb4_s1_1284",
+          "name": "BMS/CMS 可放电电量",
+          "desc": "legacy import modbusRTU_4 slave 1 register 285",
+          "category": "telemetry",
+          "address": 285,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kWh",
+            "intervalMs": 5000
+          },
+          "write": {
+            "enable": false
+          },
+          "collectPriority": 1
+        },
+        {
+          "index": 1285,
+          "pointCode": "mb4_s1_1285",
+          "name": "BMS/CMS 总电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 286",
+          "category": "telemetry",
+          "address": 286,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1286,
+          "pointCode": "mb4_s1_1286",
+          "name": "BMS/CMS 总电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 287",
+          "category": "telemetry",
+          "address": 287,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1287,
+          "pointCode": "mb4_s1_1287",
+          "name": "BMS/CMS 总SOC",
+          "desc": "legacy import modbusRTU_4 slave 1 register 288",
+          "category": "telemetry",
+          "address": 288,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "%",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1288,
+          "pointCode": "mb4_s1_1288",
+          "name": "BMS/CMS 总SOH",
+          "desc": "legacy import modbusRTU_4 slave 1 register 289",
+          "category": "telemetry",
+          "address": 289,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "%",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1289,
+          "pointCode": "mb4_s1_1289",
+          "name": "BMS/CMS 单体最高电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 290",
+          "category": "telemetry",
+          "address": 290,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "mV",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1290,
+          "pointCode": "mb4_s1_1290",
+          "name": "BMS/CMS 单体最低电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 291",
+          "category": "telemetry",
+          "address": 291,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "mV",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1291,
+          "pointCode": "mb4_s1_1291",
+          "name": "BMS/CMS 单体最高温度",
+          "desc": "legacy import modbusRTU_4 slave 1 register 292",
+          "category": "telemetry",
+          "address": 292,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1292,
+          "pointCode": "mb4_s1_1292",
+          "name": "BMS/CMS 单体最低温度",
+          "desc": "legacy import modbusRTU_4 slave 1 register 293",
+          "category": "telemetry",
+          "address": 293,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "℃",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1293,
+          "pointCode": "mb4_s1_1293",
+          "name": "BMS/CMS 允许充电功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 294",
+          "category": "telemetry",
+          "address": 294,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1294,
+          "pointCode": "mb4_s1_1294",
+          "name": "BMS/CMS 允许放电功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 295",
+          "category": "telemetry",
+          "address": 295,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 4,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
+          "index": 1310,
+          "pointCode": "mb4_s1_1310",
+          "name": "有功模式",
+          "desc": "legacy import modbusRTU_4 slave 1 register 301",
+          "category": "telemetry",
+          "address": 301,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1311,
+          "pointCode": "mb4_s1_1311",
+          "name": "直流恒压电压设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 302",
+          "category": "telemetry",
+          "address": 302,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1312,
+          "pointCode": "mb4_s1_1312",
+          "name": "直流恒流电流设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 303",
+          "category": "telemetry",
+          "address": 303,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1313,
+          "pointCode": "mb4_s1_1313",
+          "name": "输出有功功率设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 304",
+          "category": "telemetry",
+          "address": 304,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1314,
+          "pointCode": "mb4_s1_1314",
+          "name": "输出无功功率设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 305",
+          "category": "telemetry",
+          "address": 305,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1315,
+          "pointCode": "mb4_s1_1315",
+          "name": "并离网切换功能使能",
+          "desc": "legacy import modbusRTU_4 slave 1 register 306",
+          "category": "telemetry",
+          "address": 306,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1316,
+          "pointCode": "mb4_s1_1316",
+          "name": "离网输出电压设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 307",
+          "category": "telemetry",
+          "address": 307,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1317,
+          "pointCode": "mb4_s1_1317",
+          "name": "离网输出频率设置",
+          "desc": "legacy import modbusRTU_4 slave 1 register 308",
+          "category": "telemetry",
+          "address": 308,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "Hz",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1318,
+          "pointCode": "mb4_s1_1318",
+          "name": "分相控制 A 相有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 309",
+          "category": "telemetry",
+          "address": 309,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1319,
+          "pointCode": "mb4_s1_1319",
+          "name": "分相控制 B 相有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 310",
+          "category": "telemetry",
+          "address": 310,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1320,
+          "pointCode": "mb4_s1_1320",
+          "name": "分相控制 C 相有功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 311",
+          "category": "telemetry",
+          "address": 311,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kW",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1321,
+          "pointCode": "mb4_s1_1321",
+          "name": "分相控制 A 相无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 312",
+          "category": "telemetry",
+          "address": 312,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1322,
+          "pointCode": "mb4_s1_1322",
+          "name": "分相控制 B 相无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 313",
+          "category": "telemetry",
+          "address": 313,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1323,
+          "pointCode": "mb4_s1_1323",
+          "name": "分相控制 C 相无功功率",
+          "desc": "legacy import modbusRTU_4 slave 1 register 314",
+          "category": "telemetry",
+          "address": 314,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": true,
+            "unit": "kVar",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "int16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": -32768,
+            "max": 32767,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1324,
+          "pointCode": "mb4_s1_1324",
+          "name": "无功功率模式",
+          "desc": "legacy import modbusRTU_4 slave 1 register 315",
+          "category": "telemetry",
+          "address": 315,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1325,
+          "pointCode": "mb4_s1_1325",
+          "name": "离网输出电压分相给定 B",
+          "desc": "legacy import modbusRTU_4 slave 1 register 316",
+          "category": "telemetry",
+          "address": 316,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1326,
+          "pointCode": "mb4_s1_1326",
+          "name": "离网输出电压分相给定 C",
+          "desc": "legacy import modbusRTU_4 slave 1 register 317",
+          "category": "telemetry",
+          "address": 317,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1327,
+          "pointCode": "mb4_s1_1327",
+          "name": "微网直流电压下垂系数",
+          "desc": "legacy import modbusRTU_4 slave 1 register 318",
+          "category": "telemetry",
+          "address": 318,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1328,
+          "pointCode": "mb4_s1_1328",
+          "name": "一次调频频率死区",
+          "desc": "legacy import modbusRTU_4 slave 1 register 319",
+          "category": "telemetry",
+          "address": 319,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "Hz",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.01,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1329,
+          "pointCode": "mb4_s1_1329",
+          "name": "一次调频 K 值",
+          "desc": "legacy import modbusRTU_4 slave 1 register 320",
+          "category": "telemetry",
+          "address": 320,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 0.1,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1330,
+          "pointCode": "mb4_s1_1330",
+          "name": "PCS并离网状态",
+          "desc": "legacy import modbusRTU_4 slave 1 register 324",
+          "category": "telemetry",
+          "address": 324,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1331,
+          "pointCode": "mb4_s1_1331",
+          "name": "电池/超容允许充电电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 326",
+          "category": "telemetry",
+          "address": 326,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1332,
+          "pointCode": "mb4_s1_1332",
+          "name": "电池/超容允许放电电压",
+          "desc": "legacy import modbusRTU_4 slave 1 register 327",
+          "category": "telemetry",
+          "address": 327,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "V",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1333,
+          "pointCode": "mb4_s1_1333",
+          "name": "电池/超容允许充电电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 328",
+          "category": "telemetry",
+          "address": 328,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1334,
+          "pointCode": "mb4_s1_1334",
+          "name": "电池/超容允许放电电流",
+          "desc": "legacy import modbusRTU_4 slave 1 register 329",
+          "category": "telemetry",
+          "address": 329,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": true,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "A",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1335,
+          "pointCode": "mb4_s1_1335",
+          "name": "对时-秒",
+          "desc": "legacy import modbusRTU_4 slave 1 register 330",
+          "category": "control",
+          "address": 330,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1336,
+          "pointCode": "mb4_s1_1336",
+          "name": "对时-分",
+          "desc": "legacy import modbusRTU_4 slave 1 register 331",
+          "category": "control",
+          "address": 331,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1337,
+          "pointCode": "mb4_s1_1337",
+          "name": "对时-时",
+          "desc": "legacy import modbusRTU_4 slave 1 register 332",
+          "category": "control",
+          "address": 332,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1338,
+          "pointCode": "mb4_s1_1338",
+          "name": "对时-日",
+          "desc": "legacy import modbusRTU_4 slave 1 register 333",
+          "category": "control",
+          "address": 333,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1339,
+          "pointCode": "mb4_s1_1339",
+          "name": "对时-月",
+          "desc": "legacy import modbusRTU_4 slave 1 register 334",
+          "category": "control",
+          "address": 334,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        },
+        {
+          "index": 1340,
+          "pointCode": "mb4_s1_1340",
+          "name": "对时-年",
+          "desc": "legacy import modbusRTU_4 slave 1 register 335",
+          "category": "control",
+          "address": 335,
+          "enabled": true,
+          "isStore": true,
+          "fullUpload": true,
+          "reportOnChange": false,
+          "persistIntervalSec": 60,
+          "tags": [
+            "legacy",
+            "modbusRTU_4",
+            "slave_1"
+          ],
+          "read": {
+            "enable": false,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": false,
+            "unit": "",
+            "intervalMs": 500
+          },
+          "write": {
+            "enable": true,
+            "function": 6,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "min": 0,
+            "max": 65535,
+            "step": 1,
+            "verifyAfterWrite": true,
+            "verifyDelayMs": 200,
+            "verifyByRead": true
+          }
+        }
+      ]
+    }
+  ],
+  "northboundServer": {
+    "enabled": false,
+    "mode": "mapped",
+    "protocol": "modbus_tcp",
+    "bindHost": "0.0.0.0",
+    "port": 1502,
+    "requestTimeoutMs": 1000,
+    "maxClients": 8,
+    "writesEnabled": false,
+    "maxReadRegisters": 125,
+    "maxReadBits": 2000,
+    "allowedClientCidrs": []
+  }
+}

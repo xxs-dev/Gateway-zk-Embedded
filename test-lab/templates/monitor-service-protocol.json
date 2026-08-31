@@ -10,7 +10,10 @@
     "fullUploadIntervalMs": 1000,
     "publishFullOnStart": true,
     "publishAllOnFull": true,
-    "priorityControlLeaseFile": "__TEST_LAB_ROOT__/run/priority-control.json"
+    "priorityControlLeaseFile": "__TEST_LAB_ROOT__/run/priority-control.json",
+    "healthFile": "__TEST_LAB_ROOT__/run/mqtt-driver-health.json",
+    "healthPublishIntervalMs": 1000,
+    "healthWindowCycles": 300
   },
   "alarmStore": {"enabled": false},
   "eventEngine": {
@@ -27,6 +30,9 @@
     "outputDefaultSharedMemoryName": "__SHARED_MEMORY_NAME__",
     "scanIntervalMs": 100,
     "maxRuleEvalPerScan": 16,
+    "healthFile": "__TEST_LAB_ROOT__/run/compute-engine-health.json",
+    "healthPublishIntervalMs": 1000,
+    "healthWindowCycles": 300,
     "rules": [
       {
         "ruleCode": "test_lab_double",

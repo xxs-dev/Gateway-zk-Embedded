@@ -3,8 +3,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -30,6 +34,39 @@ std::int64_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
+}
+
+double healthPercentile(std::vector<double> values, double ratio) {
+    if (values.empty()) return 0.0;
+    std::sort(values.begin(), values.end());
+    const auto boundedRatio = std::max(0.0, std::min(1.0, ratio));
+    const auto index = boundedRatio <= 0.0
+        ? 0
+        : static_cast<std::size_t>(std::ceil(values.size() * boundedRatio)) - 1;
+    return values[std::min(index, values.size() - 1)];
+}
+
+double healthMaximum(const std::vector<double>& values) {
+    return values.empty() ? 0.0 : *std::max_element(values.begin(), values.end());
+}
+
+void writeMqttHealthFile(const std::string& path, const std::string& payload) {
+    if (path.empty()) return;
+    const auto temporary = path + ".tmp";
+    {
+        std::ofstream output(temporary, std::ios::trunc);
+        if (!output) throw std::runtime_error("failed to open mqtt health file: " + temporary);
+        output << payload << '\n';
+        output.flush();
+        if (!output) throw std::runtime_error("failed to write mqtt health file: " + temporary);
+    }
+#ifdef _WIN32
+    std::remove(path.c_str());
+#endif
+    if (std::rename(temporary.c_str(), path.c_str()) != 0) {
+        std::remove(temporary.c_str());
+        throw std::runtime_error("failed to replace mqtt health file: " + path);
+    }
 }
 
 std::string escapeJson(const std::string& value) {
@@ -669,7 +706,20 @@ bool MqttDriverService::isRunning() const {
 }
 
 void MqttDriverService::runScanOnce(std::int64_t nowMs) {
-    runScanOnceInternal(nowMs, std::max(10, std::min(100, driverConfig_.scanIntervalMs)));
+    const auto started = std::chrono::steady_clock::now();
+    try {
+        runScanOnceInternal(nowMs, std::max(10, std::min(100, driverConfig_.scanIntervalMs)));
+    } catch (...) {
+        const auto durationMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started
+        ).count();
+        recordScanHealth(durationMs, true, nowMs);
+        throw;
+    }
+    const auto durationMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started
+    ).count();
+    recordScanHealth(durationMs, false, nowMs);
 }
 
 void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs) {
@@ -705,7 +755,96 @@ void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTime
 }
 
 void MqttDriverService::runEventReplayOnce(std::int64_t nowMs) {
-    replayEventOutboxIfNeeded(nowMs);
+    const auto started = std::chrono::steady_clock::now();
+    try {
+        replayEventOutboxIfNeeded(nowMs);
+    } catch (...) {
+        const auto durationMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started
+        ).count();
+        recordReplayHealth(durationMs, true);
+        throw;
+    }
+    const auto durationMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started
+    ).count();
+    recordReplayHealth(durationMs, false);
+}
+
+void MqttDriverService::recordScanHealth(double durationMs, bool failed, std::int64_t nowMs) {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    const auto window = std::max<std::size_t>(10, driverConfig_.healthWindowCycles);
+    scanDurationsMs_.push_back(durationMs);
+    while (scanDurationsMs_.size() > window) scanDurationsMs_.pop_front();
+    ++totalScanCycles_;
+    if (failed) ++scanFailedCycles_;
+    if (durationMs > std::max(1, driverConfig_.scanIntervalMs)) ++scanDeadlineMissCycles_;
+    if (!driverConfig_.healthFile.empty() &&
+        (lastHealthPublishMs_ == 0 ||
+         nowMs - lastHealthPublishMs_ >= std::max(100, driverConfig_.healthPublishIntervalMs))) {
+        try {
+            publishHealthFileLocked(nowMs);
+            lastHealthPublishMs_ = nowMs;
+        } catch (const std::exception& ex) {
+            std::cerr << "mqtt health publish failed error=" << ex.what() << std::endl;
+        }
+    }
+}
+
+void MqttDriverService::recordReplayHealth(double durationMs, bool failed) {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    const auto window = std::max<std::size_t>(10, driverConfig_.healthWindowCycles);
+    replayDurationsMs_.push_back(durationMs);
+    while (replayDurationsMs_.size() > window) replayDurationsMs_.pop_front();
+    ++totalReplayCycles_;
+    if (failed) ++replayFailedCycles_;
+}
+
+void MqttDriverService::publishHealthFileLocked(std::int64_t nowMs) {
+    const std::vector<double> scans(scanDurationsMs_.begin(), scanDurationsMs_.end());
+    const std::vector<double> replays(replayDurationsMs_.begin(), replayDurationsMs_.end());
+    const auto scanP50Ms = healthPercentile(scans, 0.50);
+    const auto scanP95Ms = healthPercentile(scans, 0.95);
+    const auto scanP99Ms = healthPercentile(scans, 0.99);
+    const auto scanFailurePercent = totalScanCycles_ == 0
+        ? 100.0
+        : 100.0 * static_cast<double>(scanFailedCycles_) / static_cast<double>(totalScanCycles_);
+    const auto scanDeadlineMissPercent = totalScanCycles_ == 0
+        ? 100.0
+        : 100.0 * static_cast<double>(scanDeadlineMissCycles_) /
+            static_cast<double>(totalScanCycles_);
+    const auto replayFailurePercent = totalReplayCycles_ == 0
+        ? 0.0
+        : 100.0 * static_cast<double>(replayFailedCycles_) /
+            static_cast<double>(totalReplayCycles_);
+
+    std::ostringstream payload;
+    payload << std::fixed << std::setprecision(2)
+            << "{\"schemaVersion\":\"1.0\",\"ts\":" << nowMs
+            << ",\"healthy\":"
+            << ((scanFailedCycles_ == 0 && scanDeadlineMissPercent < 20.0) ? "true" : "false")
+            << ",\"windowCycles\":" << scans.size()
+            << ",\"totalScanCycles\":" << totalScanCycles_
+            << ",\"scanDeadlineMissCycles\":" << scanDeadlineMissCycles_
+            << ",\"scanFailedCycles\":" << scanFailedCycles_
+            << ",\"scanDeadlineMissPercent\":" << scanDeadlineMissPercent
+            << ",\"scanFailurePercent\":" << scanFailurePercent
+            << ",\"scanP50Ms\":" << scanP50Ms
+            << ",\"scanP95Ms\":" << scanP95Ms
+            << ",\"scanP99Ms\":" << scanP99Ms
+            << ",\"scanMaxMs\":" << healthMaximum(scans)
+            << ",\"scanUtilizationP95Percent\":"
+            << (scanP95Ms * 100.0 / static_cast<double>(std::max(1, driverConfig_.scanIntervalMs)))
+            << ",\"totalReplayCycles\":" << totalReplayCycles_
+            << ",\"replayFailedCycles\":" << replayFailedCycles_
+            << ",\"replayFailurePercent\":" << replayFailurePercent
+            << ",\"replayP50Ms\":" << healthPercentile(replays, 0.50)
+            << ",\"replayP95Ms\":" << healthPercentile(replays, 0.95)
+            << ",\"replayP99Ms\":" << healthPercentile(replays, 0.99)
+            << ",\"replayMaxMs\":" << healthMaximum(replays)
+            << ",\"fullSnapshotsPublished\":" << fullSnapshotsPublished_.load()
+            << '}';
+    writeMqttHealthFile(driverConfig_.healthFile, payload.str());
 }
 
 void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
@@ -838,6 +977,17 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
         ? mqttConfig_.telemetryTopic
         : mqttConfig_.fullTelemetryTopic;
     publisher_->publishFullSnapshot(topic, values, driverConfig_.fullUploadJsonFormat);
+    if (mqttConfig_.legacyTelemetryEnabled &&
+        !mqttConfig_.legacyTelemetryTopic.empty() &&
+        (lastLegacyTelemetryMs_ == 0 ||
+         nowMs - lastLegacyTelemetryMs_ >= mqttConfig_.legacyTelemetryIntervalMs)) {
+        publisher_->publishJsonMessage(
+            mqttConfig_.legacyTelemetryTopic,
+            buildLegacyTelemetryPayload(values, nowMs)
+        );
+        lastLegacyTelemetryMs_ = nowMs;
+    }
+    fullSnapshotsPublished_.fetch_add(1, std::memory_order_relaxed);
     const auto finishedMs = currentTimeMs();
     publishStatusEvent(
         "full-snapshot",
@@ -917,6 +1067,81 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
     }
 }
 
+std::string MqttDriverService::buildLegacyTelemetryPayload(
+    const std::vector<StoredPointValue>& values,
+    std::int64_t nowMs
+) const {
+    using LegacyPoint = std::pair<std::string, const StoredPointValue*>;
+    std::vector<std::pair<std::string, std::vector<LegacyPoint>>> meters;
+    std::unordered_map<std::string, std::size_t> meterPositions;
+    std::unordered_map<std::uint32_t, const LegacyTelemetryPointMapping*> pointMappings;
+    for (const auto& mapping : mqttConfig_.legacyTelemetryPointMappings) {
+        pointMappings[mapping.index] = &mapping;
+    }
+    const auto appendPoint = [&](const std::string& meterCode,
+                                 const std::string& pointCode,
+                                 const StoredPointValue* value) {
+        auto inserted = meterPositions.emplace(meterCode, meters.size());
+        if (inserted.second) {
+            meters.emplace_back(meterCode, std::vector<LegacyPoint>());
+        }
+        meters[inserted.first->second].second.emplace_back(pointCode, value);
+    };
+
+    if (mqttConfig_.legacyTelemetryMappedOnly && !pointMappings.empty()) {
+        std::unordered_map<std::uint32_t, const StoredPointValue*> valuesByIndex;
+        for (const auto& value : values) {
+            valuesByIndex[value.index] = &value;
+        }
+        for (const auto& mapping : mqttConfig_.legacyTelemetryPointMappings) {
+            const auto valueIt = valuesByIndex.find(mapping.index);
+            appendPoint(
+                mapping.meterCode,
+                mapping.pointCode,
+                valueIt == valuesByIndex.end() ? nullptr : valueIt->second
+            );
+        }
+    } else {
+        for (const auto& value : values) {
+            if (value.meterCode.empty() || value.pointCode.empty()) {
+                continue;
+            }
+            std::string meterCode = value.meterCode;
+            std::string pointCode = value.pointCode;
+            const auto mappingIt = pointMappings.find(value.index);
+            if (mappingIt != pointMappings.end()) {
+                meterCode = mappingIt->second->meterCode;
+                pointCode = mappingIt->second->pointCode;
+            }
+            appendPoint(meterCode, pointCode, &value);
+        }
+    }
+
+    std::ostringstream payload;
+    payload << R"({"data":[)";
+    for (std::size_t meterIndex = 0; meterIndex < meters.size(); ++meterIndex) {
+        if (meterIndex > 0) payload << ',';
+        payload << R"({"meterid":")" << escapeJson(meters[meterIndex].first)
+                << R"(","metrics":[{)";
+        const auto& points = meters[meterIndex].second;
+        for (std::size_t pointIndex = 0; pointIndex < points.size(); ++pointIndex) {
+            if (pointIndex > 0) payload << ',';
+            const auto& point = points[pointIndex];
+            payload << "\"" << escapeJson(point.first) << "\":\"";
+            if (point.second == nullptr) {
+                payload << "0.0000";
+            } else if (std::isfinite(point.second->value)) {
+                payload << std::fixed << std::setprecision(4) << point.second->value;
+            }
+            payload << "\"";
+        }
+        payload << "}]}";
+    }
+    payload << R"(],"msgid":)" << nowMs
+            << R"(,"split":"false","timestamp":)" << nowMs << '}';
+    return payload.str();
+}
+
 void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
     for (auto it = pendingCommandReplies_.begin(); it != pendingCommandReplies_.end();) {
         auto reply = it->reply;
@@ -980,10 +1205,17 @@ void MqttDriverService::scanLoop() {
     while (running_.load()) {
         const auto nowMs = currentTimeMs();
         const auto timeoutMs = scanLoopIncomingTimeoutMs(nowMs);
+        const auto started = std::chrono::steady_clock::now();
+        bool failed = false;
         try {
             runScanOnceInternal(nowMs, std::min(250, timeoutMs));
         } catch (...) {
+            failed = true;
         }
+        const auto durationMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started
+        ).count();
+        recordScanHealth(durationMs, failed, nowMs);
         const auto nextWaitMs = scanLoopIncomingTimeoutMs(currentTimeMs());
         sleepInterruptibly(running_, nextWaitMs);
     }
@@ -996,10 +1228,17 @@ void MqttDriverService::replayLoop() {
     }
     while (running_.load()) {
         const auto nowMs = currentTimeMs();
+        const auto started = std::chrono::steady_clock::now();
+        bool failed = false;
         try {
             replayEventOutboxIfNeeded(nowMs);
         } catch (...) {
+            failed = true;
         }
+        const auto durationMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started
+        ).count();
+        recordReplayHealth(durationMs, failed);
         sleepInterruptibly(running_, intervalMs);
     }
 }

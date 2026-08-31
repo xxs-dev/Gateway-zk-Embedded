@@ -1,0 +1,80 @@
+[
+  {
+    "trendId": "pcs-active-power",
+    "sampleIntervalMs": 1000,
+    "maxPoints": 86402,
+    "series": [
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600657.mb4_s1_1227",
+        "slot": "value"
+      },
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600657.mb4_s1_1228",
+        "slot": "value"
+      },
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600657.mb4_s1_1229",
+        "slot": "value"
+      },
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600657.mb4_s1_1230",
+        "slot": "value"
+      }
+    ]
+  },
+  {
+    "trendId": "grid-storage-power",
+    "sampleIntervalMs": 1000,
+    "maxPoints": 86402,
+    "series": [
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600664.mb1_s2_1039",
+        "slot": "value"
+      },
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600663.mb1_s1_1139",
+        "slot": "value"
+      }
+    ]
+  },
+  {
+    "trendId": "battery-health",
+    "sampleIntervalMs": 1000,
+    "maxPoints": 86402,
+    "series": [
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600659.mb3_s2_1569",
+        "slot": "value"
+      },
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600659.mb3_s2_1570",
+        "slot": "value"
+      }
+    ]
+  },
+  {
+    "trendId": "battery-available-energy",
+    "sampleIntervalMs": 1000,
+    "maxPoints": 86402,
+    "series": [
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600659.mb3_s2_1590",
+        "slot": "value"
+      },
+      {
+        "nodeId": "edge-1",
+        "tagId": "MTR20250600659.mb3_s2_1591",
+        "slot": "value"
+      }
+    ]
+  }
+]

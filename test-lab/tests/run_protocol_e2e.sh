@@ -70,6 +70,19 @@ check_points() {
     return 1
 }
 
+check_services_alive() {
+    simulator_expected=$1
+    run_lab status > "$ROOT/status-final.txt"
+    for service in modbus-driver compute-engine event-engine mqtt-driver system-monitor; do
+        grep -q "^$service=running " "$ROOT/status-final.txt"
+    done
+    if [ "$simulator_expected" = yes ]; then
+        grep -q '^simulator=running ' "$ROOT/status-final.txt"
+    else
+        grep -q '^simulator=stopped$' "$ROOT/status-final.txt"
+    fi
+}
+
 run_lab start normal --protocol modbus-rtu --monitor-host 127.0.0.1 --monitor-port "$MONITOR_PORT" >/dev/null
 check_points SIM_RTU02_VOLTAGE
 run_lab fault modbus.slave2 exception >/dev/null
@@ -80,6 +93,7 @@ run_lab set-value modbus.slave1 holding 10 4321 >/dev/null
 sleep 1
 curl --noproxy '*' --max-time 5 -fsS "http://127.0.0.1:$MONITOR_PORT/api/v1/realtime/points" |
     grep -q '4321'
+check_services_alive yes
 run_lab stop >/dev/null
 
 run_lab start normal --protocol dlt645 --monitor-host 127.0.0.1 --monitor-port "$MONITOR_PORT" >/dev/null
@@ -88,6 +102,7 @@ run_lab fault dlt645.meter2 exception >/dev/null
 sleep 1
 run_lab recover dlt645.meter2 >/dev/null
 sleep 1
+check_services_alive yes
 run_lab stop >/dev/null
 
 run_lab start normal --protocol dio --monitor-host 127.0.0.1 --monitor-port "$MONITOR_PORT" >/dev/null
@@ -98,6 +113,7 @@ curl --noproxy '*' --max-time 5 -fsS "http://127.0.0.1:$MONITOR_PORT/api/v1/real
     > "$ROOT/realtime-dio.json"
 grep -q 'SIM_DI_1' "$ROOT/realtime-dio.json"
 grep -q '"value":1' "$ROOT/realtime-dio.json"
+check_services_alive no
 run_lab stop >/dev/null
 
 run_lab start normal --protocol iec104 --port 22404 --monitor-host 127.0.0.1 --monitor-port "$MONITOR_PORT" >/dev/null
@@ -106,6 +122,7 @@ run_lab fault iec104.station1 timeout >/dev/null
 sleep 1
 run_lab recover iec104.station1 >/dev/null
 sleep 1
+check_services_alive yes
 run_lab stop >/dev/null
 
 run_lab start normal --protocol can --host 127.0.0.1 \
@@ -128,6 +145,7 @@ run_lab fault can.device1 timeout >/dev/null
 sleep 1
 run_lab recover can.device1 >/dev/null
 sleep 1
+check_services_alive yes
 run_lab stop >/dev/null
 
 [ ! -e /dev/shm/gateway_test_lab_modbus_rtu ]

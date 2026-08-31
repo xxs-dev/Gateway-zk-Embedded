@@ -58,6 +58,12 @@ struct SimulatorStats {
     std::uint64_t protocolErrors = 0;
 };
 
+struct TraceEvidence {
+    std::int64_t epochMs = 0;
+    int periodMs = 100;
+    std::uint16_t sequence = 0;
+};
+
 class ModbusTcpSimulator {
 public:
     explicit ModbusTcpSimulator(SimulatorOptions options);
@@ -71,6 +77,7 @@ public:
     bool running() const;
     std::uint16_t port() const;
     SimulatorStats stats() const;
+    TraceEvidence traceEvidence() const;
 
 private:
     class Impl;

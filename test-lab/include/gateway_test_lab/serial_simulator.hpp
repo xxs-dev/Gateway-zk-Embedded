@@ -49,6 +49,7 @@ public:
     bool running() const;
     std::string peerDevice() const;
     SerialSimulatorStats stats() const;
+    TraceEvidence traceEvidence() const;
 
 private:
     class Impl;

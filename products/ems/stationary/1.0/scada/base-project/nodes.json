@@ -1,0 +1,15 @@
+[
+  {
+    "nodeId": "edge-1",
+    "machineCode": "COMM202600999",
+    "displayName": "COMM202600999",
+    "connectionProfileId": "",
+    "fallbackConnectionProfileId": "",
+    "connectionPolicy": "auto",
+    "roles": [
+      "acquisition",
+      "control",
+      "safety"
+    ]
+  }
+]

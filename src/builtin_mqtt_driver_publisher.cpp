@@ -1815,7 +1815,7 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
 }
 
 void BuiltinMqttDriverPublisher::publishJson(const std::string& topic, const std::string& payload) {
-    const std::string scoped = scopedTopic(topic, config_.topicMachineCode);
+    const std::string scoped = scopedPublishTopic(topic);
     if (scoped.empty()) {
         return;
     }
@@ -1848,7 +1848,7 @@ bool BuiltinMqttDriverPublisher::parseIncomingPublishPacket(
 }
 
 void BuiltinMqttDriverPublisher::publishRealtimeJson(const std::string& topic, const std::string& payload) {
-    const std::string scoped = scopedTopic(topic, config_.topicMachineCode);
+    const std::string scoped = scopedPublishTopic(topic);
     if (scoped.empty()) {
         return;
     }
@@ -1889,7 +1889,7 @@ void BuiltinMqttDriverPublisher::publishEventJson(
     const std::string& payload,
     std::int64_t eventTs
 ) {
-    const std::string scoped = scopedTopic(topic, config_.topicMachineCode);
+    const std::string scoped = scopedPublishTopic(topic);
     if (scoped.empty()) {
         return;
     }
@@ -2155,6 +2155,15 @@ void BuiltinMqttDriverPublisher::maintainTxConnection() {
     } catch (...) {
     }
     closeTx(false);
+}
+
+std::string BuiltinMqttDriverPublisher::scopedPublishTopic(const std::string& topic) const {
+    if (!config_.legacyTelemetryTopic.empty() &&
+        topic == config_.legacyTelemetryTopic &&
+        !config_.legacyTopicMachineCode.empty()) {
+        return scopedTopic(topic, config_.legacyTopicMachineCode);
+    }
+    return scopedTopic(topic, config_.topicMachineCode);
 }
 
 void BuiltinMqttDriverPublisher::closeTx(bool graceful) {

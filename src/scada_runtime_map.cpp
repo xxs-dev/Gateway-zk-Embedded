@@ -147,22 +147,35 @@ const ScadaTagResolver& ScadaRuntimeMap::resolver() const {
 Optional<StoredPointValue> ScadaRuntimeMap::readTag(const std::string& tagId, std::int64_t nowMs) const {
     const auto resolved = resolver_.resolveTag(tagId);
     if (!resolved || resolved->mapping.index == 0) return NullOpt;
-    return router_.getLatestByIndex(resolved->mapping.index, nowMs);
+    return router_.getLatestByLocation(
+        resolved->mapping.sharedMemoryName,
+        resolved->mapping.index,
+        nowMs
+    );
 }
 
 std::vector<StoredPointValue> ScadaRuntimeMap::readTags(
     const std::vector<std::string>& tagIds,
     std::int64_t nowMs
 ) const {
-    std::vector<std::uint32_t> indexes;
-    std::unordered_set<std::uint32_t> seen;
+    std::vector<StoredPointValue> values;
+    std::unordered_set<std::string> seen;
     for (const auto& tagId : tagIds) {
         const auto resolved = resolver_.resolveTag(tagId);
-        if (resolved && resolved->mapping.index > 0 && seen.insert(resolved->mapping.index).second) {
-            indexes.push_back(resolved->mapping.index);
+        if (!resolved || resolved->mapping.index == 0) continue;
+        const auto key = resolved->mapping.sharedMemoryName + '\x1f' +
+            std::to_string(resolved->mapping.index);
+        if (!seen.insert(key).second) continue;
+        const auto value = router_.getLatestByLocation(
+            resolved->mapping.sharedMemoryName,
+            resolved->mapping.index,
+            nowMs
+        );
+        if (value) {
+            values.push_back(*value);
         }
     }
-    return router_.getLatestByIndexes(indexes, nowMs);
+    return values;
 }
 
 std::vector<StoredPointValue> ScadaRuntimeMap::readIndexes(
@@ -176,7 +189,25 @@ std::vector<StoredPointValue> ScadaRuntimeMap::readScreen(
     const ScadaScreen& screen,
     std::int64_t nowMs
 ) const {
-    return router_.getLatestByIndexes(resolver_.indexesForScreen(screen), nowMs);
+    return readTags(resolver_.tagIdsForScreen(screen), nowMs);
+}
+
+Optional<WritebackResultRecord> ScadaRuntimeMap::getWritebackResult(
+    const std::string& tagId,
+    const std::string& cmdId
+) const {
+    const auto resolved = resolver_.resolveTag(tagId);
+    if (!resolved || resolved->mapping.index == 0) return NullOpt;
+    const auto route = router_.routeByLocation(
+        resolved->mapping.sharedMemoryName,
+        resolved->mapping.index
+    );
+    if (!route) return NullOpt;
+    if (!resolved->mapping.sharedMemoryName.empty() &&
+        route->sharedMemoryName != resolved->mapping.sharedMemoryName) {
+        return NullOpt;
+    }
+    return router_.getWritebackResult(*route, cmdId, resolved->mapping.index);
 }
 
 CommandSubmitResult ScadaRuntimeMap::submitWrite(
@@ -194,7 +225,10 @@ CommandSubmitResult ScadaRuntimeMap::submitWrite(
         result.message = "SCADA tag is read-only";
         return result;
     }
-    const auto route = router_.routeByIndex(resolved->mapping.index);
+    const auto route = router_.routeByLocation(
+        resolved->mapping.sharedMemoryName,
+        resolved->mapping.index
+    );
     if (!route) {
         CommandSubmitResult result;
         result.message = "SCADA runtime route was not found on this edge";
@@ -214,7 +248,68 @@ CommandSubmitResult ScadaRuntimeMap::submitWrite(
         return result;
     }
     command.index = resolved->mapping.index;
-    return router_.submitWriteCommand(command);
+    return router_.submitWriteCommand(*route, command);
+}
+
+CommandGroupSubmitResult ScadaRuntimeMap::submitWriteGroup(
+    const std::vector<ScadaWriteTarget>& targets,
+    PendingWriteCommand command
+) {
+    CommandGroupSubmitResult rejected;
+    if (targets.empty()) {
+        rejected.message = "SCADA write group is empty";
+        return rejected;
+    }
+    if (command.cmdId.empty()) {
+        rejected.message = "SCADA write group cmdId is empty";
+        return rejected;
+    }
+
+    std::vector<PendingWriteCommand> commands;
+    std::unordered_set<std::string> tagIds;
+    commands.reserve(targets.size());
+    for (const auto& target : targets) {
+        if (!tagIds.insert(target.tagId).second) {
+            rejected.message = "SCADA write group contains duplicate tag: " + target.tagId;
+            return rejected;
+        }
+        const auto resolved = resolver_.resolveTag(target.tagId);
+        if (!resolved) {
+            rejected.message = "SCADA tag not found: " + target.tagId;
+            return rejected;
+        }
+        if (resolved->tag.access == ScadaTagAccess::Read || !resolved->mapping.writable) {
+            rejected.message = "SCADA tag is read-only: " + target.tagId;
+            return rejected;
+        }
+        const auto route = router_.routeByLocation(
+            resolved->mapping.sharedMemoryName,
+            resolved->mapping.index
+        );
+        if (!route) {
+            rejected.message = "SCADA runtime route was not found on this edge: " + target.tagId;
+            return rejected;
+        }
+        if (!route->writable) {
+            rejected.message = "edge point route is read-only: " + target.tagId;
+            return rejected;
+        }
+        if (!resolved->mapping.sharedMemoryName.empty() &&
+            route->sharedMemoryName != resolved->mapping.sharedMemoryName) {
+            rejected.message = "SCADA runtime mapping does not match edge shared memory route: " + target.tagId;
+            return rejected;
+        }
+        const auto primaryRoute = router_.routeByIndex(resolved->mapping.index);
+        if (!primaryRoute || primaryRoute->sharedMemoryName != route->sharedMemoryName) {
+            rejected.message = "SCADA atomic write group contains an ambiguous route: " + target.tagId;
+            return rejected;
+        }
+        auto item = command;
+        item.index = resolved->mapping.index;
+        item.value = target.value;
+        commands.push_back(std::move(item));
+    }
+    return router_.submitWriteCommands(commands);
 }
 
 }  // namespace edge_gateway

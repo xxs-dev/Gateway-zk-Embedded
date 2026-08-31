@@ -11,11 +11,19 @@
 struct ScadaSceneResolvedTag {
     edge_gateway::ScadaTag tag;
     edge_gateway::ScadaRuntimeMapping mapping;
+    edge_gateway::Optional<double> writeMinValue;
+    edge_gateway::Optional<double> writeMaxValue;
+    double writeStep = 0.0;
 };
 
 struct ScadaSceneWriteResult {
     bool accepted = false;
     std::string message;
+};
+
+struct ScadaSceneWriteTarget {
+    std::string tagId;
+    double value = 0.0;
 };
 
 // Rendering is shared by edge and Windows. Runtime data and control dispatch stay transport-specific.
@@ -37,4 +45,12 @@ public:
         const std::string& tagId,
         edge_gateway::PendingWriteCommand command
     ) = 0;
+    virtual ScadaSceneWriteResult submitWriteGroup(
+        const std::vector<ScadaSceneWriteTarget>& targets,
+        edge_gateway::PendingWriteCommand command
+    ) = 0;
+    virtual edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(
+        const std::string& tagId,
+        const std::string& cmdId
+    ) const = 0;
 };

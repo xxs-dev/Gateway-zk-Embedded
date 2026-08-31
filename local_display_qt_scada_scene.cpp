@@ -1,6 +1,7 @@
 #include "local_display_qt_scada_scene.hpp"
 
 #include "edge_gateway/scada_project_loader.hpp"
+#include "local_display_qt_pcs_power_control.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -19,13 +20,16 @@
 #endif
 
 #include <QBrush>
+#include <QApplication>
 #include <QColor>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
 #include <QFrame>
+#include <QEvent>
 #include <QGraphicsEllipseItem>
+#include <QGraphicsLineItem>
 #include <QGraphicsPathItem>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsProxyWidget>
@@ -37,6 +41,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPen>
@@ -45,9 +50,11 @@
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTimer>
+#include <QTime>
 #include <QTextDocument>
 #include <QTextOption>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 namespace {
 
@@ -55,6 +62,12 @@ std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
+}
+
+std::int64_t localDayStartMs(std::int64_t timestampMs) {
+    auto local = QDateTime::fromMSecsSinceEpoch(timestampMs);
+    local.setTime(QTime(0, 0));
+    return local.toMSecsSinceEpoch();
 }
 
 QColor colorOr(const std::string& value, const char* fallback) {
@@ -74,6 +87,14 @@ Qt::PenStyle chartPenStyle(const QString& value) {
     if (value.compare(QStringLiteral("DotLine"), Qt::CaseInsensitive) == 0) return Qt::DotLine;
     if (value.compare(QStringLiteral("DashDotLine"), Qt::CaseInsensitive) == 0) return Qt::DashDotLine;
     return Qt::SolidLine;
+}
+
+QPoint wheelViewportPosition(const QWheelEvent& event) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return event.position().toPoint();
+#else
+    return event.pos();
+#endif
 }
 
 bool isProgressType(const std::string& type) {
@@ -140,7 +161,23 @@ ScadaSceneView::ScadaSceneView(
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform | QPainter::TextAntialiasing);
     setAlignment(Qt::AlignCenter);
+    setMouseTracking(true);
+    viewport()->setMouseTracking(true);
     buildScene();
+    const auto hasEnergyFlow = std::any_of(runtimeWidgets_.begin(), runtimeWidgets_.end(), [](const auto& widget) {
+        return widget.type == "energyFlow";
+    });
+    if (hasEnergyFlow) {
+        flowAnimationTimer_ = new QTimer(this);
+        flowAnimationTimer_->setInterval(80);
+        QObject::connect(flowAnimationTimer_, &QTimer::timeout, this, [this]() {
+            const auto timestamp = nowMs();
+            for (auto& widget : runtimeWidgets_) {
+                if (widget.type == "energyFlow") animateEnergyFlow(widget, timestamp);
+            }
+        });
+        flowAnimationTimer_->start();
+    }
 }
 
 void ScadaSceneView::buildScene() {
@@ -173,6 +210,35 @@ void ScadaSceneView::buildScene() {
         const auto imageOverlayText = property(widget, "qtText");
         const auto imageHasTextOverlay =
             (widget.type == "qtImage" || widget.type == "image") && !imageOverlayText.empty();
+
+        if (widget.type == "pcsPhasePowerControl") {
+            PcsPhasePowerBindings bindings;
+            for (const auto& binding : widget.bindings) {
+                if (binding.nodeId != runtime_.nodeId()) continue;
+                if (binding.slot == "activeA") bindings.activeTagIds[0] = binding.tagId;
+                else if (binding.slot == "activeB") bindings.activeTagIds[1] = binding.tagId;
+                else if (binding.slot == "activeC") bindings.activeTagIds[2] = binding.tagId;
+                else if (binding.slot == "reactiveA") bindings.reactiveTagIds[0] = binding.tagId;
+                else if (binding.slot == "reactiveB") bindings.reactiveTagIds[1] = binding.tagId;
+                else if (binding.slot == "reactiveC") bindings.reactiveTagIds[2] = binding.tagId;
+            }
+
+            auto* control = new PcsPhasePowerControl(std::move(bindings), runtime_);
+            control->setFixedSize(
+                static_cast<int>(std::round(geometry.width())),
+                static_cast<int>(std::round(geometry.height()))
+            );
+            auto* proxy = scene_->addWidget(control);
+            proxy->setPos(geometry.topLeft());
+            proxy->setZValue(widget.zIndex);
+
+            RuntimeWidget runtimeWidget;
+            runtimeWidget.type = widget.type;
+            runtimeWidget.pcsPowerControl = control;
+            runtimeWidgets_.push_back(std::move(runtimeWidget));
+            continue;
+        }
+
         if ((widget.type == "qtImage" || widget.type == "image") && !imageReference.empty()) {
             const auto imagePath = QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
             QPixmap pixmap(imagePath);
@@ -193,6 +259,7 @@ void ScadaSceneView::buildScene() {
             auto* button = new QPushButton(QString::fromStdString(
                 property(widget, "qtText").empty() ? widget.title : property(widget, "qtText")
             ));
+            button->setObjectName(QString::fromStdString(widget.widgetId));
             button->setFixedSize(
                 static_cast<int>(std::round(geometry.width())),
                 static_cast<int>(std::round(geometry.height()))
@@ -212,8 +279,21 @@ void ScadaSceneView::buildScene() {
                 }
             }
             style += QStringLiteral("QPushButton:pressed{background:#0D2734;}");
+            bool actionAvailable = widget.action.type == "navigate" && !widget.action.targetScreen.empty();
+            if (isControlAction(widget.action.type)) {
+                const auto resolved = runtime_.resolveTag(widget.action.tagId);
+                actionAvailable = resolved && resolved->tag.nodeId == runtime_.nodeId() &&
+                    resolved->mapping.index > 0 && resolved->mapping.writable;
+            }
+            if (!actionAvailable) {
+                style += QStringLiteral(
+                    "QPushButton:disabled{color:#80919A;border:1px dashed #52636C;background:#17242B;}"
+                );
+                button->setEnabled(false);
+                button->setToolTip(QString::fromUtf8("未配置可执行动作"));
+            }
             button->setStyleSheet(style);
-            if (widget.action.type != "none" && !widget.action.type.empty()) {
+            if (actionAvailable) {
                 const auto action = widget.action;
                 QObject::connect(button, &QPushButton::clicked, this, [this, action]() {
                     handleAction(action);
@@ -231,6 +311,8 @@ void ScadaSceneView::buildScene() {
         const auto qtFillProgress = widget.type == "qtFillProgress";
         const auto legacyQtProgress = isProgressType(widget.type) && legacyQtWidget;
         const auto alarmTable = widget.type == "alarmTable";
+        const auto energyFlow = widget.type == "energyFlow";
+        const auto borderless = energyFlow || property(widget, "qtBorderless") == "true";
         const auto configuredBackground = property(widget, "qtBackgroundColor");
         const auto inputNeedsNativeBackground = widget.type == "qtInput" &&
             (configuredBackground.empty() ||
@@ -243,12 +325,14 @@ void ScadaSceneView::buildScene() {
             geometry,
             alarmTable
                 ? QPen(QColor("#2C6078"), 1)
+                : borderless
+                    ? QPen(Qt::NoPen)
                 : widget.type == "qtInput"
                     ? QPen(QColor("#6F8FA7"), 1)
                 : qtNativeVisual
                     ? QPen(Qt::NoPen)
                     : QPen(QColor("#275165"), 1),
-            (qtFillProgress || legacyQtProgress)
+            (qtFillProgress || legacyQtProgress || energyFlow)
                 ? QBrush(Qt::NoBrush)
                 : alarmTable
                     ? QBrush(QColor("#071A2D"))
@@ -256,10 +340,14 @@ void ScadaSceneView::buildScene() {
         );
         panel->setZValue(widget.zIndex);
 
-        if (!qtNativeVisual) {
+        if (!qtNativeVisual && !energyFlow) {
             auto* title = scene_->addText(QString::fromStdString(widget.title));
             title->setDefaultTextColor(QColor("#9BB0BB"));
-            title->setFont(QFont(QStringLiteral("Microsoft YaHei"), 11));
+            QFont titleFont(QStringLiteral("Microsoft YaHei"), 11);
+            if (widget.type == "cellularSignal") {
+                titleFont.setPixelSize(20);
+            }
+            title->setFont(titleFont);
             title->setPos(geometry.x() + 12, geometry.y() + 7);
             title->setZValue(widget.zIndex + 0.2);
         }
@@ -276,15 +364,62 @@ void ScadaSceneView::buildScene() {
         runtimeWidget.defaultImage = property(widget, "defaultStateImage").empty()
             ? imageReference
             : property(widget, "defaultStateImage");
+        runtimeWidget.valueSuffix = property(widget, "valueSuffix");
         runtimeWidget.stateLabelVisible = property(widget, "stateLabelVisible") != "false";
+        runtimeWidget.stateColorPanel = property(widget, "stateColorMode") != "indicator";
         runtimeWidget.progressMax = numericProperty(widget, "progressMaxValue", 100.0);
-        runtimeWidget.trendMaxPoints = std::max(2, static_cast<int>(numericProperty(widget, "chartMaxPoints", 120.0)));
+        const auto legacySampleIntervalSeconds = numericProperty(widget, "chartSampleIntervalSec", 30.0);
+        runtimeWidget.chartSampleIntervalMs = std::max<std::int64_t>(
+            1000,
+            static_cast<std::int64_t>(
+                numericProperty(widget, "chartSampleIntervalSeconds", legacySampleIntervalSeconds) * 1000.0
+            )
+        );
+        const auto fullDayPointCapacity = static_cast<int>(
+            (24LL * 60 * 60 * 1000 + runtimeWidget.chartSampleIntervalMs - 1) /
+            runtimeWidget.chartSampleIntervalMs
+        ) + 2;
+        runtimeWidget.trendMaxPoints = std::max(
+            fullDayPointCapacity,
+            std::max(2, static_cast<int>(numericProperty(widget, "chartMaxPoints", 120.0)))
+        );
+        runtimeWidget.chartDefaultWindowMs = std::max<std::int64_t>(
+            60 * 1000,
+            static_cast<std::int64_t>(numericProperty(widget, "chartDefaultWindowMinutes", 120.0) * 60.0 * 1000.0)
+        );
+        runtimeWidget.chartViewWindowMs = runtimeWidget.chartDefaultWindowMs;
+        runtimeWidget.chartMinWindowMs = std::max<std::int64_t>(
+            60 * 1000,
+            static_cast<std::int64_t>(numericProperty(widget, "chartMinWindowMinutes", 5.0) * 60.0 * 1000.0)
+        );
+        runtimeWidget.chartMinWindowMs = std::min(
+            runtimeWidget.chartMinWindowMs,
+            runtimeWidget.chartDefaultWindowMs
+        );
         runtimeWidget.valueMap = parseScadaValueMapJson(property(widget, "valueMapJson"));
         for (const auto& binding : widget.bindings) {
             if (binding.nodeId != runtime_.nodeId()) continue;
             const auto resolved = runtime_.resolveTag(binding.tagId);
             if (resolved && resolved->mapping.index > 0) {
                 runtimeWidget.indexes.push_back(resolved->mapping.index);
+                if (widget.type == "qtInput" && runtimeWidget.inputTagId.empty()) {
+                    runtimeWidget.inputTagId = binding.tagId;
+                    runtimeWidget.inputWritable = resolved->mapping.writable;
+                    runtimeWidget.inputMinValue = resolved->writeMinValue;
+                    runtimeWidget.inputMaxValue = resolved->writeMaxValue;
+                    runtimeWidget.inputStep = resolved->writeStep;
+                }
+            }
+        }
+
+        if (widget.type == "qtInput" && !widget.action.tagId.empty()) {
+            const auto resolved = runtime_.resolveTag(widget.action.tagId);
+            if (resolved && resolved->mapping.index > 0) {
+                runtimeWidget.inputTagId = widget.action.tagId;
+                runtimeWidget.inputWritable = resolved->mapping.writable;
+                runtimeWidget.inputMinValue = resolved->writeMinValue;
+                runtimeWidget.inputMaxValue = resolved->writeMaxValue;
+                runtimeWidget.inputStep = resolved->writeStep;
             }
         }
 
@@ -292,7 +427,7 @@ void ScadaSceneView::buildScene() {
             const auto trendId = property(widget, "trendId");
             for (const auto& trend : trends_) {
                 if (!trendId.empty() && trend.trendId != trendId) continue;
-                runtimeWidget.trendMaxPoints = std::max(2, trend.maxPoints);
+                runtimeWidget.trendMaxPoints = std::max(fullDayPointCapacity, std::max(2, trend.maxPoints));
                 for (const auto& series : trend.series) {
                     if (series.nodeId != runtime_.nodeId()) continue;
                     const auto resolved = runtime_.resolveTag(series.tagId);
@@ -343,7 +478,9 @@ void ScadaSceneView::buildScene() {
                 const auto resolved = runtime_.resolveTag(sourceAlarm.tagId);
                 if (!resolved || resolved->mapping.index == 0) continue;
                 RuntimeAlarm alarm;
-                alarm.label = sourceAlarm.alarmId;
+                alarm.label = resolved->tag.displayName.empty()
+                    ? sourceAlarm.alarmId
+                    : resolved->tag.displayName;
                 alarm.severity = sourceAlarm.severity;
                 alarm.condition.index = resolved->mapping.index;
                 alarm.condition.comparison = sourceAlarm.comparison;
@@ -359,9 +496,18 @@ void ScadaSceneView::buildScene() {
             runtimeWidget.indexes.end()
         );
 
-        const auto hideNativeValue = legacyQtProgress || widget.type == "qtChart";
+        const auto hideNativeValue = legacyQtProgress || widget.type == "qtChart" || energyFlow;
+        const auto unboundDataWidget = runtimeWidget.indexes.empty() &&
+            (widget.type == "qtValue" || widget.type == "qtInput");
+        const auto unboundStateWidget = runtimeWidget.indexes.empty() &&
+            runtimeWidget.stateRules.empty() &&
+            (widget.type == "statusLamp" || widget.type == "statusCard");
         runtimeWidget.valueText = scene_->addText(hideNativeValue
             ? QString()
+            : unboundDataWidget
+                ? QStringLiteral("--")
+            : unboundStateWidget
+                ? QString::fromUtf8("未知")
             : runtimeWidget.indexes.empty()
                 ? QString::fromStdString(property(widget, "qtText"))
                 : QStringLiteral("--"));
@@ -389,26 +535,92 @@ void ScadaSceneView::buildScene() {
             geometry.width() - (alarmTable ? 36.0 : qtNativeText ? 0.0 : 24.0)
         ));
         auto textX = geometry.x() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : 12.0);
-        auto textY = geometry.y() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : std::min(38.0, geometry.height() * 0.42));
-        if (imageHasTextOverlay) {
-            const auto textHeight = runtimeWidget.valueText->boundingRect().height();
-            const auto verticalAlignment = property(widget, "qtVerticalAlignment");
-            if (verticalAlignment == "Center") {
-                textY = geometry.y() + std::max(0.0, (geometry.height() - textHeight) / 2.0);
-            } else if (verticalAlignment == "Bottom") {
-                textY = geometry.bottom() - textHeight;
-            }
+        auto textY = geometry.y() + (alarmTable ? 44.0 : qtNativeText ? 0.0 : std::min(38.0, geometry.height() * 0.42));
+        const auto textHeight = runtimeWidget.valueText->boundingRect().height();
+        const auto verticalAlignment = property(widget, "qtVerticalAlignment");
+        if (verticalAlignment == "Center") {
+            textY = geometry.y() + std::max(0.0, (geometry.height() - textHeight) / 2.0);
+        } else if (verticalAlignment == "Bottom") {
+            textY = geometry.bottom() - textHeight;
         }
         runtimeWidget.valueText->setPos(textX, textY);
         runtimeWidget.valueText->setZValue(widget.zIndex + 0.3);
         runtimeWidget.valueText->setVisible(!hideNativeValue);
+        if (widget.type == "cellularSignal") {
+            runtimeWidget.valueText->setTextWidth(std::max(1.0, geometry.width() - 150.0));
+            runtimeWidget.valueText->setPos(geometry.x() + 18.0, geometry.y() + 56.0);
+            const auto baseline = geometry.bottom() - 20.0;
+            const auto barWidth = 18.0;
+            const auto gap = 9.0;
+            const auto startX = geometry.right() - 4.0 * barWidth - 3.0 * gap - 20.0;
+            for (int i = 0; i < 4; ++i) {
+                const auto barHeight = 18.0 + static_cast<double>(i) * 14.0;
+                auto* bar = scene_->addRect(
+                    startX + static_cast<double>(i) * (barWidth + gap),
+                    baseline - barHeight,
+                    barWidth,
+                    barHeight,
+                    QPen(Qt::NoPen),
+                    QBrush(QColor("#35505D"))
+                );
+                bar->setZValue(widget.zIndex + 0.4);
+                runtimeWidget.signalBars.push_back(bar);
+            }
+        }
+        if (energyFlow) {
+            runtimeWidget.flowForwardWhenPositive = property(widget, "flowForwardWhen") != "negative";
+            runtimeWidget.flowDeadband = std::max(0.0, numericProperty(widget, "flowDeadband", 0.2));
+            runtimeWidget.flowRatedPower = std::max(0.001, numericProperty(widget, "flowRatedPower", 30.0));
+            runtimeWidget.flowColor = property(widget, "flowColor");
+            runtimeWidget.flowIdleColor = property(widget, "flowIdleColor");
+            runtimeWidget.flowStart = QPointF(geometry.left() + 5.0, geometry.y() + geometry.height() * 0.72);
+            runtimeWidget.flowEnd = QPointF(geometry.right() - 5.0, geometry.y() + geometry.height() * 0.72);
+
+            runtimeWidget.flowLine = scene_->addLine(
+                QLineF(runtimeWidget.flowStart, runtimeWidget.flowEnd),
+                QPen(colorOr(runtimeWidget.flowIdleColor, "#2C6078"), 3, Qt::DashLine, Qt::RoundCap)
+            );
+            runtimeWidget.flowLine->setZValue(widget.zIndex + 0.25);
+
+            runtimeWidget.flowArrow = scene_->addPath(QPainterPath());
+            runtimeWidget.flowArrow->setZValue(widget.zIndex + 0.45);
+            runtimeWidget.flowArrow->setVisible(false);
+
+            runtimeWidget.flowValueText = scene_->addText(QStringLiteral("-- kW"));
+            QFont flowFont(QStringLiteral("Microsoft YaHei"));
+            flowFont.setPixelSize(18);
+            flowFont.setWeight(QFont::Bold);
+            runtimeWidget.flowValueText->setFont(flowFont);
+            runtimeWidget.flowValueText->setDefaultTextColor(QColor("#D8EEF4"));
+            runtimeWidget.flowValueText->document()->setDocumentMargin(0);
+            auto flowTextOption = runtimeWidget.flowValueText->document()->defaultTextOption();
+            flowTextOption.setAlignment(Qt::AlignHCenter);
+            flowTextOption.setWrapMode(QTextOption::NoWrap);
+            runtimeWidget.flowValueText->document()->setDefaultTextOption(flowTextOption);
+            runtimeWidget.flowValueText->setTextWidth(geometry.width());
+            runtimeWidget.flowValueText->setPos(geometry.x(), geometry.y() + 1.0);
+            runtimeWidget.flowValueText->setZValue(widget.zIndex + 0.5);
+
+            const auto particleColor = colorOr(runtimeWidget.flowColor, "#20DBE9");
+            const auto particleCount = std::max(2, static_cast<int>(numericProperty(widget, "flowParticleCount", 4.0)));
+            for (int i = 0; i < particleCount; ++i) {
+                auto* particle = scene_->addEllipse(-4, -4, 8, 8, QPen(Qt::NoPen), QBrush(particleColor));
+                particle->setZValue(widget.zIndex + 0.55);
+                particle->setVisible(false);
+                runtimeWidget.flowParticles.push_back(particle);
+            }
+        }
+        if (widget.type == "qtInput" && runtimeWidget.inputWritable) {
+            runtimeWidget.panel->setCursor(Qt::IBeamCursor);
+        }
 
         if (widget.type == "statusLamp" || widget.type == "statusCard") {
             const auto imagePath = imageReference.empty()
                 ? QString()
                 : QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
             QPixmap pixmap(imagePath);
-            if (!pixmap.isNull()) {
+            const auto hasStateSource = !runtimeWidget.indexes.empty() || !runtimeWidget.stateRules.empty();
+            if (hasStateSource && !pixmap.isNull()) {
                 runtimeWidget.stateImage = scene_->addPixmap(pixmap.scaled(
                     static_cast<int>(std::round(geometry.width())),
                     static_cast<int>(std::round(geometry.height())),
@@ -423,13 +635,16 @@ void ScadaSceneView::buildScene() {
                 const auto size = std::max(14.0, std::min(32.0, geometry.height() * 0.24));
                 runtimeWidget.statusLamp = scene_->addEllipse(
                     geometry.right() - size - 14,
-                    geometry.y() + 12,
+                    geometry.y() + std::max(0.0, (geometry.height() - size) / 2.0),
                     size,
                     size,
                     QPen(Qt::NoPen),
                     QBrush(QColor("#71808A"))
                 );
                 runtimeWidget.statusLamp->setZValue(widget.zIndex + 0.4);
+                if (property(widget, "qtTextAlignment") == "Center") {
+                    runtimeWidget.valueText->setTextWidth(std::max(1.0, geometry.width() - size - 34.0));
+                }
             }
         }
 
@@ -576,7 +791,6 @@ void ScadaSceneView::buildScene() {
                     QPen(color, 2, styleIt == seriesPenStyles.end() ? Qt::SolidLine : styleIt->second)
                 );
                 series.path->setZValue(widget.zIndex + 0.4 + static_cast<double>(seriesIndex) * 0.001);
-                runtimeWidget.trendSeries.push_back(series);
 
                 if (legacyChart) {
                     const auto legendX = geometry.x() + geometry.width() * 0.80;
@@ -588,31 +802,33 @@ void ScadaSceneView::buildScene() {
                     const auto legendY = runtimeWidget.chartY + 32.0 +
                         static_cast<double>(seriesIndex) * legendRowHeight;
                     const auto legendPenStyle = styleIt == seriesPenStyles.end() ? Qt::SolidLine : styleIt->second;
-                    auto* swatch = scene_->addLine(
+                    series.legendSwatch = scene_->addLine(
                         legendX,
                         legendY + 7,
                         legendX + 24,
                         legendY + 7,
                         QPen(color, 3, legendPenStyle)
                     );
-                    swatch->setZValue(widget.zIndex + 0.35);
-                    auto* legend = scene_->addText(
+                    series.legendSwatch->setZValue(widget.zIndex + 0.35);
+                    series.legendText = scene_->addText(
                         QString::fromStdString(series.name + (series.unit.empty() ? "" : " (" + series.unit + ")")),
                         QFont(QStringLiteral("Microsoft YaHei"), 9)
                     );
-                    legend->setDefaultTextColor(QColor("#C5D5DC"));
-                    legend->document()->setDocumentMargin(0);
-                    legend->setTextWidth(std::max(1.0, geometry.right() - legendX - 40.0));
-                    auto legendOption = legend->document()->defaultTextOption();
+                    series.legendText->setDefaultTextColor(QColor("#C5D5DC"));
+                    series.legendText->document()->setDocumentMargin(0);
+                    series.legendText->setTextWidth(std::max(1.0, geometry.right() - legendX - 40.0));
+                    auto legendOption = series.legendText->document()->defaultTextOption();
                     legendOption.setWrapMode(QTextOption::NoWrap);
-                    legend->document()->setDefaultTextOption(legendOption);
-                    legend->setPos(legendX + 32, legendY);
-                    legend->setZValue(widget.zIndex + 0.35);
+                    series.legendText->document()->setDefaultTextOption(legendOption);
+                    series.legendText->setPos(legendX + 32, legendY);
+                    series.legendText->setZValue(widget.zIndex + 0.35);
                 }
+                runtimeWidget.trendSeries.push_back(series);
                 ++seriesIndex;
             }
         }
-        if (!runtimeWidget.indexes.empty() || !runtimeWidget.stateRules.empty() ||
+        if (unboundDataWidget || unboundStateWidget ||
+            !runtimeWidget.indexes.empty() || !runtimeWidget.stateRules.empty() ||
             !runtimeWidget.alarms.empty() || isTrendType(widget.type) || widget.type == "alarmTable") {
             runtimeWidgets_.push_back(runtimeWidget);
         }
@@ -635,22 +851,32 @@ void ScadaSceneView::refresh(std::int64_t now) {
     for (const auto& value : values) byIndex[value.index] = value;
 
     for (auto& widget : runtimeWidgets_) {
+        if (widget.pcsPowerControl != nullptr) {
+            widget.pcsPowerControl->refresh(now);
+            continue;
+        }
+        if (widget.type == "energyFlow") {
+            refreshEnergyFlow(widget, byIndex, now);
+            continue;
+        }
         if (widget.type == "alarmTable") {
             QStringList active;
-            int serial = 1;
             for (const auto& alarm : widget.alarms) {
                 if (conditionMatches(alarm.condition, byIndex)) {
                     const auto current = byIndex.find(alarm.condition.index);
-                    active.push_back(QStringLiteral("%1    %2    %3    %4    %5    %6")
-                        .arg(serial++)
-                        .arg(QString::fromUtf8("实时报警"))
+                    const auto severity = alarm.severity == "critical"
+                        ? QString::fromUtf8("严重")
+                        : alarm.severity == "warning"
+                            ? QString::fromUtf8("警告")
+                            : QString::fromUtf8("提示");
+                    active.push_back(QStringLiteral("%1    %2    %3 / %4")
+                        .arg(severity)
                         .arg(QString::fromStdString(alarm.label))
-                        .arg(QString::fromStdString(alarm.severity))
                         .arg(current == byIndex.end() ? QStringLiteral("--") : formatNumber(current->second.value))
                         .arg(QString::fromStdString(alarm.condition.expected)));
                 }
             }
-            const auto header = QString::fromUtf8("序号    报警类型    报警描述    报警级别    当前值    报警值");
+            const auto header = QString::fromUtf8("级别    报警描述                         当前值 / 阈值");
             const auto text = header + QStringLiteral("\n\n") + (active.empty()
                 ? QString::fromUtf8("暂无活动告警")
                 : active.join(QStringLiteral("\n")));
@@ -697,7 +923,107 @@ void ScadaSceneView::refresh(std::int64_t now) {
                 );
             }
         }
-        refreshTrend(widget, byIndex);
+        if (!widget.signalBars.empty()) {
+            const auto percent = good ? std::max(0.0, std::min(100.0, value->second.value)) : 0.0;
+            const auto activeBars = percent <= 0.0
+                ? 0
+                : std::min(4, static_cast<int>(std::ceil(percent / 25.0)));
+            const auto activeColor = percent < 25.0
+                ? QColor("#E45858")
+                : percent < 50.0 ? QColor("#D9A441") : QColor("#20C879");
+            for (std::size_t i = 0; i < widget.signalBars.size(); ++i) {
+                widget.signalBars[i]->setBrush(
+                    good && static_cast<int>(i) < activeBars ? activeColor : QColor("#35505D")
+                );
+            }
+        }
+        sampleTrend(widget, byIndex, now);
+        renderTrend(widget);
+    }
+}
+
+void ScadaSceneView::refreshEnergyFlow(
+    RuntimeWidget& widget,
+    const std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue>& values,
+    std::int64_t timestamp
+) {
+    widget.flowValueGood = false;
+    if (!widget.indexes.empty()) {
+        const auto current = values.find(widget.indexes.front());
+        if (current != values.end() && current->second.quality == 1 && !current->second.stale) {
+            widget.flowValue = current->second.value;
+            widget.flowValueGood = true;
+        }
+    }
+    if (widget.flowValueText != nullptr) {
+        widget.flowValueText->setPlainText(widget.flowValueGood
+            ? formatNumber(widget.flowValue) + QStringLiteral(" kW")
+            : QStringLiteral("-- kW"));
+    }
+    animateEnergyFlow(widget, timestamp);
+}
+
+void ScadaSceneView::animateEnergyFlow(RuntimeWidget& widget, std::int64_t timestamp) {
+    if (widget.flowLine == nullptr || widget.flowArrow == nullptr) return;
+    const auto active = widget.flowValueGood && std::fabs(widget.flowValue) > widget.flowDeadband;
+    const auto forward = widget.flowForwardWhenPositive ? widget.flowValue > 0.0 : widget.flowValue < 0.0;
+    const auto activeColor = colorOr(widget.flowColor, "#20DBE9");
+    const auto idleColor = colorOr(widget.flowIdleColor, "#2C6078");
+
+    QPen linePen(active ? activeColor : idleColor, active ? 5.0 : 3.0);
+    linePen.setCapStyle(Qt::RoundCap);
+    if (!active) linePen.setStyle(Qt::DashLine);
+    widget.flowLine->setPen(linePen);
+
+    if (!active) {
+        widget.flowArrow->setVisible(false);
+        for (auto* particle : widget.flowParticles) particle->setVisible(false);
+        return;
+    }
+
+    const auto tip = forward ? widget.flowEnd : widget.flowStart;
+    const auto tail = forward ? widget.flowStart : widget.flowEnd;
+    const auto vector = tip - tail;
+    const auto length = std::max(1.0, std::hypot(vector.x(), vector.y()));
+    const QPointF direction(vector.x() / length, vector.y() / length);
+    const QPointF normal(-direction.y(), direction.x());
+    const auto arrowBase = tip - direction * 15.0;
+    QPainterPath arrow;
+    arrow.moveTo(tip);
+    arrow.lineTo(arrowBase + normal * 8.0);
+    arrow.lineTo(arrowBase - normal * 8.0);
+    arrow.closeSubpath();
+    widget.flowArrow->setPath(arrow);
+    widget.flowArrow->setPen(QPen(activeColor, 1));
+    widget.flowArrow->setBrush(QBrush(activeColor));
+    widget.flowArrow->setVisible(true);
+
+    const auto loadRatio = std::min(1.0, std::fabs(widget.flowValue) / widget.flowRatedPower);
+    const auto cycleMs = 2100.0 - 1200.0 * loadRatio;
+    const auto phase = std::fmod(static_cast<double>(timestamp), cycleMs) / cycleMs;
+    const auto count = std::max<std::size_t>(1, widget.flowParticles.size());
+    for (std::size_t i = 0; i < widget.flowParticles.size(); ++i) {
+        auto position = std::fmod(phase + static_cast<double>(i) / static_cast<double>(count), 1.0);
+        if (!forward) position = 1.0 - position;
+        const auto point = widget.flowStart + (widget.flowEnd - widget.flowStart) * position;
+        widget.flowParticles[i]->setPos(point);
+        widget.flowParticles[i]->setVisible(position > 0.06 && position < 0.88);
+    }
+}
+
+void ScadaSceneView::sampleTrends(std::int64_t now) {
+    std::vector<std::uint32_t> requestedIndexes;
+    for (const auto& widget : runtimeWidgets_) {
+        for (const auto& series : widget.trendSeries) requestedIndexes.push_back(series.index);
+    }
+    if (requestedIndexes.empty()) return;
+    std::sort(requestedIndexes.begin(), requestedIndexes.end());
+    requestedIndexes.erase(std::unique(requestedIndexes.begin(), requestedIndexes.end()), requestedIndexes.end());
+    const auto values = runtime_.readIndexes(requestedIndexes, now);
+    std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> byIndex;
+    for (const auto& value : values) byIndex[value.index] = value;
+    for (auto& widget : runtimeWidgets_) {
+        if (!widget.trendSeries.empty()) sampleTrend(widget, byIndex, now);
     }
 }
 
@@ -710,7 +1036,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
 
     const auto resolved = runtime_.resolveTag(action.tagId);
     if (!resolved || resolved->tag.nodeId != runtime_.nodeId()) {
-        QMessageBox::warning(this, QStringLiteral("SCADA"), QStringLiteral("The control tag is not available on this edge."));
+        QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromUtf8("当前边端不存在该控制点。"));
         return;
     }
 
@@ -718,13 +1044,13 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
     if (action.type == "toggle") {
         const auto current = runtime_.readTag(action.tagId, nowMs());
         if (!current || current->quality != 1 || current->stale) {
-            QMessageBox::warning(this, QStringLiteral("SCADA"), QStringLiteral("The current value is unavailable; toggle was rejected."));
+            QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromUtf8("当前值不可用，已拒绝切换操作。"));
             return;
         }
         target = std::fabs(current->value) > 0.000001 ? 0.0 : 1.0;
     } else if (!action.value.empty()) {
         if (!parseDouble(action.value, &target)) {
-            QMessageBox::warning(this, QStringLiteral("SCADA"), QStringLiteral("The configured control value is invalid."));
+            QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromUtf8("配置的控制目标值无效。"));
             return;
         }
     } else if (action.type == "pulse") {
@@ -733,8 +1059,8 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
         bool accepted = false;
         target = QInputDialog::getDouble(
             this,
-            QStringLiteral("SCADA setpoint"),
-            QStringLiteral("Target value"),
+            QString::fromUtf8("设定值控制"),
+            QString::fromUtf8("目标值"),
             0.0,
             -1000000000.0,
             1000000000.0,
@@ -747,8 +1073,8 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
     if (action.requiresConfirmation) {
         const auto answer = QMessageBox::question(
             this,
-            QStringLiteral("Confirm control"),
-            QStringLiteral("Write %1 to %2?").arg(target).arg(QString::fromStdString(resolved->tag.displayName)),
+            QString::fromUtf8("确认控制"),
+            QString::fromUtf8("确认将 %1 写入 %2？").arg(target).arg(QString::fromStdString(resolved->tag.displayName)),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No
         );
@@ -764,7 +1090,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
     command.highPriority = action.highPriority;
     const auto result = runtime_.submitWrite(action.tagId, command);
     if (!result.accepted) {
-        QMessageBox::warning(this, QStringLiteral("SCADA"), QString::fromStdString(result.message));
+        QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromStdString(result.message));
         return;
     }
 
@@ -781,7 +1107,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
             reset.highPriority = highPriority;
             const auto resetResult = runtime_.submitWrite(tagId, reset);
             if (!resetResult.accepted) {
-                QMessageBox::warning(this, QStringLiteral("SCADA"), QString::fromStdString(resetResult.message));
+                QMessageBox::warning(this, QString::fromUtf8("脉冲复位失败"), QString::fromStdString(resetResult.message));
             }
         });
     }
@@ -801,8 +1127,18 @@ void ScadaSceneView::refreshState(
     const std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue>& values
 ) {
     if (widget.stateRules.empty()) return;
+    bool allConditionsAvailable = true;
+    for (const auto& rule : widget.stateRules) {
+        for (const auto& condition : rule.conditions) {
+            const auto current = values.find(condition.index);
+            if (current == values.end() || current->second.quality != 1 || current->second.stale) {
+                allConditionsAvailable = false;
+            }
+        }
+    }
     const RuntimeStateRule* matched = nullptr;
     for (const auto& rule : widget.stateRules) {
+        if (!allConditionsAvailable) break;
         bool result = rule.matchAny ? false : true;
         for (const auto& condition : rule.conditions) {
             const auto item = conditionMatches(condition, values);
@@ -814,18 +1150,22 @@ void ScadaSceneView::refreshState(
         }
     }
 
-    const auto visualCode = matched == nullptr ? std::string("__default") : matched->code;
+    const auto visualCode = !allConditionsAvailable
+        ? std::string("__unavailable")
+        : matched == nullptr ? std::string("__default") : matched->code;
     if (visualCode == widget.lastVisualCode) return;
     widget.lastVisualCode = visualCode;
-    const auto color = matched == nullptr
+    const auto color = !allConditionsAvailable
+        ? QColor("#71808A")
+        : matched == nullptr
         ? colorOr(widget.defaultColor, "#102A38")
         : colorOr(matched->color, "#AAB3BD");
-    if (widget.panel != nullptr) {
+    if (widget.panel != nullptr && widget.stateColorPanel) {
         const auto imageOnlyState = widget.stateImage != nullptr &&
             (widget.type == "statusLamp" || widget.type == "statusCard");
         widget.panel->setBrush(imageOnlyState ? QBrush(Qt::NoBrush) : QBrush(color));
     }
-    if (widget.statusLamp != nullptr) widget.statusLamp->setBrush(matched == nullptr ? QColor("#71808A") : color);
+    if (widget.statusLamp != nullptr) widget.statusLamp->setBrush(color);
     if (widget.stateImage != nullptr) {
         const auto imageReference = matched == nullptr ? widget.defaultImage : matched->image;
         if (!imageReference.empty()) {
@@ -842,65 +1182,85 @@ void ScadaSceneView::refreshState(
         }
     }
     if (widget.stateImage == nullptr && widget.valueText != nullptr && !isTrendType(widget.type)) {
-        const auto label = !widget.stateLabelVisible
+        const auto label = !allConditionsAvailable
+            ? std::string("data unavailable")
+            : !widget.stateLabelVisible
             ? std::string()
             : matched != nullptr && !matched->label.empty()
                 ? matched->label
                 : widget.defaultLabel.empty() ? std::string("--") : widget.defaultLabel;
-        widget.valueText->setDefaultTextColor(matched == nullptr ? QColor("#AAB3BD") : QColor("#F3F8FA"));
-        widget.valueText->setPlainText(QString::fromStdString(label));
+        widget.valueText->setDefaultTextColor(!allConditionsAvailable || matched == nullptr
+            ? QColor("#AAB3BD")
+            : QColor("#F3F8FA"));
+        widget.valueText->setPlainText(!allConditionsAvailable
+            ? QString::fromUtf8("数据不可用")
+            : QString::fromStdString(label));
         widget.lastText = label;
     }
 }
 
-void ScadaSceneView::refreshTrend(
+void ScadaSceneView::sampleTrend(
     RuntimeWidget& widget,
-    const std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue>& values
+    const std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue>& values,
+    std::int64_t now
 ) {
     if (widget.trendSeries.empty()) return;
-    double minimum = std::numeric_limits<double>::max();
-    double maximum = std::numeric_limits<double>::lowest();
-    bool hasRenderableSeries = false;
+    const auto dayStartTs = localDayStartMs(now);
+    widget.chartDayStartTs = dayStartTs;
+    std::int64_t latestTs = 0;
     for (auto& series : widget.trendSeries) {
         const auto current = values.find(series.index);
         if (current != values.end() && current->second.quality == 1 && !current->second.stale && current->second.ts > 0 &&
-            current->second.ts != series.lastSampleTs) {
+            current->second.ts >= dayStartTs && current->second.ts != series.lastSampleTs) {
             series.lastSampleTs = current->second.ts;
-            series.samples.push_back(std::make_pair(current->second.ts, current->second.value));
-            while (static_cast<int>(series.samples.size()) > widget.trendMaxPoints) series.samples.pop_front();
+            const auto bucketTs = dayStartTs +
+                ((current->second.ts - dayStartTs) / widget.chartSampleIntervalMs) * widget.chartSampleIntervalMs;
+            if (series.samples.empty() || series.lastBucketTs != bucketTs) {
+                series.samples.push_back(std::make_pair(current->second.ts, current->second.value));
+                series.lastBucketTs = bucketTs;
+            } else {
+                series.samples.back() = std::make_pair(current->second.ts, current->second.value);
+            }
         }
-        if (series.samples.size() < 2) continue;
-        hasRenderableSeries = true;
-        for (const auto& sample : series.samples) {
-            minimum = std::min(minimum, sample.second);
-            maximum = std::max(maximum, sample.second);
+        while (!series.samples.empty() && series.samples.front().first < dayStartTs) series.samples.pop_front();
+        while (static_cast<int>(series.samples.size()) > widget.trendMaxPoints) series.samples.pop_front();
+        if (!series.samples.empty()) latestTs = std::max(latestTs, series.samples.back().first);
+    }
+    widget.chartLatestTs = latestTs;
+}
+
+void ScadaSceneView::renderTrend(RuntimeWidget& widget) {
+    if (widget.trendSeries.empty()) return;
+    const auto dayStartTs = widget.chartDayStartTs;
+    const auto latestTs = widget.chartLatestTs;
+    if (latestTs <= 0) {
+        for (auto& series : widget.trendSeries) {
+            if (series.path != nullptr) series.path->setPath(QPainterPath());
+        }
+        for (auto* label : widget.chartYLabels) label->setPlainText(QStringLiteral("--"));
+        return;
+    }
+
+    const auto availableSpan = std::max<std::int64_t>(1, latestTs - dayStartTs);
+    if (widget.chartFollowLatest || widget.chartViewStartTs <= 0 || widget.chartViewEndTs <= widget.chartViewStartTs) {
+        const auto span = std::min(widget.chartViewWindowMs, availableSpan);
+        widget.chartViewEndTs = latestTs;
+        widget.chartViewStartTs = std::max(dayStartTs, latestTs - span);
+    } else {
+        auto span = std::max<std::int64_t>(1, widget.chartViewEndTs - widget.chartViewStartTs);
+        span = std::min(span, availableSpan);
+        if (widget.chartViewEndTs > latestTs) {
+            widget.chartViewEndTs = latestTs;
+            widget.chartViewStartTs = latestTs - span;
+        }
+        if (widget.chartViewStartTs < dayStartTs) {
+            widget.chartViewStartTs = dayStartTs;
+            widget.chartViewEndTs = std::min(latestTs, dayStartTs + span);
         }
     }
-    if (!hasRenderableSeries) return;
-    if (std::fabs(maximum - minimum) < 1e-9) {
-        minimum -= 1.0;
-        maximum += 1.0;
-    }
+    const auto firstTs = widget.chartViewStartTs;
+    const auto lastTs = std::max(widget.chartViewStartTs + 1, widget.chartViewEndTs);
 
-    const auto padding = std::max(1e-6, (maximum - minimum) * 0.08);
-    minimum -= padding;
-    maximum += padding;
-
-    std::int64_t firstTs = std::numeric_limits<std::int64_t>::max();
-    std::int64_t lastTs = 0;
-    for (const auto& series : widget.trendSeries) {
-        if (series.samples.empty()) continue;
-        firstTs = std::min(firstTs, series.samples.front().first);
-        lastTs = std::max(lastTs, series.samples.back().first);
-    }
-    if (firstTs == std::numeric_limits<std::int64_t>::max()) return;
-
-    for (std::size_t line = 0; line < widget.chartYLabels.size(); ++line) {
-        const auto ratio = widget.chartYLabels.size() <= 1
-            ? 0.0
-            : static_cast<double>(line) / static_cast<double>(widget.chartYLabels.size() - 1);
-        widget.chartYLabels[line]->setPlainText(formatNumber(maximum - (maximum - minimum) * ratio));
-    }
     for (std::size_t line = 0; line < widget.chartXLabels.size(); ++line) {
         const auto ratio = widget.chartXLabels.size() <= 1
             ? 0.0
@@ -911,20 +1271,364 @@ void ScadaSceneView::refreshTrend(
         );
     }
 
+    double minimum = std::numeric_limits<double>::max();
+    double maximum = std::numeric_limits<double>::lowest();
+    bool hasVisibleSamples = false;
+    for (const auto& series : widget.trendSeries) {
+        int visibleSamples = 0;
+        for (const auto& sample : series.samples) {
+            if (sample.first < firstTs || sample.first > lastTs) continue;
+            if (!std::isfinite(sample.second)) continue;
+            minimum = std::min(minimum, sample.second);
+            maximum = std::max(maximum, sample.second);
+            ++visibleSamples;
+        }
+        hasVisibleSamples = hasVisibleSamples || visibleSamples >= 1;
+    }
+    if (!hasVisibleSamples) {
+        for (auto& series : widget.trendSeries) {
+            if (series.path != nullptr) series.path->setPath(QPainterPath());
+        }
+        for (auto* label : widget.chartYLabels) label->setPlainText(QStringLiteral("--"));
+        return;
+    }
+    if (std::fabs(maximum - minimum) < 1e-9) {
+        minimum -= 1.0;
+        maximum += 1.0;
+    }
+
+    const auto padding = std::max(1e-6, (maximum - minimum) * 0.08);
+    minimum -= padding;
+    maximum += padding;
+
+    for (std::size_t line = 0; line < widget.chartYLabels.size(); ++line) {
+        const auto ratio = widget.chartYLabels.size() <= 1
+            ? 0.0
+            : static_cast<double>(line) / static_cast<double>(widget.chartYLabels.size() - 1);
+        widget.chartYLabels[line]->setPlainText(formatNumber(maximum - (maximum - minimum) * ratio));
+    }
     for (auto& series : widget.trendSeries) {
         QPainterPath path;
+        QPointF singlePoint;
+        int visibleSamples = 0;
+        bool pathOpen = false;
         for (const auto& sample : series.samples) {
-            const auto x = lastTs <= firstTs
-                ? widget.chartX
-                : widget.chartX + widget.chartWidth * static_cast<double>(sample.first - firstTs) /
+            if (sample.first < firstTs || sample.first > lastTs) continue;
+            if (!std::isfinite(sample.second)) {
+                pathOpen = false;
+                continue;
+            }
+            const auto rawXRatio = lastTs <= firstTs
+                ? 0.0
+                : static_cast<double>(sample.first - firstTs) /
                     static_cast<double>(lastTs - firstTs);
-            const auto ratio = (sample.second - minimum) / (maximum - minimum);
-            const auto y = widget.chartY + widget.chartHeight * (1.0 - ratio);
-            if (path.elementCount() == 0) path.moveTo(x, y);
+            const auto xRatio = std::max(0.0, std::min(1.0, rawXRatio));
+            const auto rawYRatio = (sample.second - minimum) / (maximum - minimum);
+            const auto yRatio = std::max(0.0, std::min(1.0, rawYRatio));
+            const auto x = widget.chartX + widget.chartWidth * xRatio;
+            const auto y = widget.chartY + widget.chartHeight * (1.0 - yRatio);
+            if (!std::isfinite(x) || !std::isfinite(y)) {
+                pathOpen = false;
+                continue;
+            }
+            singlePoint = QPointF(x, y);
+            ++visibleSamples;
+            if (!pathOpen) path.moveTo(x, y);
             else path.lineTo(x, y);
+            pathOpen = true;
+        }
+        if (visibleSamples == 1) {
+            const auto left = std::max(widget.chartX, singlePoint.x() - 5.0);
+            const auto right = std::min(widget.chartX + widget.chartWidth, singlePoint.x() + 5.0);
+            path = QPainterPath(QPointF(left, singlePoint.y()));
+            path.lineTo(std::max(left + 1.0, right), singlePoint.y());
         }
         if (series.path != nullptr) series.path->setPath(path);
     }
+}
+
+ScadaSceneView::RuntimeWidget* ScadaSceneView::trendWidgetAt(const QPoint& viewportPosition) {
+    const auto scenePosition = mapToScene(viewportPosition);
+    for (auto item = runtimeWidgets_.rbegin(); item != runtimeWidgets_.rend(); ++item) {
+        if (item->trendSeries.empty()) continue;
+        const QRectF chartRect(item->chartX, item->chartY, item->chartWidth, item->chartHeight);
+        if (chartRect.contains(scenePosition)) return &*item;
+    }
+    return nullptr;
+}
+
+ScadaSceneView::RuntimeWidget* ScadaSceneView::inputWidgetAt(const QPoint& viewportPosition) {
+    const auto scenePosition = mapToScene(viewportPosition);
+    RuntimeWidget* selected = nullptr;
+    double selectedZ = std::numeric_limits<double>::lowest();
+    for (auto& widget : runtimeWidgets_) {
+        if (widget.type != "qtInput" || widget.inputTagId.empty() || widget.panel == nullptr) continue;
+        if (!widget.panel->sceneBoundingRect().contains(scenePosition)) continue;
+        if (widget.panel->zValue() >= selectedZ) {
+            selected = &widget;
+            selectedZ = widget.panel->zValue();
+        }
+    }
+    return selected;
+}
+
+void ScadaSceneView::editInput(RuntimeWidget& widget) {
+    const auto resolved = runtime_.resolveTag(widget.inputTagId);
+    if (!widget.inputWritable || !resolved || !resolved->mapping.writable) {
+        QMessageBox::warning(
+            this,
+            QString::fromUtf8("参数写入"),
+            QString::fromUtf8("该点位未配置写入权限，已拒绝下发。")
+        );
+        return;
+    }
+
+    const auto current = runtime_.readTag(widget.inputTagId, nowMs());
+    const auto hasCurrent = current && current->quality == 1 && !current->stale;
+    const auto currentValue = hasCurrent ? current->value : 0.0;
+    const auto minimum = widget.inputMinValue ? *widget.inputMinValue : -1000000000.0;
+    const auto maximum = widget.inputMaxValue ? *widget.inputMaxValue : 1000000000.0;
+    if (!std::isfinite(minimum) || !std::isfinite(maximum) || minimum > maximum) {
+        QMessageBox::warning(
+            this,
+            QString::fromUtf8("参数写入"),
+            QString::fromUtf8("该点位的写入范围配置无效，请先修正设备配置。")
+        );
+        return;
+    }
+
+    int decimals = 3;
+    if (widget.inputStep > 0.0) {
+        decimals = 0;
+        auto scaled = widget.inputStep;
+        while (decimals < 6 && std::fabs(scaled - std::round(scaled)) > 1e-9) {
+            scaled *= 10.0;
+            ++decimals;
+        }
+    }
+    bool accepted = false;
+    const auto displayName = QString::fromStdString(resolved->tag.displayName.empty()
+        ? resolved->tag.tagId
+        : resolved->tag.displayName);
+    const auto target = QInputDialog::getDouble(
+        this,
+        QString::fromUtf8("参数写入"),
+        QString::fromUtf8("请输入 %1：").arg(displayName),
+        std::max(minimum, std::min(maximum, currentValue)),
+        minimum,
+        maximum,
+        decimals,
+        &accepted
+    );
+    if (!accepted) return;
+
+    if (widget.inputStep > 0.0) {
+        const auto base = widget.inputMinValue ? *widget.inputMinValue : 0.0;
+        const auto ratio = (target - base) / widget.inputStep;
+        if (std::fabs(ratio - std::round(ratio)) > 1e-7) {
+            QMessageBox::warning(
+                this,
+                QString::fromUtf8("参数写入"),
+                QString::fromUtf8("输入值不符合步长 %1，请重新输入。").arg(formatNumber(widget.inputStep))
+            );
+            return;
+        }
+    }
+
+    const auto currentText = hasCurrent ? formatNumber(currentValue) : QStringLiteral("--");
+    const auto answer = QMessageBox::question(
+        this,
+        QString::fromUtf8("确认写入"),
+        QString::fromUtf8("%1\n当前值：%2\n目标值：%3\n\n确认写入吗？")
+            .arg(displayName)
+            .arg(currentText)
+            .arg(formatNumber(target)),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+    if (answer != QMessageBox::Yes) return;
+
+    edge_gateway::PendingWriteCommand command;
+    command.cmdId = nextCommandId();
+    command.value = target;
+    command.source = "scada-local-input";
+    command.ts = nowMs();
+    command.acceptedAt = command.ts;
+    command.highPriority = widget.action.highPriority;
+    const auto result = runtime_.submitWrite(widget.inputTagId, command);
+    if (!result.accepted) {
+        QMessageBox::warning(
+            this,
+            QString::fromUtf8("写入失败"),
+            QString::fromUtf8("边端拒绝写入：%1").arg(QString::fromStdString(result.message))
+        );
+        return;
+    }
+
+    refresh(nowMs());
+    QMessageBox::information(
+        this,
+        QString::fromUtf8("写入请求已受理"),
+        QString::fromUtf8("%1 已写入 %2。\n边端返回：%3")
+            .arg(displayName)
+            .arg(formatNumber(target))
+            .arg(QString::fromStdString(result.message))
+    );
+}
+
+ScadaSceneView::RuntimeTrendSeries* ScadaSceneView::trendLegendSeriesAt(const QPoint& viewportPosition) {
+    const auto scenePosition = mapToScene(viewportPosition);
+    for (auto widget = runtimeWidgets_.rbegin(); widget != runtimeWidgets_.rend(); ++widget) {
+        for (auto series = widget->trendSeries.rbegin(); series != widget->trendSeries.rend(); ++series) {
+            if (series->legendSwatch == nullptr || series->legendText == nullptr) continue;
+            const auto hitRect = series->legendSwatch->sceneBoundingRect()
+                .united(series->legendText->sceneBoundingRect())
+                .adjusted(-8.0, -6.0, 8.0, 6.0);
+            if (hitRect.contains(scenePosition)) return &*series;
+        }
+    }
+    return nullptr;
+}
+
+void ScadaSceneView::toggleTrendSeries(RuntimeTrendSeries& series) {
+    series.visible = !series.visible;
+    if (series.path != nullptr) series.path->setVisible(series.visible);
+    const auto opacity = series.visible ? 1.0 : 0.3;
+    if (series.legendSwatch != nullptr) series.legendSwatch->setOpacity(opacity);
+    if (series.legendText != nullptr) series.legendText->setOpacity(opacity);
+}
+
+void ScadaSceneView::wheelEvent(QWheelEvent* event) {
+    const auto viewportPosition = wheelViewportPosition(*event);
+    auto* widget = trendWidgetAt(viewportPosition);
+    if (widget == nullptr || widget->chartLatestTs <= widget->chartDayStartTs || event->angleDelta().y() == 0) {
+        QGraphicsView::wheelEvent(event);
+        return;
+    }
+
+    const auto maximumSpan = std::max<std::int64_t>(1, widget->chartLatestTs - widget->chartDayStartTs);
+    const auto minimumSpan = std::min(widget->chartMinWindowMs, maximumSpan);
+    const auto currentSpan = std::max<std::int64_t>(
+        1,
+        widget->chartViewEndTs - widget->chartViewStartTs
+    );
+    const auto factor = event->angleDelta().y() > 0 ? 0.8 : 1.25;
+    const auto newSpan = std::max(
+        minimumSpan,
+        std::min(maximumSpan, static_cast<std::int64_t>(std::llround(currentSpan * factor)))
+    );
+    widget->chartViewWindowMs = newSpan;
+
+    if (widget->chartFollowLatest) {
+        widget->chartViewEndTs = widget->chartLatestTs;
+        widget->chartViewStartTs = std::max(widget->chartDayStartTs, widget->chartLatestTs - newSpan);
+    } else {
+        const auto scenePosition = mapToScene(viewportPosition);
+        const auto anchorRatio = std::max(
+            0.0,
+            std::min(1.0, (scenePosition.x() - widget->chartX) / std::max(1.0, widget->chartWidth))
+        );
+        const auto anchorTs = widget->chartViewStartTs +
+            static_cast<std::int64_t>(std::llround(currentSpan * anchorRatio));
+        auto startTs = anchorTs - static_cast<std::int64_t>(std::llround(newSpan * anchorRatio));
+        auto endTs = startTs + newSpan;
+        if (startTs < widget->chartDayStartTs) {
+            startTs = widget->chartDayStartTs;
+            endTs = startTs + newSpan;
+        }
+        if (endTs > widget->chartLatestTs) {
+            endTs = widget->chartLatestTs;
+            startTs = endTs - newSpan;
+        }
+        widget->chartViewStartTs = std::max(widget->chartDayStartTs, startTs);
+        widget->chartViewEndTs = std::min(widget->chartLatestTs, endTs);
+    }
+    event->accept();
+}
+
+void ScadaSceneView::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        auto* series = trendLegendSeriesAt(event->pos());
+        if (series != nullptr) {
+            toggleTrendSeries(*series);
+            event->accept();
+            return;
+        }
+        panningTrend_ = trendWidgetAt(event->pos());
+        if (panningTrend_ != nullptr) {
+            lastPanScenePosition_ = mapToScene(event->pos());
+            viewport()->setCursor(Qt::ClosedHandCursor);
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsView::mousePressEvent(event);
+}
+
+void ScadaSceneView::panTrend(RuntimeWidget& widget, double sceneDeltaX) {
+    if (widget.chartWidth <= 0 || widget.chartLatestTs <= widget.chartDayStartTs) return;
+    const auto span = std::max<std::int64_t>(1, widget.chartViewEndTs - widget.chartViewStartTs);
+    const auto shift = -static_cast<std::int64_t>(std::llround(sceneDeltaX * span / widget.chartWidth));
+    auto startTs = widget.chartViewStartTs + shift;
+    auto endTs = widget.chartViewEndTs + shift;
+    if (startTs < widget.chartDayStartTs) {
+        startTs = widget.chartDayStartTs;
+        endTs = startTs + span;
+    }
+    if (endTs > widget.chartLatestTs) {
+        endTs = widget.chartLatestTs;
+        startTs = endTs - span;
+    }
+    widget.chartViewStartTs = std::max(widget.chartDayStartTs, startTs);
+    widget.chartViewEndTs = std::min(widget.chartLatestTs, endTs);
+    widget.chartFollowLatest = false;
+}
+
+void ScadaSceneView::mouseMoveEvent(QMouseEvent* event) {
+    if (panningTrend_ != nullptr) {
+        const auto scenePosition = mapToScene(event->pos());
+        panTrend(*panningTrend_, scenePosition.x() - lastPanScenePosition_.x());
+        lastPanScenePosition_ = scenePosition;
+        event->accept();
+        return;
+    }
+    if (trendLegendSeriesAt(event->pos()) != nullptr) {
+        viewport()->setCursor(Qt::PointingHandCursor);
+    } else {
+        viewport()->unsetCursor();
+    }
+    QGraphicsView::mouseMoveEvent(event);
+}
+
+void ScadaSceneView::mouseReleaseEvent(QMouseEvent* event) {
+    if (panningTrend_ != nullptr && event->button() == Qt::LeftButton) {
+        panningTrend_ = nullptr;
+        viewport()->unsetCursor();
+        event->accept();
+        return;
+    }
+    QGraphicsView::mouseReleaseEvent(event);
+}
+
+void ScadaSceneView::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        auto* input = inputWidgetAt(event->pos());
+        if (input != nullptr) {
+            editInput(*input);
+            event->accept();
+            return;
+        }
+    }
+    auto* widget = trendWidgetAt(event->pos());
+    if (widget != nullptr && event->button() == Qt::LeftButton) {
+        widget->chartFollowLatest = true;
+        widget->chartViewWindowMs = widget->chartDefaultWindowMs;
+        widget->chartViewStartTs = 0;
+        widget->chartViewEndTs = 0;
+        event->accept();
+        return;
+    }
+    QGraphicsView::mouseDoubleClickEvent(event);
 }
 
 void ScadaSceneView::resizeEvent(QResizeEvent* event) {
@@ -959,9 +1663,13 @@ QString ScadaSceneView::valueText(
             parts.push_back(QStringLiteral("--"));
         } else {
             std::string mapped;
-            parts.push_back(resolveScadaValueLabel(widget.valueMap, value->second.value, &mapped)
+            auto formatted = resolveScadaValueLabel(widget.valueMap, value->second.value, &mapped)
                 ? QString::fromStdString(mapped)
-                : formatNumber(value->second.value));
+                : formatNumber(value->second.value);
+            if (!widget.valueSuffix.empty()) {
+                formatted += QString::fromStdString(widget.valueSuffix);
+            }
+            parts.push_back(formatted);
         }
     }
     return parts.join(QStringLiteral("  "));
@@ -983,6 +1691,17 @@ ScadaRuntimeWindow::ScadaRuntimeWindow(
     stack_ = new QStackedWidget(this);
     layout->addWidget(stack_);
 
+    logoutButton_ = new QPushButton(this);
+    logoutButton_->setObjectName(QStringLiteral("scadaLogoutButton"));
+    logoutButton_->setStyleSheet(R"CSS(
+        QPushButton { background:#3B2B30; color:#F3F8FA; border:1px solid #A45A64;
+                      border-radius:5px; font-size:18px; font-weight:700; padding:8px 14px; }
+        QPushButton:pressed { background:#5A3038; }
+    )CSS");
+    logoutButton_->hide();
+    QObject::connect(logoutButton_, &QPushButton::clicked, this, [this]() { logoutLocalUser(); });
+    qApp->installEventFilter(this);
+
     reloadProject(true);
     timer_ = new QTimer(this);
     QObject::connect(timer_, &QTimer::timeout, this, [this]() {
@@ -998,16 +1717,18 @@ ScadaRuntimeWindow::ScadaRuntimeWindow(
                 }
             }
         }
-        refreshCurrent();
+        enforceAccessExpiry(now);
+        refreshAll(now);
     });
     timer_->start(std::max(100, refreshIntervalMs));
-    refreshCurrent();
+    refreshAll(nowMs());
 }
 
 void ScadaRuntimeWindow::reloadProject(bool initial) {
     auto loaded = edge_gateway::ScadaProjectLoader::loadFromDirectory(projectDirectory_);
     if (loaded.screens.empty()) throw std::runtime_error("SCADA project has no screens for local runtime");
     project_ = std::move(loaded);
+    accessSession_ = ScadaLocalAccessSession(project_.permissions.localAccess);
     runtime_ = runtimeFactory_(project_);
     if (!runtime_) throw std::runtime_error("SCADA runtime source factory returned no source");
     setWindowTitle(QString::fromStdString(project_.manifest.projectName));
@@ -1029,6 +1750,15 @@ void ScadaRuntimeWindow::rebuildScreens() {
     for (const auto& screen : project_.screens) {
         screenIndexes_[screen.screenId] = -1;
     }
+    for (const auto& screen : project_.screens) {
+        const auto containsTrend = std::any_of(screen.widgets.begin(), screen.widgets.end(), [](const auto& widget) {
+            return widget.visible && isTrendType(widget.type);
+        });
+        if ((screen.screenId == project_.manifest.entryScreen || containsTrend) &&
+            !accessSession_.requiresAuthentication(screen.screenId)) {
+            buildScreen(screen);
+        }
+    }
     showScreen(project_.manifest.entryScreen);
 }
 
@@ -1048,9 +1778,26 @@ int ScadaRuntimeWindow::buildScreen(const edge_gateway::ScadaScreen& screen) {
     return index;
 }
 
+bool ScadaRuntimeWindow::screenRequiresLocalAuthentication(const std::string& screenId) const {
+    return accessSession_.requiresAuthentication(screenId);
+}
+
+bool ScadaRuntimeWindow::authenticateLocalAccess(
+    const std::string& username,
+    const std::string& password,
+    std::string* message
+) {
+    return accessSession_.authenticate(username, password, nowMs(), message);
+}
+
 void ScadaRuntimeWindow::showScreen(const std::string& screenId) {
     auto item = screenIndexes_.find(screenId);
     if (item != screenIndexes_.end()) {
+        const auto timestamp = nowMs();
+        if (!accessSession_.authorizedForScreen(screenId, timestamp)) {
+            if (!requestScadaLocalLogin(this, accessSession_, timestamp)) return;
+        }
+        accessSession_.touch(timestamp);
         auto index = item->second;
         if (index < 0) {
             const auto screen = std::find_if(project_.screens.begin(), project_.screens.end(), [&](const auto& value) {
@@ -1060,15 +1807,75 @@ void ScadaRuntimeWindow::showScreen(const std::string& screenId) {
             index = buildScreen(*screen);
         }
         stack_->setCurrentIndex(index);
+        currentScreenId_ = screenId;
+        updateAccessUi();
         refreshCurrent();
     } else if (stack_->count() > 0) {
         stack_->setCurrentIndex(0);
+        updateAccessUi();
     }
 }
 
 void ScadaRuntimeWindow::refreshCurrent() {
     auto* view = dynamic_cast<ScadaSceneView*>(stack_->currentWidget());
     if (view != nullptr) view->refresh(nowMs());
+}
+
+void ScadaRuntimeWindow::refreshAll(std::int64_t now) {
+    auto* current = dynamic_cast<ScadaSceneView*>(stack_->currentWidget());
+    for (auto* view : views_) {
+        if (view == nullptr) continue;
+        if (view == current) view->refresh(now);
+        else view->sampleTrends(now);
+    }
+}
+
+void ScadaRuntimeWindow::enforceAccessExpiry(std::int64_t timestamp) {
+    if (!accessSession_.requiresAuthentication(currentScreenId_) ||
+        accessSession_.authenticated(timestamp)) {
+        return;
+    }
+    accessSession_.logout();
+    rebuildScreens();
+}
+
+void ScadaRuntimeWindow::updateAccessUi() {
+    if (logoutButton_ == nullptr) return;
+    const auto visible = accessSession_.requiresAuthentication(currentScreenId_) &&
+        accessSession_.authenticated(nowMs());
+    logoutButton_->setVisible(visible);
+    if (visible) {
+        logoutButton_->setText(
+            QString::fromUtf8("%1 · 退出").arg(QString::fromStdString(accessSession_.username()))
+        );
+        logoutButton_->raise();
+    }
+}
+
+void ScadaRuntimeWindow::logoutLocalUser() {
+    accessSession_.logout();
+    rebuildScreens();
+}
+
+bool ScadaRuntimeWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (accessSession_.authenticated(nowMs()) && event != nullptr) {
+        const auto type = event->type();
+        const auto activity = type == QEvent::MouseButtonPress || type == QEvent::KeyPress ||
+            type == QEvent::TouchBegin || type == QEvent::Wheel;
+        auto* widget = qobject_cast<QWidget*>(watched);
+        if (activity && widget != nullptr && (widget == this || isAncestorOf(widget))) {
+            accessSession_.touch(nowMs());
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void ScadaRuntimeWindow::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    if (logoutButton_ != nullptr) {
+        logoutButton_->setGeometry(std::max(8, width() - 190), 18, 170, 58);
+        logoutButton_->raise();
+    }
 }
 
 std::string ScadaRuntimeWindow::projectRevision() const {

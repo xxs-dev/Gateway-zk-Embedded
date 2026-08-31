@@ -28,12 +28,14 @@ MQTT_PID=$ROOT/run/mqtt-driver.pid
 MODE_FILE=$ROOT/run/mode
 PROTOCOL_FILE=$ROOT/run/protocol
 GPIO_ROOT=$ROOT/run/gpio
+PERFORMANCE_SCRIPT=${GATEWAY_TEST_LAB_PERFORMANCE_SCRIPT:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/gateway-test-lab-performance.sh}
 
 usage() {
     echo "Usage: gateway-test-lab start [normal|ramp|random|boundary] [--protocol modbus-tcp|modbus-rtu|dlt645|can|dio|iec104] [--mode virtual|hil]"
     echo "       [--host IP] [--port N] [--serial-device DEVICE] [--can-interface NAME] [--can-driver-udp-port N] [--can-simulator-udp-port N]"
     echo "       [--monitor-host IP] [--monitor-port N] [--mqtt-broker URL]"
     echo "       gateway-test-lab stop|status"
+    echo "       gateway-test-lab performance [--protocol NAME] [--warmup-sec N] [--duration-sec N] [--output-dir DIR]"
     echo "       gateway-test-lab scenario NAME"
     echo "       gateway-test-lab fault modbus.slaveN|dlt645.meterN|can.device1|dio.gpioN MODE"
     echo "       gateway-test-lab recover modbus.slaveN|dlt645.meterN|can.device1|dio.gpioN"
@@ -101,12 +103,14 @@ render_configs() {
     mqtt_broker=$7
     mode=$8
     mkdir -p "$ROOT/config/apps" "$ROOT/config/devices" "$ROOT/run" "$ROOT/logs" "$ROOT/data"
+    rm -f -- "$ROOT/run/compute-engine-health.json" "$ROOT/run/mqtt-driver-health.json"
     cp "$ROOT/templates/device_identity.json" "$ROOT/config/device_identity.json"
     case "$protocol" in
         modbus-tcp)
             device_file=$ROOT/config/devices/device_modbus_tcp.json
             shared_memory=gateway_test_lab_modbus
             compute_source_index=910002
+            trace_evidence_index=910099
             sed -e "s|__SIMULATOR_HOST__|$endpoint|g" \
                 -e "s|__SIMULATOR_PORT__|$simulator_port|g" \
                 "$ROOT/templates/device_modbus_tcp.json" > "$device_file"
@@ -115,6 +119,7 @@ render_configs() {
             device_file=$ROOT/config/devices/device_modbus_rtu.json
             shared_memory=gateway_test_lab_modbus_rtu
             compute_source_index=940001
+            trace_evidence_index=940099
             sed -e "s|__SERIAL_DEVICE__|$endpoint|g" \
                 "$ROOT/templates/device_modbus_rtu.json" > "$device_file"
             ;;
@@ -122,6 +127,7 @@ render_configs() {
             device_file=$ROOT/config/devices/device_dlt645.json
             shared_memory=gateway_test_lab_dlt645
             compute_source_index=970002
+            trace_evidence_index=0
             sed -e "s|__SERIAL_DEVICE__|$endpoint|g" \
                 "$ROOT/templates/device_dlt645.json" > "$device_file"
             ;;
@@ -129,6 +135,7 @@ render_configs() {
             device_file=$ROOT/config/devices/device_can.json
             shared_memory=gateway_test_lab_can
             compute_source_index=990001
+            trace_evidence_index=0
             if [ "$mode" = virtual ]; then can_transport=udp_test; else can_transport=socketcan; fi
             sed -e "s|__CAN_INTERFACE__|$endpoint|g" \
                 -e "s|__CAN_TRANSPORT__|$can_transport|g" \
@@ -142,6 +149,7 @@ render_configs() {
             device_file=$ROOT/config/devices/device_dio.json
             shared_memory=gateway_test_lab_dio
             compute_source_index=991001
+            trace_evidence_index=0
             sed -e "s|__GPIO_ROOT__|$endpoint|g" \
                 "$ROOT/templates/device_dio.json" > "$device_file"
             ;;
@@ -149,6 +157,7 @@ render_configs() {
             device_file=$ROOT/config/devices/device_iec104.json
             shared_memory=gateway_test_lab_iec104
             compute_source_index=992002
+            trace_evidence_index=0
             sed -e "s|__SIMULATOR_HOST__|$endpoint|g" \
                 -e "s|__SIMULATOR_PORT__|$simulator_port|g" \
                 "$ROOT/templates/device_iec104.json" > "$device_file"
@@ -333,12 +342,14 @@ start_lab() {
     echo $! > "$EVENT_PID"
     wait_started "$EVENT_PID" EventEngine
 
-    nohup "$GATEWAY_BIN_DIR/MqttDriver" --app-config "$ROOT/config/apps/monitor-service.json" \
+    nohup env GATEWAY_MQTT_STDOUT_EVIDENCE_INDEX="$trace_evidence_index" \
+        "$GATEWAY_BIN_DIR/MqttDriver" --app-config "$ROOT/config/apps/monitor-service.json" \
         > "$ROOT/logs/mqtt-driver.log" 2>&1 &
     echo $! > "$MQTT_PID"
     wait_started "$MQTT_PID" MqttDriver
 
-    nohup "$SYSTEM_MONITOR_BIN" \
+    nohup env GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME="gateway_test_lab_system_monitor_$protocol" \
+        "$SYSTEM_MONITOR_BIN" \
         --app-config "$ROOT/config/apps/monitor-service.json" \
         > "$ROOT/logs/system-monitor.log" 2>&1 &
     echo $! > "$MONITOR_PID"
@@ -383,9 +394,16 @@ stop_lab() {
     stop_process "$DRIVER_PID" modbus-driver
     stop_process "$SIM_PID" simulator
     rm -f -- "$CONTROL" "$STATUS_FILE" "$MODE_FILE" "$PROTOCOL_FILE" \
+        "$ROOT/run/compute-engine-health.json" "$ROOT/run/mqtt-driver-health.json" \
         /dev/shm/gateway_test_lab_modbus /dev/shm/gateway_test_lab_modbus_rtu \
         /dev/shm/gateway_test_lab_dlt645 /dev/shm/gateway_test_lab_can \
-        /dev/shm/gateway_test_lab_dio /dev/shm/gateway_test_lab_iec104
+        /dev/shm/gateway_test_lab_dio /dev/shm/gateway_test_lab_iec104 \
+        /dev/shm/gateway_test_lab_system_monitor_modbus-tcp \
+        /dev/shm/gateway_test_lab_system_monitor_modbus-rtu \
+        /dev/shm/gateway_test_lab_system_monitor_dlt645 \
+        /dev/shm/gateway_test_lab_system_monitor_can \
+        /dev/shm/gateway_test_lab_system_monitor_dio \
+        /dev/shm/gateway_test_lab_system_monitor_iec104
     rm -rf -- "$GPIO_ROOT"
 }
 
@@ -410,6 +428,10 @@ case "$command" in
     start) start_lab "$@" ;;
     stop) stop_lab ;;
     status) status_lab ;;
+    performance)
+        [ -x "$PERFORMANCE_SCRIPT" ] || { echo "performance script not found: $PERFORMANCE_SCRIPT" >&2; exit 1; }
+        GATEWAY_TEST_LAB_COMMAND=$0 "$PERFORMANCE_SCRIPT" "$@"
+        ;;
     scenario)
         [ "$#" -eq 1 ] || { usage; exit 2; }
         if [ -f "$PROTOCOL_FILE" ] && [ "$(cat "$PROTOCOL_FILE")" = dio ]; then
