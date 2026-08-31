@@ -13,6 +13,8 @@ stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
     return 0
   fi
+  # Cellular and route-failover services do not map the point store. Keep them
+  # running so an OTA/runtime restart cannot tear down the maintenance path.
   units=$(
     {
       systemctl list-units --all --plain --no-legend \
@@ -28,8 +30,6 @@ stop_units() {
         'local-display@*.service' \
         'local-display-qt@*.service' \
         'qt-display-bridge.service' \
-        'gateway-cellular.service' \
-        'gateway-network-failover.service' \
         'local-kiosk@*.service' \
         'ky-ems.service' \
         'system-monitor@*.service' \
@@ -50,8 +50,6 @@ stop_units() {
         'local-display@*.service' \
         'local-display-qt@*.service' \
         'qt-display-bridge.service' \
-        'gateway-cellular.service' \
-        'gateway-network-failover.service' \
         'local-kiosk@*.service' \
         'ky-ems.service' \
         'system-monitor@*.service' \
@@ -59,7 +57,7 @@ stop_units() {
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' 2>/dev/null |
         awk '{print $1}'
-    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service" || $0 == "gateway-cellular.service" || $0 == "gateway-network-failover.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
+    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
   )
   [ -z "$units" ] && return 0
   # Stop all instances together so OTA/config switching is bounded by the slowest
