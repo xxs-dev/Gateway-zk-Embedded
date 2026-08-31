@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cstddef>
 #include <cstring>
 #include <cstdint>
 #include <cstdlib>
@@ -31,7 +32,7 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::uint32_t kSharedStoreMagic = 0x4D505354;  // MPST
-constexpr std::uint32_t kSharedStoreVersion = 7;
+constexpr std::uint32_t kSharedStoreVersion = 8;
 constexpr std::size_t kMaxLatestSlots = 100000;
 constexpr std::size_t kMaxPendingWriteSlots = 4096;
 constexpr std::size_t kMaxWritebackResultSlots = 4096;
@@ -186,6 +187,39 @@ struct SharedStoreLayout {
     SharedClaimSlot claims[kMaxClaimSlots];
 };
 
+#ifndef _WIN32
+static_assert(offsetof(SharedStoreLayout, header) == 0, "shared store header must remain the first layout field");
+
+SharedStoreLayout* layoutFromMutex(pthread_mutex_t* mutex) noexcept {
+    auto* headerBytes = reinterpret_cast<unsigned char*>(mutex) - offsetof(SharedStoreHeader, mutex);
+    return reinterpret_cast<SharedStoreLayout*>(headerBytes);
+}
+
+void resetSharedStorePayloadAfterOwnerDeath(SharedStoreLayout* layout) noexcept {
+    auto& header = layout->header;
+    header.writeSequence = 0;
+    header.writebackResultSequence = 0;
+    header.persistentSequence = 0;
+    header.pointUpdateSequence = 0;
+    header.latestCount = 0;
+    header.pendingWriteHead = 0;
+    header.pendingWriteTail = 0;
+    header.writebackResultHead = 0;
+    header.writebackResultTail = 0;
+    header.persistentHead = 0;
+    header.persistentTail = 0;
+    header.pointUpdateHead = 0;
+    header.pointUpdateTail = 0;
+    std::memset(layout->latest, 0, sizeof(layout->latest));
+    std::memset(layout->pendingWrites, 0, sizeof(layout->pendingWrites));
+    std::memset(layout->writebackResults, 0, sizeof(layout->writebackResults));
+    std::memset(layout->persistent, 0, sizeof(layout->persistent));
+    std::memset(layout->pointUpdates, 0, sizeof(layout->pointUpdates));
+    std::memset(layout->owners, 0, sizeof(layout->owners));
+    std::memset(layout->claims, 0, sizeof(layout->claims));
+}
+#endif
+
 #ifdef _WIN32
 class SharedLockGuard {
 public:
@@ -212,8 +246,20 @@ public:
 
         const auto rc = pthread_mutex_timedlock(mutex_, &deadline);
         if (rc == EOWNERDEAD) {
-            pthread_mutex_consistent(mutex_);
+            const auto consistentRc = pthread_mutex_consistent(mutex_);
+            if (consistentRc != 0) {
+                // Unlocking without marking the state consistent intentionally
+                // makes the robust mutex permanently unrecoverable.
+                pthread_mutex_unlock(mutex_);
+                throw std::runtime_error(
+                    std::string("failed to recover shared memory mutex: ") + std::strerror(consistentRc)
+                );
+            }
+            resetSharedStorePayloadAfterOwnerDeath(layoutFromMutex(mutex_));
             return;
+        }
+        if (rc == ENOTRECOVERABLE) {
+            throw std::runtime_error("shared memory mutex is not recoverable; rebuild the shared memory segment");
         }
         if (rc == ETIMEDOUT) {
             throw std::runtime_error("shared memory mutex lock timed out");
@@ -746,14 +792,33 @@ private:
 };
 
 void initializePosixMutex(pthread_mutex_t& mutex) {
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutexattr_t attr{};
+    auto rc = pthread_mutexattr_init(&attr);
+    if (rc != 0) {
+        throw std::runtime_error(std::string("pthread_mutexattr_init failed: ") + std::strerror(rc));
+    }
+
+    rc = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    if (rc != 0) {
+        pthread_mutexattr_destroy(&attr);
+        throw std::runtime_error(std::string("pthread_mutexattr_setpshared failed: ") + std::strerror(rc));
+    }
 #if defined(__linux__)
-    pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
+    rc = pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
+    if (rc != 0) {
+        pthread_mutexattr_destroy(&attr);
+        throw std::runtime_error(std::string("pthread_mutexattr_setrobust failed: ") + std::strerror(rc));
+    }
 #endif
-    pthread_mutex_init(&mutex, &attr);
-    pthread_mutexattr_destroy(&attr);
+    rc = pthread_mutex_init(&mutex, &attr);
+    const auto destroyRc = pthread_mutexattr_destroy(&attr);
+    if (rc != 0) {
+        throw std::runtime_error(std::string("pthread_mutex_init failed: ") + std::strerror(rc));
+    }
+    if (destroyRc != 0) {
+        pthread_mutex_destroy(&mutex);
+        throw std::runtime_error(std::string("pthread_mutexattr_destroy failed: ") + std::strerror(destroyRc));
+    }
 }
 #endif
 
@@ -857,7 +922,15 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName)
         shmStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout)) ||
         (layout->header.magic == 0 && layout->header.version == 0)) {
         std::memset(layout, 0, sizeof(SharedStoreLayout));
-        initializePosixMutex(layout->header.mutex);
+        try {
+            initializePosixMutex(layout->header.mutex);
+        } catch (...) {
+            munmap(sharedView_, sizeof(SharedStoreLayout));
+            sharedView_ = nullptr;
+            close(fd);
+            mappingHandle_ = nullptr;
+            throw;
+        }
         layout->header.magic = kSharedStoreMagic;
         layout->header.version = kSharedStoreVersion;
     } else if (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion) {

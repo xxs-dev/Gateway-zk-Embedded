@@ -72,6 +72,24 @@ stop_units() {
   done
 }
 
+reset_point_store_segments() {
+  # All shared-memory users are stopped before this runs. Recreate the volatile
+  # segments so mutex/layout upgrades never attach to an older process ABI.
+  if command -v fuser >/dev/null 2>&1; then
+    for segment in /dev/shm/gateway_point_store*; do
+      [ -e "$segment" ] || continue
+      if fuser "$segment" >/dev/null 2>&1; then
+        echo "[gateway-services] shared memory is still in use: $segment" >&2
+        return 1
+      fi
+    done
+  fi
+  if ! rm -f /dev/shm/gateway_point_store* 2>/dev/null; then
+    echo "[gateway-services] failed to rebuild shared memory segments" >&2
+    return 1
+  fi
+}
+
 desired_units() {
   python3 - "$DEVICE_DIR" "$APP_DIR" "$MQTT_APP_NAME" "$MONITOR_APP_NAME" "$CAMERA_APP_NAME" "$AGC_AVC_APP_NAME" <<'PY'
 import json
@@ -477,6 +495,7 @@ start_units() {
 case "${1:-apply}" in
   apply|restart)
     stop_units
+    reset_point_store_segments
     start_units
     ;;
   start)

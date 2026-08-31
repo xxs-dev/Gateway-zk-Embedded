@@ -57,6 +57,36 @@ sqlite3_errmsg_fn g_sqlite3_errmsg = nullptr;
 sqlite3_free_fn g_sqlite3_free = nullptr;
 sqlite3_busy_timeout_fn g_sqlite3_busy_timeout = nullptr;
 
+class StatementGuard {
+public:
+    StatementGuard() = default;
+
+    ~StatementGuard() {
+        finalize();
+    }
+
+    sqlite3_stmt** output() {
+        return &statement_;
+    }
+
+    sqlite3_stmt* get() const {
+        return statement_;
+    }
+
+    void finalize() noexcept {
+        if (statement_ != nullptr) {
+            g_sqlite3_finalize(statement_);
+            statement_ = nullptr;
+        }
+    }
+
+    StatementGuard(const StatementGuard&) = delete;
+    StatementGuard& operator=(const StatementGuard&) = delete;
+
+private:
+    sqlite3_stmt* statement_ = nullptr;
+};
+
 void* loadSymbol(void* handle, const char* name) {
 #ifdef _WIN32
     auto* symbol = reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name));
@@ -112,13 +142,27 @@ void stepDoneOrThrow(sqlite3* db, sqlite3_stmt* stmt) {
     }
 }
 
+void rollbackNoThrow(sqlite3* db) noexcept {
+    char* errorMessage = nullptr;
+    g_sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, &errorMessage);
+    if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
+        g_sqlite3_free(errorMessage);
+    }
+}
+
 }  // namespace
 
 SqliteAlarmWriter::SqliteAlarmWriter(std::string dbPath, std::string libraryPath)
     : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)) {
-    loadLibrary();
-    openDatabase();
-    ensureSchema();
+    try {
+        loadLibrary();
+        openDatabase();
+        ensureSchema();
+    } catch (...) {
+        closeDatabase();
+        unloadLibrary();
+        throw;
+    }
 }
 
 SqliteAlarmWriter::~SqliteAlarmWriter() {
@@ -134,43 +178,40 @@ void SqliteAlarmWriter::writeEvents(const std::vector<AlarmEvent>& events) {
     auto* db = static_cast<sqlite3*>(databaseHandle_);
     execOrThrow(db, "BEGIN IMMEDIATE TRANSACTION;");
 
-    sqlite3_stmt* stmt = nullptr;
+    StatementGuard stmt;
     const char* sql =
         "INSERT INTO alarm_events(point_index, ts, alarm_type, active, threshold, value, quality, stale, persist_value, gateway_code, device_code, point_code) "
         "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
-    if (g_sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
-        execOrThrow(db, "ROLLBACK;");
-        throw std::runtime_error(sqliteError(db));
-    }
-
     try {
+        if (g_sqlite3_prepare_v2(db, sql, -1, stmt.output(), nullptr) != kSqliteOk) {
+            throw std::runtime_error(sqliteError(db));
+        }
         for (const auto& event : events) {
-            if (g_sqlite3_bind_int(stmt, 1, static_cast<int>(event.index)) != kSqliteOk ||
-                g_sqlite3_bind_int64(stmt, 2, static_cast<long long>(event.ts)) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt, 3, event.alarmType.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt, 4, event.active ? 1 : 0) != kSqliteOk ||
-                g_sqlite3_bind_double(stmt, 5, event.threshold) != kSqliteOk ||
-                g_sqlite3_bind_double(stmt, 6, event.value) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt, 7, event.quality) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt, 8, event.stale ? 1 : 0) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt, 9, event.persistValue.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt, 10, event.machineCode.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt, 11, event.meterCode.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt, 12, event.pointCode.c_str(), -1, nullptr) != kSqliteOk) {
+            if (g_sqlite3_bind_int(stmt.get(), 1, static_cast<int>(event.index)) != kSqliteOk ||
+                g_sqlite3_bind_int64(stmt.get(), 2, static_cast<long long>(event.ts)) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 3, event.alarmType.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 4, event.active ? 1 : 0) != kSqliteOk ||
+                g_sqlite3_bind_double(stmt.get(), 5, event.threshold) != kSqliteOk ||
+                g_sqlite3_bind_double(stmt.get(), 6, event.value) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 7, event.quality) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 8, event.stale ? 1 : 0) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 9, event.persistValue.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 10, event.machineCode.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 11, event.meterCode.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 12, event.pointCode.c_str(), -1, nullptr) != kSqliteOk) {
                 throw std::runtime_error(sqliteError(db));
             }
-            stepDoneOrThrow(db, stmt);
-            if (g_sqlite3_reset(stmt) != kSqliteOk || g_sqlite3_clear_bindings(stmt) != kSqliteOk) {
+            stepDoneOrThrow(db, stmt.get());
+            if (g_sqlite3_reset(stmt.get()) != kSqliteOk ||
+                g_sqlite3_clear_bindings(stmt.get()) != kSqliteOk) {
                 throw std::runtime_error(sqliteError(db));
             }
         }
-        g_sqlite3_finalize(stmt);
+        stmt.finalize();
         execOrThrow(db, "COMMIT;");
     } catch (...) {
-        if (stmt != nullptr) {
-            g_sqlite3_finalize(stmt);
-        }
-        execOrThrow(db, "ROLLBACK;");
+        stmt.finalize();
+        rollbackNoThrow(db);
         throw;
     }
 }
@@ -228,16 +269,22 @@ void SqliteAlarmWriter::openDatabase() {
         nullptr
     );
     if (rc != kSqliteOk) {
+        if (db != nullptr) {
+            g_sqlite3_close_v2(db);
+        }
         throw std::runtime_error("failed to open sqlite database");
     }
-    if (g_sqlite3_busy_timeout != nullptr) {
-        g_sqlite3_busy_timeout(db, 5000);
+    if (g_sqlite3_busy_timeout(db, 5000) != kSqliteOk) {
+        g_sqlite3_close_v2(db);
+        throw std::runtime_error("failed to configure sqlite busy timeout");
     }
     databaseHandle_ = db;
 }
 
 void SqliteAlarmWriter::ensureSchema() {
     auto* db = static_cast<sqlite3*>(databaseHandle_);
+    execOrThrow(db, "PRAGMA journal_mode=WAL;");
+    execOrThrow(db, "PRAGMA synchronous=NORMAL;");
     execOrThrow(
         db,
         "CREATE TABLE IF NOT EXISTS alarm_events ("
