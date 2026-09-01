@@ -13,6 +13,7 @@
 #include "edge_gateway/modbus_collector.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/modbus_codec.hpp"
 #include "edge_gateway/models.hpp"
 
 namespace {
@@ -172,6 +173,20 @@ edge_gateway::PointDefinition lowPriorityPoint(
     auto point = registerPoint(index, pointCode, address);
     point.collectPriority = 1;
     return point;
+}
+
+void verifyRegisterBoolAliasDecodesConfiguredBit() {
+    auto point = registerPoint(500003, "register_bool", 56);
+    point.read.function = 4;
+    point.read.dataType = "bool";
+    point.read.bit = 9;
+
+    const auto setBit = edge_gateway::ModbusCodec::decodeReadValue({0x0A00}, point);
+    require(setBit.value == 1.0, "register bool should decode a configured set bit");
+
+    point.read.bit = 10;
+    const auto clearBit = edge_gateway::ModbusCodec::decodeReadValue({0x0A00}, point);
+    require(clearBit.value == 0.0, "register bool should decode a configured clear bit");
 }
 
 edge_gateway::DeviceConfig buildConfig(const std::string& sharedMemoryName) {
@@ -1360,6 +1375,7 @@ void verifyOfflineProbeIntervalThrottlesFailedTaskOnly() {
 
 int main() {
     try {
+        verifyRegisterBoolAliasDecodesConfiguredBit();
         verifyPartialFailureStillOnline();
         verifyAllFailuresGoOfflineAndThrow();
         verifyTransientFailureKeepsLastGoodValueByDefault();
