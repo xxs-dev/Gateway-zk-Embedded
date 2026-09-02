@@ -8,6 +8,7 @@ StartLimitBurst=10
 Type=simple
 User=root
 WorkingDirectory=/opt/modbus-gateway
+ExecStartPre=/bin/mkdir -p /opt/modbus-gateway/run
 ExecStart=/opt/modbus-gateway/bin/MqttForwarder --app-config /opt/modbus-gateway/config/runtime/apps/%i.json
 Restart=on-failure
 RestartSec=5
