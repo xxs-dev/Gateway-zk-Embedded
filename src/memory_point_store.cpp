@@ -704,13 +704,46 @@ std::vector<PersistentPointSample> drainPersistent(SharedStoreLayout* layout) {
     while (layout->header.persistentHead != layout->header.persistentTail) {
         auto& slot = layout->persistent[layout->header.persistentHead];
         if (slot.occupied) {
-            result.push_back(PersistentPointSample{slot.index, slot.value, slot.ts});
+            result.push_back(PersistentPointSample{slot.index, slot.value, slot.ts, slot.sequence});
             slot = SharedPersistentSlot{};
         }
         layout->header.persistentHead =
             (layout->header.persistentHead + 1) % kMaxPersistentSlots;
     }
     return result;
+}
+
+std::vector<PersistentPointSample> peekPersistent(
+    const SharedStoreLayout* layout,
+    std::size_t limit
+) {
+    std::vector<PersistentPointSample> result;
+    auto head = layout->header.persistentHead;
+    while (head != layout->header.persistentTail && (limit == 0 || result.size() < limit)) {
+        const auto& slot = layout->persistent[head];
+        if (slot.occupied) {
+            result.push_back(PersistentPointSample{slot.index, slot.value, slot.ts, slot.sequence});
+        }
+        head = (head + 1) % kMaxPersistentSlots;
+    }
+    return result;
+}
+
+std::size_t acknowledgePersistent(SharedStoreLayout* layout, std::uint64_t throughSequence) {
+    std::size_t acknowledged = 0;
+    while (layout->header.persistentHead != layout->header.persistentTail) {
+        auto& slot = layout->persistent[layout->header.persistentHead];
+        if (slot.occupied && slot.sequence > throughSequence) {
+            break;
+        }
+        if (slot.occupied) {
+            ++acknowledged;
+        }
+        slot = SharedPersistentSlot{};
+        layout->header.persistentHead =
+            (layout->header.persistentHead + 1) % kMaxPersistentSlots;
+    }
+    return acknowledged;
 }
 
 void pushPointUpdate(SharedStoreLayout* layout, const PointUpdateRecord& update) {
@@ -1834,6 +1867,33 @@ MemoryStoreStats MemoryPointStore::getStats() const {
     stats.persistentSequence = layout2->header.persistentSequence;
     stats.pointUpdateSequence = layout2->header.pointUpdateSequence;
     return stats;
+}
+
+std::vector<PersistentPointSample> MemoryPointStore::peekPersistentSamples(std::size_t limit) const {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    return peekPersistent(layoutFrom(sharedView_), limit);
+}
+
+std::size_t MemoryPointStore::acknowledgePersistentSamples(std::uint64_t throughSequence) {
+    if (throughSequence == 0) {
+        return 0;
+    }
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    return acknowledgePersistent(layoutFrom(sharedView_), throughSequence);
 }
 
 std::vector<PersistentPointSample> MemoryPointStore::drainPersistentSamples() {

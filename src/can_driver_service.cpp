@@ -629,8 +629,11 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
 }
 
 std::size_t CanDriverService::flushPersistentOnce() {
-    const auto samples = store_.drainPersistentSamples();
+    const auto samples = store_.peekPersistentSamples();
     sqliteWriter_.writeSamples(samples);
+    if (!samples.empty()) {
+        store_.acknowledgePersistentSamples(samples.back().sequence);
+    }
     return samples.size();
 }
 
@@ -898,7 +901,19 @@ void CanDriverService::publishStatusEvent(
         payload << "," << detailsJson;
     }
     payload << "}";
-    mqttPublisher_->publishStatusMessage(config_.machineCode, payload.str());
+    try {
+        mqttPublisher_->publishStatusMessage(config_.machineCode, payload.str());
+    } catch (const std::exception& ex) {
+        std::cerr << "CAN status publish failed"
+                  << " event=" << event
+                  << " error=" << ex.what()
+                  << std::endl;
+    } catch (...) {
+        std::cerr << "CAN status publish failed"
+                  << " event=" << event
+                  << " error=unknown"
+                  << std::endl;
+    }
 }
 
 void CanDriverService::publishPointValue(

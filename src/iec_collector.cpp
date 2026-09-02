@@ -101,10 +101,13 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
             const auto decoded = IecCodec::decodePointValue(point, *match);
             value = buildPointValue(point, decoded, pointNowMs);
             hasSuccessfulRead = true;
+        } else if (pollSucceeded) {
+            // IEC polls are incremental: one successful class response may omit
+            // unchanged values or values delivered by another data class. Keep
+            // their last good samples until normal TTL expiry marks them stale.
+            continue;
         } else {
-            auto message = pollSucceeded
-                ? std::string("IEC point not found in poll response: ") + point.pointCode
-                : std::string("IEC poll failed: ") + firstFailureMessage;
+            auto message = std::string("IEC poll failed: ") + firstFailureMessage;
             if (firstFailureMessage.empty()) {
                 firstFailureMessage = message;
             }
@@ -118,12 +121,13 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
         result.values.push_back(std::move(value));
     }
 
-    publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
-    if (!hasSuccessfulRead && !firstFailureMessage.empty()) {
+    const bool collectionSucceeded = pollSucceeded || hasSuccessfulRead;
+    publishDeviceOnlineStatus(collectionSucceeded, nowMs);
+    if (!collectionSucceeded && !firstFailureMessage.empty()) {
         recordCollectionCycleFailure();
         throw std::runtime_error(firstFailureMessage);
     }
-    if (hasSuccessfulRead) {
+    if (collectionSucceeded) {
         recordCollectionCycleSuccess();
     }
     return result;

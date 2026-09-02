@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "edge_gateway/modbus_collector.hpp"
+#include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
@@ -121,6 +122,24 @@ private:
     std::unordered_set<int> failedStarts_;
     std::set<std::pair<int, int>> failedRanges_;
     std::map<std::pair<int, int>, std::string> failedRangeMessages_;
+};
+
+class ThrowingMqttPublisher : public edge_gateway::IMqttPublisher {
+public:
+    void publishTelemetry(
+        const std::string&,
+        const std::vector<edge_gateway::PointValue>&
+    ) override {
+        throw std::runtime_error("simulated telemetry publish failure");
+    }
+
+    void publishCommandResult(const edge_gateway::CommandResult&) override {
+        throw std::runtime_error("simulated command result publish failure");
+    }
+
+    void publishStatusMessage(const std::string&, const std::string&) override {
+        throw std::runtime_error("simulated status publish failure");
+    }
 };
 
 edge_gateway::PointDefinition onlinePoint() {
@@ -1037,6 +1056,38 @@ void verifyRealtimeFocusedUsesShortTaskBackoff() {
     cleanupStore(storeName);
 }
 
+void verifyMqttFailureDoesNotChangeFieldOperationResult() {
+    const std::string storeName = "gateway_collector_mqtt_failure_isolation_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.points = {onlinePoint(), registerPoint(500001, "writable_register", 0)};
+        auto& writable = config.points.back();
+        writable.write.enable = true;
+        writable.write.function = 6;
+        writable.write.address = 0;
+        writable.write.length = 1;
+        writable.write.dataType = "uint16";
+        writable.write.byteOrder = "AB";
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(0, 123);
+        auto publisher = std::make_shared<ThrowingMqttPublisher>();
+
+        edge_gateway::Collector collector(config, store, client, publisher);
+        const auto collected = collector.collectOnce(1000);
+        require(collected.values.size() == 1, "MQTT failure must not discard collected field data");
+        const auto online = store.getLatestByIndex(500000, 1000);
+        require(online && online->value == 1.0, "MQTT failure must not mark the field device offline");
+
+        edge_gateway::CommandExecutor executor(config, store, client, publisher);
+        const auto result = executor.executeByIndex("CMD_MQTT_FAILURE", 500001, 456.0, 1100);
+        require(result.success, "MQTT failure must not change a successful field write result");
+    }
+    cleanupStore(storeName);
+}
+
 void verifyCycleBackoffSkipsConfiguredTaskCycles() {
     const std::string storeName = "gateway_collector_task_cycle_backoff_test";
     cleanupStore(storeName);
@@ -1242,6 +1293,7 @@ void verifyOfflineProbeOnlyRotatesTasks() {
 int main() {
     try {
         verifyPartialFailureStillOnline();
+        verifyMqttFailureDoesNotChangeFieldOperationResult();
         verifyAllFailuresGoOfflineAndThrow();
         verifyTransientFailureKeepsLastGoodValueByDefault();
         verifyFailureCanKeepLastGoodValueWithGrace();

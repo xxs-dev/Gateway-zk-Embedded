@@ -59,9 +59,7 @@ CollectCycleResult DioCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
     if (!points.empty()) {
         publishDeviceOnlineStatus(hasSuccessfulRead, nowMs);
     }
-    if (mqttPublisher_ && !result.values.empty()) {
-        mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
-    }
+    publishTelemetryBestEffort(result.values);
     if (!points.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
         recordCollectionCycleFailure();
         throw std::runtime_error(firstFailureMessage);

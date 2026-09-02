@@ -1861,6 +1861,11 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.controlQos = boundedInt(requireInt(object, "controlQos", config.controlQos), 0, 2);
     config.cleanSession = requireBool(object, "cleanSession", config.cleanSession);
     config.keepAliveSec = requireInt(object, "keepAliveSec", config.keepAliveSec);
+    config.connectTimeoutMs = boundedInt(
+        requireInt(object, "connectTimeoutMs", config.connectTimeoutMs),
+        100,
+        60000
+    );
     config.sessionExpirySec = requireInt(object, "sessionExpirySec", config.sessionExpirySec);
     if (const auto* tls = value->find("tls")) {
         const auto& tlsObject = tls->asObject();
@@ -3295,6 +3300,7 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.controlQos = 2;
     config.mqtt.cleanSession = true;
     config.mqtt.keepAliveSec = 60;
+    config.mqtt.connectTimeoutMs = 1000;
     config.mqtt.sessionExpirySec = 0;
     config.mqttDriver.enabled = false;
     config.mqttDriver.sharedMemoryName = "gateway_point_store";

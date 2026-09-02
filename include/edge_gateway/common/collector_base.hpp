@@ -56,6 +56,7 @@ protected:
     bool shouldSkipFailedCollectionCycle();
     void recordCollectionCycleSuccess();
     void recordCollectionCycleFailure();
+    void publishTelemetryBestEffort(const std::vector<PointValue>& values) const;
 
     DeviceConfig config_;
     MemoryPointStore& store_;

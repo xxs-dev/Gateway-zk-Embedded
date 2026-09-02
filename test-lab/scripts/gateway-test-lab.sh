@@ -29,6 +29,7 @@ MODE_FILE=$ROOT/run/mode
 PROTOCOL_FILE=$ROOT/run/protocol
 GPIO_ROOT=$ROOT/run/gpio
 PERFORMANCE_SCRIPT=${GATEWAY_TEST_LAB_PERFORMANCE_SCRIPT:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/gateway-test-lab-performance.sh}
+SUITE_SCRIPT=${GATEWAY_TEST_LAB_SUITE_SCRIPT:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/gateway-test-lab-suite.sh}
 
 usage() {
     echo "Usage: gateway-test-lab start [normal|ramp|random|boundary] [--protocol modbus-tcp|modbus-rtu|dlt645|can|dio|iec104] [--mode virtual|hil]"
@@ -36,6 +37,7 @@ usage() {
     echo "       [--monitor-host IP] [--monitor-port N] [--mqtt-broker URL]"
     echo "       gateway-test-lab stop|status"
     echo "       gateway-test-lab performance [--protocol NAME] [--warmup-sec N] [--duration-sec N] [--output-dir DIR]"
+    echo "       gateway-test-lab suite [--protocols LIST] [--warmup-sec N] [--duration-sec N] [--output-dir DIR]"
     echo "       gateway-test-lab scenario NAME"
     echo "       gateway-test-lab fault modbus.slaveN|dlt645.meterN|can.device1|dio.gpioN MODE"
     echo "       gateway-test-lab recover modbus.slaveN|dlt645.meterN|can.device1|dio.gpioN"
@@ -431,6 +433,10 @@ case "$command" in
     performance)
         [ -x "$PERFORMANCE_SCRIPT" ] || { echo "performance script not found: $PERFORMANCE_SCRIPT" >&2; exit 1; }
         GATEWAY_TEST_LAB_COMMAND=$0 "$PERFORMANCE_SCRIPT" "$@"
+        ;;
+    suite)
+        [ -x "$SUITE_SCRIPT" ] || { echo "suite script not found: $SUITE_SCRIPT" >&2; exit 1; }
+        GATEWAY_TEST_LAB_COMMAND=$0 "$SUITE_SCRIPT" "$@"
         ;;
     scenario)
         [ "$#" -eq 1 ] || { usage; exit 2; }

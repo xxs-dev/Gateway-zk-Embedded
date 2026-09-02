@@ -1,6 +1,7 @@
 #include "edge_gateway/common/collector_base.hpp"
 
 #include <algorithm>
+#include <iostream>
 #include <utility>
 
 namespace edge_gateway {
@@ -158,6 +159,25 @@ void CollectorBase::recordCollectionCycleFailure() {
     const auto exponent = std::min(10, collectionCycleFailures_ - threshold);
     const auto expanded = baseCycles * (1 << exponent);
     collectionSkipCyclesRemaining_ = std::min(maxCycles, expanded);
+}
+
+void CollectorBase::publishTelemetryBestEffort(const std::vector<PointValue>& values) const {
+    if (!mqttPublisher_ || values.empty()) {
+        return;
+    }
+    try {
+        mqttPublisher_->publishTelemetry(config_.machineCode, values);
+    } catch (const std::exception& ex) {
+        std::cerr << "legacy telemetry publish failed"
+                  << " meterCode=" << config_.meterCode
+                  << " error=" << ex.what()
+                  << std::endl;
+    } catch (...) {
+        std::cerr << "legacy telemetry publish failed"
+                  << " meterCode=" << config_.meterCode
+                  << " error=unknown"
+                  << std::endl;
+    }
 }
 
 void CollectorBase::publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const {

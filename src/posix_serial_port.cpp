@@ -96,15 +96,20 @@ void PosixSerialPort::write(const std::vector<std::uint8_t>& bytes) {
             if (errno == EINTR) {
                 continue;
             }
-            throw std::system_error(errno, std::generic_category(), "serial write failed");
+            const auto error = errno;
+            close();
+            throw std::system_error(error, std::generic_category(), "serial write failed");
         }
         if (rc == 0) {
+            close();
             throw std::runtime_error("serial write returned zero bytes");
         }
         written += static_cast<std::size_t>(rc);
     }
     if (tcdrain(fd_) != 0) {
-        throw std::system_error(errno, std::generic_category(), "serial drain failed");
+        const auto error = errno;
+        close();
+        throw std::system_error(error, std::generic_category(), "serial drain failed");
     }
 }
 
@@ -136,7 +141,9 @@ std::vector<std::uint8_t> PosixSerialPort::read(std::size_t maxBytes, int timeou
             if (errno == EINTR) {
                 return {};
             }
-            throw std::system_error(errno, std::generic_category(), "select failed");
+            const auto error = errno;
+            close();
+            throw std::system_error(error, std::generic_category(), "select failed");
         }
         if (ready == 0) {
             return {};
@@ -151,7 +158,13 @@ std::vector<std::uint8_t> PosixSerialPort::read(std::size_t maxBytes, int timeou
             if (errno == EINTR) {
                 return {};
             }
-            throw std::system_error(errno, std::generic_category(), "serial read failed");
+            const auto error = errno;
+            close();
+            throw std::system_error(error, std::generic_category(), "serial read failed");
+        }
+        if (rc == 0) {
+            close();
+            throw std::runtime_error("serial connection closed");
         }
         buffer.resize(static_cast<std::size_t>(rc));
         return buffer;

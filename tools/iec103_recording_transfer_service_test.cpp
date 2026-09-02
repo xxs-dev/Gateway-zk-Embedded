@@ -93,11 +93,16 @@ public:
     void publishOtaReply(const std::string&, const edge_gateway::OtaReply&) override {}
     void publishOtaStatus(const std::string&, const edge_gateway::OtaStatus&) override {}
     void publishJsonMessage(const std::string& topic, const std::string& payload) override {
+        if (topic == "recording/status" && statusFailuresRemaining > 0) {
+            --statusFailuresRemaining;
+            throw std::runtime_error("simulated recording status publish failure");
+        }
         topics.push_back(topic);
         payloads.push_back(payload);
     }
     std::vector<edge_gateway::MqttIncomingMessage> pollIncoming(int) override { return {}; }
 
+    int statusFailuresRemaining = 0;
     std::vector<std::string> topics;
     std::vector<std::string> payloads;
 };
@@ -303,6 +308,7 @@ int main() {
     {
         Iec103RecordingTransferService duplicate(
             transferConfig, mqtt, publisher, "COMM202600102", {configPath}, http);
+        publisher->statusFailuresRemaining = 1;
         duplicate.handleRequest(request, now + 120000);
         require(duplicate.pendingTaskCount() == 0, "completed duplicate must remain a tombstone, not a pending task");
         require(!duplicate.runPendingOnce(now + 120000), "completed duplicate must not pull or upload again");

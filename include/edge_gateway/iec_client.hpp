@@ -75,8 +75,9 @@ private:
     void startReceiveLoop();
     void stopReceiveLoop();
     void receiveLoop();
-    void disconnect();
-    void configureSocketTimeouts() const;
+    void disconnect(std::uint64_t expectedGeneration = 0);
+    std::intptr_t duplicateConnectedSocket(std::uint64_t& generation) const;
+    void configureSocketTimeouts(std::intptr_t socketHandle) const;
     std::uint16_t nextSendSequence();
     std::uint16_t currentReceiveSequence() const;
     void sendIec104IFrame(const std::vector<std::uint8_t>& bytes);
@@ -102,7 +103,10 @@ private:
     bool iec104Started_ = false;
     std::vector<std::uint8_t> rxBuffer_;
     std::atomic<bool> receiveRunning_{false};
+    std::atomic<bool> connected_{false};
     std::thread receiveThread_;
+    mutable std::mutex socketMutex_;
+    std::uint64_t socketGeneration_ = 0;
     mutable std::mutex stateMutex_;
     std::mutex sendMutex_;
     std::condition_variable stateChanged_;

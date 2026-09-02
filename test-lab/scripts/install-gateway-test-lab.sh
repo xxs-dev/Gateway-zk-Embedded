@@ -54,6 +54,7 @@ if [ -n "$SYSTEM_MONITOR_BIN" ]; then
 fi
 install -m 0755 "$SOURCE_DIR/scripts/gateway-test-lab.sh" "$ROOT/bin/gateway-test-lab"
 install -m 0755 "$SOURCE_DIR/scripts/gateway-test-lab-performance.sh" "$ROOT/bin/gateway-test-lab-performance.sh"
+install -m 0755 "$SOURCE_DIR/scripts/gateway-test-lab-suite.sh" "$ROOT/bin/gateway-test-lab-suite.sh"
 install -m 0644 "$SOURCE_DIR/templates/device_identity.json" "$ROOT/templates/device_identity.json"
 install -m 0644 "$SOURCE_DIR/templates/device_modbus_tcp.json" "$ROOT/templates/device_modbus_tcp.json"
 install -m 0644 "$SOURCE_DIR/templates/device_modbus_rtu.json" "$ROOT/templates/device_modbus_rtu.json"

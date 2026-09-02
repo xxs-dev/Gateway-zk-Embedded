@@ -3132,7 +3132,19 @@ void SystemMonitorService::publishStatusEvent(const std::string& event, std::int
         payload << "," << detailsJson;
     }
     payload << "}";
-    publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+    try {
+        publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+    } catch (const std::exception& ex) {
+        std::cerr << "system monitor status publish failed"
+                  << " event=" << event
+                  << " error=" << ex.what()
+                  << std::endl;
+    } catch (...) {
+        std::cerr << "system monitor status publish failed"
+                  << " event=" << event
+                  << " error=unknown"
+                  << std::endl;
+    }
 }
 
 bool SystemMonitorService::hasActiveLease(std::int64_t nowMs) const {

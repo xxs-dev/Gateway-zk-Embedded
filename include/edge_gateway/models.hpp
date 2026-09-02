@@ -245,6 +245,7 @@ struct PersistentPointSample {
     std::uint32_t index = 0;
     double value = 0.0;
     std::int64_t ts = 0;
+    std::uint64_t sequence = 0;
 };
 
 struct PointUpdateRecord {
@@ -682,6 +683,7 @@ struct MqttConfig {
     int controlQos = 2;
     bool cleanSession = true;
     int keepAliveSec = 60;
+    int connectTimeoutMs = 1000;
     int sessionExpirySec = 0;
     MqttTlsConfig tls;
     bool offlineBufferEnabled = true;

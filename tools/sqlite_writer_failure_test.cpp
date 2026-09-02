@@ -1,11 +1,17 @@
 #include <cstdio>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <dlfcn.h>
 #include <unistd.h>
 
+#include "edge_gateway/event_engine_service.hpp"
+#include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/sqlite_alarm_writer.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
@@ -53,6 +59,25 @@ private:
     }
 
     void* handle_ = nullptr;
+};
+
+class CapturingPublisher : public edge_gateway::IMqttDriverPublisher {
+public:
+    void publishFullSnapshot(const std::string&, const std::vector<edge_gateway::StoredPointValue>&, const std::string&) override {}
+    void publishAlarm(const std::string&, std::uint32_t, const edge_gateway::StoredPointValue&, const std::string&, bool) override {}
+    void publishOnDemand(const std::string&, const std::vector<edge_gateway::StoredPointValue>&, const std::string&) override {}
+    void publishChangeEvent(const std::string&, const edge_gateway::StoredPointValue&) override {}
+    void publishCommandReply(const std::string&, const edge_gateway::MqttCommandReply&) override {}
+    void publishOtaReply(const std::string&, const edge_gateway::OtaReply&) override {}
+    void publishOtaStatus(const std::string&, const edge_gateway::OtaStatus&) override {}
+    void publishJsonMessage(const std::string&, const std::string& payload) override {
+        if (payload.find("\"type\":\"alarm\"") != std::string::npos) {
+            ++alarmCount;
+        }
+    }
+    std::vector<edge_gateway::MqttIncomingMessage> pollIncoming(int) override { return {}; }
+
+    int alarmCount = 0;
 };
 
 template <typename WriteOperation>
@@ -104,6 +129,95 @@ void verifyAlarmWriter(FixtureApi& fixture, const std::string& libraryPath) {
     require(fixture.doubleFinalizeCount() == 0, "alarm writer should remain usable after rollback");
 }
 
+void verifyEventEngineRetriesAlarmPersistence(FixtureApi& fixture, const std::string& libraryPath) {
+    using namespace edge_gateway;
+    const std::string storeName = "event_engine_alarm_retry_test";
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    MemoryStoreConfig storeConfig;
+    storeConfig.sharedMemoryName = storeName;
+    storeConfig.maxLatestPoints = 16;
+    MemoryPointStore store(storeConfig);
+
+    PointDefinition point;
+    point.index = 410001;
+    point.pointCode = "ALARM_RETRY";
+    point.enabled = true;
+    point.read.enable = true;
+    point.read.cachePolicy.ttlMs = 60000;
+    AlarmRuleConfig alarm;
+    alarm.type = "high";
+    alarm.threshold = 50.0;
+    alarm.persistValue = "alarm";
+    point.alarms.push_back(alarm);
+
+    DeviceConfig device;
+    device.machineCode = "GW_RETRY";
+    device.meterCode = "METER_RETRY";
+    device.memoryStore.sharedMemoryName = storeName;
+    device.points.push_back(point);
+    store.registerPoints(device.machineCode, device.meterCode, device.points);
+
+    PointStoreRouter router;
+    router.addStore(storeName, store);
+    router.addRoutesFromDeviceConfigs({device}, storeName);
+    EventEngineConfig eventConfig;
+    eventConfig.enabled = true;
+    eventConfig.scanFallbackIntervalMs = 5000;
+    MqttConfig mqttConfig;
+    mqttConfig.alarmTopic = "edge/alarm";
+    auto publisher = std::make_shared<CapturingPublisher>();
+    auto writer = std::unique_ptr<SqliteAlarmWriter>(
+        new SqliteAlarmWriter("fake-event-alarms.db", libraryPath)
+    );
+    EventEngineService service(
+        eventConfig,
+        mqttConfig,
+        {device},
+        router,
+        {&store},
+        publisher,
+        nullptr,
+        std::move(writer)
+    );
+
+    fixture.reset();
+    PointValue value;
+    value.index = point.index;
+    value.machineCode = device.machineCode;
+    value.meterCode = device.meterCode;
+    value.pointCode = point.pointCode;
+    value.value = 100.0;
+    value.quality = 1;
+    value.ts = 1000;
+    value.expireAt = 61000;
+    store.putLatest(value);
+    service.runOnce(1000);
+    require(fixture.rollbackCount() == 1, "event engine must retain an alarm after COMMIT failure");
+    require(publisher->alarmCount == 1, "alarm MQTT event must be emitted once while persistence retries");
+
+    const auto finalizedAfterFailure = fixture.finalizeCount();
+    fixture.setCommitFailure(0);
+    service.runOnce(1999);
+    require(
+        fixture.finalizeCount() == finalizedAfterFailure,
+        "event engine retried alarm persistence before the retry interval elapsed"
+    );
+    service.runOnce(2001);
+    require(
+        fixture.finalizeCount() == finalizedAfterFailure + 1,
+        "event engine did not retry the retained alarm batch"
+    );
+    service.runOnce(2002);
+    require(
+        fixture.finalizeCount() == finalizedAfterFailure + 1,
+        "successfully persisted alarm batch was retried again"
+    );
+    require(publisher->alarmCount == 1, "persistence retry duplicated the MQTT alarm event");
+
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 void removeDatabaseFiles(const std::string& path) {
     std::remove(path.c_str());
     std::remove((path + "-wal").c_str());
@@ -147,6 +261,7 @@ int main(int argc, char** argv) {
         FixtureApi fixture(libraryPath.c_str());
         verifySampleWriter(fixture, libraryPath);
         verifyAlarmWriter(fixture, libraryPath);
+        verifyEventEngineRetriesAlarmPersistence(fixture, libraryPath);
         verifyRealSqliteSmoke();
         std::cout << "sqlite_writer_failure_test passed" << std::endl;
         return 0;

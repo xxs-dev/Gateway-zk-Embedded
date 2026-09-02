@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "protocol": {
+    "type": "iec103",
+    "tcp": {
+      "host": "192.168.22.191",
+      "port": 7710,
+      "connectTimeoutMs": 1500,
+      "timeoutMs": 1000
+    },
+    "iec": {
+      "transportMode": "am5se_active_tcp",
+      "linkAddress": 1,
+      "linkAddressSize": 1,
+      "commonAddress": 1,
+      "cotSize": 1,
+      "caSize": 1,
+      "ioaSize": 2,
+      "interrogationCot": 9,
+      "returnInformationIdentifier": 233,
+      "deviceFunctionType": 1,
+      "pollTimeoutMs": 1000,
+      "maxPollFrames": 64,
+      "pollOnCollect": true,
+      "backgroundReceive": false,
+      "recordingDirectory": "/opt/modbus-gateway/data/iec103-recordings",
+      "recordingCommandSocket": "/run/modbus-gateway/iec103/device_am5se_f_active.sock",
+      "recordingTimeoutMs": 30000,
+      "recordingMaxFileBytes": 67108864
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000,
+    "batchOptimize": false,
+    "maxBatchRegisters": 1,
+    "maxRequestRegisters": 1
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "shared_memory",
+    "sharedMemoryName": "gateway_point_store_am5se_f",
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_am5se_f.db"
+  },
+  "points": [
+    {
+      "index": 433001,
+      "pointCode": "protection_am5se_f_iec103_yx_100",
+      "name": "合位",
+      "category": "signal",
+      "address": 0,
+      "enabled": true,
+      "fullUpload": true,
+      "reportOnChange": true,
+      "read": {
+        "enable": true,
+        "dataType": "bool",
+        "intervalMs": 1000,
+        "iec": {
+          "functionType": 1,
+          "informationNumber": 100,
+          "typeId": 44,
+          "commonAddress": 0
+        }
+      },
+      "write": {
+        "enable": false
+      }
+    },
+    {
+      "index": 433046,
+      "pointCode": "protection_am5se_f_iec103_yc_140",
+      "name": "A相电流",
+      "category": "telemetry",
+      "address": 0,
+      "enabled": true,
+      "fullUpload": true,
+      "read": {
+        "enable": true,
+        "dataType": "float32",
+        "intervalMs": 1000,
+        "iec": {
+          "functionType": 1,
+          "informationNumber": 140,
+          "typeId": 10,
+          "commonAddress": 0
+        }
+      },
+      "write": {
+        "enable": false
+      }
+    }
+  ],
+  "meters": []
+}

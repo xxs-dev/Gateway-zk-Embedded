@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cerrno>
 #include <cctype>
 #include <cstdio>
 #include <cstdint>
@@ -978,7 +979,91 @@ void ensureSocketRuntime() {
 #endif
 }
 
-SocketHandle connectTcp(const BrokerEndpoint& endpoint) {
+int mqttSocketError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+bool mqttConnectInProgress(int error) {
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINVAL;
+#else
+    return error == EINPROGRESS || error == EWOULDBLOCK || error == EAGAIN;
+#endif
+}
+
+bool setMqttSocketBlocking(SocketHandle socketHandle, bool blocking) {
+#ifdef _WIN32
+    u_long mode = blocking ? 0UL : 1UL;
+    return ioctlsocket(socketHandle, FIONBIO, &mode) == 0;
+#else
+    const auto flags = fcntl(socketHandle, F_GETFL, 0);
+    if (flags < 0) {
+        return false;
+    }
+    return fcntl(
+        socketHandle,
+        F_SETFL,
+        blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK)
+    ) == 0;
+#endif
+}
+
+bool waitForMqttConnect(SocketHandle socketHandle, std::chrono::steady_clock::time_point deadline) {
+    while (true) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+        const auto remainingUs = std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count();
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(remainingUs / 1000000);
+        timeout.tv_usec = static_cast<long>(remainingUs % 1000000);
+        fd_set writeSet;
+        FD_ZERO(&writeSet);
+        FD_SET(socketHandle, &writeSet);
+        fd_set errorSet;
+        FD_ZERO(&errorSet);
+        FD_SET(socketHandle, &errorSet);
+#ifdef _WIN32
+        const auto rc = select(0, nullptr, &writeSet, &errorSet, &timeout);
+#else
+        const auto rc = select(socketHandle + 1, nullptr, &writeSet, &errorSet, &timeout);
+#endif
+        if (rc > 0) {
+            return true;
+        }
+        if (rc == 0) {
+            return false;
+        }
+#ifdef _WIN32
+        if (mqttSocketError() != WSAEINTR) {
+#else
+        if (mqttSocketError() != EINTR) {
+#endif
+            return false;
+        }
+    }
+}
+
+bool configureMqttSocketTimeouts(SocketHandle socketHandle, int timeoutMs) {
+#ifdef _WIN32
+    const DWORD timeout = static_cast<DWORD>(std::max(1, timeoutMs));
+    return setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == 0 &&
+        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == 0;
+#else
+    timeval timeout{};
+    timeout.tv_sec = std::max(1, timeoutMs) / 1000;
+    timeout.tv_usec = (std::max(1, timeoutMs) % 1000) * 1000;
+    return setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0 &&
+        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == 0;
+#endif
+}
+
+SocketHandle connectTcp(const BrokerEndpoint& endpoint, int timeoutMs) {
     ensureSocketRuntime();
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -992,16 +1077,52 @@ SocketHandle connectTcp(const BrokerEndpoint& endpoint) {
     }
 
     SocketHandle sock = kInvalidSocket;
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, timeoutMs));
     for (auto* addr = result; addr != nullptr; addr = addr->ai_next) {
         sock = static_cast<SocketHandle>(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
         if (sock == kInvalidSocket) {
             continue;
         }
-        if (connect(sock, addr->ai_addr, static_cast<int>(addr->ai_addrlen)) == 0) {
-            break;
+        if (!setMqttSocketBlocking(sock, false)) {
+            closeSocket(sock);
+            sock = kInvalidSocket;
+            continue;
         }
-        closeSocket(sock);
-        sock = kInvalidSocket;
+        const auto connectRc = connect(sock, addr->ai_addr, static_cast<int>(addr->ai_addrlen));
+        if (connectRc != 0) {
+            const auto error = mqttSocketError();
+            if (!mqttConnectInProgress(error) || !waitForMqttConnect(sock, deadline)) {
+                closeSocket(sock);
+                sock = kInvalidSocket;
+                continue;
+            }
+            int socketError = 0;
+#ifdef _WIN32
+            int optionLength = sizeof(socketError);
+            const auto optionRc = getsockopt(
+                sock,
+                SOL_SOCKET,
+                SO_ERROR,
+                reinterpret_cast<char*>(&socketError),
+                &optionLength
+            );
+#else
+            socklen_t optionLength = sizeof(socketError);
+            const auto optionRc = getsockopt(sock, SOL_SOCKET, SO_ERROR, &socketError, &optionLength);
+#endif
+            if (optionRc != 0 || socketError != 0) {
+                closeSocket(sock);
+                sock = kInvalidSocket;
+                continue;
+            }
+        }
+        if (!setMqttSocketBlocking(sock, true) || !configureMqttSocketTimeouts(sock, timeoutMs)) {
+            closeSocket(sock);
+            sock = kInvalidSocket;
+            continue;
+        }
+        break;
     }
     freeaddrinfo(result);
 
@@ -1090,7 +1211,7 @@ void enableTlsOnConnection(MqttConnection& connection, const MqttConfig& config,
 MqttConnection connectMqttTransport(const MqttConfig& config) {
     const auto endpoint = parseBroker(config.broker);
     MqttConnection connection;
-    connection.sock = connectTcp(endpoint);
+    connection.sock = connectTcp(endpoint, config.connectTimeoutMs);
     try {
         if (configUsesTls(config, endpoint)) {
             enableTlsOnConnection(connection, config, endpoint);

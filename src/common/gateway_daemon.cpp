@@ -357,8 +357,11 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
 }
 
 std::size_t GatewayDaemon::flushPersistentOnce() {
-    const auto samples = store_.drainPersistentSamples();
+    const auto samples = store_.peekPersistentSamples();
     sqliteWriter_.writeSamples(samples);
+    if (!samples.empty()) {
+        store_.acknowledgePersistentSamples(samples.back().sequence);
+    }
     if (!samples.empty()) {
         publishStatusEvent(
             "persist-flushed",
@@ -655,7 +658,19 @@ void GatewayDaemon::publishStatusEvent(
         payload << "," << detailsJson;
     }
     payload << "}";
-    mqttPublisher_->publishStatusMessage(config_.machineCode, payload.str());
+    try {
+        mqttPublisher_->publishStatusMessage(config_.machineCode, payload.str());
+    } catch (const std::exception& ex) {
+        std::cerr << "gateway status publish failed"
+                  << " event=" << event
+                  << " error=" << ex.what()
+                  << std::endl;
+    } catch (...) {
+        std::cerr << "gateway status publish failed"
+                  << " event=" << event
+                  << " error=unknown"
+                  << std::endl;
+    }
 }
 
 void GatewayDaemon::initializeRuntimeDevices() {

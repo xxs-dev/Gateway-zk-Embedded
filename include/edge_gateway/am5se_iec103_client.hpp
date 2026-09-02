@@ -10,12 +10,12 @@
 
 namespace edge_gateway {
 
-// AM5SE Ethernet mode broadcasts master presence over UDP, then accepts the
-// TCP connection initiated by the protection device. It is intentionally
-// separate from the generic outbound IEC103 TCP client.
+// AM5SE Ethernet mode supports both device-initiated reverse TCP and the
+// device's built-in TCP server. Both modes share the IEC103 link, class poll,
+// and COMTRADE recording implementation.
 class Am5seIec103Client final : public IecClient {
 public:
-    explicit Am5seIec103Client(IecProtocolConfig config);
+    explicit Am5seIec103Client(IecProtocolConfig config, TcpTransportConfig tcp = {});
     ~Am5seIec103Client() override;
 
     std::vector<IecDataValue> poll() override;
@@ -33,6 +33,7 @@ private:
     void ensureConnected();
     void ensureListener();
     void acceptReverseConnection();
+    void connectToDeviceServer();
     void initializeLink();
     void sendDiscoveryIfDue(bool force = false);
     void sendAll(const std::vector<std::uint8_t>& bytes);
@@ -53,6 +54,7 @@ private:
     void closeListener();
 
     IecProtocolConfig config_;
+    TcpTransportConfig tcp_;
     std::intptr_t listenerSocket_ = -1;
     std::intptr_t socket_ = -1;
     std::vector<std::uint8_t> rxBuffer_;

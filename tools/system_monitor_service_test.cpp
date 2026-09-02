@@ -30,15 +30,24 @@ public:
     void publishOtaReply(const std::string&, const edge_gateway::OtaReply&) override {}
     void publishOtaStatus(const std::string&, const edge_gateway::OtaStatus&) override {}
     void publishJsonMessage(const std::string& topic, const std::string& payload) override {
+        if (publishFailuresRemaining > 0) {
+            --publishFailuresRemaining;
+            throw std::runtime_error("simulated MQTT publish failure");
+        }
         topics.push_back(topic);
         payloads.push_back(payload);
     }
     std::vector<edge_gateway::MqttIncomingMessage> pollIncoming(int) override {
+        if (throwOnPoll) {
+            throw std::runtime_error("simulated MQTT poll failure");
+        }
         auto result = incoming;
         incoming.clear();
         return result;
     }
 
+    int publishFailuresRemaining = 0;
+    bool throwOnPoll = false;
     std::vector<edge_gateway::MqttIncomingMessage> incoming;
     std::vector<std::string> topics;
     std::vector<std::string> payloads;
@@ -274,6 +283,19 @@ int main() {
         initialCpuState.update(22.0, 90.0, 80.0, 3, 3) == SustainedThresholdTransition::Recovered,
         "startup health confirmation should clear a stale platform alert"
     );
+
+    MqttConfig failingMqtt;
+    failingMqtt.statusTopic = "status";
+    auto failingPublisher = std::make_shared<CapturingPublisher>();
+    failingPublisher->throwOnPoll = true;
+    failingPublisher->publishFailuresRemaining = 1;
+    SystemMonitorService failingService(
+        SystemMonitorConfig{},
+        failingMqtt,
+        failingPublisher,
+        "GW_FAILURE_ISOLATION"
+    );
+    failingService.runOnce(1770000000000LL);
 
     const std::string root = "/tmp/system-monitor-service-test";
     ensureDir(root);

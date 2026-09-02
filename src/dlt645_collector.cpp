@@ -155,9 +155,7 @@ CollectCycleResult Dlt645Collector::collectOnce(std::int64_t nowMs, bool realtim
     if (!points.empty()) {
         publishDeviceOnlineStatus(hasSuccessfulCommunication, nowMs);
     }
-    if (mqttPublisher_ && !result.values.empty()) {
-        mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
-    }
+    publishTelemetryBestEffort(result.values);
     if (attemptedRead && !hasSuccessfulCommunication && !firstFailureMessage.empty()) {
         recordCollectionCycleFailure();
         throw std::runtime_error(firstFailureMessage);

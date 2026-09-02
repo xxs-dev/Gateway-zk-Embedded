@@ -4,6 +4,12 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 #include "edge_gateway/event_engine_service.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
@@ -209,6 +215,69 @@ void testPeriodicDeliverySuppressesChangesButNotAlarms() {
     cleanupFixture(fixture);
 }
 
+#ifndef _WIN32
+void testBrokenStoreDoesNotBlockHealthyStores() {
+    const std::string badName = "event_engine_broken_store_test";
+    const std::string goodName = "event_engine_healthy_store_test";
+    MemoryPointStore::cleanupOrphanedSegment(badName);
+    MemoryPointStore::cleanupOrphanedSegment(goodName);
+
+    MemoryStoreConfig badConfig;
+    badConfig.sharedMemoryName = badName;
+    badConfig.maxLatestPoints = 16;
+    MemoryStoreConfig goodConfig = badConfig;
+    goodConfig.sharedMemoryName = goodName;
+    auto badStore = std::unique_ptr<MemoryPointStore>(new MemoryPointStore(badConfig));
+    auto goodStore = std::unique_ptr<MemoryPointStore>(new MemoryPointStore(goodConfig));
+
+    DeviceConfig goodDevice;
+    goodDevice.machineCode = "GW_HEALTHY";
+    goodDevice.meterCode = "METER_HEALTHY";
+    goodDevice.memoryStore.sharedMemoryName = goodName;
+    goodDevice.points = {makePoint(620001, "healthy_alarm", true)};
+    goodStore->registerPoints(goodDevice.machineCode, goodDevice.meterCode, goodDevice.points);
+
+    PointStoreRouter router;
+    router.addStore(badName, *badStore);
+    router.addStore(goodName, *goodStore);
+    router.addRoutesFromDeviceConfigs({goodDevice}, goodName);
+    EventEngineConfig eventConfig;
+    eventConfig.enabled = true;
+    eventConfig.scanFallbackIntervalMs = 5000;
+    MqttConfig mqttConfig;
+    mqttConfig.alarmTopic = "edge/alarm";
+    mqttConfig.statusTopic = "edge/status";
+    auto publisher = std::make_shared<CapturingPublisher>();
+    EventEngineService service(
+        eventConfig,
+        mqttConfig,
+        {goodDevice},
+        router,
+        {badStore.get(), goodStore.get()},
+        publisher
+    );
+
+    goodStore->putLatest(makeValue(620001, 100.0, 4000));
+    require(MemoryPointStore::cleanupOrphanedSegment(badName), "failed to unlink bad store segment");
+    const auto badPosixName = "/" + badName;
+    const int badFd = shm_open(badPosixName.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
+    require(badFd >= 0, "failed to create malformed replacement segment");
+    require(ftruncate(badFd, 64) == 0, "failed to size malformed replacement segment");
+    close(badFd);
+
+    service.runOnce(4001);
+    require(
+        publisher->hasActiveAlarm(620001),
+        "one malformed shared segment must not block healthy device alarms"
+    );
+
+    shm_unlink(badPosixName.c_str());
+    goodStore.reset();
+    badStore.reset();
+    MemoryPointStore::cleanupOrphanedSegment(goodName);
+}
+#endif
+
 }  // namespace
 
 int main() {
@@ -216,6 +285,9 @@ int main() {
         testFallbackScanRunsWhileUpdatesKeepArriving();
         testSequenceGapTriggersImmediateReconciliation();
         testPeriodicDeliverySuppressesChangesButNotAlarms();
+#ifndef _WIN32
+        testBrokenStoreDoesNotBlockHealthyStores();
+#endif
         std::cout << "event_engine_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

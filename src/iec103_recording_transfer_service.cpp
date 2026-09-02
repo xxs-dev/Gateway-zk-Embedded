@@ -1068,7 +1068,21 @@ void Iec103RecordingTransferService::publishStatus(
     if (!errorCode.empty()) payload << ",\"errorCode\":\"" << escapeJson(errorCode) << "\"";
     payload << ",\"message\":\"" << escapeJson(message)
             << "\",\"ts\":" << currentTimeMs() << "}";
-    publisher_->publishJsonMessage(mqttConfig_.recordingStatusTopic, payload.str());
+    try {
+        publisher_->publishJsonMessage(mqttConfig_.recordingStatusTopic, payload.str());
+    } catch (const std::exception& ex) {
+        std::cerr << "IEC103 recording status publish failed"
+                  << " requestId=" << task.requestId
+                  << " stage=" << stage
+                  << " error=" << ex.what()
+                  << std::endl;
+    } catch (...) {
+        std::cerr << "IEC103 recording status publish failed"
+                  << " requestId=" << task.requestId
+                  << " stage=" << stage
+                  << " error=unknown"
+                  << std::endl;
+    }
 }
 
 void Iec103RecordingTransferService::loadQueue() {

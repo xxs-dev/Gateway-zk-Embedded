@@ -124,6 +124,49 @@ void verifyReaderRemapsRecreatedNamedSegment() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void verifyPersistentSamplesRequireAcknowledgement() {
+    const std::string storeName = "gateway_memory_persistent_ack_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    {
+        edge_gateway::MemoryStoreConfig config;
+        config.sharedMemoryName = storeName;
+        config.maxLatestPoints = 32;
+        config.maxPersistentSamples = 32;
+
+        edge_gateway::MemoryPointStore store(config);
+        auto first = buildValue(1000, 10.0);
+        first.isStore = true;
+        first.persistIntervalSec = 1;
+        store.putLatest(first);
+
+        const auto pending = store.peekPersistentSamples();
+        require(pending.size() == 1, "peek must leave one persistent sample pending");
+        require(pending.front().sequence > 0, "peeked persistent sample must include its sequence");
+        require(store.getStats().persistentCount == 1, "peek must not consume persistent samples");
+
+        auto second = buildValue(2000, 20.0);
+        second.isStore = true;
+        second.persistIntervalSec = 1;
+        store.putLatest(second);
+        require(
+            store.acknowledgePersistentSamples(pending.front().sequence) == 1,
+            "acknowledgement must consume only the committed batch"
+        );
+
+        const auto remaining = store.peekPersistentSamples();
+        require(remaining.size() == 1, "sample appended during a write must remain pending");
+        require(remaining.front().value == 20.0, "acknowledgement consumed a newer sample");
+        require(
+            store.acknowledgePersistentSamples(remaining.front().sequence) == 1,
+            "newer batch acknowledgement failed"
+        );
+        require(store.getStats().persistentCount == 0, "all acknowledged samples must be removed");
+    }
+
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 #ifndef _WIN32
 struct SharedStoreHeaderProbe {
     std::uint32_t magic;
@@ -205,6 +248,7 @@ int main() {
     try {
         verifyReaderDoesNotUnlinkNamedSegment();
         verifyReaderRemapsRecreatedNamedSegment();
+        verifyPersistentSamplesRequireAcknowledgement();
 #ifndef _WIN32
         verifyRobustMutexRecoversAfterOwnerDeath();
 #endif

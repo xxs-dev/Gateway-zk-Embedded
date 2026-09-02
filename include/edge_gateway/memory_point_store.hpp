@@ -79,6 +79,8 @@ public:
     ) const;
     MemoryStoreStats getStats() const;
 
+    std::vector<PersistentPointSample> peekPersistentSamples(std::size_t limit = 0) const;
+    std::size_t acknowledgePersistentSamples(std::uint64_t throughSequence);
     std::vector<PersistentPointSample> drainPersistentSamples();
     std::uint64_t consumePersistentDropCount();
     std::vector<PointUpdateRecord> drainPointUpdates(std::size_t limit = 0);

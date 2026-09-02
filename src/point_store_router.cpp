@@ -917,7 +917,12 @@ CommandSubmitResult PointStoreRouter::putLatestByIndex(PointValue value) {
             logEmsVirtualPersistenceErrorOnce("update", route->index, ex);
         }
     }
-    store->putLatest(value);
+    try {
+        store->putLatest(value);
+    } catch (const std::exception& ex) {
+        result.message = ex.what();
+        return result;
+    }
     result.accepted = true;
     result.message = "latest value routed";
     return result;
@@ -962,7 +967,12 @@ CommandSubmitResult PointStoreRouter::putLatestByLocation(
             logEmsVirtualPersistenceErrorOnce("update", route->index, ex);
         }
     }
-    store->putLatest(value);
+    try {
+        store->putLatest(value);
+    } catch (const std::exception& ex) {
+        result.message = ex.what();
+        return result;
+    }
     result.accepted = true;
     result.message = "latest value routed";
     return result;

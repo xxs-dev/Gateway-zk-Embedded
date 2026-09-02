@@ -15,9 +15,11 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -35,6 +37,99 @@ constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
 using SocketHandle = int;
 constexpr SocketHandle kInvalidSocket = -1;
 #endif
+
+int lastSocketError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+bool isConnectInProgress(int error) {
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINVAL;
+#else
+    return error == EINPROGRESS || error == EWOULDBLOCK || error == EAGAIN;
+#endif
+}
+
+bool isInterrupted(int error) {
+#ifdef _WIN32
+    return error == WSAEINTR;
+#else
+    return error == EINTR;
+#endif
+}
+
+bool setSocketBlocking(SocketHandle socketHandle, bool blocking) {
+#ifdef _WIN32
+    u_long mode = blocking ? 0UL : 1UL;
+    return ioctlsocket(socketHandle, FIONBIO, &mode) == 0;
+#else
+    const auto flags = fcntl(socketHandle, F_GETFL, 0);
+    if (flags < 0) {
+        return false;
+    }
+    return fcntl(
+        socketHandle,
+        F_SETFL,
+        blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK)
+    ) == 0;
+#endif
+}
+
+bool waitForConnect(SocketHandle socketHandle, std::chrono::steady_clock::time_point deadline) {
+    while (true) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+        const auto remainingUs = std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count();
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(remainingUs / 1000000);
+        timeout.tv_usec = static_cast<long>(remainingUs % 1000000);
+        fd_set writeSet;
+        FD_ZERO(&writeSet);
+        FD_SET(socketHandle, &writeSet);
+        fd_set errorSet;
+        FD_ZERO(&errorSet);
+        FD_SET(socketHandle, &errorSet);
+#ifdef _WIN32
+        const auto rc = select(0, nullptr, &writeSet, &errorSet, &timeout);
+#else
+        const auto rc = select(socketHandle + 1, nullptr, &writeSet, &errorSet, &timeout);
+#endif
+        if (rc > 0) {
+            return true;
+        }
+        if (rc == 0) {
+            return false;
+        }
+        if (!isInterrupted(lastSocketError())) {
+            return false;
+        }
+    }
+}
+
+SocketHandle duplicateSocket(SocketHandle socketHandle) {
+#ifdef _WIN32
+    WSAPROTOCOL_INFO protocolInfo{};
+    if (WSADuplicateSocket(socketHandle, GetCurrentProcessId(), &protocolInfo) != 0) {
+        return kInvalidSocket;
+    }
+    return WSASocket(
+        FROM_PROTOCOL_INFO,
+        FROM_PROTOCOL_INFO,
+        FROM_PROTOCOL_INFO,
+        &protocolInfo,
+        0,
+        0
+    );
+#else
+    return dup(socketHandle);
+#endif
+}
 
 void closeSocket(SocketHandle socketHandle) {
     if (socketHandle == kInvalidSocket) {
@@ -176,6 +271,18 @@ CommandResult IecClient::activateParameter(int, std::uint8_t, int) {
 std::vector<IecFileSegment> IecClient::callFile(int, int, int, std::uint8_t, int) {
     throw std::runtime_error("IEC file transfer is not supported for this transport");
 }
+
+class SocketGuard {
+public:
+    explicit SocketGuard(SocketHandle socketHandle) : socketHandle_(socketHandle) {}
+    ~SocketGuard() { closeSocket(socketHandle_); }
+
+    SocketGuard(const SocketGuard&) = delete;
+    SocketGuard& operator=(const SocketGuard&) = delete;
+
+private:
+    SocketHandle socketHandle_;
+};
 
 std::vector<Iec103DisturbanceRecord> IecClient::listDisturbanceRecords(int) {
     throw std::runtime_error("IEC103 disturbance directory is not supported for this transport");
@@ -408,10 +515,16 @@ std::vector<IecFileSegment> IecTcpClient::callFile(
 }
 
 void IecTcpClient::ensureConnected() {
-    if (socket_ != static_cast<std::intptr_t>(kInvalidSocket)) {
+    if (connected_.load()) {
         return;
     }
     ensureSocketRuntime();
+
+    std::lock_guard<std::mutex> socketLock(socketMutex_);
+    if (socket_ != static_cast<std::intptr_t>(kInvalidSocket)) {
+        connected_.store(true);
+        return;
+    }
 
     addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
@@ -426,24 +539,70 @@ void IecTcpClient::ensureConnected() {
     }
 
     SocketHandle connected = kInvalidSocket;
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, tcp_.connectTimeoutMs));
     for (auto* addr = result; addr != nullptr; addr = addr->ai_next) {
         connected = static_cast<SocketHandle>(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
         if (connected == kInvalidSocket) {
             continue;
         }
-        if (connect(connected, addr->ai_addr, static_cast<int>(addr->ai_addrlen)) == 0) {
-            break;
+        if (!setSocketBlocking(connected, false)) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
         }
-        closeSocket(connected);
-        connected = kInvalidSocket;
+        const auto connectRc = connect(connected, addr->ai_addr, static_cast<int>(addr->ai_addrlen));
+        if (connectRc != 0) {
+            const auto error = lastSocketError();
+            if (!isConnectInProgress(error) || !waitForConnect(connected, deadline)) {
+                closeSocket(connected);
+                connected = kInvalidSocket;
+                continue;
+            }
+            int socketError = 0;
+#ifdef _WIN32
+            int optionLength = sizeof(socketError);
+            const auto optionRc = getsockopt(
+                connected,
+                SOL_SOCKET,
+                SO_ERROR,
+                reinterpret_cast<char*>(&socketError),
+                &optionLength
+            );
+#else
+            socklen_t optionLength = sizeof(socketError);
+            const auto optionRc = getsockopt(connected, SOL_SOCKET, SO_ERROR, &socketError, &optionLength);
+#endif
+            if (optionRc != 0 || socketError != 0) {
+                closeSocket(connected);
+                connected = kInvalidSocket;
+                continue;
+            }
+        }
+        if (!setSocketBlocking(connected, true)) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
+        }
+        break;
     }
     freeaddrinfo(result);
     if (connected == kInvalidSocket) {
         throw std::runtime_error("IEC TCP connect failed: " + tcp_.host + ":" + std::to_string(tcp_.port));
     }
 
+    try {
+        configureSocketTimeouts(static_cast<std::intptr_t>(connected));
+    } catch (...) {
+        closeSocket(connected);
+        throw;
+    }
     socket_ = static_cast<std::intptr_t>(connected);
-    configureSocketTimeouts();
+    ++socketGeneration_;
+    if (socketGeneration_ == 0) {
+        ++socketGeneration_;
+    }
+    connected_.store(true);
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         iec104Started_ = false;
@@ -485,10 +644,10 @@ void IecTcpClient::ensureIec104Started() {
 }
 
 void IecTcpClient::startReceiveLoop() {
-    if (receiveRunning_.load()) {
+    bool expected = false;
+    if (!receiveRunning_.compare_exchange_strong(expected, true)) {
         return;
     }
-    receiveRunning_.store(true);
     receiveThread_ = std::thread(&IecTcpClient::receiveLoop, this);
 }
 
@@ -504,7 +663,7 @@ void IecTcpClient::stopReceiveLoop() {
 void IecTcpClient::receiveLoop() {
     while (receiveRunning_.load()) {
         try {
-            if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
+            if (!connected_.load()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
@@ -513,9 +672,9 @@ void IecTcpClient::receiveLoop() {
                 handleIec104Frame(frame);
             }
             const auto ts = nowMs();
-            const auto idleMs = ts - lastReceiveMs_;
             std::uint16_t pendingAckSequence = 0;
             bool shouldSendDelayedAck = false;
+            bool shouldSendTest = false;
             {
                 std::lock_guard<std::mutex> lock(stateMutex_);
                 shouldSendDelayedAck = iec_.sendSFrameAck && unacknowledgedReceived_ > 0 && ts - lastAckMs_ >= iec_.t2Ms;
@@ -524,49 +683,79 @@ void IecTcpClient::receiveLoop() {
                     unacknowledgedReceived_ = 0;
                     lastAckMs_ = ts;
                 }
+                shouldSendTest = ts - lastReceiveMs_ >= iec_.t3Ms && ts - lastSendMs_ >= iec_.t2Ms;
             }
             if (shouldSendDelayedAck) {
                 sendAll(IecCodec::buildIec104SFrame(pendingAckSequence));
             }
-            if (idleMs >= iec_.t3Ms && ts - lastSendMs_ >= iec_.t2Ms) {
+            if (shouldSendTest) {
                 sendAll(IecCodec::buildIec104TestFrAct());
             }
         } catch (const std::exception& ex) {
             if (receiveRunning_.load()) {
                 std::cerr << "IEC104 receive loop error: " << ex.what() << std::endl;
             }
-            disconnect();
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
     }
 }
 
-void IecTcpClient::disconnect() {
-    if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
-        return;
-    }
-    closeSocket(static_cast<SocketHandle>(socket_));
-    socket_ = static_cast<std::intptr_t>(kInvalidSocket);
+void IecTcpClient::disconnect(std::uint64_t expectedGeneration) {
+    SocketHandle socketHandle = kInvalidSocket;
     {
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        rxBuffer_.clear();
-        iec104Started_ = false;
-        unacknowledgedReceived_ = 0;
+        std::lock_guard<std::mutex> socketLock(socketMutex_);
+        if (expectedGeneration != 0 && expectedGeneration != socketGeneration_) {
+            return;
+        }
+        if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
+            connected_.store(false);
+            return;
+        }
+        socketHandle = static_cast<SocketHandle>(socket_);
+        socket_ = static_cast<std::intptr_t>(kInvalidSocket);
+        connected_.store(false);
+        {
+            std::lock_guard<std::mutex> stateLock(stateMutex_);
+            rxBuffer_.clear();
+            iec104Started_ = false;
+            unacknowledgedReceived_ = 0;
+        }
     }
+#ifdef _WIN32
+    shutdown(socketHandle, SD_BOTH);
+#else
+    shutdown(socketHandle, SHUT_RDWR);
+#endif
+    closeSocket(socketHandle);
     stateChanged_.notify_all();
 }
 
-void IecTcpClient::configureSocketTimeouts() const {
+std::intptr_t IecTcpClient::duplicateConnectedSocket(std::uint64_t& generation) const {
+    std::lock_guard<std::mutex> socketLock(socketMutex_);
+    if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
+        generation = 0;
+        return static_cast<std::intptr_t>(kInvalidSocket);
+    }
+    generation = socketGeneration_;
+    return static_cast<std::intptr_t>(duplicateSocket(static_cast<SocketHandle>(socket_)));
+}
+
+void IecTcpClient::configureSocketTimeouts(std::intptr_t socketValue) const {
+    const auto socketHandle = static_cast<SocketHandle>(socketValue);
 #ifdef _WIN32
     const DWORD timeout = static_cast<DWORD>(tcp_.timeoutMs);
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+    if (setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) != 0 ||
+        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) != 0) {
+        throw std::runtime_error("IEC TCP configure socket timeout failed");
+    }
 #else
     timeval timeout;
     timeout.tv_sec = tcp_.timeoutMs / 1000;
     timeout.tv_usec = (tcp_.timeoutMs % 1000) * 1000;
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(static_cast<SocketHandle>(socket_), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    if (setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        throw std::runtime_error("IEC TCP configure socket timeout failed");
+    }
 #endif
 }
 
@@ -597,7 +786,7 @@ void IecTcpClient::sendIec104IFrame(const std::vector<std::uint8_t>& bytes) {
             // Abort the wait immediately if the link dropped, so the window
             // wait cannot deadlock when the background receiver has stopped
             // updating remoteReceiveSequence_.
-            if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
+            if (!connected_.load()) {
                 disconnected = true;
                 return true;
             }
@@ -621,15 +810,21 @@ void IecTcpClient::sendIec104IFrame(const std::vector<std::uint8_t>& bytes) {
 
 void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
     std::lock_guard<std::mutex> sendLock(sendMutex_);
+    std::uint64_t socketGeneration = 0;
+    const auto socketHandle = static_cast<SocketHandle>(duplicateConnectedSocket(socketGeneration));
+    if (socketHandle == kInvalidSocket) {
+        throw std::runtime_error("IEC TCP socket is not connected");
+    }
+    SocketGuard socketGuard(socketHandle);
     std::size_t sent = 0;
     while (sent < bytes.size()) {
 #ifdef _WIN32
-        const auto rc = send(static_cast<SocketHandle>(socket_), reinterpret_cast<const char*>(bytes.data() + sent), static_cast<int>(bytes.size() - sent), 0);
+        const auto rc = send(socketHandle, reinterpret_cast<const char*>(bytes.data() + sent), static_cast<int>(bytes.size() - sent), 0);
 #else
-        const auto rc = send(static_cast<SocketHandle>(socket_), bytes.data() + sent, bytes.size() - sent, 0);
+        const auto rc = send(socketHandle, bytes.data() + sent, bytes.size() - sent, 0);
 #endif
         if (rc <= 0) {
-            disconnect();
+            disconnect(socketGeneration);
             throw std::runtime_error("IEC TCP send failed");
         }
         sent += static_cast<std::size_t>(rc);
@@ -641,10 +836,12 @@ void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
 }
 
 std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
-    const auto socketHandle = static_cast<SocketHandle>(socket_);
+    std::uint64_t socketGeneration = 0;
+    const auto socketHandle = static_cast<SocketHandle>(duplicateConnectedSocket(socketGeneration));
     if (socketHandle == kInvalidSocket) {
         throw std::runtime_error("IEC TCP socket is not connected");
     }
+    SocketGuard socketGuard(socketHandle);
 
     fd_set readSet;
     FD_ZERO(&readSet);
@@ -671,7 +868,7 @@ std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
             return {};
         }
 #endif
-        disconnect();
+        disconnect(socketGeneration);
         throw std::runtime_error("IEC TCP receive wait failed");
     }
 
@@ -682,7 +879,7 @@ std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
         const auto rc = recv(socketHandle, bytes.data(), bytes.size(), 0);
 #endif
     if (rc == 0) {
-        disconnect();
+        disconnect(socketGeneration);
         throw std::runtime_error("IEC TCP connection closed");
     }
     if (rc < 0) {
@@ -696,7 +893,7 @@ std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
             return {};
         }
 #endif
-        disconnect();
+        disconnect(socketGeneration);
         throw std::runtime_error("IEC TCP receive failed");
     }
     if (rc <= 0) {

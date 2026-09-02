@@ -34,22 +34,29 @@ cp "$BUILD_DIR/gateway-test-lab-sim" "$ROOT/bin/"
 cp -R "$SOURCE_DIR/test-lab/templates" "$ROOT/"
 chmod +x "$LAB_SCRIPT" "$PERFORMANCE_SCRIPT"
 
-index=0
+run_lab suite \
+    --protocols modbus-tcp,modbus-rtu,dlt645,dio,iec104,can \
+    --base-port 26020 \
+    --base-monitor-port 29540 \
+    --base-can-port 29110 \
+    --warmup-sec 1 \
+    --duration-sec 3 \
+    --sample-interval-sec 1 \
+    --output-dir "$REPORT_DIR" \
+    > "$ROOT/performance-suite.out" \
+    2> "$ROOT/performance-suite.err"
+
+[ -s "$REPORT_DIR/suite-report.json" ]
+[ -s "$REPORT_DIR/suite-report.md" ]
+grep -q '"testType": "gateway-multi-protocol-suite"' "$REPORT_DIR/suite-report.json"
+grep -q '"protocols": 6' "$REPORT_DIR/suite-report.json"
+grep -q '"failed": 0' "$REPORT_DIR/suite-report.json"
+grep -q '"timingWarnings":' "$REPORT_DIR/suite-report.json"
+grep -q '# 边端全协议一键测试报告' "$REPORT_DIR/suite-report.md"
+grep -q '理论最小周期' "$REPORT_DIR/suite-report.md"
+
 for protocol in modbus-tcp modbus-rtu dlt645 dio iec104 can; do
-    index=$((index + 1))
     protocol_report=$REPORT_DIR/$protocol
-    run_lab performance \
-        --protocol "$protocol" \
-        --port $((26020 + index)) \
-        --monitor-port $((29540 + index)) \
-        --can-driver-udp-port $((29110 + index * 2)) \
-        --can-simulator-udp-port $((29111 + index * 2)) \
-        --warmup-sec 1 \
-        --duration-sec 3 \
-        --sample-interval-sec 1 \
-        --output-dir "$protocol_report" \
-        > "$ROOT/performance-$protocol.out" \
-        2> "$ROOT/performance-$protocol.err"
 
     [ -s "$protocol_report/report.json" ]
     [ -s "$protocol_report/report.md" ]
@@ -78,7 +85,7 @@ for protocol in modbus-tcp modbus-rtu dlt645 dio iec104 can; do
     [ -s "$protocol_report/raw/compute-correctness-attempts.tsv" ]
     [ -f "$protocol_report/raw/trace-shared-memory.tsv" ]
     [ -f "$protocol_report/raw/trace-mqtt-publisher.tsv" ]
-    ! grep -q 'not found' "$ROOT/performance-$protocol.err"
+    ! grep -q 'not found' "$REPORT_DIR/logs/$protocol.err"
 
     case "$protocol" in
         modbus-tcp|modbus-rtu)

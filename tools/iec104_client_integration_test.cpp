@@ -457,6 +457,28 @@ int main() {
     requireTrue(silentElapsedMs < 300, "IEC read must honor the per-call poll timeout");
     silentServer.stop();
 
+    TcpTransportConfig unreachableTcp;
+    unreachableTcp.host = "192.0.2.1";
+    unreachableTcp.port = 2404;
+    unreachableTcp.connectTimeoutMs = 100;
+    unreachableTcp.timeoutMs = 100;
+    IecProtocolConfig unreachableIec;
+    unreachableIec.transportMode = "tcp";
+    unreachableIec.backgroundReceive = false;
+    const auto connectStartedAt = std::chrono::steady_clock::now();
+    bool connectFailed = false;
+    try {
+        IecTcpClient unreachableClient("iec104", unreachableTcp, unreachableIec);
+        (void)unreachableClient.poll();
+    } catch (const std::exception&) {
+        connectFailed = true;
+    }
+    const auto connectElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - connectStartedAt
+    ).count();
+    requireTrue(connectFailed, "unreachable IEC endpoint should fail to connect");
+    requireTrue(connectElapsedMs < 1000, "IEC connect must honor connectTimeoutMs");
+
     std::cout << "iec104 client integration test passed" << std::endl;
     return 0;
 }

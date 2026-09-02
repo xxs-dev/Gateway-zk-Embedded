@@ -84,7 +84,9 @@ if(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS AND NOT MSVC)
     target_compile_options(edge_gateway PRIVATE -ffunction-sections -fdata-sections)
     target_link_options(edge_gateway INTERFACE -Wl,--gc-sections)
 endif()
-if(NOT WIN32)
+if(WIN32)
+    target_link_libraries(edge_gateway PUBLIC ws2_32)
+else()
     target_link_libraries(edge_gateway PUBLIC dl pthread rt)
 endif()
 
@@ -268,6 +270,10 @@ add_executable(iec104_client_integration_test tools/iec104_client_integration_te
 target_link_libraries(iec104_client_integration_test PRIVATE edge_gateway)
 target_compile_options(iec104_client_integration_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(iec_collector_incremental_test tools/iec_collector_incremental_test.cpp)
+target_link_libraries(iec_collector_incremental_test PRIVATE edge_gateway)
+target_compile_options(iec_collector_incremental_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(config_loader_test tools/config_loader_test.cpp)
 target_link_libraries(config_loader_test PRIVATE edge_gateway)
 target_compile_options(config_loader_test PRIVATE -fdiagnostics-color=never)
@@ -323,6 +329,10 @@ if(UNIX)
     target_link_libraries(sqlite_writer_failure_test PRIVATE edge_gateway dl)
     target_compile_options(sqlite_writer_failure_test PRIVATE -fdiagnostics-color=never)
     add_dependencies(sqlite_writer_failure_test sqlite_failure_fixture)
+
+    add_executable(posix_serial_port_recovery_test tools/posix_serial_port_recovery_test.cpp)
+    target_link_libraries(posix_serial_port_recovery_test PRIVATE edge_gateway)
+    target_compile_options(posix_serial_port_recovery_test PRIVATE -fdiagnostics-color=never)
 endif()
 
 add_executable(point_store_router_normalize_test tools/point_store_router_normalize_test.cpp)
@@ -425,6 +435,7 @@ if(BUILD_TESTING)
     add_test(NAME iec103_recording_command COMMAND iec103_recording_command_test)
     add_test(NAME iec103_recording_transfer COMMAND iec103_recording_transfer_service_test)
     add_test(NAME iec104_client_integration COMMAND iec104_client_integration_test)
+    add_test(NAME iec_collector_incremental COMMAND iec_collector_incremental_test)
     add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
@@ -440,6 +451,10 @@ if(BUILD_TESTING)
     if(TARGET sqlite_writer_failure_test)
         add_test(NAME sqlite_writer_failure COMMAND sqlite_writer_failure_test $<TARGET_FILE:sqlite_failure_fixture>)
         set_tests_properties(sqlite_writer_failure PROPERTIES TIMEOUT 15)
+    endif()
+    if(TARGET posix_serial_port_recovery_test)
+        add_test(NAME posix_serial_port_recovery COMMAND posix_serial_port_recovery_test)
+        set_tests_properties(posix_serial_port_recovery PROPERTIES TIMEOUT 5)
     endif()
     add_test(NAME modbus_northbound_server COMMAND modbus_northbound_server_test)
     add_test(NAME modbus_rtu_client_resync COMMAND modbus_rtu_client_resync_test)
@@ -477,7 +492,7 @@ if(BUILD_TESTING)
                 "${CMAKE_SOURCE_DIR}"
                 "${CMAKE_BINARY_DIR}"
         )
-        set_tests_properties(gateway_test_lab_performance_report_e2e PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        set_tests_properties(gateway_test_lab_performance_report_e2e PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     endif()
     add_test(NAME graph_ems_v2_loader COMMAND graph_ems_v2_loader_test)
     add_test(NAME graph_ems_voltage_quality COMMAND graph_ems_voltage_quality_test)
@@ -499,6 +514,7 @@ if(BUILD_TESTING)
         iec103_recording_command
         iec103_recording_transfer
         iec104_client_integration
+        iec_collector_incremental
         can_signal_codec
         collector_partial_failure
         compute_engine_service

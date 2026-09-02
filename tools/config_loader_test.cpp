@@ -687,6 +687,7 @@ int main() {
     output <<
         "{"
         "\"mqtt\":{"
+        "\"connectTimeoutMs\":999999,"
         "\"legacyTelemetryEnabled\":true,"
         "\"legacyTelemetryTopic\":\"ky/peidian/COMM_TEST\","
         "\"legacyTopicMachineCode\":\"COMM_TEST\","
@@ -718,6 +719,7 @@ int main() {
     const auto config = ConfigLoader::loadAppConfigFromFile(path).mqtt;
     std::remove(path.c_str());
 
+    require(config.connectTimeoutMs == 60000, "MQTT connect timeout should be bounded");
     require(config.maxPayloadBytes == 1024U * 1024U, "maxPayloadBytes should be bounded");
     require(config.offlineRealtimeFileSizeBytes == 1024ULL * 1024ULL * 1024ULL, "realtime file size should be bounded");
     require(config.offlineMaxRealtimeMessageBytes == 4U * 1024U * 1024U, "max realtime message should be bounded");

@@ -60,7 +60,8 @@ bool isTcpIecMode(const edge_gateway::DeviceConfig& config) {
     return type == "iec104" || type == "iec103_tcp" ||
         (type == "iec103" &&
             (config.protocol.iec.transportMode == "tcp" ||
-             config.protocol.iec.transportMode == "am5se_passive_tcp"));
+             config.protocol.iec.transportMode == "am5se_passive_tcp" ||
+             config.protocol.iec.transportMode == "am5se_active_tcp"));
 }
 
 std::int64_t currentTimeMs() {
@@ -128,8 +129,11 @@ int main(int argc, char* argv[]) {
         if (useMock) {
             throw std::invalid_argument("--mock is not supported for IEC TCP");
         }
-        if (config.protocol.iec.transportMode == "am5se_passive_tcp") {
-            iecClient = std::make_shared<Am5seIec103Client>(config.protocol.iec);
+        if (config.protocol.iec.transportMode == "am5se_passive_tcp" ||
+            config.protocol.iec.transportMode == "am5se_active_tcp") {
+            iecClient = std::make_shared<Am5seIec103Client>(
+                config.protocol.iec,
+                config.protocol.tcp);
         } else {
             iecClient = std::make_shared<IecTcpClient>(config.protocol.type, config.protocol.tcp, config.protocol.iec);
         }
@@ -218,7 +222,8 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
     std::unique_ptr<Iec103RecordingCommandServer> recordingCommandServer;
-    if (config.protocol.iec.transportMode == "am5se_passive_tcp") {
+    if (config.protocol.iec.transportMode == "am5se_passive_tcp" ||
+        config.protocol.iec.transportMode == "am5se_active_tcp") {
         recordingCommandServer.reset(new Iec103RecordingCommandServer(
             iecClient,
             config.protocol.iec.recordingCommandSocket.empty()

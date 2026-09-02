@@ -97,6 +97,7 @@ bool EventEngineService::isRunning() const {
 }
 
 void EventEngineService::runOnce(std::int64_t nowMs) {
+    flushPendingAlarmPersistence(nowMs);
     std::vector<StoredPointValue> values;
     const std::size_t limit = std::max<std::size_t>(1, eventConfig_.updateDrainBatchSize);
     std::size_t sequenceGapCount = 0;
@@ -105,7 +106,18 @@ void EventEngineService::runOnce(std::int64_t nowMs) {
         if (store == nullptr) {
             continue;
         }
-        const auto updates = store->drainPointUpdates(limit);
+        std::vector<PointUpdateRecord> updates;
+        try {
+            updates = store->drainPointUpdates(limit);
+        } catch (const std::exception& ex) {
+            std::cerr << "event engine store drain failed error=" << ex.what() << std::endl;
+            publishStatusEvent(
+                "point-update-drain-failed",
+                nowMs,
+                std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
+            );
+            continue;
+        }
         auto& lastSequence = lastUpdateSequenceByStore_[store];
         for (const auto& update : updates) {
             if ((lastSequence == 0 && update.sequence > 1) ||
@@ -249,10 +261,13 @@ void EventEngineService::evaluateValues(const std::vector<StoredPointValue>& val
         return;
     }
     processChanges(values, nowMs);
-    processAlarms(values);
+    processAlarms(values, nowMs);
 }
 
-void EventEngineService::processAlarms(const std::vector<StoredPointValue>& values) {
+void EventEngineService::processAlarms(
+    const std::vector<StoredPointValue>& values,
+    std::int64_t nowMs
+) {
     const auto events = alarmService_.evaluate(values);
     if (events.empty()) {
         return;
@@ -278,14 +293,41 @@ void EventEngineService::processAlarms(const std::vector<StoredPointValue>& valu
         }
     }
 
-    publishOrEnqueueEvents(mqttEvents);
-
     if (alarmWriter_ && !persistentEvents.empty()) {
-        alarmWriter_->writeEvents(persistentEvents);
+        pendingAlarmPersistence_.insert(
+            pendingAlarmPersistence_.end(),
+            persistentEvents.begin(),
+            persistentEvents.end()
+        );
+        flushPendingAlarmPersistence(nowMs);
+    }
+
+    publishOrEnqueueEvents(mqttEvents);
+}
+
+void EventEngineService::flushPendingAlarmPersistence(std::int64_t nowMs) {
+    if (!alarmWriter_ || pendingAlarmPersistence_.empty() ||
+        (nextAlarmPersistenceAttemptMs_ > 0 && nowMs < nextAlarmPersistenceAttemptMs_)) {
+        return;
+    }
+    try {
+        alarmWriter_->writeEvents(pendingAlarmPersistence_);
+        const auto persisted = pendingAlarmPersistence_.size();
+        pendingAlarmPersistence_.clear();
+        nextAlarmPersistenceAttemptMs_ = 0;
         publishStatusEvent(
             "alarm-persisted",
-            persistentEvents.front().ts,
-            std::string(R"("count":)") + std::to_string(persistentEvents.size())
+            nowMs,
+            std::string(R"("count":)") + std::to_string(persisted)
+        );
+    } catch (const std::exception& ex) {
+        nextAlarmPersistenceAttemptMs_ = nowMs + 1000;
+        std::cerr << "event engine alarm persistence failed error=" << ex.what() << std::endl;
+        publishStatusEvent(
+            "alarm-persist-failed",
+            nowMs,
+            std::string(R"("pendingCount":)") + std::to_string(pendingAlarmPersistence_.size()) +
+                R"(,"message":")" + escapeJson(ex.what()) + R"(")"
         );
     }
 }
@@ -376,7 +418,15 @@ void EventEngineService::publishStatusEvent(
         payload << "," << detailsJson;
     }
     payload << "}";
-    publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+    try {
+        publisher_->publishJsonMessage(mqttConfig_.statusTopic, payload.str());
+    } catch (const std::exception& ex) {
+        std::cerr << "event engine status publish failed event=" << event
+                  << " error=" << ex.what() << std::endl;
+    } catch (...) {
+        std::cerr << "event engine status publish failed event=" << event
+                  << " error=unknown" << std::endl;
+    }
 }
 
 }  // namespace edge_gateway

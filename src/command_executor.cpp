@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <iostream>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -84,7 +85,19 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
             result.success = true;
             result.message = "ok";
             if (mqttPublisher_) {
-                mqttPublisher_->publishCommandResult(result);
+                try {
+                    mqttPublisher_->publishCommandResult(result);
+                } catch (const std::exception& ex) {
+                    std::cerr << "legacy command result publish failed"
+                              << " cmdId=" << result.cmdId
+                              << " error=" << ex.what()
+                              << std::endl;
+                } catch (...) {
+                    std::cerr << "legacy command result publish failed"
+                              << " cmdId=" << result.cmdId
+                              << " error=unknown"
+                              << std::endl;
+                }
             }
             return result;
         }
@@ -116,7 +129,19 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
     }
 
     if (mqttPublisher_) {
-        mqttPublisher_->publishCommandResult(result);
+        try {
+            mqttPublisher_->publishCommandResult(result);
+        } catch (const std::exception& ex) {
+            std::cerr << "legacy command result publish failed"
+                      << " cmdId=" << result.cmdId
+                      << " error=" << ex.what()
+                      << std::endl;
+        } catch (...) {
+            std::cerr << "legacy command result publish failed"
+                      << " cmdId=" << result.cmdId
+                      << " error=unknown"
+                      << std::endl;
+        }
     }
     return result;
 }

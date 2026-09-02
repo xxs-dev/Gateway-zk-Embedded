@@ -764,6 +764,25 @@ void testControlTopicsUseQos2() {
     require(messages[3].topic == "edge/recording/status/GW_TEST", "recording status topic mismatch");
     require(messages[3].qos == 2, "recording status should use qos2");
 }
+
+void testUnreachableBrokerHonorsConnectTimeout() {
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://192.0.2.1:1883";
+    config.clientId = "GW_CONNECT_TIMEOUT";
+    config.statusTopic = "edge/status";
+    config.connectTimeoutMs = 100;
+    config.offlineBufferEnabled = false;
+
+    const auto startedAt = std::chrono::steady_clock::now();
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishJsonMessage(config.statusTopic, "{\"ok\":true}");
+    }
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startedAt
+    ).count();
+    require(elapsedMs < 1000, "MQTT connect must honor connectTimeoutMs");
+}
 #endif
 
 }  // namespace
@@ -816,6 +835,7 @@ int main() {
     testEventOutboxSurvivesRestartAndClearsAfterReplay();
     testControlTopicsUseQos2();
     testClosedTxConnectionReconnectsBeforeNextPublish();
+    testUnreachableBrokerHonorsConnectTimeout();
 #endif
 
     std::cout << "builtin_mqtt_driver_publisher_test passed" << std::endl;

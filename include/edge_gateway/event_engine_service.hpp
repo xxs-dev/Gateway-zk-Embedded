@@ -59,7 +59,8 @@ private:
     void publishOrEnqueueEvents(const std::vector<MqttEventOutbox::EventMessage>& events);
     static std::string encodeAlarmPayload(const AlarmEvent& event);
     static std::string encodeChangePayload(const StoredPointValue& value);
-    void processAlarms(const std::vector<StoredPointValue>& values);
+    void processAlarms(const std::vector<StoredPointValue>& values, std::int64_t nowMs);
+    void flushPendingAlarmPersistence(std::int64_t nowMs);
     void processChanges(const std::vector<StoredPointValue>& values, std::int64_t nowMs);
     void publishStatusEvent(
         const std::string& event,
@@ -75,9 +76,11 @@ private:
     std::shared_ptr<IMqttDriverPublisher> publisher_;
     std::unique_ptr<MqttEventOutbox> eventOutbox_;
     std::unique_ptr<SqliteAlarmWriter> alarmWriter_;
+    std::vector<AlarmEvent> pendingAlarmPersistence_;
     std::unordered_map<std::uint32_t, ChangeState> changeStates_;
     std::unordered_map<MemoryPointStore*, std::uint64_t> lastUpdateSequenceByStore_;
     std::int64_t lastFallbackScanMs_ = 0;
+    std::int64_t nextAlarmPersistenceAttemptMs_ = 0;
     std::atomic<bool> running_{false};
     std::thread thread_;
 };

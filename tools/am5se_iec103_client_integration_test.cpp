@@ -225,6 +225,74 @@ void mockDevice(int port) {
 
     receiveFrame(socketHandle);  // DAT ASDU68.
     sendAll(socketHandle, acknowledge);
+    for (int packet = 0; packet < 12; ++packet) {
+        receiveFrame(socketHandle);  // DAT class 1 response.
+        sendAll(socketHandle, variableFrame({
+            0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x52,
+            static_cast<std::uint8_t>(packet),
+            static_cast<std::uint8_t>(packet == 11 ? 0x80 : 0x00),
+            static_cast<std::uint8_t>(packet), 0x02, 0x03
+        }));
+    }
+    closeSocket(socketHandle);
+}
+
+void mockActiveDevice(int port) {
+    const auto listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener == kInvalidSocket) {
+        throw std::runtime_error("cannot create mock active TCP listener");
+    }
+    int reuse = 1;
+#ifdef _WIN32
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
+        reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+#else
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#endif
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(static_cast<std::uint16_t>(port));
+    if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 ||
+        listen(listener, 1) != 0) {
+        closeSocket(listener);
+        throw std::runtime_error("cannot listen for mock active TCP client");
+    }
+    const auto socketHandle = accept(listener, nullptr, nullptr);
+    closeSocket(listener);
+    if (socketHandle == kInvalidSocket) {
+        throw std::runtime_error("mock active TCP accept failed");
+    }
+
+    const std::vector<std::uint8_t> acknowledge = {0x10, 0x20, 0x01, 0x21, 0x16};
+    receiveFrame(socketHandle);  // Reset communication.
+    sendAll(socketHandle, acknowledge);
+    receiveFrame(socketHandle);  // General interrogation.
+    sendAll(socketHandle, acknowledge);
+    receiveFrame(socketHandle);  // Class 1.
+    sendAll(socketHandle, variableFrame({
+        0x08, 0x01, 0x2C, 0x01, 0x09, 0x01, 0x01, 0x64,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0xE9
+    }));
+
+    receiveFrame(socketHandle);  // Directory ASDU24.
+    sendAll(socketHandle, acknowledge);
+    receiveFrame(socketHandle);  // Class 1 directory response.
+    sendAll(socketHandle, variableFrame({
+        0x08, 0x01, 0x17, 0x01, 0x1F, 0x01, 0xFF, 0x00,
+        0x0F, 0x00, 0x01, 0x00, 0x00, 0x01, 0x02, 0x01, 0x01, 0x1A
+    }));
+
+    receiveFrame(socketHandle);  // CFG ASDU68.
+    sendAll(socketHandle, acknowledge);
+    receiveFrame(socketHandle);  // CFG class 1 response.
+    sendAll(socketHandle, variableFrame({
+        0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x51,
+        0x00, 0x80, 'C', 'F', 'G'
+    }));
+
+    receiveFrame(socketHandle);  // DAT ASDU68.
+    sendAll(socketHandle, acknowledge);
     receiveFrame(socketHandle);  // DAT class 1 response.
     sendAll(socketHandle, variableFrame({
         0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x52,
@@ -282,7 +350,8 @@ int main() {
         requireTrue(records.size() == 1 && records.front().fan == 15, "passive TCP recording directory");
 
         const auto files = client.pullComtradeRecording(15, output, 1000);
-        requireTrue(files.cfgBytes == 3 && files.datBytes == 3, "passive TCP COMTRADE sizes");
+        requireTrue(files.cfgBytes == 3 && files.datBytes == 36,
+            "passive TCP COMTRADE should continue beyond maxPollFrames");
         requireTrue(fileExists(files.cfgPath) && fileExists(files.datPath),
             "passive TCP COMTRADE files");
     } catch (...) {
@@ -297,6 +366,60 @@ int main() {
         std::rethrow_exception(mockError);
     }
     removeTestOutput(output);
-    std::cout << "AM5SE IEC103 passive TCP integration test passed" << std::endl;
+
+    const int activePort = availablePort();
+    std::exception_ptr activeMockError;
+    std::thread activeDevice([&] {
+        try {
+            mockActiveDevice(activePort);
+        } catch (...) {
+            activeMockError = std::current_exception();
+        }
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const auto activeOutput = temporaryDirectory(activePort);
+    removeTestOutput(activeOutput);
+    try {
+        IecProtocolConfig config;
+        config.transportMode = "am5se_active_tcp";
+        config.linkAddress = 1;
+        config.commonAddress = 1;
+        config.linkAddressSize = 1;
+        config.deviceFunctionType = 1;
+        config.interrogationCot = 9;
+        config.pollTimeoutMs = 1000;
+        config.maxPollFrames = 8;
+        config.recordingMaxFileBytes = 1024;
+        TcpTransportConfig tcp;
+        tcp.host = "127.0.0.1";
+        tcp.port = activePort;
+        tcp.connectTimeoutMs = 1000;
+
+        Am5seIec103Client client(config, tcp);
+        const auto values = client.poll();
+        requireTrue(values.size() == 16, "active TCP general interrogation values");
+        requireTrue(values.front().informationNumber == 100 && values.front().value == 1.0,
+            "active TCP ASDU44 value");
+
+        const auto records = client.listDisturbanceRecords(1000);
+        requireTrue(records.size() == 1 && records.front().fan == 15, "active TCP recording directory");
+
+        const auto files = client.pullComtradeRecording(15, activeOutput, 1000);
+        requireTrue(files.cfgBytes == 3 && files.datBytes == 3, "active TCP COMTRADE sizes");
+        requireTrue(fileExists(files.cfgPath) && fileExists(files.datPath),
+            "active TCP COMTRADE files");
+    } catch (...) {
+        if (activeDevice.joinable()) {
+            activeDevice.join();
+        }
+        removeTestOutput(activeOutput);
+        throw;
+    }
+    activeDevice.join();
+    if (activeMockError) {
+        std::rethrow_exception(activeMockError);
+    }
+    removeTestOutput(activeOutput);
+    std::cout << "AM5SE IEC103 passive and active TCP integration tests passed" << std::endl;
     return EXIT_SUCCESS;
 }

@@ -1,6 +1,7 @@
 #include "edge_gateway/iec_command_executor.hpp"
 
 #include <algorithm>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -30,7 +31,19 @@ CommandResult IecCommandExecutor::executeByIndex(
     const auto& point = findPointByIndex(index);
     auto result = client_->writeByPoint(point, value, cmdId, config_.machineCode, config_.meterCode, nowMs);
     if (mqttPublisher_) {
-        mqttPublisher_->publishCommandResult(result);
+        try {
+            mqttPublisher_->publishCommandResult(result);
+        } catch (const std::exception& ex) {
+            std::cerr << "IEC legacy command result publish failed"
+                      << " cmdId=" << result.cmdId
+                      << " error=" << ex.what()
+                      << std::endl;
+        } catch (...) {
+            std::cerr << "IEC legacy command result publish failed"
+                      << " cmdId=" << result.cmdId
+                      << " error=unknown"
+                      << std::endl;
+        }
     }
     return result;
 }

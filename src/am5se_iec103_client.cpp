@@ -17,6 +17,8 @@
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <netdb.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -81,6 +83,64 @@ bool waitReadable(SocketHandle socketHandle, int timeoutMs) {
     return result > 0 && FD_ISSET(socketHandle, &set);
 }
 
+int lastSocketError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+bool connectInProgress(int error) {
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINVAL;
+#else
+    return error == EINPROGRESS || error == EWOULDBLOCK || error == EAGAIN;
+#endif
+}
+
+bool setSocketBlocking(SocketHandle socketHandle, bool blocking) {
+#ifdef _WIN32
+    u_long mode = blocking ? 0UL : 1UL;
+    return ioctlsocket(socketHandle, FIONBIO, &mode) == 0;
+#else
+    const auto flags = fcntl(socketHandle, F_GETFL, 0);
+    return flags >= 0 && fcntl(
+        socketHandle,
+        F_SETFL,
+        blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK)) == 0;
+#endif
+}
+
+bool waitConnected(SocketHandle socketHandle, int timeoutMs) {
+    fd_set writeSet;
+    FD_ZERO(&writeSet);
+    FD_SET(socketHandle, &writeSet);
+    fd_set errorSet;
+    FD_ZERO(&errorSet);
+    FD_SET(socketHandle, &errorSet);
+    timeval timeout{};
+    timeout.tv_sec = std::max(1, timeoutMs) / 1000;
+    timeout.tv_usec = (std::max(1, timeoutMs) % 1000) * 1000;
+#ifdef _WIN32
+    const auto result = select(0, nullptr, &writeSet, &errorSet, &timeout);
+#else
+    const auto result = select(socketHandle + 1, nullptr, &writeSet, &errorSet, &timeout);
+#endif
+    if (result <= 0) {
+        return false;
+    }
+    int socketError = 0;
+#ifdef _WIN32
+    int length = sizeof(socketError);
+    return getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
+        reinterpret_cast<char*>(&socketError), &length) == 0 && socketError == 0;
+#else
+    socklen_t length = sizeof(socketError);
+    return getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &socketError, &length) == 0 && socketError == 0;
+#endif
+}
+
 sockaddr_in ipv4Address(const std::string& address, int port) {
     sockaddr_in result{};
     result.sin_family = AF_INET;
@@ -114,6 +174,12 @@ void ensureDirectory(const std::string& path) {
     }
     std::string current;
     std::size_t cursor = 0;
+#ifdef _WIN32
+    if (path.size() >= 3 && path[1] == ':' && (path[2] == '/' || path[2] == '\\')) {
+        current = path.substr(0, 3);
+        cursor = 3;
+    } else
+#endif
     if (path.front() == '/' || path.front() == '\\') {
         current.assign(1, path.front());
         cursor = 1;
@@ -163,10 +229,16 @@ void writeBinaryFile(const std::string& path, const std::vector<std::uint8_t>& b
 
 }  // namespace
 
-Am5seIec103Client::Am5seIec103Client(IecProtocolConfig config)
-    : config_(std::move(config)) {
-    if (config_.transportMode != "am5se_passive_tcp") {
-        throw std::invalid_argument("AM5SE IEC103 client requires transportMode=am5se_passive_tcp");
+Am5seIec103Client::Am5seIec103Client(IecProtocolConfig config, TcpTransportConfig tcp)
+    : config_(std::move(config)), tcp_(std::move(tcp)) {
+    if (config_.transportMode != "am5se_passive_tcp" &&
+        config_.transportMode != "am5se_active_tcp") {
+        throw std::invalid_argument(
+            "AM5SE IEC103 client requires transportMode=am5se_passive_tcp or am5se_active_tcp");
+    }
+    if (config_.transportMode == "am5se_active_tcp" &&
+        (tcp_.host.empty() || tcp_.port <= 0 || tcp_.port > 65535)) {
+        throw std::invalid_argument("AM5SE IEC103 active TCP requires protocol.tcp.host and port");
     }
 }
 
@@ -294,13 +366,78 @@ void Am5seIec103Client::setRecordingProgressCallback(
 }
 
 void Am5seIec103Client::ensureConnected() {
-    sendDiscoveryIfDue();
     if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
-        acceptReverseConnection();
+        if (config_.transportMode == "am5se_active_tcp") {
+            connectToDeviceServer();
+        } else {
+            sendDiscoveryIfDue();
+            acceptReverseConnection();
+        }
     }
     if (!linkInitialized_) {
         initializeLink();
     }
+}
+
+void Am5seIec103Client::connectToDeviceServer() {
+    ensureSocketRuntime();
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    addrinfo* addresses = nullptr;
+    const auto port = std::to_string(tcp_.port);
+    if (getaddrinfo(tcp_.host.c_str(), port.c_str(), &hints, &addresses) != 0) {
+        throw std::runtime_error("AM5SE IEC103 cannot resolve device server: " + tcp_.host);
+    }
+
+    SocketHandle connected = kInvalidSocket;
+    for (auto* address = addresses; address != nullptr; address = address->ai_next) {
+        connected = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+        if (connected == kInvalidSocket) {
+            continue;
+        }
+        if (!setSocketBlocking(connected, false)) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
+        }
+        const auto result = connect(
+            connected,
+            address->ai_addr,
+            static_cast<int>(address->ai_addrlen));
+        if (result != 0 &&
+            (!connectInProgress(lastSocketError()) ||
+             !waitConnected(connected, tcp_.connectTimeoutMs))) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
+        }
+        if (!setSocketBlocking(connected, true)) {
+            closeSocket(connected);
+            connected = kInvalidSocket;
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo(addresses);
+    if (connected == kInvalidSocket) {
+        throw std::runtime_error(
+            "AM5SE IEC103 cannot connect to device server " + tcp_.host + ":" + port);
+    }
+
+    int keepAlive = 1;
+#ifdef _WIN32
+    setsockopt(connected, SOL_SOCKET, SO_KEEPALIVE,
+        reinterpret_cast<const char*>(&keepAlive), sizeof(keepAlive));
+#else
+    setsockopt(connected, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
+#endif
+    socket_ = static_cast<std::intptr_t>(connected);
+    rxBuffer_.clear();
+    linkInitialized_ = false;
+    generalInterrogationDone_ = false;
+    frameCountBit_ = false;
 }
 
 void Am5seIec103Client::ensureListener() {
@@ -618,13 +755,22 @@ std::vector<std::uint8_t> Am5seIec103Client::pullComtradeFile(
     int fileType,
     int timeoutMs
 ) {
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, timeoutMs));
     exchange(
         IecCodec::buildIec103ComtradeFileCallFrame(config_, fan, fileType, nextFrameCountBit()),
         timeoutMs,
         1);
     Iec103ComtradeAssembler assembler(config_.recordingMaxFileBytes);
-    for (int i = 0; i < config_.maxPollFrames && !assembler.complete(); ++i) {
-        const auto frames = requestClassData(1, timeoutMs);
+    // Packet numbers use 15 bits; unlike a normal poll, a COMTRADE DAT file
+    // can legitimately require far more than maxPollFrames class requests.
+    for (int packet = 0; packet <= 0x7FFF && !assembler.complete(); ++packet) {
+        const auto remainingMs = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count());
+        if (remainingMs <= 0) {
+            break;
+        }
+        const auto frames = requestClassData(1, remainingMs);
         for (const auto& frame : frames) {
             if (!IecCodec::isFt12VariableFrame(frame)) {
                 continue;

@@ -368,9 +368,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         publishDeviceOnlineStatus(currentOnline(), nowMs);
     }
 
-    if (mqttPublisher_ && !result.values.empty()) {
-        mqttPublisher_->publishTelemetry(config_.machineCode, result.values);
-    }
+    publishTelemetryBestEffort(result.values);
     if (!result.executedTasks.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
         throw std::runtime_error(firstFailureMessage);
     }

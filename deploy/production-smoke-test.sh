@@ -249,6 +249,66 @@ check_runtime_files() {
   done
 }
 
+check_runtime_dependencies() {
+  echo "== runtime dependencies =="
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 missing; cannot inspect optional runtime dependencies"
+    return
+  fi
+  if [ ! -f "$MONITOR_CONFIG" ]; then
+    fail "monitor app config missing; cannot inspect recording transfer dependencies"
+    return
+  fi
+  if recording_curl=$(python3 - "$MONITOR_CONFIG" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as source:
+        config = json.load(source)
+    transfer = config.get("systemMonitor", {}).get("recordingTransfer", {})
+    if not bool(transfer.get("enabled", False)):
+        raise SystemExit(1)
+    print(str(transfer.get("curlExecutable") or "curl"))
+except (OSError, ValueError, TypeError):
+    raise SystemExit(2)
+PY
+  ); then
+    recording_state=0
+  else
+    recording_state=$?
+  fi
+  if [ "$recording_state" -eq 1 ]; then
+    pass "IEC103 recording transfer disabled; curl dependency not required"
+    return
+  fi
+  if [ "$recording_state" -ne 0 ]; then
+    fail "cannot parse IEC103 recording transfer config: $MONITOR_CONFIG"
+    return
+  fi
+
+  case "$recording_curl" in
+    */*)
+      if [ -x "$recording_curl" ]; then
+        pass "IEC103 recording curl executable available: $recording_curl"
+      else
+        fail "IEC103 recording curl executable missing: $recording_curl"
+      fi
+      ;;
+    *)
+      if command -v "$recording_curl" >/dev/null 2>&1; then
+        pass "IEC103 recording curl executable available: $recording_curl"
+      else
+        fail "IEC103 recording requires executable on PATH: $recording_curl"
+      fi
+      ;;
+  esac
+  if command -v sha256sum >/dev/null 2>&1; then
+    pass "IEC103 recording checksum executable available: sha256sum"
+  else
+    fail "IEC103 recording requires sha256sum"
+  fi
+}
+
 app_runtime_mode() {
   mode=$(json_string "$1" runtimeMode)
   [ -n "$mode" ] || mode="gateway"
@@ -830,6 +890,7 @@ echo
 
 check_identity
 check_runtime_files
+check_runtime_dependencies
 check_runtime_mode
 check_device_refs
 check_tls
