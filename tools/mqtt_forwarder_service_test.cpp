@@ -104,9 +104,11 @@ public:
     }
 
     void publishJsonMessage(
-        const std::string&,
-        const std::string&
+        const std::string& topic,
+        const std::string& payload
     ) override {
+        jsonTopics.push_back(topic);
+        jsonPayloads.push_back(payload);
         jsonCount += 1;
     }
 
@@ -124,6 +126,8 @@ public:
     std::vector<std::vector<std::uint32_t>> fullSnapshotIndexes;
     std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
+    std::vector<std::string> jsonTopics;
+    std::vector<std::string> jsonPayloads;
     std::vector<int> pollTimeouts;
     int alarmCount = 0;
     int changeCount = 0;
@@ -230,6 +234,62 @@ void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
     service.runOnce(1770000101000LL);
     require(publisher->fullSnapshotTopics.size() == 2, "forwarder should publish the next full snapshot");
     require(publisher->pollTimeouts.empty(), "later cycles must still skip pollIncoming");
+    MemoryPointStore::cleanupOrphanedSegment(shmName);
+}
+
+void testLegacyPayloadUsesIndependentMappings() {
+    MqttForwardConfig forward;
+    forward.enabled = true;
+    forward.broker = "tcp://127.0.0.1:1883";
+    forward.fullTelemetryTopic = "ky/peidian";
+    forward.pointIndexes = {2051, 2052};
+    forward.payloadFormat = "legacy";
+    forward.legacyTelemetryMappedOnly = true;
+    forward.legacyTelemetryPointMappings = {
+        LegacyTelemetryPointMapping{2051, "OLD_METER", "OLD_A"},
+        LegacyTelemetryPointMapping{2052, "OLD_METER", "OLD_B"}
+    };
+    forward.intervalMs = 1000;
+
+    const std::string shmName = "mqtt_forwarder_legacy";
+    MemoryPointStore::cleanupOrphanedSegment(shmName);
+    MemoryStoreConfig storeConfig;
+    storeConfig.sharedMemoryName = shmName;
+    MemoryPointStore store(storeConfig);
+    PointStoreRouter router;
+    router.addStore(shmName, store);
+
+    DeviceConfig deviceConfig;
+    deviceConfig.machineCode = "GW_TEST";
+    deviceConfig.memoryStore.sharedMemoryName = shmName;
+    LogicalDeviceConfig meter;
+    meter.meterCode = "NEW_METER";
+    meter.points.push_back(makePoint(2051, "NEW_A"));
+    meter.points.push_back(makePoint(2052, "NEW_B"));
+    deviceConfig.meters.push_back(meter);
+    router.addRoutesFromDeviceConfigs({deviceConfig}, shmName);
+
+    PointValue value;
+    value.index = 2051;
+    value.value = 12.5;
+    value.ts = 1770000150000LL;
+    value.expireAt = 1770000750000LL;
+    require(router.putLatestByIndex(value).accepted, "failed to seed legacy forwarding point");
+
+    auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
+    MqttForwarderService service(forward, router, publisher);
+    service.runOnce(1770000150000LL);
+
+    require(publisher->fullSnapshotTopics.empty(), "legacy forwarding must not use the new snapshot encoder");
+    require(publisher->jsonTopics == std::vector<std::string>{"ky/peidian"},
+        "legacy forwarding should use the independent base topic");
+    require(publisher->jsonPayloads.size() == 1, "legacy forwarding should publish one JSON payload");
+    require(
+        publisher->jsonPayloads.front() ==
+            R"({"data":[{"meterid":"OLD_METER","metrics":[{"OLD_A":"12.5000","OLD_B":"0.0000"}]}],"msgid":1770000150000,"split":"false","timestamp":1770000150000})",
+        "legacy forwarding must preserve old meter/point mappings and missing-value behavior"
+    );
+    require(publisher->pollTimeouts.empty(), "legacy forwarding must remain TX-only");
     MemoryPointStore::cleanupOrphanedSegment(shmName);
 }
 
@@ -740,6 +800,7 @@ void testTxOnlyPublisherNeverSubscribes() {
     value.value = 3.25;
     value.ts = 1770000300000LL;
     publisher.publishFullSnapshot(forward.fullTelemetryTopic, {value}, "compactArray");
+    publisher.publishJsonMessage(forward.fullTelemetryTopic, "{\"legacy\":true}");
     const auto incoming = publisher.pollIncoming(20);
     require(incoming.empty(), "TX-only pollIncoming must not create an RX subscription");
     publisher.publishAlarm("edge/alarm", 4001, value, "high", true);
@@ -771,6 +832,8 @@ int main() {
         testTxOnlyConfigClearsControlTopicsAndNeverPolls();
         std::cerr << "running disabled forwarder test" << std::endl;
         testDisabledForwarderPublishesNothing();
+        std::cerr << "running legacy payload test" << std::endl;
+        testLegacyPayloadUsesIndependentMappings();
         std::cerr << "running unrouted point test" << std::endl;
         testUnroutedPointIndexIsRejected();
         std::cerr << "running unavailable PointStore test" << std::endl;

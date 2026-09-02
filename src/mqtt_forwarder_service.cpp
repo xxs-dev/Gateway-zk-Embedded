@@ -9,6 +9,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "edge_gateway/legacy_telemetry_payload.hpp"
+
 namespace edge_gateway {
 
 namespace {
@@ -92,8 +94,10 @@ MqttForwarderService::MqttForwarderService(
     if (!publisher_) {
         throw std::invalid_argument("mqtt forwarder requires a publisher");
     }
-    if (forwardConfig_.payloadFormat != "compactArray" && forwardConfig_.payloadFormat != "object") {
-        throw std::invalid_argument("mqttForward.payloadFormat must be compactArray or object");
+    if (forwardConfig_.payloadFormat != "compactArray" &&
+        forwardConfig_.payloadFormat != "object" &&
+        forwardConfig_.payloadFormat != "legacy") {
+        throw std::invalid_argument("mqttForward.payloadFormat must be compactArray, object or legacy");
     }
     if (forwardConfig_.enabled && forwardConfig_.pointIndexes.empty()) {
         throw std::invalid_argument("mqttForward.pointIndexes must not be empty when enabled");
@@ -111,7 +115,36 @@ MqttForwarderService::MqttForwarderService(
             );
         }
     }
-    router_.setFailOnStoreReadError(true);
+    std::unordered_set<std::uint32_t> mappedIndexes;
+    for (const auto& mapping : forwardConfig_.legacyTelemetryPointMappings) {
+        if (!mappedIndexes.insert(mapping.index).second) {
+            throw std::invalid_argument(
+                "mqttForward.legacyTelemetryPointMappings must not contain duplicate index " +
+                std::to_string(mapping.index)
+            );
+        }
+        if (uniqueIndexes.find(mapping.index) == uniqueIndexes.end()) {
+            throw std::invalid_argument(
+                "mqttForward.legacyTelemetryPointMappings index is missing from pointIndexes: " +
+                std::to_string(mapping.index)
+            );
+        }
+    }
+    if (forwardConfig_.payloadFormat != "legacy" &&
+        (forwardConfig_.legacyTelemetryMappedOnly ||
+         !forwardConfig_.legacyTelemetryPointMappings.empty())) {
+        throw std::invalid_argument(
+            "mqttForward legacy mapping options require payloadFormat=legacy"
+        );
+    }
+    if (forwardConfig_.enabled &&
+        forwardConfig_.payloadFormat == "legacy" &&
+        forwardConfig_.legacyTelemetryMappedOnly &&
+        forwardConfig_.legacyTelemetryPointMappings.empty()) {
+        throw std::invalid_argument(
+            "mqttForward.legacyTelemetryPointMappings must not be empty when legacyTelemetryMappedOnly=true"
+        );
+    }
 }
 
 MqttForwarderService::~MqttForwarderService() {
@@ -172,12 +205,24 @@ void MqttForwarderService::runOnce(std::int64_t nowMs) {
     }
     lastPublishMs_ = nowMs;
     try {
-        const auto values = router_.getLatestByIndexes(forwardConfig_.pointIndexes, nowMs);
-        publisher_->publishFullSnapshot(
-            forwardConfig_.fullTelemetryTopic,
-            values,
-            forwardConfig_.payloadFormat
-        );
+        const auto values = router_.getLatestByIndexesStrict(forwardConfig_.pointIndexes, nowMs);
+        if (forwardConfig_.payloadFormat == "legacy") {
+            publisher_->publishJsonMessage(
+                forwardConfig_.fullTelemetryTopic,
+                buildLegacyTelemetryPayload(
+                    values,
+                    forwardConfig_.legacyTelemetryPointMappings,
+                    forwardConfig_.legacyTelemetryMappedOnly,
+                    nowMs
+                )
+            );
+        } else {
+            publisher_->publishFullSnapshot(
+                forwardConfig_.fullTelemetryTopic,
+                values,
+                forwardConfig_.payloadFormat
+            );
+        }
         writeHealth(true, {}, values.size(), nowMs);
     } catch (const std::exception& ex) {
         writeHealth(false, ex.what(), 0, nowMs);

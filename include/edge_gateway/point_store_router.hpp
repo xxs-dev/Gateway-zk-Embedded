@@ -86,6 +86,10 @@ public:
         const std::vector<std::uint32_t>& indexes,
         std::int64_t nowMs
     ) const;
+    std::vector<StoredPointValue> getLatestByIndexesStrict(
+        const std::vector<std::uint32_t>& indexes,
+        std::int64_t nowMs
+    ) const;
     std::vector<StoredPointValue> getAllLatest(std::int64_t nowMs) const;
     std::vector<StoredPointValue> getLatestByInterface(
         const std::string& interfaceCode,
@@ -128,6 +132,11 @@ private:
     ) const;
     Optional<StoredPointValue> getRawLatestByRoute(const PointStoreRoute& route, std::int64_t nowMs) const;
     Optional<StoredPointValue> getDerivedLatestByRoute(const PointStoreRoute& route, std::int64_t nowMs) const;
+    std::vector<StoredPointValue> getLatestByIndexesImpl(
+        const std::vector<std::uint32_t>& indexes,
+        std::int64_t nowMs,
+        bool failOnStoreError
+    ) const;
     std::uint32_t allocateDerivedIndex(std::uint32_t configuredIndex);
     void addNormalizeRoute(const PointStoreRoute& sourceRoute, const ValueNormalizeConfig& normalize);
     void restoreEmsVirtualParameter(const PointStoreRoute& route);

@@ -617,6 +617,21 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
     const std::vector<std::uint32_t>& indexes,
     std::int64_t nowMs
 ) const {
+    return getLatestByIndexesImpl(indexes, nowMs, false);
+}
+
+std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexesStrict(
+    const std::vector<std::uint32_t>& indexes,
+    std::int64_t nowMs
+) const {
+    return getLatestByIndexesImpl(indexes, nowMs, true);
+}
+
+std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexesImpl(
+    const std::vector<std::uint32_t>& indexes,
+    std::int64_t nowMs,
+    bool failOnStoreError
+) const {
     std::unordered_map<std::string, std::vector<std::uint32_t>> grouped;
     std::vector<PointStoreRoute> derivedRoutes;
     for (const auto index : indexes) {
@@ -634,6 +649,9 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
     for (const auto& entry : grouped) {
         const auto storeIt = stores_.find(entry.first);
         if (storeIt == stores_.end() || storeIt->second == nullptr) {
+            if (failOnStoreError) {
+                throw std::runtime_error("PointStore unavailable: " + entry.first);
+            }
             continue;
         }
         std::vector<StoredPointValue> values;
@@ -641,6 +659,9 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByIndexes(
             values = storeIt->second->getLatestByIndexes(entry.second, nowMs);
         } catch (const std::exception& ex) {
             logStoreReadFailure("getLatestByIndexes", entry.first, ex);
+            if (failOnStoreError) {
+                throw;
+            }
             continue;
         }
         for (auto& value : values) {
