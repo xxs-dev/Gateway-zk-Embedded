@@ -46,6 +46,7 @@ add_library(edge_gateway
     src/iec103_recording_transfer_service.cpp
     src/iec_command_executor.cpp
     src/iec_collector.cpp
+    src/legacy_telemetry_payload.cpp
     src/legacy_ems_engine.cpp
     src/legacy_ems_point_catalog.cpp
     src/memory_point_store.cpp

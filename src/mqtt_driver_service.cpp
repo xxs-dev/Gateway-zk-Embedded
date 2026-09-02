@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/legacy_telemetry_payload.hpp"
 #include "edge_gateway/scada_control_lease.hpp"
 
 namespace edge_gateway {
@@ -983,7 +984,12 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
          nowMs - lastLegacyTelemetryMs_ >= mqttConfig_.legacyTelemetryIntervalMs)) {
         publisher_->publishJsonMessage(
             mqttConfig_.legacyTelemetryTopic,
-            buildLegacyTelemetryPayload(values, nowMs)
+            edge_gateway::buildLegacyTelemetryPayload(
+                values,
+                mqttConfig_.legacyTelemetryPointMappings,
+                mqttConfig_.legacyTelemetryMappedOnly,
+                nowMs
+            )
         );
         lastLegacyTelemetryMs_ = nowMs;
     }
@@ -1065,81 +1071,6 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
         }
         session.nextPublishMs = nowMs + std::max(10, session.intervalMs);
     }
-}
-
-std::string MqttDriverService::buildLegacyTelemetryPayload(
-    const std::vector<StoredPointValue>& values,
-    std::int64_t nowMs
-) const {
-    using LegacyPoint = std::pair<std::string, const StoredPointValue*>;
-    std::vector<std::pair<std::string, std::vector<LegacyPoint>>> meters;
-    std::unordered_map<std::string, std::size_t> meterPositions;
-    std::unordered_map<std::uint32_t, const LegacyTelemetryPointMapping*> pointMappings;
-    for (const auto& mapping : mqttConfig_.legacyTelemetryPointMappings) {
-        pointMappings[mapping.index] = &mapping;
-    }
-    const auto appendPoint = [&](const std::string& meterCode,
-                                 const std::string& pointCode,
-                                 const StoredPointValue* value) {
-        auto inserted = meterPositions.emplace(meterCode, meters.size());
-        if (inserted.second) {
-            meters.emplace_back(meterCode, std::vector<LegacyPoint>());
-        }
-        meters[inserted.first->second].second.emplace_back(pointCode, value);
-    };
-
-    if (mqttConfig_.legacyTelemetryMappedOnly && !pointMappings.empty()) {
-        std::unordered_map<std::uint32_t, const StoredPointValue*> valuesByIndex;
-        for (const auto& value : values) {
-            valuesByIndex[value.index] = &value;
-        }
-        for (const auto& mapping : mqttConfig_.legacyTelemetryPointMappings) {
-            const auto valueIt = valuesByIndex.find(mapping.index);
-            appendPoint(
-                mapping.meterCode,
-                mapping.pointCode,
-                valueIt == valuesByIndex.end() ? nullptr : valueIt->second
-            );
-        }
-    } else {
-        for (const auto& value : values) {
-            if (value.meterCode.empty() || value.pointCode.empty()) {
-                continue;
-            }
-            std::string meterCode = value.meterCode;
-            std::string pointCode = value.pointCode;
-            const auto mappingIt = pointMappings.find(value.index);
-            if (mappingIt != pointMappings.end()) {
-                meterCode = mappingIt->second->meterCode;
-                pointCode = mappingIt->second->pointCode;
-            }
-            appendPoint(meterCode, pointCode, &value);
-        }
-    }
-
-    std::ostringstream payload;
-    payload << R"({"data":[)";
-    for (std::size_t meterIndex = 0; meterIndex < meters.size(); ++meterIndex) {
-        if (meterIndex > 0) payload << ',';
-        payload << R"({"meterid":")" << escapeJson(meters[meterIndex].first)
-                << R"(","metrics":[{)";
-        const auto& points = meters[meterIndex].second;
-        for (std::size_t pointIndex = 0; pointIndex < points.size(); ++pointIndex) {
-            if (pointIndex > 0) payload << ',';
-            const auto& point = points[pointIndex];
-            payload << "\"" << escapeJson(point.first) << "\":\"";
-            if (point.second == nullptr) {
-                payload << "0.0000";
-            } else if (std::isfinite(point.second->value)) {
-                payload << std::fixed << std::setprecision(4) << point.second->value;
-            }
-            payload << "\"";
-        }
-        payload << "}]}";
-    }
-    payload << R"(],"msgid":)" << nowMs
-            << R"(,"split":"false","timestamp":)" << nowMs << '}';
-    return payload.str();
 }
 
 void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {

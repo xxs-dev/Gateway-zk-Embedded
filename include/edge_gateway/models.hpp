@@ -714,6 +714,8 @@ struct MqttForwardConfig {
     std::string fullTelemetryTopic;
     std::vector<std::uint32_t> pointIndexes;
     std::string payloadFormat = "compactArray";
+    bool legacyTelemetryMappedOnly = false;
+    std::vector<LegacyTelemetryPointMapping> legacyTelemetryPointMappings;
     std::string username;
     std::string password;
     int qos = 1;

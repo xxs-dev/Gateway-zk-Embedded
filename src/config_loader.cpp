@@ -9,6 +9,7 @@
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -2003,6 +2004,8 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "fullTelemetryTopic",
         "pointIndexes",
         "payloadFormat",
+        "legacyTelemetryMappedOnly",
+        "legacyTelemetryPointMappings",
         "username",
         "password",
         "qos",
@@ -2059,13 +2062,23 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     }
     if (const auto* payloadFormat = value->find("payloadFormat")) {
         if (!payloadFormat->isString()) {
-            throw std::invalid_argument("mqttForward.payloadFormat must be compactArray or object");
+            throw std::invalid_argument("mqttForward.payloadFormat must be compactArray, object or legacy");
         }
         config.payloadFormat = payloadFormat->asString();
-        if (config.payloadFormat != "compactArray" && config.payloadFormat != "object") {
-            throw std::invalid_argument("mqttForward.payloadFormat must be compactArray or object");
+        if (config.payloadFormat != "compactArray" &&
+            config.payloadFormat != "object" &&
+            config.payloadFormat != "legacy") {
+            throw std::invalid_argument("mqttForward.payloadFormat must be compactArray, object or legacy");
         }
     }
+    config.legacyTelemetryMappedOnly = requireBool(
+        object,
+        "legacyTelemetryMappedOnly",
+        config.legacyTelemetryMappedOnly
+    );
+    config.legacyTelemetryPointMappings = parseLegacyTelemetryPointMappings(
+        value->find("legacyTelemetryPointMappings")
+    );
     config.username = requireString(object, "username", config.username);
     config.password = requireString(object, "password", config.password);
     config.qos = requireInt(object, "qos", config.qos);
@@ -2143,6 +2156,39 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     }
     if (config.pointIndexes.empty()) {
         throw std::invalid_argument("mqttForward.pointIndexes must not be empty when enabled");
+    }
+    if (config.payloadFormat != "legacy" &&
+        (config.legacyTelemetryMappedOnly ||
+         !config.legacyTelemetryPointMappings.empty())) {
+        throw std::invalid_argument(
+            "mqttForward legacy mapping options require payloadFormat=legacy"
+        );
+    }
+    if (config.payloadFormat == "legacy" &&
+        config.legacyTelemetryMappedOnly &&
+        config.legacyTelemetryPointMappings.empty()) {
+        throw std::invalid_argument(
+            "mqttForward.legacyTelemetryPointMappings must not be empty when legacyTelemetryMappedOnly=true"
+        );
+    }
+    std::unordered_set<std::uint32_t> mappedIndexes;
+    const std::unordered_set<std::uint32_t> configuredIndexes(
+        config.pointIndexes.begin(),
+        config.pointIndexes.end()
+    );
+    for (const auto& mapping : config.legacyTelemetryPointMappings) {
+        if (!mappedIndexes.insert(mapping.index).second) {
+            throw std::invalid_argument(
+                "mqttForward.legacyTelemetryPointMappings must not contain duplicate index " +
+                std::to_string(mapping.index)
+            );
+        }
+        if (configuredIndexes.find(mapping.index) == configuredIndexes.end()) {
+            throw std::invalid_argument(
+                "mqttForward.legacyTelemetryPointMappings index is missing from pointIndexes: " +
+                std::to_string(mapping.index)
+            );
+        }
     }
     return config;
 }

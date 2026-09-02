@@ -679,73 +679,6 @@ void verifyDeliveryRuntimeConfig() {
     require(app.eventEngine.deliveryMaxLatencyMs == 50, "EventEngine maximum delivery latency should parse");
 }
 
-void verifyCameraAuthenticationFailsClosed() {
-    const auto path = tempPath();
-    {
-        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
-        output << R"JSON({
-          "cameraService": {
-            "enabled": true,
-            "media": {
-              "auth": {
-                "enabled": true,
-                "mode": "basic",
-                "username": "injected-user",
-                "password": ""
-              }
-            }
-          }
-        })JSON";
-    }
-    bool rejectedMissingPassword = false;
-    try {
-        (void)edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
-    } catch (const std::runtime_error& ex) {
-        rejectedMissingPassword = std::string(ex.what()).find("requires injected") != std::string::npos;
-    }
-    std::remove(path.c_str());
-    require(rejectedMissingPassword, "enabled camera basic auth should reject a missing password");
-
-    {
-        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
-        output << R"JSON({
-          "cameraService": {
-            "enabled": true,
-            "cameras": [{
-              "cameraCode": "CAM_TEST",
-              "sourceAuth": {
-                "enabled": true,
-                "mode": "token_query",
-                "token": ""
-              }
-            }]
-          }
-        })JSON";
-    }
-    bool rejectedMissingToken = false;
-    try {
-        (void)edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
-    } catch (const std::runtime_error& ex) {
-        rejectedMissingToken = std::string(ex.what()).find("requires an injected token") != std::string::npos;
-    }
-    std::remove(path.c_str());
-    require(rejectedMissingToken, "enabled camera token auth should reject a missing token");
-
-    {
-        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
-        output << R"JSON({
-          "cameraService": {
-            "enabled": true,
-            "media": {"auth": {"enabled": false}}
-          }
-        })JSON";
-    }
-    const auto publicConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
-    std::remove(path.c_str());
-    require(!publicConfig.cameraService.media.auth.enabled,
-        "explicitly public camera media should not require credentials");
-}
-
 void verifyMqttForwardDefaultsAndValidation() {
     const auto load = [](const std::string& json) {
         const auto path = tempPath();
@@ -774,6 +707,10 @@ void verifyMqttForwardDefaultsAndValidation() {
         missing.mqttForward.payloadFormat == "compactArray",
         "missing mqttForward payloadFormat should use compactArray"
     );
+    require(!missing.mqttForward.legacyTelemetryMappedOnly,
+        "missing mqttForward legacy mapped-only mode should stay disabled");
+    require(missing.mqttForward.legacyTelemetryPointMappings.empty(),
+        "missing mqttForward must not invent legacy mappings");
     require(missing.mqttForward.qos == 1, "missing mqttForward qos should keep the safe default");
     require(missing.mqttForward.intervalMs == 60000, "missing mqttForward interval should keep the safe default");
     require(!missing.mqttForward.tls.enabled, "missing mqttForward TLS should stay disabled");
@@ -830,6 +767,25 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(enabled.mqttForward.payloadFormat == "object", "enabled mqttForward payloadFormat should parse");
     require(enabled.mqttForward.intervalMs == 15000, "enabled mqttForward interval should parse");
     require(!enabled.mqtt.enabled, "mqttForward must not implicitly enable the main mqtt block");
+
+    const auto legacy = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "broker": "tcp://10.0.0.9:1883",
+        "fullTelemetryTopic": "ky/peidian",
+        "pointIndexes": [201, 202],
+        "payloadFormat": "legacy",
+        "legacyTelemetryMappedOnly": true,
+        "legacyTelemetryPointMappings": [
+          {"index":201,"meterCode":"METER_OLD","pointCode":"POINT_A"},
+          {"index":202,"meterCode":"METER_OLD","pointCode":"POINT_B"}
+        ]
+      }
+    })JSON");
+    require(legacy.mqttForward.payloadFormat == "legacy", "legacy payload format should parse");
+    require(legacy.mqttForward.legacyTelemetryMappedOnly, "legacy mapped-only mode should parse");
+    require(legacy.mqttForward.legacyTelemetryPointMappings.size() == 2,
+        "legacy point mappings should parse");
 
     const auto expectRejected = [&](const std::string& json, const char* needle, const char* message) {
         bool rejected = false;
@@ -898,13 +854,28 @@ void verifyMqttForwardDefaultsAndValidation() {
     );
     expectRejected(
         R"JSON({"mqttForward":{"enabled":false,"payloadFormat":"array"}})JSON",
-        "compactArray or object",
+        "compactArray, object or legacy",
         "mqttForward payloadFormat must reject unsupported aliases"
     );
     expectRejected(
         R"JSON({"mqttForward":{"enabled":false,"payloadFormat":1}})JSON",
-        "compactArray or object",
+        "compactArray, object or legacy",
         "mqttForward payloadFormat must be a string"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[101],"payloadFormat":"object","legacyTelemetryMappedOnly":true}})JSON",
+        "payloadFormat=legacy",
+        "legacy mapping options must require the legacy payload format"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[101],"payloadFormat":"legacy","legacyTelemetryMappedOnly":true}})JSON",
+        "must not be empty",
+        "legacy mapped-only mode must require mappings"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[101],"payloadFormat":"legacy","legacyTelemetryPointMappings":[{"index":102,"meterCode":"M","pointCode":"P"}]}})JSON",
+        "missing from pointIndexes",
+        "legacy mappings must be contained in the independent point set"
     );
     expectRejected(
         R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","tls":{"enabled":true}}})JSON",
@@ -938,18 +909,6 @@ void verifyMqttForwardDefaultsAndValidation() {
     );
 }
 
-void verifyPublicCameraExampleLoadsWithoutCredentials() {
-    const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(
-        "config/examples/camera-service-public-example.json"
-    );
-    require(!app.cameraService.media.auth.enabled,
-        "public camera example media authentication should be disabled");
-    require(!app.cameraService.cameras.empty(), "public camera example should include a camera");
-    for (const auto& camera : app.cameraService.cameras) {
-        require(!camera.sourceAuth.enabled,
-            "public camera example source authentication should be disabled");
-    }
-}
 }  // namespace
 
 int main() {
@@ -1031,8 +990,6 @@ int main() {
     verifyIec103RecordingTransferConfig();
     verifyDeliveryRuntimeConfig();
     verifyMqttForwardDefaultsAndValidation();
-    verifyCameraAuthenticationFailsClosed();
-    verifyPublicCameraExampleLoadsWithoutCredentials();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

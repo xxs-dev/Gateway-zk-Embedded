@@ -1868,11 +1868,12 @@ void BuiltinMqttDriverPublisher::publishJsonMessage(
     const std::string& topic,
     const std::string& payload
 ) {
-    if (mode_ == MqttPublisherMode::TxOnly) {
-        return;
-    }
     std::lock_guard<std::mutex> lock(mutex_);
-    publishJson(topic, payload);
+    if (mode_ == MqttPublisherMode::TxOnly) {
+        publishRealtimeJson(topic, payload);
+    } else {
+        publishJson(topic, payload);
+    }
 }
 
 void BuiltinMqttDriverPublisher::maintain() {

@@ -74,6 +74,8 @@
     "fullTelemetryTopic": "",
     "pointIndexes": [],
     "payloadFormat": "compactArray",
+    "legacyTelemetryMappedOnly": false,
+    "legacyTelemetryPointMappings": [],
     "username": "",
     "password": "",
     "qos": 1,

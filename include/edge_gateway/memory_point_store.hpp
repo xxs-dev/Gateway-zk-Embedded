@@ -12,9 +12,17 @@
 
 namespace edge_gateway {
 
+enum class MemoryStoreOpenMode {
+    CreateOrOpen,
+    OpenExisting
+};
+
 class MemoryPointStore {
 public:
-    explicit MemoryPointStore(const std::string& segmentName = "gateway_point_store");
+    explicit MemoryPointStore(
+        const std::string& segmentName = "gateway_point_store",
+        MemoryStoreOpenMode openMode = MemoryStoreOpenMode::CreateOrOpen
+    );
     explicit MemoryPointStore(const MemoryStoreConfig& config);
     ~MemoryPointStore();
 
@@ -111,6 +119,7 @@ private:
     std::size_t maxPendingWrites_ = 4096;
     std::size_t maxPersistentSamples_ = 20000;
     std::string segmentName_;
+    MemoryStoreOpenMode openMode_ = MemoryStoreOpenMode::CreateOrOpen;
     std::uint64_t ownerId_ = 0;
     std::string ownerSource_;
     mutable void* mappingHandle_ = nullptr;

@@ -122,10 +122,6 @@ private:
     void publishHealthFileLocked(std::int64_t nowMs);
     void enrichValue(StoredPointValue& value) const;
     std::vector<StoredPointValue> enrichValues(std::vector<StoredPointValue> values) const;
-    std::string buildLegacyTelemetryPayload(
-        const std::vector<StoredPointValue>& values,
-        std::int64_t nowMs
-    ) const;
     std::string primaryMachineCode() const;
 
     MqttConfig mqttConfig_;
