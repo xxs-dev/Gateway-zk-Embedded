@@ -60,6 +60,9 @@ for binary in ("SystemMonitor", "MqttDriver", "MqttForwarder", "pointctl", "QtDi
     assert components[binary] == "1.0", components
 print("factory package component version test passed")
 PY
+for watchdog_file in gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default; do
+  [ -f "$TMP_ROOT/unpacked/gateway-factory-defaults/deploy/$watchdog_file" ]
+done
 
 GATEWAY_HOME="$TMP_ROOT/gateway" \
 INIT_WORK_DIR="$TMP_ROOT/init-work" \
@@ -79,4 +82,5 @@ for binary in SystemMonitor MqttDriver MqttForwarder pointctl QtDisplayBridge; d
   [ -x "$TMP_ROOT/gateway/bin/$binary" ]
 done
 [ -x "$TMP_ROOT/gateway/ky-ems/KY-EMS" ]
+[ -x "$TMP_ROOT/gateway/bin/gateway-health-watchdog.sh" ]
 echo "factory package external production init test passed"

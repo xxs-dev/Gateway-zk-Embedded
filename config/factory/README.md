@@ -66,6 +66,7 @@ sh deploy/production-init.sh \
 - `mqtt-service.json:eventEngine.enabled=true`，因此默认会启动 `event-engine@mqtt-service.service`。
 - `mqtt-service.json:computeEngine.enabled=true` 时会启动 `compute-engine@mqtt-service.service`；默认 `gateway` 模式不会执行 `runtime/logic/shuntong_ems_graph.json` 中的 EMS 图形逻辑。
 - `monitor-service.json:systemMonitor.enabled=true`，因此默认会启动 `system-monitor@monitor-service.service`。
+- 初始化脚本会安装并启用独立的 `gateway-health-watchdog.service`。普通目标实例缺失时只重启该实例；网关总入口、SystemMonitor 或主 MQTT 持续异常时才统一恢复，人工停服和配置应用期间不会误拉起。
 - `localDisplay.enabled=false`，因此默认不启动本地画面。
 - `cameraService.enabled=false`，因此默认不启动摄像头推流。
 

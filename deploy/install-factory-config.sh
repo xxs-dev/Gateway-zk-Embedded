@@ -16,6 +16,9 @@ INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
 INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
 INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
+WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
+WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
+WATCHDOG_MANUAL_STOP_FILE="$WATCHDOG_RUN_DIR/manual-stop"
 
 usage() {
   cat >&2 <<'EOF'
@@ -86,6 +89,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 cleanup_factory_extract() {
+  rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
     rm -rf "$FACTORY_EXTRACT_DIR"
   fi
@@ -885,11 +889,13 @@ for bin in $REQUIRED_BINS; do
     required_binary_file "$bin" >/dev/null || { echo "required binary missing: $bin" >&2; exit 2; }
   fi
 done
-for required_deploy in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh; do
+for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh; do
   deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
 done
 
-if command -v systemctl >/dev/null 2>&1; then
+if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+  mkdir -p "$WATCHDOG_RUN_DIR"
+  : > "$WATCHDOG_APPLYING_FILE"
   systemctl stop gateway-services.service 2>/dev/null || true
 fi
 if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
@@ -912,6 +918,7 @@ for bin in $OPTIONAL_BINS; do
 done
 
 install_required_deploy_file "gateway-services.sh" "$GATEWAY_HOME/bin/gateway-services.sh"
+install_required_deploy_file "gateway-health-watchdog.sh" "$GATEWAY_HOME/bin/gateway-health-watchdog.sh"
 install_required_deploy_file "gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
 install_required_deploy_file "gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
 install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
@@ -1036,6 +1043,10 @@ fi
 if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   SYSTEMD_MANAGER_REEXEC_REQUIRED=0
   install_required_deploy_file "gateway-services.service" "/etc/systemd/system/gateway-services.service"
+  install_required_deploy_file "gateway-health-watchdog.service" "/etc/systemd/system/gateway-health-watchdog.service"
+  if [ ! -f /etc/default/gateway-health-watchdog ]; then
+    install_required_deploy_file "gateway-health-watchdog.default" "/etc/default/gateway-health-watchdog"
+  fi
   install_deploy_file_if_exists "modbus-rtu@.service" "/etc/systemd/system/modbus-rtu@.service"
   install_deploy_file_if_exists "dlt645-driver@.service" "/etc/systemd/system/dlt645-driver@.service"
   install_deploy_file_if_exists "dio-driver@.service" "/etc/systemd/system/dio-driver@.service"
@@ -1068,6 +1079,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reexec
   fi
   systemctl enable gateway-services.service >/dev/null 2>&1 || true
+  systemctl enable gateway-health-watchdog.service >/dev/null 2>&1 || true
 fi
 
 if [ "$RESET_SHM" = "1" ]; then
@@ -1082,7 +1094,12 @@ if [ "$RESET_SHM" = "1" ]; then
 fi
 
 if [ "$START_SERVICES" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+  rm -f "$WATCHDOG_MANUAL_STOP_FILE"
   systemctl restart gateway-services.service
+  rm -f "$WATCHDOG_APPLYING_FILE"
+  systemctl restart gateway-health-watchdog.service
+elif [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+  : > "$WATCHDOG_MANUAL_STOP_FILE"
 fi
 
 if [ -n "$FACTORY_PACKAGE" ]; then

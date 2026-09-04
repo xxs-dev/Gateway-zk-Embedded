@@ -8,6 +8,31 @@ MQTT_APP_NAME="${MQTT_APP_NAME:-mqtt-service}"
 MONITOR_APP_NAME="${MONITOR_APP_NAME:-monitor-service}"
 CAMERA_APP_NAME="${CAMERA_APP_NAME:-camera-service}"
 AGC_AVC_APP_NAME="${AGC_AVC_APP_NAME:-agc-avc-service}"
+WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
+WATCHDOG_MANUAL_STOP_FILE="$WATCHDOG_RUN_DIR/manual-stop"
+WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
+
+ensure_watchdog_run_dir() {
+  mkdir -p "$WATCHDOG_RUN_DIR"
+}
+
+mark_manual_stop() {
+  ensure_watchdog_run_dir
+  : > "$WATCHDOG_MANUAL_STOP_FILE"
+}
+
+clear_manual_stop() {
+  rm -f "$WATCHDOG_MANUAL_STOP_FILE"
+}
+
+begin_configuration_apply() {
+  ensure_watchdog_run_dir
+  : > "$WATCHDOG_APPLYING_FILE"
+}
+
+finish_configuration_apply() {
+  rm -f "$WATCHDOG_APPLYING_FILE"
+}
 
 stop_units() {
   if ! command -v systemctl >/dev/null 2>&1; then
@@ -484,35 +509,72 @@ if os.path.isfile(agc_avc_path):
 PY
 }
 
+start_one_unit() {
+  unit="$1"
+  echo "[gateway-services] starting $unit"
+  case "$unit" in
+    ky-ems.service)
+      # The display session may still be starting; do not block driver startup on it.
+      systemctl start --no-block "$unit"
+      ;;
+    *)
+      systemctl start "$unit"
+      ;;
+  esac
+}
+
 start_units() {
-  desired_units | while IFS= read -r unit; do
+  units_file="${TMPDIR:-/tmp}/gateway-services-desired.$$"
+  if ! desired_units > "$units_file"; then
+    rm -f "$units_file"
+    return 1
+  fi
+
+  result=0
+  while IFS= read -r unit; do
     [ -z "$unit" ] && continue
     case "$unit" in
       \#*) continue ;;
     esac
-    echo "[gateway-services] starting $unit"
-    case "$unit" in
-      ky-ems.service)
-        # The display session may still be starting; do not block driver startup on it.
-        systemctl start --no-block "$unit"
-        ;;
-      *)
-        systemctl start "$unit"
-        ;;
-    esac
-  done
+    if ! start_one_unit "$unit"; then
+      echo "[gateway-services] failed to start $unit" >&2
+      result=1
+    fi
+  done < "$units_file"
+  rm -f "$units_file"
+  return "$result"
+}
+
+run_with_apply_marker() {
+  action="$1"
+  clear_manual_stop
+  begin_configuration_apply
+  trap 'finish_configuration_apply' EXIT HUP INT TERM
+  case "$action" in
+    apply)
+      stop_units
+      reset_point_store_segments
+      start_units
+      ;;
+    start)
+      start_units
+      ;;
+  esac
+  result=$?
+  finish_configuration_apply
+  trap - EXIT HUP INT TERM
+  return "$result"
 }
 
 case "${1:-apply}" in
   apply|restart)
-    stop_units
-    reset_point_store_segments
-    start_units
+    run_with_apply_marker apply
     ;;
   start)
-    start_units
+    run_with_apply_marker start
     ;;
   stop)
+    mark_manual_stop
     stop_units
     ;;
   list)

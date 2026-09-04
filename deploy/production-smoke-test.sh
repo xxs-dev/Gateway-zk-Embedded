@@ -244,7 +244,7 @@ check_runtime_files() {
   for bin in $(required_runtime_binaries); do
     exec_exists "$BIN_DIR/$bin" "$bin"
   done
-  for script in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-cellular.sh gateway-network-failover.sh; do
+  for script in gateway-services.sh gateway-health-watchdog.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-cellular.sh gateway-network-failover.sh; do
     exec_exists "$BIN_DIR/$script" "$script"
   done
 }
@@ -711,6 +711,41 @@ check_services() {
     done < /tmp/gateway-smoke-units.$$
   fi
   if command -v systemctl >/dev/null 2>&1; then
+    if [ -f /etc/systemd/system/gateway-health-watchdog.service ]; then
+      pass "gateway health watchdog systemd unit installed"
+    else
+      fail "gateway health watchdog systemd unit missing"
+    fi
+    if systemctl is-enabled --quiet gateway-health-watchdog.service; then
+      pass "gateway health watchdog enabled"
+    else
+      fail "gateway health watchdog not enabled"
+    fi
+    if systemctl is-active --quiet gateway-health-watchdog.service; then
+      pass "gateway health watchdog active"
+    else
+      fail "gateway health watchdog not active"
+    fi
+    watchdog_status=/var/lib/modbus-gateway/watchdog/status.json
+    if [ -s "$watchdog_status" ]; then
+      if command -v python3 >/dev/null 2>&1 && python3 - "$watchdog_status" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as source:
+    status = json.load(source)
+for key in ("checkedAtEpoch", "status", "lastAction", "reason"):
+    if key not in status:
+        raise SystemExit(f"missing watchdog status field: {key}")
+PY
+      then
+        pass "gateway health watchdog status JSON valid"
+      else
+        fail "gateway health watchdog status JSON invalid: $watchdog_status"
+      fi
+    else
+      fail "gateway health watchdog status JSON missing: $watchdog_status"
+    fi
     while IFS= read -r unit; do
       [ -z "$unit" ] && continue
       case "$unit" in \#*) continue ;; esac
