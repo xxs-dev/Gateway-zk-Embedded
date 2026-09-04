@@ -60,6 +60,8 @@ case "$PACKAGE_PROFILE" in
   *) echo "invalid profile: $PACKAGE_PROFILE" >&2; usage; exit 2 ;;
 esac
 
+COMPONENT_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-$ROOT_DIR/build-aarch64}"
+
 cleanup() {
   [ -z "$OUT_TMP" ] || rm -f "$OUT_TMP"
   rm -rf "$TMP_DIR"
@@ -318,7 +320,7 @@ if [ -d "$ROOT_DIR/deploy" ]; then
     [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
   done
 fi
-if [ -d "$ROOT_DIR/build-aarch64" ]; then
+if [ -d "$COMPONENT_BUILD_DIR" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
   ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
@@ -354,21 +356,21 @@ if [ -d "$ROOT_DIR/build-aarch64" ]; then
       }
       continue
     fi
-    if [ ! -f "$ROOT_DIR/build-aarch64/$bin" ]; then
-      echo "required factory binary missing: build-aarch64/$bin" >&2
+    if [ ! -f "$COMPONENT_BUILD_DIR/$bin" ]; then
+      echo "required factory binary missing: $COMPONENT_BUILD_DIR/$bin" >&2
       exit 2
     fi
-    cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+    cp "$COMPONENT_BUILD_DIR/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
   done
   for bin in $OPTIONAL_BINS; do
     [ "$bin" = "KY-EMS" ] && continue
-    if [ -f "$ROOT_DIR/build-aarch64/$bin" ]; then
-      cp "$ROOT_DIR/build-aarch64/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+    if [ -f "$COMPONENT_BUILD_DIR/$bin" ]; then
+      cp "$COMPONENT_BUILD_DIR/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
       PACKAGED_BINS=$(printf '%s\n' $PACKAGED_BINS "$bin" | unique_words | tr '\n' ' ')
     fi
   done
 else
-  echo "build-aarch64 directory not found; cross compile before packaging" >&2
+  echo "component build directory not found: $COMPONENT_BUILD_DIR" >&2
   exit 2
 fi
 

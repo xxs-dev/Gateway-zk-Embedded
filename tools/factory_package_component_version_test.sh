@@ -38,7 +38,8 @@ JSON
 cp -a "$ROOT_DIR/deploy" "$TMP_ROOT/source/deploy"
 (
   cd "$TMP_ROOT/source"
-  sh deploy/build-factory-package.sh "$TMP_ROOT/package.tar.gz" \
+  EDGE_PACKAGE_BUILD_DIR="$TMP_ROOT/source/build-aarch64" \
+    sh deploy/build-factory-package.sh "$TMP_ROOT/package.tar.gz" \
     --profile project --manifest "$TMP_ROOT/manifest.json"
 )
 
