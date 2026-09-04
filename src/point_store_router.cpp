@@ -536,6 +536,7 @@ void PointStoreRouter::addRoutesFromCameraServiceConfig(
         route.interfaceType = "camera";
         route.sharedMemoryName = sharedMemoryName;
         route.writable = false;
+        route.fullUpload = true;
         route.reportOnChange = pointCode == "camera_online";
         route.isStore = false;
         route.persistIntervalSec = 60;
@@ -728,10 +729,22 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
     CommandSubmitResult result;
     result.route = route;
     const auto commandTime = command.ts > 0 ? command.ts : command.acceptedAt;
-    if (!command.highPriority && powerControlOwnership_ &&
-        powerControlOwnership_->isBlocked(command.index, command.source, commandTime)) {
-        result.message = "power control target is owned by another controller";
-        return result;
+    auto routedCommand = command;
+    if (powerControlOwnership_) {
+        const auto authorization = powerControlOwnership_->authorize(
+            command.index,
+            command.source,
+            command.controlGeneration,
+            command.highPriority,
+            commandTime
+        );
+        if (!authorization.allowed) {
+            result.message = authorization.message;
+            return result;
+        }
+        if (routedCommand.controlGeneration == 0) {
+            routedCommand.controlGeneration = authorization.generation;
+        }
     }
     if (!route.writable) {
         result.message = "point write is disabled";
@@ -786,7 +799,7 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
             result.message = writeback.message;
             return result;
         }
-        store->submitWriteCommand(command);
+        store->submitWriteCommand(routedCommand);
     } catch (const std::exception& ex) {
         result.message = ex.what();
         return result;
@@ -809,6 +822,8 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
     std::string targetSharedMemoryName;
     std::unordered_set<std::uint32_t> indexes;
     result.routes.reserve(commands.size());
+    std::vector<PendingWriteCommand> routedCommands;
+    routedCommands.reserve(commands.size());
     for (const auto& command : commands) {
         if (!std::isfinite(command.value)) {
             result.message = "write command value must be finite";
@@ -824,10 +839,22 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
             return result;
         }
         const auto commandTime = command.ts > 0 ? command.ts : command.acceptedAt;
-        if (!command.highPriority && powerControlOwnership_ &&
-            powerControlOwnership_->isBlocked(command.index, command.source, commandTime)) {
-            result.message = "power control target is owned by another controller";
-            return result;
+        auto routedCommand = command;
+        if (powerControlOwnership_) {
+            const auto authorization = powerControlOwnership_->authorize(
+                command.index,
+                command.source,
+                command.controlGeneration,
+                command.highPriority,
+                commandTime
+            );
+            if (!authorization.allowed) {
+                result.message = authorization.message;
+                return result;
+            }
+            if (routedCommand.controlGeneration == 0) {
+                routedCommand.controlGeneration = authorization.generation;
+            }
         }
         if (!route->writable) {
             result.message = "point write is disabled: " + std::to_string(command.index);
@@ -850,10 +877,11 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
         targetStore = store;
         targetSharedMemoryName = route->sharedMemoryName;
         result.routes.push_back(*route);
+        routedCommands.push_back(std::move(routedCommand));
     }
 
     try {
-        targetStore->submitWriteCommands(commands);
+        targetStore->submitWriteCommands(routedCommands);
     } catch (const std::exception& ex) {
         result.message = ex.what();
         return result;

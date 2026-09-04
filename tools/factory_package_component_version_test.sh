@@ -12,7 +12,7 @@ trap cleanup EXIT INT TERM
 mkdir -p "$TMP_ROOT/source/build-aarch64" "$TMP_ROOT/source/ky-ems" \
   "$TMP_ROOT/source/config/factory/runtime/apps" "$TMP_ROOT/source/config/factory/runtime/devices"
 
-for binary in SystemMonitor MqttDriver pointctl QtDisplayBridge KY-EMS; do
+for binary in SystemMonitor MqttDriver MqttForwarder pointctl QtDisplayBridge KY-EMS; do
   if [ "$binary" = "KY-EMS" ]; then
     printf 'test\n' > "$TMP_ROOT/source/ky-ems/KY-EMS"
   else
@@ -55,7 +55,7 @@ required = {item["binary"]: item["version"] for item in manifest["requiredDriver
 components = {item["binary"]: item["version"] for item in manifest["components"]}
 assert required["KY-EMS"] == "2.0.9-compact", required
 assert components["KY-EMS"] == "2.0.9-compact", components
-for binary in ("SystemMonitor", "MqttDriver", "pointctl", "QtDisplayBridge"):
+for binary in ("SystemMonitor", "MqttDriver", "MqttForwarder", "pointctl", "QtDisplayBridge"):
     assert required[binary] == "1.0", required
     assert components[binary] == "1.0", components
 print("factory package component version test passed")
@@ -75,7 +75,7 @@ sh "$ROOT_DIR/deploy/production-init.sh" \
   --no-smoke \
   --no-direct-maintenance
 
-for binary in SystemMonitor MqttDriver pointctl QtDisplayBridge; do
+for binary in SystemMonitor MqttDriver MqttForwarder pointctl QtDisplayBridge; do
   [ -x "$TMP_ROOT/gateway/bin/$binary" ]
 done
 [ -x "$TMP_ROOT/gateway/ky-ems/KY-EMS" ]

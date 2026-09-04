@@ -111,6 +111,11 @@ public:
     virtual void maintain() {
     }
 
+    // Verifies that the publish connection can complete a broker round trip.
+    // Implementations should throw when the broker cannot acknowledge it.
+    virtual void probeConnection() {
+    }
+
     virtual std::vector<MqttIncomingMessage> pollIncoming(int timeoutMs) = 0;
 };
 

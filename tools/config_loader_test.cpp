@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 namespace {
 
 void require(bool condition, const char* message) {
@@ -24,7 +28,7 @@ std::string tempPath() {
     }
     return std::string(buffer);
 #else
-    return "/tmp/gateway_config_loader_test.json";
+    return "/tmp/gateway_config_loader_test_" + std::to_string(static_cast<long long>(::getpid())) + ".json";
 #endif
 }
 
@@ -713,6 +717,12 @@ void verifyMqttForwardDefaultsAndValidation() {
         "missing mqttForward must not invent legacy mappings");
     require(missing.mqttForward.qos == 1, "missing mqttForward qos should keep the safe default");
     require(missing.mqttForward.intervalMs == 60000, "missing mqttForward interval should keep the safe default");
+    require(missing.mqttForward.retryMinMs == 500, "mqttForward retryMinMs should default to 500");
+    require(missing.mqttForward.retryMaxMs == 5000, "mqttForward retryMaxMs should default to 5000");
+    require(missing.mqttForward.healthHeartbeatMs == 1000,
+        "mqttForward health heartbeat should default to 1000");
+    require(missing.mqttForward.failOnStoreError,
+        "third-party mqttForward must remain fail-closed by default");
     require(!missing.mqttForward.tls.enabled, "missing mqttForward TLS should stay disabled");
     require(!missing.mqttForward.tls.insecureSkipVerify, "insecureSkipVerify must default to false");
     require(missing.mqtt.enabled, "existing mqtt.enabled must stay unchanged");
@@ -726,6 +736,28 @@ void verifyMqttForwardDefaultsAndValidation() {
         missing.mqtt.commandRequestTopic == "edge/command/request",
         "existing mqtt control topics must stay unchanged"
     );
+    require(!missing.mqttForward.control.enabled, "mqttForward.control must default to disabled");
+    require(
+        missing.mqttForward.fullTelemetryTopicMachineScoped,
+        "mqttForward full topic must remain machine-scoped by default"
+    );
+    require(
+        missing.mqttForward.control.leaseTtlMs == 15000,
+        "mqttForward.control TTL should default to 15000"
+    );
+    require(
+        missing.mqttForward.control.pollIntervalMs == 100,
+        "mqttForward.control poll interval should default to 100"
+    );
+    require(missing.mqttForward.control.targets.empty(), "mqttForward.control must not invent targets");
+    require(
+        missing.mqttForward.control.ownershipIndexes.empty(),
+        "mqttForward.control must not invent ownership indexes"
+    );
+    require(missing.mqttDriver.fullUploadWorker.mode == "inline",
+        "existing configs must keep inline full upload by default");
+    require(missing.mqttDriver.fullUploadWorker.failoverTimeoutMs == 3000,
+        "isolated full fallback timeout should default to 3000ms");
 
     const auto sample = edge_gateway::ConfigLoader::loadAppConfigFromFile(
         "config/examples/mqtt-forward-disabled.json"
@@ -735,6 +767,8 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(sample.mqttForward.pointIndexes.empty(), "disabled sample should keep an empty third-party point set");
     require(sample.mqttForward.payloadFormat == "compactArray", "disabled sample should declare compactArray");
     require(sample.mqtt.enabled, "sample must preserve the existing mqtt block");
+    require(sample.mqttDriver.fullUploadWorker.mode == "inline",
+        "sample must document the backward-compatible inline mode");
 
     const auto enabled = load(R"JSON({
       "mqttForward": {
@@ -742,6 +776,7 @@ void verifyMqttForwardDefaultsAndValidation() {
         "protocolVersion": "mqtt3",
         "broker": "tcp://10.0.0.8:1883",
         "fullTelemetryTopic": "third/full",
+        "fullTelemetryTopicMachineScoped": false,
         "pointIndexes": [101, 102],
         "payloadFormat": "object",
         "username": "fwd",
@@ -760,6 +795,10 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(enabled.mqttForward.enabled, "enabled mqttForward should parse");
     require(enabled.mqttForward.broker == "tcp://10.0.0.8:1883", "enabled mqttForward broker should parse");
     require(enabled.mqttForward.fullTelemetryTopic == "third/full", "enabled mqttForward topic should parse");
+    require(
+        !enabled.mqttForward.fullTelemetryTopicMachineScoped,
+        "mqttForward should support an explicitly exact full topic"
+    );
     require(
         enabled.mqttForward.pointIndexes == std::vector<std::uint32_t>({101, 102}),
         "enabled mqttForward pointIndexes should parse in configured order"
@@ -787,6 +826,151 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(legacy.mqttForward.legacyTelemetryPointMappings.size() == 2,
         "legacy point mappings should parse");
 
+    const auto control = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "broker": "tcp://10.0.0.8:1883",
+        "fullTelemetryTopic": "third/full",
+        "pointIndexes": [101],
+        "control": {
+          "enabled": true,
+          "commandTopic": "third/cmd",
+          "replyTopic": "third/reply",
+          "leaseTtlMs": 12000,
+          "pollIntervalMs": 80,
+          "minTargetKw": -300,
+          "maxTargetKw": 300,
+          "targets": [
+            {"index": 501, "scale": 100, "offset": 1},
+            {"index": 502}
+          ]
+        }
+      }
+    })JSON");
+    require(control.mqttForward.control.enabled, "mqttForward.control should parse enabled");
+    require(
+        control.mqttForward.control.ownershipFile ==
+            control.mqttDriver.powerControlOwnershipFile,
+        "control ownership file should inherit the app-wide ownership file"
+    );
+    require(
+        control.mqttForward.control.commandTopic == "third/cmd",
+        "control commandTopic should parse"
+    );
+    require(
+        control.mqttForward.control.replyTopic == "third/reply",
+        "control replyTopic should parse"
+    );
+    require(control.mqttForward.control.leaseTtlMs == 12000, "control leaseTtlMs should parse");
+    require(control.mqttForward.control.pollIntervalMs == 80, "control pollIntervalMs should parse");
+    require(control.mqttForward.control.minTargetKw == -300, "control minTargetKw should parse");
+    require(control.mqttForward.control.maxTargetKw == 300, "control maxTargetKw should parse");
+    require(control.mqttForward.control.targets.size() == 2, "control targets should parse");
+    require(control.mqttForward.control.targets[0].index == 501, "first target index should parse");
+    require(control.mqttForward.control.targets[0].scale == 100, "first target scale should parse");
+    require(control.mqttForward.control.targets[0].offset == 1, "first target offset should parse");
+    require(control.mqttForward.control.targets[1].index == 502, "second target index should parse");
+    require(
+        control.mqttForward.control.ownershipIndexes ==
+            std::vector<std::uint32_t>({501, 502}),
+        "ownership indexes should derive from targets"
+    );
+
+    const auto disabledControlInheritance = load(R"JSON({
+      "mqttDriver": {"powerControlOwnershipFile":"/run/custom-owner.json"},
+      "mqttForward": {"enabled":false,"control":{"enabled":false}}
+    })JSON");
+    require(
+        disabledControlInheritance.mqttForward.control.ownershipFile ==
+            "/run/custom-owner.json",
+        "disabled control should still inherit the app-wide ownership file"
+    );
+
+    const auto explicitSharedOwnership = load(R"JSON({
+      "mqttDriver": {"powerControlOwnershipFile":"/run/shared-owner.json"},
+      "mqttForward": {
+        "enabled":true,
+        "broker":"tcp://10.0.0.8:1883",
+        "fullTelemetryTopic":"third/full",
+        "pointIndexes":[101],
+        "control": {
+          "enabled":true,
+          "commandTopic":"third/cmd",
+          "ownershipFile":"/run/shared-owner.json",
+          "targets":[{"index":501}]
+        }
+      }
+    })JSON");
+    require(
+        explicitSharedOwnership.mqttForward.control.ownershipFile ==
+            "/run/shared-owner.json",
+        "an explicit matching ownership file should be accepted"
+    );
+
+    const auto agcOwnershipInheritance = load(R"JSON({
+      "mqttDriver": {"powerControlOwnershipFile":"/run/custom-owner.json"},
+      "agcAvc": {"enabled":true}
+    })JSON");
+    require(
+        agcOwnershipInheritance.agcAvc.ownership.leaseFile == "/run/custom-owner.json",
+        "enabled AGC/AVC should inherit the app-wide ownership file"
+    );
+
+    const auto explicitOwnership = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "broker": "tcp://10.0.0.8:1883",
+        "fullTelemetryTopic": "third/full",
+        "pointIndexes": [101],
+        "control": {
+          "enabled": true,
+          "commandTopic": "third/cmd",
+          "targets": [{"index":501}],
+          "ownershipIndexes": [501, 700]
+        }
+      }
+    })JSON");
+    require(
+        explicitOwnership.mqttForward.control.ownershipIndexes ==
+            std::vector<std::uint32_t>({501, 700}),
+        "explicit ownership indexes should be retained"
+    );
+
+    const auto isolatedFull = load(R"JSON({
+      "mqtt": {
+        "enabled": true,
+        "broker": "tcp://127.0.0.1:1883",
+        "qos": 1
+      },
+      "mqttDriver": {
+        "enabled": true,
+        "fullUploadIntervalMs": 30000,
+        "fullUploadWorker": {
+          "mode": "isolated",
+          "clientIdSuffix": "-primary-full",
+          "healthFile": "/run/modbus-gateway/primary-full.json",
+          "publishLockFile": "/opt/modbus-gateway/run/primary-full.lock",
+          "healthHeartbeatMs": 500,
+          "failoverTimeoutMs": 2000,
+          "retryMinMs": 200,
+          "retryMaxMs": 2000
+        }
+      }
+    })JSON");
+    require(isolatedFull.mqttDriver.fullUploadWorker.mode == "isolated",
+        "isolated primary full worker mode should parse");
+    require(isolatedFull.mqttDriver.fullUploadWorker.healthHeartbeatMs == 500,
+        "isolated primary full heartbeat should parse");
+    require(isolatedFull.mqttDriver.fullUploadWorker.failoverTimeoutMs == 2000,
+        "isolated primary full failover timeout should parse");
+    require(isolatedFull.mqttDriver.fullUploadWorker.retryMinMs == 200,
+        "isolated primary full minimum retry should parse");
+    require(isolatedFull.mqttDriver.fullUploadWorker.retryMaxMs == 2000,
+        "isolated primary full maximum retry should parse");
+    require(isolatedFull.mqttDriver.fullUploadWorker.publishLockFile ==
+            "/opt/modbus-gateway/run/primary-full.lock",
+        "isolated primary full publish lock should parse");
+
     const auto expectRejected = [&](const std::string& json, const char* needle, const char* message) {
         bool rejected = false;
         try {
@@ -796,6 +980,22 @@ void verifyMqttForwardDefaultsAndValidation() {
         }
         require(rejected, message);
     };
+
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"mode":"process"}}})JSON",
+        "inline or isolated",
+        "full upload worker must reject unknown modes"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"healthHeartbeatMs":1000,"failoverTimeoutMs":1500}}})JSON",
+        "two heartbeats",
+        "full upload failover timeout must cover at least two heartbeats"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"enabled":true,"fullUploadIntervalMs":30000,"fullUploadWorker":{"mode":"isolated"}}})JSON",
+        "requires enabled mqtt",
+        "isolated full upload must require the main MQTT connection"
+    );
 
     expectRejected(
         R"JSON({"mqttForward":{"enabled":true,"fullTelemetryTopic":"third/full"}})JSON",
@@ -826,6 +1026,11 @@ void verifyMqttForwardDefaultsAndValidation() {
         R"JSON({"mqttForward":{"enabled":false,"pointIndexes":101}})JSON",
         "JSON uint32 array",
         "mqttForward pointIndexes must be an array"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"fullTelemetryTopicMachineScoped":"false"}})JSON",
+        "not bool",
+        "mqttForward exact-topic switch must be a boolean"
     );
     expectRejected(
         R"JSON({"mqttForward":{"enabled":false,"pointIndexes":["101"]}})JSON",
@@ -906,6 +1111,81 @@ void verifyMqttForwardDefaultsAndValidation() {
         R"JSON({"mqttForward":{"enabled":false,"commandRequestTopic":"edge/command/request"}})JSON",
         "commandRequestTopic",
         "mqttForward must reject control request topics"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"enabled":true,"commandTopic":"c","targets":[{"index":501}]}}})JSON",
+        "requires mqttForward.enabled",
+        "control must not be enabled under a disabled mqttForward parent"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[101],"control":{"enabled":true,"targets":[{"index":501}]}}})JSON",
+        "commandTopic",
+        "enabled control must require commandTopic"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[101],"control":{"enabled":true,"commandTopic":"c"}}})JSON",
+        "targets",
+        "enabled control must require targets"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"powerControlOwnershipFile":"/run/shared-owner.json"},"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[101],"control":{"enabled":true,"commandTopic":"c","ownershipFile":"/run/split-owner.json","targets":[{"index":501}]}}})JSON",
+        "must match mqttDriver.powerControlOwnershipFile",
+        "control must reject a split ownership file"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"powerControlOwnershipFile":"/run/shared-owner.json"},"agcAvc":{"enabled":true,"ownership":{"leaseFile":"/run/split-owner.json"}}})JSON",
+        "must match mqttDriver.powerControlOwnershipFile",
+        "AGC/AVC must reject a split ownership file"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"targets":[{"index":501},{"index":501}]}}})JSON",
+        "duplicate index",
+        "control must reject duplicate target indexes"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"targets":[{"index":0}]}}})JSON",
+        "positive uint32",
+        "control must reject zero target indexes"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"ownershipIndexes":[700,700]}}})JSON",
+        "duplicate index",
+        "control must reject duplicate ownership indexes"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"targets":[{"index":501}],"ownershipIndexes":[700]}}})JSON",
+        "must include target index 501",
+        "control ownership scope must include every configured write target"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"targets":[{"index":501,"scale":0}]}}})JSON",
+        "scale",
+        "control must reject zero target scale"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"leaseTtlMs":999}}})JSON",
+        "leaseTtlMs",
+        "control leaseTtlMs must be in range"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"pollIntervalMs":1001}}})JSON",
+        "pollIntervalMs",
+        "control pollIntervalMs must be in range"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"minTargetKw":300,"maxTargetKw":-300}}})JSON",
+        "minTargetKw",
+        "control min/max must be ordered"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"noSuchField":true}}})JSON",
+        "noSuchField",
+        "control must reject unknown keys"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"control":{"targets":[{"index":501,"noSuchTargetField":1}]}}})JSON",
+        "noSuchTargetField",
+        "control targets must reject unknown keys"
     );
 }
 

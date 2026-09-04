@@ -16,6 +16,7 @@
 
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/legacy_telemetry_payload.hpp"
+#include "edge_gateway/process_file_lock.hpp"
 #include "edge_gateway/scada_control_lease.hpp"
 
 namespace edge_gateway {
@@ -512,6 +513,33 @@ std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<
 
 }  // namespace
 
+std::vector<std::uint32_t> MqttDriverService::resolveFullUploadIndexes(
+    const MqttDriverConfig& driverConfig,
+    const std::vector<DeviceConfig>& deviceConfigs,
+    const PointStoreRouter& router
+) {
+    auto indexes = driverConfig.fullUploadIndexes;
+    bool publishAll = driverConfig.publishAllOnFull;
+
+    const auto configuredIndexes = collectConfiguredFullUploadIndexes(deviceConfigs);
+    if (!configuredIndexes.empty()) {
+        publishAll = false;
+        indexes.insert(indexes.end(), configuredIndexes.begin(), configuredIndexes.end());
+    }
+    for (const auto& entry : router.routes()) {
+        if (entry.second.fullUpload) {
+            publishAll = false;
+            indexes.push_back(entry.first);
+        }
+    }
+    std::sort(indexes.begin(), indexes.end());
+    indexes.erase(std::unique(indexes.begin(), indexes.end()), indexes.end());
+    if (publishAll || indexes.empty()) {
+        return router.allIndexes();
+    }
+    return indexes;
+}
+
 MqttDriverService::MqttDriverService(
     MqttConfig mqttConfig,
     MqttDriverConfig driverConfig,
@@ -545,34 +573,12 @@ MqttDriverService::MqttDriverService(
     for (const auto& config : deviceConfigs) {
         machineCodes_.insert(config.machineCode);
     }
-    const auto pointFullUploadIndexes = collectConfiguredFullUploadIndexes(deviceConfigs);
-    if (!pointFullUploadIndexes.empty()) {
-        driverConfig_.publishAllOnFull = false;
-        driverConfig_.fullUploadIndexes.insert(
-            driverConfig_.fullUploadIndexes.end(),
-            pointFullUploadIndexes.begin(),
-            pointFullUploadIndexes.end()
-        );
-    }
-    std::vector<std::uint32_t> routedFullUploadIndexes;
-    for (const auto& entry : router_.routes()) {
-        if (entry.second.fullUpload) {
-            routedFullUploadIndexes.push_back(entry.first);
-        }
-    }
-    if (!routedFullUploadIndexes.empty()) {
-        driverConfig_.publishAllOnFull = false;
-        driverConfig_.fullUploadIndexes.insert(
-            driverConfig_.fullUploadIndexes.end(),
-            routedFullUploadIndexes.begin(),
-            routedFullUploadIndexes.end()
-        );
-    }
-    std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
-    driverConfig_.fullUploadIndexes.erase(
-        std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
-        driverConfig_.fullUploadIndexes.end()
+    driverConfig_.fullUploadIndexes = resolveFullUploadIndexes(
+        driverConfig_,
+        deviceConfigs,
+        router_
     );
+    driverConfig_.publishAllOnFull = false;
 
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
@@ -603,34 +609,12 @@ MqttDriverService::MqttDriverService(
     for (const auto& config : deviceConfigs) {
         machineCodes_.insert(config.machineCode);
     }
-    const auto pointFullUploadIndexes = collectConfiguredFullUploadIndexes(deviceConfigs);
-    if (!pointFullUploadIndexes.empty()) {
-        driverConfig_.publishAllOnFull = false;
-        driverConfig_.fullUploadIndexes.insert(
-            driverConfig_.fullUploadIndexes.end(),
-            pointFullUploadIndexes.begin(),
-            pointFullUploadIndexes.end()
-        );
-    }
-    std::vector<std::uint32_t> routedFullUploadIndexes;
-    for (const auto& entry : router_.routes()) {
-        if (entry.second.fullUpload) {
-            routedFullUploadIndexes.push_back(entry.first);
-        }
-    }
-    if (!routedFullUploadIndexes.empty()) {
-        driverConfig_.publishAllOnFull = false;
-        driverConfig_.fullUploadIndexes.insert(
-            driverConfig_.fullUploadIndexes.end(),
-            routedFullUploadIndexes.begin(),
-            routedFullUploadIndexes.end()
-        );
-    }
-    std::sort(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end());
-    driverConfig_.fullUploadIndexes.erase(
-        std::unique(driverConfig_.fullUploadIndexes.begin(), driverConfig_.fullUploadIndexes.end()),
-        driverConfig_.fullUploadIndexes.end()
+    driverConfig_.fullUploadIndexes = resolveFullUploadIndexes(
+        driverConfig_,
+        deviceConfigs,
+        router_
     );
+    driverConfig_.publishAllOnFull = false;
     for (const auto& entry : router_.routes()) {
         PointRoute route;
         route.machineCode = entry.second.machineCode;
@@ -660,7 +644,9 @@ void MqttDriverService::start() {
         "started",
         ts,
         std::string(R"("scanIntervalMs":)") + std::to_string(driverConfig_.scanIntervalMs) +
-            R"(,"fullUploadIntervalMs":)" + std::to_string(driverConfig_.fullUploadIntervalMs)
+            R"(,"fullUploadIntervalMs":)" + std::to_string(driverConfig_.fullUploadIntervalMs) +
+            R"(,"fullUploadMode":")" +
+            escapeJson(driverConfig_.fullUploadWorker.mode) + R"(")"
     );
     replayPendingOtaStatuses();
     scanThread_ = std::thread(&MqttDriverService::scanLoop, this);
@@ -734,24 +720,100 @@ void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTime
     cleanupExpiredRealtimeSessions(nowMs);
     publishDueRealtimeSessions(nowMs);
 
+    const bool isolatedMode = driverConfig_.fullUploadWorker.mode == "isolated" &&
+        driverConfig_.fullUploadIntervalMs > 0;
+    if (isolatedMode) {
+        if (lastFullUploadMs_ == 0 && !driverConfig_.publishFullOnStart) {
+            lastFullUploadMs_ = nowMs;
+        }
+        const bool isolatedForwarderActive = isolatedFullForwarderIsActive(nowMs);
+        if (isolatedForwarderActive) {
+            isolatedFullForwarderWasActive_ = true;
+            isolatedFallbackWaitStartedMs_ = 0;
+            isolatedFallbackNextAttemptMs_ = 0;
+            isolatedFallbackRetryDelayMs_ = driverConfig_.fullUploadWorker.retryMinMs;
+            lastFullUploadMs_ = nowMs;
+            if (isLegacyTelemetryDue(nowMs)) {
+                publishLegacyTelemetryNow(nowMs);
+            }
+            return;
+        }
+
+        if (isolatedFallbackNextAttemptMs_ > 0) {
+            if (isolatedFallbackNextAttemptMs_ <= nowMs &&
+                !shouldDeferSnapshotForEventBacklog(nowMs)) {
+                publishIsolatedFallback(nowMs);
+            }
+            if (isLegacyTelemetryDue(nowMs)) {
+                publishLegacyTelemetryNow(nowMs);
+            }
+            return;
+        }
+
+        if (isolatedFullForwarderWasActive_) {
+            isolatedFullForwarderWasActive_ = false;
+            isolatedFallbackWaitStartedMs_ = nowMs;
+            if (!shouldDeferSnapshotForEventBacklog(nowMs)) {
+                publishIsolatedFallback(nowMs);
+                return;
+            }
+        }
+
+        // Give the worker one lease window to start before the inline path
+        // publishes. Once that bounded bootstrap window expires, fail open.
+        if (isolatedFallbackWaitStartedMs_ == 0) {
+            isolatedFallbackWaitStartedMs_ = nowMs;
+        }
+        if (nowMs - isolatedFallbackWaitStartedMs_ <
+            driverConfig_.fullUploadWorker.failoverTimeoutMs) {
+            if (isLegacyTelemetryDue(nowMs)) {
+                publishLegacyTelemetryNow(nowMs);
+            }
+            return;
+        }
+        if (lastFullUploadMs_ == 0 && !shouldDeferSnapshotForEventBacklog(nowMs)) {
+            publishIsolatedFallback(nowMs);
+            return;
+        }
+    } else {
+        isolatedFullForwarderWasActive_ = false;
+        isolatedFallbackWaitStartedMs_ = 0;
+        isolatedFallbackNextAttemptMs_ = 0;
+        isolatedFallbackRetryDelayMs_ = 0;
+    }
+
     if (lastFullUploadMs_ == 0) {
         if (driverConfig_.publishFullOnStart) {
             if (shouldDeferSnapshotForEventBacklog(nowMs)) {
+                if (isLegacyTelemetryDue(nowMs)) {
+                    publishLegacyTelemetryNow(nowMs);
+                }
                 return;
             }
             publishFullSnapshotNow(nowMs);
         } else {
             lastFullUploadMs_ = nowMs;
+            if (isLegacyTelemetryDue(nowMs)) {
+                publishLegacyTelemetryNow(nowMs);
+            }
         }
         return;
     }
 
     if (driverConfig_.fullUploadIntervalMs > 0 &&
         nowMs - lastFullUploadMs_ >= driverConfig_.fullUploadIntervalMs) {
-        if (shouldDeferSnapshotForEventBacklog(nowMs)) {
+        if (!shouldDeferSnapshotForEventBacklog(nowMs)) {
+            if (isolatedMode) {
+                publishIsolatedFallback(nowMs);
+            } else {
+                publishFullSnapshotNow(nowMs);
+            }
             return;
         }
-        publishFullSnapshotNow(nowMs);
+    }
+
+    if (isLegacyTelemetryDue(nowMs)) {
+        publishLegacyTelemetryNow(nowMs);
     }
 }
 
@@ -978,20 +1040,8 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
         ? mqttConfig_.telemetryTopic
         : mqttConfig_.fullTelemetryTopic;
     publisher_->publishFullSnapshot(topic, values, driverConfig_.fullUploadJsonFormat);
-    if (mqttConfig_.legacyTelemetryEnabled &&
-        !mqttConfig_.legacyTelemetryTopic.empty() &&
-        (lastLegacyTelemetryMs_ == 0 ||
-         nowMs - lastLegacyTelemetryMs_ >= mqttConfig_.legacyTelemetryIntervalMs)) {
-        publisher_->publishJsonMessage(
-            mqttConfig_.legacyTelemetryTopic,
-            edge_gateway::buildLegacyTelemetryPayload(
-                values,
-                mqttConfig_.legacyTelemetryPointMappings,
-                mqttConfig_.legacyTelemetryMappedOnly,
-                nowMs
-            )
-        );
-        lastLegacyTelemetryMs_ = nowMs;
+    if (isLegacyTelemetryDue(nowMs)) {
+        publishLegacyTelemetry(values, nowMs);
     }
     fullSnapshotsPublished_.fetch_add(1, std::memory_order_relaxed);
     const auto finishedMs = currentTimeMs();
@@ -1002,6 +1052,134 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
             R"(,"durationMs":)" + std::to_string(std::max<std::int64_t>(0, finishedMs - nowMs))
     );
     lastFullUploadMs_ = finishedMs;
+}
+
+bool MqttDriverService::isolatedFullForwarderIsActive(std::int64_t nowMs) const {
+    const auto& worker = driverConfig_.fullUploadWorker;
+    if (worker.mode != "isolated" || driverConfig_.fullUploadIntervalMs <= 0 ||
+        worker.healthFile.empty()) {
+        return false;
+    }
+    std::ifstream input(worker.healthFile.c_str(), std::ios::in | std::ios::binary);
+    if (!input.is_open()) {
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    const auto text = buffer.str();
+    if (text.empty() || text.size() > 64 * 1024) {
+        return false;
+    }
+    FlatJsonReader health(text);
+    bool primaryFullUpload = false;
+    bool healthy = false;
+    std::string state;
+    std::string machineCode;
+    std::string clientId;
+    std::string topic;
+    std::int64_t heartbeatAtMs = 0;
+    std::int64_t leaseUntilMs = 0;
+    if (!health.tryGetBool("primaryFullUpload", &primaryFullUpload) ||
+        !primaryFullUpload ||
+        !health.tryGetString("state", &state) ||
+        !health.tryGetString("machineCode", &machineCode) ||
+        !health.tryGetString("clientId", &clientId) ||
+        !health.tryGetString("topic", &topic) ||
+        !health.tryGetBool("healthy", &healthy) ||
+        !health.tryGetInt64("heartbeatAtMs", &heartbeatAtMs) ||
+        !health.tryGetInt64("leaseUntilMs", &leaseUntilMs)) {
+        return false;
+    }
+    const auto expectedTopic = mqttConfig_.fullTelemetryTopic.empty()
+        ? mqttConfig_.telemetryTopic
+        : mqttConfig_.fullTelemetryTopic;
+    const auto expectedClientId = mqttConfig_.clientId + worker.clientIdSuffix;
+    if (machineCode != primaryMachineCode() || topic != expectedTopic ||
+        clientId != expectedClientId) {
+        return false;
+    }
+    const bool leaseState = state == "claiming" || (state == "active" && healthy);
+    return leaseState && leaseUntilMs >= nowMs &&
+        heartbeatAtMs <= nowMs + worker.failoverTimeoutMs &&
+        nowMs - heartbeatAtMs <= worker.failoverTimeoutMs;
+}
+
+bool MqttDriverService::publishIsolatedFallback(std::int64_t nowMs) {
+    const auto& worker = driverConfig_.fullUploadWorker;
+    if (isolatedFallbackNextAttemptMs_ > nowMs) {
+        return false;
+    }
+    const auto recordFailure = [&](const std::string& error) {
+        const auto retryMs = std::max(
+            worker.retryMinMs,
+            isolatedFallbackRetryDelayMs_
+        );
+        isolatedFallbackNextAttemptMs_ = nowMs + retryMs;
+        isolatedFallbackRetryDelayMs_ = std::min(
+            worker.retryMaxMs,
+            std::max(worker.retryMinMs, retryMs * 2)
+        );
+        std::cerr << "mqtt driver isolated full fallback failed error=" << error
+                  << " retryMs=" << retryMs << std::endl;
+    };
+
+    try {
+        ProcessFileLock publishLock(worker.publishLockFile);
+        if (!publishLock.tryAcquire()) {
+            recordFailure("publish ownership is busy");
+            return false;
+        }
+        // The Forwarder can refresh its lease between the caller's first
+        // health check and our lock acquisition. Recheck while holding the
+        // shared ownership lock so a completed handoff cannot be followed by
+        // a duplicate fallback snapshot.
+        const auto lockedAtMs = currentTimeMs();
+        if (isolatedFullForwarderIsActive(lockedAtMs)) {
+            isolatedFallbackNextAttemptMs_ = 0;
+            isolatedFallbackRetryDelayMs_ = worker.retryMinMs;
+            return false;
+        }
+        publishFullSnapshotNow(lockedAtMs);
+        isolatedFallbackNextAttemptMs_ = 0;
+        isolatedFallbackRetryDelayMs_ = worker.retryMinMs;
+        return true;
+    } catch (const std::exception& ex) {
+        recordFailure(ex.what());
+        return false;
+    }
+}
+
+bool MqttDriverService::isLegacyTelemetryDue(std::int64_t nowMs) const {
+    return mqttConfig_.legacyTelemetryEnabled &&
+        !mqttConfig_.legacyTelemetryTopic.empty() &&
+        (lastLegacyTelemetryMs_ == 0 ||
+         nowMs - lastLegacyTelemetryMs_ >= mqttConfig_.legacyTelemetryIntervalMs);
+}
+
+void MqttDriverService::publishLegacyTelemetryNow(std::int64_t nowMs) {
+    std::vector<StoredPointValue> values;
+    if (driverConfig_.publishAllOnFull || driverConfig_.fullUploadIndexes.empty()) {
+        values = enrichValues(router_.getAllLatest(nowMs));
+    } else {
+        values = filterValues(driverConfig_.fullUploadIndexes, nowMs);
+    }
+    publishLegacyTelemetry(values, nowMs);
+}
+
+void MqttDriverService::publishLegacyTelemetry(
+    const std::vector<StoredPointValue>& values,
+    std::int64_t nowMs
+) {
+    publisher_->publishJsonMessage(
+        mqttConfig_.legacyTelemetryTopic,
+        edge_gateway::buildLegacyTelemetryPayload(
+            values,
+            mqttConfig_.legacyTelemetryPointMappings,
+            mqttConfig_.legacyTelemetryMappedOnly,
+            nowMs
+        )
+    );
+    lastLegacyTelemetryMs_ = nowMs;
 }
 
 void MqttDriverService::publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) {
@@ -1107,11 +1285,38 @@ void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
 
 int MqttDriverService::scanLoopIncomingTimeoutMs(std::int64_t nowMs) const {
     int waitMs = 1000;
-    if (lastFullUploadMs_ == 0) {
-        waitMs = 0;
+    const bool isolatedMode = driverConfig_.fullUploadWorker.mode == "isolated" &&
+        driverConfig_.fullUploadIntervalMs > 0;
+    if (isolatedMode && isolatedFallbackNextAttemptMs_ > nowMs) {
+        waitMs = std::min(
+            waitMs,
+            static_cast<int>(isolatedFallbackNextAttemptMs_ - nowMs)
+        );
+    } else if (isolatedMode && isolatedFallbackWaitStartedMs_ > 0 &&
+               nowMs - isolatedFallbackWaitStartedMs_ <
+                   driverConfig_.fullUploadWorker.failoverTimeoutMs) {
+        waitMs = std::min(
+            waitMs,
+            static_cast<int>(driverConfig_.fullUploadWorker.failoverTimeoutMs -
+                (nowMs - isolatedFallbackWaitStartedMs_))
+        );
+    } else if (lastFullUploadMs_ == 0) {
+        waitMs = isolatedMode && isolatedFullForwarderWasActive_
+            ? std::max(10, driverConfig_.scanIntervalMs)
+            : 0;
     } else if (driverConfig_.fullUploadIntervalMs > 0) {
         const auto dueIn = driverConfig_.fullUploadIntervalMs - static_cast<int>(nowMs - lastFullUploadMs_);
         waitMs = std::min(waitMs, std::max(0, dueIn));
+    }
+
+    if (mqttConfig_.legacyTelemetryEnabled && !mqttConfig_.legacyTelemetryTopic.empty()) {
+        if (lastLegacyTelemetryMs_ == 0) {
+            waitMs = 0;
+        } else {
+            const auto dueIn = mqttConfig_.legacyTelemetryIntervalMs -
+                static_cast<int>(nowMs - lastLegacyTelemetryMs_);
+            waitMs = std::min(waitMs, std::max(0, dueIn));
+        }
     }
 
     for (const auto& entry : realtimeSessions_) {

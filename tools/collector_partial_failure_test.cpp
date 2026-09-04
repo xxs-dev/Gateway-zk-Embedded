@@ -14,6 +14,7 @@
 #include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/modbus_codec.hpp"
 #include "edge_gateway/models.hpp"
 
 namespace {
@@ -1288,6 +1289,21 @@ void verifyOfflineProbeOnlyRotatesTasks() {
     cleanupStore(storeName);
 }
 
+void verifyNonFiniteFloatDecodeRejected() {
+    auto point = registerPoint(500100, "non_finite_float", 0);
+    point.read.dataType = "float32";
+    point.read.length = 2;
+    point.read.byteOrder = "ABCD";
+
+    bool rejected = false;
+    try {
+        (void)edge_gateway::ModbusCodec::decodeReadValue({0x7FC0, 0x0000}, point);
+    } catch (const std::invalid_argument& ex) {
+        rejected = std::string(ex.what()).find("not finite") != std::string::npos;
+    }
+    require(rejected, "non-finite float register values must be rejected");
+}
+
 }  // namespace
 
 int main() {
@@ -1320,6 +1336,7 @@ int main() {
         verifyRealtimeFocusedUsesShortTaskBackoff();
         verifyRealtimeFocusedOverridesPreviousLongTaskBackoff();
         verifyOfflineProbeOnlyRotatesTasks();
+        verifyNonFiniteFloatDecodeRejected();
         std::cout << "collector_partial_failure_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

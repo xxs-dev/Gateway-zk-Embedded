@@ -163,6 +163,11 @@ if [ "$CLEAN" = "1" ]; then
   rm -rf "$BUILD_DIR"
 fi
 
+if [ "$PACKAGE" = "1" ] && [ "$CLEAN" != "1" ]; then
+  echo "--package requires --clean so stale binaries cannot enter a release package" >&2
+  exit 2
+fi
+
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
@@ -181,7 +186,15 @@ done
 
 if [ "$PUBLISH" = "1" ]; then
   mkdir -p "$ROOT_DIR/build-aarch64"
-  for bin in "${PRODUCTION_TARGETS[@]}"; do
+  for bin in "${targets[@]}"; do
+    is_production=0
+    for production_bin in "${PRODUCTION_TARGETS[@]}"; do
+      if [ "$bin" = "$production_bin" ]; then
+        is_production=1
+        break
+      fi
+    done
+    [ "$is_production" = "1" ] || continue
     if [ -f "$BUILD_DIR/$bin" ]; then
       stripped="$BUILD_DIR/.published-$bin"
       cp -f "$BUILD_DIR/$bin" "$stripped"

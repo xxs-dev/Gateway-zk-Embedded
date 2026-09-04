@@ -190,6 +190,10 @@ CanDriverService::CanDriverService(
         config_.mqttDriver.priorityControlLeaseFile,
         config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
     ),
+    powerControlOwnership_(
+        config_.mqttDriver.powerControlOwnershipFile,
+        "mqtt-forwarder"
+    ),
     mqttPublisher_(std::move(mqttPublisher)) {
     if (config_.protocol.type != "can_socketcan" && config_.protocol.type != "can") {
         throw std::invalid_argument("CanDriver requires protocol.type=can_socketcan");
@@ -568,6 +572,35 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
         auto writebackResult = beginWritebackResult(command, startedAt);
+        const auto authorization = powerControlOwnership_.authorize(
+            command.index,
+            command.source,
+            command.controlGeneration,
+            command.highPriority,
+            nowMsValue
+        );
+        if (!authorization.allowed) {
+            const auto completedAt = nowMs();
+            completeWritebackResult(
+                writebackResult,
+                false,
+                authorization.message,
+                "control-rejected",
+                completedAt
+            );
+            store_.recordWritebackResult(writebackResult);
+            publishStatusEvent(
+                "control-rejected",
+                nowMsValue,
+                std::string(R"("index":)") + std::to_string(command.index) +
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) +
+                    R"(","message":")" + escapeJson(authorization.message) + R"(")"
+            );
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
+            continue;
+        }
         const auto pointIt = indexToRuntimePoint_.find(command.index);
         if (pointIt == indexToRuntimePoint_.end()) {
             const auto completedAt = nowMs();
@@ -579,7 +612,9 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                 completedAt
             );
             store_.recordWritebackResult(writebackResult);
-            priorityControlLease_.release(command.cmdId);
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
             continue;
         }
         const auto& runtimePoint = runtimePoints_[pointIt->second];
@@ -603,7 +638,9 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                 completedAt
             );
             store_.recordWritebackResult(writebackResult);
-            priorityControlLease_.release(command.cmdId);
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
             ++processed;
         } catch (const std::exception& ex) {
             const auto completedAt = nowMs();
@@ -622,7 +659,9 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
             );
-            priorityControlLease_.release(command.cmdId);
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
         }
     }
     return processed;

@@ -214,7 +214,9 @@ DecodedValue ModbusCodec::decodeReadValue(
         const auto byteCount = static_cast<std::size_t>(point.read.length) * 2;
         rawBytes.assign(flattened.begin(), flattened.begin() + static_cast<std::ptrdiff_t>(byteCount));
         const auto orderedBytes = reorderBytes(rawBytes, point.read.byteOrder);
-        if (point.read.dataType == "uint16") {
+        if (point.read.dataType == "bool") {
+            rawValue = readBigEndian<std::uint16_t>(orderedBytes) == 0 ? 0.0 : 1.0;
+        } else if (point.read.dataType == "uint16") {
             rawValue = static_cast<double>(readBigEndian<std::uint16_t>(orderedBytes));
         } else if (point.read.dataType == "int16") {
             rawValue = static_cast<double>(readBigEndian<std::int16_t>(orderedBytes));
@@ -229,7 +231,13 @@ DecodedValue ModbusCodec::decodeReadValue(
         }
     }
 
+    if (!std::isfinite(rawValue)) {
+        throw std::invalid_argument("decoded register value is not finite");
+    }
     const auto actualValue = applyReadScale(rawValue, point.read);
+    if (!std::isfinite(actualValue)) {
+        throw std::invalid_argument("scaled register value is not finite");
+    }
     DecodedValue decoded;
     decoded.value = actualValue;
     decoded.text = formatDouble(actualValue);

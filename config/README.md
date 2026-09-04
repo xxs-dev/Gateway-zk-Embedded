@@ -14,6 +14,7 @@
 - `runtime/devices` 放协议驱动直接加载的设备采集配置，包括 `ModbusRtu`、`Dlt645Driver`、`DioDriver`、`CanDriver`
 - `runtime/apps` 放应用级服务配置，包括 `mqtt-service.json`、`monitor-service.json`
 - `mqtt-service.json:mqttForward` 是独立第三方 MQTT 最新值转发配置；缺少该节点或 `enabled=false` 时不会启动转发器
+- `mqtt-service.json:mqttDriver.fullUploadWorker.mode=isolated` 时，同一个转发器进程还会承载主平台周期 full；默认 `inline` 保持旧行为
 - `runtime/device_identity.json` 放网关本机身份，包括 `machineCode`、`imei`、序列号、型号和版本信息
 - `runtime/tls` 放生产环境 MQTT TLS CA、客户端证书和可选 stunnel 兜底配置
 - 这些文件会被程序实际读取，修改后会影响运行结果
@@ -65,15 +66,15 @@
 ./SystemMonitor --app-config config/runtime/apps/monitor-service.json
 ```
 
-启用 `mqttForward.enabled=true` 后，第三方链路使用独立进程：
+启用 `mqttForward.enabled=true` 或 `mqttDriver.fullUploadWorker.mode=isolated` 后，数据转发工作器使用独立进程：
 
 ```bash
 ./MqttForwarder --app-config config/runtime/apps/mqtt-service.json
 ```
 
-`mqttForward.pointIndexes` 是第三方专属点位数组。启用转发时必须至少配置一个不重复的 uint32 index；转发器每周期只读取这些点位的最新值，不读取或回退到点位的 `fullUpload` 标记，也不复用 `mqttDriver.fullUploadIndexes`、`publishAllOnFull` 或 `fullUploadJsonFormat`。`mqttForward.payloadFormat` 默认 `compactArray`，也可显式设为 `object`，其他值会被配置加载器拒绝。
+`mqttForward.pointIndexes` 是第三方专属点位数组。启用转发时必须至少配置一个不重复的 uint32 index；转发器每周期只读取这些点位的最新值，不读取或回退到点位的 `fullUpload` 标记，也不复用 `mqttDriver.fullUploadIndexes`、`publishAllOnFull` 或 `fullUploadJsonFormat`。`mqttForward.payloadFormat` 默认 `compactArray`，也可显式设为 `object` 或旧平台兼容格式 `legacy`。
 
-第三方进程保持 TX-only：只向 `mqttForward.fullTelemetryTopic` 发布，不订阅、不处理控制或实时监测命令，也不做离线补发。主 MQTT 的 realtime/full 启停与第三方周期转发互不影响。
+`mqttForward.control` 缺失或 `enabled=false` 时第三方进程保持 TX-only：只向 `mqttForward.fullTelemetryTopic` 发布，不订阅、不处理控制或实时监测命令，也不做离线补发。只有显式设置 `mqttForward.control.enabled=true` 后，进程才订阅一个精确的第三方控制 topic；详细仲裁规则见 [第三方储能控制权接管设计](../doc/架构设计/第三方储能控制权接管设计.md)。主 MQTT 的 realtime/full 启停与第三方周期转发互不影响。
 
 多串口：
 
@@ -112,7 +113,7 @@ systemctl start gateway-services.service
 
 `gateway-services.sh` 会根据 `runtime/apps/mqtt-service.json` 和 `runtime/apps/monitor-service.json` 中的 `deviceConfigFiles[]` 自动决定启动哪些协议驱动；`runtime/devices` 目录里未被 app 配置引用的 JSON 不会被启动。MQTT、事件、计算、监测、本地画面和摄像头服务也只在对应配置开关或通道启用时进入启动清单。
 如果 app 的 `mqtt.broker` 指向本机 stunnel 监听端口，且 `runtime/tls/*-stunnel.conf` 存在，统一服务入口会在 MQTT 相关服务前自动启动对应 `mqtt-tls-tunnel@*.service`。
-`mqttForward.enabled=true` 时会额外启动 `mqtt-forwarder@mqtt-service.service`。该服务只建立第三方 TX 连接；出厂默认关闭，因此不在下面的默认清单中。
+`mqttForward.enabled=true` 或 `mqttDriver.fullUploadWorker.mode=isolated` 时会额外启动 `mqtt-forwarder@mqtt-service.service`。主 full 工作器仅建立独立 TX 连接并由主驱动短租约兜底；第三方输出只有在 `mqttForward.control.enabled=true` 时增加独立 RX 连接。出厂默认 `fullUploadWorker.mode=inline` 且关闭第三方转发，因此不在下面的默认清单中。
 
 当前出厂默认服务发现结果应包含：
 
@@ -143,7 +144,7 @@ sh deploy/install-factory-config.sh
 - `START_SERVICES=0` 只安装配置，不启动服务
 - `RESET_SHM=1` 停服务后清理旧共享内存，再恢复出厂配置
 
-初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时只把运行 app 配置中主 `mqtt.clientId` 同步为该 `machineCode`。`mqttForward` 的 broker、账号、密码、TLS 和可选 clientId 始终独立，不会继承主 MQTT 凭据。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；EMS 项目传 `ems`，AGC/AVC 项目传 `agc_avc` 并同时提供独立运行模式包。
+初始化脚本会继承当前 `/opt/modbus-gateway/config/runtime/device_identity.json` 中已有的 `machineCode`，不会把网关标识重置为出厂模板值；同时只把运行 app 配置中主 `mqtt.clientId` 同步为该 `machineCode`。`mqttForward` 的 broker、账号、密码、TLS 和可选 clientId 始终独立，不会继承主 MQTT 凭据。第三方控制所有权文件默认继承 `mqttDriver.powerControlOwnershipFile`，显式填写时必须与其完全相同。未指定 `INIT_RUNTIME_MODE` 时按网关模式安装；EMS 项目传 `ems`，AGC/AVC 项目传 `agc_avc` 并同时提供独立运行模式包。
 
 日常运维入口：
 

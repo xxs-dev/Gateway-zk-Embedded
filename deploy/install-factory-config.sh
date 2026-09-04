@@ -259,18 +259,22 @@ find_first_file() {
 
 install_required_binary() {
   bin="$1"
-  src=$(find_first_file \
+  src=$(required_binary_file "$bin") || {
+    echo "required binary missing: $bin" >&2
+    exit 2
+  }
+  install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
+}
+
+required_binary_file() {
+  bin="$1"
+  find_first_file \
     "$PACKAGE_ROOT/build-aarch64/$bin" \
     "$PACKAGE_ROOT/bin/$bin" \
     "$PACKAGE_ROOT/$bin" \
     "$SOURCE_ROOT/build-aarch64/$bin" \
     "$SOURCE_ROOT/bin/$bin" \
-    "$SOURCE_ROOT/$bin" \
-  ) || {
-    echo "required binary missing: $bin" >&2
-    exit 2
-  }
-  install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
+    "$SOURCE_ROOT/$bin"
 }
 
 install_optional_binary() {
@@ -821,13 +825,6 @@ PY
 
 mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
 
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl stop gateway-services.service 2>/dev/null || true
-fi
-if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
-  "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
-fi
-
 BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
 ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
@@ -869,6 +866,34 @@ esac
 echo "install package profile: $PACKAGE_PROFILE"
 if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
   echo "install package manifest: $EDGE_PACKAGE_MANIFEST"
+fi
+
+# Validate the complete mandatory payload before stopping any running service.
+# This keeps a malformed or stale package from turning a validation failure into
+# an avoidable field outage.
+for bin in $REQUIRED_BINS; do
+  if [ "$bin" = "KY-EMS" ]; then
+    found_ky_ems=0
+    for candidate in "$PACKAGE_ROOT/ky-ems" "$SOURCE_ROOT/ky-ems" "$DEFAULT_SOURCE_ROOT/ky-ems" "$ROOT_DIR/ky-ems"; do
+      if [ -n "$candidate" ] && [ -f "$candidate/KY-EMS" ]; then
+        found_ky_ems=1
+        break
+      fi
+    done
+    [ "$found_ky_ems" = "1" ] || { echo "required KY-EMS payload missing: ky-ems/KY-EMS" >&2; exit 2; }
+  else
+    required_binary_file "$bin" >/dev/null || { echo "required binary missing: $bin" >&2; exit 2; }
+  fi
+done
+for required_deploy in gateway-services.sh gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh; do
+  deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
+done
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl stop gateway-services.service 2>/dev/null || true
+fi
+if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
+  "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
 for bin in $REQUIRED_BINS; do

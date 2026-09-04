@@ -59,6 +59,11 @@ public:
     void runEventReplayOnce(std::int64_t nowMs);
     void publishFullSnapshotNow(std::int64_t nowMs);
     void publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs);
+    static std::vector<std::uint32_t> resolveFullUploadIndexes(
+        const MqttDriverConfig& driverConfig,
+        const std::vector<DeviceConfig>& deviceConfigs,
+        const PointStoreRouter& router
+    );
 
 private:
     struct PointRoute {
@@ -89,6 +94,8 @@ private:
     void replayPendingOtaStatuses();
     void replayEventOutboxIfNeeded(std::int64_t nowMs);
     bool shouldDeferSnapshotForEventBacklog(std::int64_t nowMs);
+    bool isolatedFullForwarderIsActive(std::int64_t nowMs) const;
+    bool publishIsolatedFallback(std::int64_t nowMs);
     bool hasActiveRealtimeSessions(std::int64_t nowMs) const;
     void cleanupExpiredRealtimeSessions(std::int64_t nowMs);
     void publishDueRealtimeSessions(std::int64_t nowMs);
@@ -117,6 +124,12 @@ private:
         std::size_t requestedCount,
         std::int64_t nowMs
     );
+    bool isLegacyTelemetryDue(std::int64_t nowMs) const;
+    void publishLegacyTelemetryNow(std::int64_t nowMs);
+    void publishLegacyTelemetry(
+        const std::vector<StoredPointValue>& values,
+        std::int64_t nowMs
+    );
     void recordScanHealth(double durationMs, bool failed, std::int64_t nowMs);
     void recordReplayHealth(double durationMs, bool failed);
     void publishHealthFileLocked(std::int64_t nowMs);
@@ -142,6 +155,10 @@ private:
     std::int64_t otaReplayFirstSuccessMs_ = 0;
     int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
+    bool isolatedFullForwarderWasActive_ = false;
+    std::int64_t isolatedFallbackWaitStartedMs_ = 0;
+    std::int64_t isolatedFallbackNextAttemptMs_ = 0;
+    int isolatedFallbackRetryDelayMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::deque<PendingCommandReply> pendingCommandReplies_;
     std::int64_t lastRealtimeSessionCleanupMs_ = 0;

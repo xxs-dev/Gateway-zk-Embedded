@@ -1,17 +1,18 @@
 [Unit]
 Description=MQTT Forwarder Instance %i
 After=network.target
-StartLimitIntervalSec=60
-StartLimitBurst=10
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/modbus-gateway
+RuntimeDirectory=modbus-gateway
+RuntimeDirectoryMode=0755
 ExecStartPre=/bin/mkdir -p /opt/modbus-gateway/run
 ExecStart=/opt/modbus-gateway/bin/MqttForwarder --app-config /opt/modbus-gateway/config/runtime/apps/%i.json
 Restart=on-failure
-RestartSec=5
+RestartSec=1
 TimeoutStopSec=15
 KillSignal=SIGTERM
 KillMode=mixed

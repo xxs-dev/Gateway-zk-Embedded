@@ -265,6 +265,7 @@ struct PendingWriteCommand {
     std::int64_t ts = 0;
     std::int64_t acceptedAt = 0;
     bool highPriority = false;
+    std::uint32_t controlGeneration = 0;
 };
 
 struct WritebackResultRecord {
@@ -372,6 +373,7 @@ struct MqttIncomingMessage {
     MqttIncomingType type = MqttIncomingType::CommandRequest;
     std::string topic;
     std::string payload;
+    bool retained = false;
 };
 
 struct PointBinding {
@@ -643,6 +645,7 @@ struct MqttConfig {
     std::string telemetryTopic = "edge/telemetry";
     std::string realtimeTelemetryTopic = "edge/telemetry/realtime";
     std::string fullTelemetryTopic = "edge/telemetry/full";
+    bool fullTelemetryTopicMachineScoped = true;
     // Optional legacy publisher. It is deliberately separate from the new
     // telemetry topic so old consumers keep their payload and route.
     bool legacyTelemetryEnabled = false;
@@ -657,6 +660,8 @@ struct MqttConfig {
     std::string statusTopic = "edge/status";
     std::string commandRequestTopic = "edge/command/request";
     std::string commandReplyTopic = "edge/command/reply";
+    bool commandRequestTopicMachineScoped = true;
+    bool commandReplyTopicMachineScoped = true;
     std::string otaRequestTopic = "edge/ota/request";
     std::string otaReplyTopic = "edge/ota/reply";
     std::string otaStatusTopic = "edge/ota/status";
@@ -687,6 +692,7 @@ struct MqttConfig {
     int sessionExpirySec = 0;
     MqttTlsConfig tls;
     bool offlineBufferEnabled = true;
+    bool fullSnapshotOfflineBufferEnabled = true;
     std::string offlineBufferMode = "ring";
     std::string offlineBufferDir = "/opt/modbus-gateway/data/mqtt-spool";
     std::string offlineRealtimeFile = "/opt/modbus-gateway/data/mqtt-spool/realtime_ring.dat";
@@ -706,12 +712,34 @@ struct MqttConfig {
     std::size_t maxPayloadBytes = 163840;
 };
 
+struct MqttForwardControlTargetConfig {
+    std::uint32_t index = 0;
+    double scale = 1.0;
+    double offset = 0.0;
+};
+
+struct MqttForwardControlConfig {
+    bool enabled = false;
+    std::string commandTopic;
+    std::string replyTopic;
+    std::string ownershipFile;
+    std::string scope = "pcs-power";
+    std::string sessionId = "third-party";
+    int leaseTtlMs = 15000;
+    int pollIntervalMs = 100;
+    double minTargetKw = -100000.0;
+    double maxTargetKw = 100000.0;
+    std::vector<std::uint32_t> ownershipIndexes;
+    std::vector<MqttForwardControlTargetConfig> targets;
+};
+
 struct MqttForwardConfig {
     bool enabled = false;
     std::string protocolVersion = "mqtt3";
     std::string broker;
     std::string clientId;
     std::string fullTelemetryTopic;
+    bool fullTelemetryTopicMachineScoped = true;
     std::vector<std::uint32_t> pointIndexes;
     std::string payloadFormat = "compactArray";
     bool legacyTelemetryMappedOnly = false;
@@ -720,7 +748,29 @@ struct MqttForwardConfig {
     std::string password;
     int qos = 1;
     int intervalMs = 60000;
+    int retryMinMs = 500;
+    int retryMaxMs = 5000;
+    int healthHeartbeatMs = 1000;
+    int healthLeaseTtlMs = 3000;
+    bool failOnStoreError = true;
+    bool primaryFullUpload = false;
+    bool publishOnStart = true;
+    std::string primaryMachineCode;
+    std::string primaryClientId;
+    std::string publishLockFile;
     MqttTlsConfig tls;
+    MqttForwardControlConfig control;
+};
+
+struct MqttFullUploadWorkerConfig {
+    std::string mode = "inline";
+    std::string clientIdSuffix = "-full";
+    std::string healthFile = "/run/modbus-gateway/mqtt-primary-full-{instance}-health.json";
+    std::string publishLockFile = "/opt/modbus-gateway/run/mqtt-primary-full-{instance}.lock";
+    int healthHeartbeatMs = 1000;
+    int failoverTimeoutMs = 3000;
+    int retryMinMs = 500;
+    int retryMaxMs = 5000;
 };
 
 struct MqttAlarmRule {
@@ -745,6 +795,7 @@ struct MqttDriverConfig {
     bool publishAllOnFull = true;
     std::string fullUploadJsonFormat = "compactArray";
     std::vector<std::uint32_t> fullUploadIndexes;
+    MqttFullUploadWorkerConfig fullUploadWorker;
     std::vector<MqttAlarmRule> alarmRules;
     std::string priorityControlLeaseFile = "/opt/modbus-gateway/run/priority-control.json";
     std::string powerControlOwnershipFile = "/opt/modbus-gateway/run/power-control-owner.json";

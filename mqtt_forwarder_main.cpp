@@ -16,8 +16,10 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/mqtt_forwarder_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/timing_policy.hpp"
 
 namespace {
 
@@ -39,6 +41,31 @@ std::string sanitizeProcessToken(std::string value) {
         }
     }
     return value;
+}
+
+std::string sanitizeFileToken(std::string value) {
+    for (auto& ch : value) {
+        if (ch == '/' || ch == '\\' || ch == '.' || ch == ' ') {
+            ch = '_';
+        }
+    }
+    return value;
+}
+
+std::string scopedWorkerPath(std::string path, const std::string& appConfigPath) {
+    auto instance = basenameOf(appConfigPath);
+    const auto extension = instance.rfind(".json");
+    if (extension != std::string::npos && extension + 5 == instance.size()) {
+        instance.erase(extension);
+    }
+    instance = sanitizeFileToken(instance);
+    const std::string marker = "{instance}";
+    std::size_t pos = 0;
+    while ((pos = path.find(marker, pos)) != std::string::npos) {
+        path.replace(pos, marker.size(), instance);
+        pos += instance.size();
+    }
+    return path;
 }
 
 void setProcessName(const std::string& name) {
@@ -73,8 +100,22 @@ int main(int argc, char* argv[]) {
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    TimingPolicyResolver::applyAppServices(appConfig);
+    appConfig.mqttDriver.fullUploadWorker.healthFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.healthFile,
+        appConfigPath
+    );
+    appConfig.mqttDriver.fullUploadWorker.publishLockFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.publishLockFile,
+        appConfigPath
+    );
     setProcessName("mqtt-fwd-" + sanitizeProcessToken(basenameOf(appConfigPath)));
-    if (!appConfig.mqttForward.enabled) {
+    const bool primaryFullEnabled = appConfig.mqtt.enabled &&
+        appConfig.mqttDriver.enabled &&
+        appConfig.mqttDriver.fullUploadIntervalMs > 0 &&
+        appConfig.mqttDriver.fullUploadWorker.mode == "isolated";
+    const bool thirdPartyEnabled = appConfig.mqttForward.enabled;
+    if (!primaryFullEnabled && !thirdPartyEnabled) {
         std::cout << "mqtt forwarder disabled appConfig=" << appConfigPath << std::endl;
         return 0;
     }
@@ -119,7 +160,8 @@ int main(int argc, char* argv[]) {
             sharedMemoryNames.push_back(name);
         }
     }
-    if (!appConfig.cameraService.sharedMemoryName.empty() &&
+    if (appConfig.cameraService.enabled &&
+        !appConfig.cameraService.sharedMemoryName.empty() &&
         seenSharedMemoryNames.insert(appConfig.cameraService.sharedMemoryName).second) {
         sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
     }
@@ -142,37 +184,132 @@ int main(int argc, char* argv[]) {
     router.addRoutesFromCameraServiceConfig(appConfig.cameraService, topicMachineCode);
     addEmsClusterPointRoutes(router, appConfig.emsCluster, topicMachineCode);
 
-    const auto txConfig = MqttForwarderService::makeTxOnlyMqttConfig(appConfig.mqttForward, topicMachineCode);
-    auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(txConfig, MqttPublisherMode::TxOnly);
-    MqttForwarderService service(
-        appConfig.mqttForward,
-        router,
-        publisher,
-        "/opt/modbus-gateway/run/mqtt-forwarder-health.json"
-    );
+    std::vector<std::shared_ptr<IMqttDriverPublisher>> publishers;
+    std::vector<std::unique_ptr<MqttForwarderService>> services;
+    std::string primaryFullClientId;
+    std::string primaryFullTopic;
+
+    if (primaryFullEnabled) {
+        MqttForwardConfig primaryForward;
+        primaryForward.enabled = true;
+        primaryForward.fullTelemetryTopic = appConfig.mqtt.fullTelemetryTopic.empty()
+            ? appConfig.mqtt.telemetryTopic
+            : appConfig.mqtt.fullTelemetryTopic;
+        primaryForward.fullTelemetryTopicMachineScoped =
+            appConfig.mqtt.fullTelemetryTopicMachineScoped;
+        primaryForward.pointIndexes = MqttDriverService::resolveFullUploadIndexes(
+            appConfig.mqttDriver,
+            deviceConfigs,
+            router
+        );
+        primaryForward.payloadFormat = appConfig.mqttDriver.fullUploadJsonFormat;
+        primaryForward.qos = appConfig.mqtt.qos;
+        primaryForward.intervalMs = appConfig.mqttDriver.fullUploadIntervalMs;
+        primaryForward.retryMinMs = appConfig.mqttDriver.fullUploadWorker.retryMinMs;
+        primaryForward.retryMaxMs = appConfig.mqttDriver.fullUploadWorker.retryMaxMs;
+        primaryForward.healthHeartbeatMs =
+            appConfig.mqttDriver.fullUploadWorker.healthHeartbeatMs;
+        primaryForward.healthLeaseTtlMs =
+            appConfig.mqttDriver.fullUploadWorker.failoverTimeoutMs;
+        primaryForward.failOnStoreError = false;
+        primaryForward.primaryFullUpload = true;
+        primaryForward.publishOnStart = appConfig.mqttDriver.publishFullOnStart;
+        primaryForward.primaryMachineCode = topicMachineCode;
+        primaryForward.publishLockFile =
+            appConfig.mqttDriver.fullUploadWorker.publishLockFile;
+
+        const auto primaryMqttConfig = MqttForwarderService::makePrimaryFullMqttConfig(
+            appConfig.mqtt,
+            appConfig.mqttDriver.fullUploadWorker,
+            topicMachineCode
+        );
+        primaryFullClientId = primaryMqttConfig.clientId;
+        primaryForward.primaryClientId = primaryMqttConfig.clientId;
+        primaryFullTopic = primaryForward.fullTelemetryTopic;
+        auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(
+            primaryMqttConfig,
+            MqttPublisherMode::TxOnly
+        );
+        publishers.push_back(publisher);
+        services.emplace_back(new MqttForwarderService(
+            primaryForward,
+            router,
+            publisher,
+            appConfig.mqttDriver.fullUploadWorker.healthFile
+        ));
+        std::cout << "primary full forwarder configured"
+                  << " broker=" << primaryMqttConfig.broker
+                  << " topic=" << primaryForward.fullTelemetryTopic
+                  << " clientId=" << primaryMqttConfig.clientId
+                  << " pointCount=" << primaryForward.pointIndexes.size()
+                  << std::endl;
+    }
+
+    if (thirdPartyEnabled) {
+        const auto mqttConfig = MqttForwarderService::makeMqttConfig(
+            appConfig.mqttForward,
+            topicMachineCode
+        );
+        if (primaryFullEnabled && mqttConfig.broker == appConfig.mqtt.broker &&
+            mqttConfig.clientId == primaryFullClientId) {
+            throw std::invalid_argument(
+                "primary full and third-party MQTT forwarders must use different clientId values"
+            );
+        }
+        if (primaryFullEnabled && mqttConfig.broker == appConfig.mqtt.broker &&
+            appConfig.mqttForward.fullTelemetryTopicMachineScoped ==
+                appConfig.mqtt.fullTelemetryTopicMachineScoped &&
+            appConfig.mqttForward.fullTelemetryTopic == primaryFullTopic) {
+            throw std::invalid_argument(
+                "primary full and third-party MQTT forwarders must not publish the same topic"
+            );
+        }
+        const auto publisherMode = appConfig.mqttForward.control.enabled
+            ? MqttPublisherMode::Bidirectional
+            : MqttPublisherMode::TxOnly;
+        auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(mqttConfig, publisherMode);
+        publishers.push_back(publisher);
+        services.emplace_back(new MqttForwarderService(
+            appConfig.mqttForward,
+            router,
+            publisher,
+            "/opt/modbus-gateway/run/mqtt-forwarder-health.json"
+        ));
+        std::cout << "third-party mqtt forwarder configured"
+                  << " broker=" << appConfig.mqttForward.broker
+                  << " topic=" << appConfig.mqttForward.fullTelemetryTopic
+                  << " clientId=" << mqttConfig.clientId
+                  << " thirdPartyControl=" << (appConfig.mqttForward.control.enabled ? 1 : 0)
+                  << std::endl;
+    }
 
     if (once) {
-        service.runOnce(nowMs());
+        for (const auto& service : services) {
+            service->runOnce(nowMs());
+        }
         return 0;
     }
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
-    service.start();
+    for (const auto& service : services) {
+        service->start();
+    }
     std::cout << "mqtt forwarder started"
               << " appConfig=" << appConfigPath
               << " shmCount=" << sharedMemoryNames.size()
-              << " broker=" << appConfig.mqttForward.broker
-              << " topic=" << appConfig.mqttForward.fullTelemetryTopic
-              << " clientId=" << txConfig.clientId
-              << " txOnly=1"
+              << " workerCount=" << services.size()
+              << " primaryFull=" << (primaryFullEnabled ? 1 : 0)
+              << " thirdParty=" << (thirdPartyEnabled ? 1 : 0)
               << std::endl;
 
     while (g_running) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
-    service.stop();
+    for (auto it = services.rbegin(); it != services.rend(); ++it) {
+        (*it)->stop();
+    }
     std::cout << "mqtt forwarder stopped" << std::endl;
     return 0;
 }

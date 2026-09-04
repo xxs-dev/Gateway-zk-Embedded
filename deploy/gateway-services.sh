@@ -393,6 +393,12 @@ if os.path.isfile(mqtt_path):
         event_enabled = bool_value((app.get("eventEngine", {}) or {}).get("enabled"), False)
         mqtt_driver_needed = mqtt_driver_process_needed(app)
         mqtt_forward_enabled = bool_value((app.get("mqttForward", {}) or {}).get("enabled"), False)
+        full_worker_mode = str(
+            ((app.get("mqttDriver", {}) or {}).get("fullUploadWorker", {}) or {}).get("mode") or "inline"
+        ).strip().lower()
+        mqtt_forward_needed = mqtt_forward_enabled or (
+            mqtt_driver_needed and full_worker_mode == "isolated"
+        )
         ems_cluster_enabled = (
             str(app.get("runtimeMode") or "").strip().lower() == "ems"
             and bool_value((app.get("emsCluster", {}) or {}).get("enabled"), False)
@@ -402,6 +408,7 @@ if os.path.isfile(mqtt_path):
         event_enabled = False
         mqtt_driver_needed = False
         mqtt_forward_enabled = False
+        mqtt_forward_needed = False
         ems_cluster_enabled = False
     if mqtt_driver_needed or event_enabled:
         emit_unit(stunnel_unit_for_app(mqtt_path))
@@ -413,7 +420,7 @@ if os.path.isfile(mqtt_path):
         emit_unit(f"event-engine@{mqtt_app_name}.service")
     if mqtt_driver_needed:
         emit_unit(f"mqtt-driver@{mqtt_app_name}.service")
-    if mqtt_forward_enabled:
+    if mqtt_forward_needed:
         emit_unit(f"mqtt-forwarder@{mqtt_app_name}.service")
 
 monitor_path = app_path(monitor_app_name)

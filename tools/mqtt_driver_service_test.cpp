@@ -103,6 +103,25 @@ public:
     std::vector<MqttCommandReply> commandReplies;
 };
 
+class FlakyFullMqttDriverPublisher : public CapturingMqttDriverPublisher {
+public:
+    void publishFullSnapshot(
+        const std::string& topic,
+        const std::vector<StoredPointValue>& values,
+        const std::string& format
+    ) override {
+        ++attempts;
+        if (failuresRemaining > 0) {
+            --failuresRemaining;
+            throw std::runtime_error("simulated fallback publish failure");
+        }
+        CapturingMqttDriverPublisher::publishFullSnapshot(topic, values, format);
+    }
+
+    int attempts = 0;
+    int failuresRemaining = 0;
+};
+
 struct ServiceFixture {
     std::string shmName;
     MemoryStoreConfig storeConfig;
@@ -166,6 +185,7 @@ ServiceFixture makeFixture(
     require(fixture.router.putLatestByIndex(value2).accepted, "failed to seed point 1002");
 
     fixture.mqttConfig.enabled = true;
+    fixture.mqttConfig.clientId = "GW_TEST";
     fixture.mqttConfig.topicMachineCode = "GW_TEST";
     fixture.mqttConfig.telemetryTopic = "edge/telemetry";
     fixture.mqttConfig.realtimeTelemetryTopic = "edge/telemetry/realtime";
@@ -220,6 +240,23 @@ std::string readFile(const std::string& path) {
     );
 }
 
+void writeFullWorkerHealth(
+    const std::string& path,
+    const std::string& state,
+    bool healthy,
+    std::int64_t heartbeatAtMs,
+    std::int64_t leaseUntilMs
+) {
+    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+    output << "{\"primaryFullUpload\":true,\"state\":\"" << state
+           << "\",\"healthy\":" << (healthy ? "true" : "false")
+           << ",\"machineCode\":\"GW_TEST\""
+           << ",\"clientId\":\"GW_TEST-full\""
+           << ",\"topic\":\"edge/telemetry/full\""
+           << ",\"heartbeatAtMs\":" << heartbeatAtMs
+           << ",\"leaseUntilMs\":" << leaseUntilMs << "}";
+}
+
 void cleanupFixture(ServiceFixture& fixture) {
     std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
     if (!fixture.driverConfig.healthFile.empty()) {
@@ -241,6 +278,208 @@ void testFullUploadOnlyWithoutRealtimeSession() {
     require(fixture.publisher->fullSnapshotCounts.size() == 1, "full snapshot should publish when full interval is due");
     require(fixture.publisher->fullSnapshotCounts.back() == 2, "full snapshot should include configured full points");
     require(fixture.publisher->onDemandCounts.empty(), "full upload should not publish realtime demand messages");
+    cleanupFixture(fixture);
+}
+
+void testIsolatedFullWorkerUsesBoundedStartupGrace() {
+    auto fixture = makeFixture("isolated_startup", 30000);
+    fixture.service.reset();
+#ifdef _WIN32
+    fixture.driverConfig.fullUploadWorker.healthFile = std::tmpnam(nullptr);
+#else
+    fixture.driverConfig.fullUploadWorker.healthFile = "/tmp/mqtt_isolated_startup_test.json";
+#endif
+    std::remove(fixture.driverConfig.fullUploadWorker.healthFile.c_str());
+    fixture.driverConfig.fullUploadWorker.mode = "isolated";
+    fixture.driverConfig.fullUploadWorker.failoverTimeoutMs = 3000;
+    fixture.driverConfig.publishFullOnStart = true;
+    fixture.driverConfig.fullUploadWorker.publishLockFile =
+        fixture.driverConfig.fullUploadWorker.healthFile + ".lock";
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    const std::int64_t startedAt = 1770000800000LL;
+    fixture.service->runScanOnce(startedAt);
+    fixture.service->runScanOnce(startedAt + 2999);
+    require(fixture.publisher->fullSnapshotCounts.empty(),
+        "inline fallback should wait one bounded worker startup window");
+    fixture.service->runScanOnce(startedAt + 3000);
+    require(fixture.publisher->fullSnapshotCounts.size() == 1,
+        "missing isolated worker must fail open after 3 seconds");
+
+    std::remove(fixture.driverConfig.fullUploadWorker.healthFile.c_str());
+    cleanupFixture(fixture);
+}
+
+void testIsolatedFullWorkerLeaseSuppressesAndThenImmediatelyFallsBack() {
+    auto fixture = makeFixture("isolated_lease", 30000);
+    fixture.service.reset();
+#ifdef _WIN32
+    fixture.driverConfig.fullUploadWorker.healthFile = std::tmpnam(nullptr);
+#else
+    fixture.driverConfig.fullUploadWorker.healthFile = "/tmp/mqtt_isolated_lease_test.json";
+#endif
+    fixture.driverConfig.fullUploadWorker.mode = "isolated";
+    fixture.driverConfig.fullUploadWorker.failoverTimeoutMs = 3000;
+    fixture.driverConfig.publishFullOnStart = true;
+    fixture.driverConfig.fullUploadWorker.publishLockFile =
+        fixture.driverConfig.fullUploadWorker.healthFile + ".lock";
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    const std::int64_t startedAt = 1770000900000LL;
+    writeFullWorkerHealth(
+        fixture.driverConfig.fullUploadWorker.healthFile,
+        "claiming",
+        false,
+        startedAt,
+        startedAt + 3000
+    );
+    fixture.service->runScanOnce(startedAt);
+    require(fixture.publisher->fullSnapshotCounts.empty(),
+        "fresh claiming lease must prevent a duplicate inline full");
+
+    writeFullWorkerHealth(
+        fixture.driverConfig.fullUploadWorker.healthFile,
+        "active",
+        true,
+        startedAt + 1000,
+        startedAt + 4000
+    );
+    fixture.service->runScanOnce(startedAt + 1000);
+    fixture.service->runScanOnce(startedAt + 3999);
+    require(fixture.publisher->fullSnapshotCounts.empty(),
+        "fresh active lease must suppress periodic inline full");
+
+    fixture.service->runScanOnce(startedAt + 4001);
+    require(fixture.publisher->fullSnapshotCounts.size() == 1,
+        "expired worker lease must trigger inline fallback on the next scan");
+
+    writeFullWorkerHealth(
+        fixture.driverConfig.fullUploadWorker.healthFile,
+        "retrying",
+        false,
+        startedAt + 4100,
+        0
+    );
+    fixture.service->runScanOnce(startedAt + 4100);
+    require(fixture.publisher->fullSnapshotCounts.size() == 1,
+        "retrying health must not cause duplicate inline snapshots");
+
+    std::remove(fixture.driverConfig.fullUploadWorker.healthFile.c_str());
+    cleanupFixture(fixture);
+}
+
+void testIsolatedFallbackRetriesWithoutAnotherStartupGrace() {
+    auto fixture = makeFixture("isolated_retry", 30000);
+    fixture.service.reset();
+#ifdef _WIN32
+    fixture.driverConfig.fullUploadWorker.healthFile = std::tmpnam(nullptr);
+#else
+    fixture.driverConfig.fullUploadWorker.healthFile = "/tmp/mqtt_isolated_retry_test.json";
+#endif
+    fixture.driverConfig.fullUploadWorker.mode = "isolated";
+    fixture.driverConfig.fullUploadWorker.failoverTimeoutMs = 3000;
+    fixture.driverConfig.fullUploadWorker.retryMinMs = 500;
+    fixture.driverConfig.fullUploadWorker.retryMaxMs = 2000;
+    fixture.driverConfig.fullUploadWorker.publishLockFile =
+        fixture.driverConfig.fullUploadWorker.healthFile + ".lock";
+    fixture.driverConfig.publishFullOnStart = true;
+    auto publisher = std::make_shared<FlakyFullMqttDriverPublisher>();
+    publisher->failuresRemaining = 1;
+    fixture.publisher = publisher;
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        publisher
+    ));
+
+    const std::int64_t startedAt = 1770000950000LL;
+    writeFullWorkerHealth(
+        fixture.driverConfig.fullUploadWorker.healthFile,
+        "active",
+        true,
+        startedAt,
+        startedAt + 3000
+    );
+    fixture.service->runScanOnce(startedAt);
+    fixture.service->runScanOnce(startedAt + 3001);
+    require(publisher->attempts == 1,
+        "lost worker lease should trigger the first fallback attempt");
+    fixture.service->runScanOnce(startedAt + 3500);
+    require(publisher->attempts == 1,
+        "fallback retry must respect the configured 500ms delay");
+    fixture.service->runScanOnce(startedAt + 3501);
+    require(publisher->attempts == 2 && publisher->fullSnapshotCounts.size() == 1,
+        "failed fallback must retry after 500ms without another startup grace");
+
+    std::remove(fixture.driverConfig.fullUploadWorker.healthFile.c_str());
+    std::remove(fixture.driverConfig.fullUploadWorker.publishLockFile.c_str());
+    cleanupFixture(fixture);
+}
+
+void testFullUploadPointSelectionIsSharedWithForwarder() {
+    auto fixture = makeFixture("full_selection", 1000);
+    MqttDriverConfig config = fixture.driverConfig;
+    config.publishAllOnFull = true;
+    config.fullUploadIndexes = {1002};
+    const auto selected = MqttDriverService::resolveFullUploadIndexes(
+        config,
+        {fixture.deviceConfig},
+        fixture.router
+    );
+    require(selected == std::vector<std::uint32_t>({1001, 1002}),
+        "shared full selection must merge explicit and point fullUpload indexes");
+
+    auto noFlags = fixture.deviceConfig;
+    for (auto& meter : noFlags.meters) {
+        for (auto& point : meter.points) {
+            point.fullUpload = false;
+        }
+    }
+    PointStoreRouter allRouter;
+    allRouter.addStore(fixture.shmName, *fixture.store);
+    allRouter.addRoutesFromDeviceConfigs({noFlags}, fixture.shmName);
+    config.fullUploadIndexes.clear();
+    const auto allSelected = MqttDriverService::resolveFullUploadIndexes(
+        config,
+        {noFlags},
+        allRouter
+    );
+    require(allSelected == std::vector<std::uint32_t>({1001, 1002}),
+        "publishAllOnFull must resolve to all routed indexes for both publishers");
+
+    CameraServiceConfig cameraConfig;
+    cameraConfig.enabled = true;
+    cameraConfig.sharedMemoryName = fixture.shmName;
+    CameraConfig camera;
+    camera.cameraCode = "CAMERA_1";
+    camera.statusPointIndexes.online = 1901;
+    camera.statusPointIndexes.fps = 1902;
+    camera.statusPointIndexes.bitrateKbps = 1903;
+    camera.statusPointIndexes.errorCode = 1904;
+    cameraConfig.cameras.push_back(camera);
+    allRouter.addRoutesFromCameraServiceConfig(cameraConfig, "GW_TEST");
+    config.publishAllOnFull = false;
+    const auto cameraSelected = MqttDriverService::resolveFullUploadIndexes(
+        config,
+        {noFlags},
+        allRouter
+    );
+    require(cameraSelected == std::vector<std::uint32_t>({1901, 1902, 1903, 1904}),
+        "camera status routes must be identical in inline and isolated full uploads");
     cleanupFixture(fixture);
 }
 
@@ -353,12 +592,48 @@ void testLegacyTelemetryUsesOldTopicAndPayloadShape() {
     require(payload.find(R"("metrics":[{"P_1":"12.3000","P_2":"45.6000"}])") !=
             std::string::npos,
         "legacy telemetry must place all meter points in one metrics object");
-    require(payload.find(R"("msgid":1770000001000)") != std::string::npos,
-        "legacy telemetry must include the publish time as msgid");
     require(payload.find(R"("split":"false")") != std::string::npos,
         "legacy telemetry must include the legacy split marker");
-    require(payload.find(R"("timestamp":1770000001000)") != std::string::npos,
-        "legacy telemetry must include the publish timestamp");
+    bool foundDuePayload = false;
+    for (std::size_t index = 0; index < fixture.publisher->jsonTopics.size(); ++index) {
+        if (fixture.publisher->jsonTopics[index] == fixture.mqttConfig.legacyTelemetryTopic &&
+            fixture.publisher->statusPayloads[index].find(R"("msgid":1770000001000)") != std::string::npos &&
+            fixture.publisher->statusPayloads[index].find(R"("timestamp":1770000001000)") != std::string::npos) {
+            foundDuePayload = true;
+            break;
+        }
+    }
+    require(foundDuePayload, "legacy telemetry must include the due publish timestamp");
+    cleanupFixture(fixture);
+}
+
+void testLegacyTelemetryCanPublishFasterThanFullSnapshot() {
+    auto fixture = makeFixture("legacy_faster_than_full", 10000);
+    fixture.mqttConfig.legacyTelemetryEnabled = true;
+    fixture.mqttConfig.legacyTelemetryTopic = "ky/peidian/GW_LEGACY";
+    fixture.mqttConfig.legacyTopicMachineCode = "GW_LEGACY";
+    fixture.mqttConfig.legacyTelemetryIntervalMs = 1000;
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    fixture.service->runScanOnce(1770000000000LL);
+    fixture.service->runScanOnce(1770000000500LL);
+    fixture.service->runScanOnce(1770000001000LL);
+
+    const auto legacyCount = static_cast<std::size_t>(std::count(
+        fixture.publisher->jsonTopics.begin(),
+        fixture.publisher->jsonTopics.end(),
+        fixture.mqttConfig.legacyTelemetryTopic
+    ));
+    require(fixture.publisher->fullSnapshotCounts.empty(),
+        "full snapshot should still wait for its independent 10 second interval");
+    require(legacyCount == 2,
+        "legacy telemetry should publish independently at its 1 second interval");
     cleanupFixture(fixture);
 }
 
@@ -631,7 +906,12 @@ void testAgcAvcCommandMailboxCommitsLatestWithoutWriteback() {
 int main() {
     try {
         testFullUploadOnlyWithoutRealtimeSession();
+        testIsolatedFullWorkerUsesBoundedStartupGrace();
+        testIsolatedFullWorkerLeaseSuppressesAndThenImmediatelyFallsBack();
+        testIsolatedFallbackRetriesWithoutAnotherStartupGrace();
+        testFullUploadPointSelectionIsSharedWithForwarder();
         testLegacyTelemetryUsesOldTopicAndPayloadShape();
+        testLegacyTelemetryCanPublishFasterThanFullSnapshot();
         testLegacyTelemetryRestoresLogicalMeterMapping();
         testLegacyTelemetryMappedOnlyFiltersUnmappedPoints();
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();

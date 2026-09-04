@@ -18,6 +18,7 @@
     "protocolVersion": "mqtt3",
     "broker": "",
     "fullTelemetryTopic": "",
+    "fullTelemetryTopicMachineScoped": true,
     "pointIndexes": [],
     "payloadFormat": "compactArray",
     "legacyTelemetryMappedOnly": false,
@@ -26,16 +27,33 @@
     "password": "",
     "qos": 1,
     "intervalMs": 60000,
+    "retryMinMs": 500,
+    "retryMaxMs": 5000,
+    "healthHeartbeatMs": 1000,
+    "failOnStoreError": true,
     "tls": {
       "enabled": false,
       "caFile": "",
       "certFile": "",
       "keyFile": "",
       "insecureSkipVerify": false
+    },
+    "control": {
+      "enabled": false
     }
   },
   "mqttDriver": {
     "enabled": true,
-    "sharedMemoryName": "gateway_point_store"
+    "sharedMemoryName": "gateway_point_store",
+    "fullUploadWorker": {
+      "mode": "inline",
+      "clientIdSuffix": "-full",
+      "healthFile": "/run/modbus-gateway/mqtt-primary-full-{instance}-health.json",
+      "publishLockFile": "/opt/modbus-gateway/run/mqtt-primary-full-{instance}.lock",
+      "healthHeartbeatMs": 1000,
+      "failoverTimeoutMs": 3000,
+      "retryMinMs": 500,
+      "retryMaxMs": 5000
+    }
   }
 }

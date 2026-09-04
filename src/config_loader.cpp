@@ -1962,6 +1962,230 @@ void rejectMqttForwardKey(const std::string& key) {
     throw std::invalid_argument("mqttForward must not include " + key);
 }
 
+std::uint32_t parsePositiveUint32(const JsonValue& value, const std::string& field) {
+    if (!value.isNumber()) {
+        throw std::invalid_argument(field + " must be a positive uint32 integer");
+    }
+    const double number = value.asNumber();
+    if (!std::isfinite(number) ||
+        number < 1.0 ||
+        number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+        std::floor(number) != number) {
+        throw std::invalid_argument(field + " must be a positive uint32 integer");
+    }
+    return static_cast<std::uint32_t>(number);
+}
+
+MqttForwardControlConfig parseMqttForwardControlConfig(const JsonValue* value) {
+    MqttForwardControlConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    if (!value->isObject()) {
+        throw std::invalid_argument("mqttForward.control must be an object");
+    }
+    const auto& object = value->asObject();
+    static const char* allowedKeys[] = {
+        "enabled",
+        "commandTopic",
+        "replyTopic",
+        "ownershipFile",
+        "scope",
+        "sessionId",
+        "leaseTtlMs",
+        "pollIntervalMs",
+        "minTargetKw",
+        "maxTargetKw",
+        "ownershipIndexes",
+        "targets"
+    };
+    for (const auto& entry : object.values) {
+        bool allowed = false;
+        for (const auto* key : allowedKeys) {
+            if (entry.key == key) {
+                allowed = true;
+                break;
+            }
+        }
+        if (!allowed) {
+            throw std::invalid_argument("mqttForward.control has unsupported key " + entry.key);
+        }
+    }
+
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.commandTopic = requireString(object, "commandTopic", config.commandTopic);
+    config.replyTopic = requireString(object, "replyTopic", config.replyTopic);
+    config.ownershipFile = requireString(object, "ownershipFile", config.ownershipFile);
+    config.scope = requireString(object, "scope", config.scope);
+    config.sessionId = requireString(object, "sessionId", config.sessionId);
+    config.leaseTtlMs = requireInt(object, "leaseTtlMs", config.leaseTtlMs);
+    config.pollIntervalMs = requireInt(object, "pollIntervalMs", config.pollIntervalMs);
+    if (const auto* minTargetKw = value->find("minTargetKw")) {
+        if (!minTargetKw->isNumber() || !std::isfinite(minTargetKw->asNumber())) {
+            throw std::invalid_argument("mqttForward.control.minTargetKw must be a finite number");
+        }
+        config.minTargetKw = minTargetKw->asNumber();
+    }
+    if (const auto* maxTargetKw = value->find("maxTargetKw")) {
+        if (!maxTargetKw->isNumber() || !std::isfinite(maxTargetKw->asNumber())) {
+            throw std::invalid_argument("mqttForward.control.maxTargetKw must be a finite number");
+        }
+        config.maxTargetKw = maxTargetKw->asNumber();
+    }
+    if (const auto* indexes = value->find("ownershipIndexes")) {
+        if (!indexes->isArray()) {
+            throw std::invalid_argument("mqttForward.control.ownershipIndexes must be an array");
+        }
+        for (const auto& item : indexes->asArray().values) {
+            const auto index = parsePositiveUint32(
+                *item,
+                "mqttForward.control.ownershipIndexes entry"
+            );
+            if (std::find(config.ownershipIndexes.begin(), config.ownershipIndexes.end(), index) !=
+                config.ownershipIndexes.end()) {
+                throw std::invalid_argument(
+                    "mqttForward.control.ownershipIndexes must not contain duplicate index " +
+                    std::to_string(index)
+                );
+            }
+            config.ownershipIndexes.push_back(index);
+        }
+    }
+    if (const auto* targets = value->find("targets")) {
+        if (!targets->isArray()) {
+            throw std::invalid_argument("mqttForward.control.targets must be an array");
+        }
+        for (const auto& item : targets->asArray().values) {
+            if (!item->isObject()) {
+                throw std::invalid_argument("mqttForward.control.targets entries must be objects");
+            }
+            const auto& targetObject = item->asObject();
+            static const char* allowedTargetKeys[] = {"index", "scale", "offset"};
+            for (const auto& entry : targetObject.values) {
+                bool allowed = false;
+                for (const auto* key : allowedTargetKeys) {
+                    if (entry.key == key) {
+                        allowed = true;
+                        break;
+                    }
+                }
+                if (!allowed) {
+                    throw std::invalid_argument(
+                        "mqttForward.control.targets has unsupported key " + entry.key
+                    );
+                }
+            }
+
+            const auto* indexValue = item->find("index");
+            if (indexValue == nullptr) {
+                throw std::invalid_argument("mqttForward.control.targets.index is required");
+            }
+            MqttForwardControlTargetConfig target;
+            target.index = parsePositiveUint32(
+                *indexValue,
+                "mqttForward.control.targets.index"
+            );
+            if (std::find_if(
+                    config.targets.begin(),
+                    config.targets.end(),
+                    [&target](const MqttForwardControlTargetConfig& existing) {
+                        return existing.index == target.index;
+                    }
+                ) != config.targets.end()) {
+                throw std::invalid_argument(
+                    "mqttForward.control.targets must not contain duplicate index " +
+                    std::to_string(target.index)
+                );
+            }
+            if (const auto* scale = item->find("scale")) {
+                if (!scale->isNumber()) {
+                    throw std::invalid_argument(
+                        "mqttForward.control.targets.scale must be a finite nonzero number"
+                    );
+                }
+                target.scale = scale->asNumber();
+            }
+            if (!std::isfinite(target.scale) || target.scale == 0.0) {
+                throw std::invalid_argument(
+                    "mqttForward.control.targets.scale must be a finite nonzero number"
+                );
+            }
+            if (const auto* offset = item->find("offset")) {
+                if (!offset->isNumber()) {
+                    throw std::invalid_argument(
+                        "mqttForward.control.targets.offset must be a finite number"
+                    );
+                }
+                target.offset = offset->asNumber();
+            }
+            if (!std::isfinite(target.offset)) {
+                throw std::invalid_argument(
+                    "mqttForward.control.targets.offset must be a finite number"
+                );
+            }
+            config.targets.push_back(target);
+        }
+    }
+
+    if (config.leaseTtlMs < 1000 || config.leaseTtlMs > 60000) {
+        throw std::invalid_argument(
+            "mqttForward.control.leaseTtlMs must be between 1000 and 60000"
+        );
+    }
+    if (config.pollIntervalMs < 10 || config.pollIntervalMs > 1000) {
+        throw std::invalid_argument(
+            "mqttForward.control.pollIntervalMs must be between 10 and 1000"
+        );
+    }
+    if (config.minTargetKw > config.maxTargetKw) {
+        throw std::invalid_argument(
+            "mqttForward.control.minTargetKw must be less than or equal to maxTargetKw"
+        );
+    }
+    if (config.enabled && config.ownershipIndexes.empty()) {
+        for (const auto& target : config.targets) {
+            config.ownershipIndexes.push_back(target.index);
+        }
+    }
+    for (const auto& target : config.targets) {
+        if (!config.ownershipIndexes.empty() &&
+            std::find(
+                config.ownershipIndexes.begin(),
+                config.ownershipIndexes.end(),
+                target.index
+            ) == config.ownershipIndexes.end()) {
+            throw std::invalid_argument(
+                "mqttForward.control.ownershipIndexes must include target index " +
+                std::to_string(target.index)
+            );
+        }
+    }
+    if (config.enabled) {
+        if (config.commandTopic.empty()) {
+            throw std::invalid_argument(
+                "mqttForward.control.commandTopic is required when enabled"
+            );
+        }
+        if (config.scope.empty()) {
+            throw std::invalid_argument("mqttForward.control.scope is required when enabled");
+        }
+        if (config.sessionId.empty()) {
+            throw std::invalid_argument("mqttForward.control.sessionId is required when enabled");
+        }
+        if (config.targets.empty()) {
+            throw std::invalid_argument(
+                "mqttForward.control.targets must not be empty when enabled"
+            );
+        }
+        if (config.ownershipIndexes.empty()) {
+            throw std::invalid_argument(
+                "mqttForward.control.ownershipIndexes must not be empty when enabled"
+            );
+        }
+    }
+    return config;
+}
+
 MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     MqttForwardConfig config;
     if (value == nullptr || value->isNull()) {
@@ -2002,6 +2226,7 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "broker",
         "clientId",
         "fullTelemetryTopic",
+        "fullTelemetryTopicMachineScoped",
         "pointIndexes",
         "payloadFormat",
         "legacyTelemetryMappedOnly",
@@ -2010,7 +2235,12 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "password",
         "qos",
         "intervalMs",
-        "tls"
+        "retryMinMs",
+        "retryMaxMs",
+        "healthHeartbeatMs",
+        "failOnStoreError",
+        "tls",
+        "control"
     };
     for (const auto& entry : object.values) {
         bool allowed = false;
@@ -2035,6 +2265,11 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     config.broker = requireString(object, "broker", config.broker);
     config.clientId = requireString(object, "clientId", config.clientId);
     config.fullTelemetryTopic = requireString(object, "fullTelemetryTopic", config.fullTelemetryTopic);
+    config.fullTelemetryTopicMachineScoped = requireBool(
+        object,
+        "fullTelemetryTopicMachineScoped",
+        config.fullTelemetryTopicMachineScoped
+    );
     if (const auto* indexes = value->find("pointIndexes")) {
         if (!indexes->isArray()) {
             throw std::invalid_argument("mqttForward.pointIndexes must be a JSON uint32 array");
@@ -2083,6 +2318,18 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     config.password = requireString(object, "password", config.password);
     config.qos = requireInt(object, "qos", config.qos);
     config.intervalMs = requireInt(object, "intervalMs", config.intervalMs);
+    config.retryMinMs = requireInt(object, "retryMinMs", config.retryMinMs);
+    config.retryMaxMs = requireInt(object, "retryMaxMs", config.retryMaxMs);
+    config.healthHeartbeatMs = requireInt(
+        object,
+        "healthHeartbeatMs",
+        config.healthHeartbeatMs
+    );
+    config.failOnStoreError = requireBool(
+        object,
+        "failOnStoreError",
+        config.failOnStoreError
+    );
     if (const auto* tls = value->find("tls")) {
         const auto& tlsObject = tls->asObject();
         static const char* allowedTlsKeys[] = {
@@ -2115,6 +2362,11 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         );
     }
 
+    config.control = parseMqttForwardControlConfig(value->find("control"));
+    if (config.control.enabled && !config.enabled) {
+        throw std::invalid_argument("mqttForward.control.enabled requires mqttForward.enabled");
+    }
+
     if (findValue(object, "protocolVersion") != nullptr &&
         config.protocolVersion != "mqtt3" &&
         config.protocolVersion != "mqtt5") {
@@ -2125,6 +2377,19 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     }
     if (findValue(object, "intervalMs") != nullptr && config.intervalMs <= 0) {
         throw std::invalid_argument("mqttForward.intervalMs must be greater than 0");
+    }
+    if (config.retryMinMs < 100 || config.retryMinMs > 60000) {
+        throw std::invalid_argument("mqttForward.retryMinMs must be between 100 and 60000");
+    }
+    if (config.retryMaxMs < config.retryMinMs || config.retryMaxMs > 300000) {
+        throw std::invalid_argument(
+            "mqttForward.retryMaxMs must be between retryMinMs and 300000"
+        );
+    }
+    if (config.healthHeartbeatMs < 100 || config.healthHeartbeatMs > 60000) {
+        throw std::invalid_argument(
+            "mqttForward.healthHeartbeatMs must be between 100 and 60000"
+        );
     }
     if (config.tls.certFile.empty() != config.tls.keyFile.empty()) {
         throw std::invalid_argument("mqttForward.tls certFile and keyFile must be provided together");
@@ -2193,6 +2458,105 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
     return config;
 }
 
+MqttFullUploadWorkerConfig parseMqttFullUploadWorkerConfig(const JsonValue* value) {
+    MqttFullUploadWorkerConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    if (!value->isObject()) {
+        throw std::invalid_argument("mqttDriver.fullUploadWorker must be an object");
+    }
+    const auto& object = value->asObject();
+    static const char* allowedKeys[] = {
+        "mode",
+        "clientIdSuffix",
+        "healthFile",
+        "publishLockFile",
+        "healthHeartbeatMs",
+        "failoverTimeoutMs",
+        "retryMinMs",
+        "retryMaxMs"
+    };
+    for (const auto& entry : object.values) {
+        bool allowed = false;
+        for (const auto* key : allowedKeys) {
+            if (entry.key == key) {
+                allowed = true;
+                break;
+            }
+        }
+        if (!allowed) {
+            throw std::invalid_argument(
+                "mqttDriver.fullUploadWorker has unsupported key " + entry.key
+            );
+        }
+    }
+
+    config.mode = requireString(object, "mode", config.mode);
+    config.clientIdSuffix = requireString(object, "clientIdSuffix", config.clientIdSuffix);
+    config.healthFile = requireString(object, "healthFile", config.healthFile);
+    config.publishLockFile = requireString(
+        object,
+        "publishLockFile",
+        config.publishLockFile
+    );
+    config.healthHeartbeatMs = requireInt(
+        object,
+        "healthHeartbeatMs",
+        config.healthHeartbeatMs
+    );
+    config.failoverTimeoutMs = requireInt(
+        object,
+        "failoverTimeoutMs",
+        config.failoverTimeoutMs
+    );
+    config.retryMinMs = requireInt(object, "retryMinMs", config.retryMinMs);
+    config.retryMaxMs = requireInt(object, "retryMaxMs", config.retryMaxMs);
+
+    if (config.mode != "inline" && config.mode != "isolated") {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.mode must be inline or isolated"
+        );
+    }
+    if (config.healthHeartbeatMs < 100 || config.healthHeartbeatMs > 60000) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.healthHeartbeatMs must be between 100 and 60000"
+        );
+    }
+    if (config.failoverTimeoutMs < config.healthHeartbeatMs * 2 ||
+        config.failoverTimeoutMs > 300000) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.failoverTimeoutMs must cover at least two heartbeats"
+        );
+    }
+    if (config.retryMinMs < 100 || config.retryMinMs > 60000) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.retryMinMs must be between 100 and 60000"
+        );
+    }
+    if (config.retryMaxMs < config.retryMinMs || config.retryMaxMs > 300000) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.retryMaxMs must be between retryMinMs and 300000"
+        );
+    }
+    if (config.mode == "isolated" && config.clientIdSuffix.empty()) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.clientIdSuffix is required in isolated mode"
+        );
+    }
+    if (config.mode == "isolated" && config.healthFile.empty()) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.healthFile is required in isolated mode"
+        );
+    }
+    if (config.mode == "isolated" && config.publishLockFile.empty()) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.publishLockFile is required in isolated mode"
+        );
+    }
+    return config;
+}
+
 MqttAlarmRule parseMqttAlarmRule(const JsonValue& value) {
     MqttAlarmRule rule;
     const auto& object = value.asObject();
@@ -2252,6 +2616,9 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
             config.fullUploadIndexes.push_back(static_cast<std::uint32_t>(item->asNumber()));
         }
     }
+    config.fullUploadWorker = parseMqttFullUploadWorkerConfig(
+        value->find("fullUploadWorker")
+    );
     if (const auto* rules = value->find("alarmRules")) {
         for (const auto& item : rules->asArray().values) {
             config.alarmRules.push_back(parseMqttAlarmRule(*item));
@@ -3859,10 +4226,49 @@ AppConfig parseAppConfig(const std::string& text) {
     config.mqtt = parseMqttConfig(root.find("mqtt"));
     config.mqttForward = parseMqttForwardConfig(root.find("mqttForward"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
+    if (config.mqttDriver.fullUploadWorker.mode == "isolated" &&
+        (!config.mqtt.enabled || !config.mqttDriver.enabled ||
+         config.mqttDriver.fullUploadIntervalMs <= 0)) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker isolated mode requires enabled mqtt, "
+            "enabled mqttDriver and fullUploadIntervalMs greater than 0"
+        );
+    }
     config.alarmStore = parseAlarmStoreConfig(root.find("alarmStore"));
     config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
     config.computeEngine = parseComputeEngineConfig(root.find("computeEngine"));
     config.agcAvc = parseAgcAvcConfig(root.find("agcAvc"));
+    const JsonValue* mqttForwardControl = nullptr;
+    if (const auto* mqttForward = root.find("mqttForward")) {
+        if (mqttForward->isObject()) mqttForwardControl = mqttForward->find("control");
+    }
+    const bool mqttForwardOwnershipExplicit = mqttForwardControl != nullptr &&
+        mqttForwardControl->isObject() && mqttForwardControl->find("ownershipFile") != nullptr;
+    if (!mqttForwardOwnershipExplicit) {
+        config.mqttForward.control.ownershipFile = config.mqttDriver.powerControlOwnershipFile;
+    } else if (config.mqttForward.control.ownershipFile !=
+               config.mqttDriver.powerControlOwnershipFile) {
+        throw std::invalid_argument(
+            "mqttForward.control.ownershipFile must match mqttDriver.powerControlOwnershipFile"
+        );
+    }
+
+    if (config.agcAvc.enabled) {
+        const JsonValue* agcOwnership = nullptr;
+        if (const auto* agcAvc = root.find("agcAvc")) {
+            if (agcAvc->isObject()) agcOwnership = agcAvc->find("ownership");
+        }
+        const bool agcOwnershipExplicit = agcOwnership != nullptr &&
+            agcOwnership->isObject() && agcOwnership->find("leaseFile") != nullptr;
+        if (!agcOwnershipExplicit) {
+            config.agcAvc.ownership.leaseFile = config.mqttDriver.powerControlOwnershipFile;
+        } else if (config.agcAvc.ownership.leaseFile !=
+                   config.mqttDriver.powerControlOwnershipFile) {
+            throw std::invalid_argument(
+                "agcAvc.ownership.leaseFile must match mqttDriver.powerControlOwnershipFile"
+            );
+        }
+    }
     config.emsCluster = parseEmsClusterConfig(root.find("emsCluster"));
     config.ota = parseOtaConfig(root.find("ota"));
     config.realtime = parseRealtimeConfig(root.find("realtime"));

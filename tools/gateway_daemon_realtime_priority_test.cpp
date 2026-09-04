@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -12,6 +13,8 @@
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/power_control_ownership.hpp"
 
 namespace {
 
@@ -101,6 +104,12 @@ edge_gateway::PointDefinition point(std::uint32_t index, const std::string& code
     return item;
 }
 
+std::string uniqueStoreName(const char* prefix) {
+    static std::uint64_t sequence = 0;
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    return std::string(prefix) + "_" + std::to_string(stamp) + "_" + std::to_string(++sequence);
+}
+
 edge_gateway::DeviceConfig config(const std::string& sharedMemoryName) {
     edge_gateway::DeviceConfig item;
     item.machineCode = "GW_TEST";
@@ -158,16 +167,217 @@ void verifyCollectLoopUsesActualPointIntervals() {
     );
 }
 
+void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
+    const std::string storeName = uniqueStoreName("gateway_daemon_control_generation_test");
+    const std::string ownershipFile = "/tmp/gateway-daemon-power-control-owner.json";
+    const std::string priorityLeaseFile = "/tmp/gateway-daemon-control-generation-priority.json";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    std::remove(ownershipFile.c_str());
+    std::remove((ownershipFile + ".lock").c_str());
+    std::remove(priorityLeaseFile.c_str());
+
+    try {
+        auto deviceConfig = config(storeName);
+        deviceConfig.mqttDriver.powerControlOwnershipFile = ownershipFile;
+        deviceConfig.mqttDriver.priorityControlLeaseFile = priorityLeaseFile;
+        {
+            edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
+            edge_gateway::PointStoreRouter router;
+            router.setPowerControlOwnershipFile(ownershipFile, "mqtt-forwarder");
+            router.addStore(storeName, store);
+            router.addRoutesFromDeviceConfigs({deviceConfig}, storeName);
+
+            edge_gateway::PowerControlOwnership external(ownershipFile, "mqtt-forwarder");
+            const auto takeover = external.acquireOrRenew(
+                "pcs-power", "third-party-session", {1001}, "remote-command-1", 3000, 15000
+            );
+            require(takeover.accepted, "test takeover should be accepted");
+
+            auto client = std::make_shared<FakeModbusClient>();
+            edge_gateway::GatewayDaemon daemon(
+                deviceConfig, store, client, nullptr, nullptr, nullptr, std::string()
+            );
+
+            edge_gateway::PendingWriteCommand directLocal;
+            directLocal.cmdId = "CMD_DIRECT_LOCAL_DURING_TAKEOVER";
+            directLocal.index = 1001;
+            directLocal.value = 44;
+            directLocal.source = "compute-engine";
+            directLocal.ts = 3000;
+            directLocal.acceptedAt = 3000;
+            store.submitWriteCommand(directLocal);
+            daemon.processWritebackOnce(3000);
+            const auto directLocalResult = store.getWritebackResult(directLocal.cmdId);
+            require(
+                directLocalResult && !directLocalResult->success &&
+                    directLocalResult->stage == "control-rejected",
+                "a generation-zero write that bypasses the router must still respect active ownership"
+            );
+            require(client->writeCount(1) == 0, "direct local write must not bypass active takeover");
+
+            edge_gateway::PendingWriteCommand command;
+            command.cmdId = "CMD_STALE_GENERATION";
+            command.index = 1001;
+            command.value = 55;
+            command.source = "mqtt-forwarder";
+            command.ts = 3000;
+            command.acceptedAt = 3000;
+            command.controlGeneration = takeover.generation;
+            const auto submitted = router.submitWriteCommand(command);
+            require(submitted.accepted, "takeover owner command should enter the write queue");
+            const auto queued = store.peekPendingWriteCommands();
+            require(
+                queued.size() == 1 && queued.front().controlGeneration == takeover.generation,
+                "router should stamp the active control generation"
+            );
+
+            const auto releasedGeneration = external.releaseAndAdvance("third-party-session");
+            require(
+                releasedGeneration != 0 && releasedGeneration != takeover.generation,
+                "test release should invalidate the queued generation"
+            );
+
+            daemon.processWritebackOnce(3001);
+
+            const auto result = store.getWritebackResult(command.cmdId);
+            require(result && !result->success, "stale control command should fail writeback");
+            require(result->stage == "control-rejected", "stale command should be rejected by ownership");
+            require(client->writeCount(1) == 0, "rejected command must not reach the field device");
+
+            edge_gateway::PriorityControlLease safetyLease(priorityLeaseFile, "mqtt-driver");
+            safetyLease.acquire("CMD_SAFETY_OVERRIDE", "METER_1", 1001, 3002, 30000);
+            edge_gateway::PendingWriteCommand safety;
+            safety.cmdId = "CMD_SAFETY_OVERRIDE";
+            safety.index = 1001;
+            safety.value = 0;
+            safety.source = "safety";
+            safety.ts = 3002;
+            safety.acceptedAt = 3002;
+            safety.highPriority = true;
+            const auto safetySubmitted = router.submitWriteCommand(safety);
+            require(safetySubmitted.accepted, "safety override should bypass ownership at enqueue");
+            daemon.processWritebackOnce(3002);
+            const auto safetyResult = store.getWritebackResult(safety.cmdId);
+            require(
+                safetyResult && safetyResult->success,
+                "safety override should bypass stale ownership at device write"
+            );
+            require(client->writeCount(1) == 1, "safety override must reach the field device exactly once");
+        }
+    } catch (...) {
+        std::remove(ownershipFile.c_str());
+        std::remove((ownershipFile + ".lock").c_str());
+        std::remove(priorityLeaseFile.c_str());
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+        throw;
+    }
+
+    std::remove(ownershipFile.c_str());
+    std::remove((ownershipFile + ".lock").c_str());
+    std::remove(priorityLeaseFile.c_str());
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+void verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite() {
+    const std::string storeName = uniqueStoreName("gateway_daemon_expired_control_test");
+    const std::string ownershipFile = "/tmp/gateway-daemon-expired-control-owner.json";
+    const std::string priorityLeaseFile = "/tmp/gateway-daemon-expired-control-priority.json";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    std::remove(ownershipFile.c_str());
+    std::remove((ownershipFile + ".lock").c_str());
+    std::remove(priorityLeaseFile.c_str());
+
+    try {
+        auto deviceConfig = config(storeName);
+        deviceConfig.mqttDriver.powerControlOwnershipFile = ownershipFile;
+        deviceConfig.mqttDriver.priorityControlLeaseFile = priorityLeaseFile;
+        {
+            edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
+            edge_gateway::PointStoreRouter router;
+            router.setPowerControlOwnershipFile(ownershipFile, "mqtt-forwarder");
+            router.addStore(storeName, store);
+            router.addRoutesFromDeviceConfigs({deviceConfig}, storeName);
+
+            edge_gateway::PowerControlOwnership external(ownershipFile, "mqtt-forwarder");
+            const auto takeover = external.acquireOrRenew(
+                "pcs-power", "third-party-session", {1001}, "remote-expiring", 5000, 1000
+            );
+            require(takeover.accepted, "expiring takeover should be accepted");
+            require(
+                external.recordReceipt(
+                    "third-party-session", "remote-expiring", takeover.generation, true
+                ),
+                "expiring command receipt should be committed"
+            );
+
+            edge_gateway::PendingWriteCommand command;
+            command.cmdId = "CMD_EXPIRED_LEASE";
+            command.index = 1001;
+            command.value = 66;
+            command.source = "mqtt-forwarder";
+            command.ts = 5000;
+            command.acceptedAt = 5000;
+            command.controlGeneration = takeover.generation;
+            const auto submitted = router.submitWriteCommand(command);
+            require(submitted.accepted, "expiring owner command should enter the write queue");
+
+            auto client = std::make_shared<FakeModbusClient>();
+            edge_gateway::GatewayDaemon daemon(
+                deviceConfig, store, client, nullptr, nullptr, nullptr, std::string()
+            );
+            daemon.processWritebackOnce(6001);
+
+            const auto result = store.getWritebackResult(command.cmdId);
+            require(result && !result->success, "expired lease command should fail writeback");
+            require(
+                result->stage == "control-rejected",
+                "expired lease command should be rejected by ownership"
+            );
+            require(client->writeCount(1) == 0, "expired command must not reach the field device");
+
+            edge_gateway::PendingWriteCommand zeroGenerationRemote;
+            zeroGenerationRemote.cmdId = "CMD_EXPIRED_ZERO_GENERATION";
+            zeroGenerationRemote.index = 1001;
+            zeroGenerationRemote.value = 67;
+            zeroGenerationRemote.source = "mqtt-forwarder";
+            zeroGenerationRemote.ts = 6002;
+            zeroGenerationRemote.acceptedAt = 6002;
+            store.submitWriteCommand(zeroGenerationRemote);
+            daemon.processWritebackOnce(6002);
+            const auto zeroGenerationResult = store.getWritebackResult(zeroGenerationRemote.cmdId);
+            require(
+                zeroGenerationResult && !zeroGenerationResult->success &&
+                    zeroGenerationResult->stage == "control-rejected",
+                "expired zero-generation third-party command should fail ownership validation"
+            );
+            require(client->writeCount(1) == 0, "zero-generation remote command must not reach the field device");
+        }
+    } catch (...) {
+        std::remove(ownershipFile.c_str());
+        std::remove((ownershipFile + ".lock").c_str());
+        std::remove(priorityLeaseFile.c_str());
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+        throw;
+    }
+
+    std::remove(ownershipFile.c_str());
+    std::remove((ownershipFile + ".lock").c_str());
+    std::remove(priorityLeaseFile.c_str());
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
-    const std::string storeName = "gateway_daemon_realtime_priority_test";
+    const std::string storeName = uniqueStoreName("gateway_daemon_realtime_priority_test");
     const std::string leaseFile = "/tmp/gateway-daemon-realtime-priority.json";
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
     std::remove(leaseFile.c_str());
 
     try {
         verifyCollectLoopUsesActualPointIntervals();
+        verifyStaleControlGenerationIsRejectedBeforeDeviceWrite();
+        verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite();
         auto deviceConfig = config(storeName);
         {
             writeFile(
@@ -211,7 +421,17 @@ int main() {
         priorityCommand.ts = 2000;
         priorityCommand.acceptedAt = 2000;
         priorityCommand.highPriority = true;
+        priorityCommand.controlGeneration = 0xA11C0001U;
         writeStore.submitWriteCommand(priorityCommand);
+
+        const auto pendingBeforeConsume = writeStore.peekPendingWriteCommands();
+        require(
+            pendingBeforeConsume.size() == 2 &&
+            pendingBeforeConsume.back().cmdId == "CMD_WRITE_1" &&
+            pendingBeforeConsume.back().highPriority &&
+            pendingBeforeConsume.back().controlGeneration == 0xA11C0001U,
+            "priority pending write should retain control generation before daemon consumption"
+        );
 
         writeDaemon.processWritebackOnce(2001);
 

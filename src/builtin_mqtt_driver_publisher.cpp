@@ -1,6 +1,9 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 
+#include "edge_gateway/json_value_writer.hpp"
+
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cerrno>
 #include <cctype>
@@ -19,6 +22,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
+#include <process.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
@@ -424,8 +428,9 @@ PointValueJsonFormat pointValueJsonFormat(const std::string& value) {
 void appendCompactPointValueJson(std::ostringstream& out, const StoredPointValue& item) {
     out << "[" << item.index
         << ",\"" << escapeJson(item.pointCode) << "\""
-        << "," << item.value
-        << "," << item.quality
+        << ",";
+    appendJsonNumber(out, item.value);
+    out << "," << item.quality
         << "," << item.ts
         << "," << item.expireAt
         << "," << (item.stale ? "true" : "false")
@@ -435,8 +440,9 @@ void appendCompactPointValueJson(std::ostringstream& out, const StoredPointValue
 void appendObjectPointValueJson(std::ostringstream& out, const StoredPointValue& item) {
     out << "{\"index\":" << item.index
         << ",\"pointCode\":\"" << escapeJson(item.pointCode) << "\""
-        << ",\"value\":" << item.value
-        << ",\"quality\":" << item.quality
+        << ",\"value\":";
+    appendJsonNumber(out, item.value);
+    out << ",\"quality\":" << item.quality
         << ",\"ts\":" << item.ts
         << ",\"expireAt\":" << item.expireAt
         << ",\"stale\":" << (item.stale ? "true" : "false")
@@ -536,9 +542,15 @@ std::string encodeFullJson(
 }
 
 std::string randomChunkId() {
-    static std::uint64_t counter = 0;
+    static std::atomic<std::uint64_t> counter{0};
+#ifdef _WIN32
+    const auto processId = static_cast<unsigned long>(_getpid());
+#else
+    const auto processId = static_cast<unsigned long>(getpid());
+#endif
     std::ostringstream out;
-    out << currentTimeMs() << "-" << ++counter;
+    out << currentTimeMs() << "-" << processId << "-"
+        << counter.fetch_add(1, std::memory_order_relaxed) + 1;
     return out.str();
 }
 
@@ -690,8 +702,9 @@ std::string encodeAlarmJson(std::uint32_t index, const StoredPointValue& value, 
         << ",\"pointCode\":\"" << escapeJson(value.pointCode) << "\""
         << ",\"alarmType\":\"" << escapeJson(alarmType) << "\""
         << ",\"active\":" << (active ? "true" : "false")
-        << ",\"value\":" << value.value
-        << ",\"quality\":" << value.quality
+        << ",\"value\":";
+    appendJsonNumber(out, value.value);
+    out << ",\"quality\":" << value.quality
         << ",\"ts\":" << value.ts
         << ",\"stale\":" << (value.stale ? "true" : "false")
         << "}";
@@ -705,8 +718,9 @@ std::string encodeChangeEventJson(const StoredPointValue& value) {
         << ",\"meterCode\":\"" << escapeJson(value.meterCode) << "\""
         << ",\"index\":" << value.index
         << ",\"pointCode\":\"" << escapeJson(value.pointCode) << "\""
-        << ",\"value\":" << value.value
-        << ",\"quality\":" << value.quality
+        << ",\"value\":";
+    appendJsonNumber(out, value.value);
+    out << ",\"quality\":" << value.quality
         << ",\"ts\":" << value.ts
         << ",\"expireAt\":" << value.expireAt
         << ",\"stale\":" << (value.stale ? "true" : "false")
@@ -721,8 +735,9 @@ std::string encodeCommandReplyJson(const MqttCommandReply& reply) {
         << ",\"meterCode\":\"" << escapeJson(reply.meterCode) << "\""
         << ",\"pointCode\":\"" << escapeJson(reply.pointCode) << "\""
         << ",\"index\":" << reply.index
-        << ",\"value\":" << reply.value
-        << ",\"success\":" << (reply.success ? "true" : "false")
+        << ",\"value\":";
+    appendJsonNumber(out, reply.value);
+    out << ",\"success\":" << (reply.success ? "true" : "false")
         << ",\"message\":\"" << escapeJson(reply.message) << "\""
         << ",\"stage\":\"" << escapeJson(reply.stage) << "\""
         << ",\"requestedAt\":" << reply.requestedAt
@@ -1697,7 +1712,10 @@ bool parsePublishPacket(
         );
     }
 
-    if (topic == scopedTopic(config.commandRequestTopic, config.topicMachineCode)) {
+    const auto commandRequestTopic = config.commandRequestTopicMachineScoped
+        ? scopedTopic(config.commandRequestTopic, config.topicMachineCode)
+        : config.commandRequestTopic;
+    if (topic == commandRequestTopic) {
         message->type = MqttIncomingType::CommandRequest;
     } else if (topic == scopedTopic(config.otaRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::OtaRequest;
@@ -1724,6 +1742,7 @@ bool parsePublishPacket(
     }
     message->topic = topic;
     message->payload = payload;
+    message->retained = (packet[0] & 0x01) != 0;
     return true;
 }
 
@@ -1787,7 +1806,14 @@ void BuiltinMqttDriverPublisher::publishFullSnapshot(
     std::lock_guard<std::mutex> lock(mutex_);
     const auto format = pointValueJsonFormat(valueFormat);
     for (const auto& payload : encodeRealtimeChunks("snapshot", values, config_.maxPayloadBytes, format, config_.topicMachineCode)) {
-        publishRealtimeJson(topic, payload);
+        if (config_.fullSnapshotOfflineBufferEnabled) {
+            publishRealtimeJson(topic, payload);
+            continue;
+        }
+        const auto scoped = scopedPublishTopic(topic);
+        if (!scoped.empty()) {
+            sendJsonNow(scoped, payload);
+        }
     }
 }
 
@@ -1879,6 +1905,24 @@ void BuiltinMqttDriverPublisher::publishJsonMessage(
 void BuiltinMqttDriverPublisher::maintain() {
     std::lock_guard<std::mutex> lock(mutex_);
     maintainTxConnection();
+}
+
+void BuiltinMqttDriverPublisher::probeConnection() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    try {
+        maintainTxConnection();
+        ensureTxConnected();
+        auto& connection = txConnection_->connection;
+        sendAll(connection, buildPingReqPacket());
+        const auto packet = readPacket(connection, incomingPacketLimit(config_));
+        if (packet.empty() || (packet[0] & 0xF0) != kPacketPingResp) {
+            throw std::runtime_error("mqtt PINGRESP missing");
+        }
+        lastTxActivityMs_ = currentTimeMs();
+    } catch (...) {
+        closeTx(false);
+        throw;
+    }
 }
 
 std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int timeoutMs) {
@@ -2318,6 +2362,12 @@ std::string BuiltinMqttDriverPublisher::scopedPublishTopic(const std::string& to
         !config_.legacyTopicMachineCode.empty()) {
         return scopedTopic(topic, config_.legacyTopicMachineCode);
     }
+    if (!config_.commandReplyTopicMachineScoped && topic == config_.commandReplyTopic) {
+        return topic;
+    }
+    if (!config_.fullTelemetryTopicMachineScoped && topic == config_.fullTelemetryTopic) {
+        return topic;
+    }
     return scopedTopic(topic, config_.topicMachineCode);
 }
 
@@ -2357,7 +2407,9 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
             connection,
             buildSubscribePacket(
                 config_,
-                scopedTopic(config_.commandRequestTopic, config_.topicMachineCode),
+                config_.commandRequestTopicMachineScoped
+                    ? scopedTopic(config_.commandRequestTopic, config_.topicMachineCode)
+                    : config_.commandRequestTopic,
                 scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.realtimeRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),

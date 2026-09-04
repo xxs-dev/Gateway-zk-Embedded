@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cmath>
 #include <iostream>
@@ -316,28 +317,34 @@ void testAvcRunsAtConfiguredCadence() {
 }
 
 void testCommandMailboxRoute() {
-    edge_gateway::MemoryPointStore store("agc_avc_mailbox_test_store");
-    edge_gateway::PointStoreRouter router;
-    router.addStore("agc_avc_mailbox_test_store", store);
-    edge_gateway::PointStoreRoute route;
-    route.index = 720010;
-    route.machineCode = "GW_TEST";
-    route.meterCode = "AGC_AVC_CORE";
-    route.pointCode = "agc_dispatch_p";
-    route.sharedMemoryName = "agc_avc_mailbox_test_store";
-    route.commandMailbox = true;
-    router.addRoute(route);
-    edge_gateway::PendingWriteCommand command;
-    command.cmdId = "MAILBOX_1";
-    command.index = route.index;
-    command.value = 12.5;
-    command.source = "gateway-desktop-agc-avc-shadow-test";
-    command.ts = 44000;
-    const auto submitted = router.submitCommandMailbox(command);
-    require(submitted.accepted, "AGC/AVC mailbox route should accept command values without device writeback");
-    const auto stored = router.getLatestByIndex(route.index, 44001);
-    require(static_cast<bool>(stored), "AGC/AVC mailbox value should be visible in shared latest storage");
-    requireNear(stored->value, 12.5, 0.001, "AGC/AVC mailbox should preserve the command value");
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::string storeName = "agc_avc_mailbox_test_store_" + std::to_string(suffix);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        edge_gateway::MemoryPointStore store(storeName);
+        edge_gateway::PointStoreRouter router;
+        router.addStore(storeName, store);
+        edge_gateway::PointStoreRoute route;
+        route.index = 720010;
+        route.machineCode = "GW_TEST";
+        route.meterCode = "AGC_AVC_CORE";
+        route.pointCode = "agc_dispatch_p";
+        route.sharedMemoryName = storeName;
+        route.commandMailbox = true;
+        router.addRoute(route);
+        edge_gateway::PendingWriteCommand command;
+        command.cmdId = "MAILBOX_1";
+        command.index = route.index;
+        command.value = 12.5;
+        command.source = "gateway-desktop-agc-avc-shadow-test";
+        command.ts = 44000;
+        const auto submitted = router.submitCommandMailbox(command);
+        require(submitted.accepted, "AGC/AVC mailbox route should accept command values without device writeback");
+        const auto stored = router.getLatestByIndex(route.index, 44001);
+        require(static_cast<bool>(stored), "AGC/AVC mailbox value should be visible in shared latest storage");
+        requireNear(stored->value, 12.5, 0.001, "AGC/AVC mailbox should preserve the command value");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
 void testShadowServiceDoesNotWrite() {
@@ -455,6 +462,224 @@ void testPowerControlOwnershipConcurrentAcquire() {
     std::remove((path + ".lock").c_str());
 }
 
+void testPowerControlOwnershipGenerationAndAuthorization() {
+    const std::string path = "/tmp/agc_avc_power_ownership_generation_test.json";
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+    edge_gateway::PowerControlOwnership external(path, "mqtt-forwarder");
+    edge_gateway::PowerControlOwnership local(path, "compute-engine");
+
+    const auto first = external.acquireOrRenew(
+        "pcs-power", "remote-session", {16, 17}, "cmd-1", 1000, 1000
+    );
+    require(first.accepted && !first.duplicate, "first temporary takeover should be accepted");
+    require(first.generation != 0, "temporary takeover generation must be non-zero");
+    const auto firstGeneration = first.generation;
+    require(
+        external.recordReceipt("remote-session", "cmd-1", firstGeneration, true),
+        "queued takeover command should be marked accepted"
+    );
+
+    auto state = external.active(1200);
+    require(state && state->generation == firstGeneration, "takeover generation should persist");
+    require(state->lastCommandId == "cmd-1", "last takeover command ID should persist");
+    require(state->expireAtMs == 2000, "first takeover expiry should equal now plus TTL");
+
+    const auto duplicate = external.acquireOrRenew(
+        "pcs-power", "remote-session", {16, 17}, "cmd-1", 1500, 1000
+    );
+    require(duplicate.accepted && duplicate.duplicate, "duplicate takeover should be idempotent");
+    state = external.active(1500);
+    require(state && state->expireAtMs == 2000, "duplicate command must not extend the lease");
+
+    const auto duplicateAfterExpiry = external.acquireOrRenew(
+        "pcs-power", "remote-session", {16, 17}, "cmd-1", 2100, 1000
+    );
+    require(
+        duplicateAfterExpiry.accepted && duplicateAfterExpiry.duplicate,
+        "an expired command ID must not reacquire control"
+    );
+    require(!external.active(2100), "expired duplicate must leave control inactive");
+    require(
+        !external.authorize(16, "other-controller", firstGeneration, false, 2100).allowed,
+        "an expired generation must not authorize another normal controller"
+    );
+    const auto localAfterExpiry = external.authorize(16, "compute-engine", 0, false, 2100);
+    require(localAfterExpiry.allowed, "legacy local control should resume after lease expiry");
+    require(
+        localAfterExpiry.generation == 0,
+        "resumed local control must not be stamped with the expired generation"
+    );
+    require(
+        !external.authorize(16, "mqtt-forwarder", 0, false, 2100).allowed,
+        "an expired third-party command must not bypass generation checks with zero"
+    );
+
+    const auto reacquiredForRenewal = external.acquireOrRenew(
+        "pcs-power", "remote-session", {16, 17}, "cmd-2", 2200, 1000
+    );
+    require(reacquiredForRenewal.accepted, "new command ID should reacquire expired control");
+    const auto activeGeneration = reacquiredForRenewal.generation;
+
+    const auto renewed = external.acquireOrRenew(
+        "pcs-power", "remote-session", {16, 17}, "cmd-3", 2500, 1000
+    );
+    require(renewed.accepted && !renewed.duplicate, "new command ID should renew the lease");
+    require(renewed.generation == activeGeneration, "lease renewal should keep its generation");
+    state = external.active(2600);
+    require(state && state->expireAtMs == 3500, "new command ID should extend the lease");
+
+    require(
+        external.acquire("pcs-power", "remote-session", {16, 17}, 2600, 1000),
+        "legacy acquire should remain source-compatible"
+    );
+    state = external.active(2600);
+    require(
+        state && state->generation == activeGeneration && state->lastCommandId == "cmd-3",
+        "legacy acquire must preserve takeover metadata"
+    );
+    require(external.renew("remote-session", 2650, 1000), "legacy renew should remain available");
+    state = external.active(2650);
+    require(
+        state && state->generation == activeGeneration && state->lastCommandId == "cmd-3",
+        "legacy renew must preserve takeover metadata"
+    );
+
+    const auto conflict = local.acquireOrRenew(
+        "pcs-power", "local-session", {16}, "local-1", 2700, 1000
+    );
+    require(!conflict.accepted, "a different active owner must not replace the takeover");
+    require(
+        external.authorize(16, "mqtt-forwarder", activeGeneration, false, 2700).allowed,
+        "matching owner and generation should be authorized"
+    );
+    require(
+        !external.authorize(16, "mqtt-forwarder", 0, false, 2700).allowed,
+        "the active owner must not bypass generation checks with a legacy command"
+    );
+    require(
+        !external.authorize(16, "compute-engine", activeGeneration, false, 2700).allowed,
+        "wrong owner should be rejected on a controlled target"
+    );
+    require(
+        external.authorize(99, "compute-engine", activeGeneration, false, 2700).allowed,
+        "an index outside the takeover scope should remain writable"
+    );
+    require(
+        !external.authorize(16, "compute-engine", 0, false, 2700).allowed,
+        "legacy command from another owner must not bypass an active takeover"
+    );
+    require(
+        external.authorize(16, "compute-engine", 999, true, 2700).allowed,
+        "high-priority safety commands must bypass takeover ownership"
+    );
+
+    require(external.releaseAndAdvance("wrong-session") == 0, "wrong session must not release takeover");
+    const auto releasedGeneration = external.releaseAndAdvance("remote-session");
+    require(
+        releasedGeneration != 0 && releasedGeneration != activeGeneration,
+        "release should advance the generation"
+    );
+    require(!external.active(2700), "released takeover should no longer be active");
+    const auto stale = external.authorize(16, "mqtt-forwarder", activeGeneration, false, 2700);
+    require(!stale.allowed, "queued command from the released generation should be rejected");
+    require(stale.generation == releasedGeneration, "authorization should report current generation");
+    require(
+        external.authorize(16, "compute-engine", 0, false, 2700).allowed,
+        "legacy local commands should resume after takeover release"
+    );
+    require(
+        !external.authorize(16, "mqtt-forwarder", 0, false, 2700).allowed,
+        "a released third-party command must not bypass generation checks with zero"
+    );
+    require(
+        !external.authorize(16, "other-controller", releasedGeneration, false, 2700).allowed,
+        "an inactive ownership generation must never authorize another normal controller"
+    );
+
+    const auto reacquired = external.acquireOrRenew(
+        "pcs-power", "remote-session", {16, 17}, "cmd-4", 2800, 1000
+    );
+    require(reacquired.accepted, "takeover should be acquirable after release");
+    require(
+        reacquired.generation != releasedGeneration && reacquired.generation != 0,
+        "reacquisition should advance to another non-zero generation"
+    );
+
+    require(
+        external.recordReceipt("remote-session", "cmd-4", reacquired.generation, true),
+        "final takeover receipt should be committed before release"
+    );
+    external.release("remote-session");
+    require(!external.active(2800), "legacy release should clear active ownership");
+    const auto receiptAfterRelease = external.lookupReceipt("cmd-4");
+    require(
+        receiptAfterRelease.found && receiptAfterRelease.accepted,
+        "legacy release must preserve the durable duplicate receipt ledger"
+    );
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+}
+
+void testPowerControlInvalidStateFailsClosed() {
+    const std::string path = "/tmp/agc_avc_power_ownership_invalid_test.json";
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+    {
+        std::ofstream output(path.c_str(), std::ios::out | std::ios::trunc | std::ios::binary);
+        output << "{invalid ownership state";
+    }
+    edge_gateway::PowerControlOwnership ownership(path, "mqtt-forwarder");
+    require(
+        !ownership.authorize(16, "compute-engine", 0, false, 1000).allowed,
+        "normal control must fail closed for a malformed ownership state"
+    );
+    require(
+        ownership.authorize(16, "safety", 0, true, 1000).allowed,
+        "high-priority safety control must survive a malformed ownership state"
+    );
+    require(
+        !ownership.acquire("pcs-power", "remote-session", {16}, 1000, 1000),
+        "a malformed ownership state must not be silently overwritten"
+    );
+    const auto takeover = ownership.acquireOrRenew(
+        "pcs-power", "remote-session", {16}, "cmd-invalid", 1000, 1000
+    );
+    require(!takeover.accepted, "takeover must fail closed for a malformed ownership state");
+
+    {
+        std::ofstream output(path.c_str(), std::ios::out | std::ios::trunc | std::ios::binary);
+        output << "{\"scope\":\"pcs-power\",\"owner\":\"mqtt-forwarder\","
+                  "\"sessionId\":\"remote-session\",\"heartbeatAtMs\":1000,"
+                  "\"expireAtMs\":2000,\"targetIndexes\":[16],\"generation\":5,"
+                  "\"lastCommandId\":\"failed-id\",\"receipts\":[\"x:failed-id\"]}";
+    }
+    require(
+        !ownership.authorize(16, "mqtt-forwarder", 5, false, 1500).allowed,
+        "malformed receipt entries must invalidate the ownership state"
+    );
+    require(
+        !ownership.lookupReceipt("failed-id").found,
+        "a malformed receipt must not be reconstructed as a successful command"
+    );
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+}
+
+void testPowerControlHighPrioritySurvivesOwnershipLockFailure() {
+#ifndef _WIN32
+    edge_gateway::PowerControlOwnership broken("/dev/null/power-control.json", "safety-test");
+    require(
+        broken.authorize(16, "safety-test", 0, true, 1000).allowed,
+        "high-priority safety command must not depend on ownership-file availability"
+    );
+    require(
+        !broken.authorize(16, "compute-engine", 0, false, 1000).allowed,
+        "normal control must fail closed when the ownership lock is unavailable"
+    );
+#endif
+}
+
 void testAgcAvcConfigParsing() {
     const std::string path = "/tmp/agc_avc_config_loader_test.json";
     std::ofstream output(path.c_str(), std::ios::out | std::ios::trunc);
@@ -523,6 +748,9 @@ int main() {
         testShadowServiceDoesNotWrite();
         testPowerControlOwnership();
         testPowerControlOwnershipConcurrentAcquire();
+        testPowerControlOwnershipGenerationAndAuthorization();
+    testPowerControlInvalidStateFailsClosed();
+    testPowerControlHighPrioritySurvivesOwnershipLockFailure();
         testAgcAvcConfigParsing();
         std::cout << "agc_avc_controller_test passed" << std::endl;
         return 0;

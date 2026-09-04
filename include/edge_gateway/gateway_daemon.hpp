@@ -12,6 +12,7 @@
 #include "edge_gateway/common/runtime_device.hpp"
 #include "edge_gateway/dlt645_client.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/power_control_ownership.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
@@ -77,6 +78,7 @@ private:
     std::size_t collectCursor_ = 0;
     std::string realtimeMeterLeaseFile_;
     PriorityControlLease priorityControlLease_;
+    PowerControlOwnership powerControlOwnership_;
     std::int64_t realtimeLeaseLastReadMs_ = 0;
     std::int64_t realtimeLeaseExpireAtMs_ = 0;
     std::vector<std::string> realtimeLeaseMeterCodes_;

@@ -174,6 +174,51 @@ struct SharedStoreHeaderProbe {
     pthread_mutex_t mutex;
 };
 
+void verifyPreviousVersionOpensWithoutReinitializing() {
+    const std::string storeName = "gateway_memory_version_mismatch_test";
+    const std::string posixName = "/" + storeName;
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    {
+        edge_gateway::MemoryPointStore store(storeName);
+        const int fd = shm_open(posixName.c_str(), O_RDWR, 0600);
+        require(fd >= 0, "failed to open shared memory for version mismatch test");
+        void* view = mmap(
+            nullptr,
+            sizeof(SharedStoreHeaderProbe),
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED,
+            fd,
+            0
+        );
+        require(view != MAP_FAILED, "failed to map shared memory header for version mismatch test");
+        auto* header = static_cast<SharedStoreHeaderProbe*>(view);
+        require(header->version == 9, "version mismatch test must start from shared memory v9");
+        header->version = 8;
+        msync(view, sizeof(SharedStoreHeaderProbe), MS_SYNC);
+
+        bool opened = false;
+        try {
+            edge_gateway::MemoryPointStore compatible(
+                storeName,
+                edge_gateway::MemoryStoreOpenMode::OpenExisting
+            );
+            opened = true;
+            require(header->version == 8,
+                "opening v8 must not rewrite a live segment header");
+        } catch (const std::runtime_error&) {
+        }
+
+        header->version = 9;
+        msync(view, sizeof(SharedStoreHeaderProbe), MS_SYNC);
+        munmap(view, sizeof(SharedStoreHeaderProbe));
+        close(fd);
+        require(opened, "v9 process must open the layout-compatible v8 shared memory segment");
+    }
+
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 void verifyRobustMutexRecoversAfterOwnerDeath() {
     const std::string storeName = "gateway_memory_robust_mutex_test";
     const std::string posixName = "/" + storeName;
@@ -204,7 +249,7 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
                 _exit(11);
             }
             auto* header = static_cast<SharedStoreHeaderProbe*>(view);
-            if (header->magic != 0x4D505354 || header->version != 8) {
+            if (header->magic != 0x4D505354 || header->version != 9) {
                 _exit(12);
             }
             if (pthread_mutex_lock(&header->mutex) != 0) {
@@ -247,9 +292,10 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
 int main() {
     try {
         verifyReaderDoesNotUnlinkNamedSegment();
-        verifyReaderRemapsRecreatedNamedSegment();
         verifyPersistentSamplesRequireAcknowledgement();
 #ifndef _WIN32
+        verifyReaderRemapsRecreatedNamedSegment();
+        verifyPreviousVersionOpensWithoutReinitializing();
         verifyRobustMutexRecoversAfterOwnerDeath();
 #endif
         std::cout << "memory_point_store_lifecycle_test passed" << std::endl;

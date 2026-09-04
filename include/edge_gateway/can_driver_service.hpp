@@ -11,6 +11,7 @@
 
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/power_control_ownership.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
@@ -80,6 +81,7 @@ private:
     MemoryPointStore& store_;
     SqliteSampleWriter sqliteWriter_;
     PriorityControlLease priorityControlLease_;
+    PowerControlOwnership powerControlOwnership_;
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
     std::vector<RuntimeDevice> runtimeDevices_;
     std::vector<RuntimePoint> runtimePoints_;

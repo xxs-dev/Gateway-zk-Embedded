@@ -225,6 +225,10 @@ GatewayDaemon::GatewayDaemon(
         config_.mqttDriver.priorityControlLeaseFile,
         config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
     ),
+    powerControlOwnership_(
+        config_.mqttDriver.powerControlOwnershipFile,
+        "mqtt-forwarder"
+    ),
     sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
     mqttPublisher_(std::move(mqttPublisher)),
     collectorFactory_(std::move(collectorFactory)),
@@ -395,6 +399,35 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
         auto writebackResult = beginWritebackResult(command, startedAt);
+        const auto authorization = powerControlOwnership_.authorize(
+            command.index,
+            command.source,
+            command.controlGeneration,
+            command.highPriority,
+            nowMsValue
+        );
+        if (!authorization.allowed) {
+            const auto completedAt = nowMs();
+            completeWritebackResult(
+                writebackResult,
+                false,
+                authorization.message,
+                "control-rejected",
+                completedAt
+            );
+            store_.recordWritebackResult(writebackResult);
+            publishStatusEvent(
+                "control-rejected",
+                nowMsValue,
+                std::string(R"("index":)") + std::to_string(command.index) +
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) +
+                    R"(","message":")" + escapeJson(authorization.message) + R"(")"
+            );
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
+            continue;
+        }
         const auto it = indexToRuntimeDevice_.find(command.index);
         if (it == indexToRuntimeDevice_.end()) {
             std::cerr << "writeback skipped index=" << command.index << " reason=unknown-index" << std::endl;
@@ -413,7 +446,9 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"reason":"unknown-index")"
             );
-            priorityControlLease_.release(command.cmdId);
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
             continue;
         }
         try {
@@ -449,11 +484,15 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                         R"(","index":)" + std::to_string(command.index) +
                         R"(,"message":")" + escapeJson(result.message) + R"(")"
                 );
-                priorityControlLease_.release(command.cmdId);
+                if (command.highPriority) {
+                    priorityControlLease_.release(command.cmdId);
+                }
                 continue;
             }
             ++processed;
-            priorityControlLease_.release(command.cmdId);
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
             const auto completedAt = nowMs();
             completeWritebackResult(
                 writebackResult,
@@ -499,7 +538,9 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
             );
-            priorityControlLease_.release(command.cmdId);
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
         }
     }
     return processed;

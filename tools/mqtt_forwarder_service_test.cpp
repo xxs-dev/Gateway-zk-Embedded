@@ -15,6 +15,7 @@
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/mqtt_forwarder_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/power_control_ownership.hpp"
 
 #ifndef _WIN32
 #include <atomic>
@@ -54,6 +55,12 @@ public:
             indexes.push_back(value.index);
         }
         fullSnapshotIndexes.push_back(std::move(indexes));
+        std::vector<double> pointValues;
+        pointValues.reserve(values.size());
+        for (const auto& value : values) {
+            pointValues.push_back(value.value);
+        }
+        fullSnapshotValues.push_back(std::move(pointValues));
     }
 
     void publishAlarm(
@@ -124,6 +131,7 @@ public:
     std::vector<std::size_t> fullSnapshotCounts;
     std::vector<std::string> fullSnapshotFormats;
     std::vector<std::vector<std::uint32_t>> fullSnapshotIndexes;
+    std::vector<std::vector<double>> fullSnapshotValues;
     std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
     std::vector<std::string> jsonTopics;
@@ -135,6 +143,35 @@ public:
     int otaReplyCount = 0;
     int otaStatusCount = 0;
     int jsonCount = 0;
+};
+
+class FlakyMqttDriverPublisher : public CapturingMqttDriverPublisher {
+public:
+    void publishFullSnapshot(
+        const std::string& topic,
+        const std::vector<StoredPointValue>& values,
+        const std::string& jsonFormat
+    ) override {
+        ++fullAttempts;
+        if (fullFailuresRemaining > 0) {
+            --fullFailuresRemaining;
+            throw std::runtime_error("simulated full publish failure");
+        }
+        CapturingMqttDriverPublisher::publishFullSnapshot(topic, values, jsonFormat);
+    }
+
+    void probeConnection() override {
+        ++probeAttempts;
+        if (probeFailuresRemaining > 0) {
+            --probeFailuresRemaining;
+            throw std::runtime_error("simulated probe failure");
+        }
+    }
+
+    int fullAttempts = 0;
+    int fullFailuresRemaining = 0;
+    int probeAttempts = 0;
+    int probeFailuresRemaining = 0;
 };
 
 PointDefinition makePoint(
@@ -158,6 +195,386 @@ MqttIncomingMessage realtimeRequest(const std::string& payload) {
     message.type = MqttIncomingType::RealtimeRequest;
     message.payload = payload;
     return message;
+}
+
+std::string readTextFile(const std::string& path) {
+    std::ifstream input(path.c_str(), std::ios::binary);
+    return std::string(
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>()
+    );
+}
+
+PointDefinition makeWritablePoint(std::uint32_t index, const std::string& pointCode) {
+    auto point = makePoint(index, pointCode);
+    point.write.enable = true;
+    return point;
+}
+
+MqttIncomingMessage controlCommand(const std::string& payload, bool retained = false) {
+    MqttIncomingMessage message;
+    message.type = MqttIncomingType::CommandRequest;
+    message.topic = "third/cmd";
+    message.payload = payload;
+    message.retained = retained;
+    return message;
+}
+
+struct ControlTestEnvironment {
+    std::string sharedMemoryName = "mqtt_forwarder_control";
+    std::string ownershipFile;
+    std::unique_ptr<MemoryPointStore> store;
+    PointStoreRouter router;
+    std::shared_ptr<CapturingMqttDriverPublisher> publisher;
+    MqttForwardConfig forward;
+    std::unique_ptr<MqttForwarderService> service;
+
+    explicit ControlTestEnvironment(
+        bool seedStaleLease = false,
+        std::size_t maxPendingWrites = 4095,
+        std::string staleSessionId = std::string()
+    ) {
+        MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
+#ifdef _WIN32
+        ownershipFile = std::tmpnam(nullptr);
+#else
+        ownershipFile = "/tmp/mqtt_forwarder_control_owner_test.json";
+#endif
+        std::remove(ownershipFile.c_str());
+        std::remove((ownershipFile + ".lock").c_str());
+
+        MemoryStoreConfig storeConfig;
+        storeConfig.sharedMemoryName = sharedMemoryName;
+        storeConfig.maxPendingWrites = maxPendingWrites;
+        store.reset(new MemoryPointStore(storeConfig));
+        router.addStore(sharedMemoryName, *store);
+
+        DeviceConfig deviceConfig;
+        deviceConfig.machineCode = "GW_TEST";
+        deviceConfig.memoryStore.sharedMemoryName = sharedMemoryName;
+        LogicalDeviceConfig meter;
+        meter.meterCode = "PCS_TEST";
+        meter.points.push_back(makeWritablePoint(4001, "P_A_SET"));
+        meter.points.push_back(makeWritablePoint(4002, "P_B_SET"));
+        deviceConfig.meters.push_back(meter);
+        router.addRoutesFromDeviceConfigs({deviceConfig}, sharedMemoryName);
+
+        forward.enabled = true;
+        forward.broker = "tcp://127.0.0.1:1883";
+        forward.fullTelemetryTopic = "third/full";
+        forward.pointIndexes = {4001, 4002};
+        forward.intervalMs = 60000;
+        forward.control.enabled = true;
+        forward.control.commandTopic = "third/cmd";
+        forward.control.replyTopic = "third/reply";
+        forward.control.ownershipFile = ownershipFile;
+        forward.control.scope = "pcs-power";
+        forward.control.sessionId = "third-party";
+        forward.control.leaseTtlMs = 1000;
+        forward.control.pollIntervalMs = 100;
+        forward.control.minTargetKw = -10.0;
+        forward.control.maxTargetKw = 10.0;
+        forward.control.ownershipIndexes = {4001, 4002};
+        MqttForwardControlTargetConfig firstTarget;
+        firstTarget.index = 4001;
+        firstTarget.scale = 10.0;
+        firstTarget.offset = 1.0;
+        MqttForwardControlTargetConfig secondTarget;
+        secondTarget.index = 4002;
+        secondTarget.scale = 2.0;
+        secondTarget.offset = -0.5;
+        forward.control.targets = {firstTarget, secondTarget};
+
+        publisher = std::make_shared<CapturingMqttDriverPublisher>();
+        if (seedStaleLease) {
+            PowerControlOwnership staleOwner(ownershipFile, "mqtt-forwarder");
+            const auto seeded = staleOwner.acquireOrRenew(
+                forward.control.scope,
+                staleSessionId.empty() ? forward.control.sessionId : staleSessionId,
+                forward.control.ownershipIndexes,
+                "STALE_BEFORE_RESTART",
+                4102444800000LL,
+                forward.control.leaseTtlMs
+            );
+            require(seeded.accepted, "failed to seed stale remote lease");
+        }
+        service.reset(new MqttForwarderService(forward, router, publisher));
+    }
+
+    ~ControlTestEnvironment() {
+        service.reset();
+        store.reset();
+        MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
+        std::remove(ownershipFile.c_str());
+        std::remove((ownershipFile + ".lock").c_str());
+    }
+
+    void runCommand(const std::string& payload, std::int64_t nowMs, bool retained = false) {
+        publisher->incoming.push_back(controlCommand(payload, retained));
+        service->runOnce(nowMs);
+    }
+
+    bool submitLocal(double value, std::int64_t nowMs) {
+        PendingWriteCommand local;
+        local.cmdId = "LOCAL_" + std::to_string(nowMs);
+        local.index = 4001;
+        local.value = value;
+        local.source = "compute-engine";
+        local.ts = nowMs;
+        local.acceptedAt = nowMs;
+        return router.submitWriteCommand(local).accepted;
+    }
+
+    void requireNoWrites(const std::string& message) {
+        require(store->drainPendingWriteCommands().empty(), message);
+    }
+
+    void requireRejectedReply(const std::string& message) const {
+        require(!publisher->jsonPayloads.empty(), message);
+        require(publisher->jsonTopics.back() == "third/reply", message);
+        require(
+            publisher->jsonPayloads.back().find("\"accepted\":false") != std::string::npos,
+            message
+        );
+    }
+};
+
+void requireMappedWrites(
+    ControlTestEnvironment& environment,
+    double firstValue,
+    double secondValue,
+    const std::string& message
+) {
+    const auto writes = environment.store->drainPendingWriteCommands();
+    require(writes.size() == 2, message);
+    require(writes[0].index == 4001 && writes[0].value == firstValue, message);
+    require(writes[1].index == 4002 && writes[1].value == secondValue, message);
+    require(writes[0].source == "mqtt-forwarder" && writes[1].source == "mqtt-forwarder", message);
+    require(!writes[0].highPriority && !writes[1].highPriority, message);
+    require(writes[0].controlGeneration != 0, message);
+    require(writes[0].controlGeneration == writes[1].controlGeneration, message);
+}
+
+void testControlMqttConfigUsesOnlyExactControlTopics() {
+    MqttForwardConfig forward;
+    forward.enabled = true;
+    forward.broker = "tcp://127.0.0.1:1883";
+    forward.fullTelemetryTopic = "third/full";
+    forward.control.enabled = true;
+    forward.control.commandTopic = "third/cmd";
+    forward.control.replyTopic = "third/reply";
+
+    const auto txOnly = MqttForwarderService::makeTxOnlyMqttConfig(forward, "GW_TEST");
+    require(txOnly.commandRequestTopic.empty(), "TX-only forwarder must keep command topic empty");
+    require(txOnly.commandRequestTopicMachineScoped, "TX-only defaults must remain machine-scoped");
+    require(txOnly.fullTelemetryTopicMachineScoped, "legacy forward full topic must stay machine-scoped");
+
+    const auto control = MqttForwarderService::makeMqttConfig(forward, "GW_TEST");
+    require(control.commandRequestTopic == "third/cmd", "control command topic should be exact");
+    require(control.commandReplyTopic == "third/reply", "control reply topic should be exact");
+    require(!control.commandRequestTopicMachineScoped, "control request must not append machineCode");
+    require(!control.commandReplyTopicMachineScoped, "control reply must not append machineCode");
+    require(control.realtimeRequestTopic.empty(), "forwarder must not subscribe to realtime requests");
+    require(control.otaRequestTopic.empty(), "forwarder must not subscribe to OTA requests");
+    require(control.configApplyRequestTopic.empty(), "forwarder must not subscribe to config requests");
+
+    forward.fullTelemetryTopicMachineScoped = false;
+    const auto exactFull = MqttForwarderService::makeMqttConfig(forward, "GW_TEST");
+    require(!exactFull.fullTelemetryTopicMachineScoped, "forwarder should preserve an exact full topic setting");
+}
+
+void testControlTakeoverDuplicateReleaseAndExpiry() {
+    ControlTestEnvironment environment;
+    const std::int64_t startedAt = 1770001000000LL;
+    environment.runCommand(
+        "{\"type\":\"1\",\"target\":\"2.5\",\"id\":\"A\"}",
+        startedAt
+    );
+    requireMappedWrites(environment, 26.0, 4.5, "type=1 should queue mapped writes");
+    require(!environment.submitLocal(9.0, startedAt + 1), "active takeover must block local EMS");
+
+    PowerControlOwnership observer(environment.ownershipFile, "observer");
+    const auto firstLease = observer.active(startedAt + 1);
+    require(static_cast<bool>(firstLease), "type=1 should acquire ownership");
+    const auto firstExpiry = firstLease->expireAtMs;
+
+    environment.runCommand(
+        "{\"type\":\"1\",\"target\":\"2.5\",\"id\":\"A\"}",
+        startedAt + 100
+    );
+    environment.requireNoWrites("immediate duplicate must not enqueue");
+    const auto duplicateLease = observer.active(startedAt + 101);
+    require(duplicateLease && duplicateLease->expireAtMs == firstExpiry,
+        "duplicate command must not renew the lease");
+
+    environment.runCommand(
+        "{\"type\":\"1\",\"target\":-2,\"id\":\"B\"}",
+        startedAt + 200
+    );
+    requireMappedWrites(environment, -19.0, -4.5, "unique command should renew and enqueue");
+    const auto renewedLease = observer.active(startedAt + 201);
+    require(renewedLease && renewedLease->expireAtMs > firstExpiry,
+        "unique command should renew the lease");
+
+    environment.runCommand(
+        "{\"type\":\"1\",\"target\":1,\"id\":\"A\"}",
+        startedAt + 300
+    );
+    environment.requireNoWrites("nonconsecutive duplicate must not enqueue");
+    const auto repeatedLease = observer.active(startedAt + 301);
+    require(repeatedLease && repeatedLease->expireAtMs == renewedLease->expireAtMs,
+        "nonconsecutive duplicate must not renew the lease");
+
+    environment.runCommand("{\"type\":\"0\",\"target\":999,\"id\":\"LOCAL\"}", startedAt + 400);
+    environment.requireNoWrites("type=0 must ignore target and not enqueue");
+    require(environment.submitLocal(1.0, startedAt + 401), "type=0 should restore local control");
+    environment.store->drainPendingWriteCommands();
+
+    PowerControlOwnership platformOwner(environment.ownershipFile, "own-platform");
+    require(
+        platformOwner.acquire("pcs-power", "platform-session", {4001, 4002}, startedAt + 450, 1000),
+        "own platform should acquire control for conflict test"
+    );
+    environment.runCommand("{\"type\":0,\"id\":\"WRONG_RELEASE\"}", startedAt + 451);
+    environment.requireNoWrites("third-party type=0 must not enqueue during another ownership");
+    environment.requireRejectedReply("third-party type=0 must not release another controller");
+    const auto platformLease = platformOwner.active(startedAt + 452);
+    require(platformLease && platformLease->owner == "own-platform",
+        "third-party type=0 must preserve another controller's lease");
+    platformOwner.release("platform-session");
+
+    environment.runCommand(
+        "{\"type\":1,\"target\":1,\"id\":\"C\"}",
+        startedAt + 500
+    );
+    requireMappedWrites(environment, 11.0, 1.5, "numeric type should be accepted");
+    require(environment.submitLocal(1.0, startedAt + 1501), "lease expiry should restore local control");
+}
+
+void testControlRestartStartsInLocalMode() {
+    ControlTestEnvironment environment(true);
+    PowerControlOwnership observer(environment.ownershipFile, "observer");
+    require(!observer.active(4102444800001LL), "forwarder restart must clear its stale remote lease");
+    require(
+        environment.submitLocal(1.0, 4102444800001LL),
+        "local EMS must be writable immediately after forwarder restart"
+    );
+}
+
+void testControlRestartClearsPreviousSessionLease() {
+    ControlTestEnvironment environment(true, 4095, "previous-config-session");
+    PowerControlOwnership observer(environment.ownershipFile, "observer");
+    require(
+        !observer.active(4102444800001LL),
+        "forwarder restart must clear a stale lease from its previous configured session"
+    );
+    require(
+        environment.submitLocal(1.0, 4102444800001LL),
+        "local EMS must resume immediately when the configured third-party session changes"
+    );
+}
+
+void testFailedSubmitReceiptRejectsDuplicates() {
+    ControlTestEnvironment environment(false, 1);
+    const std::int64_t startedAt = 1770001800000LL;
+    environment.runCommand(
+        "{\"type\":1,\"target\":2,\"id\":\"QUEUE_FULL\"}",
+        startedAt
+    );
+    environment.requireNoWrites("an atomic two-point write must fail against a one-slot queue");
+    environment.requireRejectedReply("failed queue submission must return accepted=false");
+
+    PowerControlOwnership observer(environment.ownershipFile, "observer");
+    const auto receipt = observer.lookupReceipt("QUEUE_FULL");
+    require(receipt.found && !receipt.accepted, "failed submission must persist a rejected receipt");
+    require(!observer.active(startedAt + 1), "failed submission must release remote control");
+
+    environment.runCommand(
+        "{\"type\":1,\"target\":2,\"id\":\"QUEUE_FULL\"}",
+        startedAt + 10
+    );
+    environment.requireNoWrites("duplicate failed command must not retry the device write");
+    environment.requireRejectedReply("duplicate failed command must remain rejected");
+    require(
+        environment.publisher->jsonPayloads.back().find("\"duplicate\":true") != std::string::npos,
+        "duplicate failed command must be labelled duplicate"
+    );
+    require(!observer.active(startedAt + 11), "duplicate failed command must not reacquire control");
+}
+
+void testAcceptedReceiptsSurviveRestart() {
+    ControlTestEnvironment environment;
+    const std::int64_t startedAt = 1770001900000LL;
+    environment.runCommand("{\"type\":1,\"target\":1,\"id\":\"OLD_A\"}", startedAt);
+    requireMappedWrites(environment, 11.0, 1.5, "first command should be accepted before restart");
+    environment.runCommand("{\"type\":1,\"target\":2,\"id\":\"NEW_B\"}", startedAt + 10);
+    requireMappedWrites(environment, 21.0, 3.5, "second command should be accepted before restart");
+
+    environment.service.reset();
+    environment.service.reset(
+        new MqttForwarderService(environment.forward, environment.router, environment.publisher)
+    );
+    PowerControlOwnership observer(environment.ownershipFile, "observer");
+    require(!observer.active(startedAt + 20), "restart must return control to local mode");
+    const auto oldReceipt = observer.lookupReceipt("OLD_A");
+    const auto newReceipt = observer.lookupReceipt("NEW_B");
+    require(oldReceipt.found && oldReceipt.accepted, "older accepted receipt must survive restart");
+    require(newReceipt.found && newReceipt.accepted, "latest accepted receipt must survive restart");
+
+    environment.runCommand("{\"type\":1,\"target\":3,\"id\":\"OLD_A\"}", startedAt + 30);
+    environment.requireNoWrites("accepted duplicate after restart must not enqueue");
+    require(
+        environment.publisher->jsonPayloads.back().find("\"accepted\":true") != std::string::npos &&
+        environment.publisher->jsonPayloads.back().find("\"duplicate\":true") != std::string::npos,
+        "accepted duplicate after restart must return its persisted result"
+    );
+    require(!observer.active(startedAt + 31), "accepted duplicate after restart must not reacquire control");
+}
+
+void testControlRejectsUnsafePayloads() {
+    ControlTestEnvironment environment;
+    std::int64_t nowMs = 1770002000000LL;
+    auto reject = [&](const std::string& payload, bool retained, const std::string& message) {
+        environment.runCommand(payload, nowMs, retained);
+        environment.requireNoWrites(message);
+        environment.requireRejectedReply(message);
+        nowMs += 10;
+    };
+    reject("{\"type\":\"1\",\"target\":1,\"id\":\"RET\"}", true,
+        "retained command must be rejected");
+    reject("{", false, "malformed JSON must be rejected");
+    reject("{\"type\":1,\"target\":1,\"id\":\"DUP\",\"id\":\"DUP\"}", false,
+        "duplicate JSON field must be rejected");
+    reject("{\"type\":1,\"target\":1,\"id\":\"SRC\",\"source\":\"mqtt\"}", false,
+        "payload source override must be rejected");
+    reject("{\"type\":1,\"target\":1,\"id\":\"HP\",\"highPriority\":true}", false,
+        "payload priority override must be rejected");
+    reject("{\"type\":1,\"target\":11,\"id\":\"RANGE\"}", false,
+        "out-of-range target must be rejected");
+    reject("{\"type\":1,\"target\":\"0x10\",\"id\":\"HEX\"}", false,
+        "hexadecimal target strings must be rejected");
+    reject("{\"type\":1,\"target\":\"+1\",\"id\":\"PLUS\"}", false,
+        "leading-plus target strings must be rejected");
+
+    const std::string maxId(63, 'A');
+    environment.runCommand(
+        "{\"type\":1,\"target\":1,\"id\":\"" + maxId + "\"}",
+        nowMs
+    );
+    const auto maxIdWrites = environment.store->drainPendingWriteCommands();
+    require(maxIdWrites.size() == 2, "63-byte control id must remain accepted");
+    require(
+        maxIdWrites[0].cmdId == maxId && maxIdWrites[1].cmdId == maxId,
+        "accepted control id must survive the shared-memory round trip without truncation"
+    );
+    nowMs += 10;
+
+    const std::string oversizedId(64, 'B');
+    reject(
+        "{\"type\":1,\"target\":1,\"id\":\"" + oversizedId + "\"}",
+        false,
+        "64-byte control id must be rejected before shared-memory submission"
+    );
 }
 
 void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
@@ -429,6 +846,228 @@ void testForwarderFailureWritesHealthAndDoesNotPoll() {
     input.close();
     std::remove(healthFile.c_str());
     MemoryPointStore::cleanupOrphanedSegment(shmName);
+}
+
+void testPrimaryFullConfigInheritsConnectionAndUsesIndependentClientId() {
+    MqttConfig primary;
+    primary.protocolVersion = "mqtt5";
+    primary.broker = "mqtts://edge.example.com:8883";
+    primary.clientId = "PRIMARY_CLIENT";
+    primary.username = "gateway";
+    primary.password = "secret";
+    primary.keepAliveSec = 23;
+    primary.connectTimeoutMs = 4567;
+    primary.maxPayloadBytes = 234567;
+    primary.fullTelemetryTopic = "edge/full";
+    primary.fullTelemetryTopicMachineScoped = false;
+    primary.commandRequestTopic = "edge/cmd";
+    primary.realtimeRequestTopic = "edge/realtime/request";
+    primary.offlineBufferEnabled = true;
+    primary.tls.enabled = true;
+    primary.tls.caFile = "/tmp/ca.crt";
+
+    MqttFullUploadWorkerConfig worker;
+    worker.clientIdSuffix = "-full-worker";
+    const auto isolated = MqttForwarderService::makePrimaryFullMqttConfig(
+        primary,
+        worker,
+        "GW_TEST"
+    );
+
+    require(isolated.clientId == "GW_TEST-full-worker", "primary full clientId must be independent");
+    require(isolated.broker == primary.broker, "primary full worker must inherit broker");
+    require(isolated.keepAliveSec == primary.keepAliveSec, "primary full worker must inherit keepAlive");
+    require(isolated.connectTimeoutMs == primary.connectTimeoutMs,
+        "primary full worker must inherit connect timeout");
+    require(isolated.maxPayloadBytes == primary.maxPayloadBytes,
+        "primary full worker must preserve chunk sizing");
+    require(isolated.tls.caFile == primary.tls.caFile, "primary full worker must inherit TLS");
+    require(!isolated.offlineBufferEnabled, "primary full worker must not replay historical snapshots");
+    require(isolated.commandRequestTopic.empty(), "primary full worker must not subscribe to control");
+    require(isolated.realtimeRequestTopic.empty(), "primary full worker must not subscribe to realtime");
+}
+
+void testPrimaryFullRetriesQuicklyAndPublishesLatestAfterRecovery() {
+    const std::string shmName = "mqtt_primary_full_retry";
+    MemoryPointStore::cleanupOrphanedSegment(shmName);
+    MemoryStoreConfig storeConfig;
+    storeConfig.sharedMemoryName = shmName;
+    MemoryPointStore store(storeConfig);
+    PointStoreRouter router;
+    router.addStore(shmName, store);
+
+    DeviceConfig deviceConfig;
+    deviceConfig.machineCode = "GW_TEST";
+    deviceConfig.memoryStore.sharedMemoryName = shmName;
+    LogicalDeviceConfig meter;
+    meter.meterCode = "METER_1";
+    meter.points.push_back(makePoint(2401, "P_RETRY"));
+    deviceConfig.meters.push_back(meter);
+    router.addRoutesFromDeviceConfigs({deviceConfig}, shmName);
+
+    PointValue value;
+    value.index = 2401;
+    value.value = 1.0;
+    value.ts = 1770000600000LL;
+    value.expireAt = 1770004200000LL;
+    require(router.putLatestByIndex(value).accepted, "failed to seed primary full retry point");
+
+    MqttForwardConfig forward;
+    forward.enabled = true;
+    forward.fullTelemetryTopic = "edge/full";
+    forward.pointIndexes = {2401};
+    forward.intervalMs = 30000;
+    forward.retryMinMs = 500;
+    forward.retryMaxMs = 2000;
+    forward.healthHeartbeatMs = 1000;
+    forward.healthLeaseTtlMs = 3000;
+    forward.failOnStoreError = false;
+    forward.primaryFullUpload = true;
+    forward.primaryMachineCode = "GW_TEST";
+    forward.primaryClientId = "GW_TEST-full";
+
+#ifdef _WIN32
+    const std::string healthFile = std::tmpnam(nullptr);
+#else
+    const std::string healthFile = "/tmp/mqtt_primary_full_retry_test.json";
+#endif
+    std::remove(healthFile.c_str());
+    forward.publishLockFile = healthFile + ".lock";
+    auto publisher = std::make_shared<FlakyMqttDriverPublisher>();
+    publisher->fullFailuresRemaining = 2;
+    MqttForwarderService service(forward, router, publisher, healthFile);
+    const std::int64_t startedAt = 1770000600000LL;
+
+    service.runOnce(startedAt);
+    require(publisher->fullAttempts == 1, "primary full should attempt immediately");
+    auto health = readTextFile(healthFile);
+    require(health.find("\"state\":\"retrying\"") != std::string::npos,
+        "failed primary full should release the lease");
+    require(health.find("\"nextAttemptAtMs\":1770000600500") != std::string::npos,
+        "first retry should be scheduled after 500ms");
+
+    service.runOnce(startedAt + 499);
+    require(publisher->fullAttempts == 1, "primary full must respect the short retry delay");
+    service.runOnce(startedAt + 500);
+    require(publisher->fullAttempts == 2, "primary full should retry after 500ms");
+    service.runOnce(startedAt + 1499);
+    require(publisher->fullAttempts == 2, "second retry should wait 1000ms");
+    service.runOnce(startedAt + 1500);
+    require(publisher->fullAttempts == 3, "primary full should recover without waiting 30 seconds");
+    require(publisher->fullSnapshotValues.size() == 1,
+        "only the successful latest snapshot should be retained");
+    health = readTextFile(healthFile);
+    require(health.find("\"state\":\"active\"") != std::string::npos,
+        "successful primary full should acquire the lease");
+    require(health.find("\"leaseUntilMs\":1770000604500") != std::string::npos,
+        "active lease should use the configured failover timeout");
+
+    const auto probeAttemptsBeforeHeartbeat = publisher->probeAttempts;
+    publisher->probeFailuresRemaining = 1;
+    service.runOnce(startedAt + 2500);
+    require(publisher->probeAttempts == probeAttemptsBeforeHeartbeat + 1,
+        "primary worker should probe between full uploads");
+    health = readTextFile(healthFile);
+    require(health.find("\"state\":\"retrying\"") != std::string::npos,
+        "failed broker probe should release the lease immediately");
+
+    value.value = 99.0;
+    value.ts = startedAt + 3000;
+    require(router.putLatestByIndex(value).accepted, "failed to update latest retry point");
+    service.runOnce(startedAt + 2999);
+    require(publisher->probeAttempts == probeAttemptsBeforeHeartbeat + 1,
+        "probe retry must wait 500ms");
+    service.runOnce(startedAt + 3000);
+    require(publisher->probeAttempts == probeAttemptsBeforeHeartbeat + 2,
+        "probe should retry after 500ms");
+    require(publisher->fullAttempts == 4, "recovered probe should trigger an immediate current full");
+    require(publisher->fullSnapshotValues.size() == 2,
+        "recovery must add one current snapshot, not replay failed history");
+    require(publisher->fullSnapshotValues.back() == std::vector<double>{99.0},
+        "recovery must publish the latest PointStore value");
+
+    std::remove(healthFile.c_str());
+    std::remove(forward.publishLockFile.c_str());
+    MemoryPointStore::cleanupOrphanedSegment(shmName);
+}
+
+void testPrimaryFullKeepsAvailableStoresWhenOneStoreFails() {
+    const std::string availableName = "mqtt_primary_full_available";
+    const std::string missingName = "mqtt_primary_full_missing";
+    MemoryPointStore::cleanupOrphanedSegment(availableName);
+    MemoryStoreConfig storeConfig;
+    storeConfig.sharedMemoryName = availableName;
+    MemoryPointStore store(storeConfig);
+    PointStoreRouter router;
+    router.addStore(availableName, store);
+
+    PointStoreRoute availableRoute;
+    availableRoute.index = 2501;
+    availableRoute.sourceIndex = 2501;
+    availableRoute.machineCode = "GW_TEST";
+    availableRoute.meterCode = "METER_OK";
+    availableRoute.pointCode = "P_OK";
+    availableRoute.sharedMemoryName = availableName;
+    router.addRoute(availableRoute);
+    PointStoreRoute missingRoute = availableRoute;
+    missingRoute.index = 2502;
+    missingRoute.sourceIndex = 2502;
+    missingRoute.meterCode = "METER_MISSING";
+    missingRoute.pointCode = "P_MISSING";
+    missingRoute.sharedMemoryName = missingName;
+    router.addRoute(missingRoute);
+
+    PointValue value;
+    value.index = 2501;
+    value.value = 12.5;
+    value.ts = 1770000700000LL;
+    value.expireAt = 1770004300000LL;
+    require(router.putLatestByIndex(value).accepted, "failed to seed available primary point");
+
+    MqttForwardConfig forward;
+    forward.enabled = true;
+    forward.fullTelemetryTopic = "edge/full";
+    forward.pointIndexes = {2501, 2502};
+    forward.failOnStoreError = false;
+    forward.primaryFullUpload = true;
+    forward.primaryMachineCode = "GW_TEST";
+    forward.primaryClientId = "GW_TEST-full";
+#ifdef _WIN32
+    const std::string healthFile = std::tmpnam(nullptr);
+#else
+    const std::string healthFile = "/tmp/mqtt_primary_full_partial_test.json";
+#endif
+    std::remove(healthFile.c_str());
+    forward.publishLockFile = healthFile + ".lock";
+    auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
+    MqttForwarderService service(forward, router, publisher, healthFile);
+    service.runOnce(1770000700000LL);
+
+    require(publisher->fullSnapshotCounts == std::vector<std::size_t>{1},
+        "primary full should preserve the main driver's best-effort store behavior");
+    require(publisher->fullSnapshotIndexes.front() == std::vector<std::uint32_t>{2501},
+        "primary full should publish available points when one store is unavailable");
+
+    MqttForwardConfig blockedForward = forward;
+#ifdef _WIN32
+    const std::string blockedHealth = "Z:\\gateway-test-missing\\primary-full.json";
+#else
+    const std::string blockedHealth = "/proc/gateway-test-missing/primary-full.json";
+#endif
+    auto blockedPublisher = std::make_shared<CapturingMqttDriverPublisher>();
+    MqttForwarderService blockedService(
+        blockedForward,
+        router,
+        blockedPublisher,
+        blockedHealth
+    );
+    blockedService.runOnce(1770000701000LL);
+    require(blockedPublisher->fullSnapshotCounts.empty(),
+        "primary full must not publish before its ownership claim is durable");
+
+    std::remove(healthFile.c_str());
+    std::remove(forward.publishLockFile.c_str());
+    MemoryPointStore::cleanupOrphanedSegment(availableName);
 }
 
 void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
@@ -766,6 +1405,11 @@ private:
                 }
                 continue;
             }
+            if (type == 0xC0) {
+                const std::uint8_t pingResp[] = {0xD0, 0x00};
+                send(fd, pingResp, sizeof(pingResp), 0);
+                continue;
+            }
             if (type == 0xE0) {
                 return;
             }
@@ -801,6 +1445,7 @@ void testTxOnlyPublisherNeverSubscribes() {
     value.ts = 1770000300000LL;
     publisher.publishFullSnapshot(forward.fullTelemetryTopic, {value}, "compactArray");
     publisher.publishJsonMessage(forward.fullTelemetryTopic, "{\"legacy\":true}");
+    publisher.probeConnection();
     const auto incoming = publisher.pollIncoming(20);
     require(incoming.empty(), "TX-only pollIncoming must not create an RX subscription");
     publisher.publishAlarm("edge/alarm", 4001, value, "high", true);
@@ -840,8 +1485,28 @@ int main() {
         testUnavailablePointStoreFailsClosed();
         std::cerr << "running forwarder health test" << std::endl;
         testForwarderFailureWritesHealthAndDoesNotPoll();
+        std::cerr << "running primary full mqtt config test" << std::endl;
+        testPrimaryFullConfigInheritsConnectionAndUsesIndependentClientId();
+        std::cerr << "running primary full retry and recovery test" << std::endl;
+        testPrimaryFullRetriesQuicklyAndPublishesLatestAfterRecovery();
+        std::cerr << "running primary full partial store test" << std::endl;
+        testPrimaryFullKeepsAvailableStoresWhenOneStoreFails();
         std::cerr << "running realtime/full isolation test" << std::endl;
         testRealtimeStopLeavesMainFullAndForwarderFullRunning();
+        std::cerr << "running third-party control mqtt config test" << std::endl;
+        testControlMqttConfigUsesOnlyExactControlTopics();
+        std::cerr << "running third-party takeover lifecycle test" << std::endl;
+        testControlTakeoverDuplicateReleaseAndExpiry();
+        std::cerr << "running third-party unsafe payload rejection test" << std::endl;
+        testControlRejectsUnsafePayloads();
+        std::cerr << "running third-party restart fail-safe test" << std::endl;
+        testControlRestartStartsInLocalMode();
+        std::cerr << "running third-party changed-session restart fail-safe test" << std::endl;
+        testControlRestartClearsPreviousSessionLease();
+        std::cerr << "running failed submission receipt test" << std::endl;
+        testFailedSubmitReceiptRejectsDuplicates();
+        std::cerr << "running persistent accepted receipt test" << std::endl;
+        testAcceptedReceiptsSurviveRestart();
 #ifndef _WIN32
         testTxOnlyPublisherNeverSubscribes();
 #endif

@@ -11,7 +11,7 @@ import sys
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -141,6 +141,25 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--machine-code", default="", help="optional machineCode written to device JSON; empty means use identity file")
     parser.add_argument("--shared-memory-name", default="gateway_point_store")
     parser.add_argument("--serial-prefix", default="/dev/ttySP", help="COM1 -> /dev/ttySP1 by default")
+    parser.add_argument(
+        "--serial-map",
+        action="append",
+        default=[],
+        metavar="COM=DEVICE",
+        help="override a legacy COM port, for example COM0=/dev/ttyAS0; repeatable",
+    )
+    parser.add_argument(
+        "--point-code-map",
+        action="append",
+        default=[],
+        metavar="POINT_NAME=POINT_CODE",
+        help="correct a known legacy point-code typo by point name; repeatable",
+    )
+    parser.add_argument(
+        "--append-power-quality-ratios",
+        action="store_true",
+        help="append read-only CT/PT ratio points for power quality analyzers without renumbering existing points",
+    )
     parser.add_argument("--sqlite-dir", default="/opt/modbus-gateway/data")
     parser.add_argument("--app-config", action="append", default=[], help="app json to update deviceConfigFiles, repeatable")
     parser.add_argument("--runtime-device-prefix", default="/opt/modbus-gateway/config/runtime/devices")
@@ -181,6 +200,35 @@ def normalize_unit(value: str) -> str:
     return "" if unit == "-" else unit
 
 
+POWER_QUALITY_ANALYZER_POWER_ADDRESSES = frozenset(range(18, 42, 2))
+
+
+def normalize_read_scale_and_unit(
+    source: ModbusRow,
+    var: VarRow,
+    scale: float,
+    unit: str,
+) -> Tuple[float, str]:
+    point_name = var.point_name or source.name
+    if (
+        var.point_code == "KY02100095"
+        and source.address == 6
+        and source.dtype.upper() in {"UINT16", "INT16"}
+        and scale == 1.0
+    ):
+        # Legacy micro-breaker workbooks expose frequency as centi-hertz at register 6.
+        return 0.01, "Hz"
+    if (
+        source.device_name.startswith("电能质量分析仪")
+        and source.address in POWER_QUALITY_ANALYZER_POWER_ADDRESSES
+        and "功率" in point_name
+    ):
+        # The meter protocol exposes addresses 18-40 as float values in watts.
+        # Legacy workbooks mix W/kW/kVar/kVA labels, so normalize all power values to kW.
+        return 0.001, "kW"
+    return scale, unit
+
+
 def normalize_parity(value: str) -> str:
     parity = clean_text(value, "N").upper()
     if parity in {"NONE", "NO"}:
@@ -192,7 +240,40 @@ def normalize_parity(value: str) -> str:
     return parity[:1] if parity else "N"
 
 
-def serial_port_from_com(com_name: str, serial_prefix: str) -> str:
+def parse_serial_map(values: Iterable[str]) -> Dict[str, str]:
+    result: Dict[str, str] = {}
+    for value in values:
+        key, separator, target = clean_text(value).partition("=")
+        key = key.strip().upper()
+        target = target.strip()
+        if not separator or not key or not target:
+            raise ValueError(f"invalid --serial-map value: {value}; expected COM=DEVICE")
+        if key in result:
+            raise ValueError(f"duplicate --serial-map key: {key}")
+        result[key] = target
+    return result
+
+
+def parse_point_code_map(values: Iterable[str]) -> Dict[str, str]:
+    result: Dict[str, str] = {}
+    for value in values:
+        name, separator, point_code = clean_text(value).partition("=")
+        name = name.strip()
+        point_code = point_code.strip()
+        if not separator or not name or not point_code:
+            raise ValueError(
+                f"invalid --point-code-map value: {value}; expected POINT_NAME=POINT_CODE"
+            )
+        if name in result:
+            raise ValueError(f"duplicate --point-code-map point name: {name}")
+        result[name] = point_code
+    return result
+
+
+def serial_port_from_com(com_name: str, serial_prefix: str, serial_map: Dict[str, str]) -> str:
+    normalized = clean_text(com_name).upper()
+    if normalized in serial_map:
+        return serial_map[normalized]
     match = re.search(r"(\d+)$", clean_text(com_name))
     if not match:
         return com_name
@@ -202,7 +283,7 @@ def serial_port_from_com(com_name: str, serial_prefix: str) -> str:
 def map_modbus_dtype(dtype: str) -> Tuple[str, int]:
     normalized = clean_text(dtype).upper()
     if normalized in {"BOOL", "BIT"}:
-        return "uint16", 1
+        return "bool", 1
     if normalized == "INT16":
         return "int16", 1
     if normalized == "UINT16":
@@ -211,8 +292,10 @@ def map_modbus_dtype(dtype: str) -> Tuple[str, int]:
         return "int32", 2
     if normalized == "UINT32":
         return "uint32", 2
-    if normalized in {"FLOAT", "FLOAT32"}:
+    if normalized in {"FLOAT", "FLOAT32", "FP32"}:
         return "float32", 2
+    if normalized in {"UINT", "WORD"}:
+        return "uint16", 1
     return "uint16", 1
 
 
@@ -368,6 +451,7 @@ def merge_point(
     if var.rw_type == "R" and isinstance(read, dict) and not read.get("enable", False):
         data_type, length = map_modbus_dtype(source.dtype)
         unit = normalize_unit(var.unit or source.unit)
+        scale, unit = normalize_read_scale_and_unit(source, var, source.scale, unit)
         if is_split_bit(var, source, source_ref_count):
             read.update(build_read_spec(
                 source,
@@ -381,19 +465,29 @@ def merge_point(
             ))
         else:
             if var.dtype.upper() == "BOOL":
-                data_type = "uint16"
+                data_type = "bool"
                 length = 1
+                scale = 1.0
+                existing["category"] = "status"
+                existing["reportOnChange"] = True
+                tags = existing.setdefault("tags", [])
+                if isinstance(tags, list):
+                    for tag in ("bool", "status"):
+                        if tag not in tags:
+                            tags.append(tag)
             read.update(build_read_spec(
                 source,
                 var,
                 data_type=data_type,
                 length=length,
-                scale=source.scale,
+                scale=scale,
                 unit=unit,
                 interval_ms=interval_ms,
             ))
     if var.rw_type == "W" and isinstance(write, dict) and not write.get("enable", False):
         data_type, length = map_modbus_dtype(source.dtype)
+        if var.dtype.upper() == "BOOL":
+            data_type, length = "bool", 1
         read = existing.get("read")
         can_verify_by_read = isinstance(read, dict) and bool(read.get("enable", False))
         write.update(build_write_spec(
@@ -413,22 +507,36 @@ def make_point(
     var: VarRow,
     source_ref_count: int,
     interval_ms: int,
+    *,
+    read_source: Optional[ModbusRow] = None,
+    write_source: Optional[ModbusRow] = None,
 ) -> Dict[str, object]:
     if is_online_row(source, var):
         return make_device_online_point(source, var, interval_ms)
 
-    split_bit = is_split_bit(var, source, source_ref_count)
+    effective_read_source = read_source or source
+    split_bit = read_source is not None and is_split_bit(var, effective_read_source, source_ref_count)
     unit = normalize_unit(var.unit or source.unit)
+    logical_bool = var.dtype.upper() == "BOOL" or effective_read_source.dtype.upper() in {"BOOL", "BIT"}
     if split_bit:
         read_data_type, read_length, read_scale, bit = "bit", 1, 1.0, var.start_bit
         category = "status"
         tags = ["bit", "status"]
         report_on_change = True
+    elif logical_bool:
+        read_data_type, read_length, read_scale, bit = "bool", 1, 1.0, None
+        category = "status"
+        tags = ["bool", "status"]
+        report_on_change = True
     else:
-        read_data_type, read_length = map_modbus_dtype(source.dtype)
-        if var.dtype.upper() == "BOOL":
-            read_data_type, read_length = "uint16", 1
-        read_scale, bit = source.scale, None
+        read_data_type, read_length = map_modbus_dtype(effective_read_source.dtype)
+        read_scale, bit = effective_read_source.scale, None
+        read_scale, unit = normalize_read_scale_and_unit(
+            effective_read_source,
+            var,
+            read_scale,
+            unit,
+        )
         category = "telemetry"
         tags = []
         report_on_change = False
@@ -451,9 +559,9 @@ def make_point(
         "alarms": [],
         "valueMap": None,
     }
-    if var.rw_type in {"R", "COM_ST"}:
+    if read_source is not None:
         point["read"] = build_read_spec(
-            source,
+            read_source,
             var,
             data_type=read_data_type,
             length=read_length,
@@ -462,21 +570,72 @@ def make_point(
             interval_ms=interval_ms,
             bit=bit,
         )
-    if var.rw_type == "W":
-        write_data_type, write_length = map_modbus_dtype(source.dtype)
+    if write_source is not None:
+        write_data_type, write_length = map_modbus_dtype(write_source.dtype)
+        if var.dtype.upper() == "BOOL":
+            write_data_type, write_length = "bool", 1
         point["write"] = build_write_spec(
-            source,
+            write_source,
             data_type=write_data_type,
             length=write_length,
-            scale=source.scale,
-            verify_after_write=False,
+            scale=write_source.scale,
+            verify_after_write=read_source is not None,
         )
         if "writable" not in tags:
             tags.append("writable")
     return point
 
 
-def read_serial_configs(reader: XlsmReader, serial_prefix: str) -> Dict[str, SerialConfig]:
+def make_power_quality_ratio_point(
+    *,
+    index: int,
+    point_code: str,
+    name: str,
+    address: int,
+    device_name: str,
+) -> Dict[str, object]:
+    return {
+        "index": index,
+        "pointCode": point_code,
+        "name": name,
+        "desc": f"{device_name} {name}",
+        "category": "telemetry",
+        "address": address,
+        "enabled": True,
+        "isStore": False,
+        "fullUpload": True,
+        "reportOnChange": False,
+        "persistIntervalSec": 60,
+        "tags": ["ratio", "read-only"],
+        "read": {
+            "enable": True,
+            "function": 3,
+            "length": 1,
+            "dataType": "uint16",
+            "scale": 1.0,
+            "offset": 0,
+            "byteOrder": "AB",
+            "signed": False,
+            "unit": "倍",
+            "intervalMs": 10000,
+            "cachePolicy": {
+                "storeLatest": True,
+                "storeHistory": True,
+                "historySize": 100,
+                "ttlMs": 600000,
+            },
+        },
+        "write": disabled_write_spec(),
+        "alarms": [],
+        "valueMap": None,
+    }
+
+
+def read_serial_configs(
+    reader: XlsmReader,
+    serial_prefix: str,
+    serial_map: Dict[str, str],
+) -> Dict[str, SerialConfig]:
     result: Dict[str, SerialConfig] = {}
     for row_no, row in reader.rows("串口驱动配置"):
         if row_no < 4:
@@ -487,7 +646,7 @@ def read_serial_configs(reader: XlsmReader, serial_prefix: str) -> Dict[str, Ser
         com_name = clean_text(row.get(3))
         result[sheet] = SerialConfig(
             sheet=sheet,
-            serial_port=serial_port_from_com(com_name, serial_prefix),
+            serial_port=serial_port_from_com(com_name, serial_prefix, serial_map),
             baud_rate=parse_int(row.get(4), 9600),
             data_bits=parse_int(row.get(5), 8),
             stop_bits=parse_int(row.get(6), 1),
@@ -499,12 +658,16 @@ def read_serial_configs(reader: XlsmReader, serial_prefix: str) -> Dict[str, Ser
     return result
 
 
-def read_modbus_rows(reader: XlsmReader) -> Dict[int, ModbusRow]:
-    result: Dict[int, ModbusRow] = {}
-    for sheet_index in range(1, 9):
-        sheet = f"modbusRTU_{sheet_index}"
-        if sheet not in reader.sheet_paths:
-            continue
+def read_modbus_rows(reader: XlsmReader) -> Dict[int, List[ModbusRow]]:
+    result: Dict[int, List[ModbusRow]] = defaultdict(list)
+    sheets = sorted(
+        (
+            name for name in reader.sheet_paths
+            if re.fullmatch(r"modbusRTU_\d+", name, re.IGNORECASE)
+        ),
+        key=lambda name: int(name.rsplit("_", 1)[1]),
+    )
+    for sheet in sheets:
         for row_no, row in reader.rows(sheet):
             if row_no < 4 or not clean_text(row.get(10)):
                 continue
@@ -515,7 +678,13 @@ def read_modbus_rows(reader: XlsmReader) -> Dict[int, ModbusRow]:
             rw_type = clean_text(row.get(6)).upper()
             if rw_type == "COM_ST" and function <= 0:
                 function = 3
-            result[source_index] = ModbusRow(
+            elif rw_type == "R" and function not in {1, 2, 3, 4}:
+                # Legacy sheets occasionally contain a copied write opcode on a read-only row.
+                # The explicit access type is the stronger signal for generated acquisition data.
+                function = 3
+            elif rw_type == "W" and function not in {5, 6, 15, 16}:
+                function = 6
+            result[source_index].append(ModbusRow(
                 sheet=sheet,
                 row=row_no,
                 device_name=clean_text(row.get(2), f"{sheet}_slave_{parse_int(row.get(4), 1)}"),
@@ -528,13 +697,17 @@ def read_modbus_rows(reader: XlsmReader) -> Dict[int, ModbusRow]:
                 source_index=source_index,
                 unit=clean_text(row.get(11)),
                 name=clean_text(row.get(12), f"point_{source_index}"),
-            )
-    return result
+            ))
+    return dict(result)
 
 
 def read_var_rows(reader: XlsmReader) -> List[VarRow]:
     result: List[VarRow] = []
-    for row_no, row in reader.rows("varlist"):
+    var_list_sheet = next(
+        (name for name in reader.sheet_paths if name.lower() == "varlist"),
+        "VarList",
+    )
+    for row_no, row in reader.rows(var_list_sheet):
         if row_no < 4 or not clean_text(row.get(7)):
             continue
         app_index = parse_int(row.get(7), 0)
@@ -581,7 +754,7 @@ def validate_unique_point_bindings(device: Dict[str, object]) -> None:
 
 def build_devices(
     serial_configs: Dict[str, SerialConfig],
-    modbus_by_index: Dict[int, ModbusRow],
+    modbus_by_index: Dict[int, List[ModbusRow]],
     var_rows: List[VarRow],
     args: argparse.Namespace,
 ) -> Tuple[List[Tuple[Path, Dict[str, object]]], Dict[str, object]]:
@@ -591,14 +764,49 @@ def build_devices(
     skipped_missing_source: List[int] = []
     adjusted_meter_codes: Dict[Tuple[str, int, str], str] = {}
 
+    source_groups_by_device: Dict[str, set[Tuple[str, int]]] = defaultdict(set)
+    for sources in modbus_by_index.values():
+        for source in sources:
+            if source.device_name:
+                source_groups_by_device[source.device_name].add((source.sheet, source.slave))
+
+    def resolve_sources(var: VarRow) -> List[ModbusRow]:
+        candidates = modbus_by_index.get(var.source_index, [])
+        if not candidates:
+            return []
+
+        exact = [source for source in candidates if source.device_name == var.mqtt_device_name]
+        if exact:
+            canonical = next((source for source in exact if source.function in {1, 2, 3, 4}), exact[0])
+        else:
+            groups = source_groups_by_device.get(var.mqtt_device_name, set())
+            if len(groups) == 1:
+                sheet, slave = next(iter(groups))
+                canonical = replace(candidates[0], sheet=sheet, slave=slave, device_name=var.mqtt_device_name)
+            else:
+                canonical = next((source for source in candidates if source.function in {1, 2, 3, 4}), candidates[0])
+
+        return [
+            replace(
+                source,
+                sheet=canonical.sheet,
+                slave=canonical.slave,
+                device_name=var.mqtt_device_name or canonical.device_name,
+            )
+            for source in candidates
+        ]
+
+    resolved_sources = {var.row: resolve_sources(var) for var in var_rows}
+
     # Runtime binding key is machineCode + meterCode + pointCode. A few legacy rows reuse the
     # same MQTT meterCode for multiple physical slaves with identical pointCode sets, so only
     # those conflicting physical groups get a deterministic suffix.
     meter_point_groups: Dict[Tuple[str, str], set[Tuple[str, int, str]]] = defaultdict(set)
     for var in var_rows:
-        source = modbus_by_index.get(var.source_index)
-        if source is None:
+        sources = resolved_sources[var.row]
+        if not sources:
             continue
+        source = sources[0]
         meter_point_groups[(var.meter_code, var.point_code)].add((source.sheet, source.slave, var.meter_code))
     conflict_groups: set[Tuple[str, int, str]] = set()
     for groups in meter_point_groups.values():
@@ -616,10 +824,31 @@ def build_devices(
             adjusted_meter_codes[group] = f"{meter_code}_ttySP{sheet_no}_s{group[1]}"
 
     for var in var_rows:
-        source = modbus_by_index.get(var.source_index)
-        if source is None:
+        sources = resolved_sources[var.row]
+        if not sources:
             skipped_missing_source.append(var.row)
             continue
+        source = sources[0]
+        read_source = next(
+            (
+                candidate for candidate in sources
+                if candidate.rw_type in {"R", "RW", "COM_ST"}
+                and candidate.function in {1, 2, 3, 4}
+            ),
+            None,
+        )
+        write_source = next(
+            (
+                candidate for candidate in sources
+                if candidate.rw_type in {"W", "RW"}
+                and candidate.function in {5, 6, 15, 16}
+            ),
+            None,
+        )
+        if read_source is not None:
+            source = read_source
+        elif write_source is not None:
+            source = write_source
         original_group_key = (source.sheet, source.slave, var.meter_code)
         runtime_meter_code = adjusted_meter_codes.get(original_group_key, var.meter_code)
         group_key = (source.sheet, source.slave, runtime_meter_code)
@@ -632,11 +861,53 @@ def build_devices(
         key = point_key(source.sheet, source.slave, runtime_meter_code, var, source)
         existing = point_lookup.get(key)
         if existing is None:
-            point = make_point(source, var, source_ref_count[var.source_index], serial_configs[source.sheet].default_interval_ms)
+            point = make_point(
+                source,
+                var,
+                source_ref_count[var.source_index],
+                serial_configs[source.sheet].default_interval_ms,
+                read_source=read_source,
+                write_source=write_source,
+            )
             meter["points"].append(point)
             point_lookup[key] = point
         else:
             merge_point(existing, source, var, source_ref_count[var.source_index], serial_configs[source.sheet].default_interval_ms)
+
+    supplemental_ratio_point_count = 0
+    if getattr(args, "append_power_quality_ratios", False):
+        next_index = max((var.app_index for var in var_rows), default=0) + 1
+        ratio_specs = (
+            ("KY02103710", "CT变比", 408),
+            ("KY02103709", "PT变比", 409),
+        )
+        for sheet in sorted(grouped.keys(), key=lambda name: int(name.rsplit("_", 1)[1])):
+            meters = sorted(
+                grouped[sheet].values(),
+                key=lambda item: (parse_int(item.get("slave"), 0), clean_text(item.get("meterCode"))),
+            )
+            for meter in meters:
+                device_name = clean_text(meter.get("deviceName"))
+                if not device_name.startswith("电能质量分析仪"):
+                    continue
+                existing_codes = {
+                    clean_text(point.get("pointCode"))
+                    for point in meter.get("points", [])
+                    if isinstance(point, dict)
+                }
+                for point_code, name, address in ratio_specs:
+                    if point_code in existing_codes:
+                        continue
+                    meter["points"].append(make_power_quality_ratio_point(
+                        index=next_index,
+                        point_code=point_code,
+                        name=name,
+                        address=address,
+                        device_name=device_name,
+                    ))
+                    existing_codes.add(point_code)
+                    next_index += 1
+                    supplemental_ratio_point_count += 1
 
     output_dir = Path(args.output_dir)
     generated: List[Tuple[Path, Dict[str, object]]] = []
@@ -675,7 +946,7 @@ def build_devices(
                 "keepHistory": 100,
                 "defaultTtlMs": 600000,
                 "indexBy": ["machineCode", "meterCode", "pointCode"],
-                "sharedMemoryName": args.shared_memory_name,
+                "sharedMemoryName": f"{args.shared_memory_name}_ttySP{sheet_no}",
                 "maxLatestPoints": 100000,
                 "maxPendingWrites": 4096,
                 "maxPersistentSamples": 20000,
@@ -696,7 +967,8 @@ def build_devices(
         "meterCount": sum(len(device["meters"]) for _, device in generated),
         "pointCount": sum(len(meter["points"]) for _, device in generated for meter in device["meters"]),
         "varRows": len(var_rows),
-        "modbusRows": len(modbus_by_index),
+        "modbusRows": sum(len(rows) for rows in modbus_by_index.values()),
+        "uniqueModbusIndexes": len(modbus_by_index),
         "missingSourceRows": skipped_missing_source,
         "adjustedMeterCodes": [
             {
@@ -725,6 +997,7 @@ def build_devices(
             and isinstance(point.get("write"), dict)
             and point["write"].get("enable")
         ),
+        "supplementalRatioPointCount": supplemental_ratio_point_count,
     }
     return generated, summary
 
@@ -751,11 +1024,18 @@ def main(argv: List[str]) -> int:
     args = parse_args(argv)
     reader = XlsmReader(Path(args.input))
     try:
-        serial_configs = read_serial_configs(reader, args.serial_prefix)
+        serial_configs = read_serial_configs(reader, args.serial_prefix, parse_serial_map(args.serial_map))
         modbus_by_index = read_modbus_rows(reader)
         var_rows = read_var_rows(reader)
     finally:
         reader.close()
+
+    point_code_map = parse_point_code_map(args.point_code_map)
+    if point_code_map:
+        var_rows = [
+            replace(var, point_code=point_code_map.get(var.point_name, var.point_code))
+            for var in var_rows
+        ]
 
     generated, summary = build_devices(serial_configs, modbus_by_index, var_rows, args)
     for path, device in generated:

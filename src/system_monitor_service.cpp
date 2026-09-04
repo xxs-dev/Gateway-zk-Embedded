@@ -1,5 +1,6 @@
 #include "edge_gateway/system_monitor_service.hpp"
 
+#include "edge_gateway/json_value_writer.hpp"
 #include "edge_gateway/system_monitor_points.hpp"
 
 #include <algorithm>
@@ -200,8 +201,9 @@ std::string escapeJson(const std::string& value) {
 void appendMonitorPointValueJson(std::ostringstream& out, const StoredPointValue& value) {
     out << "[" << value.index
         << ",\"" << escapeJson(value.pointCode) << "\""
-        << "," << value.value
-        << "," << value.quality
+        << ",";
+    appendJsonNumber(out, value.value);
+    out << "," << value.quality
         << "," << value.ts
         << "," << value.expireAt
         << "," << (value.stale ? "true" : "false")

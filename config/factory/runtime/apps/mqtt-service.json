@@ -80,6 +80,10 @@
     "password": "",
     "qos": 1,
     "intervalMs": 60000,
+    "retryMinMs": 500,
+    "retryMaxMs": 5000,
+    "healthHeartbeatMs": 1000,
+    "failOnStoreError": true,
     "tls": {
       "enabled": false,
       "caFile": "",
@@ -106,6 +110,16 @@
     "publishAllOnFull": false,
     "fullUploadJsonFormat": "compactArray",
     "fullUploadIndexes": [],
+    "fullUploadWorker": {
+      "mode": "inline",
+      "clientIdSuffix": "-full",
+      "healthFile": "/run/modbus-gateway/mqtt-primary-full-{instance}-health.json",
+      "publishLockFile": "/opt/modbus-gateway/run/mqtt-primary-full-{instance}.lock",
+      "healthHeartbeatMs": 1000,
+      "failoverTimeoutMs": 3000,
+      "retryMinMs": 500,
+      "retryMaxMs": 5000
+    },
     "priorityControlLeaseFile": "/opt/modbus-gateway/run/priority-control.json",
     "powerControlOwnershipFile": "/opt/modbus-gateway/run/power-control-owner.json",
     "priorityControlLeaseTtlMs": 30000

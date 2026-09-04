@@ -2,6 +2,7 @@
 set -eu
 
 DEVICE_HOSTNAME="${DEVICE_HOSTNAME:-COMM202600105}"
+VIRTUAL_IP="${VIRTUAL_IP:-}"
 SOURCE_DIR="${SOURCE_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"
 INSTALL_BIN_DIR="${INSTALL_BIN_DIR:-/usr/local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/easytier}"
@@ -13,6 +14,17 @@ require_root() {
     echo "This installer must run as root." >&2
     exit 1
   fi
+}
+
+validate_virtual_ip() {
+  case "$VIRTUAL_IP" in
+    *.*.*.*/*) ;;
+    *.*.*.*) VIRTUAL_IP="$VIRTUAL_IP/24" ;;
+    *)
+      echo "VIRTUAL_IP is required, for example 10.126.126.12/24." >&2
+      exit 2
+      ;;
+  esac
 }
 
 generate_uuid() {
@@ -84,7 +96,8 @@ write_config() {
 hostname = "$DEVICE_HOSTNAME"
 instance_name = "kyxn"
 instance_id = "$instance_id"
-dhcp = true
+ipv4 = "$VIRTUAL_IP"
+dhcp = false
 listeners = [
     "tcp://0.0.0.0:11010",
     "udp://0.0.0.0:11010",
@@ -152,12 +165,14 @@ show_result() {
   echo "EasyTier installed successfully."
   echo "hostname=$DEVICE_HOSTNAME"
   echo "instance_id=$instance_id"
+  echo "ipv4=$VIRTUAL_IP"
   echo "config=$CONFIG_FILE"
   echo "mode=no_tun"
   systemctl --no-pager --full status easytier.service | sed -n '1,12p'
 }
 
 require_root
+validate_virtual_ip
 install_hostname
 install_binaries
 write_config

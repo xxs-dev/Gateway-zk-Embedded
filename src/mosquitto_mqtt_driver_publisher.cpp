@@ -1,5 +1,7 @@
 #include "edge_gateway/mosquitto_mqtt_driver_publisher.hpp"
 
+#include "edge_gateway/json_value_writer.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -50,6 +52,14 @@ std::string scopedTopic(const std::string& topic, const std::string& machineCode
         return topic;
     }
     return topic + suffix;
+}
+
+std::string configuredPublishTopic(const MqttConfig& config, const std::string& topic) {
+    if ((!config.commandReplyTopicMachineScoped && topic == config.commandReplyTopic) ||
+        (!config.fullTelemetryTopicMachineScoped && topic == config.fullTelemetryTopic)) {
+        return topic;
+    }
+    return scopedTopic(topic, config.topicMachineCode);
 }
 
 std::string escapeJson(const std::string& value) {
@@ -107,8 +117,9 @@ void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item,
     if (format == PointValueJsonFormat::CompactArray) {
         out << "[" << item.index
             << ",\"" << escapeJson(item.pointCode) << "\""
-            << "," << item.value
-            << "," << item.quality
+            << ",";
+        appendJsonNumber(out, item.value);
+        out << "," << item.quality
             << "," << item.ts
             << "," << item.expireAt
             << "," << (item.stale ? "true" : "false")
@@ -117,8 +128,9 @@ void appendPointValueJson(std::ostringstream& out, const StoredPointValue& item,
     }
     out << "{\"index\":" << item.index
         << ",\"pointCode\":\"" << escapeJson(item.pointCode) << "\""
-        << ",\"value\":" << item.value
-        << ",\"quality\":" << item.quality
+        << ",\"value\":";
+    appendJsonNumber(out, item.value);
+    out << ",\"quality\":" << item.quality
         << ",\"ts\":" << item.ts
         << ",\"expireAt\":" << item.expireAt
         << ",\"stale\":" << (item.stale ? "true" : "false")
@@ -216,8 +228,9 @@ std::string encodeAlarmJson(std::uint32_t index, const StoredPointValue& value, 
         << ",\"pointCode\":\"" << escapeJson(value.pointCode) << "\""
         << ",\"alarmType\":\"" << escapeJson(alarmType) << "\""
         << ",\"active\":" << (active ? "true" : "false")
-        << ",\"value\":" << value.value
-        << ",\"quality\":" << value.quality
+        << ",\"value\":";
+    appendJsonNumber(out, value.value);
+    out << ",\"quality\":" << value.quality
         << ",\"ts\":" << value.ts
         << ",\"stale\":" << (value.stale ? "true" : "false")
         << "}";
@@ -231,8 +244,9 @@ std::string encodeChangeEventJson(const StoredPointValue& value) {
         << ",\"meterCode\":\"" << escapeJson(value.meterCode) << "\""
         << ",\"index\":" << value.index
         << ",\"pointCode\":\"" << escapeJson(value.pointCode) << "\""
-        << ",\"value\":" << value.value
-        << ",\"quality\":" << value.quality
+        << ",\"value\":";
+    appendJsonNumber(out, value.value);
+    out << ",\"quality\":" << value.quality
         << ",\"ts\":" << value.ts
         << ",\"expireAt\":" << value.expireAt
         << ",\"stale\":" << (value.stale ? "true" : "false")
@@ -247,8 +261,9 @@ std::string encodeCommandReplyJson(const MqttCommandReply& reply) {
         << ",\"meterCode\":\"" << escapeJson(reply.meterCode) << "\""
         << ",\"pointCode\":\"" << escapeJson(reply.pointCode) << "\""
         << ",\"index\":" << reply.index
-        << ",\"value\":" << reply.value
-        << ",\"success\":" << (reply.success ? "true" : "false")
+        << ",\"value\":";
+    appendJsonNumber(out, reply.value);
+    out << ",\"success\":" << (reply.success ? "true" : "false")
         << ",\"message\":\"" << escapeJson(reply.message) << "\""
         << ",\"stage\":\"" << escapeJson(reply.stage) << "\""
         << ",\"requestedAt\":" << reply.requestedAt
@@ -506,7 +521,7 @@ void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const s
         throw std::runtime_error("mosquitto connect failed");
     }
 
-    const std::string scoped = scopedTopic(topic, config_.topicMachineCode);
+    const std::string scoped = configuredPublishTopic(config_, topic);
     if (protocol == kMqttProtocolV5) {
         rc = impl_->publishV5(
             client,
@@ -540,7 +555,7 @@ void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const s
 
 int MosquittoMqttDriverPublisher::qosForTopic(const std::string& scopedTopicValue) const {
     const auto matches = [&](const std::string& topic) {
-        return !topic.empty() && scopedTopic(topic, config_.topicMachineCode) == scopedTopicValue;
+        return !topic.empty() && configuredPublishTopic(config_, topic) == scopedTopicValue;
     };
     if (matches(config_.commandReplyTopic) ||
         matches(config_.otaReplyTopic) ||

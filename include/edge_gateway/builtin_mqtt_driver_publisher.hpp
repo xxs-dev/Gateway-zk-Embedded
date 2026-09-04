@@ -76,6 +76,7 @@ public:
     ) override;
 
     void maintain() override;
+    void probeConnection() override;
 
     std::vector<MqttIncomingMessage> pollIncoming(int timeoutMs) override;
 

@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
@@ -91,6 +92,7 @@ int main() {
     config.memoryStore.maxLatestPoints = 16;
     config.memoryStore.maxPendingWrites = 4;
     config.memoryStore.maxPersistentSamples = 4;
+    config.memoryStore.sqlitePath.clear();
     LogicalDeviceConfig logicalDevice;
     logicalDevice.meterCode = "CAN_DEVICE";
     logicalDevice.deviceName = "CAN online initialization test";
@@ -126,6 +128,101 @@ int main() {
         require(refreshedOnline->ts == heartbeatTs, "CAN online point heartbeat must refresh its timestamp");
     }
     MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
+
+    config.memoryStore.sharedMemoryName = "can_signal_codec_test_stale_generation";
+    config.meters[0].points.clear();
+    PointDefinition controlPoint;
+    controlPoint.index = 310001;
+    controlPoint.pointCode = "active_power_setpoint";
+    controlPoint.name = "有功功率设定";
+    controlPoint.enabled = true;
+    controlPoint.write = writeSpec;
+    config.meters[0].points.push_back(controlPoint);
+#ifdef _WIN32
+    const std::string ownershipFile = std::tmpnam(nullptr);
+#else
+    const std::string ownershipFile = "/tmp/can-signal-codec-power-owner.json";
+#endif
+    config.mqttDriver.powerControlOwnershipFile = ownershipFile;
+    config.mqttDriver.priorityControlLeaseFile = ownershipFile + ".priority";
+    std::remove(ownershipFile.c_str());
+    std::remove((ownershipFile + ".lock").c_str());
+    std::remove(config.mqttDriver.priorityControlLeaseFile.c_str());
+    MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
+    {
+        MemoryPointStore store(config.memoryStore);
+        PowerControlOwnership remote(ownershipFile, "mqtt-forwarder");
+        const auto takeover = remote.acquireOrRenew(
+            "pcs-power", "third-party", {310001}, "CAN_REMOTE", 1000, 15000
+        );
+        require(takeover.accepted && takeover.generation != 0, "CAN takeover setup failed");
+        require(
+            remote.recordReceipt("third-party", "CAN_REMOTE", takeover.generation, true),
+            "CAN takeover receipt setup failed"
+        );
+
+        CanDriverService service(config, store);
+        PendingWriteCommand directLocal;
+        directLocal.cmdId = "CAN_DIRECT_LOCAL";
+        directLocal.index = 310001;
+        directLocal.value = 5.0;
+        directLocal.source = "compute-engine";
+        directLocal.ts = 1000;
+        directLocal.acceptedAt = 1000;
+        store.submitWriteCommand(directLocal);
+        require(
+            service.processWritebackOnce(1000) == 0,
+            "generation-zero CAN write must not bypass active ownership"
+        );
+        const auto directLocalResult = store.getWritebackResult(directLocal.cmdId);
+        require(
+            directLocalResult && !directLocalResult->success &&
+                directLocalResult->stage == "control-rejected",
+            "direct CAN write must be rejected before field I/O"
+        );
+
+        PendingWriteCommand command;
+        command.cmdId = "CAN_REMOTE";
+        command.index = 310001;
+        command.value = 10.0;
+        command.source = "mqtt-forwarder";
+        command.ts = 1000;
+        command.acceptedAt = 1000;
+        command.controlGeneration = takeover.generation;
+        store.submitWriteCommand(command);
+        require(
+            remote.releaseAndAdvance("third-party") != 0,
+            "CAN takeover release must advance generation"
+        );
+
+        require(service.processWritebackOnce(1001) == 0, "stale CAN control must not execute");
+        const auto result = store.getWritebackResult("CAN_REMOTE");
+        require(result && !result->success, "stale CAN control must report failure");
+        require(result->stage == "control-rejected", "stale CAN control must fail at ownership check");
+
+        PendingWriteCommand zeroGenerationRemote;
+        zeroGenerationRemote.cmdId = "CAN_REMOTE_ZERO_GENERATION";
+        zeroGenerationRemote.index = 310001;
+        zeroGenerationRemote.value = 11.0;
+        zeroGenerationRemote.source = "mqtt-forwarder";
+        zeroGenerationRemote.ts = 1002;
+        zeroGenerationRemote.acceptedAt = 1002;
+        store.submitWriteCommand(zeroGenerationRemote);
+        require(
+            service.processWritebackOnce(1002) == 0,
+            "released zero-generation CAN control must not execute"
+        );
+        const auto zeroGenerationResult = store.getWritebackResult(zeroGenerationRemote.cmdId);
+        require(
+            zeroGenerationResult && !zeroGenerationResult->success &&
+                zeroGenerationResult->stage == "control-rejected",
+            "released zero-generation CAN control must fail ownership validation"
+        );
+    }
+    MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
+    std::remove(ownershipFile.c_str());
+    std::remove((ownershipFile + ".lock").c_str());
+    std::remove(config.mqttDriver.priorityControlLeaseFile.c_str());
 
     return 0;
 }

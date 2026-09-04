@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -765,6 +766,88 @@ void testControlTopicsUseQos2() {
     require(messages[3].qos == 2, "recording status should use qos2");
 }
 
+void testFullTelemetryTopicScopingMode() {
+    TestMqttBroker broker(2);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_FULL_TOPIC";
+    config.topicMachineCode = "GW_FULL_TOPIC";
+    config.fullTelemetryTopic = "third/site/full";
+    config.offlineBufferEnabled = false;
+
+    edge_gateway::StoredPointValue point;
+    point.index = 1001;
+    point.value = 1.0;
+    point.ts = 1000;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+    }
+    config.clientId = "GW_FULL_TOPIC_EXACT";
+    config.fullTelemetryTopicMachineScoped = false;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+    }
+
+    const auto messages = broker.messages();
+    require(messages.size() == 2, "test broker should capture both full telemetry publishes");
+    require(
+        messages[0].topic == "third/site/full/GW_FULL_TOPIC",
+        "full telemetry topic must remain machine-scoped by default"
+    );
+    require(
+        messages[1].topic == "third/site/full",
+        "explicit exact full telemetry topic must not append machineCode"
+    );
+}
+
+void testNonFinitePointValuesProduceValidJson() {
+    TestMqttBroker broker(5);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_FINITE_JSON";
+    config.topicMachineCode = "GW_FINITE_JSON";
+    config.fullTelemetryTopic = "edge/telemetry/full";
+    config.changeEventTopic = "edge/event/change";
+    config.alarmTopic = "edge/alarm";
+    config.commandReplyTopic = "edge/command/reply";
+    config.offlineBufferEnabled = false;
+
+    edge_gateway::StoredPointValue point;
+    point.index = 1001;
+    point.machineCode = config.topicMachineCode;
+    point.meterCode = "SIM_METER_01";
+    point.pointCode = "POWER";
+    point.value = std::numeric_limits<double>::quiet_NaN();
+    point.ts = 1000;
+
+    edge_gateway::MqttCommandReply reply;
+    reply.cmdId = "CMD_NON_FINITE";
+    reply.machineCode = config.topicMachineCode;
+    reply.value = std::numeric_limits<double>::infinity();
+
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "compactArray");
+    publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+    publisher.publishChangeEvent(config.changeEventTopic, point);
+    publisher.publishAlarm(config.alarmTopic, point.index, point, "high", true);
+    publisher.publishCommandReply(config.commandReplyTopic, reply);
+
+    const auto messages = broker.messages();
+    require(messages.size() == 5, "test broker should capture all non-finite JSON cases");
+    for (const auto& message : messages) {
+        require(message.payload.find("nan") == std::string::npos, "JSON must not contain nan");
+        require(message.payload.find("inf") == std::string::npos, "JSON must not contain inf");
+    }
+    require(messages[0].payload.find("[1001,\"POWER\",null,") != std::string::npos,
+        "compact point value must encode non-finite numbers as null");
+    for (std::size_t index = 1; index < messages.size(); ++index) {
+        require(messages[index].payload.find("\"value\":null") != std::string::npos,
+            "object payload value must encode non-finite numbers as null");
+    }
+}
+
 void testUnreachableBrokerHonorsConnectTimeout() {
     edge_gateway::MqttConfig config;
     config.broker = "tcp://192.0.2.1:1883";
@@ -801,6 +884,46 @@ int main() {
     require(message.type == MqttIncomingType::CommandRequest, "command publish type mismatch");
     require(message.topic == "edge/command/request/GW_TEST", "command publish topic mismatch");
     require(message.payload == "{\"cmdId\":\"CMD1\"}", "command publish payload mismatch");
+    require(!message.retained, "normal command publish must not be retained");
+
+    auto retainedPublish = ok;
+    retainedPublish[0] = static_cast<std::uint8_t>(retainedPublish[0] | 0x01);
+    require(
+        BuiltinMqttDriverPublisher::parseIncomingPublishPacket(config, retainedPublish, &message),
+        "retained command publish should parse"
+    );
+    require(message.type == MqttIncomingType::CommandRequest, "retained command publish type mismatch");
+    require(message.topic == "edge/command/request/GW_TEST", "retained command publish topic mismatch");
+    require(message.payload == "{\"cmdId\":\"CMD1\"}", "retained command publish payload mismatch");
+    require(message.retained, "retained command publish flag mismatch");
+
+    MqttConfig exactTopicConfig = config;
+    exactTopicConfig.commandRequestTopic = "cnz_data/cmdRequest/whzn005";
+    exactTopicConfig.commandRequestTopicMachineScoped = false;
+    const auto exactTopicPacket = publishPacket(
+        "cnz_data/cmdRequest/whzn005",
+        "{\"type\":\"1\"}"
+    );
+    require(
+        BuiltinMqttDriverPublisher::parseIncomingPublishPacket(
+            exactTopicConfig,
+            exactTopicPacket,
+            &message
+        ),
+        "exact third-party command topic should parse without a machineCode suffix"
+    );
+    const auto incorrectlyScopedPacket = publishPacket(
+        "cnz_data/cmdRequest/whzn005/GW_TEST",
+        "{\"type\":\"1\"}"
+    );
+    require(
+        !BuiltinMqttDriverPublisher::parseIncomingPublishPacket(
+            exactTopicConfig,
+            incorrectlyScopedPacket,
+            &message
+        ),
+        "exact third-party command topic must not accept an appended machineCode"
+    );
 
     config.recordingRequestTopic = "edge/recording/request";
     const auto recordingRequest = publishPacket(
@@ -834,6 +957,8 @@ int main() {
     testRealtimeRingSurvivesRestartAndReplaysBeforeCurrentSnapshot();
     testEventOutboxSurvivesRestartAndClearsAfterReplay();
     testControlTopicsUseQos2();
+    testFullTelemetryTopicScopingMode();
+    testNonFinitePointValuesProduceValidJson();
     testClosedTxConnectionReconnectsBeforeNextPublish();
     testUnreachableBrokerHonorsConnectTimeout();
 #endif

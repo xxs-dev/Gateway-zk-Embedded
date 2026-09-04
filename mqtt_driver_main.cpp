@@ -46,6 +46,31 @@ std::string sanitizeProcessToken(std::string value) {
     return value;
 }
 
+std::string sanitizeFileToken(std::string value) {
+    for (auto& ch : value) {
+        if (ch == '/' || ch == '\\' || ch == '.' || ch == ' ') {
+            ch = '_';
+        }
+    }
+    return value;
+}
+
+std::string scopedWorkerPath(std::string path, const std::string& appConfigPath) {
+    auto instance = basenameOf(appConfigPath);
+    const auto extension = instance.rfind(".json");
+    if (extension != std::string::npos && extension + 5 == instance.size()) {
+        instance.erase(extension);
+    }
+    instance = sanitizeFileToken(instance);
+    const std::string marker = "{instance}";
+    std::size_t pos = 0;
+    while ((pos = path.find(marker, pos)) != std::string::npos) {
+        path.replace(pos, marker.size(), instance);
+        pos += instance.size();
+    }
+    return path;
+}
+
 std::string scopedTopic(const std::string& topic, const std::string& machineCode) {
     if (topic.empty() || machineCode.empty()) {
         return topic;
@@ -257,6 +282,14 @@ int main(int argc, char* argv[]) {
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     TimingPolicyResolver::applyAppServices(appConfig);
+    appConfig.mqttDriver.fullUploadWorker.healthFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.healthFile,
+        appConfigPath
+    );
+    appConfig.mqttDriver.fullUploadWorker.publishLockFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.publishLockFile,
+        appConfigPath
+    );
     setProcessName("modbus-mqtt-" + sanitizeProcessToken(basenameOf(appConfigPath)));
     if (appConfig.mqtt.protocolVersion != "mqtt3" && appConfig.mqtt.protocolVersion != "mqtt5") {
         throw std::invalid_argument("mqtt.protocolVersion must be mqtt3 or mqtt5");
@@ -288,6 +321,9 @@ int main(int argc, char* argv[]) {
     if (!topicMachineCode.empty()) {
         appConfig.mqtt.clientId = topicMachineCode;
     }
+    if (appConfig.mqttDriver.fullUploadWorker.mode == "isolated") {
+        appConfig.mqtt.fullSnapshotOfflineBufferEnabled = false;
+    }
     std::vector<std::string> sharedMemoryNames = appConfig.mqttDriver.sharedMemoryNames;
     if (sharedMemoryNames.empty()) {
         sharedMemoryNames.push_back(appConfig.mqttDriver.sharedMemoryName);
@@ -304,7 +340,8 @@ int main(int argc, char* argv[]) {
             sharedMemoryNames.push_back(name);
         }
     }
-    if (!appConfig.cameraService.sharedMemoryName.empty() &&
+    if (appConfig.cameraService.enabled &&
+        !appConfig.cameraService.sharedMemoryName.empty() &&
         seenSharedMemoryNames.insert(appConfig.cameraService.sharedMemoryName).second) {
         sharedMemoryNames.push_back(appConfig.cameraService.sharedMemoryName);
     }

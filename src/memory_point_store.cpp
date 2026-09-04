@@ -32,10 +32,16 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::uint32_t kSharedStoreMagic = 0x4D505354;  // MPST
-constexpr std::uint32_t kSharedStoreVersion = 8;
+constexpr std::uint32_t kSharedStoreVersion = 9;
+constexpr std::uint32_t kMinimumCompatibleSharedStoreVersion = 8;
 constexpr std::size_t kMaxLatestSlots = 100000;
 constexpr std::size_t kMaxPendingWriteSlots = 4096;
 constexpr std::size_t kMaxWritebackResultSlots = 4096;
+
+bool isCompatibleSharedStoreVersion(std::uint32_t version) {
+    return version >= kMinimumCompatibleSharedStoreVersion &&
+        version <= kSharedStoreVersion;
+}
 constexpr std::size_t kMaxPersistentSlots = 20000;
 constexpr std::size_t kMaxPointUpdateSlots = 65536;
 constexpr std::size_t kMaxOwnerSlots = 64;
@@ -77,8 +83,15 @@ struct SharedPendingWriteSlot {
     char source[kSourceSize] = {};
     std::uint8_t occupied = 0;
     std::uint8_t highPriority = 0;
-    std::uint8_t reserved[6] = {};
+    std::uint8_t reserved[2] = {};
+    std::uint32_t controlGeneration = 0;
 };
+
+static_assert(sizeof(SharedPendingWriteSlot) == 144, "pending write ABI changed unexpectedly");
+static_assert(
+    offsetof(SharedPendingWriteSlot, controlGeneration) == 140,
+    "control generation must occupy the previous reserved bytes"
+);
 
 struct SharedWritebackResultSlot {
     std::uint64_t sequence = 0;
@@ -516,6 +529,7 @@ void pushPendingWrite(
     copyString(slot.source, kSourceSize, command.source);
     slot.occupied = 1;
     slot.highPriority = command.highPriority ? 1 : 0;
+    slot.controlGeneration = command.controlGeneration;
 
     layout->header.pendingWriteTail =
         (layout->header.pendingWriteTail + 1) % kMaxPendingWriteSlots;
@@ -550,7 +564,8 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     readString(slot.source, kSourceSize),
                     slot.ts,
                     slot.acceptedAt,
-                    slot.highPriority != 0
+                    slot.highPriority != 0,
+                    slot.controlGeneration
                 });
             } else {
                 retained.push_back(slot);
@@ -589,7 +604,8 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 readString(slot.source, kSourceSize),
                 slot.ts,
                 slot.acceptedAt,
-                slot.highPriority != 0
+                slot.highPriority != 0,
+                slot.controlGeneration
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;
@@ -906,10 +922,12 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
         SharedLockGuard lock(mutexHandle_);
         auto* layout = layoutFrom(sharedView_);
         if (openMode == MemoryStoreOpenMode::OpenExisting &&
-            (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion)) {
+            (layout->header.magic != kSharedStoreMagic ||
+             !isCompatibleSharedStoreVersion(layout->header.version))) {
             throw std::runtime_error("shared memory version mismatch: " + segmentName_);
         }
-        if (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion) {
+        if (layout->header.magic != kSharedStoreMagic ||
+            !isCompatibleSharedStoreVersion(layout->header.version)) {
             std::memset(layout, 0, sizeof(SharedStoreLayout));
             layout->header.magic = kSharedStoreMagic;
             layout->header.version = kSharedStoreVersion;
@@ -993,7 +1011,8 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
         }
         layout->header.magic = kSharedStoreMagic;
         layout->header.version = kSharedStoreVersion;
-    } else if (layout->header.magic != kSharedStoreMagic || layout->header.version != kSharedStoreVersion) {
+    } else if (layout->header.magic != kSharedStoreMagic ||
+               !isCompatibleSharedStoreVersion(layout->header.version)) {
         munmap(sharedView_, sizeof(SharedStoreLayout));
         sharedView_ = nullptr;
         close(fd);
@@ -1028,7 +1047,8 @@ bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName) {
     void* view = mmap(nullptr, sizeof(SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (view != MAP_FAILED) {
         auto* layout = layoutFrom(view);
-        if (layout->header.magic == kSharedStoreMagic && layout->header.version == kSharedStoreVersion) {
+        if (layout->header.magic == kSharedStoreMagic &&
+            isCompatibleSharedStoreVersion(layout->header.version)) {
             try {
                 SharedLockGuard sharedLock(&layout->header.mutex);
                 const auto ts = currentTimeMs();
@@ -1140,7 +1160,8 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
     }
 
     auto* newLayout = layoutFrom(newView);
-    if (newLayout->header.magic != kSharedStoreMagic || newLayout->header.version != kSharedStoreVersion) {
+    if (newLayout->header.magic != kSharedStoreMagic ||
+        !isCompatibleSharedStoreVersion(newLayout->header.version)) {
         munmap(newView, sizeof(SharedStoreLayout));
         close(currentFd);
         throw std::runtime_error("shared memory version mismatch while refreshing mapping");

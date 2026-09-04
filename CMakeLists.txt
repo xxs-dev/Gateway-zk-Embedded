@@ -63,6 +63,7 @@ add_library(edge_gateway
     src/modbus_codec.cpp
     src/posix_serial_port.cpp
     src/point_store_router.cpp
+    src/process_file_lock.cpp
     src/power_control_ownership.cpp
     src/priority_control_lease.cpp
     src/read_task_planner.cpp
@@ -308,6 +309,10 @@ add_executable(modbus_rtu_client_resync_test tools/modbus_rtu_client_resync_test
 target_link_libraries(modbus_rtu_client_resync_test PRIVATE edge_gateway)
 target_compile_options(modbus_rtu_client_resync_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(modbus_codec_test tools/modbus_codec_test.cpp)
+target_link_libraries(modbus_codec_test PRIVATE edge_gateway)
+target_compile_options(modbus_codec_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(dlt645_client_interval_test tools/dlt645_client_interval_test.cpp)
 target_link_libraries(dlt645_client_interval_test PRIVATE edge_gateway)
 target_compile_options(dlt645_client_interval_test PRIVATE -fdiagnostics-color=never)
@@ -468,6 +473,7 @@ if(BUILD_TESTING)
         set_tests_properties(posix_serial_port_recovery PROPERTIES TIMEOUT 5)
     endif()
     add_test(NAME modbus_northbound_server COMMAND modbus_northbound_server_test)
+    add_test(NAME modbus_codec COMMAND modbus_codec_test)
     add_test(NAME modbus_rtu_client_resync COMMAND modbus_rtu_client_resync_test)
     add_test(NAME modbus_tcp_client_limit COMMAND modbus_tcp_client_limit_test)
     add_test(NAME mqtt_driver_service COMMAND mqtt_driver_service_test)
