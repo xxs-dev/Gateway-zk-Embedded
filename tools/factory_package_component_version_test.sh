@@ -84,4 +84,13 @@ for binary in SystemMonitor MqttDriver MqttForwarder pointctl QtDisplayBridge; d
 done
 [ -x "$TMP_ROOT/gateway/ky-ems/KY-EMS" ]
 [ -x "$TMP_ROOT/gateway/bin/gateway-health-watchdog.sh" ]
+
+smoke_output="$TMP_ROOT/production-smoke.out"
+GATEWAY_HOME="$TMP_ROOT/gateway" \
+APP_CONFIG="$TMP_ROOT/gateway/config/runtime/apps/mqtt-service.json" \
+MONITOR_CONFIG="$TMP_ROOT/gateway/config/runtime/apps/monitor-service.json" \
+EDGE_PACKAGE_MANIFEST="$TMP_ROOT/gateway/config/runtime/edge-package-manifest.json" \
+sh "$ROOT_DIR/deploy/production-smoke-test.sh" >"$smoke_output" 2>&1 || true
+grep -F "[PASS] KY-EMS executable: $TMP_ROOT/gateway/ky-ems/KY-EMS" "$smoke_output"
+
 echo "factory package external production init test passed"

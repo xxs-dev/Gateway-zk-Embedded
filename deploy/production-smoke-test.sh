@@ -82,6 +82,13 @@ exec_exists() {
   fi
 }
 
+runtime_binary_path() {
+  case "$1" in
+    KY-EMS) printf '%s\n' "$GATEWAY_HOME/ky-ems/KY-EMS" ;;
+    *) printf '%s\n' "$BIN_DIR/$1" ;;
+  esac
+}
+
 has_openssl_runtime() {
   if command -v ldconfig >/dev/null 2>&1; then
     if ldconfig -p 2>/dev/null | grep -q 'libssl' &&
@@ -242,7 +249,7 @@ check_runtime_files() {
   fi
   pass "edge package profile: $profile"
   for bin in $(required_runtime_binaries); do
-    exec_exists "$BIN_DIR/$bin" "$bin"
+    exec_exists "$(runtime_binary_path "$bin")" "$bin"
   done
   for script in gateway-services.sh gateway-health-watchdog.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-cellular.sh gateway-network-failover.sh; do
     exec_exists "$BIN_DIR/$script" "$script"
