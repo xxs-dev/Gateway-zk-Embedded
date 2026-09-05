@@ -540,6 +540,12 @@ std::vector<std::uint32_t> MqttDriverService::resolveFullUploadIndexes(
     return indexes;
 }
 
+std::int64_t currentMonotonicTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
+
 MqttDriverService::MqttDriverService(
     MqttConfig mqttConfig,
     MqttDriverConfig driverConfig,
@@ -1099,6 +1105,17 @@ bool MqttDriverService::isolatedFullForwarderIsActive(std::int64_t nowMs) const 
         return false;
     }
     const bool leaseState = state == "claiming" || (state == "active" && healthy);
+    std::int64_t heartbeatMonotonicMs = 0;
+    std::int64_t leaseUntilMonotonicMs = 0;
+    const bool hasMonotonicLease =
+        health.tryGetInt64("heartbeatMonotonicMs", &heartbeatMonotonicMs) &&
+        health.tryGetInt64("leaseUntilMonotonicMs", &leaseUntilMonotonicMs);
+    if (hasMonotonicLease) {
+        const auto monotonicNowMs = currentMonotonicTimeMs();
+        return leaseState && leaseUntilMonotonicMs >= monotonicNowMs &&
+            heartbeatMonotonicMs <= monotonicNowMs + worker.failoverTimeoutMs &&
+            monotonicNowMs - heartbeatMonotonicMs <= worker.failoverTimeoutMs;
+    }
     return leaseState && leaseUntilMs >= nowMs &&
         heartbeatAtMs <= nowMs + worker.failoverTimeoutMs &&
         nowMs - heartbeatAtMs <= worker.failoverTimeoutMs;

@@ -6,6 +6,42 @@ VERSION="${2:-}"
 JOB_ID="${3:-}"
 BACKUP_DIR="${4:-}"
 STAGING_DIR="${5:-}"
+WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
+WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
+
+watchdog_boot_id() {
+  if [ -r /proc/sys/kernel/random/boot_id ]; then
+    sed -n '1p' /proc/sys/kernel/random/boot_id
+  else
+    printf '%s\n' unknown
+  fi
+}
+
+watchdog_uptime_sec() {
+  if [ -r /proc/uptime ]; then
+    sed -n '1{s/\..*//;p;}' /proc/uptime
+  else
+    date +%s
+  fi
+}
+
+write_applying_marker() {
+  mkdir -p "$WATCHDOG_RUN_DIR"
+  tmp="$WATCHDOG_APPLYING_FILE.tmp.$$"
+  {
+    printf 'kind=ota-rollback\n'
+    printf 'pid=%s\n' "$$"
+    printf 'boot_id=%s\n' "$(watchdog_boot_id)"
+    printf 'created_uptime_sec=%s\n' "$(watchdog_uptime_sec)"
+  } > "$tmp"
+  mv -f "$tmp" "$WATCHDOG_APPLYING_FILE"
+}
+
+cleanup_applying_marker() {
+  rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
+}
+
+trap cleanup_applying_marker EXIT HUP INT TERM
 
 if [ -z "$ARTIFACT_PATH" ] || [ -z "$VERSION" ] || [ -z "$JOB_ID" ] || [ -z "$BACKUP_DIR" ] || [ -z "$STAGING_DIR" ]; then
   echo "[ota-rollback] usage: ota-rollback.sh <artifactPath> <version> <jobId> <backupDir> <stagingDir>" >&2
@@ -53,7 +89,7 @@ safe_service_name() {
       ;;
   esac
   case "$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|mqtt-forwarder@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service)
+    gateway-services.service|gateway-health-watchdog.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|mqtt-forwarder@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service)
       return 0
       ;;
   esac
@@ -64,6 +100,7 @@ require_safe_id "jobId" "$JOB_ID"
 require_safe_id "version" "$VERSION"
 require_safe_dir "backupDir" "$BACKUP_DIR"
 require_safe_dir "stagingDir" "$STAGING_DIR"
+write_applying_marker
 
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 LOG_FILE="$STAGING_DIR/upgrade_history.log"
@@ -271,6 +308,9 @@ if command -v systemctl >/dev/null 2>&1 && [ -f "$RESTART_FILE" ]; then
     fi
     if [ "$service" = "gateway-services.service" ]; then
       systemctl enable "$service" || echo "[$TIMESTAMP] [ota-rollback] enable failed $service" | tee -a "$LOG_FILE" >&2
+      echo "[$TIMESTAMP] [ota-rollback] reloading or starting $service" | tee -a "$LOG_FILE"
+      systemctl reload-or-restart "$service" || echo "[$TIMESTAMP] [ota-rollback] reload-or-restart failed $service" | tee -a "$LOG_FILE" >&2
+      continue
     fi
     echo "[$TIMESTAMP] [ota-rollback] restarting $service" | tee -a "$LOG_FILE"
     systemctl restart "$service" || echo "[$TIMESTAMP] [ota-rollback] restart failed $service" | tee -a "$LOG_FILE" >&2
@@ -279,7 +319,7 @@ if command -v systemctl >/dev/null 2>&1 && [ -f "$RESTART_FILE" ]; then
     if ! grep -qx 'gateway-services.service' "$RESTART_FILE"; then
       echo "[$TIMESTAMP] [ota-rollback] restarting gateway-services.service for tls restoration" | tee -a "$LOG_FILE"
       systemctl enable gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] enable failed gateway-services.service" | tee -a "$LOG_FILE" >&2
-      systemctl restart gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] restart failed gateway-services.service" | tee -a "$LOG_FILE" >&2
+      systemctl reload-or-restart gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] reload-or-restart failed gateway-services.service" | tee -a "$LOG_FILE" >&2
     fi
   fi
 fi

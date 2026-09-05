@@ -33,6 +33,12 @@ std::int64_t currentTimeMs() {
     ).count();
 }
 
+std::int64_t currentMonotonicTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
+
 enum class JsonPrimitiveKind {
     String,
     Number,
@@ -863,12 +869,19 @@ bool MqttForwarderService::writeHealth(
         (publishInProgress_ || healthy)
         ? nowMs + std::max(100, forwardConfig_.healthLeaseTtlMs)
         : 0;
+    const auto monotonicNowMs = currentMonotonicTimeMs();
+    const auto leaseUntilMonotonicMs = forwardConfig_.primaryFullUpload &&
+        (publishInProgress_ || healthy)
+        ? monotonicNowMs + std::max(100, forwardConfig_.healthLeaseTtlMs)
+        : 0;
     const std::string payload =
         std::string("{\"healthy\":") + (healthy ? "true" : "false") +
         ",\"state\":\"" + state + "\"" +
         ",\"ts\":" + std::to_string(nowMs) +
         ",\"heartbeatAtMs\":" + std::to_string(nowMs) +
         ",\"leaseUntilMs\":" + std::to_string(leaseUntilMs) +
+        ",\"heartbeatMonotonicMs\":" + std::to_string(monotonicNowMs) +
+        ",\"leaseUntilMonotonicMs\":" + std::to_string(leaseUntilMonotonicMs) +
         ",\"lastAttemptAtMs\":" + std::to_string(lastAttemptMs_) +
         ",\"lastSuccessAtMs\":" + std::to_string(lastPublishMs_) +
         ",\"nextAttemptAtMs\":" + std::to_string(nextAttemptMs_) +

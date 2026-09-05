@@ -6,6 +6,51 @@ VERSION="${2:-}"
 JOB_ID="${3:-}"
 BACKUP_DIR="${4:-}"
 STAGING_DIR="${5:-}"
+WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
+WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
+KEEP_APPLYING_MARKER=0
+
+watchdog_boot_id() {
+  if [ -r /proc/sys/kernel/random/boot_id ]; then
+    sed -n '1p' /proc/sys/kernel/random/boot_id
+  else
+    printf '%s\n' unknown
+  fi
+}
+
+watchdog_uptime_sec() {
+  if [ -r /proc/uptime ]; then
+    sed -n '1{s/\..*//;p;}' /proc/uptime
+  else
+    date +%s
+  fi
+}
+
+write_applying_marker_for() {
+  marker_kind="$1"
+  marker_pid="$2"
+  mkdir -p "$WATCHDOG_RUN_DIR"
+  tmp="$WATCHDOG_APPLYING_FILE.tmp.$$"
+  {
+    printf 'kind=%s\n' "$marker_kind"
+    printf 'pid=%s\n' "$marker_pid"
+    printf 'boot_id=%s\n' "$(watchdog_boot_id)"
+    printf 'created_uptime_sec=%s\n' "$(watchdog_uptime_sec)"
+  } > "$tmp"
+  mv -f "$tmp" "$WATCHDOG_APPLYING_FILE"
+}
+
+write_applying_marker() {
+  write_applying_marker_for ota-apply "$$"
+}
+
+cleanup_applying_marker() {
+  if [ "$KEEP_APPLYING_MARKER" != "1" ]; then
+    rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
+  fi
+}
+
+trap cleanup_applying_marker EXIT HUP INT TERM
 
 if [ -z "$ARTIFACT_PATH" ] || [ -z "$VERSION" ] || [ -z "$JOB_ID" ] || [ -z "$BACKUP_DIR" ] || [ -z "$STAGING_DIR" ]; then
   echo "[ota-apply] usage: ota-apply.sh <artifactPath> <version> <jobId> <backupDir> <stagingDir>" >&2
@@ -114,6 +159,7 @@ require_safe_id "jobId" "$JOB_ID"
 require_safe_id "version" "$VERSION"
 require_safe_dir "backupDir" "$BACKUP_DIR"
 require_safe_dir "stagingDir" "$STAGING_DIR"
+write_applying_marker
 
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 ARTIFACT_NAME="$(basename "$ARTIFACT_PATH")"
@@ -270,6 +316,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/pointctl",
     "/opt/modbus-gateway/bin/gateway-run.sh",
     "/opt/modbus-gateway/bin/gateway-services.sh",
+    "/opt/modbus-gateway/bin/gateway-health-watchdog.sh",
     "/opt/modbus-gateway/bin/install-factory-config.sh",
     "/opt/modbus-gateway/bin/local-kiosk.py",
     "/opt/modbus-gateway/bin/production-smoke-test.sh",
@@ -279,7 +326,9 @@ allowed_bin_targets = {
 }
 
 allowed_systemd_targets = {
+    "/etc/default/gateway-health-watchdog",
     "/etc/systemd/system/gateway-services.service",
+    "/etc/systemd/system/gateway-health-watchdog.service",
     "/etc/systemd/system/modbus-rtu@.service",
     "/etc/systemd/system/dlt645-driver@.service",
     "/etc/systemd/system/dio-driver@.service",
@@ -300,6 +349,7 @@ allowed_systemd_targets = {
 
 allowed_exact_services = (
     "gateway-services.service",
+    "gateway-health-watchdog.service",
     "ky-ems.service",
 )
 
@@ -503,6 +553,15 @@ if command -v systemctl >/dev/null 2>&1 && [ -n "$RESTART_FILE" ] && [ -f "$REST
   RESTART_LATER="$WORK_DIR/restart_later.sh"
   cat > "$RESTART_LATER" <<EOF
 #!/bin/sh
+WATCHDOG_RUN_DIR="$WATCHDOG_RUN_DIR"
+WATCHDOG_APPLYING_FILE="$WATCHDOG_APPLYING_FILE"
+cleanup_own_applying_marker() {
+  marker_pid=\$(sed -n 's/^pid=//p' "\$WATCHDOG_APPLYING_FILE" 2>/dev/null | sed -n '1p')
+  if [ "\$marker_pid" = "\$\$" ]; then
+    rm -f "\$WATCHDOG_APPLYING_FILE"
+  fi
+}
+trap cleanup_own_applying_marker EXIT HUP INT TERM
 sleep 2
 if [ -f "$SYSTEMD_RELOAD_FILE" ]; then
   echo "[$TIMESTAMP] [ota-apply] systemctl daemon-reload" >> "$LOG_FILE"
@@ -511,7 +570,7 @@ fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
   case "\$service" in
-    gateway-services.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|mqtt-forwarder@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
+    gateway-services.service|gateway-health-watchdog.service|modbus-rtu@*.service|dlt645-driver@*.service|dio-driver@*.service|can-driver@*.service|compute-engine@*.service|ems-cluster@*.service|agc-avc@*.service|event-engine@*.service|local-display@*.service|local-kiosk@*.service|ky-ems.service|camera-service@*.service|mqtt-driver@*.service|mqtt-forwarder@*.service|system-monitor@*.service|mqtt-tls-tunnel@*.service) ;;
     *)
       echo "[$TIMESTAMP] [ota-apply] skip unsafe restart service \$service" >> "$LOG_FILE"
       continue
@@ -519,6 +578,9 @@ while IFS= read -r service; do
   esac
   if [ "\$service" = "gateway-services.service" ]; then
     systemctl enable "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] enable failed \$service" >> "$LOG_FILE"
+    echo "[$TIMESTAMP] [ota-apply] reloading or starting \$service" >> "$LOG_FILE"
+    systemctl reload-or-restart "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] reload-or-restart failed \$service" >> "$LOG_FILE"
+    continue
   fi
   echo "[$TIMESTAMP] [ota-apply] restarting \$service" >> "$LOG_FILE"
   systemctl restart "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] restart failed \$service" >> "$LOG_FILE"
@@ -526,6 +588,9 @@ done < "$RESTART_FILE"
 EOF
   chmod +x "$RESTART_LATER"
   nohup sh "$RESTART_LATER" >/dev/null 2>&1 &
+  RESTART_PID=$!
+  write_applying_marker_for ota-restart "$RESTART_PID"
+  KEEP_APPLYING_MARKER=1
 fi
 
 exit 0

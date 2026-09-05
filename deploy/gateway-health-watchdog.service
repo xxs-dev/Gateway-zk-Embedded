@@ -11,6 +11,7 @@ EnvironmentFile=-/etc/default/gateway-health-watchdog
 ExecStart=/opt/modbus-gateway/bin/gateway-health-watchdog.sh run
 Restart=always
 RestartSec=5
+SuccessExitStatus=0 143
 StandardOutput=journal
 StandardError=journal
 

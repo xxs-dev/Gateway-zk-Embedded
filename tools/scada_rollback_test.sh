@@ -8,6 +8,8 @@ OTA_BACKUP="$ROOT/ota/backup"
 OTA_STAGING="$ROOT/ota/staging"
 INSTALLER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/deploy/install-scada-project.sh"
 ROLLBACK="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/deploy/ota-rollback.sh"
+WATCHDOG_RUN_DIR="$ROOT/watchdog"
+export WATCHDOG_RUN_DIR
 
 cleanup() {
     rm -rf "$ROOT"
@@ -39,7 +41,7 @@ with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
 PY
 }
 
-mkdir -p "$ROOT" "$OTA_BACKUP" "$OTA_STAGING"
+mkdir -p "$ROOT" "$OTA_BACKUP" "$OTA_STAGING" "$WATCHDOG_RUN_DIR"
 printf '%s\n' '{"marker":"factory","localDisplay":{"enabled":true}}' > "$APP_CONFIG"
 make_package "$ROOT/v1.kyscada" "1.0.0"
 make_package "$ROOT/v2.kyscada" "2.0.0"

@@ -4,14 +4,17 @@ set -eu
 REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 INSTALL_ROOT="/opt/modbus-gateway"
 TEMP_ROOT="$(mktemp -d /tmp/ota-self-upgrade.XXXXXX)"
+WATCHDOG_RUN_DIR="$TEMP_ROOT/watchdog"
+export WATCHDOG_RUN_DIR
 RUNTIME_PID=""
+INSTALL_CREATED=0
 
 cleanup() {
   if [ -n "$RUNTIME_PID" ]; then
     kill "$RUNTIME_PID" 2>/dev/null || true
     wait "$RUNTIME_PID" 2>/dev/null || true
   fi
-  if [ "$(realpath -m "$INSTALL_ROOT")" = "/opt/modbus-gateway" ]; then
+  if [ "$INSTALL_CREATED" = "1" ] && [ "$(realpath -m "$INSTALL_ROOT")" = "/opt/modbus-gateway" ]; then
     rm -rf -- "$INSTALL_ROOT"
   fi
   case "$TEMP_ROOT" in
@@ -35,6 +38,7 @@ mkdir -p \
   "$INSTALL_ROOT/ota/backup" \
   "$INSTALL_ROOT/ota/staging" \
   "$TEMP_ROOT/package/deploy"
+INSTALL_CREATED=1
 
 git -c safe.directory="$REPO_ROOT" -C "$REPO_ROOT" show HEAD:deploy/ota-apply.sh \
   > "$INSTALL_ROOT/bin/ota-apply.sh"
@@ -182,6 +186,19 @@ tar -C "$TEMP_ROOT/running-package" -czf "$running_artifact" manifest.json bin/M
   OTA_RUNNING_BINARY_TEST \
   "$INSTALL_ROOT/ota/backup" \
   "$INSTALL_ROOT/ota/staging"
+
+test -f "$WATCHDOG_RUN_DIR/applying"
+restart_pid="$(sed -n 's/^pid=//p' "$WATCHDOG_RUN_DIR/applying" | sed -n '1p')"
+kill -0 "$restart_pid"
+cat > "$WATCHDOG_RUN_DIR/applying" <<EOF
+kind=test-new-owner
+pid=$$
+boot_id=test
+created_uptime_sec=0
+EOF
+sleep 3
+test "$(sed -n 's/^pid=//p' "$WATCHDOG_RUN_DIR/applying" | sed -n '1p')" = "$$"
+rm -f "$WATCHDOG_RUN_DIR/applying"
 
 test "$(sha256sum "$INSTALL_ROOT/bin/ModbusRtu" | awk '{print $1}')" = "$new_binary_sha"
 test "$(stat -c '%a' "$INSTALL_ROOT/bin/ModbusRtu")" = "755"

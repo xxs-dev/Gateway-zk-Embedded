@@ -20,6 +20,34 @@ WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
 WATCHDOG_MANUAL_STOP_FILE="$WATCHDOG_RUN_DIR/manual-stop"
 
+watchdog_boot_id() {
+  if [ -r /proc/sys/kernel/random/boot_id ]; then
+    sed -n '1p' /proc/sys/kernel/random/boot_id
+  else
+    printf '%s\n' unknown
+  fi
+}
+
+watchdog_uptime_sec() {
+  if [ -r /proc/uptime ]; then
+    sed -n '1{s/\..*//;p;}' /proc/uptime
+  else
+    date +%s
+  fi
+}
+
+write_watchdog_applying_marker() {
+  mkdir -p "$WATCHDOG_RUN_DIR"
+  tmp="$WATCHDOG_APPLYING_FILE.tmp.$$"
+  {
+    printf 'kind=factory-install\n'
+    printf 'pid=%s\n' "$$"
+    printf 'boot_id=%s\n' "$(watchdog_boot_id)"
+    printf 'created_uptime_sec=%s\n' "$(watchdog_uptime_sec)"
+  } > "$tmp"
+  mv -f "$tmp" "$WATCHDOG_APPLYING_FILE"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage: install-factory-config.sh [--profile base|project|full] [--manifest FILE]
@@ -894,8 +922,7 @@ for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-he
 done
 
 if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
-  mkdir -p "$WATCHDOG_RUN_DIR"
-  : > "$WATCHDOG_APPLYING_FILE"
+  write_watchdog_applying_marker
   systemctl stop gateway-services.service 2>/dev/null || true
 fi
 if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
@@ -1095,7 +1122,8 @@ fi
 
 if [ "$START_SERVICES" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   rm -f "$WATCHDOG_MANUAL_STOP_FILE"
-  systemctl restart gateway-services.service
+  systemctl reset-failed gateway-services.service >/dev/null 2>&1 || true
+  systemctl start gateway-services.service
   rm -f "$WATCHDOG_APPLYING_FILE"
   systemctl restart gateway-health-watchdog.service
 elif [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then

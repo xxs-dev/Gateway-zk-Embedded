@@ -16,9 +16,38 @@ ensure_watchdog_run_dir() {
   mkdir -p "$WATCHDOG_RUN_DIR"
 }
 
-mark_manual_stop() {
+watchdog_boot_id() {
+  if [ -r /proc/sys/kernel/random/boot_id ]; then
+    sed -n '1p' /proc/sys/kernel/random/boot_id
+  else
+    printf '%s\n' unknown
+  fi
+}
+
+watchdog_uptime_sec() {
+  if [ -r /proc/uptime ]; then
+    sed -n '1{s/\..*//;p;}' /proc/uptime
+  else
+    date +%s
+  fi
+}
+
+write_watchdog_marker() {
+  file="$1"
+  kind="$2"
   ensure_watchdog_run_dir
-  : > "$WATCHDOG_MANUAL_STOP_FILE"
+  tmp="$file.tmp.$$"
+  {
+    printf 'kind=%s\n' "$kind"
+    printf 'pid=%s\n' "$$"
+    printf 'boot_id=%s\n' "$(watchdog_boot_id)"
+    printf 'created_uptime_sec=%s\n' "$(watchdog_uptime_sec)"
+  } > "$tmp"
+  mv -f "$tmp" "$file"
+}
+
+mark_manual_stop() {
+  write_watchdog_marker "$WATCHDOG_MANUAL_STOP_FILE" manual-stop
 }
 
 clear_manual_stop() {
@@ -26,8 +55,7 @@ clear_manual_stop() {
 }
 
 begin_configuration_apply() {
-  ensure_watchdog_run_dir
-  : > "$WATCHDOG_APPLYING_FILE"
+  write_watchdog_marker "$WATCHDOG_APPLYING_FILE" configuration-apply
 }
 
 finish_configuration_apply() {

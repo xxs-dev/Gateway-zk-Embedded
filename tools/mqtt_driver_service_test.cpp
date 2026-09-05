@@ -245,7 +245,9 @@ void writeFullWorkerHealth(
     const std::string& state,
     bool healthy,
     std::int64_t heartbeatAtMs,
-    std::int64_t leaseUntilMs
+    std::int64_t leaseUntilMs,
+    std::int64_t heartbeatMonotonicMs = -1,
+    std::int64_t leaseUntilMonotonicMs = -1
 ) {
     std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
     output << "{\"primaryFullUpload\":true,\"state\":\"" << state
@@ -254,7 +256,12 @@ void writeFullWorkerHealth(
            << ",\"clientId\":\"GW_TEST-full\""
            << ",\"topic\":\"edge/telemetry/full\""
            << ",\"heartbeatAtMs\":" << heartbeatAtMs
-           << ",\"leaseUntilMs\":" << leaseUntilMs << "}";
+           << ",\"leaseUntilMs\":" << leaseUntilMs;
+    if (heartbeatMonotonicMs >= 0 && leaseUntilMonotonicMs >= 0) {
+        output << ",\"heartbeatMonotonicMs\":" << heartbeatMonotonicMs
+               << ",\"leaseUntilMonotonicMs\":" << leaseUntilMonotonicMs;
+    }
+    output << "}";
 }
 
 void cleanupFixture(ServiceFixture& fixture) {
@@ -377,6 +384,66 @@ void testIsolatedFullWorkerLeaseSuppressesAndThenImmediatelyFallsBack() {
         "retrying health must not cause duplicate inline snapshots");
 
     std::remove(fixture.driverConfig.fullUploadWorker.healthFile.c_str());
+    cleanupFixture(fixture);
+}
+
+void testIsolatedFullWorkerLeaseIgnoresWallClockRollback() {
+    auto fixture = makeFixture("isolated_clock_rollback", 30000);
+    fixture.service.reset();
+#ifdef _WIN32
+    fixture.driverConfig.fullUploadWorker.healthFile = std::tmpnam(nullptr);
+#else
+    fixture.driverConfig.fullUploadWorker.healthFile = "/tmp/mqtt_isolated_clock_rollback_test.json";
+#endif
+    fixture.driverConfig.fullUploadWorker.mode = "isolated";
+    fixture.driverConfig.fullUploadWorker.failoverTimeoutMs = 3000;
+    fixture.driverConfig.publishFullOnStart = true;
+    fixture.driverConfig.fullUploadWorker.publishLockFile =
+        fixture.driverConfig.fullUploadWorker.healthFile + ".lock";
+    fixture.service.reset(new MqttDriverService(
+        fixture.mqttConfig,
+        fixture.driverConfig,
+        {fixture.deviceConfig},
+        fixture.router,
+        fixture.publisher
+    ));
+
+    const std::int64_t wallNow = 1000;
+    const auto monotonicNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+    writeFullWorkerHealth(
+        fixture.driverConfig.fullUploadWorker.healthFile,
+        "active",
+        true,
+        wallNow + 3600000,
+        wallNow + 3603000,
+        monotonicNow,
+        monotonicNow + 3000
+    );
+    fixture.service->runScanOnce(wallNow);
+    require(
+        fixture.publisher->fullSnapshotCounts.empty(),
+        "a fresh monotonic lease must survive a backward wall-clock step"
+    );
+
+    writeFullWorkerHealth(
+        fixture.driverConfig.fullUploadWorker.healthFile,
+        "active",
+        true,
+        wallNow,
+        wallNow + 3000,
+        monotonicNow - 4000,
+        monotonicNow - 1000
+    );
+    fixture.service->runScanOnce(wallNow + 1);
+    require(
+        fixture.publisher->fullSnapshotCounts.size() == 1,
+        "an expired monotonic lease must not be kept alive by wall-clock timestamps"
+    );
+
+    std::remove(fixture.driverConfig.fullUploadWorker.healthFile.c_str());
+    std::remove(fixture.driverConfig.fullUploadWorker.publishLockFile.c_str());
     cleanupFixture(fixture);
 }
 
@@ -923,6 +990,7 @@ int main() {
         testCommandRequestRejectedDuringActivePriorityControl();
         testAgcAvcCommandMailboxCommitsLatestWithoutWriteback();
         testHealthReportContainsDetailedMetrics();
+        testIsolatedFullWorkerLeaseIgnoresWallClockRollback();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {
