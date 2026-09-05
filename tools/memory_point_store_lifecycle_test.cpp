@@ -167,12 +167,92 @@ void verifyPersistentSamplesRequireAcknowledgement() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void verifyChangedPersistentValuesBypassPeriodicInterval() {
+    const std::string storeName = "gateway_memory_persist_on_change_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    {
+        edge_gateway::MemoryStoreConfig config;
+        config.sharedMemoryName = storeName;
+        config.maxLatestPoints = 32;
+        config.maxPersistentSamples = 32;
+
+        edge_gateway::MemoryPointStore store(config);
+        auto normal = buildValue(1000, 0.0);
+        normal.isStore = true;
+        normal.persistOnChange = true;
+        normal.persistIntervalSec = 60;
+        store.putLatest(normal);
+        require(store.immediatePersistentGeneration() == 1, "initial alarm state must request a flush");
+
+        auto active = buildValue(1100, 1.0);
+        active.isStore = true;
+        active.persistOnChange = true;
+        active.persistIntervalSec = 60;
+        store.putLatest(active);
+        require(store.immediatePersistentGeneration() == 2, "alarm activation must request a flush");
+
+        auto cleared = buildValue(1200, 0.0);
+        cleared.isStore = true;
+        cleared.persistOnChange = true;
+        cleared.persistIntervalSec = 60;
+        store.putLatest(cleared);
+        require(store.immediatePersistentGeneration() == 3, "alarm recovery must request a flush");
+
+        auto unchanged = buildValue(1300, 0.0);
+        unchanged.isStore = true;
+        unchanged.persistOnChange = true;
+        unchanged.persistIntervalSec = 60;
+        store.putLatest(unchanged);
+        require(store.immediatePersistentGeneration() == 3, "unchanged alarm state must not request another flush");
+
+        const auto pending = store.peekPersistentSamples();
+        require(pending.size() == 3, "alarm transitions inside the periodic interval must all persist");
+        require(pending[0].value == 0.0 && pending[0].ts == 1000, "initial alarm state must persist");
+        require(pending[1].value == 1.0 && pending[1].ts == 1100, "alarm activation must persist immediately");
+        require(pending[2].value == 0.0 && pending[2].ts == 1200, "alarm recovery must persist immediately");
+    }
+
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 #ifndef _WIN32
 struct SharedStoreHeaderProbe {
     std::uint32_t magic;
     std::uint32_t version;
     pthread_mutex_t mutex;
 };
+
+void verifyConfiguredLegacyVersionIsUsedForNewSegment() {
+    const std::string storeName = "gateway_memory_legacy_create_version_test";
+    const std::string posixName = "/" + storeName;
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    {
+        edge_gateway::MemoryStoreConfig config;
+        config.sharedMemoryName = storeName;
+        config.sharedMemoryCreateVersion = 8;
+        edge_gateway::MemoryPointStore store(config);
+
+        const int fd = shm_open(posixName.c_str(), O_RDONLY, 0600);
+        require(fd >= 0, "failed to inspect configured legacy shared memory segment");
+        void* view = mmap(
+            nullptr,
+            sizeof(SharedStoreHeaderProbe),
+            PROT_READ,
+            MAP_SHARED,
+            fd,
+            0
+        );
+        require(view != MAP_FAILED, "failed to map configured legacy shared memory header");
+        const auto* header = static_cast<const SharedStoreHeaderProbe*>(view);
+        require(header->version == 8, "new segment must use the configured compatibility version");
+        munmap(view, sizeof(SharedStoreHeaderProbe));
+        close(fd);
+    }
+
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
 
 void verifyPreviousVersionOpensWithoutReinitializing() {
     const std::string storeName = "gateway_memory_version_mismatch_test";
@@ -293,8 +373,10 @@ int main() {
     try {
         verifyReaderDoesNotUnlinkNamedSegment();
         verifyPersistentSamplesRequireAcknowledgement();
+        verifyChangedPersistentValuesBypassPeriodicInterval();
 #ifndef _WIN32
         verifyReaderRemapsRecreatedNamedSegment();
+        verifyConfiguredLegacyVersionIsUsedForNewSegment();
         verifyPreviousVersionOpensWithoutReinitializing();
         verifyRobustMutexRecoversAfterOwnerDeath();
 #endif

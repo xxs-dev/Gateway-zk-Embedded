@@ -1044,6 +1044,7 @@ PointDefinition parsePointDefinition(const JsonValue& value) {
     point.isStore = requireBool(object, "isStore", point.isStore);
     point.fullUpload = requireBool(object, "fullUpload", point.fullUpload);
     point.reportOnChange = requireBool(object, "reportOnChange", point.reportOnChange);
+    point.persistOnChange = requireBool(object, "persistOnChange", point.persistOnChange);
     point.persistIntervalSec = requireInt(object, "persistIntervalSec", point.persistIntervalSec);
     point.collectPriority = std::max(0, requireInt(object, "collectPriority", point.collectPriority));
     if (const auto* initialValue = value.find("initialValue")) {
@@ -1734,6 +1735,11 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.defaultTtlMs = requireInt64(object, "defaultTtlMs", config.defaultTtlMs);
     config.indexBy = parseStringArray(value->find("indexBy"));
     config.sharedMemoryName = requireString(object, "sharedMemoryName", config.sharedMemoryName);
+    config.sharedMemoryCreateVersion = boundedInt(
+        requireInt(object, "sharedMemoryCreateVersion", config.sharedMemoryCreateVersion),
+        8,
+        9
+    );
     config.maxLatestPoints = requireSize(object, "maxLatestPoints", config.maxLatestPoints);
     config.maxPendingWrites = requireSize(object, "maxPendingWrites", config.maxPendingWrites);
     config.maxPersistentSamples = requireSize(object, "maxPersistentSamples", config.maxPersistentSamples);
@@ -4186,6 +4192,7 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
         point.isStore = requireBool(object, "storeHistory", true);
         point.fullUpload = requireBool(object, "fullUpload", true);
         point.reportOnChange = requireBool(object, "reportOnChange", false);
+        point.persistOnChange = requireBool(object, "persistOnChange", false);
         point.persistIntervalSec = 60;
 
         point.read.enable = point.enabled && access != "write";

@@ -100,6 +100,36 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "point collect priority should parse"
     );
 
+    const auto alarmPersistence = edge_gateway::ConfigLoader::loadFromText(
+        "{"
+        "\"schemaVersion\":\"1.1.0\","
+        "\"machineCode\":\"GW_TEST\","
+        "\"meterCode\":\"MTR_TEST\","
+        "\"deviceName\":\"Meter Test\","
+        "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1},"
+        "\"memoryStore\":{\"sharedMemoryCreateVersion\":8},"
+        "\"points\":[{"
+        "\"index\":1002,"
+        "\"pointCode\":\"ALARM\","
+        "\"name\":\"Alarm\","
+        "\"category\":\"alarm\","
+        "\"isStore\":true,"
+        "\"persistOnChange\":true,"
+        "\"persistIntervalSec\":60,"
+        "\"read\":{\"enable\":true}"
+        "}],"
+        "\"meters\":[]"
+        "}"
+    );
+    require(
+        alarmPersistence.points.size() == 1 && alarmPersistence.points.front().persistOnChange,
+        "point change persistence should parse"
+    );
+    require(
+        alarmPersistence.memoryStore.sharedMemoryCreateVersion == 8,
+        "shared-memory creation compatibility version should parse"
+    );
+
     const auto normalized = edge_gateway::ConfigLoader::loadFromText(
         "{"
         "\"schemaVersion\":\"1.1.0\","

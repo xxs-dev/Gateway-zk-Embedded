@@ -91,11 +91,17 @@ public:
     std::size_t acknowledgePersistentSamples(std::uint64_t throughSequence);
     std::vector<PersistentPointSample> drainPersistentSamples();
     std::uint64_t consumePersistentDropCount();
+    std::uint64_t immediatePersistentGeneration() const noexcept;
     std::vector<PointUpdateRecord> drainPointUpdates(std::size_t limit = 0);
     void heartbeatRegisteredPoints(std::int64_t nowMs);
     void removeExpired(std::int64_t nowMs);
 
 private:
+    MemoryPointStore(
+        const std::string& segmentName,
+        MemoryStoreOpenMode openMode,
+        std::uint32_t createVersion
+    );
     void ensureCurrentMapping() const;
     void refreshCurrentMappingLocked() const;
     void releaseOwnerClaims();
@@ -114,6 +120,7 @@ private:
     mutable std::unordered_map<std::uint32_t, std::size_t> latestSlotByIndex_;
     std::unordered_map<std::uint32_t, std::int64_t> lastPersistentSampleTs_;
     std::atomic<std::uint64_t> persistentDropped_{0};
+    std::atomic<std::uint64_t> immediatePersistentGeneration_{0};
     std::set<std::uint32_t> registeredIndexes_;
     std::size_t maxLatestPoints_ = 100000;
     std::size_t maxPendingWrites_ = 4096;

@@ -69,6 +69,7 @@ private:
     void receiveLoop();
     void writebackLoop();
     void persistLoop();
+    void flushImmediatePersistentSamples();
     bool priorityControlBlocked(std::int64_t nowMs) const;
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void publishPointValue(const RuntimeDevice& device, const PointDefinition& point, const DecodedValue& decoded, std::int64_t ts);
@@ -87,6 +88,8 @@ private:
     std::vector<RuntimePoint> runtimePoints_;
     std::unordered_map<std::uint32_t, std::size_t> indexToRuntimePoint_;
     std::atomic<bool> running_{false};
+    std::atomic<std::uint64_t> flushedImmediatePersistentGeneration_{0};
+    std::mutex persistentFlushMutex_;
     mutable std::mutex socketMutex_;
     int socketFd_ = -1;
     std::int64_t lastInterfaceCheckMs_ = 0;

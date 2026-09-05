@@ -160,6 +160,7 @@ struct PointDefinition {
     bool isStore = false;
     bool fullUpload = false;
     bool reportOnChange = false;
+    bool persistOnChange = false;
     int persistIntervalSec = 60;
     int collectPriority = 0;
     Optional<double> initialValue;
@@ -204,6 +205,7 @@ struct PointValue {
     int address = 0;
     int length = 1;
     bool isStore = false;
+    bool persistOnChange = false;
     int persistIntervalSec = 60;
 };
 
@@ -578,6 +580,7 @@ struct MemoryStoreConfig {
     std::int64_t defaultTtlMs = 600000;
     std::vector<std::string> indexBy = {"machineCode", "meterCode", "pointCode"};
     std::string sharedMemoryName = "gateway_point_store";
+    int sharedMemoryCreateVersion = 9;
     std::size_t maxLatestPoints = 100000;
     std::size_t maxPendingWrites = 4096;
     std::size_t maxPersistentSamples = 20000;

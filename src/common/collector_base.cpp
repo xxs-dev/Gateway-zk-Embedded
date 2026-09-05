@@ -48,6 +48,7 @@ PointValue CollectorBase::buildFailedPointValue(
     value.address = point.address;
     value.length = point.read.length;
     value.isStore = false;
+    value.persistOnChange = point.persistOnChange;
     value.persistIntervalSec = point.persistIntervalSec;
     return value;
 }
@@ -74,6 +75,7 @@ PointValue CollectorBase::buildPointValue(
     value.address = point.address;
     value.length = point.read.length;
     value.isStore = point.isStore;
+    value.persistOnChange = point.persistOnChange;
     value.persistIntervalSec = point.persistIntervalSec;
     return value;
 }
@@ -102,6 +104,7 @@ PointValue CollectorBase::buildDeviceOnlineValue(
     value.address = point.address;
     value.length = 0;
     value.isStore = point.isStore;
+    value.persistOnChange = point.persistOnChange;
     value.persistIntervalSec = point.persistIntervalSec;
     return value;
 }

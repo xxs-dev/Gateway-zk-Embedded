@@ -664,16 +664,35 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             }
         }
     }
+    flushImmediatePersistentSamples();
     return processed;
 }
 
 std::size_t CanDriverService::flushPersistentOnce() {
+    std::lock_guard<std::mutex> lock(persistentFlushMutex_);
+    const auto immediateGeneration = store_.immediatePersistentGeneration();
     const auto samples = store_.peekPersistentSamples();
     sqliteWriter_.writeSamples(samples);
     if (!samples.empty()) {
         store_.acknowledgePersistentSamples(samples.back().sequence);
     }
+    flushedImmediatePersistentGeneration_.store(immediateGeneration, std::memory_order_release);
     return samples.size();
+}
+
+void CanDriverService::flushImmediatePersistentSamples() {
+    const auto requested = store_.immediatePersistentGeneration();
+    if (requested == flushedImmediatePersistentGeneration_.load(std::memory_order_acquire)) {
+        return;
+    }
+    try {
+        flushPersistentOnce();
+    } catch (const std::exception& ex) {
+        std::cerr << "CAN immediate persistent flush failed"
+                  << " sharedMemory=" << config_.memoryStore.sharedMemoryName
+                  << " error=" << ex.what()
+                  << std::endl;
+    }
 }
 
 void CanDriverService::runStartupWrites() {
@@ -858,6 +877,7 @@ void CanDriverService::updatePointStaleness(std::int64_t nowMsValue) {
         stale.address = point.address;
         stale.length = 1;
         stale.isStore = false;
+        stale.persistOnChange = point.persistOnChange;
         stale.persistIntervalSec = point.persistIntervalSec;
         store_.putLatest(stale);
         runtimePoint.stalePublished = true;
@@ -879,6 +899,7 @@ void CanDriverService::receiveLoop() {
                 processReceiveOnce(std::max(1, config_.collect.receiveWaitMs));
                 const auto completedTs = nowMs();
                 updateOnlineStatus(completedTs);
+                flushImmediatePersistentSamples();
                 if (lastExpirySweepMs <= 0 || completedTs - lastExpirySweepMs >= kStoreExpirySweepIntervalMs) {
                     store_.removeExpired(completedTs);
                     lastExpirySweepMs = completedTs;
@@ -980,6 +1001,7 @@ void CanDriverService::publishPointValue(
     latest.address = point.address;
     latest.length = 1;
     latest.isStore = point.isStore;
+    latest.persistOnChange = point.persistOnChange;
     latest.persistIntervalSec = point.persistIntervalSec;
     store_.putLatest(latest);
 }

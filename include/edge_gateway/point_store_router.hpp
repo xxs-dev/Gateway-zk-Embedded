@@ -31,6 +31,7 @@ struct PointStoreRoute {
     bool fullUpload = false;
     bool reportOnChange = false;
     bool isStore = false;
+    bool persistOnChange = false;
     int persistIntervalSec = 60;
     int ttlMs = 600000;
     Optional<double> initialValue;

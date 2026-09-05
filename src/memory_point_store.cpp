@@ -874,6 +874,14 @@ void initializePosixMutex(pthread_mutex_t& mutex) {
 }  // namespace
 
 MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOpenMode openMode)
+    : MemoryPointStore(segmentName, openMode, kSharedStoreVersion) {
+}
+
+MemoryPointStore::MemoryPointStore(
+    const std::string& segmentName,
+    MemoryStoreOpenMode openMode,
+    std::uint32_t createVersion
+)
     : segmentName_(normalizeSegmentName(segmentName)),
       openMode_(openMode),
       ownerId_(makeOwnerId()),
@@ -884,6 +892,9 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
                    std::to_string(static_cast<unsigned long long>(getpid()))
 #endif
       ) {
+    if (!isCompatibleSharedStoreVersion(createVersion)) {
+        throw std::invalid_argument("shared memory create version must be between 8 and 9");
+    }
 #ifdef _WIN32
     mappingHandle_ = openMode == MemoryStoreOpenMode::OpenExisting
         ? OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, segmentName_.c_str())
@@ -930,7 +941,7 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
             !isCompatibleSharedStoreVersion(layout->header.version)) {
             std::memset(layout, 0, sizeof(SharedStoreLayout));
             layout->header.magic = kSharedStoreMagic;
-            layout->header.version = kSharedStoreVersion;
+            layout->header.version = createVersion;
         }
         latestSlotByIndex_.clear();
         latestSlotByIndex_.reserve(layout->header.latestCount);
@@ -1010,7 +1021,7 @@ MemoryPointStore::MemoryPointStore(const std::string& segmentName, MemoryStoreOp
             throw;
         }
         layout->header.magic = kSharedStoreMagic;
-        layout->header.version = kSharedStoreVersion;
+        layout->header.version = createVersion;
     } else if (layout->header.magic != kSharedStoreMagic ||
                !isCompatibleSharedStoreVersion(layout->header.version)) {
         munmap(sharedView_, sizeof(SharedStoreLayout));
@@ -1067,7 +1078,11 @@ bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName) {
 }
 
 MemoryPointStore::MemoryPointStore(const MemoryStoreConfig& config)
-    : MemoryPointStore(config.sharedMemoryName) {
+    : MemoryPointStore(
+          config.sharedMemoryName,
+          MemoryStoreOpenMode::CreateOrOpen,
+          static_cast<std::uint32_t>(config.sharedMemoryCreateVersion)
+      ) {
     maxLatestPoints_ = config.maxLatestPoints == 0
         ? kMaxLatestSlots
         : std::max<std::size_t>(1, std::min(config.maxLatestPoints, kMaxLatestSlots));
@@ -1398,6 +1413,8 @@ void MemoryPointStore::putLatest(const PointValue& value) {
 #endif
     auto* layout2 = layoutFrom(sharedView_);
     auto* slot = allocateLatestSlot(layout2, value.index, maxLatestPoints_, &latestSlotByIndex_);
+    const bool hadLatestValue = slot->occupied != 0;
+    const bool latestValueChanged = !hadLatestValue || slot->value != value.value;
     slot->index = value.index;
     slot->value = value.value;
     slot->quality = value.quality;
@@ -1420,7 +1437,9 @@ void MemoryPointStore::putLatest(const PointValue& value) {
     if (value.isStore) {
         const auto intervalMs = static_cast<std::int64_t>(std::max(1, value.persistIntervalSec)) * 1000;
         const auto lastIt = lastPersistentSampleTs_.find(value.index);
-        if (lastIt == lastPersistentSampleTs_.end() || (value.ts - lastIt->second) >= intervalMs) {
+        const bool firstPersistentSample = lastIt == lastPersistentSampleTs_.end();
+        const bool immediate = value.persistOnChange && (firstPersistentSample || latestValueChanged);
+        if (immediate || firstPersistentSample || (value.ts - lastIt->second) >= intervalMs) {
             const auto dropped = pushPersistentSample(
                 layout2,
                 PersistentPointSample{value.index, value.value, value.ts},
@@ -1430,6 +1449,9 @@ void MemoryPointStore::putLatest(const PointValue& value) {
                 persistentDropped_.fetch_add(dropped, std::memory_order_relaxed);
             }
             lastPersistentSampleTs_[value.index] = value.ts;
+            if (immediate) {
+                immediatePersistentGeneration_.fetch_add(1, std::memory_order_release);
+            }
         }
     }
 }
@@ -1967,6 +1989,10 @@ std::vector<PersistentPointSample> MemoryPointStore::drainPersistentSamples() {
 
 std::uint64_t MemoryPointStore::consumePersistentDropCount() {
     return persistentDropped_.exchange(0, std::memory_order_relaxed);
+}
+
+std::uint64_t MemoryPointStore::immediatePersistentGeneration() const noexcept {
+    return immediatePersistentGeneration_.load(std::memory_order_acquire);
 }
 
 std::vector<PointUpdateRecord> MemoryPointStore::drainPointUpdates(std::size_t limit) {

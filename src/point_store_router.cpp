@@ -329,6 +329,7 @@ PointValue makeEmsVirtualValue(
     point.expireAt = 0;
     point.stale = false;
     point.isStore = route.isStore;
+    point.persistOnChange = route.persistOnChange;
     point.persistIntervalSec = route.persistIntervalSec;
     return point;
 }
@@ -469,6 +470,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
                     route.fullUpload = point.fullUpload;
                     route.reportOnChange = point.reportOnChange;
                     route.isStore = point.isStore;
+                    route.persistOnChange = point.persistOnChange;
                     route.persistIntervalSec = point.persistIntervalSec;
                     route.ttlMs = point.read.cachePolicy.ttlMs;
                     route.initialValue = point.initialValue;
@@ -499,6 +501,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
             route.fullUpload = point.fullUpload;
             route.reportOnChange = point.reportOnChange;
             route.isStore = point.isStore;
+            route.persistOnChange = point.persistOnChange;
             route.persistIntervalSec = point.persistIntervalSec;
             route.ttlMs = point.read.cachePolicy.ttlMs;
             route.initialValue = point.initialValue;
@@ -951,6 +954,7 @@ CommandSubmitResult PointStoreRouter::putLatestByIndex(PointValue value) {
     value.meterCode = route->meterCode;
     value.pointCode = route->pointCode;
     value.isStore = route->isStore;
+    value.persistOnChange = route->persistOnChange;
     value.persistIntervalSec = route->persistIntervalSec;
     if (isRetainedEmsVirtualPoint(*route)) {
         value.expireAt = 0;
@@ -1001,6 +1005,7 @@ CommandSubmitResult PointStoreRouter::putLatestByLocation(
     value.meterCode = route->meterCode;
     value.pointCode = route->pointCode;
     value.isStore = route->isStore;
+    value.persistOnChange = route->persistOnChange;
     value.persistIntervalSec = route->persistIntervalSec;
     if (isRetainedEmsVirtualPoint(*route)) {
         value.expireAt = 0;

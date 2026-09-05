@@ -326,6 +326,7 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
             );
         }
+        flushImmediatePersistentSamples();
     };
 
     const auto activeIndexes = activeRealtimeDeviceIndexes(nowMsValue);
@@ -361,6 +362,8 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
 }
 
 std::size_t GatewayDaemon::flushPersistentOnce() {
+    std::lock_guard<std::mutex> lock(persistentFlushMutex_);
+    const auto immediateGeneration = store_.immediatePersistentGeneration();
     const auto samples = store_.peekPersistentSamples();
     sqliteWriter_.writeSamples(samples);
     if (!samples.empty()) {
@@ -385,7 +388,23 @@ std::size_t GatewayDaemon::flushPersistentOnce() {
             std::string(R"("count":)") + std::to_string(dropped)
         );
     }
+    flushedImmediatePersistentGeneration_.store(immediateGeneration, std::memory_order_release);
     return samples.size();
+}
+
+void GatewayDaemon::flushImmediatePersistentSamples() {
+    const auto requested = store_.immediatePersistentGeneration();
+    if (requested == flushedImmediatePersistentGeneration_.load(std::memory_order_acquire)) {
+        return;
+    }
+    try {
+        flushPersistentOnce();
+    } catch (const std::exception& ex) {
+        std::cerr << "immediate persistent flush failed"
+                  << " sharedMemory=" << config_.memoryStore.sharedMemoryName
+                  << " error=" << ex.what()
+                  << std::endl;
+    }
 }
 
 std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
@@ -543,6 +562,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             }
         }
     }
+    flushImmediatePersistentSamples();
     return processed;
 }
 

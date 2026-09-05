@@ -282,6 +282,7 @@ void CommandExecutor::dispatchLocalDioWrite(
     latest.address = point.address;
     latest.length = 1;
     latest.isStore = point.isStore;
+    latest.persistOnChange = point.persistOnChange;
     latest.persistIntervalSec = point.persistIntervalSec;
     store_.putLatest(latest);
 }
@@ -375,6 +376,7 @@ void CommandExecutor::verifyWrite(
     value.address = point.address;
     value.length = point.read.length;
     value.isStore = point.isStore;
+    value.persistOnChange = point.persistOnChange;
     value.persistIntervalSec = point.persistIntervalSec;
 
     if (point.read.cachePolicy.storeLatest) {

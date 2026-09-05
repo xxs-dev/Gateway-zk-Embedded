@@ -3,6 +3,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -62,6 +63,7 @@ private:
     void collectLoop();
     void persistLoop();
     void writebackLoop();
+    void flushImmediatePersistentSamples();
     int collectLoopIntervalMs() const;
     std::size_t collectRuntimeMeterBatchSize() const;
     bool priorityControlBlocked(std::int64_t nowMs) const;
@@ -88,6 +90,8 @@ private:
     CommandExecutorFactory commandExecutorFactory_;
     ServiceStartStop auxiliaryService_;
     std::atomic<bool> running_{false};
+    std::atomic<std::uint64_t> flushedImmediatePersistentGeneration_{0};
+    std::mutex persistentFlushMutex_;
     std::thread collectThread_;
     std::thread persistThread_;
     std::thread writebackThread_;

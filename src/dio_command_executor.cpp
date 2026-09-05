@@ -130,6 +130,7 @@ void DioCommandExecutor::dispatchLocalDioWrite(
     latest.address = point.address;
     latest.length = 1;
     latest.isStore = point.isStore;
+    latest.persistOnChange = point.persistOnChange;
     latest.persistIntervalSec = point.persistIntervalSec;
     store_.putLatest(latest);
 }

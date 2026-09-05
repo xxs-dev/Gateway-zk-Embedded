@@ -167,6 +167,34 @@ void verifyCollectLoopUsesActualPointIntervals() {
     );
 }
 
+void verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop() {
+    const std::string storeName = uniqueStoreName("gateway_daemon_alarm_flush_test");
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+
+    {
+        auto deviceConfig = config(storeName);
+        auto& alarm = deviceConfig.meters.front().points.front();
+        alarm.category = "alarm";
+        alarm.isStore = true;
+        alarm.persistOnChange = true;
+        alarm.persistIntervalSec = 60;
+
+        edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        edge_gateway::GatewayDaemon daemon(deviceConfig, store, client);
+
+        daemon.collectOnce(1000);
+
+        require(client->readCount(1) == 1, "alarm point should be collected");
+        require(
+            store.getStats().persistentCount == 0,
+            "alarm transition must flush without waiting for the periodic persistence thread"
+        );
+    }
+
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
     const std::string storeName = uniqueStoreName("gateway_daemon_control_generation_test");
     const std::string ownershipFile = "/tmp/gateway-daemon-power-control-owner.json";
@@ -376,6 +404,7 @@ int main() {
 
     try {
         verifyCollectLoopUsesActualPointIntervals();
+        verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop();
         verifyStaleControlGenerationIsRejectedBeforeDeviceWrite();
         verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite();
         auto deviceConfig = config(storeName);
