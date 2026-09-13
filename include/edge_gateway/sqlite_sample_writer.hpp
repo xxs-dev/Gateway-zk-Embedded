@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -9,13 +10,19 @@ namespace edge_gateway {
 
 class SqliteSampleWriter {
 public:
-    explicit SqliteSampleWriter(std::string dbPath, std::string libraryPath = "");
+    using MaintenanceClock = std::chrono::steady_clock;
+    static constexpr int kCleanupBatchSize = 512;
+
+    explicit SqliteSampleWriter(std::string dbPath, std::string libraryPath = "", int retentionDays = 30);
     ~SqliteSampleWriter();
 
     SqliteSampleWriter(const SqliteSampleWriter&) = delete;
     SqliteSampleWriter& operator=(const SqliteSampleWriter&) = delete;
 
     void writeSamples(const std::vector<PersistentPointSample>& samples);
+
+    // Background only, serialized with writeSamples by the caller. Failures never undo a write/ACK.
+    void cleanupExpiredSamples(std::int64_t nowMs, MaintenanceClock::time_point now = MaintenanceClock::now());
 
 private:
     void loadLibrary();
@@ -26,6 +33,8 @@ private:
 
     std::string dbPath_;
     std::string libraryPath_;
+    int retentionDays_;
+    MaintenanceClock::time_point nextCleanup_ = MaintenanceClock::time_point::min();
     bool enabled_ = false;
     void* libraryHandle_ = nullptr;
     void* databaseHandle_ = nullptr;

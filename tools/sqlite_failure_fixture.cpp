@@ -143,4 +143,8 @@ int sqlite3_busy_timeout(sqlite3*, int) {
     return 0;
 }
 
+int sqlite3_changes(sqlite3*) {
+    return 0;
+}
+
 }  // extern "C"

@@ -20,6 +20,10 @@
 - 这些文件会被程序实际读取，修改后会影响运行结果
 - 出厂和运行样例默认所有协议驱动共用 `gateway_point_store`，MQTT、事件引擎和系统监测只需要读取这一个共享内存
 
+`runtime/apps/mqtt-service.json` 的全局 `pointHistory.retentionDays` 缺省为 30，数值兼容夹取到 1..3650 天，五类协议入口共用。它约束所有进入 `SqliteSampleWriter` 的 flagged 点位历史，不改变 `isStore`、`persistIntervalSec`、`persistOnChange` 的筛选规则，也不改变 full/realtime、MQTT outbox 或事件存储。
+
+既有后台线程按 `ts < 当前时间 - 保留天数` 分批逻辑删除，边界和未来数据保留；每批最多 512 行，满批至少间隔 1 秒，扫尽后 60 秒检查，失败后 5 秒退避，控制优先时暂停。旧库首次建立 `ts` 索引可能耗时，SQLite busy wait、锁等待和磁盘 IO 不受批次行数保证；逻辑删除不保证数据库文件缩小，也不构成全局磁盘预算。
+
 ## 2. 报文和日志样例
 
 目录：

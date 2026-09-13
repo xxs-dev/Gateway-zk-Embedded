@@ -186,7 +186,8 @@ CanDriverService::CanDriverService(
     std::shared_ptr<IMqttPublisher> mqttPublisher
 ) : config_(std::move(config)),
     store_(store),
-    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath,
+                  config_.memoryStore.historyRetentionDays),
     priorityControlLease_(
         config_.mqttDriver.priorityControlLeaseFile,
         config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
@@ -941,6 +942,14 @@ void CanDriverService::persistLoop() {
             }
         } catch (...) {
             schedule.failed();
+        }
+        try {
+            std::unique_lock<std::mutex> lock(persistentFlushMutex_, std::try_to_lock);
+            if (lock.owns_lock() && running_.load() && !priorityControlBlocked(nowMs())) {
+                sqliteWriter_.cleanupExpiredSamples(nowMs());
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "CAN point history cleanup failed: " << ex.what() << std::endl;
         }
         sleepInterruptibly(running_, PersistentFlushSchedule::kCheckIntervalMs);
     }

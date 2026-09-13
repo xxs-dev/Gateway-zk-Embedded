@@ -4,6 +4,9 @@
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP1.json",
     "/opt/modbus-gateway/config/runtime/devices/device_slave_ttySP2.json"
   ],
+  "pointHistory": {
+    "retentionDays": 30
+  },
   "mqtt": {
     "enabled": true,
     "protocolVersion": "mqtt5",

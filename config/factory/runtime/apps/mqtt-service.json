@@ -7,6 +7,9 @@
     "/opt/modbus-gateway/config/runtime/devices/device_dio.json",
     "/opt/modbus-gateway/config/runtime/devices/device_ems_virtual.json"
   ],
+  "pointHistory": {
+    "retentionDays": 30
+  },
   "mqtt": {
     "enabled": true,
     "protocolVersion": "mqtt5",

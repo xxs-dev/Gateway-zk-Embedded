@@ -64,6 +64,10 @@ public:
         return count;
     }
 
+    void execute(const std::string& sql) const {
+        require(exec_(db_, sql.c_str(), nullptr, nullptr, nullptr) == 0, "test SQL failed: " + sql);
+    }
+
 private:
     using Exec = int (*)(void*, const char*, int (*)(void*, int, char**, char**), void*, char**);
     void* library_ = nullptr;
@@ -127,7 +131,7 @@ int availableLoopbackPort() {
 class ServiceFixture {
 public:
     explicit ServiceFixture(bool can, std::size_t limit = 16, int intervalMs = 60000,
-                            const std::string& sqliteLibrary = {}) {
+                            const std::string& sqliteLibrary = {}, int retentionDays = 30) {
         static unsigned sequence = 0;
         name_ = "persist_pressure_" + std::to_string(getpid()) + "_" + std::to_string(++sequence);
         config.machineCode = "PRESSURE_TEST";
@@ -141,6 +145,7 @@ public:
         config.memoryStore.persistFlushIntervalMs = intervalMs;
         config.memoryStore.sqlitePath = name_ + ".db";
         config.memoryStore.sqliteLibraryPath = sqliteLibrary;
+        config.memoryStore.historyRetentionDays = retentionDays;
         config.mqttDriver.priorityControlLeaseFile = name_ + "_priority.json";
         config.mqttDriver.powerControlOwnershipFile = name_ + "_owner.json";
         store = std::make_unique<MemoryPointStore>(config.memoryStore);
@@ -190,6 +195,23 @@ public:
         gateway_->collectOnce(1000);
     }
 
+    void flushImmediate() {
+        PointValue value;
+        value.index = 1002;
+        value.machineCode = config.machineCode;
+        value.meterCode = config.meterCode;
+        value.pointCode = "IMMEDIATE_HISTORY";
+        value.value = 1;
+        value.ts = sampleBaseTs_;
+        value.quality = 1;
+        value.isStore = true;
+        value.persistOnChange = true;
+        store->putLatest(value);
+        require(store->immediatePersistentGeneration() > 0, "immediate history not flagged");
+        if (can_) can_->processWritebackOnce(sampleBaseTs_);
+        else gateway_->collectOnce(sampleBaseTs_);
+    }
+
     void blockControl() {
         const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -202,7 +224,7 @@ public:
             .release("PRESSURE_CONTROL");
     }
 
-    void append(std::size_t count) {
+    void append(std::size_t count, int ageDays = 0) {
         for (std::size_t i = 0; i < count; ++i) {
             PointValue value;
             value.index = 1001;
@@ -210,7 +232,7 @@ public:
             value.meterCode = config.meterCode;
             value.pointCode = "ORDINARY_HISTORY";
             value.value = ++samples_;
-            value.ts = 1000 * samples_;
+            value.ts = sampleBaseTs_ + 1000 * samples_ - static_cast<std::int64_t>(ageDays) * 86400000;
             value.quality = 1;
             value.isStore = true;
             value.persistOnChange = false;
@@ -227,6 +249,8 @@ public:
 private:
     std::string name_;
     std::int64_t samples_ = 0;
+    const std::int64_t sampleBaseTs_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
     std::atomic<std::size_t> toCollect_{0};
     std::unique_ptr<GatewayDaemon> gateway_;
     std::unique_ptr<CanDriverService> can_;
@@ -242,6 +266,96 @@ void verifyHighWaterBeforePeriodicDeadline(bool can) {
             "75% ordinary history must flush before the configured 60000ms deadline");
     require(fixture.database->rows() == 12, "background flush must commit all ordinary samples to SQLite");
     require(fixture.store->consumePersistentDropCount() == 0, "history was dropped before persistence");
+}
+
+void verifyEmptyRingRetention(bool can) {
+    ServiceFixture fixture(can);
+    fixture.database->execute("INSERT INTO point_samples VALUES(1, 1, 1);");
+    require(fixture.store->getStats().persistentCount == 0, "retention fixture ring must be empty");
+    fixture.start();
+    require(waitUntil([&] { return fixture.database->rows() == 0; }),
+            "empty-ring background must reclaim expired SQLite history");
+}
+
+void verifyRetentionBatchesPriorityAndCustomDays(bool can) {
+    ServiceFixture fixture(can, 16, 60000, {}, 2);
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    fixture.database->execute("WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<1200) "
+        "INSERT INTO point_samples SELECT i," + std::to_string(now - 3LL * 86400000) + ",1 FROM n;");
+    fixture.database->execute("INSERT INTO point_samples VALUES(2001," + std::to_string(now - 86400000) +
+        ",1),(2002," + std::to_string(now + 86400000) + ",1);");
+    fixture.blockControl();
+    fixture.append(12);
+    fixture.start();
+    std::this_thread::sleep_for(650ms);
+    require(fixture.database->rows() == 1202 && fixture.store->getStats().persistentCount == 12,
+            "control veto must cover both retention and pending writes");
+    fixture.releaseControl();
+    require(waitUntil([&] { return fixture.store->getStats().persistentCount == 0 && fixture.database->rows() == 702; }),
+            "release must commit/ACK first and reclaim only one 512-row batch");
+    std::this_thread::sleep_for(350ms);
+    require(fixture.database->rows() == 702, "background cleanup loop exceeded one batch per second");
+    require(waitUntil([&] { return fixture.database->rows() == 14; }, 3000ms),
+            "empty-ring continuation must reclaim remaining batches using custom retention");
+    require(fixture.store->consumePersistentDropCount() == 0, "cleanup disturbed history ring accounting");
+}
+
+void verifyCleanupFailureDoesNotUndoAck(bool can) {
+    ServiceFixture fixture(can);
+    fixture.database->execute("INSERT INTO point_samples VALUES(1,1,1); "
+        "CREATE TRIGGER fail_cleanup BEFORE DELETE ON point_samples "
+        "BEGIN SELECT RAISE(ABORT,'injected background cleanup failure'); END;");
+    fixture.append(12);
+    fixture.start();
+    require(waitUntil([&] { return fixture.store->getStats().persistentCount == 0; }),
+            "cleanup failure must not turn committed history into unacknowledged samples");
+    std::this_thread::sleep_for(650ms);
+    require(fixture.database->rows() == 13, "cleanup failure changed committed data");
+    fixture.database->execute("DROP TRIGGER fail_cleanup;");
+    fixture.append(12);
+    require(waitUntil([&] { return fixture.store->getStats().persistentCount == 0; }),
+            "cleanup retry delay must not delay high-water write/ACK");
+    std::this_thread::sleep_for(650ms);
+    require(fixture.database->rows() == 25, "cleanup retried immediately after failure");
+    require(waitUntil([&] { return fixture.database->rows() == 24; }, 5000ms),
+            "failed cleanup must resume with empty ring after backoff");
+}
+
+void verifyRealWriteFailureAndRetentionRecovery(bool can) {
+    ServiceFixture fixture(can);
+    fixture.database->execute("INSERT INTO point_samples VALUES(1,1,1); "
+        "CREATE TRIGGER fail_write BEFORE INSERT ON point_samples "
+        "BEGIN SELECT RAISE(ABORT,'injected background write failure'); END;");
+    fixture.append(12);
+    const auto pending = fixture.store->peekPersistentSamples();
+    fixture.start();
+    require(waitUntil([&] { return fixture.database->rows() == 0; }),
+            "write failure must not disable independent retention");
+    require(fixture.store->getStats().persistentCount == 12, "failed write acknowledged ring");
+    fixture.blockControl();
+    fixture.database->execute("DROP TRIGGER fail_write;");
+    std::this_thread::sleep_for(1300ms);
+    require(fixture.database->rows() == 0 && fixture.store->peekPersistentSamples().front().sequence == pending.front().sequence,
+            "failed write retry bypassed priority or changed pending history");
+    fixture.releaseControl();
+    require(waitUntil([&] { return fixture.store->getStats().persistentCount == 0; }),
+            "real failed write did not recover and ACK");
+    require(fixture.database->rows() == 12, "write recovery did not commit retained batch");
+}
+
+void verifyExpiredFlaggedRingAndImmediateIsolation(bool can) {
+    ServiceFixture fixture(can);
+    fixture.append(12, 31);
+    fixture.start();
+    require(waitUntil([&] { return fixture.store->getStats().persistentCount == 0; }), "expired flagged ring was not ACKed");
+    require(waitUntil([&] { return fixture.database->rows() == 0; }), "expired flagged ring history escaped retention");
+    fixture.stop();
+    // The stopped service's immediate write path must never perform retention.
+    fixture.database->execute("INSERT INTO point_samples VALUES(1,1,1);");
+    fixture.flushImmediate();
+    require(fixture.database->rows() == 2 && fixture.store->getStats().persistentCount == 0,
+            "immediate write must commit/ACK without inline retention");
 }
 
 void verifyScheduleBoundaries() {
@@ -380,20 +494,22 @@ void verifyFailureBackoffAndEmptyWork(bool can, const std::string& library) {
         empty.start();
         std::this_thread::sleep_for(1300ms);
         empty.stop();
-        require(api.executions() == startupExecutions && api.finalized() == 0,
-                "empty polling or periodic ticks executed SQLite work");
+        require(api.executions() == startupExecutions && api.finalized() == 1,
+                "empty ring must do only one bounded startup cleanup, no periodic writes");
     }
     for (const auto count : {std::size_t(1), std::size_t(12)}) {
         api.reset();
         ServiceFixture fixture(can, 16, count == 1 ? 1000 : 60000, library);
         fixture.start();
         std::this_thread::sleep_for(400ms);
+        const auto cleanupFinalized = api.finalized();
+        require(cleanupFinalized == 1, "startup cleanup was not exercised");
         fixture.append(count);
         const auto pending = fixture.store->peekPersistentSamples();
         require(waitUntil([&] { return api.rollbacks() == 1; }), "COMMIT failure was not exercised");
         require(fixture.store->getStats().persistentCount == count, "COMMIT failure acknowledged pending history");
         std::this_thread::sleep_for(700ms);
-        require(api.finalized() == 1 && api.rollbacks() == 1, "failed background flush retried before 1 second");
+        require(api.finalized() == cleanupFinalized + 1 && api.rollbacks() == 1, "failed background flush retried before 1 second");
         require(waitUntil([&] { return api.rollbacks() == 2; }), "failed batch was not retried after backoff");
         const auto retained = fixture.store->peekPersistentSamples();
         require(retained.size() == pending.size() && retained.front().sequence == pending.front().sequence &&
@@ -401,14 +517,14 @@ void verifyFailureBackoffAndEmptyWork(bool can, const std::string& library) {
         fixture.blockControl();
         api.failCommit(0);
         std::this_thread::sleep_for(1300ms);
-        require(api.finalized() == 2 && fixture.store->getStats().persistentCount == count,
+        require(api.finalized() == cleanupFinalized + 2 && fixture.store->getStats().persistentCount == count,
                 "failure retry bypassed priority control");
         fixture.releaseControl();
         require(waitUntil([&] { return fixture.store->getStats().persistentCount == 0; }),
                 "recovered COMMIT did not acknowledge retained history");
-        require(api.finalized() == 3 && api.rollbacks() == 2, "recovery did not commit exactly one retained batch");
+        require(api.finalized() == cleanupFinalized + 3 && api.rollbacks() == 2, "recovery did not commit exactly one retained batch");
         std::this_thread::sleep_for(1100ms);
-        require(api.finalized() == 3, "acknowledged history was written again");
+        require(api.finalized() == cleanupFinalized + 3, "acknowledged history was written again");
     }
 }
 
@@ -416,7 +532,7 @@ void verifyFailureBackoffAndEmptyWork(bool can, const std::string& library) {
 
 int main(int argc, char** argv) {
     try {
-        require(argc == 3, "usage: persistent_flush_pressure_test gateway|can <sqlite-failure-fixture>");
+        require(argc == 3 || argc == 4, "usage: persistent_flush_pressure_test gateway|can <sqlite-failure-fixture> [retention]");
         const std::string path = argv[1];
         require(path == "gateway" || path == "can", "unknown caller path");
         const bool can = path == "can";
@@ -424,6 +540,15 @@ int main(int argc, char** argv) {
             test();
             std::cout << path << " " << name << " passed" << std::endl;
         };
+        if (argc == 4) {
+            require(std::string(argv[3]) == "retention", "unknown test selection");
+            run("empty ring retention", [&] { verifyEmptyRingRetention(can); });
+            run("retention batches priority and custom days", [&] { verifyRetentionBatchesPriorityAndCustomDays(can); });
+            run("cleanup failure preserves ACK and write scheduling", [&] { verifyCleanupFailureDoesNotUndoAck(can); });
+            run("real write failure priority and retention recovery", [&] { verifyRealWriteFailureAndRetentionRecovery(can); });
+            run("expired flagged ring and inline isolation", [&] { verifyExpiredFlaggedRingAndImmediateIsolation(can); });
+            return 0;
+        }
         run("schedule boundaries", verifyScheduleBoundaries);
         run("high water before 60s", [&] { verifyHighWaterBeforePeriodicDeadline(can); });
         run("effective limit boundaries", [&] { verifyEffectiveLimitBoundaries(can); });

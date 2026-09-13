@@ -73,6 +73,7 @@ int main(int argc, char* argv[]) {
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
+    config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "local_dio") {
         throw std::invalid_argument("DioDriver requires protocol.type=local_dio");

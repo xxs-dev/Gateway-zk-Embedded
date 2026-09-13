@@ -230,7 +230,8 @@ GatewayDaemon::GatewayDaemon(
         config_.mqttDriver.powerControlOwnershipFile,
         "mqtt-forwarder"
     ),
-    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath,
+                  config_.memoryStore.historyRetentionDays),
     mqttPublisher_(std::move(mqttPublisher)),
     collectorFactory_(std::move(collectorFactory)),
     commandExecutorFactory_(std::move(commandExecutorFactory)),
@@ -672,6 +673,14 @@ void GatewayDaemon::persistLoop() {
             }
         } catch (...) {
             schedule.failed();
+        }
+        try {
+            std::unique_lock<std::mutex> lock(persistentFlushMutex_, std::try_to_lock);
+            if (lock.owns_lock() && running_.load() && !priorityControlBlocked(nowMs())) {
+                sqliteWriter_.cleanupExpiredSamples(nowMs());
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "point history cleanup failed: " << ex.what() << std::endl;
         }
         sleepInterruptibly(running_, PersistentFlushSchedule::kCheckIntervalMs);
     }
