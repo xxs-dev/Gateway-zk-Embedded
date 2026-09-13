@@ -97,6 +97,7 @@ public:
     void removeExpired(std::int64_t nowMs);
 
 private:
+    friend struct MemoryPointStoreReaderCacheTestAccess;
     MemoryPointStore(
         const std::string& segmentName,
         MemoryStoreOpenMode openMode,
@@ -117,6 +118,7 @@ private:
     mutable SharedMutex mutex_;
     std::unordered_map<std::string, std::uint32_t> keyToIndex_;
     std::unordered_map<std::uint32_t, PointBinding> bindings_;
+    // Protected by mutex_; cleared and rebuilt when the mapping changes.
     mutable std::unordered_map<std::uint32_t, std::size_t> latestSlotByIndex_;
     std::unordered_map<std::uint32_t, std::int64_t> lastPersistentSampleTs_;
     std::atomic<std::uint64_t> persistentDropped_{0};
