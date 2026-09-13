@@ -163,7 +163,6 @@ private:
     int isolatedFallbackRetryDelayMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::deque<PendingCommandReply> pendingCommandReplies_;
-    std::int64_t lastRealtimeSessionCleanupMs_ = 0;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
     std::unordered_map<std::string, std::int64_t> recentCommandIds_;
