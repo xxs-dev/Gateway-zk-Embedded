@@ -31,6 +31,7 @@ public:
     ) const;
 
 private:
+    friend struct OtaChecksumTestAccess;
     std::string resolveArtifactPath(const OtaRequest& request) const;
     std::string resolveArtifactSource(const OtaRequest& request) const;
     std::string buildMinioArtifactUrl(const OtaRequest& request) const;

@@ -363,12 +363,15 @@ std::string artifactFileName(const std::string& value) {
     return fileName;
 }
 
-void validateOtaRequestFields(const OtaRequest& request) {
+void validateOtaRequestFields(const OtaRequest& request, bool checksumRequired) {
     if (!isSafeOtaId(request.jobId)) {
         throw std::runtime_error("invalid ota jobId");
     }
     if (!request.version.empty() && !isSafeOtaId(request.version)) {
         throw std::runtime_error("invalid ota version");
+    }
+    if (checksumRequired && request.sha256.empty()) {
+        throw std::runtime_error("ota sha256 is required");
     }
     if (!isSafeSha256(request.sha256)) {
         throw std::runtime_error("invalid ota sha256");
@@ -683,7 +686,7 @@ bool OtaService::enabled() const {
 
 bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMessage) const {
     try {
-        validateOtaRequestFields(request);
+        validateOtaRequestFields(request, config_.checksumRequired);
         validateOtaSize(config_, request.size);
         (void)resolveArtifactPath(request);
         return true;
@@ -793,7 +796,7 @@ void OtaService::execute(
     if (!config_.enabled) {
         throw std::runtime_error("ota is disabled");
     }
-    validateOtaRequestFields(request);
+    validateOtaRequestFields(request, config_.checksumRequired);
     validateOtaSize(config_, request.size);
 
     reply->jobId = request.jobId;
@@ -1450,15 +1453,18 @@ void OtaService::downloadExternalArtifact(
 }
 
 void OtaService::verifyChecksum(const OtaRequest& request, const std::string& artifactPath) const {
-    if (!config_.checksumRequired || request.sha256.empty()) {
+    if (!config_.checksumRequired) {
         return;
+    }
+    if (request.sha256.empty()) {
+        throw std::runtime_error("ota sha256 is required");
     }
 #ifdef _WIN32
     const std::string command =
         "powershell -Command \"$hash=(Get-FileHash -Algorithm SHA256 " +
         quoteArg(artifactPath) +
         ").Hash.ToLower(); if ($hash -ne " +
-        quoteArg(request.sha256) +
+        quoteArg(toLower(request.sha256)) +
         ") { exit 2 }\"";
 #else
     const std::string command =
@@ -1471,7 +1477,7 @@ void OtaService::verifyChecksum(const OtaRequest& request, const std::string& ar
         "fi; "
         "[ \"$actual\" = \"$2\" ]"
         "' ") +
-        " sh " + quoteArg(artifactPath) + " " + quoteArg(request.sha256);
+        " sh " + quoteArg(artifactPath) + " " + quoteArg(toLower(request.sha256));
 #endif
     if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec))) {
         throw std::runtime_error("artifact sha256 mismatch");

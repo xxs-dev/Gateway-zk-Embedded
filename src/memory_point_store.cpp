@@ -691,19 +691,11 @@ std::uint64_t pushPersistentSample(
     const PersistentPointSample& sample,
     std::size_t maxPersistentSamples
 ) {
-    auto& slot = layout->persistent[layout->header.persistentTail];
-    slot = SharedPersistentSlot{};
-    slot.sequence = ++layout->header.persistentSequence;
-    slot.index = sample.index;
-    slot.value = sample.value;
-    slot.ts = sample.ts;
-    slot.occupied = 1;
-
-    layout->header.persistentTail =
-        (layout->header.persistentTail + 1) % kMaxPersistentSlots;
+    // Evict before insertion, keeping one physical slot free to distinguish empty from full.
+    const auto limit = std::min(maxPersistentSamples, kMaxPersistentSlots - 1);
     std::uint64_t dropped = 0;
     while (((layout->header.persistentTail + kMaxPersistentSlots - layout->header.persistentHead) %
-            kMaxPersistentSlots) >= maxPersistentSamples) {
+            kMaxPersistentSlots) >= limit) {
         auto& evicted = layout->persistent[layout->header.persistentHead];
         if (evicted.occupied) {
             ++dropped;
@@ -712,6 +704,15 @@ std::uint64_t pushPersistentSample(
         layout->header.persistentHead =
             (layout->header.persistentHead + 1) % kMaxPersistentSlots;
     }
+    auto& slot = layout->persistent[layout->header.persistentTail];
+    slot = SharedPersistentSlot{};
+    slot.sequence = ++layout->header.persistentSequence;
+    slot.index = sample.index;
+    slot.value = sample.value;
+    slot.ts = sample.ts;
+    slot.occupied = 1;
+    layout->header.persistentTail =
+        (layout->header.persistentTail + 1) % kMaxPersistentSlots;
     return dropped;
 }
 
