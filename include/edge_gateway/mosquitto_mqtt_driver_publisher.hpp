@@ -38,6 +38,13 @@ public:
         const std::string& valueFormat
     ) override;
 
+    void publishRealtime(
+        const std::string& topic,
+        const std::vector<StoredPointValue>& values,
+        const std::string& valueFormat,
+        const std::string& sessionId
+    ) override;
+
     void publishChangeEvent(
         const std::string& topic,
         const StoredPointValue& value

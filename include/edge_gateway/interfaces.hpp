@@ -83,6 +83,16 @@ public:
         const std::string& valueFormat
     ) = 0;
 
+    virtual void publishRealtime(
+        const std::string& topic,
+        const std::vector<StoredPointValue>& values,
+        const std::string& valueFormat,
+        const std::string& sessionId
+    ) {
+        (void)sessionId;
+        publishOnDemand(topic, values, valueFormat);
+    }
+
     virtual void publishChangeEvent(
         const std::string& topic,
         const StoredPointValue& value
