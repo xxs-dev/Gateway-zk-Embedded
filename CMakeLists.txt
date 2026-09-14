@@ -213,6 +213,21 @@ add_executable(pointctl tools/pointctl.cpp)
 target_link_libraries(pointctl PRIVATE edge_gateway)
 target_compile_options(pointctl PRIVATE -fdiagnostics-color=never)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(memory_point_store_migrate
+        tools/memory_point_store_migrate.cpp src/memory_point_store_migration.cpp)
+    target_link_libraries(memory_point_store_migrate PRIVATE pthread rt)
+    if(BUILD_TESTING)
+        add_executable(memory_point_store_migration_test
+            tools/memory_point_store_migration_test.cpp
+            src/memory_point_store_migration.cpp src/memory_point_store.cpp)
+        target_include_directories(memory_point_store_migration_test PRIVATE include)
+        target_link_libraries(memory_point_store_migration_test PRIVATE pthread rt)
+        add_test(NAME memory_point_store_migration COMMAND memory_point_store_migration_test)
+        set_tests_properties(memory_point_store_migration PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+    endif()
+endif()
+
 add_executable(MqttDriver mqtt_driver_main.cpp)
 target_link_libraries(MqttDriver PRIVATE edge_gateway)
 target_compile_options(MqttDriver PRIVATE -fdiagnostics-color=never)

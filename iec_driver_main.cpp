@@ -189,9 +189,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (!config.memoryStore.sharedMemoryName.empty()) {
-        MemoryPointStore::cleanupOrphanedSegment(config.memoryStore.sharedMemoryName);
-    }
+    // Reattach in place: an ownerless segment can contain offline-migrated history.
     MemoryPointStore store(config.memoryStore);
     GatewayDaemon daemon(
         config,
