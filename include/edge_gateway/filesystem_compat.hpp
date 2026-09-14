@@ -2,7 +2,7 @@
 #include <stdexcept>
 
 // GCC 6's C++17 mode predates the final library facilities.
-#if defined(__GNUC__) && !defined(_WIN32) && __GNUC__ < 8
+#if defined(__GNUC__) && !defined(__clang__) && !defined(_WIN32) && __GNUC__ < 8
 #include <experimental/filesystem>
 #include <vector>
 namespace edge_gateway {
