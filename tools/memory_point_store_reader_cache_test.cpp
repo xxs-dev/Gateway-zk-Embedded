@@ -1,4 +1,5 @@
 #include "edge_gateway/memory_point_store.hpp"
+#include "../src/memory_point_store_layout.hpp"
 
 #include <chrono>
 #include <functional>
@@ -14,6 +15,18 @@ struct MemoryPointStoreReaderCacheTestAccess {
     static std::unordered_map<std::uint32_t, std::size_t> cache(const MemoryPointStore& store) {
         ReadLock lock(store.mutex_);
         return store.latestSlotByIndex_;
+    }
+    static std::size_t occupiedLatestCount(const MemoryPointStore& store) {
+        ReadLock lock(store.mutex_);
+        auto* layout = static_cast<memory_layout::SharedStoreLayout*>(store.sharedView_);
+        if (pthread_mutex_lock(&layout->header.mutex) != 0)
+            throw std::runtime_error("cannot inspect shared latest slots");
+        std::size_t count = 0;
+        for (const auto& slot : layout->latest) {
+            if (slot.occupied) ++count;
+        }
+        pthread_mutex_unlock(&layout->header.mutex);
+        return count;
     }
     static void seedOldCache(MemoryPointStore& store, std::size_t count) {
         WriteLock lock(store.mutex_);
@@ -247,6 +260,103 @@ void concurrentReaders() {
     require(Access::cache(reader).size() == 2, "concurrent discoveries did not populate cache");
 }
 
+void requireLatestCount(MemoryPointStore& store, std::size_t expected) {
+    // getAllLatest merges duplicate indexes, so inspect physical slots as well.
+    const auto actual = Access::occupiedLatestCount(store);
+    require(actual == expected, "expected " + std::to_string(expected) +
+        " occupied latest slots, got " + std::to_string(actual));
+    require(store.getStats().latestCount == expected, "shared latest count changed");
+    require(store.getAllLatest(1000).size() == expected, "latest indexes are not unique");
+}
+
+void writersAfterSharedInsert(std::uint32_t version) {
+    Segment segment;
+    MemoryStoreConfig config;
+    config.sharedMemoryName = segment.name;
+    config.sharedMemoryCreateVersion = version;
+    MemoryPointStore first(config);
+    MemoryPointStore second(config);
+    require(Access::cache(first).empty() && Access::cache(second).empty(),
+        "both writers must attach before the first insertion");
+    first.putLatest(value(801, 1.0));
+    require(Access::cache(second).count(801) == 0, "fixture must exercise a writer cache miss");
+    second.putLatest(value(801, 2.0));
+    requireLatestCount(second, 1);
+    const auto cached = Access::cache(second);
+    require(cached.at(801) == Access::cache(first).at(801),
+        "writer miss did not cache the existing shared slot");
+    for (int i = 0; i < 8; ++i) {
+        auto& writer = i % 2 == 0 ? first : second;
+        writer.putLatest(value(801, 10.0 + i));
+        for (auto* observer : {&first, &second}) {
+            for (const bool batch : {false, true}) {
+                const auto result = read(*observer, batch, {801});
+                require(result.size() == 1 && result[0].value == 10.0 + i,
+                    "writers disagree on the latest value after a hot write");
+            }
+        }
+    }
+    require(Access::cache(second) == cached, "hot writes changed a valid slot cache");
+    requireLatestCount(first, 1);
+}
+
+void writerAfterSlotReuse(bool reuse, bool relocate) {
+    Segment segment;
+    MemoryPointStore first(segment.name);
+    first.putLatest(value(811, 1.0));
+    MemoryPointStore second(segment.name);
+    const auto oldSlot = Access::cache(first).at(811);
+    second.removeExpired(2001);
+    requireLatestCount(second, 0);
+    if (reuse) {
+        second.putLatest(value(812, 12.0));
+        require(Access::cache(second).at(812) == oldSlot, "fixture did not reuse the old slot");
+    }
+    if (relocate) {
+        second.putLatest(value(811, 2.0));
+        require(Access::cache(second).at(811) != oldSlot, "fixture did not relocate the index");
+    }
+    require(Access::cache(first).at(811) == oldSlot, "fixture lost its stale writer cache");
+    first.putLatest(value(811, 3.0));
+    requireLatestCount(first, reuse ? 2 : 1);
+    if (relocate) {
+        require(Access::cache(first).at(811) == Access::cache(second).at(811),
+            "stale writer cache did not discover the relocated shared slot");
+    }
+    for (auto* observer : {&first, &second}) {
+        for (const bool batch : {false, true}) {
+            require(read(*observer, batch, {811}).at(0).value == 3.0,
+                "slot reuse left a writer reading an older duplicate");
+            if (reuse) require(read(*observer, batch, {812}).at(0).value == 12.0,
+                "stale writer cache overwrote another index");
+        }
+    }
+}
+
+void writerMissAtConfiguredLimit() {
+    Segment segment;
+    MemoryStoreConfig config;
+    config.sharedMemoryName = segment.name;
+    config.maxLatestPoints = 1;
+    MemoryPointStore first(config);
+    MemoryPointStore second(config);
+    first.putLatest(value(821, 1.0));
+    second.putLatest(value(821, 2.0));
+    requireLatestCount(second, 1);
+    require(Access::cache(second).at(821) == Access::cache(first).at(821),
+        "update at capacity did not backfill the existing shared slot");
+    bool refused = false;
+    try {
+        second.putLatest(value(822));
+    } catch (const std::runtime_error& ex) {
+        refused = std::string(ex.what()).find("configured limit") != std::string::npos;
+    }
+    require(refused, "a genuinely new index must still respect the configured limit");
+    requireLatestCount(second, 1);
+    require(second.getLatestByIndex(821, 1000)->value == 2.0,
+        "capacity refusal changed the existing value");
+}
+
 }  // namespace
 
 int main() {
@@ -270,5 +380,12 @@ int main() {
         check(prefix + "cache capacity", [&] { cacheCapacity(batch); });
     }
     check("concurrent readers", concurrentReaders);
+    for (const std::uint32_t version : {8, 9, 10}) {
+        check("writers shared insert v" + std::to_string(version), [&] { writersAfterSharedInsert(version); });
+    }
+    check("writer stale vacant slot", [] { writerAfterSlotReuse(false, false); });
+    check("writer stale reused slot", [] { writerAfterSlotReuse(true, false); });
+    check("writer stale relocated index", [] { writerAfterSlotReuse(true, true); });
+    check("writer miss at configured limit", writerMissAtConfiguredLimit);
     return failures == 0 ? 0 : 1;
 }

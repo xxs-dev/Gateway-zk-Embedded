@@ -303,10 +303,12 @@ SharedLatestSlot* allocateLatestSlot(
             latestSlotByIndex->erase(cached);
         }
     }
-    if (latestSlotByIndex == nullptr) {
-        if (auto* existing = findLatestSlot(layout, index)) {
-            return existing;
+    // Another instance may have inserted or relocated this index since caching.
+    if (auto* existing = findLatestSlot(layout, index)) {
+        if (latestSlotByIndex != nullptr) {
+            (*latestSlotByIndex)[index] = static_cast<std::size_t>(existing - layout->latest);
         }
+        return existing;
     }
     if (layout->header.latestCount >= maxLatestPoints) {
         throw std::runtime_error("shared latest store reached configured limit");
