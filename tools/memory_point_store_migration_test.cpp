@@ -8,6 +8,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <stdexcept>
 #include <sys/mman.h>
 #include <sys/file.h>
@@ -246,6 +247,8 @@ void rejectionCases() {
 void deduplication(std::uint32_t version) {
     Fixture f(version);
     auto before = f.read();
+    struct stat original{};
+    require(fstat(f.fd, &original) == 0, "stat original");
     before->latest[5] = before->latest[0];
     before->latest[5].ts += 1;
     before->latest[7] = before->latest[5];
@@ -279,8 +282,145 @@ void deduplication(std::uint32_t version) {
     before->latest[7].occupied = 0;
     checked = f.read();
     require(std::memcmp(before.get(), checked.get(), sizeof(*before)) == 0, "dedup changed forbidden bytes");
+    int named = shm_open(("/" + f.name).c_str(), O_RDONLY, 0);
+    struct stat after{};
+    require(named >= 0 && fstat(named, &after) == 0 && original.st_ino == after.st_ino &&
+        original.st_dev == after.st_dev, "dedup replaced inode");
+    close(named);
     refusal(f, "v8 or v9", [&] { migrateOfflinePointStore(f.name, f.backup, true, options); });
+    {
+        MemoryStoreConfig config;
+        config.sharedMemoryName = f.name;
+        MemoryPointStore writer(config);
+        MemoryPointStore second(config);
+        MemoryPointStore reader(f.name, MemoryStoreOpenMode::OpenExisting);
+        auto value = reader.getLatestByIndex(1001, 2000);
+        require(value && value->ts == 1001 && value->value == 42.25, "dedup runtime winner lost");
+        PointValue update;
+        update.index = 1001;
+        update.ts = 2000;
+        update.value = 88;
+        writer.putLatest(update);
+        update.ts = 2001;
+        second.putLatest(update);
+        require(reader.getLatestByIndex(1001, 2001)->ts == 2001, "reader cache after dedup write");
+        auto state = f.read();
+        std::uint32_t count = 0;
+        for (const auto& slot : state->latest) if (slot.occupied && slot.index == 1001) ++count;
+        require(count == 1 && state->header.latestCount == 2 && state->latest[5].ts == 2001,
+            "runtime duplicated or moved winner");
+    }
     std::cout << "PASS v" << version << " dedup preflight, original slots and exact allowed bytes\n";
+}
+
+void cliPreflight() {
+    const char* cli = std::getenv("GATEWAY_MIGRATION_TEST_CLI");
+    std::string sibling;
+    if (!cli || !*cli) {
+        char path[4096]{};
+        const auto size = readlink("/proc/self/exe", path, sizeof(path) - 1);
+        require(size > 0, "locate sibling CLI");
+        sibling = std::string(path, size);
+        sibling = sibling.substr(0, sibling.find_last_of('/') + 1) + "memory_point_store_migrate";
+        cli = sibling.c_str();
+    }
+    Fixture good(9), bad(8);
+    auto original = good.read();
+    auto corrupt = bad.read();
+    corrupt->latest[1].index = corrupt->latest[0].index;
+    corrupt->latest[1].ts = corrupt->latest[0].ts;
+    corrupt->latest[1].value = 99;
+    bad.save(*corrupt);
+    const auto run = [&](bool conflict) {
+        const auto pid = fork();
+        require(pid >= 0, "fork CLI");
+        if (pid == 0) {
+            execl(cli, cli, "--check", "--deduplicate-latest", "--offline-confirmed",
+                "--shm", good.name.c_str(), "--shm", bad.name.c_str(), static_cast<char*>(nullptr));
+            _exit(126);
+        }
+        int status = 0;
+        require(waitpid(pid, &status, 0) == pid && WIFEXITED(status) &&
+            WEXITSTATUS(status) == (conflict ? 1 : 0), "CLI all-segment preflight result");
+        auto current = good.read();
+        require(std::memcmp(original.get(), current.get(), sizeof(*original)) == 0, "preflight changed earlier segment");
+        current = bad.read();
+        require(std::memcmp(corrupt.get(), current.get(), sizeof(*corrupt)) == 0, "preflight changed last segment");
+        require(access(good.backup.c_str(), F_OK) != 0 && access(bad.backup.c_str(), F_OK) != 0,
+            "preflight created backup");
+    };
+    run(true);
+    corrupt->latest[1] = corrupt->latest[0];
+    bad.save(*corrupt);
+    run(false);
+    std::cout << "PASS CLI all-segment preflight success and late conflict, zero writes/backups\n";
+}
+
+void dedupSafety() {
+    Fixture f(9);
+    auto valid = f.read();
+    valid->latest[1] = valid->latest[0];
+    const std::uint64_t nan = UINT64_C(0x7ff8000000000042);
+    std::memcpy(&valid->latest[0].value, &nan, sizeof(nan));
+    std::memcpy(&valid->latest[1].value, &nan, sizeof(nan));
+    f.save(*valid);
+    const auto rejectBoth = [&](const std::string& reason) {
+        for (bool check : {true, false}) {
+            OfflineMigrationOptions options;
+            options.checkOnly = check;
+            options.deduplicateLatest = true;
+            refusal(f, reason, [&] { migrateOfflinePointStore(f.name, f.backup, true, options); });
+            require(access(f.backup.c_str(), F_OK) != 0, "validation refusal created backup");
+        }
+    };
+    const auto corrupt = [&](const std::string& reason, const std::function<void(SharedStoreLayout&)>& modify) {
+        auto changed = f.read();
+        modify(*changed);
+        f.save(*changed);
+        rejectBoth(reason);
+        f.save(*valid);
+    };
+    corrupt("conflicting highest-ts", [](auto& x) { x.latest[1].value = 1; });
+    corrupt("conflicting highest-ts", [](auto& x) {
+        const std::uint64_t otherNan = UINT64_C(0x7ff8000000000043);
+        std::memcpy(&x.latest[1].value, &otherNan, sizeof(otherNan));
+    });
+    corrupt("conflicting highest-ts", [](auto& x) { x.latest[0].value = 0.0; x.latest[1].value = -0.0; });
+    corrupt("conflicting highest-ts", [](auto& x) { ++x.latest[1].quality; });
+    corrupt("conflicting highest-ts", [](auto& x) { ++x.latest[1].expireAt; });
+    corrupt("conflicting highest-ts", [](auto& x) { x.latest[1].stale = 1; });
+    corrupt("count mismatch", [](auto& x) { x.header.latestCount = 1; });
+    corrupt("latest occupancy", [](auto& x) { x.latest[1].occupied = 2; });
+    corrupt("pending writes", [](auto& x) { x.header.pendingWriteTail = 1; });
+    corrupt("occupied pending write", [](auto& x) { x.pendingWrites[7].occupied = 1; });
+    corrupt("owner lease", [](auto& x) { x.owners[0].heartbeatMs = INT64_MAX; });
+    corrupt("point claim", [](auto& x) { x.claims[0].heartbeatMs = INT64_MAX; });
+    corrupt("mutex", [](auto& x) { std::memset(&x.header.mutex, 0, sizeof(x.header.mutex)); });
+    require(flock(f.fd, LOCK_EX | LOCK_NB) == 0, "lock dedup fixture");
+    rejectBoth("locked by");
+    require(flock(f.fd, LOCK_UN) == 0, "unlock dedup fixture");
+    {
+        MemoryPointStore reader(f.name, MemoryStoreOpenMode::OpenExisting);
+        rejectBoth("still mapped");
+    }
+    // Runtime open/close can change mutex bookkeeping; restore the offline fixture.
+    f.save(*valid);
+    OfflineMigrationOptions options;
+    options.checkOnly = true;
+    options.deduplicateLatest = true;
+    const auto plan = migrateOfflinePointStore(f.name, "", true, options);
+    require(plan.removedCount == 1 && plan.duplicateGroups[0].winnerSlot == 0, "identical NaN bits refused");
+    auto same = f.read();
+    require(std::memcmp(valid.get(), same.get(), sizeof(*valid)) == 0, "NaN preflight wrote bytes");
+    options.checkOnly = false;
+    refusal(f, "open failed", [&] { migrateOfflinePointStore(f.name, f.backup + "/missing", true, options); });
+    migrateOfflinePointStore(f.name, f.backup, true, options);
+    valid->header.version = 10;
+    valid->header.latestCount = 1;
+    valid->latest[1].occupied = 0;
+    same = f.read();
+    require(std::memcmp(valid.get(), same.get(), sizeof(*valid)) == 0, "NaN dedup altered sample bits");
+    std::cout << "PASS dedup/check safety gates, field conflicts, signed zero and NaN bit comparison\n";
 }
 }  // namespace
 
@@ -295,6 +435,8 @@ int main() {
         rejectionCases();
         deduplication(8);
         deduplication(9);
+        cliPreflight();
+        dedupSafety();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';
