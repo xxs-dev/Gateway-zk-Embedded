@@ -610,6 +610,14 @@ target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE ed
 target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
 
 if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME storage_budget_entrypoint_audit
+            COMMAND Python3::Interpreter
+                "${CMAKE_SOURCE_DIR}/tools/storage_budget_entrypoint_audit.py"
+        )
+    endif()
     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
     add_test(NAME mqtt_forwarder_service COMMAND mqtt_forwarder_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
