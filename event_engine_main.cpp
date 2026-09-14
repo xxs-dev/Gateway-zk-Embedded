@@ -95,7 +95,10 @@ std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(const 
                 config.eventOutboxRetentionMonths,
                 config.eventOutboxCleanupIntervalHours,
                 config.eventOutboxReplayBatchSize,
-                config.eventOutboxMaxDiskBytes
+                config.eventOutboxMaxDiskBytes,
+                edge_gateway::MqttEventOutbox::StorageProfile::DeleteNormal,
+                edge_gateway::MqttEventOutbox::AccessMode::ReadWrite,
+                config.eventOutboxRetentionDays
             ));
         } catch (const std::exception& ex) {
             lastError = ex.what();
@@ -262,7 +265,8 @@ int main(int argc, char* argv[]) {
     if (!ipcEvents && appConfig.alarmStore.enabled) {
         alarmWriter.reset(new SqliteAlarmWriter(
             appConfig.alarmStore.sqlitePath,
-            appConfig.alarmStore.sqliteLibraryPath
+            appConfig.alarmStore.sqliteLibraryPath,
+            appConfig.pointHistory.retentionDays
         ));
     }
     std::unique_ptr<MqttEventOutbox> eventOutbox;

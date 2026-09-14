@@ -38,7 +38,10 @@ void verifyPointHistoryConfig() {
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
         output << json;
         output.close();
-        const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).pointHistory;
+        const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+        const auto config = app.pointHistory;
+        require(app.mqtt.eventOutboxRetentionDays == config.retentionDays,
+                "outbox effective retention must follow global days");
         std::remove(path.c_str());
         return config.retentionDays;
     };
@@ -46,6 +49,8 @@ void verifyPointHistoryConfig() {
     require(load(R"({"pointHistory":null})") == 30, "null pointHistory must default to 30");
     require(load(R"({"pointHistory":{}})") == 30, "empty pointHistory must default to 30");
     require(load(R"({"pointHistory":{"retentionDays":null}})") == 30, "null days must default to 30");
+    require(load(R"({"pointHistory":{"retentionDays":45},"mqtt":{"offlineBuffer":{"eventOutbox":{"retentionMonths":12}}}})") == 45,
+            "legacy months must not override the global policy");
     for (const auto& entry : std::vector<std::pair<std::string, int>>{
              {"45", 45}, {"1", 1}, {"3650", 3650}, {"0", 1}, {"-99", 1},
              {"99999", 3650}, {"1e20", 3650}, {"-1e20", 1}, {"45.9", 45}}) {
