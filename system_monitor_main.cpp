@@ -180,7 +180,11 @@ int main(int argc, char* argv[]) {
     const auto& configFiles = runtimeDependencies.configFiles;
     std::shared_ptr<IMqttDriverPublisher> publisher;
     if (appConfig.mqtt.enabled) {
-        publisher = std::make_shared<BuiltinMqttDriverPublisher>(appConfig.mqtt);
+        publisher = std::make_shared<BuiltinMqttDriverPublisher>(
+            appConfig.mqtt,
+            MqttPublisherMode::Bidirectional,
+            MqttEventOutboxOwnership::External
+        );
     } else {
         publisher = std::make_shared<StdoutMqttDriverPublisher>();
     }
@@ -208,6 +212,9 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     service.start();
     std::thread directMaintenanceThread;

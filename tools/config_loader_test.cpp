@@ -771,6 +771,28 @@ void verifyMqttForwardDefaultsAndValidation() {
         missing.mqttForward.fullTelemetryTopicMachineScoped,
         "mqttForward full topic must remain machine-scoped by default"
     );
+    require(!missing.mqttForward.events.enabled,
+        "mqttForward events must default to disabled");
+    require(missing.mqttForward.events.targetId == "third-party",
+        "mqttForward events targetId should use the third-party default");
+    require(missing.mqttForward.events.changeTopic.empty(),
+        "mqttForward events must not invent a change topic");
+    require(missing.mqttForward.events.alarmTopic.empty(),
+        "mqttForward events must not invent an alarm topic");
+    require(missing.mqttForward.events.changeTopicMachineScoped,
+        "mqttForward change event topic must default to machine-scoped");
+    require(missing.mqttForward.events.alarmTopicMachineScoped,
+        "mqttForward alarm topic must default to machine-scoped");
+    require(missing.mqttForward.events.pointIndexes.empty(),
+        "mqttForward events must inherit through an empty point set by default");
+    require(missing.mqttForward.events.replayIntervalMs == 100,
+        "mqttForward event replay interval should default to 100ms");
+    require(missing.mqttForward.events.replayMaxBytes == 262144,
+        "mqttForward event replay byte budget should default to 256KiB");
+    require(missing.mqtt.changeEventTopicMachineScoped,
+        "main MQTT change topic must default to machine-scoped");
+    require(missing.mqtt.alarmTopicMachineScoped,
+        "main MQTT alarm topic must default to machine-scoped");
     require(
         missing.mqttForward.control.leaseTtlMs == 15000,
         "mqttForward.control TTL should default to 15000"
@@ -788,6 +810,18 @@ void verifyMqttForwardDefaultsAndValidation() {
         "existing configs must keep inline full upload by default");
     require(missing.mqttDriver.fullUploadWorker.failoverTimeoutMs == 3000,
         "isolated full fallback timeout should default to 3000ms");
+    require(!missing.mqttDriver.fullUploadWorker.eventForwardingEnabled,
+        "full worker event forwarding must default to disabled");
+    require(
+        missing.mqttDriver.fullUploadWorker.eventReplayLockFile ==
+            "/opt/modbus-gateway/run/mqtt-primary-events-{instance}.lock",
+        "full worker event replay lock should preserve the instance placeholder"
+    );
+    require(
+        missing.mqttDriver.fullUploadWorker.eventDelegationReadyFile ==
+            "/opt/modbus-gateway/run/mqtt-event-delegation-{instance}.json",
+        "full worker event readiness file should preserve the instance placeholder"
+    );
 
     const auto sample = edge_gateway::ConfigLoader::loadAppConfigFromFile(
         "config/examples/mqtt-forward-disabled.json"
@@ -797,10 +831,44 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(sample.mqttForward.pointIndexes.empty(), "disabled sample should keep an empty third-party point set");
     require(sample.mqttForward.payloadFormat == "compactArray", "disabled sample should declare compactArray");
     require(sample.mqtt.enabled, "sample must preserve the existing mqtt block");
+    require(!sample.mqttForward.events.enabled,
+        "sample mqttForward events must stay disabled");
+    require(sample.mqttForward.events.targetId == "third-party",
+        "sample should document the independent event target");
+    require(!sample.mqttDriver.fullUploadWorker.eventForwardingEnabled,
+        "sample full worker must keep event delegation disabled");
     require(sample.mqttDriver.fullUploadWorker.mode == "inline",
         "sample must document the backward-compatible inline mode");
 
+    const auto runtimeSample = edge_gateway::ConfigLoader::loadAppConfigFromFile(
+        "config/runtime/apps/mqtt-service.json"
+    );
+    require(!runtimeSample.mqttForward.enabled,
+        "runtime mqttForward sample must stay disabled");
+    require(runtimeSample.mqttForward.broker.empty(),
+        "runtime mqttForward sample must not target a broker");
+    require(!runtimeSample.mqttForward.events.enabled,
+        "runtime mqttForward event sample must stay disabled");
+    require(!runtimeSample.mqttDriver.fullUploadWorker.eventForwardingEnabled,
+        "runtime full worker event delegation must stay disabled");
+
+    const auto factorySample = edge_gateway::ConfigLoader::loadAppConfigFromFile(
+        "config/factory/runtime/apps/mqtt-service.json"
+    );
+    require(!factorySample.mqttForward.enabled,
+        "factory mqttForward sample must stay disabled");
+    require(factorySample.mqttForward.broker.empty(),
+        "factory mqttForward sample must not target a broker");
+    require(!factorySample.mqttForward.events.enabled,
+        "factory mqttForward event sample must stay disabled");
+    require(!factorySample.mqttDriver.fullUploadWorker.eventForwardingEnabled,
+        "factory full worker event delegation must stay disabled");
+
     const auto enabled = load(R"JSON({
+      "mqtt": {
+        "changeEventTopicMachineScoped": false,
+        "alarmTopicMachineScoped": false
+      },
       "mqttForward": {
         "enabled": true,
         "protocolVersion": "mqtt3",
@@ -813,6 +881,17 @@ void verifyMqttForwardDefaultsAndValidation() {
         "password": "secret",
         "qos": 1,
         "intervalMs": 15000,
+        "events": {
+          "enabled": true,
+          "targetId": "partner-a",
+          "changeTopic": "third/change",
+          "alarmTopic": "third/alarm",
+          "changeTopicMachineScoped": false,
+          "alarmTopicMachineScoped": false,
+          "pointIndexes": [102],
+          "replayIntervalMs": 250,
+          "replayMaxBytes": 524288
+        },
         "tls": {
           "enabled": false,
           "caFile": "",
@@ -835,7 +914,84 @@ void verifyMqttForwardDefaultsAndValidation() {
     );
     require(enabled.mqttForward.payloadFormat == "object", "enabled mqttForward payloadFormat should parse");
     require(enabled.mqttForward.intervalMs == 15000, "enabled mqttForward interval should parse");
+    require(enabled.mqttForward.events.enabled, "mqttForward events should parse enabled");
+    require(enabled.mqttForward.events.targetId == "partner-a",
+        "mqttForward event targetId should parse");
+    require(enabled.mqttForward.events.changeTopic == "third/change",
+        "mqttForward event change topic should parse");
+    require(enabled.mqttForward.events.alarmTopic == "third/alarm",
+        "mqttForward event alarm topic should parse");
+    require(!enabled.mqttForward.events.changeTopicMachineScoped,
+        "mqttForward event change topic should support exact topics");
+    require(!enabled.mqttForward.events.alarmTopicMachineScoped,
+        "mqttForward event alarm topic should support exact topics");
+    require(
+        enabled.mqttForward.events.pointIndexes == std::vector<std::uint32_t>({102}),
+        "mqttForward event point subset should parse in configured order"
+    );
+    require(enabled.mqttForward.events.replayIntervalMs == 250,
+        "mqttForward event replay interval should parse");
+    require(enabled.mqttForward.events.replayMaxBytes == 524288,
+        "mqttForward event replay byte budget should parse");
+    require(!enabled.mqtt.changeEventTopicMachineScoped,
+        "main MQTT change topic should support exact topics");
+    require(!enabled.mqtt.alarmTopicMachineScoped,
+        "main MQTT alarm topic should support exact topics");
     require(!enabled.mqtt.enabled, "mqttForward must not implicitly enable the main mqtt block");
+
+    const auto inheritedEventIndexes = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "broker": "tcp://10.0.0.8:1883",
+        "fullTelemetryTopic": "third/full",
+        "pointIndexes": [101, 102],
+        "events": {
+          "enabled": true,
+          "changeTopic": "third/change",
+          "pointIndexes": []
+        }
+      }
+    })JSON");
+    require(inheritedEventIndexes.mqttForward.events.pointIndexes.empty(),
+        "an empty event point set must retain parent-inheritance semantics");
+
+    const auto lowerEventBounds = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "broker": "tcp://10.0.0.8:1883",
+        "fullTelemetryTopic": "third/full",
+        "pointIndexes": [1],
+        "events": {
+          "enabled": true,
+          "changeTopic": "third/change",
+          "replayIntervalMs": 10,
+          "replayMaxBytes": 1
+        }
+      }
+    })JSON");
+    require(lowerEventBounds.mqttForward.events.replayIntervalMs == 10,
+        "mqttForward event replay interval lower boundary should be accepted");
+    require(lowerEventBounds.mqttForward.events.replayMaxBytes == 1,
+        "mqttForward event replay byte lower boundary should be accepted");
+
+    const auto upperEventBounds = load(R"JSON({
+      "mqttForward": {
+        "enabled": true,
+        "broker": "tcp://10.0.0.8:1883",
+        "fullTelemetryTopic": "third/full",
+        "pointIndexes": [1],
+        "events": {
+          "enabled": true,
+          "alarmTopic": "third/alarm",
+          "replayIntervalMs": 60000,
+          "replayMaxBytes": 67108864
+        }
+      }
+    })JSON");
+    require(upperEventBounds.mqttForward.events.replayIntervalMs == 60000,
+        "mqttForward event replay interval upper boundary should be accepted");
+    require(upperEventBounds.mqttForward.events.replayMaxBytes == 67108864,
+        "mqttForward event replay byte upper boundary should be accepted");
 
     const auto legacy = load(R"JSON({
       "mqttForward": {
@@ -1000,6 +1156,30 @@ void verifyMqttForwardDefaultsAndValidation() {
     require(isolatedFull.mqttDriver.fullUploadWorker.publishLockFile ==
             "/opt/modbus-gateway/run/primary-full.lock",
         "isolated primary full publish lock should parse");
+    require(!isolatedFull.mqttDriver.fullUploadWorker.eventForwardingEnabled,
+        "legacy isolated configs must continue isolating Full only");
+
+    const auto isolatedEvents = load(R"JSON({
+      "mqtt": {"enabled":true},
+      "mqttDriver": {
+        "enabled": true,
+        "fullUploadIntervalMs": 30000,
+        "fullUploadWorker": {
+          "mode": "isolated",
+          "eventForwardingEnabled": true,
+          "eventReplayLockFile": "/run/events-{instance}.lock",
+          "eventDelegationReadyFile": "/run/events-{instance}.json"
+        }
+      }
+    })JSON");
+    require(isolatedEvents.mqttDriver.fullUploadWorker.eventForwardingEnabled,
+        "isolated full worker event forwarding switch should parse");
+    require(isolatedEvents.mqttDriver.fullUploadWorker.eventReplayLockFile ==
+            "/run/events-{instance}.lock",
+        "isolated full worker event lock should parse without expanding {instance}");
+    require(isolatedEvents.mqttDriver.fullUploadWorker.eventDelegationReadyFile ==
+            "/run/events-{instance}.json",
+        "isolated full worker readiness file should parse without expanding {instance}");
 
     const auto expectRejected = [&](const std::string& json, const char* needle, const char* message) {
         bool rejected = false;
@@ -1010,6 +1190,212 @@ void verifyMqttForwardDefaultsAndValidation() {
         }
         require(rejected, message);
     };
+
+    expectRejected(
+        R"JSON({"mqtt":{"changeEventTopicMachineScoped":"true"}})JSON",
+        "not bool",
+        "main MQTT change topic scope must be a boolean"
+    );
+    expectRejected(
+        R"JSON({"mqtt":{"alarmTopicMachineScoped":1}})JSON",
+        "not bool",
+        "main MQTT alarm topic scope must be a boolean"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"noSuchField":true}}})JSON",
+        "noSuchField",
+        "full upload worker must reject unknown keys"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"eventForwardingEnabled":"true"}}})JSON",
+        "not bool",
+        "full upload worker event forwarding switch must be a boolean"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"eventReplayLockFile":true}}})JSON",
+        "not string",
+        "full upload worker event lock must be a string"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"eventDelegationReadyFile":1}}})JSON",
+        "not string",
+        "full upload worker event readiness file must be a string"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"eventForwardingEnabled":true}}})JSON",
+        "requires isolated mode",
+        "event forwarding must not be enabled while the full worker remains inline"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"mode":"isolated","eventForwardingEnabled":true,"eventReplayLockFile":" "}}})JSON",
+        "eventReplayLockFile is required",
+        "isolated event forwarding requires a non-blank replay lock path"
+    );
+    expectRejected(
+        R"JSON({"mqttDriver":{"fullUploadWorker":{"mode":"isolated","eventForwardingEnabled":true,"eventDelegationReadyFile":""}}})JSON",
+        "eventDelegationReadyFile is required",
+        "isolated event forwarding requires a readiness capability path"
+    );
+    expectRejected(
+        R"JSON({"mqtt":{"enabled":true,"qos":0},"mqttDriver":{"enabled":true,"fullUploadIntervalMs":30000,"fullUploadWorker":{"mode":"isolated","eventForwardingEnabled":true}}})JSON",
+        "mqtt.qos must be 1 or 2",
+        "primary event forwarding must require broker acknowledgement"
+    );
+    expectRejected(
+        R"JSON({"mqtt":{"enabled":true,"qos":0},"eventEngine":{"enabled":true,"publishMode":"mqtt_driver_outbox"}})JSON",
+        "mqtt.qos must be 1 or 2",
+        "an MQTT-driver event outbox must require broker acknowledgement"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":true}})JSON",
+        "must be an object",
+        "mqttForward events must be an object"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"noSuchField":true}}})JSON",
+        "noSuchField",
+        "mqttForward events must reject unknown keys"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"enabled":"true"}}})JSON",
+        "not bool",
+        "mqttForward events enabled must be a boolean"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"targetId":1}}})JSON",
+        "not string",
+        "mqttForward events targetId must be a string"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"changeTopic":true}}})JSON",
+        "not string",
+        "mqttForward event change topic must be a string"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"alarmTopic":1}}})JSON",
+        "not string",
+        "mqttForward event alarm topic must be a string"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":false,"events":{"enabled":true,"changeTopic":"third/change"}}})JSON",
+        "requires mqttForward.enabled",
+        "mqttForward events must require an enabled parent"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[1],"events":{"enabled":true}}})JSON",
+        "changeTopic or alarmTopic",
+        "enabled mqttForward events must require at least one event topic"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[1],"events":{"enabled":true,"changeTopic":" ","alarmTopic":"\t"}}})JSON",
+        "changeTopic or alarmTopic",
+        "enabled mqttForward events must reject blank event topics"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[1],"events":{"enabled":true,"targetId":" ","changeTopic":"third/change"}}})JSON",
+        "targetId must not be empty",
+        "enabled mqttForward events must reject a blank targetId"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[1],"events":{"enabled":true,"targetId":" MAIN ","changeTopic":"third/change"}}})JSON",
+        "reserved value main",
+        "enabled mqttForward events must reject the reserved main targetId"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[1],"qos":0,"events":{"enabled":true,"targetId":"third-party","changeTopic":"third/change"}}})JSON",
+        "mqttForward.qos must be 1 or 2",
+        "third-party event forwarding must require broker acknowledgement"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"enabled":true,"broker":"tcp://10.0.0.8:1883","fullTelemetryTopic":"third/full","pointIndexes":[1],"qos":0,"control":{"enabled":true,"commandTopic":"third/control","replyTopic":"third/control/reply","ownershipIndexes":[1],"targets":[{"index":1}]}}})JSON",
+        "mqttForward.qos must be 1 or 2",
+        "third-party control must require broker acknowledgement"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"changeTopicMachineScoped":"true"}}})JSON",
+        "not bool",
+        "mqttForward event change topic scope must be a boolean"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"alarmTopicMachineScoped":1}}})JSON",
+        "not bool",
+        "mqttForward event alarm topic scope must be a boolean"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"pointIndexes":1}}})JSON",
+        "JSON uint32 array",
+        "mqttForward event pointIndexes must be an array"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"pointIndexes":["1"]}}})JSON",
+        "uint32 integers",
+        "mqttForward event pointIndexes must reject strings"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"pointIndexes":[-1]}}})JSON",
+        "uint32 integers",
+        "mqttForward event pointIndexes must reject negative values"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"pointIndexes":[1.5]}}})JSON",
+        "uint32 integers",
+        "mqttForward event pointIndexes must reject fractional values"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"pointIndexes":[4294967296]}}})JSON",
+        "uint32 integers",
+        "mqttForward event pointIndexes must reject values above uint32"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"pointIndexes":[1],"events":{"pointIndexes":[1,1]}}})JSON",
+        "duplicate index",
+        "mqttForward event pointIndexes must reject duplicates"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"pointIndexes":[1],"events":{"pointIndexes":[2]}}})JSON",
+        "missing from mqttForward.pointIndexes",
+        "mqttForward event pointIndexes must be a parent subset even while disabled"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayIntervalMs":9}}})JSON",
+        "between 10 and 60000",
+        "mqttForward event replay interval must reject values below its range"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayIntervalMs":60001}}})JSON",
+        "between 10 and 60000",
+        "mqttForward event replay interval must reject values above its range"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayIntervalMs":10.5}}})JSON",
+        "integer between 10 and 60000",
+        "mqttForward event replay interval must reject fractional values"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayIntervalMs":"100"}}})JSON",
+        "integer between 10 and 60000",
+        "mqttForward event replay interval must reject strings"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayMaxBytes":0}}})JSON",
+        "between 1 and 67108864",
+        "mqttForward event replay byte budget must reject zero"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayMaxBytes":67108865}}})JSON",
+        "between 1 and 67108864",
+        "mqttForward event replay byte budget must reject values above 64MiB"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayMaxBytes":1.5}}})JSON",
+        "integer between 1 and 67108864",
+        "mqttForward event replay byte budget must reject fractional values"
+    );
+    expectRejected(
+        R"JSON({"mqttForward":{"events":{"replayMaxBytes":"262144"}}})JSON",
+        "integer between 1 and 67108864",
+        "mqttForward event replay byte budget must reject strings"
+    );
 
     expectRejected(
         R"JSON({"mqttDriver":{"fullUploadWorker":{"mode":"process"}}})JSON",
@@ -1219,6 +1605,82 @@ void verifyMqttForwardDefaultsAndValidation() {
     );
 }
 
+void verifyEmsClusterProductionSafetyValidation() {
+    const auto load = [](const std::string& json) {
+        const auto path = tempPath();
+        std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
+        output << json;
+        output.close();
+        try {
+            const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+            std::remove(path.c_str());
+            return app;
+        } catch (...) {
+            std::remove(path.c_str());
+            throw;
+        }
+    };
+
+    bool rejected = false;
+    std::string error;
+    try {
+        load(R"JSON({
+          "runtimeMode": "ems",
+          "emsCluster": {
+            "enabled": true,
+            "controlEnabled": true,
+            "zeroTargetOnLoss": false
+          }
+        })JSON");
+    } catch (const std::exception& ex) {
+        rejected = true;
+        error = ex.what();
+    }
+    require(rejected,
+        "production app config must reject cluster control that retains targets after validity loss");
+    require(error.find("zeroTargetOnLoss") != std::string::npos,
+        "unsafe EMS cluster config error should identify zeroTargetOnLoss");
+
+    const auto monitoringOnly = load(R"JSON({
+      "runtimeMode": "ems",
+      "emsCluster": {
+        "enabled": true,
+        "controlEnabled": false,
+        "zeroTargetOnLoss": false
+      }
+    })JSON");
+    require(!monitoringOnly.emsCluster.controlEnabled && !monitoringOnly.emsCluster.zeroTargetOnLoss,
+        "monitoring-only cluster config should retain the non-controlling compatibility setting");
+}
+
+void verifyEventStoreBackendConfig() {
+    const auto load = [](const std::string& json) {
+        const auto path = tempPath();
+        { std::ofstream output(path); output << json; }
+        try {
+            auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
+            std::remove(path.c_str()); return config;
+        } catch (...) { std::remove(path.c_str()); throw; }
+    };
+    require(load("{}").eventStore.backend == "legacy", "legacy backend default changed");
+    const auto valid = load(R"({"eventStore":{"backend":"ipc-lab","storeId":"test",
+        "configGeneration":"1","socketPath":"/tmp/test/events.sock"}})");
+    require(valid.eventStore.storageProfile == "wal-full" && valid.eventStore.queueBytes == 1024 * 1024,
+        "IPC durable profile/queue defaults missing");
+    for (const std::string& bad : {
+        R"({"eventStore":{"backend":"ipc"}})",
+        R"({"eventStore":{"backend":"ipc-lab"}})",
+        R"({"eventStore":{"backend":"ipc-lab","storeId":"test","configGeneration":"1","socketPath":"relative"}})",
+        R"({"eventStore":{"backend":"ipc-lab","storeId":"test","configGeneration":"1","socketPath":"/tmp/events.sock","queueBytes":4096}})",
+        R"({"eventStore":{"backend":"ipc-lab","storeId":"test","configGeneration":"1","socketPath":"/tmp/events.sock","storageProfile":"wal-normal"}})",
+        R"({"eventStore":{"backend":"ipc-lab","storeId":"test","configGeneration":"1","socketPath":"/tmp/events.sock","managementSenderId":"main-events"}})"
+    }) {
+        bool rejected = false;
+        try { (void)load(bad); } catch (const std::exception&) { rejected = true; }
+        require(rejected, "unsafe/ambiguous IPC backend config accepted");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1299,7 +1761,9 @@ int main() {
     verifySystemMonitorCpuAlertConfig();
     verifyIec103RecordingTransferConfig();
     verifyDeliveryRuntimeConfig();
+    verifyEmsClusterProductionSafetyValidation();
     verifyMqttForwardDefaultsAndValidation();
+    verifyEventStoreBackendConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;

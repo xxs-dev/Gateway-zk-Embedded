@@ -208,6 +208,52 @@ std::string unavailableScheduleGraph(std::int64_t nowMs) {
     return out.str();
 }
 
+std::string clusterDispatchGraph(bool zeroOnInvalid) {
+    std::ostringstream out;
+    out << R"json({
+  "schemaVersion":"2.0.0",
+  "graphCode":"cluster-dispatch-safety",
+  "compile":{"maxNodes":4,"maxEdges":4,"virtualIndexStart":700000,"virtualIndexEnd":700100},
+  "nodes":[{
+    "id":"dispatch","type":"clusterDispatch","order":0,
+    "parameters":{
+      "enableIndex":100,"roleIndex":101,"quorumIndex":102,"dispatchValidIndex":103,
+      "dispatchReasonIndex":104,"stationStrategyActiveIndex":105,
+      "dispatchActiveIndexes":[110,111,112],"dispatchReactiveIndexes":[113,114,115],
+      "activeOutputIndexes":[700000,700001,700002],
+      "reactiveOutputIndexes":[700003,700004,700005],
+      "validOutputIndex":700006,"stationLeaderOutputIndex":700007,"reasonOutputIndex":700008,
+      "maxTargetAgeMs":3000,"zeroOnInvalid":)json" << (zeroOnInvalid ? "true" : "false") << R"json(
+    },
+    "ports":[
+      {"id":"enable","direction":"input","valueType":"boolean","runtimePath":"/enableIndex","binding":{"kind":"point","index":100}},
+      {"id":"role","direction":"input","valueType":"enum","runtimePath":"/roleIndex","binding":{"kind":"point","index":101}},
+      {"id":"quorum","direction":"input","valueType":"boolean","runtimePath":"/quorumIndex","binding":{"kind":"point","index":102}},
+      {"id":"dispatch_valid","direction":"input","valueType":"boolean","runtimePath":"/dispatchValidIndex","binding":{"kind":"point","index":103}},
+      {"id":"dispatch_reason","direction":"input","valueType":"enum","runtimePath":"/dispatchReasonIndex","binding":{"kind":"point","index":104}},
+      {"id":"station_strategy","direction":"input","valueType":"boolean","runtimePath":"/stationStrategyActiveIndex","binding":{"kind":"point","index":105}},
+      {"id":"active_a","direction":"input","valueType":"power","unit":"kW","runtimePath":"/dispatchActiveIndexes/0","binding":{"kind":"point","index":110}},
+      {"id":"active_b","direction":"input","valueType":"power","unit":"kW","runtimePath":"/dispatchActiveIndexes/1","binding":{"kind":"point","index":111}},
+      {"id":"active_c","direction":"input","valueType":"power","unit":"kW","runtimePath":"/dispatchActiveIndexes/2","binding":{"kind":"point","index":112}},
+      {"id":"reactive_a","direction":"input","valueType":"power","unit":"kvar","runtimePath":"/dispatchReactiveIndexes/0","binding":{"kind":"point","index":113}},
+      {"id":"reactive_b","direction":"input","valueType":"power","unit":"kvar","runtimePath":"/dispatchReactiveIndexes/1","binding":{"kind":"point","index":114}},
+      {"id":"reactive_c","direction":"input","valueType":"power","unit":"kvar","runtimePath":"/dispatchReactiveIndexes/2","binding":{"kind":"point","index":115}},
+      {"id":"active_out_a","direction":"output","valueType":"power","unit":"kW","runtimePath":"/activeOutputIndexes/0","binding":{"kind":"automatic","index":700000}},
+      {"id":"active_out_b","direction":"output","valueType":"power","unit":"kW","runtimePath":"/activeOutputIndexes/1","binding":{"kind":"automatic","index":700001}},
+      {"id":"active_out_c","direction":"output","valueType":"power","unit":"kW","runtimePath":"/activeOutputIndexes/2","binding":{"kind":"automatic","index":700002}},
+      {"id":"reactive_out_a","direction":"output","valueType":"power","unit":"kvar","runtimePath":"/reactiveOutputIndexes/0","binding":{"kind":"automatic","index":700003}},
+      {"id":"reactive_out_b","direction":"output","valueType":"power","unit":"kvar","runtimePath":"/reactiveOutputIndexes/1","binding":{"kind":"automatic","index":700004}},
+      {"id":"reactive_out_c","direction":"output","valueType":"power","unit":"kvar","runtimePath":"/reactiveOutputIndexes/2","binding":{"kind":"automatic","index":700005}},
+      {"id":"valid_out","direction":"output","valueType":"boolean","runtimePath":"/validOutputIndex","binding":{"kind":"automatic","index":700006}},
+      {"id":"leader_out","direction":"output","valueType":"boolean","runtimePath":"/stationLeaderOutputIndex","binding":{"kind":"automatic","index":700007}},
+      {"id":"reason_out","direction":"output","valueType":"enum","runtimePath":"/reasonOutputIndex","binding":{"kind":"automatic","index":700008}}
+    ]
+  }],
+  "links":[]
+})json";
+    return out.str();
+}
+
 void expectLoadFailure(const std::string& path, const std::string& expectedMessage) {
     try {
         edge_gateway::GraphEmsConfig::loadFromFile(path);
@@ -309,6 +355,7 @@ int main(int argc, char* argv[]) {
     const auto preservedWeakTypeFile = "graph_ems_v2_weak_type_preserved_" + suffix + ".logic.json";
     const auto unknownValueTypeFile = "graph_ems_v2_unknown_value_type_" + suffix + ".logic.json";
     const auto unavailableScheduleFile = "graph_ems_v2_unavailable_schedule_" + suffix + ".logic.json";
+    const auto unsafeClusterDispatchFile = "graph_ems_v2_unsafe_cluster_dispatch_" + suffix + ".logic.json";
     const auto sharedMemoryName = "gateway_graph_ems_v2_test_" + suffix;
     try {
         require(
@@ -353,6 +400,9 @@ int main(int argc, char* argv[]) {
         require(config.nodes[0].params.at("inputs.0.index") == "100", "linked pointInput index was not materialized");
         require(config.nodes[0].params.at("inputs.1.value") == "2", "constant binding was not materialized");
         require(config.nodes[0].params.at("outputIndex") == "700000", "automatic output index was not materialized");
+
+        writeText(unsafeClusterDispatchFile, clusterDispatchGraph(false));
+        expectLoadFailure(unsafeClusterDispatchFile, "zeroOnInvalid");
 
         edge_gateway::MemoryStoreConfig memoryConfig;
         memoryConfig.sharedMemoryName = sharedMemoryName;
@@ -639,6 +689,7 @@ int main(int argc, char* argv[]) {
         std::remove(preservedWeakTypeFile.c_str());
         std::remove(unknownValueTypeFile.c_str());
         std::remove(unavailableScheduleFile.c_str());
+        std::remove(unsafeClusterDispatchFile.c_str());
         std::cout << "graph_ems_v2_loader_test passed\n";
         return 0;
     } catch (const std::exception& ex) {
@@ -656,6 +707,7 @@ int main(int argc, char* argv[]) {
         std::remove(preservedWeakTypeFile.c_str());
         std::remove(unknownValueTypeFile.c_str());
         std::remove(unavailableScheduleFile.c_str());
+        std::remove(unsafeClusterDispatchFile.c_str());
         std::cerr << "graph_ems_v2_loader_test failed: " << ex.what() << "\n";
         return 1;
     }

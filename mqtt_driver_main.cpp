@@ -14,12 +14,20 @@
 #endif
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
+#ifdef __linux__
+#include "edge_gateway/event_store_config.hpp"
+#include "edge_gateway/event_store_management.hpp"
+#endif
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
+#include "edge_gateway/mqtt_event_stats.hpp"
+#ifdef __linux__
+#include "edge_gateway/mqtt_event_stats_factory.hpp"
+#endif
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -282,12 +290,24 @@ int main(int argc, char* argv[]) {
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     TimingPolicyResolver::applyAppServices(appConfig);
+    const bool ipcEvents = appConfig.eventStore.backend != "legacy";
+#ifndef __linux__
+    if (ipcEvents) throw std::runtime_error("IPC EventStore requires Linux");
+#endif
     appConfig.mqttDriver.fullUploadWorker.healthFile = scopedWorkerPath(
         appConfig.mqttDriver.fullUploadWorker.healthFile,
         appConfigPath
     );
     appConfig.mqttDriver.fullUploadWorker.publishLockFile = scopedWorkerPath(
         appConfig.mqttDriver.fullUploadWorker.publishLockFile,
+        appConfigPath
+    );
+    appConfig.mqttDriver.fullUploadWorker.eventReplayLockFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.eventReplayLockFile,
+        appConfigPath
+    );
+    appConfig.mqttDriver.fullUploadWorker.eventDelegationReadyFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.eventDelegationReadyFile,
         appConfigPath
     );
     setProcessName("modbus-mqtt-" + sanitizeProcessToken(basenameOf(appConfigPath)));
@@ -375,8 +395,25 @@ int main(int argc, char* argv[]) {
     router.addRoutesFromCameraServiceConfig(appConfig.cameraService, topicMachineCode);
     addEmsClusterPointRoutes(router, appConfig.emsCluster, topicMachineCode);
     std::shared_ptr<IMqttDriverPublisher> publisher;
+    std::function<void(const std::string&, const std::string&, const std::string&, std::int64_t)> managementSubmit;
+#ifdef __linux__
+    std::shared_ptr<EventStoreManagementWriter> managementWriter;
+    if (ipcEvents && appConfig.mqtt.enabled) {
+        managementWriter = std::make_shared<EventStoreManagementWriter>(eventStoreProducerOptions(
+            appConfig.eventStore, appConfig.eventStore.managementProducerId));
+        managementSubmit = [managementWriter](const std::string& type, const std::string& topic,
+            const std::string& payload, std::int64_t ts) { managementWriter->submit(type, topic, payload, ts); };
+    }
+#endif
     if (appConfig.mqtt.enabled) {
-        publisher = std::make_shared<BuiltinMqttDriverPublisher>(appConfig.mqtt);
+        publisher = std::make_shared<BuiltinMqttDriverPublisher>(
+            appConfig.mqtt,
+            MqttPublisherMode::Bidirectional,
+            ipcEvents ? MqttEventOutboxOwnership::External : appConfig.eventEngine.publishMode == "mqtt_driver_outbox"
+                ? MqttEventOutboxOwnership::ManagementOnly
+                : MqttEventOutboxOwnership::PublisherManaged,
+            managementSubmit
+        );
     } else {
         publisher = std::make_shared<StdoutMqttDriverPublisher>(appConfig.mqtt);
     }
@@ -385,9 +422,30 @@ int main(int argc, char* argv[]) {
         otaService.reset(new OtaService(appConfig.ota));
     }
     std::unique_ptr<MqttEventOutbox> eventOutbox;
-    if (appConfig.eventEngine.publishMode == "mqtt_driver_outbox") {
+    if (!ipcEvents && appConfig.eventEngine.publishMode == "mqtt_driver_outbox") {
         eventOutbox = createEventOutboxWithRetry(appConfig.mqtt);
     }
+    std::unique_ptr<IEventStatsSource> eventStats;
+#ifdef __linux__
+    if (ipcEvents) {
+        eventStats = makeIpcMqttEventStatsSource(appConfig.eventStore,
+            {mqttDriverTotalStatsQuery(), mqttDriverBusinessStatsQuery()});
+    }
+    if (eventOutbox) {
+        eventStats = makeLegacyMqttEventStatsSource(appConfig.mqtt,
+            {mqttDriverTotalStatsQuery(), mqttDriverBusinessStatsQuery()});
+    }
+#endif
+    MqttEventReplayFactory businessReplay, managementReplay;
+#ifdef __linux__
+    if (ipcEvents && appConfig.mqtt.enabled) {
+        const auto transport = std::dynamic_pointer_cast<BuiltinMqttDriverPublisher>(publisher);
+        businessReplay = configuredEventReplay(appConfig.eventStore, appConfig.eventStore.businessSenderId,
+            MqttEventReplayLane::MainBusiness, "main", {"alarm", "change"}, transport);
+        managementReplay = configuredEventReplay(appConfig.eventStore, appConfig.eventStore.managementSenderId,
+            MqttEventReplayLane::MainManagement, "main", {"ota_status"}, transport);
+    }
+#endif
     MqttDriverService service(
         appConfig.mqtt,
         appConfig.mqttDriver,
@@ -396,7 +454,9 @@ int main(int argc, char* argv[]) {
         publisher,
         std::move(eventOutbox),
         std::move(otaService),
-        appConfig.systemMonitor.scadaUpperComputerSafety
+        appConfig.systemMonitor.scadaUpperComputerSafety,
+        std::move(eventStats), std::move(businessReplay), std::move(managementReplay),
+        ipcEvents ? EventStoreIdentity{appConfig.eventStore.storeId, appConfig.eventStore.configGeneration} : EventStoreIdentity{}
     );
     service.setAgcAvcCommandMailboxRuntime(agcAvcCommandMailbox);
 
@@ -407,6 +467,9 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     service.start();
     std::cout << "mqtt driver started"
@@ -423,6 +486,12 @@ int main(int argc, char* argv[]) {
     }
 
     service.stop();
+#ifdef __linux__
+    if (managementWriter && !managementWriter->drain(5000)) {
+        std::cerr << "management events still pending at shutdown" << std::endl;
+        return 2;
+    }
+#endif
     std::cout << "mqtt driver stopped" << std::endl;
     return 0;
 }

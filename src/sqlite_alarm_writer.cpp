@@ -40,6 +40,9 @@ constexpr int kSqliteLocked = 6;
 constexpr int kSqliteDone = 101;
 constexpr int kSqliteOpenReadWrite = 0x00000002;
 constexpr int kSqliteOpenCreate = 0x00000004;
+constexpr int kSqliteBusyTimeoutMs = 25;
+constexpr int kSqliteRetryAttempts = 3;
+constexpr int kSqliteRetryBackoffMs = 10;
 
 sqlite3_open_v2_fn g_sqlite3_open_v2 = nullptr;
 sqlite3_close_v2_fn g_sqlite3_close_v2 = nullptr;
@@ -107,7 +110,7 @@ std::string sqliteError(sqlite3* db) {
 }
 
 void execOrThrow(sqlite3* db, const char* sql) {
-    for (int attempt = 0; attempt < 5; ++attempt) {
+    for (int attempt = 0; attempt < kSqliteRetryAttempts; ++attempt) {
         char* errorMessage = nullptr;
         const auto rc = g_sqlite3_exec(db, sql, nullptr, nullptr, &errorMessage);
         if (rc == kSqliteOk) {
@@ -120,8 +123,11 @@ void execOrThrow(sqlite3* db, const char* sql) {
         if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
             g_sqlite3_free(errorMessage);
         }
-        if ((rc == kSqliteBusy || rc == kSqliteLocked) && attempt + 1 < 5) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50 * (attempt + 1)));
+        if ((rc == kSqliteBusy || rc == kSqliteLocked) &&
+            attempt + 1 < kSqliteRetryAttempts) {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(kSqliteRetryBackoffMs * (attempt + 1))
+            );
             continue;
         }
         throw std::runtime_error(message);
@@ -129,13 +135,16 @@ void execOrThrow(sqlite3* db, const char* sql) {
 }
 
 void stepDoneOrThrow(sqlite3* db, sqlite3_stmt* stmt) {
-    for (int attempt = 0; attempt < 5; ++attempt) {
+    for (int attempt = 0; attempt < kSqliteRetryAttempts; ++attempt) {
         const auto rc = g_sqlite3_step(stmt);
         if (rc == kSqliteDone) {
             return;
         }
-        if ((rc == kSqliteBusy || rc == kSqliteLocked) && attempt + 1 < 5) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50 * (attempt + 1)));
+        if ((rc == kSqliteBusy || rc == kSqliteLocked) &&
+            attempt + 1 < kSqliteRetryAttempts) {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(kSqliteRetryBackoffMs * (attempt + 1))
+            );
             continue;
         }
         throw std::runtime_error(sqliteError(db));
@@ -148,6 +157,38 @@ void rollbackNoThrow(sqlite3* db) noexcept {
     if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
         g_sqlite3_free(errorMessage);
     }
+}
+
+struct ColumnLookup {
+    const char* name = nullptr;
+    bool found = false;
+};
+
+int findColumn(void* context, int columnCount, char** values, char**) {
+    auto* lookup = static_cast<ColumnLookup*>(context);
+    if (lookup != nullptr && columnCount > 1 && values[1] != nullptr &&
+        std::string(values[1]) == lookup->name) {
+        lookup->found = true;
+    }
+    return 0;
+}
+
+bool tableHasColumn(sqlite3* db, const char* table, const char* column) {
+    ColumnLookup lookup{column, false};
+    const auto sql = std::string("PRAGMA table_info(") + table + ");";
+    char* errorMessage = nullptr;
+    const auto rc = g_sqlite3_exec(db, sql.c_str(), findColumn, &lookup, &errorMessage);
+    if (rc != kSqliteOk) {
+        const std::string message = errorMessage != nullptr ? errorMessage : sqliteError(db);
+        if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
+            g_sqlite3_free(errorMessage);
+        }
+        throw std::runtime_error(message);
+    }
+    if (errorMessage != nullptr && g_sqlite3_free != nullptr) {
+        g_sqlite3_free(errorMessage);
+    }
+    return lookup.found;
 }
 
 }  // namespace
@@ -180,25 +221,26 @@ void SqliteAlarmWriter::writeEvents(const std::vector<AlarmEvent>& events) {
 
     StatementGuard stmt;
     const char* sql =
-        "INSERT INTO alarm_events(point_index, ts, alarm_type, active, threshold, value, quality, stale, persist_value, gateway_code, device_code, point_code) "
-        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        "INSERT OR IGNORE INTO alarm_events(event_id, point_index, ts, alarm_type, active, threshold, value, quality, stale, persist_value, gateway_code, device_code, point_code) "
+        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     try {
         if (g_sqlite3_prepare_v2(db, sql, -1, stmt.output(), nullptr) != kSqliteOk) {
             throw std::runtime_error(sqliteError(db));
         }
         for (const auto& event : events) {
-            if (g_sqlite3_bind_int(stmt.get(), 1, static_cast<int>(event.index)) != kSqliteOk ||
-                g_sqlite3_bind_int64(stmt.get(), 2, static_cast<long long>(event.ts)) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt.get(), 3, event.alarmType.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt.get(), 4, event.active ? 1 : 0) != kSqliteOk ||
-                g_sqlite3_bind_double(stmt.get(), 5, event.threshold) != kSqliteOk ||
-                g_sqlite3_bind_double(stmt.get(), 6, event.value) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt.get(), 7, event.quality) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt.get(), 8, event.stale ? 1 : 0) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt.get(), 9, event.persistValue.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt.get(), 10, event.machineCode.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt.get(), 11, event.meterCode.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_text(stmt.get(), 12, event.pointCode.c_str(), -1, nullptr) != kSqliteOk) {
+            if (g_sqlite3_bind_text(stmt.get(), 1, event.eventId.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 2, static_cast<int>(event.index)) != kSqliteOk ||
+                g_sqlite3_bind_int64(stmt.get(), 3, static_cast<long long>(event.ts)) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 4, event.alarmType.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 5, event.active ? 1 : 0) != kSqliteOk ||
+                g_sqlite3_bind_double(stmt.get(), 6, event.threshold) != kSqliteOk ||
+                g_sqlite3_bind_double(stmt.get(), 7, event.value) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 8, event.quality) != kSqliteOk ||
+                g_sqlite3_bind_int(stmt.get(), 9, event.stale ? 1 : 0) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 10, event.persistValue.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 11, event.machineCode.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 12, event.meterCode.c_str(), -1, nullptr) != kSqliteOk ||
+                g_sqlite3_bind_text(stmt.get(), 13, event.pointCode.c_str(), -1, nullptr) != kSqliteOk) {
                 throw std::runtime_error(sqliteError(db));
             }
             stepDoneOrThrow(db, stmt.get());
@@ -274,7 +316,7 @@ void SqliteAlarmWriter::openDatabase() {
         }
         throw std::runtime_error("failed to open sqlite database");
     }
-    if (g_sqlite3_busy_timeout(db, 5000) != kSqliteOk) {
+    if (g_sqlite3_busy_timeout(db, kSqliteBusyTimeoutMs) != kSqliteOk) {
         g_sqlite3_close_v2(db);
         throw std::runtime_error("failed to configure sqlite busy timeout");
     }
@@ -289,6 +331,7 @@ void SqliteAlarmWriter::ensureSchema() {
         db,
         "CREATE TABLE IF NOT EXISTS alarm_events ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "event_id TEXT,"
         "point_index INTEGER NOT NULL,"
         "ts INTEGER NOT NULL,"
         "alarm_type TEXT NOT NULL,"
@@ -302,6 +345,14 @@ void SqliteAlarmWriter::ensureSchema() {
         "device_code TEXT NOT NULL,"
         "point_code TEXT NOT NULL"
         ");"
+    );
+    if (!tableHasColumn(db, "alarm_events", "event_id")) {
+        execOrThrow(db, "ALTER TABLE alarm_events ADD COLUMN event_id TEXT;");
+    }
+    execOrThrow(
+        db,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_events_event_id "
+        "ON alarm_events(event_id) WHERE event_id IS NOT NULL AND event_id <> '';"
     );
 }
 

@@ -1,4 +1,5 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
+#include "edge_gateway/event_store_clock.hpp"
 
 #include "edge_gateway/json_value_writer.hpp"
 
@@ -15,6 +16,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -31,6 +33,8 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/file.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -59,6 +63,8 @@ constexpr std::uint8_t kPacketPingResp = 0xD0;
 constexpr std::uint8_t kPacketDisconnect = 0xE0;
 constexpr std::size_t kMinIncomingPacketBytes = 512U * 1024U;
 constexpr std::size_t kMaxRemainingLengthBytes = 268435455U;
+constexpr std::size_t kMaxMqtt3Qos1InFlight = 8;
+constexpr std::size_t kMaxLeasedMqtt3Qos1InFlight = 16;
 
 std::string scopedTopic(const std::string& topic, const std::string& machineCode) {
     if (topic.empty() || machineCode.empty()) {
@@ -776,8 +782,11 @@ std::string encodeOtaStatusJson(const OtaStatus& status) {
         << ",\"downloadedBytes\":" << status.downloadedBytes
         << ",\"totalBytes\":" << status.totalBytes
         << ",\"message\":\"" << escapeJson(status.message) << "\""
-        << ",\"ts\":" << status.ts
-        << "}";
+        << ",\"ts\":" << status.ts;
+    if (!status.occurrenceId.empty()) {
+        out << ",\"occurrenceId\":\"" << escapeJson(status.occurrenceId) << "\"";
+    }
+    out << "}";
     return out.str();
 }
 
@@ -1078,6 +1087,92 @@ bool configureMqttSocketTimeouts(SocketHandle socketHandle, int timeoutMs) {
 #endif
 }
 
+bool configureMqttSocketNoSigpipe(SocketHandle socketHandle) {
+#if !defined(_WIN32) && defined(SO_NOSIGPIPE)
+    const int enabled = 1;
+    return setsockopt(socketHandle, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == 0;
+#else
+    (void)socketHandle;
+    return true;
+#endif
+}
+
+int mqttSendFlags() {
+#if !defined(_WIN32) && defined(MSG_NOSIGNAL)
+    return MSG_NOSIGNAL;
+#else
+    return 0;
+#endif
+}
+
+#ifndef _WIN32
+class ScopedSigpipeBlock {
+public:
+    ScopedSigpipeBlock() {
+        sigemptyset(&signalSet_);
+        sigaddset(&signalSet_, SIGPIPE);
+        if (pthread_sigmask(SIG_BLOCK, &signalSet_, &previousMask_) != 0) {
+            throw std::runtime_error("mqtt failed to block SIGPIPE for TLS write");
+        }
+        sigset_t pending{};
+        if (sigpending(&pending) != 0) {
+            pthread_sigmask(SIG_SETMASK, &previousMask_, nullptr);
+            throw std::runtime_error("mqtt failed to inspect pending SIGPIPE state");
+        }
+        wasPending_ = sigismember(&pending, SIGPIPE) == 1;
+        active_ = true;
+    }
+
+    ~ScopedSigpipeBlock() {
+        if (!active_) return;
+        if (!wasPending_) {
+            timespec noWait{};
+            while (sigtimedwait(&signalSet_, nullptr, &noWait) < 0 && errno == EINTR) {
+            }
+        }
+        pthread_sigmask(SIG_SETMASK, &previousMask_, nullptr);
+    }
+
+    ScopedSigpipeBlock(const ScopedSigpipeBlock&) = delete;
+    ScopedSigpipeBlock& operator=(const ScopedSigpipeBlock&) = delete;
+
+private:
+    sigset_t signalSet_{};
+    sigset_t previousMask_{};
+    bool wasPending_ = false;
+    bool active_ = false;
+};
+#endif
+
+using MqttDeadline = std::chrono::steady_clock::time_point;
+
+int remainingMqttTimeoutMs(const MqttDeadline& deadline) {
+    const auto remainingUs = std::chrono::duration_cast<std::chrono::microseconds>(
+        deadline - std::chrono::steady_clock::now()
+    ).count();
+    if (remainingUs <= 0) {
+        throw std::runtime_error("mqtt operation deadline exceeded");
+    }
+    const auto roundedMs = (remainingUs + 999) / 1000;
+    return static_cast<int>(std::min<std::int64_t>(
+        roundedMs,
+        std::numeric_limits<int>::max()
+    ));
+}
+
+void applyMqttSocketDeadline(SocketHandle socketHandle, const MqttDeadline& deadline) {
+    if (!configureMqttSocketTimeouts(socketHandle, remainingMqttTimeoutMs(deadline))) {
+        throw std::runtime_error("mqtt socket deadline configuration failed");
+    }
+}
+
+[[noreturn]] void throwMqttIoFailure(const char* message, const MqttDeadline& deadline) {
+    if (std::chrono::steady_clock::now() >= deadline) {
+        throw std::runtime_error("mqtt operation deadline exceeded");
+    }
+    throw std::runtime_error(message);
+}
+
 SocketHandle connectTcp(const BrokerEndpoint& endpoint, int timeoutMs) {
     ensureSocketRuntime();
     addrinfo hints{};
@@ -1099,7 +1194,7 @@ SocketHandle connectTcp(const BrokerEndpoint& endpoint, int timeoutMs) {
         if (sock == kInvalidSocket) {
             continue;
         }
-        if (!setMqttSocketBlocking(sock, false)) {
+        if (!configureMqttSocketNoSigpipe(sock) || !setMqttSocketBlocking(sock, false)) {
             closeSocket(sock);
             sock = kInvalidSocket;
             continue;
@@ -1223,12 +1318,13 @@ void enableTlsOnConnection(MqttConnection& connection, const MqttConfig& config,
     connection.tls = true;
 }
 
-MqttConnection connectMqttTransport(const MqttConfig& config) {
+MqttConnection connectMqttTransport(const MqttConfig& config, const MqttDeadline& deadline) {
     const auto endpoint = parseBroker(config.broker);
     MqttConnection connection;
-    connection.sock = connectTcp(endpoint, config.connectTimeoutMs);
+    connection.sock = connectTcp(endpoint, remainingMqttTimeoutMs(deadline));
     try {
         if (configUsesTls(config, endpoint)) {
+            applyMqttSocketDeadline(connection.sock, deadline);
             enableTlsOnConnection(connection, config, endpoint);
         }
     } catch (...) {
@@ -1244,7 +1340,7 @@ void sendAll(SocketHandle sock, const std::vector<std::uint8_t>& bytes) {
 #ifdef _WIN32
         const auto rc = send(sock, reinterpret_cast<const char*>(bytes.data() + sent), static_cast<int>(bytes.size() - sent), 0);
 #else
-        const auto rc = send(sock, bytes.data() + sent, bytes.size() - sent, 0);
+        const auto rc = send(sock, bytes.data() + sent, bytes.size() - sent, mqttSendFlags());
 #endif
         if (rc <= 0) {
             throw std::runtime_error("mqtt send failed");
@@ -1262,9 +1358,51 @@ void sendAll(MqttConnection& connection, const std::vector<std::uint8_t>& bytes)
     std::size_t sent = 0;
     while (sent < bytes.size()) {
         const auto chunk = std::min<std::size_t>(bytes.size() - sent, 16384);
+#ifndef _WIN32
+        ScopedSigpipeBlock sigpipeBlock;
+#endif
         const auto rc = api.sslWrite(connection.ssl, bytes.data() + sent, static_cast<int>(chunk));
         if (rc <= 0) {
             throw std::runtime_error("mqtt tls send failed");
+        }
+        sent += static_cast<std::size_t>(rc);
+    }
+}
+
+void sendAll(
+    MqttConnection& connection,
+    const std::vector<std::uint8_t>& bytes,
+    const MqttDeadline& deadline
+) {
+    std::size_t sent = 0;
+    while (sent < bytes.size()) {
+        applyMqttSocketDeadline(connection.sock, deadline);
+        int rc = 0;
+        if (connection.tls) {
+            const auto chunk = std::min<std::size_t>(bytes.size() - sent, 16384);
+#ifndef _WIN32
+            ScopedSigpipeBlock sigpipeBlock;
+#endif
+            rc = tlsApi().sslWrite(connection.ssl, bytes.data() + sent, static_cast<int>(chunk));
+        } else {
+#ifdef _WIN32
+            rc = send(
+                connection.sock,
+                reinterpret_cast<const char*>(bytes.data() + sent),
+                static_cast<int>(bytes.size() - sent),
+                0
+            );
+#else
+            rc = static_cast<int>(send(
+                connection.sock,
+                bytes.data() + sent,
+                bytes.size() - sent,
+                mqttSendFlags()
+            ));
+#endif
+        }
+        if (rc <= 0) {
+            throwMqttIoFailure(connection.tls ? "mqtt tls send failed" : "mqtt send failed", deadline);
         }
         sent += static_cast<std::size_t>(rc);
     }
@@ -1292,6 +1430,25 @@ std::uint8_t recvByte(MqttConnection& connection) {
     const auto rc = api.sslRead(connection.ssl, &byte, 1);
     if (rc != 1) {
         throw std::runtime_error("mqtt tls recv failed");
+    }
+    return byte;
+}
+
+std::uint8_t recvByte(MqttConnection& connection, const MqttDeadline& deadline) {
+    applyMqttSocketDeadline(connection.sock, deadline);
+    std::uint8_t byte = 0;
+    int rc = 0;
+    if (connection.tls) {
+        rc = tlsApi().sslRead(connection.ssl, &byte, 1);
+    } else {
+#ifdef _WIN32
+        rc = recv(connection.sock, reinterpret_cast<char*>(&byte), 1, 0);
+#else
+        rc = static_cast<int>(recv(connection.sock, &byte, 1, 0));
+#endif
+    }
+    if (rc != 1) {
+        throwMqttIoFailure(connection.tls ? "mqtt tls recv failed" : "mqtt recv failed", deadline);
     }
     return byte;
 }
@@ -1325,6 +1482,42 @@ std::vector<std::uint8_t> recvExact(MqttConnection& connection, std::size_t len)
         const auto rc = api.sslRead(connection.ssl, bytes.data() + got, static_cast<int>(chunk));
         if (rc <= 0) {
             throw std::runtime_error("mqtt tls recv payload failed");
+        }
+        got += static_cast<std::size_t>(rc);
+    }
+    return bytes;
+}
+
+std::vector<std::uint8_t> recvExact(
+    MqttConnection& connection,
+    std::size_t len,
+    const MqttDeadline& deadline
+) {
+    std::vector<std::uint8_t> bytes(len);
+    std::size_t got = 0;
+    while (got < len) {
+        applyMqttSocketDeadline(connection.sock, deadline);
+        int rc = 0;
+        if (connection.tls) {
+            const auto chunk = std::min<std::size_t>(len - got, 16384);
+            rc = tlsApi().sslRead(connection.ssl, bytes.data() + got, static_cast<int>(chunk));
+        } else {
+#ifdef _WIN32
+            rc = recv(
+                connection.sock,
+                reinterpret_cast<char*>(bytes.data() + got),
+                static_cast<int>(len - got),
+                0
+            );
+#else
+            rc = static_cast<int>(recv(connection.sock, bytes.data() + got, len - got, 0));
+#endif
+        }
+        if (rc <= 0) {
+            throwMqttIoFailure(
+                connection.tls ? "mqtt tls recv payload failed" : "mqtt recv payload failed",
+                deadline
+            );
         }
         got += static_cast<std::size_t>(rc);
     }
@@ -1383,6 +1576,31 @@ std::vector<std::uint8_t> readPacket(MqttConnection& connection, std::size_t max
     return packet;
 }
 
+std::vector<std::uint8_t> readPacket(
+    MqttConnection& connection,
+    std::size_t maxRemainingBytes,
+    const MqttDeadline& deadline
+) {
+    std::vector<std::uint8_t> packet;
+    packet.push_back(recvByte(connection, deadline));
+    std::size_t multiplier = 1;
+    std::size_t remaining = 0;
+    std::uint8_t encoded = 0;
+    do {
+        encoded = recvByte(connection, deadline);
+        packet.push_back(encoded);
+        remaining += (encoded & 0x7F) * multiplier;
+        if (multiplier > 128U * 128U * 128U) {
+            throw std::runtime_error("mqtt malformed remaining length");
+        }
+        multiplier *= 128;
+    } while ((encoded & 0x80) != 0);
+    rejectOversizedPacket(remaining, maxRemainingBytes);
+    const auto body = recvExact(connection, remaining, deadline);
+    packet.insert(packet.end(), body.begin(), body.end());
+    return packet;
+}
+
 bool waitReadable(SocketHandle sock, int timeoutMs) {
     fd_set readSet;
     FD_ZERO(&readSet);
@@ -1420,21 +1638,52 @@ void validateConnAck(const MqttConfig& config, const std::vector<std::uint8_t>& 
     }
 }
 
-void validatePubAck(const std::vector<std::uint8_t>& packet) {
-    if (packet.empty() || (packet[0] & 0xF0) != kPacketPubAck) {
-        throw std::runtime_error("mqtt puback missing");
+std::uint16_t validatedPublishAckPacketId(
+    const std::vector<std::uint8_t>& packet,
+    std::uint8_t expectedType,
+    bool mqtt5,
+    const char* name
+) {
+    if (packet.empty() || (packet[0] & 0xF0) != expectedType) {
+        throw std::runtime_error(std::string("mqtt ") + name + " missing");
     }
+
+    std::size_t cursor = 1;
+    int remainingBytes = 0;
+    std::uint32_t multiplier = 1;
+    std::uint32_t remaining = 0;
+    std::uint8_t encoded = 0;
+    do {
+        if (cursor >= packet.size() || remainingBytes++ >= 4) {
+            throw std::runtime_error(std::string("mqtt malformed ") + name);
+        }
+        encoded = packet[cursor++];
+        remaining += static_cast<std::uint32_t>(encoded & 0x7F) * multiplier;
+        multiplier *= 128;
+    } while ((encoded & 0x80) != 0);
+
+    if (remaining < 2 || cursor + remaining > packet.size()) {
+        throw std::runtime_error(std::string("mqtt malformed ") + name);
+    }
+    const auto packetId = static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(packet[cursor]) << 8) |
+        static_cast<std::uint16_t>(packet[cursor + 1])
+    );
+    if (mqtt5 && remaining >= 3 && packet[cursor + 2] >= 0x80) {
+        throw std::runtime_error(std::string("mqtt ") + name + " rejected");
+    }
+    return packetId;
 }
 
-void validatePubRec(const std::vector<std::uint8_t>& packet) {
-    if (packet.empty() || (packet[0] & 0xF0) != kPacketPubRec) {
-        throw std::runtime_error("mqtt pubrec missing");
-    }
-}
-
-void validatePubComp(const std::vector<std::uint8_t>& packet) {
-    if (packet.empty() || (packet[0] & 0xF0) != kPacketPubComp) {
-        throw std::runtime_error("mqtt pubcomp missing");
+void validatePublishAck(
+    const std::vector<std::uint8_t>& packet,
+    std::uint8_t expectedType,
+    std::uint16_t expectedPacketId,
+    bool mqtt5,
+    const char* name
+) {
+    if (validatedPublishAckPacketId(packet, expectedType, mqtt5, name) != expectedPacketId) {
+        throw std::runtime_error(std::string("mqtt ") + name + " packet id mismatch");
     }
 }
 
@@ -1760,8 +2009,18 @@ struct BuiltinMqttDriverPublisher::MqttConnectionHandle {
     MqttConnection connection;
 };
 
-BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config, MqttPublisherMode mode)
-    : config_(std::move(config)), mode_(mode) {
+BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(
+    MqttConfig config,
+    MqttPublisherMode mode,
+    MqttEventOutboxOwnership eventOutboxOwnership,
+    std::function<void(const std::string&, const std::string&, const std::string&, std::int64_t)>
+        durableEventSubmit
+)
+    : config_(std::move(config)),
+      mode_(mode),
+      eventOutboxOwnership_(eventOutboxOwnership), durableEventSubmit_(std::move(durableEventSubmit)) {
+    if (durableEventSubmit_ && eventOutboxOwnership_ != MqttEventOutboxOwnership::External)
+        throw std::invalid_argument("IPC event submission cannot coexist with publisher-owned SQLite");
     if (mode_ == MqttPublisherMode::TxOnly) {
         config_.offlineBufferEnabled = false;
     }
@@ -1776,17 +2035,19 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(MqttConfig config, MqttPu
         } catch (...) {
             realtimeRing_.reset();
         }
-        try {
-            eventOutbox_.reset(new MqttEventOutbox(
-                config_.eventOutboxSqlitePath,
-                config_.eventOutboxSqliteLibraryPath,
-                config_.eventOutboxRetentionMonths,
-                config_.eventOutboxCleanupIntervalHours,
-                config_.eventOutboxReplayBatchSize,
-                config_.eventOutboxMaxDiskBytes
-            ));
-        } catch (...) {
-            eventOutbox_.reset();
+        if (eventOutboxOwnership_ == MqttEventOutboxOwnership::PublisherManaged) {
+            try {
+                eventOutbox_.reset(new MqttEventOutbox(
+                    config_.eventOutboxSqlitePath,
+                    config_.eventOutboxSqliteLibraryPath,
+                    config_.eventOutboxRetentionMonths,
+                    config_.eventOutboxCleanupIntervalHours,
+                    config_.eventOutboxReplayBatchSize,
+                    config_.eventOutboxMaxDiskBytes
+                ));
+            } catch (...) {
+                eventOutbox_.reset();
+            }
         }
     }
 }
@@ -1910,15 +2171,180 @@ void BuiltinMqttDriverPublisher::maintain() {
 void BuiltinMqttDriverPublisher::probeConnection() {
     std::lock_guard<std::mutex> lock(mutex_);
     try {
-        maintainTxConnection();
-        ensureTxConnected();
+        const auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(std::max(1, config_.connectTimeoutMs));
+        maintainTxConnection(deadline);
+        ensureTxConnected(deadline);
         auto& connection = txConnection_->connection;
-        sendAll(connection, buildPingReqPacket());
-        const auto packet = readPacket(connection, incomingPacketLimit(config_));
+        sendAll(connection, buildPingReqPacket(), deadline);
+        const auto packet = readPacket(connection, incomingPacketLimit(config_), deadline);
         if (packet.empty() || (packet[0] & 0xF0) != kPacketPingResp) {
             throw std::runtime_error("mqtt PINGRESP missing");
         }
         lastTxActivityMs_ = currentTimeMs();
+    } catch (...) {
+        closeTx(false);
+        throw;
+    }
+}
+
+void BuiltinMqttDriverPublisher::publishReliableJsonMessage(
+    const std::string& topic,
+    const std::string& payload
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto scoped = scopedPublishTopic(topic);
+    if (!scoped.empty()) {
+        sendJsonNow(scoped, payload);
+    }
+}
+
+void BuiltinMqttDriverPublisher::publishLeasedEvent(const std::string& topic, const std::string& payload,
+    const std::string& bootId, std::int64_t deadlineMs) {
+    const auto remaining = [&]() {
+        const auto now = readEventStoreLeaseTime();
+        if (now.bootId != bootId || now.milliseconds >= deadlineMs)
+            throw std::runtime_error("MQTT event lease expired before transport operation");
+        return deadlineMs - now.milliseconds;
+    };
+    std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
+    while (!lock.try_lock()) {
+        (void)remaining();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(remaining());
+    try {
+        maintainTxConnection(deadline);
+        ensureTxConnected(deadline);
+        (void)remaining();
+        auto& connection = txConnection_->connection;
+        const auto packetId = nextPacketIdentifier();
+        sendAll(connection, buildPublishPacket(config_, topic, payload, packetId, 1), deadline);
+        validatePublishAck(readPacket(connection, incomingPacketLimit(config_), deadline),
+            kPacketPubAck, packetId, config_.protocolVersion == "mqtt5", "puback");
+        (void)remaining();
+        lastTxActivityMs_ = currentTimeMs();
+    } catch (...) { closeTx(false); throw; }
+}
+
+void BuiltinMqttDriverPublisher::publishLeasedEvents(const std::vector<MqttJsonMessage>& messages,
+    const std::string& bootId, std::int64_t deadlineMs,
+    const std::function<bool()>& canSend, const std::function<void(std::size_t)>& onAttempt,
+    const std::function<void(std::size_t)>& onConfirmed) {
+    if (!config_.cleanSession || (config_.protocolVersion == "mqtt5" && config_.sessionExpirySec != 0))
+        throw std::invalid_argument("leased MQTT batch requires a nonpersistent session");
+    if (messages.size() > kMaxLeasedMqtt3Qos1InFlight || !canSend || !onAttempt || !onConfirmed)
+        throw std::invalid_argument("invalid leased MQTT batch");
+    std::size_t bytes = 0;
+    for (const auto& message : messages) {
+        if (message.topic.empty() || message.topic.size() > 32768 - bytes)
+            throw std::invalid_argument("invalid leased MQTT topic or batch bytes");
+        bytes += message.topic.size();
+        if (message.payload.size() > 32768 - bytes)
+            throw std::invalid_argument("leased MQTT batch bytes exceeded");
+        bytes += message.payload.size();
+    }
+    if (messages.empty()) return;
+    const auto remaining = [&]() {
+        const auto now = readEventStoreLeaseTime();
+        if (now.bootId != bootId || now.milliseconds < 0 || now.milliseconds >= deadlineMs)
+            throw std::runtime_error("MQTT batch deadline expired");
+        return deadlineMs - now.milliseconds;
+    };
+    bool denied = false;
+    const auto permitted = [&]() {
+        (void)remaining();
+        if (!denied) {
+            try { denied = !canSend(); } catch (...) { denied = true; }
+        }
+        return !denied;
+    };
+    std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
+    while (!lock.try_lock()) {
+        if (!permitted()) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // Refresh the steady I/O deadline from BOOTTIME for every operation so
+    // suspend cannot give a later operation more time than the original lease.
+    const auto ioDeadline = [&]() {
+        return std::chrono::steady_clock::now() + std::chrono::milliseconds(remaining());
+    };
+    try {
+        if (!permitted()) return;
+        maintainTxConnection(ioDeadline());
+        if (!permitted()) return;
+        if (nextPacketId_ == 0 || static_cast<std::size_t>(nextPacketId_) + messages.size() > 65536) {
+            closeTx(false);
+            nextPacketId_ = 1;
+            ++packetIdGeneration_;
+        } else if (txPacketIdGeneration_ != packetIdGeneration_) {
+            closeTx(false);
+        }
+        ensureTxConnected(ioDeadline());
+        auto& connection = txConnection_->connection;
+        const std::size_t window = config_.protocolVersion == "mqtt5" ? 1 : kMaxLeasedMqtt3Qos1InFlight;
+        std::vector<std::pair<std::uint16_t, std::size_t>> pending;
+        pending.reserve(window);
+        std::size_t next = 0;
+        while (next < messages.size() || !pending.empty()) {
+            while (next < messages.size() && pending.size() < window && permitted()) {
+                const auto packetId = nextPacketIdentifier();
+                const auto packet = buildPublishPacket(config_, messages[next].topic, messages[next].payload, packetId, 1);
+                if (!permitted()) break;
+                onAttempt(next);
+                sendAll(connection, packet, ioDeadline());
+                pending.emplace_back(packetId, next++);
+            }
+            if (pending.empty()) break;
+            const auto ack = readPacket(connection, incomingPacketLimit(config_), ioDeadline());
+            // MQTT3 PUBACK is exactly four bytes with zero fixed-header flags.
+            if (ack.empty() || ack[0] != kPacketPubAck ||
+                (config_.protocolVersion != "mqtt5" && (ack.size() != 4 || ack[1] != 2)))
+                throw std::runtime_error("mqtt malformed batch puback");
+            const auto packetId = validatedPublishAckPacketId(ack,
+                kPacketPubAck, config_.protocolVersion == "mqtt5", "puback");
+            (void)remaining();
+            const auto found = std::find_if(pending.begin(), pending.end(),
+                [packetId](const auto& entry) { return entry.first == packetId; });
+            if (found == pending.end()) throw std::runtime_error("mqtt batch puback packet id mismatch");
+            onConfirmed(found->second);
+            pending.erase(found);
+            lastTxActivityMs_ = currentTimeMs();
+        }
+    } catch (...) {
+        // Incomplete frames or outstanding packet IDs must not survive into
+        // another claim. The sender already owns all prior confirmation bits.
+        closeTx(false);
+        throw;
+    }
+}
+
+void BuiltinMqttDriverPublisher::publishReliableJsonMessages(
+    const std::vector<MqttJsonMessage>& messages
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<MqttJsonMessage> scopedMessages;
+    scopedMessages.reserve(messages.size());
+    bool allQos1 = true;
+    for (const auto& message : messages) {
+        const auto scoped = scopedPublishTopic(message.topic);
+        if (scoped.empty()) {
+            continue;
+        }
+        scopedMessages.push_back(MqttJsonMessage{scoped, message.payload});
+        allQos1 = allQos1 && qosForTopic(scoped) == 1;
+    }
+    if (scopedMessages.empty()) {
+        return;
+    }
+    if (!allQos1 || scopedMessages.size() == 1 || config_.protocolVersion == "mqtt5") {
+        for (const auto& message : scopedMessages) {
+            sendJsonNow(message.topic, message.payload);
+        }
+        return;
+    }
+    try {
+        sendQos1BatchOnTxConnection(scopedMessages);
     } catch (...) {
         closeTx(false);
         throw;
@@ -2089,6 +2515,10 @@ void BuiltinMqttDriverPublisher::publishEventJson(
     if (scoped.empty()) {
         return;
     }
+    if (durableEventSubmit_) {
+        durableEventSubmit_(eventType, scoped, payload, eventTs);
+        return;
+    }
     if (eventOutbox_) {
         try {
             eventOutbox_->replay([this](const std::string& replayTopic, const std::string& replayPayload) {
@@ -2129,19 +2559,88 @@ void BuiltinMqttDriverPublisher::sendJsonNow(const std::string& topic, const std
 }
 
 void BuiltinMqttDriverPublisher::sendJsonOnTxConnection(const std::string& topic, const std::string& payload, int qos) {
-    maintainTxConnection();
-    ensureTxConnected();
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, config_.connectTimeoutMs));
+    maintainTxConnection(deadline);
+    ensureTxConnected(deadline);
     auto& connection = txConnection_->connection;
 
     qos = std::max(0, std::min(2, qos));
-    const auto packetId = nextPacketId_++;
-    sendAll(connection, buildPublishPacket(config_, topic, payload, packetId, qos));
+    const auto packetId = nextPacketIdentifier();
+    sendAll(connection, buildPublishPacket(config_, topic, payload, packetId, qos), deadline);
     if (qos == 1) {
-        validatePubAck(readPacket(connection));
+        validatePublishAck(
+            readPacket(connection, incomingPacketLimit(config_), deadline),
+            kPacketPubAck,
+            packetId,
+            config_.protocolVersion == "mqtt5",
+            "puback"
+        );
     } else if (qos == 2) {
-        validatePubRec(readPacket(connection));
-        sendAll(connection, buildPubRelPacket(packetId, config_.protocolVersion == "mqtt5"));
-        validatePubComp(readPacket(connection));
+        validatePublishAck(
+            readPacket(connection, incomingPacketLimit(config_), deadline),
+            kPacketPubRec,
+            packetId,
+            config_.protocolVersion == "mqtt5",
+            "pubrec"
+        );
+        sendAll(
+            connection,
+            buildPubRelPacket(packetId, config_.protocolVersion == "mqtt5"),
+            deadline
+        );
+        validatePublishAck(
+            readPacket(connection, incomingPacketLimit(config_), deadline),
+            kPacketPubComp,
+            packetId,
+            config_.protocolVersion == "mqtt5",
+            "pubcomp"
+        );
+    }
+    lastTxActivityMs_ = currentTimeMs();
+}
+
+void BuiltinMqttDriverPublisher::sendQos1BatchOnTxConnection(
+    const std::vector<MqttJsonMessage>& messages
+) {
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, config_.connectTimeoutMs));
+    maintainTxConnection(deadline);
+    ensureTxConnected(deadline);
+    auto& connection = txConnection_->connection;
+
+    for (std::size_t begin = 0; begin < messages.size(); begin += kMaxMqtt3Qos1InFlight) {
+        const auto end = std::min(messages.size(), begin + kMaxMqtt3Qos1InFlight);
+        std::vector<std::uint16_t> packetIds;
+        packetIds.reserve(end - begin);
+        for (auto index = begin; index < end; ++index) {
+            const auto packetId = nextPacketIdentifier();
+            sendAll(
+                connection,
+                buildPublishPacket(
+                    config_,
+                    messages[index].topic,
+                    messages[index].payload,
+                    packetId,
+                    1
+                ),
+                deadline
+            );
+            packetIds.push_back(packetId);
+        }
+        while (!packetIds.empty()) {
+            const auto packetId = validatedPublishAckPacketId(
+                readPacket(connection, incomingPacketLimit(config_), deadline),
+                kPacketPubAck,
+                false,
+                "puback"
+            );
+            const auto acknowledged = std::find(packetIds.begin(), packetIds.end(), packetId);
+            if (acknowledged == packetIds.end()) {
+                throw std::runtime_error("mqtt puback packet id mismatch");
+            }
+            packetIds.erase(acknowledged);
+        }
     }
     lastTxActivityMs_ = currentTimeMs();
 }
@@ -2316,23 +2815,33 @@ void BuiltinMqttDriverPublisher::replayOfflineBuffer() {
     }
 }
 
-void BuiltinMqttDriverPublisher::ensureTxConnected() {
+void BuiltinMqttDriverPublisher::ensureTxConnected(const MqttDeadline& deadline) {
     if (txConnected_) {
         return;
     }
-    std::unique_ptr<MqttConnectionHandle> handle(new MqttConnectionHandle(connectMqttTransport(config_)));
+    std::unique_ptr<MqttConnectionHandle> handle(
+        new MqttConnectionHandle(connectMqttTransport(config_, deadline))
+    );
     auto& connection = handle->connection;
     sendAll(
         connection,
-        buildConnectPacket(config_, mode_ == MqttPublisherMode::TxOnly ? "" : "-tx")
+        buildConnectPacket(config_, mode_ == MqttPublisherMode::TxOnly ? "" : "-tx"),
+        deadline
     );
-    validateConnAck(config_, readPacket(connection));
+    validateConnAck(config_, readPacket(connection, incomingPacketLimit(config_), deadline));
     txConnection_ = std::move(handle);
     txConnected_ = true;
+    txPacketIdGeneration_ = packetIdGeneration_;
     lastTxActivityMs_ = currentTimeMs();
 }
 
 void BuiltinMqttDriverPublisher::maintainTxConnection() {
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, config_.connectTimeoutMs));
+    maintainTxConnection(deadline);
+}
+
+void BuiltinMqttDriverPublisher::maintainTxConnection(const MqttDeadline& deadline) {
     if (!txConnected_ || !txConnection_) {
         return;
     }
@@ -2346,7 +2855,7 @@ void BuiltinMqttDriverPublisher::maintainTxConnection() {
         // A publish connection has no asynchronous application traffic. If it
         // becomes readable while idle, consume a possible PINGRESP; EOF, TLS
         // close-notify, broker DISCONNECT, and every other packet invalidate it.
-        const auto packet = readPacket(connection, incomingPacketLimit(config_));
+        const auto packet = readPacket(connection, incomingPacketLimit(config_), deadline);
         if (!packet.empty() && (packet[0] & 0xF0) == kPacketPingResp) {
             lastTxActivityMs_ = currentTimeMs();
             return;
@@ -2368,7 +2877,22 @@ std::string BuiltinMqttDriverPublisher::scopedPublishTopic(const std::string& to
     if (!config_.fullTelemetryTopicMachineScoped && topic == config_.fullTelemetryTopic) {
         return topic;
     }
+    if (!config_.changeEventTopicMachineScoped && topic == config_.changeEventTopic) {
+        return topic;
+    }
+    if (!config_.alarmTopicMachineScoped && topic == config_.alarmTopic) {
+        return topic;
+    }
     return scopedTopic(topic, config_.topicMachineCode);
+}
+
+std::uint16_t BuiltinMqttDriverPublisher::nextPacketIdentifier() {
+    auto packetId = nextPacketId_++;
+    if (packetId == 0) {
+        ++packetIdGeneration_;
+        packetId = nextPacketId_++;
+    }
+    return packetId;
 }
 
 void BuiltinMqttDriverPublisher::closeTx(bool graceful) {
@@ -2397,11 +2921,15 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
         return;
     }
 
-    std::unique_ptr<MqttConnectionHandle> handle(new MqttConnectionHandle(connectMqttTransport(config_)));
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(1, config_.connectTimeoutMs));
+    std::unique_ptr<MqttConnectionHandle> handle(
+        new MqttConnectionHandle(connectMqttTransport(config_, deadline))
+    );
     auto& connection = handle->connection;
     try {
-        sendAll(connection, buildConnectPacket(config_, "-rx"));
-        validateConnAck(config_, readPacket(connection));
+        sendAll(connection, buildConnectPacket(config_, "-rx"), deadline);
+        validateConnAck(config_, readPacket(connection, incomingPacketLimit(config_), deadline));
 
         sendAll(
             connection,
@@ -2420,10 +2948,11 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
                 scopedTopic(config_.configRestoreRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.recordingRequestTopic, config_.topicMachineCode),
                 scopedTopic(config_.recordingAckTopic, config_.topicMachineCode),
-                nextPacketId_++
-            )
+                nextPacketIdentifier()
+            ),
+            deadline
         );
-        validateSubAck(readPacket(connection));
+        validateSubAck(readPacket(connection, incomingPacketLimit(config_), deadline));
     } catch (...) {
         throw;
     }

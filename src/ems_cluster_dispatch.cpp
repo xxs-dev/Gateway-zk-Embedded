@@ -406,7 +406,8 @@ void EmsClusterNode::handleDispatchTarget(const EmsClusterMessage& message, std:
         accepted.code = EmsClusterDispatchCode::MembershipMismatch;
     } else if (!leaderLeaseValid(nowMs)) {
         accepted.code = EmsClusterDispatchCode::NoQuorum;
-    } else if (message.dispatchSequence <= localDispatch_.sequence) {
+    } else if (message.term == localDispatch_.term &&
+               message.dispatchSequence <= localDispatch_.sequence) {
         accepted.code = EmsClusterDispatchCode::StaleSequence;
     } else if (message.dispatchTtlMs < static_cast<std::uint32_t>(config_.dispatchCycleMs) ||
         message.dispatchTtlMs > static_cast<std::uint32_t>(config_.dispatchTtlMs * 2)) {

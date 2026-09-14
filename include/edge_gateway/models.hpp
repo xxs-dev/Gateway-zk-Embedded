@@ -229,6 +229,7 @@ struct PointLeaseStatus {
 };
 
 struct AlarmEvent {
+    std::string eventId;
     std::uint32_t index = 0;
     std::string machineCode;
     std::string meterCode;
@@ -355,6 +356,7 @@ struct OtaStatus {
     std::uint64_t totalBytes = 0;
     std::string message;
     std::int64_t ts = 0;
+    std::string occurrenceId;
 };
 
 enum class MqttIncomingType {
@@ -659,7 +661,9 @@ struct MqttConfig {
     std::vector<LegacyTelemetryPointMapping> legacyTelemetryPointMappings;
     std::string realtimeRequestTopic = "edge/telemetry/realtime/request";
     std::string changeEventTopic = "edge/event/change";
+    bool changeEventTopicMachineScoped = true;
     std::string alarmTopic = "edge/alarm";
+    bool alarmTopicMachineScoped = true;
     std::string statusTopic = "edge/status";
     std::string commandRequestTopic = "edge/command/request";
     std::string commandReplyTopic = "edge/command/reply";
@@ -736,6 +740,18 @@ struct MqttForwardControlConfig {
     std::vector<MqttForwardControlTargetConfig> targets;
 };
 
+struct MqttForwardEventConfig {
+    bool enabled = false;
+    std::string targetId = "third-party";
+    std::string changeTopic;
+    std::string alarmTopic;
+    bool changeTopicMachineScoped = true;
+    bool alarmTopicMachineScoped = true;
+    std::vector<std::uint32_t> pointIndexes;
+    int replayIntervalMs = 100;
+    std::size_t replayMaxBytes = 256 * 1024;
+};
+
 struct MqttForwardConfig {
     bool enabled = false;
     std::string protocolVersion = "mqtt3";
@@ -762,6 +778,7 @@ struct MqttForwardConfig {
     std::string primaryClientId;
     std::string publishLockFile;
     MqttTlsConfig tls;
+    MqttForwardEventConfig events;
     MqttForwardControlConfig control;
 };
 
@@ -774,6 +791,11 @@ struct MqttFullUploadWorkerConfig {
     int failoverTimeoutMs = 3000;
     int retryMinMs = 500;
     int retryMaxMs = 5000;
+    bool eventForwardingEnabled = false;
+    std::string eventReplayLockFile =
+        "/opt/modbus-gateway/run/mqtt-primary-events-{instance}.lock";
+    std::string eventDelegationReadyFile =
+        "/opt/modbus-gateway/run/mqtt-event-delegation-{instance}.json";
 };
 
 struct MqttAlarmRule {
@@ -816,6 +838,23 @@ struct AlarmStoreConfig {
     bool enabled = false;
     std::string sqlitePath = "alarm_events.db";
     std::string sqliteLibraryPath;
+};
+
+struct EventStoreConnectionConfig {
+    std::string backend = "legacy";
+    std::string storageProfile = "wal-full";
+    std::string storeId;
+    std::string configGeneration;
+    std::string socketPath;
+    std::string producerHealthFile;
+    std::string detectorProducerId = "event-engine";
+    std::string managementProducerId = "mqtt-management";
+    std::string businessSenderId = "main-events";
+    std::string managementSenderId = "management-events";
+    std::string thirdPartySenderId = "third-party-events";
+    std::size_t queueItems = 128;
+    std::size_t queueBytes = 1024 * 1024;
+    int timeoutMs = 3000;
 };
 
 struct EventEngineConfig {
@@ -1475,6 +1514,7 @@ struct AppConfig {
     MqttDriverConfig mqttDriver;
     AlarmStoreConfig alarmStore;
     EventEngineConfig eventEngine;
+    EventStoreConnectionConfig eventStore;
     ComputeEngineConfig computeEngine;
     AgcAvcConfig agcAvc;
     EmsClusterConfig emsCluster;

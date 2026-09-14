@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -9,7 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
-#include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -282,13 +283,33 @@ void ensureDirectory(const std::string& path) {
 #endif
 }
 
-std::string readText(const std::string& path) {
+struct StateFileText {
+    bool exists = false;
+    std::string text;
+};
+
+StateFileText readStateFile(const std::string& path) {
     if (path.empty()) return {};
+    errno = 0;
     std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
-    if (!input) return {};
+    if (!input) {
+        const auto error = errno;
+        if (error == ENOENT) return {};
+        throw std::runtime_error(
+            "failed to read EMS cluster state '" + path + "': " +
+            (error == 0 ? std::string("open failed") : std::strerror(error))
+        );
+    }
     std::ostringstream out;
     out << input.rdbuf();
-    return out.str();
+    if (input.bad()) {
+        throw std::runtime_error("failed to read EMS cluster state '" + path + "'");
+    }
+    auto text = out.str();
+    if (text.size() > 1024U * 1024U) {
+        throw std::runtime_error("EMS cluster state exceeds 1 MiB: " + path);
+    }
+    return {true, std::move(text)};
 }
 
 void writeAtomic(const std::string& path, const std::string& text) {
@@ -325,16 +346,279 @@ std::string escapeJson(const std::string& value) {
     return out;
 }
 
-std::uint64_t jsonUnsigned(const std::string& text, const std::string& name, std::uint64_t fallback = 0) {
-    std::smatch match;
-    const std::regex pattern("\\\"" + name + "\\\"\\s*:\\s*([0-9]+)");
-    return std::regex_search(text, match, pattern) ? std::stoull(match[1].str()) : fallback;
+struct StateJsonValue {
+    enum class Kind { Null, Boolean, Number, String, Object, Array };
+    Kind kind = Kind::Null;
+    std::string scalar;
+    std::vector<std::pair<std::string, StateJsonValue>> object;
+    std::vector<StateJsonValue> array;
+
+    const StateJsonValue* find(const std::string& key) const {
+        for (const auto& member : object) {
+            if (member.first == key) return &member.second;
+        }
+        return nullptr;
+    }
+};
+
+class StateJsonParser {
+public:
+    explicit StateJsonParser(const std::string& text) : text_(text) {}
+
+    StateJsonValue parse() {
+        auto value = parseValue(0);
+        skipWhitespace();
+        if (position_ != text_.size()) fail("unexpected trailing data");
+        return value;
+    }
+
+private:
+    [[noreturn]] void fail(const std::string& message) const {
+        throw std::runtime_error(message + " at byte " + std::to_string(position_));
+    }
+
+    void skipWhitespace() {
+        while (position_ < text_.size() &&
+               std::isspace(static_cast<unsigned char>(text_[position_])) != 0) {
+            ++position_;
+        }
+    }
+
+    bool consume(char expected) {
+        skipWhitespace();
+        if (position_ >= text_.size() || text_[position_] != expected) return false;
+        ++position_;
+        return true;
+    }
+
+    void expect(char expected) {
+        if (!consume(expected)) fail(std::string("expected '") + expected + "'");
+    }
+
+    bool consumeLiteral(const char* literal) {
+        const auto size = std::strlen(literal);
+        if (text_.compare(position_, size, literal) != 0) return false;
+        position_ += size;
+        return true;
+    }
+
+    unsigned parseHexQuad() {
+        if (position_ + 4 > text_.size()) fail("truncated unicode escape");
+        unsigned value = 0;
+        for (int i = 0; i < 4; ++i) {
+            const auto ch = text_[position_++];
+            value <<= 4U;
+            if (ch >= '0' && ch <= '9') value |= static_cast<unsigned>(ch - '0');
+            else if (ch >= 'a' && ch <= 'f') value |= static_cast<unsigned>(ch - 'a' + 10);
+            else if (ch >= 'A' && ch <= 'F') value |= static_cast<unsigned>(ch - 'A' + 10);
+            else fail("invalid unicode escape");
+        }
+        return value;
+    }
+
+    static void appendUtf8(std::string& output, unsigned codepoint) {
+        if (codepoint <= 0x7fU) {
+            output.push_back(static_cast<char>(codepoint));
+        } else if (codepoint <= 0x7ffU) {
+            output.push_back(static_cast<char>(0xc0U | (codepoint >> 6U)));
+            output.push_back(static_cast<char>(0x80U | (codepoint & 0x3fU)));
+        } else if (codepoint <= 0xffffU) {
+            output.push_back(static_cast<char>(0xe0U | (codepoint >> 12U)));
+            output.push_back(static_cast<char>(0x80U | ((codepoint >> 6U) & 0x3fU)));
+            output.push_back(static_cast<char>(0x80U | (codepoint & 0x3fU)));
+        } else {
+            output.push_back(static_cast<char>(0xf0U | (codepoint >> 18U)));
+            output.push_back(static_cast<char>(0x80U | ((codepoint >> 12U) & 0x3fU)));
+            output.push_back(static_cast<char>(0x80U | ((codepoint >> 6U) & 0x3fU)));
+            output.push_back(static_cast<char>(0x80U | (codepoint & 0x3fU)));
+        }
+    }
+
+    std::string parseString() {
+        skipWhitespace();
+        if (position_ >= text_.size() || text_[position_] != '"') fail("expected JSON string");
+        ++position_;
+        std::string result;
+        while (position_ < text_.size()) {
+            const auto ch = text_[position_++];
+            if (ch == '"') return result;
+            if (static_cast<unsigned char>(ch) < 0x20U) fail("unescaped control character");
+            if (ch != '\\') {
+                result.push_back(ch);
+                continue;
+            }
+            if (position_ >= text_.size()) fail("truncated JSON escape");
+            const auto escaped = text_[position_++];
+            switch (escaped) {
+                case '"': result.push_back('"'); break;
+                case '\\': result.push_back('\\'); break;
+                case '/': result.push_back('/'); break;
+                case 'b': result.push_back('\b'); break;
+                case 'f': result.push_back('\f'); break;
+                case 'n': result.push_back('\n'); break;
+                case 'r': result.push_back('\r'); break;
+                case 't': result.push_back('\t'); break;
+                case 'u': {
+                    auto codepoint = parseHexQuad();
+                    if (codepoint >= 0xd800U && codepoint <= 0xdbffU) {
+                        if (position_ + 2 > text_.size() || text_[position_] != '\\' ||
+                            text_[position_ + 1] != 'u') {
+                            fail("missing low unicode surrogate");
+                        }
+                        position_ += 2;
+                        const auto low = parseHexQuad();
+                        if (low < 0xdc00U || low > 0xdfffU) fail("invalid low unicode surrogate");
+                        codepoint = 0x10000U + ((codepoint - 0xd800U) << 10U) + (low - 0xdc00U);
+                    } else if (codepoint >= 0xdc00U && codepoint <= 0xdfffU) {
+                        fail("unexpected low unicode surrogate");
+                    }
+                    appendUtf8(result, codepoint);
+                    break;
+                }
+                default: fail("invalid JSON escape");
+            }
+        }
+        fail("unterminated JSON string");
+    }
+
+    std::string parseNumber() {
+        skipWhitespace();
+        const auto begin = position_;
+        if (position_ < text_.size() && text_[position_] == '-') ++position_;
+        if (position_ >= text_.size()) fail("truncated JSON number");
+        if (text_[position_] == '0') {
+            ++position_;
+        } else {
+            if (text_[position_] < '1' || text_[position_] > '9') fail("invalid JSON number");
+            while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_])) != 0) {
+                ++position_;
+            }
+        }
+        if (position_ < text_.size() && text_[position_] == '.') {
+            ++position_;
+            const auto fraction = position_;
+            while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_])) != 0) {
+                ++position_;
+            }
+            if (position_ == fraction) fail("invalid JSON fraction");
+        }
+        if (position_ < text_.size() && (text_[position_] == 'e' || text_[position_] == 'E')) {
+            ++position_;
+            if (position_ < text_.size() && (text_[position_] == '+' || text_[position_] == '-')) ++position_;
+            const auto exponent = position_;
+            while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_])) != 0) {
+                ++position_;
+            }
+            if (position_ == exponent) fail("invalid JSON exponent");
+        }
+        return text_.substr(begin, position_ - begin);
+    }
+
+    StateJsonValue parseValue(int depth) {
+        if (depth > 32) fail("JSON nesting exceeds 32 levels");
+        skipWhitespace();
+        if (position_ >= text_.size()) fail("unexpected end of JSON");
+        if (text_[position_] == '{') return parseObject(depth + 1);
+        if (text_[position_] == '[') return parseArray(depth + 1);
+        if (text_[position_] == '"') {
+            StateJsonValue value;
+            value.kind = StateJsonValue::Kind::String;
+            value.scalar = parseString();
+            return value;
+        }
+        StateJsonValue value;
+        if (consumeLiteral("true")) {
+            value.kind = StateJsonValue::Kind::Boolean;
+            value.scalar = "true";
+            return value;
+        }
+        if (consumeLiteral("false")) {
+            value.kind = StateJsonValue::Kind::Boolean;
+            value.scalar = "false";
+            return value;
+        }
+        if (consumeLiteral("null")) return value;
+        if (text_[position_] == '-' || std::isdigit(static_cast<unsigned char>(text_[position_])) != 0) {
+            value.kind = StateJsonValue::Kind::Number;
+            value.scalar = parseNumber();
+            return value;
+        }
+        fail("unexpected JSON token");
+    }
+
+    StateJsonValue parseObject(int depth) {
+        StateJsonValue value;
+        value.kind = StateJsonValue::Kind::Object;
+        expect('{');
+        if (consume('}')) return value;
+        std::set<std::string> keys;
+        while (true) {
+            const auto key = parseString();
+            if (!keys.insert(key).second) fail("duplicate JSON object key '" + key + "'");
+            expect(':');
+            value.object.emplace_back(key, parseValue(depth));
+            if (consume('}')) return value;
+            expect(',');
+        }
+    }
+
+    StateJsonValue parseArray(int depth) {
+        StateJsonValue value;
+        value.kind = StateJsonValue::Kind::Array;
+        expect('[');
+        if (consume(']')) return value;
+        while (true) {
+            value.array.push_back(parseValue(depth));
+            if (consume(']')) return value;
+            expect(',');
+        }
+    }
+
+    const std::string& text_;
+    std::size_t position_ = 0;
+};
+
+const StateJsonValue& stateMember(
+    const StateJsonValue& object,
+    const std::string& name,
+    StateJsonValue::Kind kind
+) {
+    if (object.kind != StateJsonValue::Kind::Object) {
+        throw std::runtime_error("state root must be a JSON object");
+    }
+    const auto* value = object.find(name);
+    if (value == nullptr) throw std::runtime_error("missing required field '" + name + "'");
+    if (value->kind != kind) throw std::runtime_error("field '" + name + "' has the wrong type");
+    return *value;
 }
 
-std::string jsonString(const std::string& text, const std::string& name) {
-    std::smatch match;
-    const std::regex pattern("\\\"" + name + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
-    return std::regex_search(text, match, pattern) ? match[1].str() : std::string();
+std::string stateString(const StateJsonValue& object, const std::string& name) {
+    return stateMember(object, name, StateJsonValue::Kind::String).scalar;
+}
+
+std::uint64_t stateUnsigned(const StateJsonValue& object, const std::string& name) {
+    const auto& token = stateMember(object, name, StateJsonValue::Kind::Number).scalar;
+    if (token.empty() || (token.size() > 1 && token.front() == '0') ||
+        std::find_if(token.begin(), token.end(), [](char ch) {
+            return std::isdigit(static_cast<unsigned char>(ch)) == 0;
+        }) != token.end()) {
+        throw std::runtime_error("field '" + name + "' must be an unsigned integer");
+    }
+    try {
+        std::size_t consumed = 0;
+        const auto value = std::stoull(token, &consumed);
+        if (consumed != token.size()) throw std::runtime_error("invalid unsigned integer");
+        return value;
+    } catch (const std::exception&) {
+        throw std::runtime_error("field '" + name + "' is outside the uint64 range");
+    }
+}
+
+void validateStateSchema(const StateJsonValue& root) {
+    const auto schema = stateString(root, "schemaVersion");
+    if (schema != "1" && schema.rfind("1.", 0) != 0) {
+        throw std::runtime_error("unsupported schemaVersion '" + schema + "'");
+    }
 }
 
 std::string assignmentsKey(const std::vector<EmsClusterCabinetAssignment>& values) {
@@ -683,6 +967,15 @@ void EmsClusterNode::validateConfig(const EmsClusterConfig& config) {
     if (config.virtualPointBaseIndex == 0 || config.virtualPointBaseIndex > 999999000U) {
         throw std::invalid_argument("emsCluster.virtualPointBaseIndex is outside the supported range");
     }
+    if (config.consensusStateFile.empty()) {
+        throw std::invalid_argument("emsCluster.consensusStateFile is required when clustering is enabled");
+    }
+    if (config.membershipFile.empty()) {
+        throw std::invalid_argument("emsCluster.membershipFile is required when clustering is enabled");
+    }
+    if (config.consensusStateFile == config.membershipFile) {
+        throw std::invalid_argument("emsCluster consensusStateFile and membershipFile must be different files");
+    }
 }
 
 double EmsClusterNode::calculateLoadScore(const EmsClusterLoadSample& load) {
@@ -736,12 +1029,28 @@ const char* EmsClusterNode::dispatchCodeName(EmsClusterDispatchCode code) {
 }
 
 void EmsClusterNode::loadPersistentState() {
-    const auto text = readText(config_.consensusStateFile);
-    if (text.empty()) return;
-    const auto persistedClusterId = jsonString(text, "clusterId");
-    if (!persistedClusterId.empty() && persistedClusterId != config_.clusterId) return;
-    currentTerm_ = jsonUnsigned(text, "term", 0);
-    votedFor_ = jsonString(text, "votedFor");
+    const auto file = readStateFile(config_.consensusStateFile);
+    if (!file.exists) return;
+    try {
+        const auto root = StateJsonParser(file.text).parse();
+        const auto persistedClusterId = stateString(root, "clusterId");
+        if (persistedClusterId.empty()) {
+            throw std::runtime_error("clusterId must not be empty");
+        }
+        if (persistedClusterId != config_.clusterId) return;
+        validateStateSchema(root);
+        const auto persistedTerm = stateUnsigned(root, "term");
+        const auto persistedVotedFor = stateString(root, "votedFor");
+        if (persistedTerm == 0 && !persistedVotedFor.empty()) {
+            throw std::runtime_error("term zero cannot contain votedFor");
+        }
+        currentTerm_ = persistedTerm;
+        votedFor_ = persistedVotedFor;
+    } catch (const std::exception& ex) {
+        throw std::runtime_error(
+            "invalid EMS cluster consensus state '" + config_.consensusStateFile + "': " + ex.what()
+        );
+    }
 }
 
 void EmsClusterNode::persistConsensusState() const {
@@ -753,21 +1062,39 @@ void EmsClusterNode::persistConsensusState() const {
 }
 
 void EmsClusterNode::loadMembership() {
-    const auto text = readText(config_.membershipFile);
-    if (text.empty()) return;
-    const auto persistedClusterId = jsonString(text, "clusterId");
-    if (!persistedClusterId.empty() && persistedClusterId != config_.clusterId) return;
-    const auto persistedEpoch = jsonUnsigned(text, "membershipEpoch", 0);
-    std::vector<EmsClusterCabinetAssignment> loaded;
-    const std::regex pattern("\\{\\s*\\\"nodeId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"cabinetNo\\\"\\s*:\\s*([0-9]+)\\s*\\}");
-    for (auto it = std::sregex_iterator(text.begin(), text.end(), pattern); it != std::sregex_iterator(); ++it) {
-        loaded.push_back({(*it)[1].str(), std::stoi((*it)[2].str())});
+    const auto file = readStateFile(config_.membershipFile);
+    if (!file.exists) return;
+    try {
+        const auto root = StateJsonParser(file.text).parse();
+        const auto persistedClusterId = stateString(root, "clusterId");
+        if (persistedClusterId.empty()) {
+            throw std::runtime_error("clusterId must not be empty");
+        }
+        if (persistedClusterId != config_.clusterId) return;
+        validateStateSchema(root);
+        const auto persistedEpoch = stateUnsigned(root, "membershipEpoch");
+        const auto& assignmentValues = stateMember(root, "assignments", StateJsonValue::Kind::Array);
+        std::vector<EmsClusterCabinetAssignment> loaded;
+        loaded.reserve(assignmentValues.array.size());
+        for (const auto& item : assignmentValues.array) {
+            const auto nodeId = stateString(item, "nodeId");
+            const auto cabinetNo = stateUnsigned(item, "cabinetNo");
+            if (nodeId.empty() || cabinetNo > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+                throw std::runtime_error("membership assignment contains an invalid nodeId or cabinetNo");
+            }
+            loaded.push_back({nodeId, static_cast<int>(cabinetNo)});
+        }
+        if ((persistedEpoch == 0 && !loaded.empty()) ||
+            (persistedEpoch > 0 && !validAssignmentSet(loaded, config_.maxMembers))) {
+            throw std::runtime_error("membership epoch and assignments are inconsistent");
+        }
+        membershipEpoch_ = persistedEpoch;
+        assignments_ = std::move(loaded);
+    } catch (const std::exception& ex) {
+        throw std::runtime_error(
+            "invalid EMS cluster membership state '" + config_.membershipFile + "': " + ex.what()
+        );
     }
-    if (persistedEpoch > 0 && !validAssignmentSet(loaded, config_.maxMembers)) {
-        throw std::runtime_error("invalid persisted EMS cluster membership");
-    }
-    membershipEpoch_ = persistedEpoch;
-    assignments_ = std::move(loaded);
 }
 
 void EmsClusterNode::persistMembership() const {
@@ -1004,6 +1331,10 @@ void EmsClusterNode::becomeFollower(
         membershipAcks_.clear();
         pendingProposalLastSentMs_ = 0;
         invalidateDispatch(EmsClusterDispatchCode::TermMismatch);
+        if (termChanged) {
+            localDispatch_.term = currentTerm_;
+            localDispatch_.sequence = 0;
+        }
     }
     reason_ = reason;
     resetElectionDeadline(nowMs);

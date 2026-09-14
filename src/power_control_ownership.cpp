@@ -27,6 +27,14 @@ namespace {
 constexpr std::size_t kMaxOwnershipStateBytes = 64 * 1024;
 constexpr std::size_t kMaxCommandReceipts = 64;
 
+bool validCommandFingerprint(const std::string& fingerprint, bool allowEmpty) {
+    return (allowEmpty && fingerprint.empty()) ||
+        (fingerprint.size() == 64 &&
+         std::all_of(fingerprint.begin(), fingerprint.end(), [](char ch) {
+             return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
+         }));
+}
+
 std::string escapeJson(const std::string& value) {
     std::string result;
     static const char hex[] = "0123456789abcdef";
@@ -308,13 +316,28 @@ Optional<PowerControlOwnershipState> parseState(const std::string& text) {
         if (hasReceiptField && !parseStringArrayField(text, "receipts", &encodedReceipts)) {
             return NullOpt;
         }
-        for (const auto& encoded : encodedReceipts) {
+        std::vector<std::string> receiptFingerprints;
+        const bool hasFingerprintField =
+            fieldValuePosition(text, "receiptFingerprints") != std::string::npos;
+        if (hasFingerprintField &&
+            (!parseStringArrayField(text, "receiptFingerprints", &receiptFingerprints) ||
+             receiptFingerprints.size() != encodedReceipts.size())) {
+            return NullOpt;
+        }
+        for (std::size_t receiptIndex = 0; receiptIndex < encodedReceipts.size(); ++receiptIndex) {
+            const auto& encoded = encodedReceipts[receiptIndex];
             if (encoded.size() < 2 || encoded[1] != ':' ||
                 (encoded[0] != '1' && encoded[0] != '0') ||
                 encoded.size() - 2 > 63) {
                 return NullOpt;
             }
             const auto id = encoded.substr(2);
+            const auto fingerprint = hasFingerprintField
+                ? receiptFingerprints[receiptIndex]
+                : std::string();
+            if (!validCommandFingerprint(fingerprint, true)) {
+                return NullOpt;
+            }
             if (id.empty() || std::find_if(
                     state.receipts.begin(),
                     state.receipts.end(),
@@ -324,10 +347,10 @@ Optional<PowerControlOwnershipState> parseState(const std::string& text) {
                 ) != state.receipts.end()) {
                 return NullOpt;
             }
-            state.receipts.push_back({id, encoded[0] == '1'});
+            state.receipts.push_back({id, encoded[0] == '1', fingerprint});
         }
         if (!hasReceiptField && state.receipts.empty() && !state.lastCommandId.empty()) {
-            state.receipts.push_back({state.lastCommandId, true});
+            state.receipts.push_back({state.lastCommandId, true, std::string()});
         }
         if (state.receipts.size() > kMaxCommandReceipts) {
             state.receipts.erase(
@@ -357,7 +380,12 @@ Optional<PowerControlCommandReceipt> findReceipt(
         : Optional<PowerControlCommandReceipt>(*it);
 }
 
-void upsertReceipt(PowerControlOwnershipState& state, const std::string& commandId, bool accepted) {
+void upsertReceipt(
+    PowerControlOwnershipState& state,
+    const std::string& commandId,
+    bool accepted,
+    const std::string& fingerprint
+) {
     state.receipts.erase(
         std::remove_if(
             state.receipts.begin(),
@@ -368,7 +396,7 @@ void upsertReceipt(PowerControlOwnershipState& state, const std::string& command
         ),
         state.receipts.end()
     );
-    state.receipts.push_back({commandId, accepted});
+    state.receipts.push_back({commandId, accepted, fingerprint});
     if (state.receipts.size() > kMaxCommandReceipts) {
         state.receipts.erase(
             state.receipts.begin(),
@@ -491,6 +519,11 @@ bool writeState(
         payload << (i == receiptBegin ? "" : ",")
                 << "\"" << (state.receipts[i].accepted ? "1:" : "0:")
                 << escapeJson(state.receipts[i].id) << "\"";
+    }
+    payload << "],\"receiptFingerprints\":[";
+    for (std::size_t i = receiptBegin; i < state.receipts.size(); ++i) {
+        payload << (i == receiptBegin ? "" : ",")
+                << "\"" << escapeJson(state.receipts[i].fingerprint) << "\"";
     }
     payload << "]}";
     const auto text = payload.str();
@@ -650,9 +683,14 @@ PowerControlTakeoverResult PowerControlOwnership::acquireOrRenew(
     const std::vector<std::uint32_t>& targetIndexes,
     const std::string& commandId,
     std::int64_t nowMs,
-    int ttlMs
+    int ttlMs,
+    const std::string& commandFingerprint
 ) const {
     PowerControlTakeoverResult result;
+    if (!validCommandFingerprint(commandFingerprint, true)) {
+        result.message = "invalid command fingerprint";
+        return result;
+    }
     if (!enabled()) {
         result.accepted = true;
         result.message = "ownership disabled";
@@ -673,9 +711,14 @@ PowerControlTakeoverResult PowerControlOwnership::acquireOrRenew(
     if (current && !commandId.empty()) {
         const auto receipt = findReceipt(*current, commandId);
         if (receipt) {
-            result.accepted = receipt->accepted;
             result.duplicate = true;
             result.generation = current->generation;
+            if (receipt->fingerprint != commandFingerprint) {
+                result.accepted = false;
+                result.message = "command id payload mismatch";
+                return result;
+            }
+            result.accepted = receipt->accepted;
             result.message = receipt->accepted
                 ? "duplicate accepted command"
                 : "duplicate incomplete or rejected command";
@@ -695,7 +738,7 @@ PowerControlTakeoverResult PowerControlOwnership::acquireOrRenew(
         next.expireAtMs = nowMs + std::max(1, ttlMs);
         next.lastCommandId = commandId;
         if (!commandId.empty()) {
-            upsertReceipt(next, commandId, false);
+            upsertReceipt(next, commandId, false, commandFingerprint);
         }
         if (next.generation == 0) {
             next.generation = 1;
@@ -723,7 +766,7 @@ PowerControlTakeoverResult PowerControlOwnership::acquireOrRenew(
     next.generation = nextGeneration(current ? current->generation : 0);
     next.lastCommandId = commandId;
     if (!commandId.empty()) {
-        upsertReceipt(next, commandId, false);
+        upsertReceipt(next, commandId, false, commandFingerprint);
     }
     if (!writeState(path_, next)) {
         result.message = "failed to persist ownership state";
@@ -758,6 +801,7 @@ PowerControlReceiptLookup PowerControlOwnership::lookupReceipt(
     if (receipt) {
         result.found = true;
         result.accepted = receipt->accepted;
+        result.fingerprint = receipt->fingerprint;
     }
     return result;
 }
@@ -766,12 +810,14 @@ bool PowerControlOwnership::recordReceipt(
     const std::string& sessionId,
     const std::string& commandId,
     std::uint32_t generation,
-    bool accepted
+    bool accepted,
+    const std::string& commandFingerprint
 ) const {
     if (!enabled()) {
         return true;
     }
-    if (commandId.empty() || generation == 0) {
+    if (commandId.empty() || generation == 0 ||
+        !validCommandFingerprint(commandFingerprint, true)) {
         return false;
     }
     ScopedOwnershipLock lock(path_, true);
@@ -792,7 +838,43 @@ bool PowerControlOwnership::recordReceipt(
     if (!receipt) {
         return false;
     }
-    upsertReceipt(next, commandId, accepted);
+    if (receipt->fingerprint != commandFingerprint) {
+        return false;
+    }
+    upsertReceipt(next, commandId, accepted, receipt->fingerprint);
+    return writeState(path_, next);
+}
+
+bool PowerControlOwnership::recordDetachedReceipt(
+    const std::string& commandId,
+    bool accepted,
+    const std::string& commandFingerprint
+) const {
+    if (!enabled()) {
+        return true;
+    }
+    if (commandId.empty() || !validCommandFingerprint(commandFingerprint, false)) {
+        return false;
+    }
+    ScopedOwnershipLock lock(path_, true);
+    if (!lock.locked()) {
+        return false;
+    }
+    const auto text = readText(path_);
+    const auto current = parseState(text);
+    if (!current && stateFileExists(path_)) {
+        return false;
+    }
+    PowerControlOwnershipState next;
+    if (current) {
+        next = *current;
+        const auto receipt = findReceipt(next, commandId);
+        if (receipt && receipt->fingerprint != commandFingerprint) {
+            return false;
+        }
+    }
+    next.lastCommandId = commandId;
+    upsertReceipt(next, commandId, accepted, commandFingerprint);
     return writeState(path_, next);
 }
 

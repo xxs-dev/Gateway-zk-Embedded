@@ -1,4 +1,5 @@
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -30,6 +31,8 @@ constexpr std::size_t kMqttMaxBatchSize = 1000U;
 constexpr int kMqttMaxFlushIntervalMs = 60000;
 constexpr int kMqttMaxRetentionMonths = 24;
 constexpr int kMqttMaxCleanupIntervalHours = 168;
+constexpr std::size_t kMqttForwardEventMinReplayBytes = 1U;
+constexpr std::size_t kMqttForwardEventMaxReplayBytes = 64U * 1024U * 1024U;
 
 bool isAbsolutePath(const std::string& path) {
     if (path.empty()) {
@@ -200,378 +203,11 @@ void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configP
     }
 }
 
-class JsonValue;
-
-struct JsonMember {
-    std::string key;
-    std::shared_ptr<JsonValue> value;
-};
-
-struct JsonObject {
-    std::vector<JsonMember> values;
-};
-
-struct JsonArray {
-    std::vector<std::shared_ptr<JsonValue>> values;
-};
-
-class JsonValue {
-public:
-    enum class Type {
-        Null,
-        Bool,
-        Number,
-        String,
-        Object,
-        Array
-    };
-
-    using Object = JsonObject;
-    using Array = JsonArray;
-
-    JsonValue() = default;
-
-    static JsonValue makeNull() {
-        return JsonValue();
-    }
-
-    static JsonValue makeBool(bool value) {
-        JsonValue result;
-        result.type_ = Type::Bool;
-        result.boolValue_ = value;
-        return result;
-    }
-
-    static JsonValue makeNumber(double value) {
-        JsonValue result;
-        result.type_ = Type::Number;
-        result.numberValue_ = value;
-        return result;
-    }
-
-    static JsonValue makeString(std::string value) {
-        JsonValue result;
-        result.type_ = Type::String;
-        result.stringValue_ = std::move(value);
-        return result;
-    }
-
-    static JsonValue makeObject(Object value) {
-        JsonValue result;
-        result.type_ = Type::Object;
-        result.objectValue_.reset(new Object(std::move(value)));
-        return result;
-    }
-
-    static JsonValue makeArray(Array value) {
-        JsonValue result;
-        result.type_ = Type::Array;
-        result.arrayValue_.reset(new Array(std::move(value)));
-        return result;
-    }
-
-    Type type() const {
-        return type_;
-    }
-
-    bool isNull() const {
-        return type_ == Type::Null;
-    }
-
-    bool isBool() const {
-        return type_ == Type::Bool;
-    }
-
-    bool isNumber() const {
-        return type_ == Type::Number;
-    }
-
-    bool isString() const {
-        return type_ == Type::String;
-    }
-
-    bool isObject() const {
-        return type_ == Type::Object;
-    }
-
-    bool isArray() const {
-        return type_ == Type::Array;
-    }
-
-    bool asBool() const {
-        if (!isBool()) {
-            throw std::runtime_error("json value is not bool");
-        }
-        return boolValue_;
-    }
-
-    double asNumber() const {
-        if (!isNumber()) {
-            throw std::runtime_error("json value is not number");
-        }
-        return numberValue_;
-    }
-
-    const std::string& asString() const {
-        if (!isString()) {
-            throw std::runtime_error("json value is not string");
-        }
-        return stringValue_;
-    }
-
-    const Object& asObject() const {
-        if (!isObject()) {
-            throw std::runtime_error("json value is not object");
-        }
-        return *objectValue_;
-    }
-
-    const Array& asArray() const {
-        if (!isArray()) {
-            throw std::runtime_error("json value is not array");
-        }
-        return *arrayValue_;
-    }
-
-    const JsonValue* find(const std::string& key) const {
-        if (!isObject()) {
-            return nullptr;
-        }
-        for (const auto& entry : objectValue_->values) {
-            if (entry.key == key) {
-                return entry.value.get();
-            }
-        }
-        return nullptr;
-    }
-
-private:
-    Type type_ = Type::Null;
-    bool boolValue_ = false;
-    double numberValue_ = 0.0;
-    std::string stringValue_;
-    std::shared_ptr<Object> objectValue_;
-    std::shared_ptr<Array> arrayValue_;
-};
-
-class JsonParser {
-public:
-    explicit JsonParser(const std::string& text) : text_(text) {
-    }
-
-    JsonValue parse() {
-        skipWhitespace();
-        auto value = parseValue();
-        skipWhitespace();
-        if (!isEnd()) {
-            fail("unexpected trailing characters in json");
-        }
-        return value;
-    }
-
-private:
-    [[noreturn]] void fail(const std::string& message) const {
-        throw std::runtime_error(message + " at " + locationString());
-    }
-
-    std::string locationString() const {
-        std::size_t line = 1;
-        std::size_t column = 1;
-        for (std::size_t i = 0; i < pos_ && i < text_.size(); ++i) {
-            if (text_[i] == '\n') {
-                ++line;
-                column = 1;
-            } else {
-                ++column;
-            }
-        }
-        return "line " + std::to_string(line) + ", column " + std::to_string(column);
-    }
-
-    JsonValue parseValue() {
-        skipWhitespace();
-        if (isEnd()) {
-            fail("unexpected end of json");
-        }
-
-        const char ch = peek();
-        if (ch == '{') {
-            return parseObject();
-        }
-        if (ch == '[') {
-            return parseArray();
-        }
-        if (ch == '"') {
-            return JsonValue::makeString(parseString());
-        }
-        if (ch == 't') {
-            consumeLiteral("true");
-            return JsonValue::makeBool(true);
-        }
-        if (ch == 'f') {
-            consumeLiteral("false");
-            return JsonValue::makeBool(false);
-        }
-        if (ch == 'n') {
-            consumeLiteral("null");
-            return JsonValue::makeNull();
-        }
-        if (ch == '-' || std::isdigit(static_cast<unsigned char>(ch)) != 0) {
-            return JsonValue::makeNumber(parseNumber());
-        }
-
-        fail("invalid json value");
-    }
-
-    JsonValue parseObject() {
-        expect('{');
-        JsonValue::Object object;
-        skipWhitespace();
-        if (match('}')) {
-            return JsonValue::makeObject(std::move(object));
-        }
-
-        while (true) {
-            skipWhitespace();
-            const auto key = parseString();
-            skipWhitespace();
-            expect(':');
-            skipWhitespace();
-            JsonMember member;
-            member.key = key;
-            member.value.reset(new JsonValue(parseValue()));
-            object.values.push_back(std::move(member));
-            skipWhitespace();
-            if (match('}')) {
-                break;
-            }
-            expect(',');
-        }
-        return JsonValue::makeObject(std::move(object));
-    }
-
-    JsonValue parseArray() {
-        expect('[');
-        JsonValue::Array array;
-        skipWhitespace();
-        if (match(']')) {
-            return JsonValue::makeArray(std::move(array));
-        }
-
-        while (true) {
-            skipWhitespace();
-            array.values.push_back(std::make_shared<JsonValue>(parseValue()));
-            skipWhitespace();
-            if (match(']')) {
-                break;
-            }
-            expect(',');
-        }
-        return JsonValue::makeArray(std::move(array));
-    }
-
-    std::string parseString() {
-        expect('"');
-        std::string result;
-        while (!isEnd()) {
-            const char ch = get();
-            if (ch == '"') {
-                return result;
-            }
-            if (ch == '\\') {
-                if (isEnd()) {
-                    fail("invalid json escape");
-                }
-                const char esc = get();
-                switch (esc) {
-                    case '"': result.push_back('"'); break;
-                    case '\\': result.push_back('\\'); break;
-                    case '/': result.push_back('/'); break;
-                    case 'b': result.push_back('\b'); break;
-                    case 'f': result.push_back('\f'); break;
-                    case 'n': result.push_back('\n'); break;
-                    case 'r': result.push_back('\r'); break;
-                    case 't': result.push_back('\t'); break;
-                    default:
-                        fail("unsupported json escape");
-                }
-            } else {
-                result.push_back(ch);
-            }
-        }
-        fail("unterminated json string");
-    }
-
-    double parseNumber() {
-        const auto start = pos_;
-        if (peek() == '-') {
-            ++pos_;
-        }
-        while (!isEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
-            ++pos_;
-        }
-        if (!isEnd() && peek() == '.') {
-            ++pos_;
-            while (!isEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
-                ++pos_;
-            }
-        }
-        if (!isEnd() && (peek() == 'e' || peek() == 'E')) {
-            ++pos_;
-            if (!isEnd() && (peek() == '+' || peek() == '-')) {
-                ++pos_;
-            }
-            while (!isEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
-                ++pos_;
-            }
-        }
-        return std::strtod(text_.c_str() + start, nullptr);
-    }
-
-    void consumeLiteral(const char* literal) {
-        while (*literal != '\0') {
-            if (isEnd() || get() != *literal) {
-                fail("invalid json literal");
-            }
-            ++literal;
-        }
-    }
-
-    void skipWhitespace() {
-        while (!isEnd() && std::isspace(static_cast<unsigned char>(text_[pos_])) != 0) {
-            ++pos_;
-        }
-    }
-
-    bool match(char expected) {
-        if (!isEnd() && peek() == expected) {
-            ++pos_;
-            return true;
-        }
-        return false;
-    }
-
-    void expect(char expected) {
-        if (isEnd() || get() != expected) {
-            fail(std::string("unexpected json token, expected '") + expected + "'");
-        }
-    }
-
-    char peek() const {
-        return text_[pos_];
-    }
-
-    char get() {
-        return text_[pos_++];
-    }
-
-    bool isEnd() const {
-        return pos_ >= text_.size();
-    }
-
-    const std::string& text_;
-    std::size_t pos_ = 0;
-};
+using json::JsonValue;
+using json::JsonMember;
+using json::JsonObject;
+using json::JsonArray;
+using json::JsonParser;
 
 const JsonValue* findValue(const JsonValue::Object& object, const char* key) {
     for (const auto& entry : object.values) {
@@ -1839,7 +1475,17 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
         topicWithSuffix(config.realtimeTelemetryTopic, "request")
     );
     config.changeEventTopic = requireString(object, "changeEventTopic", config.changeEventTopic);
+    config.changeEventTopicMachineScoped = requireBool(
+        object,
+        "changeEventTopicMachineScoped",
+        config.changeEventTopicMachineScoped
+    );
     config.alarmTopic = requireString(object, "alarmTopic", config.alarmTopic);
+    config.alarmTopicMachineScoped = requireBool(
+        object,
+        "alarmTopicMachineScoped",
+        config.alarmTopicMachineScoped
+    );
     config.statusTopic = requireString(object, "statusTopic", config.statusTopic);
     config.commandRequestTopic = requireString(object, "commandRequestTopic", config.commandRequestTopic);
     config.commandReplyTopic = requireString(object, "commandReplyTopic", config.commandReplyTopic);
@@ -1980,6 +1626,154 @@ std::uint32_t parsePositiveUint32(const JsonValue& value, const std::string& fie
         throw std::invalid_argument(field + " must be a positive uint32 integer");
     }
     return static_cast<std::uint32_t>(number);
+}
+
+std::vector<std::uint32_t> parseMqttForwardPointIndexes(
+    const JsonValue* value,
+    const std::string& field
+) {
+    std::vector<std::uint32_t> indexes;
+    if (value == nullptr || value->isNull()) {
+        return indexes;
+    }
+    if (!value->isArray()) {
+        throw std::invalid_argument(field + " must be a JSON uint32 array");
+    }
+    for (const auto& item : value->asArray().values) {
+        if (!item->isNumber()) {
+            throw std::invalid_argument(field + " entries must be uint32 integers");
+        }
+        const double number = item->asNumber();
+        if (!std::isfinite(number) ||
+            number < 0.0 ||
+            number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+            std::floor(number) != number) {
+            throw std::invalid_argument(field + " entries must be uint32 integers");
+        }
+        const auto index = static_cast<std::uint32_t>(number);
+        if (std::find(indexes.begin(), indexes.end(), index) != indexes.end()) {
+            throw std::invalid_argument(
+                field + " must not contain duplicate index " + std::to_string(index)
+            );
+        }
+        indexes.push_back(index);
+    }
+    return indexes;
+}
+
+bool isBlank(const std::string& value) {
+    return std::find_if(
+        value.begin(),
+        value.end(),
+        [](unsigned char ch) { return !std::isspace(ch); }
+    ) == value.end();
+}
+
+bool isReservedMainTargetId(const std::string& value) {
+    const auto first = std::find_if(
+        value.begin(),
+        value.end(),
+        [](unsigned char ch) { return !std::isspace(ch); }
+    );
+    const auto last = std::find_if(
+        value.rbegin(),
+        value.rend(),
+        [](unsigned char ch) { return !std::isspace(ch); }
+    ).base();
+    if (first == value.end()) {
+        return false;
+    }
+    std::string normalized(first, last);
+    std::transform(
+        normalized.begin(),
+        normalized.end(),
+        normalized.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); }
+    );
+    return normalized == "main";
+}
+
+MqttForwardEventConfig parseMqttForwardEventConfig(const JsonValue* value) {
+    MqttForwardEventConfig config;
+    if (value == nullptr || value->isNull()) {
+        return config;
+    }
+    if (!value->isObject()) {
+        throw std::invalid_argument("mqttForward.events must be an object");
+    }
+    const auto& object = value->asObject();
+    static const char* allowedKeys[] = {
+        "enabled",
+        "targetId",
+        "changeTopic",
+        "alarmTopic",
+        "changeTopicMachineScoped",
+        "alarmTopicMachineScoped",
+        "pointIndexes",
+        "replayIntervalMs",
+        "replayMaxBytes"
+    };
+    for (const auto& entry : object.values) {
+        bool allowed = false;
+        for (const auto* key : allowedKeys) {
+            if (entry.key == key) {
+                allowed = true;
+                break;
+            }
+        }
+        if (!allowed) {
+            throw std::invalid_argument(
+                "mqttForward.events has unsupported key " + entry.key
+            );
+        }
+    }
+
+    config.enabled = requireBool(object, "enabled", config.enabled);
+    config.targetId = requireString(object, "targetId", config.targetId);
+    config.changeTopic = requireString(object, "changeTopic", config.changeTopic);
+    config.alarmTopic = requireString(object, "alarmTopic", config.alarmTopic);
+    config.changeTopicMachineScoped = requireBool(
+        object,
+        "changeTopicMachineScoped",
+        config.changeTopicMachineScoped
+    );
+    config.alarmTopicMachineScoped = requireBool(
+        object,
+        "alarmTopicMachineScoped",
+        config.alarmTopicMachineScoped
+    );
+    config.pointIndexes = parseMqttForwardPointIndexes(
+        value->find("pointIndexes"),
+        "mqttForward.events.pointIndexes"
+    );
+
+    if (const auto* replayInterval = value->find("replayIntervalMs")) {
+        if (!replayInterval->isNumber() ||
+            !std::isfinite(replayInterval->asNumber()) ||
+            std::floor(replayInterval->asNumber()) != replayInterval->asNumber() ||
+            replayInterval->asNumber() < 10.0 ||
+            replayInterval->asNumber() > 60000.0) {
+            throw std::invalid_argument(
+                "mqttForward.events.replayIntervalMs must be an integer between 10 and 60000"
+            );
+        }
+        config.replayIntervalMs = static_cast<int>(replayInterval->asNumber());
+    }
+    if (const auto* replayMaxBytes = value->find("replayMaxBytes")) {
+        if (!replayMaxBytes->isNumber() ||
+            !std::isfinite(replayMaxBytes->asNumber()) ||
+            std::floor(replayMaxBytes->asNumber()) != replayMaxBytes->asNumber() ||
+            replayMaxBytes->asNumber() <
+                static_cast<double>(kMqttForwardEventMinReplayBytes) ||
+            replayMaxBytes->asNumber() >
+                static_cast<double>(kMqttForwardEventMaxReplayBytes)) {
+            throw std::invalid_argument(
+                "mqttForward.events.replayMaxBytes must be an integer between 1 and 67108864"
+            );
+        }
+        config.replayMaxBytes = static_cast<std::size_t>(replayMaxBytes->asNumber());
+    }
+    return config;
 }
 
 MqttForwardControlConfig parseMqttForwardControlConfig(const JsonValue* value) {
@@ -2246,6 +2040,7 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "healthHeartbeatMs",
         "failOnStoreError",
         "tls",
+        "events",
         "control"
     };
     for (const auto& entry : object.values) {
@@ -2276,31 +2071,10 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "fullTelemetryTopicMachineScoped",
         config.fullTelemetryTopicMachineScoped
     );
-    if (const auto* indexes = value->find("pointIndexes")) {
-        if (!indexes->isArray()) {
-            throw std::invalid_argument("mqttForward.pointIndexes must be a JSON uint32 array");
-        }
-        for (const auto& item : indexes->asArray().values) {
-            if (!item->isNumber()) {
-                throw std::invalid_argument("mqttForward.pointIndexes entries must be uint32 integers");
-            }
-            const double number = item->asNumber();
-            if (!std::isfinite(number) ||
-                number < 0.0 ||
-                number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
-                std::floor(number) != number) {
-                throw std::invalid_argument("mqttForward.pointIndexes entries must be uint32 integers");
-            }
-            const auto index = static_cast<std::uint32_t>(number);
-            if (std::find(config.pointIndexes.begin(), config.pointIndexes.end(), index) !=
-                config.pointIndexes.end()) {
-                throw std::invalid_argument(
-                    "mqttForward.pointIndexes must not contain duplicate index " + std::to_string(index)
-                );
-            }
-            config.pointIndexes.push_back(index);
-        }
-    }
+    config.pointIndexes = parseMqttForwardPointIndexes(
+        value->find("pointIndexes"),
+        "mqttForward.pointIndexes"
+    );
     if (const auto* payloadFormat = value->find("payloadFormat")) {
         if (!payloadFormat->isString()) {
             throw std::invalid_argument("mqttForward.payloadFormat must be compactArray, object or legacy");
@@ -2368,9 +2142,44 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         );
     }
 
+    config.events = parseMqttForwardEventConfig(value->find("events"));
     config.control = parseMqttForwardControlConfig(value->find("control"));
+    if (config.events.enabled && !config.enabled) {
+        throw std::invalid_argument("mqttForward.events.enabled requires mqttForward.enabled");
+    }
     if (config.control.enabled && !config.enabled) {
         throw std::invalid_argument("mqttForward.control.enabled requires mqttForward.enabled");
+    }
+    if (config.events.enabled &&
+        isBlank(config.events.changeTopic) &&
+        isBlank(config.events.alarmTopic)) {
+        throw std::invalid_argument(
+            "mqttForward.events requires changeTopic or alarmTopic when enabled"
+        );
+    }
+    if (config.events.enabled && isBlank(config.events.targetId)) {
+        throw std::invalid_argument(
+            "mqttForward.events.targetId must not be empty when enabled"
+        );
+    }
+    if (config.events.enabled && isReservedMainTargetId(config.events.targetId)) {
+        throw std::invalid_argument(
+            "mqttForward.events.targetId must not use reserved value main"
+        );
+    }
+    if (!config.events.pointIndexes.empty()) {
+        const std::unordered_set<std::uint32_t> parentIndexes(
+            config.pointIndexes.begin(),
+            config.pointIndexes.end()
+        );
+        for (const auto index : config.events.pointIndexes) {
+            if (parentIndexes.find(index) == parentIndexes.end()) {
+                throw std::invalid_argument(
+                    "mqttForward.events.pointIndexes index is missing from "
+                    "mqttForward.pointIndexes: " + std::to_string(index)
+                );
+            }
+        }
     }
 
     if (findValue(object, "protocolVersion") != nullptr &&
@@ -2481,7 +2290,10 @@ MqttFullUploadWorkerConfig parseMqttFullUploadWorkerConfig(const JsonValue* valu
         "healthHeartbeatMs",
         "failoverTimeoutMs",
         "retryMinMs",
-        "retryMaxMs"
+        "retryMaxMs",
+        "eventForwardingEnabled",
+        "eventReplayLockFile",
+        "eventDelegationReadyFile"
     };
     for (const auto& entry : object.values) {
         bool allowed = false;
@@ -2518,6 +2330,21 @@ MqttFullUploadWorkerConfig parseMqttFullUploadWorkerConfig(const JsonValue* valu
     );
     config.retryMinMs = requireInt(object, "retryMinMs", config.retryMinMs);
     config.retryMaxMs = requireInt(object, "retryMaxMs", config.retryMaxMs);
+    config.eventForwardingEnabled = requireBool(
+        object,
+        "eventForwardingEnabled",
+        config.eventForwardingEnabled
+    );
+    config.eventReplayLockFile = requireString(
+        object,
+        "eventReplayLockFile",
+        config.eventReplayLockFile
+    );
+    config.eventDelegationReadyFile = requireString(
+        object,
+        "eventDelegationReadyFile",
+        config.eventDelegationReadyFile
+    );
 
     if (config.mode != "inline" && config.mode != "isolated") {
         throw std::invalid_argument(
@@ -2558,6 +2385,21 @@ MqttFullUploadWorkerConfig parseMqttFullUploadWorkerConfig(const JsonValue* valu
     if (config.mode == "isolated" && config.publishLockFile.empty()) {
         throw std::invalid_argument(
             "mqttDriver.fullUploadWorker.publishLockFile is required in isolated mode"
+        );
+    }
+    if (config.eventForwardingEnabled && config.mode != "isolated") {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.eventForwardingEnabled requires isolated mode"
+        );
+    }
+    if (config.eventForwardingEnabled && isBlank(config.eventReplayLockFile)) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.eventReplayLockFile is required when event forwarding is enabled"
+        );
+    }
+    if (config.eventForwardingEnabled && isBlank(config.eventDelegationReadyFile)) {
+        throw std::invalid_argument(
+            "mqttDriver.fullUploadWorker.eventDelegationReadyFile is required when event forwarding is enabled"
         );
     }
     return config;
@@ -2684,6 +2526,56 @@ AlarmStoreConfig parseAlarmStoreConfig(const JsonValue* value) {
     config.enabled = requireBool(object, "enabled", config.enabled);
     config.sqlitePath = requireString(object, "sqlitePath", config.sqlitePath);
     config.sqliteLibraryPath = requireString(object, "sqliteLibraryPath", config.sqliteLibraryPath);
+    return config;
+}
+
+EventStoreConnectionConfig parseEventStoreConnectionConfig(const JsonValue* value) {
+    EventStoreConnectionConfig config;
+    if (!value || value->isNull()) return config;
+    const auto& object = value->asObject();
+    config.backend = requireString(object, "backend", config.backend);
+    config.storageProfile = requireString(object, "storageProfile", config.storageProfile);
+    if (config.storageProfile != "wal-full" && config.storageProfile != "delete-full")
+        throw std::invalid_argument("eventStore.storageProfile requires FULL durability");
+    if (config.backend != "legacy" && config.backend != "ipc-lab")
+        throw std::invalid_argument("eventStore.backend must be legacy or ipc-lab (production IPC not yet accepted)");
+    config.storeId = requireString(object, "storeId", config.storeId);
+    config.configGeneration = requireString(object, "configGeneration", config.configGeneration);
+    config.socketPath = requireString(object, "socketPath", config.socketPath);
+    config.detectorProducerId = requireString(object, "detectorProducerId", config.detectorProducerId);
+    config.producerHealthFile = requireString(object, "producerHealthFile", config.producerHealthFile);
+    if (!config.producerHealthFile.empty() && (config.producerHealthFile.front() != '/' ||
+        config.producerHealthFile.find('\0') != std::string::npos))
+        throw std::invalid_argument("eventStore.producerHealthFile must be an absolute path");
+    config.managementProducerId = requireString(object, "managementProducerId", config.managementProducerId);
+    config.businessSenderId = requireString(object, "businessSenderId", config.businessSenderId);
+    config.managementSenderId = requireString(object, "managementSenderId", config.managementSenderId);
+    config.thirdPartySenderId = requireString(object, "thirdPartySenderId", config.thirdPartySenderId);
+    config.queueItems = requireSize(object, "queueItems", config.queueItems);
+    config.queueBytes = requireSize(object, "queueBytes", config.queueBytes);
+    config.timeoutMs = requireInt(object, "timeoutMs", config.timeoutMs);
+    if (config.backend == "ipc-lab") {
+        const auto identifier = [](const std::string& text) {
+            return !text.empty() && text.size() <= 96 &&
+                std::all_of(text.begin(), text.end(), [](unsigned char ch) {
+                    return std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.';
+                });
+        };
+        for (const auto& id : {config.storeId, config.configGeneration, config.detectorProducerId,
+                config.managementProducerId, config.businessSenderId, config.managementSenderId,
+                config.thirdPartySenderId})
+            if (!identifier(id)) throw std::invalid_argument("invalid eventStore actor/store identity");
+        if (config.detectorProducerId == config.managementProducerId ||
+            config.businessSenderId == config.managementSenderId ||
+            config.businessSenderId == config.thirdPartySenderId ||
+            config.managementSenderId == config.thirdPartySenderId)
+            throw std::invalid_argument("eventStore actors with different roles must have distinct ids");
+        if (config.socketPath.empty() || config.socketPath.front() != '/' || config.socketPath.size() > 100 ||
+            config.socketPath.find('\0') != std::string::npos || config.queueItems < 1 ||
+            config.queueItems > 4096 || config.queueBytes < 256 * 1024 ||
+            config.queueBytes > 16 * 1024 * 1024 || config.timeoutMs < 100 || config.timeoutMs > 30000)
+            throw std::invalid_argument("invalid eventStore endpoint or bounded queue options");
+    }
     return config;
 }
 
@@ -4233,6 +4125,8 @@ AppConfig parseAppConfig(const std::string& text) {
     config.mqtt = parseMqttConfig(root.find("mqtt"));
     config.mqttForward = parseMqttForwardConfig(root.find("mqttForward"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
+    config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
+    config.eventStore = parseEventStoreConnectionConfig(root.find("eventStore"));
     if (config.mqttDriver.fullUploadWorker.mode == "isolated" &&
         (!config.mqtt.enabled || !config.mqttDriver.enabled ||
          config.mqttDriver.fullUploadIntervalMs <= 0)) {
@@ -4241,8 +4135,28 @@ AppConfig parseAppConfig(const std::string& text) {
             "enabled mqttDriver and fullUploadIntervalMs greater than 0"
         );
     }
+    if (config.mqttDriver.fullUploadWorker.eventForwardingEnabled && config.mqtt.qos < 1) {
+        throw std::invalid_argument(
+            "mqtt.qos must be 1 or 2 when primary event forwarding is enabled"
+        );
+    }
+    if (config.mqtt.enabled && config.eventEngine.enabled &&
+        config.eventEngine.publishMode == "mqtt_driver_outbox" && config.mqtt.qos < 1) {
+        throw std::invalid_argument(
+            "mqtt.qos must be 1 or 2 when eventEngine.publishMode=mqtt_driver_outbox"
+        );
+    }
+    if (config.mqttForward.events.enabled && config.mqttForward.qos < 1) {
+        throw std::invalid_argument(
+            "mqttForward.qos must be 1 or 2 when event forwarding is enabled"
+        );
+    }
+    if (config.mqttForward.control.enabled && config.mqttForward.qos < 1) {
+        throw std::invalid_argument(
+            "mqttForward.qos must be 1 or 2 when control is enabled"
+        );
+    }
     config.alarmStore = parseAlarmStoreConfig(root.find("alarmStore"));
-    config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));
     config.computeEngine = parseComputeEngineConfig(root.find("computeEngine"));
     config.agcAvc = parseAgcAvcConfig(root.find("agcAvc"));
     const JsonValue* mqttForwardControl = nullptr;
@@ -4277,6 +4191,12 @@ AppConfig parseAppConfig(const std::string& text) {
         }
     }
     config.emsCluster = parseEmsClusterConfig(root.find("emsCluster"));
+    if (config.emsCluster.enabled && config.emsCluster.controlEnabled &&
+        !config.emsCluster.zeroTargetOnLoss) {
+        throw std::invalid_argument(
+            "emsCluster.zeroTargetOnLoss must be true when production cluster control is enabled"
+        );
+    }
     config.ota = parseOtaConfig(root.find("ota"));
     config.realtime = parseRealtimeConfig(root.find("realtime"));
     config.systemMonitor = parseSystemMonitorConfig(root.find("systemMonitor"));

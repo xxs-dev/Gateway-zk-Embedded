@@ -8,6 +8,11 @@
 
 namespace edge_gateway {
 
+struct MqttJsonMessage {
+    std::string topic;
+    std::string payload;
+};
+
 class IModbusClient {
 public:
     virtual ~IModbusClient() = default;
@@ -107,6 +112,17 @@ public:
         const std::string& topic,
         const std::string& payload
     ) = 0;
+    virtual void publishReliableJsonMessage(
+        const std::string& topic,
+        const std::string& payload
+    ) {
+        publishJsonMessage(topic, payload);
+    }
+    virtual void publishReliableJsonMessages(const std::vector<MqttJsonMessage>& messages) {
+        for (const auto& message : messages) {
+            publishReliableJsonMessage(message.topic, message.payload);
+        }
+    }
 
     virtual void maintain() {
     }

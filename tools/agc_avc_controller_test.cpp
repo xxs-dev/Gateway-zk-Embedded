@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
@@ -680,6 +681,91 @@ void testPowerControlHighPrioritySurvivesOwnershipLockFailure() {
 #endif
 }
 
+void testPowerControlFingerprintCannotBeOmittedAfterReservation() {
+    const std::string path = "/tmp/agc_avc_power_ownership_fingerprint_test.json";
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+    edge_gateway::PowerControlOwnership ownership(path, "mqtt-forwarder");
+    const std::string fingerprint(64, 'a');
+    const auto takeover = ownership.acquireOrRenew(
+        "pcs-power", "remote-session", {16}, "fingerprinted", 1000, 1000, fingerprint
+    );
+    require(takeover.accepted, "fingerprinted takeover should be accepted");
+    require(
+        !ownership.recordReceipt(
+            "remote-session", "fingerprinted", takeover.generation, true
+        ),
+        "a caller must not finalize a fingerprinted receipt without the fingerprint"
+    );
+    require(
+        ownership.recordReceipt(
+            "remote-session", "fingerprinted", takeover.generation, true, fingerprint
+        ),
+        "matching fingerprint should finalize the receipt"
+    );
+    const auto duplicateWithoutFingerprint = ownership.acquireOrRenew(
+        "pcs-power", "remote-session", {16}, "fingerprinted", 1100, 1000
+    );
+    require(
+        duplicateWithoutFingerprint.duplicate && !duplicateWithoutFingerprint.accepted,
+        "a duplicate lookup must not bypass fingerprint matching by omitting the fingerprint"
+    );
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+}
+
+void testPowerControlReceiptFailureStillExpiresLease() {
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto path = (
+        std::filesystem::temp_directory_path() /
+        ("agc_avc_power_ownership_receipt_failure_" + std::to_string(nonce) + ".json")
+    ).string();
+    const auto tempPath = path + ".tmp";
+    edge_gateway::PowerControlOwnership remote(path, "mqtt-forwarder");
+
+    const auto takeover = remote.acquireOrRenew(
+        "pcs-power", "remote-session", {16}, "cmd-write-failure", 1000, 1000
+    );
+    require(takeover.accepted, "receipt failure test must first persist a finite lease");
+
+    // Occupying the atomic-write temporary path forces receipt persistence to fail
+    // without damaging the previously committed ownership document.
+    require(
+        std::filesystem::create_directory(tempPath),
+        "failed to install ownership receipt write-failure fixture"
+    );
+    require(
+        !remote.recordReceipt(
+            "remote-session", "cmd-write-failure", takeover.generation, true
+        ),
+        "ownership receipt fault injection did not fail"
+    );
+
+    const auto reservedReceipt = remote.lookupReceipt("cmd-write-failure");
+    require(
+        reservedReceipt.found && !reservedReceipt.accepted,
+        "failed receipt write must preserve the previous valid reservation"
+    );
+    require(remote.active(1999).has_value(), "finite lease should remain active before expiry");
+    require(
+        !remote.authorize(16, "compute-engine", 0, false, 1999).allowed,
+        "local control must remain blocked until the accepted remote command lease expires"
+    );
+    require(!remote.active(2000).has_value(), "receipt failure must not keep ownership past its TTL");
+    require(
+        remote.authorize(16, "compute-engine", 0, false, 2000).allowed,
+        "local control must resume when a degraded receipt lease expires"
+    );
+    require(
+        !remote.authorize(16, "mqtt-forwarder", takeover.generation, false, 2000).allowed,
+        "expired third-party generation must not remain executable"
+    );
+
+    std::filesystem::remove(tempPath);
+    std::remove(path.c_str());
+    std::remove((path + ".lock").c_str());
+}
+
 void testAgcAvcConfigParsing() {
     const std::string path = "/tmp/agc_avc_config_loader_test.json";
     std::ofstream output(path.c_str(), std::ios::out | std::ios::trunc);
@@ -749,8 +835,10 @@ int main() {
         testPowerControlOwnership();
         testPowerControlOwnershipConcurrentAcquire();
         testPowerControlOwnershipGenerationAndAuthorization();
-    testPowerControlInvalidStateFailsClosed();
-    testPowerControlHighPrioritySurvivesOwnershipLockFailure();
+        testPowerControlInvalidStateFailsClosed();
+        testPowerControlHighPrioritySurvivesOwnershipLockFailure();
+        testPowerControlFingerprintCannotBeOmittedAfterReservation();
+        testPowerControlReceiptFailureStillExpiresLease();
         testAgcAvcConfigParsing();
         std::cout << "agc_avc_controller_test passed" << std::endl;
         return 0;

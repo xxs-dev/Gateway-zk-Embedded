@@ -15,6 +15,8 @@
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_event_outbox.hpp"
+#include "edge_gateway/event_stats_source.hpp"
+#include "edge_gateway/mqtt_event_replay.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/models.hpp"
@@ -22,6 +24,8 @@
 #include "edge_gateway/priority_control_lease.hpp"
 
 namespace edge_gateway {
+
+class ProcessFileLock;
 
 class MqttDriverService {
 public:
@@ -33,7 +37,11 @@ public:
         std::shared_ptr<IMqttDriverPublisher> publisher,
         std::unique_ptr<MqttEventOutbox> eventOutbox = nullptr,
         std::unique_ptr<OtaService> otaService = nullptr,
-        SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig = {}
+        SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig = {},
+        std::unique_ptr<IEventStatsSource> eventStats = nullptr,
+        MqttEventReplayFactory businessReplayFactory = {},
+        MqttEventReplayFactory managementReplayFactory = {},
+        EventStoreIdentity eventStatsIdentity = {}
     );
     MqttDriverService(
         MqttConfig mqttConfig,
@@ -43,7 +51,11 @@ public:
         std::shared_ptr<IMqttDriverPublisher> publisher,
         std::unique_ptr<MqttEventOutbox> eventOutbox = nullptr,
         std::unique_ptr<OtaService> otaService = nullptr,
-        SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig = {}
+        SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig = {},
+        std::unique_ptr<IEventStatsSource> eventStats = nullptr,
+        MqttEventReplayFactory businessReplayFactory = {},
+        MqttEventReplayFactory managementReplayFactory = {},
+        EventStoreIdentity eventStatsIdentity = {}
     );
     ~MqttDriverService();
 
@@ -51,6 +63,7 @@ public:
     MqttDriverService& operator=(const MqttDriverService&) = delete;
 
     void start();
+    // IPC shutdown drains on the replay owner thread; may wait for EventStore.
     void stop();
     void setAgcAvcCommandMailboxRuntime(AgcAvcCommandMailboxRuntime runtime);
     bool isRunning() const;
@@ -93,6 +106,11 @@ private:
     void processIncomingMessages(std::int64_t nowMs, int timeoutMs);
     void replayPendingOtaStatuses();
     void replayEventOutboxIfNeeded(std::int64_t nowMs);
+    void replayIpcEventsIfNeeded(std::int64_t nowMs);
+    void drainIpcEvents();
+    bool isolatedEventForwarderIsActive(std::int64_t nowMs) const;
+    void publishEventDelegationReady(std::int64_t nowMs);
+    void removeEventDelegationReady();
     bool shouldDeferSnapshotForEventBacklog(std::int64_t nowMs);
     bool isolatedFullForwarderIsActive(std::int64_t nowMs) const;
     bool publishIsolatedFallback(std::int64_t nowMs);
@@ -143,6 +161,13 @@ private:
     PointStoreRouter& router_;
     std::shared_ptr<IMqttDriverPublisher> publisher_;
     std::unique_ptr<MqttEventOutbox> eventOutbox_;
+    std::unique_ptr<IEventStatsSource> eventStats_;
+    EventStoreIdentity eventStatsIdentity_;
+    MqttEventReplayFactory businessReplayFactory_, managementReplayFactory_;
+    MqttEventReplaySession businessReplay_, managementReplay_;
+    std::unique_ptr<ProcessFileLock> ipcBusinessReplayLock_;
+    std::atomic<bool> eventReplayStopping_{false};
+    std::unique_ptr<ProcessFileLock> eventDelegationLiveLock_;
     std::unique_ptr<OtaService> otaService_;
     PriorityControlLease priorityControlLease_;
     SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig_;
@@ -151,6 +176,10 @@ private:
     std::int64_t lastFullUploadMs_ = 0;
     std::int64_t lastLegacyTelemetryMs_ = 0;
     std::int64_t lastEventOutboxReplayMs_ = 0;
+    mutable std::mutex eventStateMutex_;
+    std::int64_t eventLastAckAtMs_ = 0;
+    std::string eventLastError_;
+    std::int64_t lastEventDelegationPublishMs_ = 0;
     std::int64_t lastOtaReplayAttemptMs_ = 0;
     std::int64_t otaReplayFirstSuccessMs_ = 0;
     int otaReplaySuccessRounds_ = 0;

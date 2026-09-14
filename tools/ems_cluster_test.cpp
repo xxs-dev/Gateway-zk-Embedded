@@ -378,6 +378,87 @@ void testStateFromAnotherClusterIsIgnored() {
     std::remove(config.membershipFile.c_str());
 }
 
+void testCorruptPersistedClusterStateFailsSafe() {
+    struct Case {
+        const char* label;
+        const char* fileKind;
+        std::string content;
+    };
+    const std::vector<Case> cases = {
+        {
+            "truncated-consensus",
+            "consensus",
+            "{\"schemaVersion\":\"1.0\",\"clusterId\":\"TEST_CLUSTER_corrupt-state\",\"term\":41"
+        },
+        {
+            "empty-consensus",
+            "consensus",
+            ""
+        },
+        {
+            "missing-consensus-cluster-id",
+            "consensus",
+            "{\"schemaVersion\":\"1.0\",\"clusterId\":\"\",\"term\":1,\"votedFor\":\"\"}"
+        },
+        {
+            "vote-without-term",
+            "consensus",
+            "{\"schemaVersion\":\"1.0\",\"clusterId\":\"TEST_CLUSTER_corrupt-state\","
+            "\"term\":0,\"votedFor\":\"COMM_NEW\"}"
+        },
+        {
+            "truncated-membership",
+            "membership",
+            "{\"schemaVersion\":\"1.0\",\"clusterId\":\"TEST_CLUSTER_corrupt-state\","
+            "\"membershipEpoch\":9,\"assignments\":[{\"nodeId\":\"COMM_NEW\",\"cabinetNo\":1}"
+        },
+        {
+            "missing-membership-epoch",
+            "membership",
+            "{\"schemaVersion\":\"1.0\",\"clusterId\":\"TEST_CLUSTER_corrupt-state\","
+            "\"assignments\":[{\"nodeId\":\"COMM_NEW\",\"cabinetNo\":1}]}"
+        },
+        {
+            "missing-membership-cluster-id",
+            "membership",
+            "{\"schemaVersion\":\"1.0\",\"clusterId\":\"\","
+            "\"membershipEpoch\":0,\"assignments\":[]}"
+        }
+    };
+
+    for (const auto& item : cases) {
+        auto config = configFor("corrupt-state", 2);
+        config.consensusStateFile = std::string("ems-cluster-test-") + item.label + "-consensus.json";
+        config.membershipFile = std::string("ems-cluster-test-") + item.label + "-membership.json";
+        std::remove(config.consensusStateFile.c_str());
+        std::remove(config.membershipFile.c_str());
+        const auto path = std::string(item.fileKind) == "consensus"
+            ? config.consensusStateFile
+            : config.membershipFile;
+        {
+            std::ofstream output(path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+            require(static_cast<bool>(output), "failed to create corrupt cluster state fixture");
+            output << item.content;
+        }
+
+        bool rejected = false;
+        std::string error;
+        try {
+            edge_gateway::EmsClusterNode node(config, "COMM_NEW", "BOOT_NEW");
+        } catch (const std::exception& ex) {
+            rejected = true;
+            error = ex.what();
+        }
+        std::remove(config.consensusStateFile.c_str());
+        std::remove(config.membershipFile.c_str());
+        require(rejected, std::string("corrupt persisted ") + item.fileKind + " state must stop cluster startup");
+        require(error.find(item.fileKind) != std::string::npos,
+                std::string("corrupt ") + item.fileKind + " error must identify the state kind");
+        require(error.find(path) != std::string::npos,
+                std::string("corrupt ") + item.fileKind + " error must include the file path");
+    }
+}
+
 void testDuplicateMachineCodeQuarantinesNode() {
     auto config = configFor("duplicate", 2);
     config.consensusStateFile = "ems-cluster-test-duplicate-consensus.json";
@@ -404,6 +485,28 @@ void testConfigAndAddressValidation() {
     try { edge_gateway::EmsClusterNode::validateConfig(config); }
     catch (const std::exception&) { rejected = true; }
     require(rejected, "unsafe quorum lower than majority must be rejected");
+
+    config = configFor("validation-state-path", 2);
+    config.consensusStateFile.clear();
+    rejected = false;
+    try { edge_gateway::EmsClusterNode::validateConfig(config); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, "enabled EMS cluster must require a consensus state path");
+
+    config = configFor("validation-membership-path", 2);
+    config.membershipFile.clear();
+    rejected = false;
+    try { edge_gateway::EmsClusterNode::validateConfig(config); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, "enabled EMS cluster must require a membership state path");
+
+    config = configFor("validation-shared-state-path", 2);
+    config.membershipFile = config.consensusStateFile;
+    rejected = false;
+    try { edge_gateway::EmsClusterNode::validateConfig(config); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, "consensus and membership state must not share one file");
+
     const auto first = edge_gateway::deriveEmsClusterLinkLocalAddress("COMM_A", "00:11:22:33:44:55");
     const auto second = edge_gateway::deriveEmsClusterLinkLocalAddress("COMM_A", "00:11:22:33:44:55");
     require(first == second && first.rfind("169.254.", 0) == 0, "Link-Local candidate must be stable");
@@ -545,6 +648,83 @@ void testDispatchExpiresAcrossLeaderPartition() {
              isolated.code == edge_gateway::EmsClusterDispatchCode::Expired),
             "isolated old leader must clear its local target after losing majority");
     require(simulation.leaderCount() == 1, "majority side must elect one replacement control leader");
+    const auto replacementLeader = simulation.leaderIndex();
+    for (const auto member : majority) {
+        if (member == replacementLeader) continue;
+        const auto dispatch = simulation.at(member).node->activeDispatch(simulation.now());
+        const auto status = simulation.at(member).node->status(simulation.now());
+        require(dispatch.valid,
+                "majority follower must accept the replacement leader dispatch in the new term");
+        require(dispatch.term == status.term,
+                "majority follower dispatch must belong to its current term");
+    }
+}
+
+void testDispatchRejectsSameTermReplayAndOldTermMessage() {
+    Simulation simulation("dispatch-replay", 3, {}, 0, true);
+    edge_gateway::EmsClusterPhasePower target;
+    target.paKw = 9.0;
+    target.pbKw = 6.0;
+    target.pcKw = 3.0;
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = target;
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    const auto leader = simulation.leaderIndex();
+    require(leader >= 0, "dispatch replay test requires a leader");
+    const auto follower = leader == 0 ? 1 : 0;
+    auto& followerNode = *simulation.at(follower).node;
+    const auto status = followerNode.status(simulation.now());
+    const auto active = followerNode.activeDispatch(simulation.now());
+    require(active.valid && active.sequence > 0, "dispatch replay test requires an active follower target");
+
+    const auto requireAck = [&](edge_gateway::EmsClusterMessage message,
+                                edge_gateway::EmsClusterDispatchCode expected,
+                                const std::string& failure) {
+        edge_gateway::EmsClusterInbound inbound;
+        inbound.message = std::move(message);
+        inbound.sourceAddress = "169.254.1.1";
+        followerNode.receive(inbound, simulation.now());
+        bool found = false;
+        for (const auto& outbound : followerNode.drainOutgoing()) {
+            if (outbound.message.type == edge_gateway::EmsClusterMessageType::DispatchAck &&
+                outbound.message.dispatchSequence == inbound.message.dispatchSequence) {
+                require(outbound.message.dispatchCode == expected, failure);
+                found = true;
+            }
+        }
+        require(found, failure + ": dispatch ACK missing");
+    };
+
+    edge_gateway::EmsClusterMessage replay;
+    replay.type = edge_gateway::EmsClusterMessageType::DispatchTarget;
+    replay.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(followerNode.config().clusterId);
+    replay.configHash = edge_gateway::EmsClusterProtocol::configHash(followerNode.config());
+    replay.term = status.term;
+    replay.membershipEpoch = status.membershipEpoch;
+    replay.sequence = std::numeric_limits<std::uint64_t>::max() - 1;
+    replay.senderNodeId = simulation.at(leader).node->nodeId();
+    replay.senderBootId = simulation.at(leader).node->bootId();
+    replay.leaderNodeId = replay.senderNodeId;
+    replay.dispatchSequence = active.sequence;
+    replay.dispatchTtlMs = static_cast<std::uint32_t>(followerNode.config().dispatchTtlMs);
+    replay.requestedPower = active.requested;
+    requireAck(
+        replay,
+        edge_gateway::EmsClusterDispatchCode::StaleSequence,
+        "same-term dispatch replay must be rejected"
+    );
+
+    auto oldTerm = replay;
+    oldTerm.term = status.term - 1;
+    oldTerm.sequence = std::numeric_limits<std::uint64_t>::max();
+    oldTerm.dispatchSequence = active.sequence + 1;
+    requireAck(
+        oldTerm,
+        edge_gateway::EmsClusterDispatchCode::TermMismatch,
+        "old-term dispatch message must be rejected"
+    );
 }
 
 void testStationTargetUsesIndependentTtl() {
@@ -767,12 +947,14 @@ int main() {
         testStaleUncommittedMemberIsNotNumbered();
         testRestartKeepsTermAndCabinetNumber();
         testStateFromAnotherClusterIsIgnored();
+        testCorruptPersistedClusterStateFailsSafe();
         testDuplicateMachineCodeQuarantinesNode();
         testConfigAndAddressValidation();
         testMissingComputeMetricsArePenalized();
         testCapabilityWeightedDispatchAllocation();
         testDispatchClosedLoopAndInterlock();
         testDispatchExpiresAcrossLeaderPartition();
+        testDispatchRejectsSameTermReplayAndOldTermMessage();
         testStationTargetUsesIndependentTtl();
         testCapabilityIsObservableBeforeControlEnable();
         testClusterPointBridge();

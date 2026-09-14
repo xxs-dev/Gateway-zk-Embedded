@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -16,6 +17,79 @@
 #include "edge_gateway/sqlite_sample_writer.hpp"
 
 namespace {
+
+struct sqlite3;
+
+void require(bool condition, const std::string& message);
+
+class SqliteApi {
+public:
+    SqliteApi() {
+        handle_ = dlopen("libsqlite3.so.0", RTLD_NOW | RTLD_LOCAL);
+        if (handle_ == nullptr) {
+            handle_ = dlopen("libsqlite3.so", RTLD_NOW | RTLD_LOCAL);
+        }
+        require(handle_ != nullptr, "failed to load real sqlite library");
+        open = load<int (*)(const char*, sqlite3**)>("sqlite3_open");
+        close = load<int (*)(sqlite3*)>("sqlite3_close");
+        exec = load<int (*)(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**)>(
+            "sqlite3_exec"
+        );
+        free = load<void (*)(void*)>("sqlite3_free");
+    }
+
+    ~SqliteApi() {
+        if (handle_ != nullptr) {
+            dlclose(handle_);
+        }
+    }
+
+    SqliteApi(const SqliteApi&) = delete;
+    SqliteApi& operator=(const SqliteApi&) = delete;
+
+    int (*open)(const char*, sqlite3**) = nullptr;
+    int (*close)(sqlite3*) = nullptr;
+    int (*exec)(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**) = nullptr;
+    void (*free)(void*) = nullptr;
+
+private:
+    template <typename Function>
+    Function load(const char* name) {
+        auto* symbol = dlsym(handle_, name);
+        require(symbol != nullptr, std::string("failed to load sqlite symbol: ") + name);
+        return reinterpret_cast<Function>(symbol);
+    }
+
+    void* handle_ = nullptr;
+};
+
+void execSql(SqliteApi& api, sqlite3* db, const std::string& sql) {
+    char* error = nullptr;
+    const auto rc = api.exec(db, sql.c_str(), nullptr, nullptr, &error);
+    const std::string message = error == nullptr ? std::string() : std::string(error);
+    if (error != nullptr) {
+        api.free(error);
+    }
+    require(rc == 0, "sqlite exec failed: " + message);
+}
+
+int queryInt(SqliteApi& api, sqlite3* db, const std::string& sql) {
+    int value = -1;
+    char* error = nullptr;
+    const auto callback = [](void* context, int columns, char** values, char**) -> int {
+        if (columns > 0 && values[0] != nullptr) {
+            *static_cast<int*>(context) = std::stoi(values[0]);
+        }
+        return 0;
+    };
+    const auto rc = api.exec(db, sql.c_str(), callback, &value, &error);
+    const std::string message = error == nullptr ? std::string() : std::string(error);
+    if (error != nullptr) {
+        api.free(error);
+    }
+    require(rc == 0, "sqlite query failed: " + message);
+    return value;
+}
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -252,6 +326,91 @@ void verifyRealSqliteSmoke() {
     removeDatabaseFiles(alarmPath);
 }
 
+void verifyAlarmEventIdMigrationAndIdempotency() {
+    const auto path = std::string("/tmp/gateway_alarm_event_id_") + std::to_string(getpid()) + ".db";
+    removeDatabaseFiles(path);
+
+    SqliteApi api;
+    sqlite3* db = nullptr;
+    require(api.open(path.c_str(), &db) == 0 && db != nullptr, "failed to create legacy alarm db");
+    execSql(
+        api,
+        db,
+        "CREATE TABLE alarm_events ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "point_index INTEGER NOT NULL, ts INTEGER NOT NULL, alarm_type TEXT NOT NULL,"
+        "active INTEGER NOT NULL, threshold REAL NOT NULL, value REAL NOT NULL,"
+        "quality INTEGER NOT NULL, stale INTEGER NOT NULL, persist_value TEXT NOT NULL,"
+        "gateway_code TEXT NOT NULL, device_code TEXT NOT NULL, point_code TEXT NOT NULL);"
+    );
+    require(api.close(db) == 0, "failed to close legacy alarm db");
+
+    edge_gateway::AlarmEvent event;
+    event.eventId = "alarm:v1:GW_TEST:4001:high:1";
+    event.index = 4001;
+    event.machineCode = "GW_TEST";
+    event.meterCode = "METER_TEST";
+    event.pointCode = "ALARM_TEST";
+    event.alarmType = "high";
+    event.active = true;
+    event.ts = 1000;
+    {
+        edge_gateway::SqliteAlarmWriter writer(path);
+        writer.writeEvents({event});
+        writer.writeEvents({event});
+    }
+
+    db = nullptr;
+    require(api.open(path.c_str(), &db) == 0 && db != nullptr, "failed to reopen alarm db");
+    require(
+        queryInt(api, db, "SELECT COUNT(*) FROM alarm_events WHERE event_id='alarm:v1:GW_TEST:4001:high:1';") == 1,
+        "stable alarm eventId must make a retried local alarm write idempotent"
+    );
+    require(api.close(db) == 0, "failed to close alarm db");
+    removeDatabaseFiles(path);
+}
+
+void verifyAlarmWriterBusyDatabaseFailsWithinEventLoopBudget() {
+    const auto path = std::string("/tmp/gateway_alarm_busy_budget_") + std::to_string(getpid()) + ".db";
+    removeDatabaseFiles(path);
+
+    edge_gateway::SqliteAlarmWriter writer(path);
+    SqliteApi api;
+    sqlite3* blocker = nullptr;
+    require(api.open(path.c_str(), &blocker) == 0 && blocker != nullptr,
+        "failed to open alarm busy blocker");
+    execSql(api, blocker, "BEGIN EXCLUSIVE;");
+
+    edge_gateway::AlarmEvent event;
+    event.eventId = "alarm:v1:GW_BUSY:4101:high:1";
+    event.index = 4101;
+    event.machineCode = "GW_BUSY";
+    event.meterCode = "METER_BUSY";
+    event.pointCode = "ALARM_BUSY";
+    event.alarmType = "high";
+    event.active = true;
+    event.ts = 1000;
+    auto write = std::async(std::launch::async, [&writer, &event]() {
+        try {
+            writer.writeEvents({event});
+            return false;
+        } catch (const std::exception&) {
+            return true;
+        }
+    });
+    const bool completedBeforeRelease =
+        write.wait_for(std::chrono::milliseconds(400)) == std::future_status::ready;
+    execSql(api, blocker, "ROLLBACK;");
+    const bool failedWhileBusy = write.get();
+
+    require(completedBeforeRelease,
+        "alarm sqlite contention blocked the event loop beyond 400ms");
+    require(failedWhileBusy,
+        "alarm writer waited for the lock and succeeded instead of failing fast");
+    require(api.close(blocker) == 0, "failed to close alarm busy blocker");
+    removeDatabaseFiles(path);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -263,6 +422,8 @@ int main(int argc, char** argv) {
         verifyAlarmWriter(fixture, libraryPath);
         verifyEventEngineRetriesAlarmPersistence(fixture, libraryPath);
         verifyRealSqliteSmoke();
+        verifyAlarmEventIdMigrationAndIdempotency();
+        verifyAlarmWriterBusyDatabaseFailsWithinEventLoopBudget();
         std::cout << "sqlite_writer_failure_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

@@ -18,6 +18,11 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/mqtt_forwarder_service.hpp"
+#include "edge_gateway/mqtt_event_stats.hpp"
+#ifdef __linux__
+#include "edge_gateway/mqtt_event_stats_factory.hpp"
+#include "edge_gateway/event_store_config.hpp"
+#endif
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/timing_policy.hpp"
 
@@ -82,6 +87,34 @@ std::int64_t nowMs() {
     ).count();
 }
 
+std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(
+    const edge_gateway::MqttConfig& config,
+    const char* owner
+) {
+    std::string lastError = "unknown";
+    for (int attempt = 1; attempt <= 10; ++attempt) {
+        try {
+            return std::unique_ptr<edge_gateway::MqttEventOutbox>(new edge_gateway::MqttEventOutbox(
+                config.eventOutboxSqlitePath,
+                config.eventOutboxSqliteLibraryPath,
+                config.eventOutboxRetentionMonths,
+                config.eventOutboxCleanupIntervalHours,
+                config.eventOutboxReplayBatchSize,
+                config.eventOutboxMaxDiskBytes
+            ));
+        } catch (const std::exception& ex) {
+            lastError = ex.what();
+            std::cerr << owner << " outbox open retry"
+                      << " attempt=" << attempt
+                      << " error=" << lastError << std::endl;
+            if (attempt < 10) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+        }
+    }
+    throw std::runtime_error(std::string("failed to open mqtt event outbox after retries: ") + lastError);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -101,12 +134,24 @@ int main(int argc, char* argv[]) {
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     TimingPolicyResolver::applyAppServices(appConfig);
+    const bool ipcEvents = appConfig.eventStore.backend != "legacy";
+#ifndef __linux__
+    if (ipcEvents) throw std::runtime_error("IPC EventStore requires Linux");
+#endif
     appConfig.mqttDriver.fullUploadWorker.healthFile = scopedWorkerPath(
         appConfig.mqttDriver.fullUploadWorker.healthFile,
         appConfigPath
     );
     appConfig.mqttDriver.fullUploadWorker.publishLockFile = scopedWorkerPath(
         appConfig.mqttDriver.fullUploadWorker.publishLockFile,
+        appConfigPath
+    );
+    appConfig.mqttDriver.fullUploadWorker.eventReplayLockFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.eventReplayLockFile,
+        appConfigPath
+    );
+    appConfig.mqttDriver.fullUploadWorker.eventDelegationReadyFile = scopedWorkerPath(
+        appConfig.mqttDriver.fullUploadWorker.eventDelegationReadyFile,
         appConfigPath
     );
     setProcessName("mqtt-fwd-" + sanitizeProcessToken(basenameOf(appConfigPath)));
@@ -217,6 +262,23 @@ int main(int argc, char* argv[]) {
         primaryForward.primaryMachineCode = topicMachineCode;
         primaryForward.publishLockFile =
             appConfig.mqttDriver.fullUploadWorker.publishLockFile;
+        primaryForward.events.enabled =
+            appConfig.mqttDriver.fullUploadWorker.eventForwardingEnabled;
+        primaryForward.events.targetId = "main";
+        primaryForward.events.changeTopic = appConfig.mqtt.changeEventTopic;
+        primaryForward.events.alarmTopic = appConfig.mqtt.alarmTopic;
+        primaryForward.events.changeTopicMachineScoped =
+            appConfig.mqtt.changeEventTopicMachineScoped;
+        primaryForward.events.alarmTopicMachineScoped =
+            appConfig.mqtt.alarmTopicMachineScoped;
+        primaryForward.events.replayIntervalMs = std::max(
+            10,
+            appConfig.mqttDriver.deliveryMaxLatencyMs > 0
+                ? std::min(appConfig.mqttDriver.scanIntervalMs,
+                           appConfig.mqttDriver.deliveryMaxLatencyMs)
+                : appConfig.mqttDriver.scanIntervalMs
+        );
+        primaryForward.events.replayMaxBytes = appConfig.mqttDriver.eventReplayMaxBytes;
 
         const auto primaryMqttConfig = MqttForwarderService::makePrimaryFullMqttConfig(
             appConfig.mqtt,
@@ -228,14 +290,40 @@ int main(int argc, char* argv[]) {
         primaryFullTopic = primaryForward.fullTelemetryTopic;
         auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(
             primaryMqttConfig,
-            MqttPublisherMode::TxOnly
+            MqttPublisherMode::TxOnly,
+            MqttEventOutboxOwnership::External
         );
+        std::unique_ptr<MqttEventOutbox> eventOutbox;
+        if (!ipcEvents && primaryForward.events.enabled) {
+            eventOutbox = createEventOutboxWithRetry(appConfig.mqtt, "primary mqtt forwarder");
+        }
+        std::unique_ptr<IEventStatsSource> eventStats;
+        MqttEventReplayFactory eventReplay;
+#ifdef __linux__
+        if (ipcEvents && primaryForward.events.enabled) {
+            eventStats = makeIpcMqttEventStatsSource(appConfig.eventStore,
+                {mqttForwarderStatsQuery(primaryForward.events, true), mqttForwarderStatsQuery(primaryForward.events, false)});
+            eventReplay = configuredEventReplay(appConfig.eventStore, appConfig.eventStore.businessSenderId,
+                MqttEventReplayLane::ForwardEvents, "main", {"alarm", "change"}, publisher);
+        }
+        if (eventOutbox) {
+            eventStats = makeLegacyMqttEventStatsSource(appConfig.mqtt,
+                {mqttForwarderStatsQuery(primaryForward.events, true),
+                 mqttForwarderStatsQuery(primaryForward.events, false)});
+        }
+#endif
         publishers.push_back(publisher);
         services.emplace_back(new MqttForwarderService(
             primaryForward,
             router,
             publisher,
-            appConfig.mqttDriver.fullUploadWorker.healthFile
+            appConfig.mqttDriver.fullUploadWorker.healthFile,
+            std::move(eventOutbox),
+            appConfig.mqtt.eventOutboxSqlitePath,
+            appConfig.mqttDriver.fullUploadWorker.eventReplayLockFile,
+            appConfig.mqttDriver.fullUploadWorker.eventDelegationReadyFile,
+            std::move(eventStats), std::move(eventReplay),
+            ipcEvents ? EventStoreIdentity{appConfig.eventStore.storeId, appConfig.eventStore.configGeneration} : EventStoreIdentity{}
         ));
         std::cout << "primary full forwarder configured"
                   << " broker=" << primaryMqttConfig.broker
@@ -267,13 +355,42 @@ int main(int argc, char* argv[]) {
         const auto publisherMode = appConfig.mqttForward.control.enabled
             ? MqttPublisherMode::Bidirectional
             : MqttPublisherMode::TxOnly;
-        auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(mqttConfig, publisherMode);
+        auto publisher = std::make_shared<BuiltinMqttDriverPublisher>(
+            mqttConfig,
+            publisherMode,
+            MqttEventOutboxOwnership::External
+        );
+        std::unique_ptr<MqttEventOutbox> eventOutbox;
+        if (!ipcEvents && appConfig.mqttForward.events.enabled) {
+            eventOutbox = createEventOutboxWithRetry(appConfig.mqtt, "third-party mqtt forwarder");
+        }
+        std::unique_ptr<IEventStatsSource> eventStats;
+        MqttEventReplayFactory eventReplay;
+#ifdef __linux__
+        if (ipcEvents && appConfig.mqttForward.events.enabled) {
+            eventStats = makeIpcMqttEventStatsSource(appConfig.eventStore,
+                {mqttForwarderStatsQuery(appConfig.mqttForward.events, false)});
+            std::vector<std::string> types;
+            if (!appConfig.mqttForward.events.alarmTopic.empty()) types.push_back("alarm");
+            if (!appConfig.mqttForward.events.changeTopic.empty()) types.push_back("change");
+            eventReplay = configuredEventReplay(appConfig.eventStore, appConfig.eventStore.thirdPartySenderId,
+                MqttEventReplayLane::ForwardEvents, appConfig.mqttForward.events.targetId, types, publisher);
+        }
+        if (eventOutbox) {
+            eventStats = makeLegacyMqttEventStatsSource(appConfig.mqtt,
+                {mqttForwarderStatsQuery(appConfig.mqttForward.events, false)});
+        }
+#endif
         publishers.push_back(publisher);
         services.emplace_back(new MqttForwarderService(
             appConfig.mqttForward,
             router,
             publisher,
-            "/opt/modbus-gateway/run/mqtt-forwarder-health.json"
+            "/opt/modbus-gateway/run/mqtt-forwarder-health.json",
+            std::move(eventOutbox),
+            appConfig.mqtt.eventOutboxSqlitePath,
+            {}, {}, std::move(eventStats), std::move(eventReplay),
+            ipcEvents ? EventStoreIdentity{appConfig.eventStore.storeId, appConfig.eventStore.configGeneration} : EventStoreIdentity{}
         ));
         std::cout << "third-party mqtt forwarder configured"
                   << " broker=" << appConfig.mqttForward.broker
@@ -292,6 +409,9 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
     for (const auto& service : services) {
         service->start();
     }

@@ -1,4 +1,5 @@
 #include "edge_gateway/ota_service.hpp"
+#include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -11,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -18,12 +20,17 @@
 #include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include <direct.h>
 #include <io.h>
 #include <sys/stat.h>
 #else
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/file.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -88,30 +95,205 @@ std::uint64_t fileSizeBytes(const std::string& path) {
     return st.st_size > 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
 }
 
-void keepFileTail(const std::string& path, std::size_t maxBytes) {
-    if (maxBytes == 0) {
-        return;
+// Lock a separate, never-renamed inode, including across OtaService instances.
+class PendingJournalLock {
+public:
+    explicit PendingJournalLock(const std::string& path) {
+#ifdef _WIN32
+        handle_ = CreateFileA((path + ".lock").c_str(), GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        OVERLAPPED offset{};
+        if (handle_ == INVALID_HANDLE_VALUE || !LockFileEx(handle_, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &offset)) {
+            if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+            throw std::runtime_error("cannot lock OTA pending journal");
+        }
+#else
+        fd_ = open((path + ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        int result;
+        do { result = fd_ < 0 ? -1 : flock(fd_, LOCK_EX); } while (result < 0 && errno == EINTR);
+        if (result < 0) {
+            if (fd_ >= 0) close(fd_);
+            throw std::runtime_error("cannot lock OTA pending journal");
+        }
+#endif
     }
-    const auto size = fileSizeBytes(path);
-    if (size <= maxBytes) {
-        return;
+    ~PendingJournalLock() {
+#ifdef _WIN32
+        CloseHandle(handle_);
+#else
+        close(fd_);
+#endif
     }
+    PendingJournalLock(const PendingJournalLock&) = delete;
+    PendingJournalLock& operator=(const PendingJournalLock&) = delete;
+private:
+#ifdef _WIN32
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+#else
+    int fd_ = -1;
+#endif
+};
+
+std::string newStatusOccurrence() {
+    unsigned char bytes[16];
+#ifdef _WIN32
+    std::random_device random;
+    for (auto& byte : bytes) byte = static_cast<unsigned char>(random());
+#else
+    std::ifstream random("/dev/urandom", std::ios::binary);
+    if (!random.read(reinterpret_cast<char*>(bytes), sizeof(bytes)))
+        throw std::runtime_error("cannot generate OTA status occurrence");
+#endif
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    static const char hex[] = "0123456789abcdef";
+    std::string result;
+    for (std::size_t i = 0; i < sizeof(bytes); ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) result += '-';
+        result += hex[bytes[i] >> 4]; result += hex[bytes[i] & 15];
+    }
+    return result;
+}
+
+std::string readPendingJournal(const std::string& path) {
+    struct stat info{};
+    if (stat(path.c_str(), &info) != 0) {
+        if (errno == ENOENT) return {};
+        throw std::runtime_error("cannot stat OTA pending journal");
+    }
+    if ((info.st_mode & S_IFMT) != S_IFREG) throw std::runtime_error("OTA pending journal is not a regular file");
     std::ifstream input(path.c_str(), std::ios::binary);
-    if (!input.is_open()) {
-        return;
+    if (!input) throw std::runtime_error("cannot open OTA pending journal");
+    std::string result((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    if (input.bad()) throw std::runtime_error("cannot read OTA pending journal");
+    return result;
+}
+
+void replacePendingJournal(const std::string& path, const std::string& bytes) {
+    const auto temporary = path + ".tmp." + newStatusOccurrence();
+#ifdef _WIN32
+    HANDLE file = CreateFileA(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("cannot create OTA pending temporary file");
+    try {
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            DWORD written = 0;
+            const auto count = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 1024 * 1024));
+            if (!WriteFile(file, bytes.data() + offset, count, &written, nullptr) || !written)
+                throw std::runtime_error("cannot write OTA pending journal");
+            offset += written;
+        }
+        if (!FlushFileBuffers(file)) throw std::runtime_error("cannot flush OTA pending journal");
+        CloseHandle(file); file = INVALID_HANDLE_VALUE;
+        if (!MoveFileExA(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("cannot replace OTA pending journal");
+    } catch (...) {
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+        DeleteFileA(temporary.c_str());
+        throw;
     }
-    input.seekg(-static_cast<std::streamoff>(maxBytes), std::ios::end);
-    std::string tail(maxBytes, '\0');
-    input.read(&tail[0], static_cast<std::streamsize>(tail.size()));
-    tail.resize(static_cast<std::size_t>(input.gcount()));
-    const auto firstNewline = tail.find('\n');
-    if (firstNewline != std::string::npos && firstNewline + 1 < tail.size()) {
-        tail = tail.substr(firstNewline + 1);
+#else
+    int fd = open(temporary.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) throw std::runtime_error("cannot create OTA pending temporary file");
+    try {
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            const auto written = write(fd, bytes.data() + offset, bytes.size() - offset);
+            if (written < 0 && errno == EINTR) continue;
+            if (written <= 0) throw std::runtime_error("cannot write OTA pending journal");
+            offset += static_cast<std::size_t>(written);
+        }
+        if (fsync(fd) != 0) throw std::runtime_error("cannot fsync OTA pending journal");
+        const int closed = close(fd); fd = -1;
+        if (closed != 0) throw std::runtime_error("cannot close OTA pending journal");
+        if (rename(temporary.c_str(), path.c_str()) != 0)
+            throw std::runtime_error("cannot replace OTA pending journal");
+        // Sync ancestors too: stagingDir may have just been created.
+        const auto separator = path.find_last_of('/');
+        auto directory = separator == std::string::npos ? "." : path.substr(0, separator);
+        if (directory.empty()) directory = "/";
+        for (;;) {
+            const int dir = open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+            if (dir < 0) throw std::runtime_error("cannot open OTA journal directory");
+            const int synced = fsync(dir);
+            close(dir);
+            if (synced != 0) throw std::runtime_error("cannot fsync OTA journal directory");
+            if (directory == "/" || directory == ".") break;
+            const auto slash = directory.find_last_of('/');
+            directory = slash == std::string::npos ? "." : slash == 0 ? "/" : directory.substr(0, slash);
+        }
+    } catch (...) {
+        if (fd >= 0) close(fd);
+        unlink(temporary.c_str());
+        throw;
     }
-    std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
-    if (output.is_open()) {
-        output << tail;
+#endif
+}
+
+std::string pendingJsonString(const std::string& value) {
+    static const char hex[] = "0123456789abcdef";
+    std::string result = "\"";
+    for (const unsigned char ch : value) {
+        if (ch == '"' || ch == '\\') { result += '\\'; result += static_cast<char>(ch); }
+        else if (ch < 32) { result += "\\u00"; result += hex[ch >> 4]; result += hex[ch & 15]; }
+        else result += static_cast<char>(ch);
     }
+    return result + '"';
+}
+
+std::string encodePendingStatus(const OtaStatus& status) {
+    // Decimal strings avoid IEEE754 rounding of timestamps and byte counters.
+    return "{\"format\":\"ota-status-v2\",\"jobId\":" + pendingJsonString(status.jobId) +
+        ",\"machineCode\":" + pendingJsonString(status.machineCode) +
+        ",\"stage\":" + pendingJsonString(status.stage) +
+        ",\"progress\":" + pendingJsonString(std::to_string(status.progress)) +
+        ",\"downloadedBytes\":" + pendingJsonString(std::to_string(status.downloadedBytes)) +
+        ",\"totalBytes\":" + pendingJsonString(std::to_string(status.totalBytes)) +
+        ",\"message\":" + pendingJsonString(status.message) +
+        ",\"ts\":" + pendingJsonString(std::to_string(status.ts)) +
+        ",\"occurrenceId\":" + pendingJsonString(status.occurrenceId) + "}\n";
+}
+
+std::string pendingField(const json::JsonValue& value, const char* name) {
+    const auto* field = value.find(name);
+    if (!field || !field->isString()) throw std::runtime_error("invalid OTA pending JSON field");
+    return field->asString();
+}
+
+template<class T> T pendingInteger(const std::string& value) {
+    if (value.empty()) throw std::runtime_error("empty OTA pending integer");
+    std::istringstream stream(value);
+    stream.imbue(std::locale::classic());
+    T result{};
+    if (!(stream >> result) || !stream.eof() || std::to_string(result) != value)
+        throw std::runtime_error("invalid OTA pending integer");
+    return result;
+}
+
+OtaStatus decodePendingStatus(const std::string& line) {
+    const auto value = json::JsonParser(line, 4, 32).parse();
+    if (pendingField(value, "format") != "ota-status-v2")
+        throw std::runtime_error("unsupported OTA pending format");
+    OtaStatus status;
+    status.jobId = pendingField(value, "jobId");
+    status.machineCode = pendingField(value, "machineCode");
+    status.stage = pendingField(value, "stage");
+    status.progress = pendingInteger<int>(pendingField(value, "progress"));
+    status.downloadedBytes = pendingInteger<std::uint64_t>(pendingField(value, "downloadedBytes"));
+    status.totalBytes = pendingInteger<std::uint64_t>(pendingField(value, "totalBytes"));
+    status.message = pendingField(value, "message");
+    status.ts = pendingInteger<std::int64_t>(pendingField(value, "ts"));
+    status.occurrenceId = pendingField(value, "occurrenceId");
+    if (status.occurrenceId.size() != 36) throw std::runtime_error("invalid OTA occurrence ID");
+    for (std::size_t i = 0; i < status.occurrenceId.size(); ++i) {
+        const char ch = status.occurrenceId[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (ch != '-') throw std::runtime_error("invalid OTA occurrence ID");
+        } else if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            throw std::runtime_error("invalid OTA occurrence ID");
+        }
+    }
+    return status;
 }
 
 std::string sanitizeJournalField(std::string value) {
@@ -363,12 +545,15 @@ std::string artifactFileName(const std::string& value) {
     return fileName;
 }
 
-void validateOtaRequestFields(const OtaRequest& request) {
+void validateOtaRequestFields(const OtaRequest& request, bool checksumRequired) {
     if (!isSafeOtaId(request.jobId)) {
         throw std::runtime_error("invalid ota jobId");
     }
     if (!request.version.empty() && !isSafeOtaId(request.version)) {
         throw std::runtime_error("invalid ota version");
+    }
+    if (checksumRequired && request.sha256.empty()) {
+        throw std::runtime_error("ota sha256 is required");
     }
     if (!isSafeSha256(request.sha256)) {
         throw std::runtime_error("invalid ota sha256");
@@ -683,7 +868,7 @@ bool OtaService::enabled() const {
 
 bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMessage) const {
     try {
-        validateOtaRequestFields(request);
+        validateOtaRequestFields(request, config_.checksumRequired);
         validateOtaSize(config_, request.size);
         (void)resolveArtifactPath(request);
         return true;
@@ -699,39 +884,47 @@ std::string OtaService::statusJournalPath() const {
     return joinPath(config_.stagingDir, "ota_status_pending.log");
 }
 
-void OtaService::enforceStatusJournalLimit() const {
-    if (config_.maxPendingStatusBytes == 0) {
-        return;
-    }
-    keepFileTail(statusJournalPath(), config_.maxPendingStatusBytes);
-}
-
-void OtaService::appendPendingStatus(const OtaStatus& status) const {
+void OtaService::appendPendingStatus(OtaStatus& status) const {
+    std::lock_guard<std::mutex> guard(pendingMutex_);
     ensureDirectory(config_.stagingDir);
-    std::ofstream output(statusJournalPath().c_str(), std::ios::app);
-    if (!output.is_open()) {
-        return;
+    PendingJournalLock lock(statusJournalPath());
+    // reportStage/reportDownloadProgress clear this for each new occurrence.
+    // A retry after an uncertain fsync keeps the ID assigned before any I/O.
+    if (status.occurrenceId.empty()) status.occurrenceId = newStatusOccurrence();
+    auto bytes = readPendingJournal(statusJournalPath());
+    if (!bytes.empty() && bytes.back() != '\n')
+        throw std::runtime_error("truncated OTA pending journal; refusing append");
+    const auto record = encodePendingStatus(status);
+    if (config_.maxPendingStatusBytes && record.size() > config_.maxPendingStatusBytes)
+        throw std::runtime_error("OTA status exceeds pending journal limit");
+    const auto existing = bytes.find(record);
+    if (existing == std::string::npos || (existing != 0 && bytes[existing - 1] != '\n')) bytes += record;
+    if (config_.maxPendingStatusBytes && bytes.size() > config_.maxPendingStatusBytes) {
+        const auto start = bytes.find('\n', bytes.size() - config_.maxPendingStatusBytes - 1);
+        bytes.erase(0, start + 1);
     }
-    output << sanitizeJournalField(status.jobId) << "\t"
-           << sanitizeJournalField(status.machineCode) << "\t"
-           << sanitizeJournalField(status.stage) << "\t"
-           << status.progress << "\t"
-           << status.downloadedBytes << "\t"
-           << status.totalBytes << "\t"
-           << sanitizeJournalField(status.message) << "\t"
-           << status.ts << "\n";
-    output.close();
-    enforceStatusJournalLimit();
+    replacePendingJournal(statusJournalPath(), bytes);
 }
 
 std::vector<OtaStatus> OtaService::loadPendingStatuses() const {
-    std::vector<OtaStatus> statuses;
-    std::ifstream input(statusJournalPath().c_str());
-    if (!input.is_open()) {
-        return statuses;
+    std::lock_guard<std::mutex> guard(pendingMutex_);
+    pendingSnapshot_.clear();
+    struct stat info{};
+    if (stat(statusJournalPath().c_str(), &info) != 0) {
+        if (errno == ENOENT) return {};
+        throw std::runtime_error("cannot stat OTA pending journal");
     }
+    PendingJournalLock lock(statusJournalPath());
+    const auto bytes = readPendingJournal(statusJournalPath());
+    std::vector<OtaStatus> statuses;
+    std::istringstream input(bytes);
     std::string line;
     while (std::getline(input, line)) {
+        if (!line.empty() && line.front() == '{') {
+            if (input.eof()) throw std::runtime_error("truncated OTA pending JSON record");
+            statuses.push_back(decodePendingStatus(line));
+            continue;
+        }
         const auto parts = splitTabLine(line);
         if (parts.size() < 6) {
             continue;
@@ -758,11 +951,20 @@ std::vector<OtaStatus> OtaService::loadPendingStatuses() const {
             statuses.push_back(status);
         }
     }
+    pendingSnapshot_ = bytes;
     return statuses;
 }
 
 void OtaService::clearPendingStatuses() const {
-    std::ofstream output(statusJournalPath().c_str(), std::ios::trunc);
+    std::lock_guard<std::mutex> guard(pendingMutex_);
+    if (pendingSnapshot_.empty()) return;
+    ensureDirectory(config_.stagingDir);
+    PendingJournalLock lock(statusJournalPath());
+    const auto bytes = readPendingJournal(statusJournalPath());
+    if (bytes.compare(0, pendingSnapshot_.size(), pendingSnapshot_) != 0)
+        throw std::runtime_error("OTA pending snapshot changed; reload before clearing");
+    replacePendingJournal(statusJournalPath(), bytes.substr(pendingSnapshot_.size()));
+    pendingSnapshot_.clear();
 }
 
 OtaReply OtaService::createAcceptedReply(
@@ -793,7 +995,7 @@ void OtaService::execute(
     if (!config_.enabled) {
         throw std::runtime_error("ota is disabled");
     }
-    validateOtaRequestFields(request);
+    validateOtaRequestFields(request, config_.checksumRequired);
     validateOtaSize(config_, request.size);
 
     reply->jobId = request.jobId;
@@ -1054,6 +1256,7 @@ void OtaService::reportStage(
     status->progress = progress;
     status->message = message;
     status->ts = ts;
+    status->occurrenceId.clear();
     appendPendingStatus(*status);
     if (publishStatus) {
         try {
@@ -1086,6 +1289,7 @@ void OtaService::reportDownloadProgress(
     status->progress = downloadProgress(downloadedBytes, totalBytes);
     status->message = message;
     status->ts = currentTimeMs();
+    status->occurrenceId.clear();
     appendPendingStatus(*status);
     if (publishStatus) {
         try {
@@ -1450,15 +1654,18 @@ void OtaService::downloadExternalArtifact(
 }
 
 void OtaService::verifyChecksum(const OtaRequest& request, const std::string& artifactPath) const {
-    if (!config_.checksumRequired || request.sha256.empty()) {
+    if (!config_.checksumRequired) {
         return;
+    }
+    if (request.sha256.empty()) {
+        throw std::runtime_error("ota sha256 is required");
     }
 #ifdef _WIN32
     const std::string command =
         "powershell -Command \"$hash=(Get-FileHash -Algorithm SHA256 " +
         quoteArg(artifactPath) +
         ").Hash.ToLower(); if ($hash -ne " +
-        quoteArg(request.sha256) +
+        quoteArg(toLower(request.sha256)) +
         ") { exit 2 }\"";
 #else
     const std::string command =
@@ -1471,7 +1678,7 @@ void OtaService::verifyChecksum(const OtaRequest& request, const std::string& ar
         "fi; "
         "[ \"$actual\" = \"$2\" ]"
         "' ") +
-        " sh " + quoteArg(artifactPath) + " " + quoteArg(request.sha256);
+        " sh " + quoteArg(artifactPath) + " " + quoteArg(toLower(request.sha256));
 #endif
     if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec))) {
         throw std::runtime_error("artifact sha256 mismatch");

@@ -1,6 +1,9 @@
 #include <chrono>
 #include <csignal>
 #include <iostream>
+#include <fstream>
+#include <cstdio>
+#include <cerrno>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -10,6 +13,7 @@
 #include <vector>
 #ifndef _WIN32
 #include <sys/prctl.h>
+#include <unistd.h>
 #endif
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
@@ -20,6 +24,9 @@
 #include "edge_gateway/mqtt_event_outbox.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/sqlite_alarm_writer.hpp"
+#ifdef __linux__
+#include "edge_gateway/event_store_config.hpp"
+#endif
 
 namespace {
 
@@ -27,6 +34,33 @@ volatile std::sig_atomic_t g_running = 1;
 
 void handleSignal(int) {
     g_running = 0;
+}
+
+bool writeHealthSnapshot(const std::string& path, const std::string& text) {
+#ifdef __linux__
+    std::string pattern = path + ".tmp.XXXXXX";
+    std::vector<char> temporary(pattern.begin(), pattern.end());
+    temporary.push_back('\0');
+    const int fd = mkstemp(temporary.data());
+    if (fd < 0) return false;
+    std::size_t offset = 0;
+    while (offset < text.size()) {
+        const auto count = write(fd, text.data() + offset, text.size() - offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        offset += static_cast<std::size_t>(count);
+    }
+    const bool closed = close(fd) == 0;
+    // Health is replaceable telemetry, not a durable commit receipt. Do not
+    // fsync every 500 ms or follow a pre-existing temporary-file symlink.
+    const bool ok = offset == text.size() && closed &&
+        std::rename(temporary.data(), path.c_str()) == 0;
+    if (!ok) unlink(temporary.data());
+    return ok;
+#else
+    (void)path; (void)text;
+    return false;
+#endif
 }
 
 std::string basenameOf(const std::string& path) {
@@ -151,6 +185,10 @@ int main(int argc, char* argv[]) {
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
     TimingPolicyResolver::applyAppServices(appConfig);
+    const bool ipcEvents = appConfig.eventStore.backend != "legacy";
+#ifndef __linux__
+    if (ipcEvents) throw std::runtime_error("IPC EventStore requires Linux");
+#endif
     setProcessName("modbus-event-" + sanitizeProcessToken(basenameOf(appConfigPath)));
 
     DeviceIdentity identity;
@@ -209,23 +247,38 @@ int main(int argc, char* argv[]) {
 
     std::shared_ptr<IMqttDriverPublisher> publisher;
     if (eventMqtt.enabled) {
-        publisher = std::make_shared<BuiltinMqttDriverPublisher>(eventMqtt);
+        publisher = std::make_shared<BuiltinMqttDriverPublisher>(
+            eventMqtt,
+            MqttPublisherMode::Bidirectional,
+            (ipcEvents || appConfig.eventEngine.publishMode == "mqtt_driver_outbox")
+                ? MqttEventOutboxOwnership::External
+                : MqttEventOutboxOwnership::PublisherManaged
+        );
     } else {
         publisher = std::make_shared<StdoutMqttDriverPublisher>(eventMqtt);
     }
 
     std::unique_ptr<SqliteAlarmWriter> alarmWriter;
-    if (appConfig.alarmStore.enabled) {
+    if (!ipcEvents && appConfig.alarmStore.enabled) {
         alarmWriter.reset(new SqliteAlarmWriter(
             appConfig.alarmStore.sqlitePath,
             appConfig.alarmStore.sqliteLibraryPath
         ));
     }
     std::unique_ptr<MqttEventOutbox> eventOutbox;
-    if (appConfig.eventEngine.publishMode == "mqtt_driver_outbox") {
+    if (!ipcEvents && appConfig.eventEngine.publishMode == "mqtt_driver_outbox") {
         eventOutbox = createEventOutboxWithRetry(eventMqtt);
     }
 
+    std::shared_ptr<IEventCommitSink> commitSink;
+#ifdef __linux__
+    std::shared_ptr<AsyncEventStoreProducer> ipcProducer;
+    if (ipcEvents) {
+        ipcProducer = std::make_shared<AsyncEventStoreProducer>(eventStoreProducerOptions(
+            appConfig.eventStore, appConfig.eventStore.detectorProducerId));
+        commitSink = ipcProducer;
+    }
+#endif
     EventEngineService service(
         appConfig.eventEngine,
         eventMqtt,
@@ -234,10 +287,14 @@ int main(int argc, char* argv[]) {
         stores,
         publisher,
         std::move(eventOutbox),
-        std::move(alarmWriter)
+        std::move(alarmWriter),
+        appConfig.mqttForward,
+        commitSink,
+        appConfig.eventStore.configGeneration
     );
 
     if (once) {
+        if (ipcEvents) throw std::invalid_argument("--once cannot guarantee asynchronous EventStore commit; run the service");
         const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()
         ).count();
@@ -247,6 +304,9 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     service.start();
     std::cout << "event engine started"
@@ -257,11 +317,31 @@ int main(int argc, char* argv[]) {
               << std::endl;
 
     while (g_running) {
+        if (commitSink && !appConfig.eventStore.producerHealthFile.empty()) {
+            auto status = commitSink->status();
+            status.rejectedInputSamples = service.rejectedInputCount();
+            status.pendingInputSamples = service.pendingInputCount();
+            if (!writeHealthSnapshot(appConfig.eventStore.producerHealthFile,
+                    eventCommitStatusJson(status) + '\n'))
+                std::cerr << "event producer health snapshot write failed" << std::endl;
+        }
         publisher->maintain();
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
     service.stop();
+#ifdef __linux__
+    if (ipcProducer) {
+        const bool inputsDrained = service.drainPendingInputs(5000);
+        // Accepted work must still get its shutdown budget when input drain fails.
+        const bool commitsDrained = ipcProducer->drain(5000);
+        if (!inputsDrained)
+            std::cerr << "event engine stopped with unaccepted input samples" << std::endl;
+        if (!commitsDrained)
+            std::cerr << "event engine stopped with uncommitted/unknown queued events" << std::endl;
+        if (!inputsDrained || !commitsDrained) return 2;
+    }
+#endif
     std::cout << "event engine stopped" << std::endl;
     return 0;
 }

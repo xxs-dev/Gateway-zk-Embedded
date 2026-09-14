@@ -2855,11 +2855,31 @@ int main() {
         const auto graphPcsWrites = graphPcsWriteRouter.peekPendingWrites(16);
         require(graphPcsWrites.size() == legacyPcsWrites.size(), "graph PCS write count mismatch");
         require(graphPcsWriteResult.deviceWrites == legacyPcsWriteResult.deviceWrites, "graph PCS result write count mismatch");
+        const std::uint32_t graphPcsWriteSourceIndexes[] = {627, 628, 629, 630, 631, 632};
+        bool preservedFractionalPower = false;
         for (std::size_t i = 0; i < legacyPcsWrites.size(); ++i) {
             require(graphPcsWrites[i].index == legacyPcsWrites[i].index, "graph PCS write index mismatch");
-            requireNear(graphPcsWrites[i].value, legacyPcsWrites[i].value, 0.0001, "graph PCS write value mismatch");
+            require(
+                graphPcsWrites[i].index >= 1318 && graphPcsWrites[i].index <= 1323,
+                "graph PCS write target is outside the migration mapping"
+            );
+            const auto sourceOffset = static_cast<std::size_t>(graphPcsWrites[i].index - 1318);
+            const auto graphOutput = graphPcsWriteRouter.getLatestByIndex(
+                graphPcsWriteSourceIndexes[sourceOffset],
+                1195
+            );
+            require(static_cast<bool>(graphOutput), "graph PCS write source output missing");
+            requireNear(
+                graphPcsWrites[i].value,
+                graphOutput->value,
+                0.0001,
+                "graph PCS write must preserve the calculated value"
+            );
+            preservedFractionalPower = preservedFractionalPower ||
+                std::abs(graphPcsWrites[i].value - std::trunc(graphPcsWrites[i].value)) > 0.0001;
             require(graphPcsWrites[i].source == "graph-ems", "graph PCS write source mismatch");
         }
+        require(preservedFractionalPower, "graph PCS parity fixture must cover fractional power");
 
         writeTextFile(
             "graph_ems_control_gate_writeback_test.json",

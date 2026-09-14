@@ -11,6 +11,7 @@ namespace edge_gateway {
 struct PowerControlCommandReceipt {
     std::string id;
     bool accepted = false;
+    std::string fingerprint;
 };
 
 struct PowerControlOwnershipState {
@@ -41,6 +42,7 @@ struct PowerControlAuthorizationResult {
 struct PowerControlReceiptLookup {
     bool found = false;
     bool accepted = false;
+    std::string fingerprint;
 };
 
 class PowerControlOwnership {
@@ -65,7 +67,8 @@ public:
         const std::vector<std::uint32_t>& targetIndexes,
         const std::string& commandId,
         std::int64_t nowMs,
-        int ttlMs
+        int ttlMs,
+        const std::string& commandFingerprint = std::string()
     ) const;
     std::uint32_t releaseAndAdvance(const std::string& sessionId) const;
     PowerControlAuthorizationResult authorize(
@@ -80,7 +83,13 @@ public:
         const std::string& sessionId,
         const std::string& commandId,
         std::uint32_t generation,
-        bool accepted
+        bool accepted,
+        const std::string& commandFingerprint = std::string()
+    ) const;
+    bool recordDetachedReceipt(
+        const std::string& commandId,
+        bool accepted,
+        const std::string& commandFingerprint
     ) const;
 
 private:

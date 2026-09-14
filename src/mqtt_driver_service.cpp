@@ -13,8 +13,15 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <unordered_set>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/json_value.hpp"
+#include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/legacy_telemetry_payload.hpp"
 #include "edge_gateway/process_file_lock.hpp"
 #include "edge_gateway/scada_control_lease.hpp"
@@ -22,6 +29,16 @@
 namespace edge_gateway {
 
 namespace {
+
+bool replaceFileAtomically(const std::string& temporary, const std::string& target) {
+#ifdef _WIN32
+    return MoveFileExA(
+        temporary.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    ) != 0;
+#else
+    return std::rename(temporary.c_str(), target.c_str()) == 0;
+#endif
+}
 
 void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
     int remaining = std::max(0, intervalMs);
@@ -62,10 +79,7 @@ void writeMqttHealthFile(const std::string& path, const std::string& payload) {
         output.flush();
         if (!output) throw std::runtime_error("failed to write mqtt health file: " + temporary);
     }
-#ifdef _WIN32
-    std::remove(path.c_str());
-#endif
-    if (std::rename(temporary.c_str(), path.c_str()) != 0) {
+    if (!replaceFileAtomically(temporary, path)) {
         std::remove(temporary.c_str());
         throw std::runtime_error("failed to replace mqtt health file: " + path);
     }
@@ -113,6 +127,49 @@ void applyWritebackResultToReply(
     reply.highPriority = result.highPriority;
     reply.ts = result.completedAt > 0 ? result.completedAt : reply.ts;
 }
+
+// Event ownership consumes a complete object, including the optional versioned
+// lease. Do not let malformed new fields fall back to the legacy Full lease.
+class EventHealthReader {
+public:
+    explicit EventHealthReader(const std::string& text) {
+        try {
+            root_ = json::JsonParser(text, 32, 4096).parse();
+            if (!root_.isObject()) return;
+            std::unordered_set<std::string> keys;
+            for (const auto& entry : root_.asObject().values) {
+                if (!keys.insert(entry.key).second) return;
+            }
+            valid_ = true;
+        } catch (...) {}
+    }
+    bool valid() const { return valid_; }
+    bool contains(const char* key) const { return valid_ && root_.find(key); }
+    bool tryGetString(const char* key, std::string* value) const {
+        const auto* item = valid_ ? root_.find(key) : nullptr;
+        if (!item || !item->isString()) return false;
+        *value = item->asString();
+        return true;
+    }
+    bool tryGetBool(const char* key, bool* value) const {
+        const auto* item = valid_ ? root_.find(key) : nullptr;
+        if (!item || !item->isBool()) return false;
+        *value = item->asBool();
+        return true;
+    }
+    bool tryGetInt64(const char* key, std::int64_t* value) const {
+        const auto* item = valid_ ? root_.find(key) : nullptr;
+        if (!item || !item->isNumber()) return false;
+        const auto number = item->asNumber();
+        if (!std::isfinite(number) || number < 0 || number > 9007199254740991.0 ||
+            std::floor(number) != number) return false;
+        *value = static_cast<std::int64_t>(number);
+        return true;
+    }
+private:
+    json::JsonValue root_;
+    bool valid_ = false;
+};
 
 class FlatJsonReader {
 public:
@@ -554,18 +611,32 @@ MqttDriverService::MqttDriverService(
     std::shared_ptr<IMqttDriverPublisher> publisher,
     std::unique_ptr<MqttEventOutbox> eventOutbox,
     std::unique_ptr<OtaService> otaService,
-    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig
+    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig,
+    std::unique_ptr<IEventStatsSource> eventStats,
+    MqttEventReplayFactory businessReplayFactory,
+    MqttEventReplayFactory managementReplayFactory,
+    EventStoreIdentity eventStatsIdentity
 ) : mqttConfig_(std::move(mqttConfig)),
     driverConfig_(std::move(driverConfig)),
     ownedRouter_(new PointStoreRouter()),
     router_(*ownedRouter_),
     publisher_(std::move(publisher)),
     eventOutbox_(std::move(eventOutbox)),
+    eventStats_(std::move(eventStats)),
+    eventStatsIdentity_(std::move(eventStatsIdentity)),
+    businessReplayFactory_(std::move(businessReplayFactory)),
+    managementReplayFactory_(std::move(managementReplayFactory)),
     otaService_(std::move(otaService)),
     priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver"),
     scadaSafetyConfig_(std::move(scadaSafetyConfig)) {
     router_.addStore(driverConfig_.sharedMemoryName, store);
     router_.addRoutesFromDeviceConfigs(deviceConfigs, driverConfig_.sharedMemoryName);
+
+    if (static_cast<bool>(businessReplayFactory_) != static_cast<bool>(managementReplayFactory_) ||
+        (eventOutbox_ && businessReplayFactory_) ||
+        (businessReplayFactory_ && (eventStatsIdentity_.storeId.empty() || eventStatsIdentity_.configGeneration.empty()))) {
+        throw std::invalid_argument("MQTT driver requires both IPC replay roles and no legacy Outbox");
+    }
 
     for (const auto& entry : router_.routes()) {
         PointRoute route;
@@ -599,16 +670,29 @@ MqttDriverService::MqttDriverService(
     std::shared_ptr<IMqttDriverPublisher> publisher,
     std::unique_ptr<MqttEventOutbox> eventOutbox,
     std::unique_ptr<OtaService> otaService,
-    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig
+    SystemMonitorConfig::ScadaUpperComputerSafetyConfig scadaSafetyConfig,
+    std::unique_ptr<IEventStatsSource> eventStats,
+    MqttEventReplayFactory businessReplayFactory,
+    MqttEventReplayFactory managementReplayFactory,
+    EventStoreIdentity eventStatsIdentity
 ) : mqttConfig_(std::move(mqttConfig)),
     driverConfig_(std::move(driverConfig)),
     ownedRouter_(nullptr),
     router_(router),
     publisher_(std::move(publisher)),
     eventOutbox_(std::move(eventOutbox)),
+    eventStats_(std::move(eventStats)),
+    eventStatsIdentity_(std::move(eventStatsIdentity)),
+    businessReplayFactory_(std::move(businessReplayFactory)),
+    managementReplayFactory_(std::move(managementReplayFactory)),
     otaService_(std::move(otaService)),
     priorityControlLease_(driverConfig_.priorityControlLeaseFile, "mqtt-driver"),
     scadaSafetyConfig_(std::move(scadaSafetyConfig)) {
+    if (static_cast<bool>(businessReplayFactory_) != static_cast<bool>(managementReplayFactory_) ||
+        (eventOutbox_ && businessReplayFactory_) ||
+        (businessReplayFactory_ && (eventStatsIdentity_.storeId.empty() || eventStatsIdentity_.configGeneration.empty()))) {
+        throw std::invalid_argument("MQTT driver requires both IPC replay roles and no legacy Outbox");
+    }
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
     }
@@ -641,9 +725,32 @@ void MqttDriverService::setAgcAvcCommandMailboxRuntime(AgcAvcCommandMailboxRunti
 }
 
 void MqttDriverService::start() {
+    if (running_.load()) return;
+    if (businessReplay_.active() || managementReplay_.active()) {
+        throw std::logic_error("drain manual IPC replay before starting the worker");
+    }
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
+    }
+    const auto& worker = driverConfig_.fullUploadWorker;
+    if ((eventOutbox_ || businessReplayFactory_) && worker.mode == "isolated" && worker.eventForwardingEnabled &&
+        !worker.eventDelegationReadyFile.empty()) {
+        try {
+            eventDelegationLiveLock_.reset(
+                new ProcessFileLock(worker.eventDelegationReadyFile + ".lock")
+            );
+            if (!eventDelegationLiveLock_->tryAcquire()) {
+                eventDelegationLiveLock_.reset();
+                std::cerr << "mqtt event delegation live lock is busy" << std::endl;
+            } else {
+                publishEventDelegationReady(currentTimeMs());
+            }
+        } catch (const std::exception& ex) {
+            eventDelegationLiveLock_.reset();
+            std::cerr << "mqtt event delegation initialization failed error="
+                      << ex.what() << std::endl;
+        }
     }
     const auto ts = currentTimeMs();
     publishStatusEvent(
@@ -656,14 +763,16 @@ void MqttDriverService::start() {
     );
     replayPendingOtaStatuses();
     scanThread_ = std::thread(&MqttDriverService::scanLoop, this);
-    if (eventOutbox_) {
+    if (eventOutbox_ || businessReplayFactory_) {
         replayThread_ = std::thread(&MqttDriverService::replayLoop, this);
     }
 }
 
 void MqttDriverService::stop() {
+    eventReplayStopping_.store(true);
     bool expected = true;
     if (!running_.compare_exchange_strong(expected, false)) {
+        if (!replayThread_.joinable()) drainIpcEvents();
         std::thread finishedThread;
         {
             std::lock_guard<std::mutex> otaLock(otaMutex_);
@@ -674,6 +783,9 @@ void MqttDriverService::stop() {
         if (finishedThread.joinable()) {
             finishedThread.join();
         }
+        removeEventDelegationReady();
+        eventDelegationLiveLock_.reset();
+        eventReplayStopping_.store(false);
         return;
     }
     if (scanThread_.joinable()) {
@@ -692,6 +804,9 @@ void MqttDriverService::stop() {
     if (otaThread.joinable()) {
         otaThread.join();
     }
+    removeEventDelegationReady();
+    eventDelegationLiveLock_.reset();
+    eventReplayStopping_.store(false);
 }
 
 bool MqttDriverService::isRunning() const {
@@ -858,6 +973,16 @@ void MqttDriverService::recordScanHealth(double durationMs, bool failed, std::in
             std::cerr << "mqtt health publish failed error=" << ex.what() << std::endl;
         }
     }
+    if (eventDelegationLiveLock_ &&
+        (lastEventDelegationPublishMs_ == 0 ||
+         nowMs - lastEventDelegationPublishMs_ >=
+            std::max(100, driverConfig_.fullUploadWorker.healthHeartbeatMs))) {
+        try {
+            publishEventDelegationReady(nowMs);
+        } catch (const std::exception& ex) {
+            std::cerr << "mqtt event delegation renew failed error=" << ex.what() << std::endl;
+        }
+    }
 }
 
 void MqttDriverService::recordReplayHealth(double durationMs, bool failed) {
@@ -886,6 +1011,13 @@ void MqttDriverService::publishHealthFileLocked(std::int64_t nowMs) {
         ? 0.0
         : 100.0 * static_cast<double>(replayFailedCycles_) /
             static_cast<double>(totalReplayCycles_);
+    std::int64_t eventLastAckAtMs = 0;
+    std::string eventLastError;
+    {
+        std::lock_guard<std::mutex> eventLock(eventStateMutex_);
+        eventLastAckAtMs = eventLastAckAtMs_;
+        eventLastError = eventLastError_;
+    }
 
     std::ostringstream payload;
     payload << std::fixed << std::setprecision(2)
@@ -912,11 +1044,270 @@ void MqttDriverService::publishHealthFileLocked(std::int64_t nowMs) {
             << ",\"replayP99Ms\":" << healthPercentile(replays, 0.99)
             << ",\"replayMaxMs\":" << healthMaximum(replays)
             << ",\"fullSnapshotsPublished\":" << fullSnapshotsPublished_.load()
+            << ",\"eventForwarderActive\":"
+            << (isolatedEventForwarderIsActive(nowMs) ? "true" : "false")
+            << mqttEventStatsHealthFields(readMqttEventStats(eventStats_.get(), mqttDriverBusinessStatsQuery(), eventStatsIdentity_))
+            << mqttEventStatsHealthFields(readMqttEventStats(eventStats_.get(), mqttDriverTotalStatsQuery(), eventStatsIdentity_),
+                MqttStatsHealthSection::FullBacklog)
+            << ",\"eventLastAckAtMs\":" << eventLastAckAtMs
+            << ",\"eventLastError\":\"" << escapeJson(eventLastError) << "\""
             << '}';
     writeMqttHealthFile(driverConfig_.healthFile, payload.str());
 }
 
+void MqttDriverService::publishEventDelegationReady(std::int64_t nowMs) {
+    if (!eventDelegationLiveLock_) {
+        return;
+    }
+    const auto& worker = driverConfig_.fullUploadWorker;
+    const auto monotonicNowMs = currentMonotonicTimeMs();
+    const auto leaseUntilMonotonicMs = monotonicNowMs +
+        std::max(100, worker.failoverTimeoutMs);
+    std::ostringstream payload;
+    payload << "{\"dataPlaneVersion\":2"
+            << ",\"externalOutbox\":true"
+            << ",\"eventReplayBackend\":\"" << (businessReplayFactory_ ? "ipc-lab" : "legacy") << "\""
+            << ",\"eventStoreId\":\"" << escapeJson(eventStatsIdentity_.storeId) << "\""
+            << ",\"eventStoreConfigGeneration\":\"" << escapeJson(eventStatsIdentity_.configGeneration) << "\""
+            << ",\"eventFallbackCapable\":true"
+            << ",\"machineCode\":\"" << escapeJson(primaryMachineCode()) << "\""
+            << ",\"outboxPath\":\"" << escapeJson(mqttConfig_.eventOutboxSqlitePath) << "\""
+            << ",\"changeTopic\":\"" << escapeJson(mqttConfig_.changeEventTopic) << "\""
+            << ",\"alarmTopic\":\"" << escapeJson(mqttConfig_.alarmTopic) << "\""
+            << ",\"changeTopicMachineScoped\":"
+            << (mqttConfig_.changeEventTopicMachineScoped ? "true" : "false")
+            << ",\"alarmTopicMachineScoped\":"
+            << (mqttConfig_.alarmTopicMachineScoped ? "true" : "false")
+            << ",\"eventReplayLockFile\":\""
+            << escapeJson(worker.eventReplayLockFile) << "\""
+            << ",\"heartbeatAtMs\":" << nowMs
+            << ",\"heartbeatMonotonicMs\":" << monotonicNowMs
+            << ",\"leaseUntilMonotonicMs\":" << leaseUntilMonotonicMs
+            << '}';
+    writeMqttHealthFile(worker.eventDelegationReadyFile, payload.str());
+    lastEventDelegationPublishMs_ = nowMs;
+}
+
+void MqttDriverService::removeEventDelegationReady() {
+    if (!eventDelegationLiveLock_) {
+        return;
+    }
+    const auto& path = driverConfig_.fullUploadWorker.eventDelegationReadyFile;
+    if (!path.empty()) {
+        std::remove(path.c_str());
+        std::remove((path + ".tmp").c_str());
+    }
+    lastEventDelegationPublishMs_ = 0;
+}
+
+bool MqttDriverService::isolatedEventForwarderIsActive(std::int64_t nowMs) const {
+    const auto& worker = driverConfig_.fullUploadWorker;
+    if ((!eventOutbox_ && !businessReplayFactory_) || worker.mode != "isolated" ||
+        !worker.eventForwardingEnabled || worker.healthFile.empty()) {
+        return false;
+    }
+    std::ifstream input(worker.healthFile.c_str(), std::ios::in | std::ios::binary);
+    if (!input.is_open()) {
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    const auto text = buffer.str();
+    if (text.empty() || text.size() > 64 * 1024) {
+        return false;
+    }
+    EventHealthReader health(text);
+    if (!health.valid()) return false;
+    std::string replayBackend;
+    if (health.contains("eventReplayBackend")) {
+        if (!health.tryGetString("eventReplayBackend", &replayBackend) ||
+            replayBackend != (businessReplayFactory_ ? "ipc-lab" : "legacy")) return false;
+    } else if (businessReplayFactory_) return false;
+    if (businessReplayFactory_) {
+        std::string storeId, generation;
+        if (!health.tryGetString("eventStoreId", &storeId) || storeId != eventStatsIdentity_.storeId ||
+            !health.tryGetString("eventStoreConfigGeneration", &generation) ||
+            generation != eventStatsIdentity_.configGeneration) return false;
+    }
+    std::int64_t dataPlaneVersion = 0;
+    std::int64_t heartbeatMonotonicMs = 0;
+    std::int64_t leaseUntilMonotonicMs = 0;
+    bool eventForwarding = false;
+    bool eventOutboxHealthy = false;
+    bool changeMachineScoped = true;
+    bool alarmMachineScoped = true;
+    std::string targetId;
+    std::string machineCode;
+    std::string clientId;
+    std::string fullTopic;
+    std::string outboxPath;
+    std::string replayLockFile;
+    std::string changeTopic;
+    std::string alarmTopic;
+    if (!health.tryGetInt64("dataPlaneVersion", &dataPlaneVersion) || dataPlaneVersion < 2 ||
+        !health.tryGetBool("eventForwarding", &eventForwarding) || !eventForwarding ||
+        !health.tryGetBool("eventOutboxHealthy", &eventOutboxHealthy) || !eventOutboxHealthy ||
+        !health.tryGetString("eventTargetId", &targetId) || targetId != "main" ||
+        !health.tryGetString("machineCode", &machineCode) ||
+        !health.tryGetString("clientId", &clientId) ||
+        !health.tryGetString("topic", &fullTopic) ||
+        !health.tryGetString("eventOutboxPath", &outboxPath) ||
+        !health.tryGetString("eventReplayLockFile", &replayLockFile) ||
+        !health.tryGetString("changeTopic", &changeTopic) ||
+        !health.tryGetString("alarmTopic", &alarmTopic) ||
+        !health.tryGetBool("changeTopicMachineScoped", &changeMachineScoped) ||
+        !health.tryGetBool("alarmTopicMachineScoped", &alarmMachineScoped)) {
+        return false;
+    }
+    const bool independentLease = health.contains("eventLeaseVersion") ||
+        health.contains("eventHeartbeatMonotonicMs") || health.contains("eventLeaseUntilMonotonicMs");
+    if (independentLease) {
+        std::int64_t version = 0;
+        if (!health.tryGetInt64("eventLeaseVersion", &version) || version != 1 ||
+            !health.tryGetInt64("eventHeartbeatMonotonicMs", &heartbeatMonotonicMs) ||
+            !health.tryGetInt64("eventLeaseUntilMonotonicMs", &leaseUntilMonotonicMs)) return false;
+    } else if (!health.tryGetInt64("heartbeatMonotonicMs", &heartbeatMonotonicMs) ||
+        !health.tryGetInt64("leaseUntilMonotonicMs", &leaseUntilMonotonicMs)) {
+        return false;
+    }
+    const auto expectedFullTopic = mqttConfig_.fullTelemetryTopic.empty()
+        ? mqttConfig_.telemetryTopic
+        : mqttConfig_.fullTelemetryTopic;
+    if (machineCode != primaryMachineCode() ||
+        clientId != mqttConfig_.clientId + worker.clientIdSuffix ||
+        fullTopic != expectedFullTopic ||
+        outboxPath != mqttConfig_.eventOutboxSqlitePath ||
+        replayLockFile != worker.eventReplayLockFile ||
+        changeTopic != mqttConfig_.changeEventTopic ||
+        alarmTopic != mqttConfig_.alarmTopic ||
+        changeMachineScoped != mqttConfig_.changeEventTopicMachineScoped ||
+        alarmMachineScoped != mqttConfig_.alarmTopicMachineScoped) {
+        return false;
+    }
+    const auto monotonicNowMs = currentMonotonicTimeMs();
+    if (independentLease) {
+        return heartbeatMonotonicMs > 0 && heartbeatMonotonicMs <= monotonicNowMs &&
+            leaseUntilMonotonicMs > monotonicNowMs &&
+            leaseUntilMonotonicMs - heartbeatMonotonicMs <= worker.failoverTimeoutMs &&
+            monotonicNowMs - heartbeatMonotonicMs <= worker.failoverTimeoutMs && nowMs > 0;
+    }
+    return leaseUntilMonotonicMs >= monotonicNowMs &&
+        heartbeatMonotonicMs <= monotonicNowMs + worker.failoverTimeoutMs &&
+        monotonicNowMs - heartbeatMonotonicMs <= worker.failoverTimeoutMs && nowMs > 0;
+}
+
+void MqttDriverService::replayIpcEventsIfNeeded(std::int64_t nowMs) {
+    auto intervalMs = std::max(10, driverConfig_.scanIntervalMs);
+    if (driverConfig_.deliveryMaxLatencyMs > 0) intervalMs = std::min(intervalMs, driverConfig_.deliveryMaxLatencyMs);
+    const bool due = lastEventOutboxReplayMs_ == 0 || nowMs < lastEventOutboxReplayMs_ ||
+        nowMs - lastEventOutboxReplayMs_ >= intervalMs;
+    if (due) lastEventOutboxReplayMs_ = nowMs;
+    const bool isolated = driverConfig_.fullUploadWorker.mode == "isolated" &&
+        driverConfig_.fullUploadWorker.eventForwardingEnabled;
+    const auto businessAuthorized = [this, isolated] {
+        return !eventReplayStopping_.load() && (!isolated ||
+            (ipcBusinessReplayLock_ && !isolatedEventForwarderIsActive(currentTimeMs())));
+    };
+    const auto managementAuthorized = [this] { return !eventReplayStopping_.load(); };
+    std::size_t consumed = 0;
+    std::string error;
+    bool progressed = false;
+    const auto totalBudget = driverConfig_.eventReplayMaxBytes;
+    MqttEventReplayRequest business;
+    business.lane = MqttEventReplayLane::MainBusiness;
+    business.targetId = "main";
+    business.includeTypes = {"alarm", "change"};
+    business.maxBytes = std::min<std::size_t>(32768, totalBudget);
+    business.authorized = businessAuthorized;
+    try {
+        if (!businessReplay_.active() && due && !eventReplayStopping_.load() && business.maxBytes &&
+            (!isolated || !isolatedEventForwarderIsActive(currentTimeMs()))) {
+            if (isolated) {
+                ipcBusinessReplayLock_.reset(new ProcessFileLock(driverConfig_.fullUploadWorker.eventReplayLockFile));
+                if (!ipcBusinessReplayLock_->tryAcquire()) ipcBusinessReplayLock_.reset();
+            }
+            // Recheck health after taking the shared replay lock, before factory construction.
+            if (businessAuthorized()) {
+                const auto result = businessReplay_.run(businessReplayFactory_, business, false);
+                consumed = result.attemptedBytes;
+                error = result.error;
+                if (!result.healthy && error.empty()) error = "business IPC replay incomplete or unauthorized";
+                if (result.ackedCount) {
+                    std::lock_guard<std::mutex> lock(eventStateMutex_);
+                    eventLastAckAtMs_ = currentTimeMs();
+                }
+                progressed = true;
+            }
+        } else if (businessReplay_.active() && (due || !businessAuthorized())) {
+            const auto result = businessReplay_.run(businessReplayFactory_, business, !businessAuthorized());
+            consumed = result.attemptedBytes;
+            error = result.error;
+            if (!result.healthy && error.empty()) error = "business IPC replay incomplete or unauthorized";
+            if (result.ackedCount) {
+                std::lock_guard<std::mutex> lock(eventStateMutex_);
+                eventLastAckAtMs_ = currentTimeMs();
+            }
+            progressed = true;
+        }
+    } catch (const std::exception& ex) {
+        // An adapter exception cannot erase attempted network bytes. Reserve the
+        // full business allowance until its next incremental report is available.
+        consumed = business.maxBytes;
+        error = ex.what();
+        progressed = true;
+    } catch (...) {
+        consumed = business.maxBytes;
+        error = "business IPC replay failed";
+        progressed = true;
+    }
+    if (!businessReplay_.active()) ipcBusinessReplayLock_.reset();
+
+    MqttEventReplayRequest management;
+    management.lane = MqttEventReplayLane::MainManagement;
+    management.targetId = "main";
+    management.includeTypes = {"ota_status"};
+    management.maxBytes = std::min<std::size_t>(32768, totalBudget > consumed ? totalBudget - consumed : 0);
+    management.authorized = managementAuthorized;
+    const bool drainManagement = !managementAuthorized() || management.maxBytes == 0;
+    if ((managementReplay_.active() && (due || drainManagement)) ||
+        (!managementReplay_.active() && due && !drainManagement)) {
+        try {
+            const auto result = managementReplay_.run(managementReplayFactory_, management, drainManagement);
+            if (!result.error.empty()) {
+                if (!error.empty()) error += "; ";
+                error += result.error;
+            } else if (!result.healthy && error.empty()) error = "management IPC replay incomplete or unauthorized";
+        } catch (const std::exception& ex) {
+            if (!error.empty()) error += "; ";
+            error += ex.what();
+        } catch (...) {
+            if (!error.empty()) error += "; ";
+            error += "management IPC replay failed";
+        }
+        progressed = true;
+    }
+    if (progressed) {
+        std::lock_guard<std::mutex> lock(eventStateMutex_);
+        eventLastError_ = std::move(error);
+    }
+}
+
+void MqttDriverService::drainIpcEvents() {
+    // Shutdown cannot destroy an unknown mutation. Keep ownership and reconcile
+    // on its original thread; stop() waits while the IPC service is unavailable.
+    while (businessReplay_.active() || managementReplay_.active()) {
+        replayIpcEventsIfNeeded(currentTimeMs());
+        if (businessReplay_.active() || managementReplay_.active())
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ipcBusinessReplayLock_.reset();
+}
+
 void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
+    if (businessReplayFactory_) {
+        replayIpcEventsIfNeeded(nowMs);
+        return;
+    }
     if (!eventOutbox_) {
         return;
     }
@@ -929,9 +1320,76 @@ void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
     }
     lastEventOutboxReplayMs_ = nowMs;
     try {
-        const auto stats = eventOutbox_->replayWithStats(driverConfig_.eventReplayMaxBytes, [this](const std::string& topic, const std::string& payload) {
-            publisher_->publishJsonMessage(topic, payload);
-        });
+        MqttEventOutbox::ReplayStats stats;
+        const auto sendBatch = [this](const std::vector<MqttEventOutbox::ReplayMessage>& messages) {
+            std::vector<MqttJsonMessage> publishes;
+            publishes.reserve(messages.size());
+            for (const auto& message : messages) {
+                publishes.push_back(MqttJsonMessage{message.topic, message.payload});
+            }
+            publisher_->publishReliableJsonMessages(publishes);
+        };
+        const MqttEventOutbox::EventTypeFilter businessEvents{{"alarm", "change"}, {}};
+        const MqttEventOutbox::EventTypeFilter managementEvents{{}, {"alarm", "change"}};
+        const bool isolatedEvents = driverConfig_.fullUploadWorker.mode == "isolated" &&
+            driverConfig_.fullUploadWorker.eventForwardingEnabled;
+
+        bool forwarderActive = isolatedEvents && isolatedEventForwarderIsActive(nowMs);
+        if (!forwarderActive) {
+            std::unique_ptr<ProcessFileLock> eventLock;
+            if (isolatedEvents) {
+                eventLock.reset(new ProcessFileLock(
+                    driverConfig_.fullUploadWorker.eventReplayLockFile
+                ));
+                if (!eventLock->tryAcquire()) {
+                    forwarderActive = true;
+                } else {
+                    // Close the health-check/lock race before publishing.
+                    forwarderActive = isolatedEventForwarderIsActive(currentTimeMs());
+                }
+            }
+            if (!forwarderActive) {
+                const auto businessStats = eventOutbox_->replayBatchWithStats(
+                    "main",
+                    businessEvents,
+                    driverConfig_.eventReplayMaxBytes,
+                    0,
+                    sendBatch
+                );
+                stats.count += businessStats.count;
+                stats.bytes += businessStats.bytes;
+                stats.alarmCount += businessStats.alarmCount;
+                stats.changeCount += businessStats.changeCount;
+                stats.otherCount += businessStats.otherCount;
+                if (businessStats.count > 0) {
+                    std::lock_guard<std::mutex> eventStateLock(eventStateMutex_);
+                    eventLastAckAtMs_ = currentTimeMs();
+                }
+            }
+        }
+
+        const auto remainingBytes = driverConfig_.eventReplayMaxBytes > stats.bytes
+            ? driverConfig_.eventReplayMaxBytes - stats.bytes
+            : 0;
+        MqttEventOutbox::ReplayStats managementStats;
+        if (remainingBytes > 0) {
+            managementStats = eventOutbox_->replayBatchWithStats(
+                "main",
+                managementEvents,
+                remainingBytes,
+                0,
+                sendBatch
+            );
+        }
+        stats.count += managementStats.count;
+        stats.bytes += managementStats.bytes;
+        stats.alarmCount += managementStats.alarmCount;
+        stats.changeCount += managementStats.changeCount;
+        stats.otherCount += managementStats.otherCount;
+        {
+            std::lock_guard<std::mutex> eventStateLock(eventStateMutex_);
+            eventLastError_.clear();
+        }
         eventOutbox_->cleanupIfDue(nowMs);
         if (stats.count > 0) {
             publishStatusEvent(
@@ -946,6 +1404,10 @@ void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
             );
         }
     } catch (const std::exception& ex) {
+        {
+            std::lock_guard<std::mutex> eventStateLock(eventStateMutex_);
+            eventLastError_ = ex.what();
+        }
         publishStatusEvent(
             "event-outbox-replay-failed",
             nowMs,
@@ -955,24 +1417,18 @@ void MqttDriverService::replayEventOutboxIfNeeded(std::int64_t nowMs) {
 }
 
 bool MqttDriverService::shouldDeferSnapshotForEventBacklog(std::int64_t nowMs) {
-    if (!eventOutbox_ ||
+    if ((!eventOutbox_ && !businessReplayFactory_) ||
         driverConfig_.snapshotBacklogThreshold == 0 ||
         driverConfig_.snapshotBackoffIntervalMs <= 0 ||
         lastFullUploadMs_ <= 0) {
         return false;
     }
 
-    std::size_t pending = 0;
-    try {
-        pending = eventOutbox_->pendingCount();
-    } catch (const std::exception& ex) {
-        publishStatusEvent(
-            "event-outbox-pending-count-failed",
-            nowMs,
-            std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
-        );
+    const auto snapshot = readMqttEventStats(eventStats_.get(), mqttDriverTotalStatsQuery(), eventStatsIdentity_);
+    if (!snapshot.valid) {
         return false;
     }
+    const auto pending = static_cast<std::uint64_t>(snapshot.value.pendingCount);
 
     if (pending <= driverConfig_.snapshotBacklogThreshold) {
         return false;
@@ -1392,8 +1848,17 @@ void MqttDriverService::replayLoop() {
             std::chrono::steady_clock::now() - started
         ).count();
         recordReplayHealth(durationMs, failed);
-        sleepInterruptibly(running_, intervalMs);
+        int waitMs = intervalMs;
+        if (businessReplayFactory_) {
+            // IPC already gates Claim by start time. Long batches must not pay
+            // another full interval, but every iteration still yields.
+            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count();
+            waitMs = elapsedMs >= intervalMs ? 10 : std::max(10, intervalMs - static_cast<int>(elapsedMs));
+        }
+        sleepInterruptibly(running_, waitMs);
     }
+    drainIpcEvents();
 }
 
 bool MqttDriverService::admitCommand(

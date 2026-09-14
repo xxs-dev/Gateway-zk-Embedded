@@ -207,6 +207,18 @@ void ScadaSceneView::buildScene() {
             widget.geometry.height
         );
         const auto imageReference = property(widget, "qtImageFile");
+        const auto pauseModeTag = property(widget, "pauseGuardModeTag");
+        const auto pauseAppliedTag = property(widget, "pauseGuardAppliedTag");
+        const auto pauseGuardRequired = !property(widget, "controlPauseGuard").empty() ||
+            !pauseModeTag.empty() || !pauseAppliedTag.empty();
+        if (pauseGuardRequired) {
+            for (const auto& tag : {pauseModeTag, pauseAppliedTag}) {
+                const auto resolved = runtime_.resolveTag(tag);
+                if (resolved && resolved->tag.nodeId == runtime_.nodeId()) {
+                    pauseGuardIndexes_.push_back(resolved->mapping.index);
+                }
+            }
+        }
         const auto imageOverlayText = property(widget, "qtText");
         const auto imageHasTextOverlay =
             (widget.type == "qtImage" || widget.type == "image") && !imageOverlayText.empty();
@@ -295,8 +307,9 @@ void ScadaSceneView::buildScene() {
             button->setStyleSheet(style);
             if (actionAvailable) {
                 const auto action = widget.action;
-                QObject::connect(button, &QPushButton::clicked, this, [this, action]() {
-                    handleAction(action);
+                QObject::connect(button, &QPushButton::clicked, this,
+                                 [this, action, pauseModeTag, pauseAppliedTag, pauseGuardRequired]() {
+                    handleAction(action, pauseModeTag, pauseAppliedTag, pauseGuardRequired);
                 });
             }
             auto* proxy = scene_->addWidget(button);
@@ -355,6 +368,9 @@ void ScadaSceneView::buildScene() {
         RuntimeWidget runtimeWidget;
         runtimeWidget.type = widget.type;
         runtimeWidget.action = widget.action;
+        runtimeWidget.pauseGuardRequired = pauseGuardRequired;
+        runtimeWidget.pauseGuardModeTag = pauseModeTag;
+        runtimeWidget.pauseGuardAppliedTag = pauseAppliedTag;
         runtimeWidget.panel = panel;
         runtimeWidget.defaultLabel = property(widget, "defaultStateLabel");
         const auto configuredDefaultColor = QColor(QString::fromStdString(property(widget, "defaultStateColor")));
@@ -837,7 +853,7 @@ void ScadaSceneView::buildScene() {
 }
 
 void ScadaSceneView::refresh(std::int64_t now) {
-    std::vector<std::uint32_t> requestedIndexes;
+    std::vector<std::uint32_t> requestedIndexes = pauseGuardIndexes_;
     for (const auto& widget : runtimeWidgets_) {
         requestedIndexes.insert(requestedIndexes.end(), widget.indexes.begin(), widget.indexes.end());
         for (const auto& rule : widget.stateRules) {
@@ -1027,12 +1043,43 @@ void ScadaSceneView::sampleTrends(std::int64_t now) {
     }
 }
 
-void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action) {
+bool ScadaSceneView::pauseGuardSatisfied(
+    const std::string& modeTag, const std::string& appliedTag, std::int64_t now
+) const {
+    if (modeTag.empty() || appliedTag.empty() || modeTag == appliedTag) return false;
+    std::uint32_t previousIndex = 0;
+    for (const auto& tag : {modeTag, appliedTag}) {
+        const auto resolved = runtime_.resolveTag(tag);
+        if (!resolved || resolved->tag.nodeId != runtime_.nodeId() ||
+            resolved->mapping.index == 0 || resolved->mapping.index == previousIndex) return false;
+        previousIndex = resolved->mapping.index;
+        const auto value = runtime_.readTag(tag, now);
+        if (!value || value->quality != 1 || value->stale ||
+            (value->expireAt > 0 && value->expireAt <= now) ||
+            !std::isfinite(value->value) || value->value != 0.0) return false;
+    }
+    return true;
+}
+
+bool ScadaSceneView::requirePausedControl(const std::string& modeTag, const std::string& appliedTag) {
+    if (pauseGuardSatisfied(modeTag, appliedTag, nowMs())) return true;
+    QMessageBox::warning(this, QString::fromUtf8("请先暂停策略"),
+        QString::fromUtf8("请先在策略与三相功率页面选择“暂停策略并归零”，\n"
+                          "等待“设置模式”和“计算侧已读取模式”均显示“暂停归零”后再操作。\n"
+                          "模式数据无效或过期时禁止修改功率和 PCS 停机。"));
+    return false;
+}
+
+void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
+                                const std::string& pauseModeTag,
+                                const std::string& pauseAppliedTag,
+                                bool pauseGuardRequired) {
     if (action.type == "navigate") {
         if (!action.targetScreen.empty()) navigate_(action.targetScreen);
         return;
     }
     if (!isControlAction(action.type)) return;
+    if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
 
     const auto resolved = runtime_.resolveTag(action.tagId);
     if (!resolved || resolved->tag.nodeId != runtime_.nodeId()) {
@@ -1081,6 +1128,8 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action)
         if (answer != QMessageBox::Yes) return;
     }
 
+    // A modal confirmation runs an event loop; the mode can change while it is open.
+    if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
     edge_gateway::PendingWriteCommand command;
     command.cmdId = nextCommandId();
     command.value = target;
@@ -1373,6 +1422,8 @@ ScadaSceneView::RuntimeWidget* ScadaSceneView::inputWidgetAt(const QPoint& viewp
 }
 
 void ScadaSceneView::editInput(RuntimeWidget& widget) {
+    if (widget.pauseGuardRequired &&
+        !requirePausedControl(widget.pauseGuardModeTag, widget.pauseGuardAppliedTag)) return;
     const auto resolved = runtime_.resolveTag(widget.inputTagId);
     if (!widget.inputWritable || !resolved || !resolved->mapping.writable) {
         QMessageBox::warning(
@@ -1383,6 +1434,13 @@ void ScadaSceneView::editInput(RuntimeWidget& widget) {
         return;
     }
 
+    if (widget.pauseGuardRequired &&
+        (!resolved->writeMinValue || !resolved->writeMaxValue ||
+         !std::isfinite(resolved->writeStep) || resolved->writeStep <= 0.0)) {
+        QMessageBox::warning(this, QString::fromUtf8("参数写入"),
+            QString::fromUtf8("该点位缺少有效写入范围或步长，已禁止编辑。"));
+        return;
+    }
     const auto current = runtime_.readTag(widget.inputTagId, nowMs());
     const auto hasCurrent = current && current->quality == 1 && !current->stale;
     const auto currentValue = hasCurrent ? current->value : 0.0;
@@ -1448,6 +1506,8 @@ void ScadaSceneView::editInput(RuntimeWidget& widget) {
     );
     if (answer != QMessageBox::Yes) return;
 
+    if (widget.pauseGuardRequired &&
+        !requirePausedControl(widget.pauseGuardModeTag, widget.pauseGuardAppliedTag)) return;
     edge_gateway::PendingWriteCommand command;
     command.cmdId = nextCommandId();
     command.value = target;

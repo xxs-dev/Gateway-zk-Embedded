@@ -1087,6 +1087,35 @@ void validateIndexArray(
 }
 
 void validateGenericNode(const GraphEmsNodeConfig& node) {
+    if (node.type == "gridReserve") {
+        for (const auto* key : {"modeIndex", "socIndex", "gridConnectedIndex", "safetyPermitIndex",
+                               "chargePermitIndex", "paOutput", "pbOutput", "pcOutput", "statusOutput",
+                               "standbyOutput"}) {
+            if (!hasParam(node, key)) throw std::runtime_error(std::string("gridReserve requires ") + key);
+            validatePositiveIndex(node, key);
+        }
+        for (const auto* key : {"fullIndex", "phasePowerIndex"}) validatePositiveIndex(node, key);
+        std::set<std::uint32_t> outputs;
+        for (const auto* key : {"paOutput", "pbOutput", "pcOutput", "statusOutput", "standbyOutput"}) {
+            if (!outputs.insert(paramIndex(node, key)).second)
+                throw std::runtime_error("gridReserve output indexes must be distinct");
+        }
+        for (const auto* key : {"modeIndex", "socIndex", "gridConnectedIndex", "safetyPermitIndex",
+                               "chargePermitIndex", "fullIndex", "phasePowerIndex"}) {
+            if (hasParam(node, key) && outputs.count(paramIndex(node, key)))
+                throw std::runtime_error("gridReserve inputs must not overlap outputs");
+        }
+        const auto lower = paramDouble(node, "restartSoc").value_or(99.0);
+        const auto upper = paramDouble(node, "fullSoc").value_or(100.0);
+        const auto limit = paramDouble(node, "maxPhaseKw").value_or(0.0);
+        const auto power = paramDouble(node, "phasePowerKw").value_or(1.0);
+        if (!std::isfinite(lower) || !std::isfinite(upper) || lower < 0 || lower >= upper || upper > 100 ||
+            !std::isfinite(limit) || limit <= 0 || !std::isfinite(power) || power <= 0 || power > limit)
+            throw std::runtime_error("gridReserve invalid SOC thresholds or phase rating");
+        const auto mode = paramDouble(node, "reserveMode").value_or(3.0);
+        if (!std::isfinite(mode) || mode < 1 || std::floor(mode) != mode)
+            throw std::runtime_error("gridReserve invalid reserveMode");
+    }
     if (node.type == "flexiblePhaseBalance") {
         static const char* requiredIndexes[] = {
             "phaseAIndex", "phaseBIndex", "phaseCIndex",
@@ -1865,6 +1894,7 @@ bool isKnownNodeType(const std::string& type) {
         "voltageCompensation",
         "chargeDischarge",
         "chargeDischargeCycleTest",
+        "gridReserve",
         "timedChargeDischarge",
         "photovoltaicCharge",
         "phaseBalance",
@@ -2725,6 +2755,14 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
         config.edges.push_back(std::move(edge));
     }
     validateGraph(config, "2");
+    for (const auto& node : config.nodes) {
+        if (node.type == "clusterDispatch" && !paramBool(node, "zeroOnInvalid", true)) {
+            throw std::runtime_error(
+                "production clusterDispatch requires zeroOnInvalid=true; "
+                "unsafe hold-last behavior is limited to explicit migration/test loaders"
+            );
+        }
+    }
     return config;
 }
 
@@ -2826,6 +2864,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
                 runChargeDischarge(node, nowMs, result);
             } else if (node.type == "chargeDischargeCycleTest") {
                 runChargeDischargeCycleTest(node, nowMs, result);
+            } else if (node.type == "gridReserve") {
+                runGridReserve(node, nowMs, result);
             } else if (node.type == "timedChargeDischarge") {
                 runTimedChargeDischarge(node, nowMs, result);
             } else if (node.type == "photovoltaicCharge") {
@@ -3055,11 +3095,27 @@ void GraphEmsEngine::restoreState(std::int64_t nowMs) {
             const auto& pointObject = item->asObject();
             const auto index = uint32Value(pointObject, "index");
             const auto* value = findValue(pointObject, "value");
+            const auto* timestamp = findValue(pointObject, "ts");
             if (index == 0 || allowed.find(index) == allowed.end() || value == nullptr || !value->isNumber() ||
-                !std::isfinite(value->asNumber())) {
+                !std::isfinite(value->asNumber()) || timestamp == nullptr || !timestamp->isNumber() ||
+                !std::isfinite(timestamp->asNumber()) || timestamp->asNumber() <= 0.0 ||
+                timestamp->asNumber() > static_cast<double>(nowMs) ||
+                timestamp->asNumber() > static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
                 continue;
             }
-            set(index, value->asNumber(), nowMs);
+            const auto restoredAt = static_cast<std::int64_t>(timestamp->asNumber());
+            const auto ttlMs = std::max<std::int64_t>(0, defaultTtlMs_);
+            const auto expireAt = restoredAt > std::numeric_limits<std::int64_t>::max() - ttlMs
+                ? std::numeric_limits<std::int64_t>::max()
+                : restoredAt + ttlMs;
+            PointValue point;
+            point.index = index;
+            point.value = value->asNumber();
+            point.quality = 1;
+            point.ts = restoredAt;
+            point.expireAt = expireAt;
+            point.stale = expireAt > 0 && nowMs > expireAt;
+            router_.putLatestByIndex(point);
         }
     }
 
@@ -4198,6 +4254,90 @@ bool GraphEmsEngine::runSequentialChargeDischarge(
         }
     }
     return updated;
+}
+
+bool GraphEmsEngine::runGridReserve(
+    const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result
+) {
+    auto& charging = gridReserveCharging_[node.id];
+    double power = 0;
+    int status = 0;
+    bool standby = false;
+    const auto read = [&](const char* key) { return latestValue(paramIndex(node, key), nowMs); };
+    const auto valid = [](const Optional<double>& v) { return v && std::isfinite(*v); };
+    const auto mode = read("modeIndex");
+    if (!valid(mode)) {
+        charging = false;
+        status = 4;
+    } else if (*mode != paramDouble(node, "reserveMode").value_or(3.0)) {
+        charging = false;
+    } else {
+        const auto soc = read("socIndex");
+        const auto grid = read("gridConnectedIndex");
+        const auto safety = read("safetyPermitIndex");
+        const auto charge = read("chargePermitIndex");
+        const auto full = hasParam(node, "fullIndex") ? read("fullIndex") : Optional<double>(0.0);
+        const auto request = hasParam(node, "phasePowerIndex") ? read("phasePowerIndex")
+            : Optional<double>(paramDouble(node, "phasePowerKw").value_or(1.0));
+        if (!valid(soc) || *soc < 0 || *soc > 100 || !valid(grid) ||
+            (*grid != 0 && *grid != 1) || !valid(safety)) {
+            charging = false;
+            status = 4;
+        } else if (*safety != 1) {
+            charging = false;
+            status = 4;
+        } else if (*grid == 0) {
+            // A valid not-connected feedback inhibits charging, not safe enable.
+            // This is not an island-ready signal; power must remain zero.
+            charging = false;
+            standby = true;
+            status = 3;
+        } else {
+            // Charging permission may legitimately drop at full SOC. Keep the PCS enabled at zero power.
+            standby = true;
+            const bool fullValid = valid(full) && (*full == 0 || *full == 1);
+            const bool isFull = (fullValid && *full == 1) ||
+                *soc >= paramDouble(node, "fullSoc").value_or(100.0);
+            if (isFull) charging = false;
+            else if (*soc < paramDouble(node, "restartSoc").value_or(99.0)) charging = true;
+            if (isFull) status = 2;
+            else if (!fullValid || !valid(charge) || *charge != 1 || !valid(request) ||
+                     *request <= 0 || *request > paramDouble(node, "maxPhaseKw").value_or(0.0)) status = 4;
+            else if (charging) { power = *request; status = 1; }
+            else status = 2;
+        }
+    }
+    const std::pair<const char*, double> values[] = {
+        {"paOutput", power}, {"pbOutput", power}, {"pcOutput", power},
+        {"statusOutput", static_cast<double>(status)}, {"standbyOutput", standby ? 1.0 : 0.0}
+    };
+    try {
+        for (const auto& item : values) {
+            const auto written = set(paramIndex(node, item.first), item.second, nowMs);
+            if (!written.accepted) throw std::runtime_error("gridReserve output rejected: " + written.message);
+            ++result.latestWrites;
+        }
+    } catch (...) {
+        charging = false;
+        // Continue the existing safety/ownership/write chain using protective zero requests.
+        // Shared candidates stay invalid; this fallback exists only in this graph's scan snapshot.
+        for (const auto& output : values) {
+            const auto index = paramIndex(node, output.first);
+            const auto fallback = std::string(output.first) == "statusOutput" ? 4.0 : 0.0;
+            snapshotValues_[index] = fallback;
+            snapshotPoints_[index] = PointSnapshot{fallback, 1, nowMs, false};
+            snapshotResolvedIndexes_.insert(index);
+            PointValue invalid;
+            invalid.index = index;
+            invalid.value = fallback;
+            invalid.quality = 0;
+            invalid.ts = nowMs;
+            invalid.expireAt = nowMs;
+            try { router_.putLatestByIndex(invalid); } catch (...) {}
+        }
+        throw;
+    }
+    return true;
 }
 
 bool GraphEmsEngine::runChargeDischargeCycleTest(
@@ -5664,10 +5804,21 @@ bool GraphEmsEngine::runPowerConstraint(
 
     bool lowState = false;
     bool highState = false;
-    const auto state = latestValue(paramIndex(node, "stateIndex", 0), nowMs);
-    const auto upper = latestValue(paramIndex(node, "stateUpperIndex", 0), nowMs);
-    const auto lower = latestValue(paramIndex(node, "stateLowerIndex", 0), nowMs);
-    if (state && upper && lower) {
+    const auto stateIndex = paramIndex(node, "stateIndex", 0);
+    const auto upperIndex = paramIndex(node, "stateUpperIndex", 0);
+    const auto lowerIndex = paramIndex(node, "stateLowerIndex", 0);
+    const bool stateConstraintConfigured = stateIndex != 0 || upperIndex != 0 || lowerIndex != 0;
+    const auto state = latestValue(stateIndex, nowMs);
+    const auto upper = latestValue(upperIndex, nowMs);
+    const auto lower = latestValue(lowerIndex, nowMs);
+    const bool stateConstraintValid = !stateConstraintConfigured ||
+        (stateIndex != 0 && upperIndex != 0 && lowerIndex != 0 &&
+         state && upper && lower && std::isfinite(*state) && std::isfinite(*upper) &&
+         std::isfinite(*lower) && *lower <= *upper);
+    if (stateConstraintConfigured && !stateConstraintValid) {
+        std::fill(active.begin(), active.end(), 0.0);
+        limitationFlags |= 16;
+    } else if (stateConstraintConfigured) {
         lowState = *state < *lower;
         highState = *state > *upper;
         for (std::size_t phase = 0; phase < phaseCount; ++phase) {
@@ -6552,11 +6703,13 @@ bool GraphEmsEngine::submitPcsWritebackCommands(
         if (!target) {
             continue;
         }
-        const int targetValue = static_cast<int>(*target);
-        const double targetDouble = static_cast<double>(targetValue);
+        if (!std::isfinite(*target)) {
+            continue;
+        }
+        const double targetDouble = *target;
         const auto currentValue = latestValue(command.outputIndex, nowMs);
         const double current = currentValue.value_or(0.0);
-        if (targetValue == 0) {
+        if (targetDouble == 0.0) {
             if (currentValue || !submitMissingZeroTargets) {
                 if (current == 0.0) {
                     continue;

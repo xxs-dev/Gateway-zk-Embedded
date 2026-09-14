@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -165,6 +166,82 @@ void verifyPersistentSamplesRequireAcknowledgement() {
     }
 
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+void verifyPersistentRingCapacity(std::size_t requestedLimit, std::size_t capacity) {
+    using namespace edge_gateway;
+    const auto storeName = "gateway_memory_ring_test_" + std::to_string(requestedLimit) + "_" +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    struct Cleanup {
+        std::string name;
+        ~Cleanup() { MemoryPointStore::cleanupOrphanedSegment(name); }
+    } cleanup{storeName};
+    MemoryStoreConfig config;
+    config.sharedMemoryName = storeName;
+    config.maxLatestPoints = 32;
+    config.maxPersistentSamples = requestedLimit;
+    MemoryPointStore store(config);
+    const auto append = [&](std::uint64_t sequence) {
+        auto value = buildValue(static_cast<std::int64_t>(sequence) * 1000, static_cast<double>(sequence));
+        value.isStore = true;
+        value.persistIntervalSec = 1;
+        store.putLatest(value);
+    };
+    const auto verify = [&](std::uint64_t first, std::size_t count, const std::string& stage) {
+        const auto samples = store.peekPersistentSamples();
+        require(samples.size() == count, stage + ": expected " + std::to_string(count) +
+            " samples, got " + std::to_string(samples.size()));
+        require(store.getStats().persistentCount == count, stage + ": persistentCount mismatch");
+        for (std::size_t i = 0; i < count; ++i) {
+            require(samples[i].sequence == first + i && samples[i].index == 610001 &&
+                samples[i].value == static_cast<double>(first + i) &&
+                samples[i].ts == static_cast<std::int64_t>(first + i) * 1000,
+                stage + ": sample order/content mismatch");
+        }
+    };
+    for (std::uint64_t i = 1; i <= capacity; ++i) append(i);
+    verify(1, capacity, "exact capacity");
+    require(store.consumePersistentDropCount() == 0, "exact capacity must not drop samples");
+    // A failed writer leaves the peeked batch unacknowledged for a retry.
+    verify(1, capacity, "unacknowledged retry");
+    append(capacity + 1);
+    verify(2, capacity, "overflow");
+    require(store.consumePersistentDropCount() == 1, "overflow must count only one lost sample");
+    require(store.consumePersistentDropCount() == 0, "drop count must reset after consumption");
+    // Cross the physical 20,000-slot boundary twice, not just the configured limit.
+    const std::uint64_t total = 40005;
+    for (std::uint64_t i = capacity + 2; i <= total; ++i) append(i);
+    const auto first = total - capacity + 1;
+    verify(first, capacity, "physical wraparound");
+    require(store.consumePersistentDropCount() == total - capacity - 1,
+        "wraparound drop count mismatch");
+    require(store.acknowledgePersistentSamples(first - 1) == 0, "stale ACK consumed retained samples");
+    const auto acknowledged = capacity > 1 ? capacity / 2 : 1;
+    require(store.acknowledgePersistentSamples(first + acknowledged - 1) == acknowledged,
+        "partial ACK count mismatch");
+    verify(first + acknowledged, capacity - acknowledged, "partial ACK");
+    for (std::uint64_t i = total + 1; i <= total + acknowledged; ++i) append(i);
+    verify(first + acknowledged, capacity, "refill after ACK");
+    require(store.consumePersistentDropCount() == 0, "ACK/refill must not count as drops");
+    const auto drained = store.drainPersistentSamples();
+    require(drained.size() == capacity && drained.front().sequence == first + acknowledged &&
+        drained.back().sequence == total + acknowledged, "drain after wraparound lost samples");
+    verify(0, 0, "drained");
+    require(store.consumePersistentDropCount() == 0, "drain must not count as drops");
+}
+
+void verifyPersistentRingBoundaries() {
+    int failures = 0;
+    for (const auto requested : {std::size_t(1), std::size_t(4), std::size_t(19999), std::size_t(20000)}) {
+        try {
+            verifyPersistentRingCapacity(requested, requested == 20000 ? 19999 : requested);
+            std::cout << "persistent ring limit=" << requested << " passed\n";
+        } catch (const std::exception& ex) {
+            ++failures;
+            std::cerr << "persistent ring limit=" << requested << " failed: " << ex.what() << "\n";
+        }
+    }
+    require(failures == 0, "persistent ring boundary regressions");
 }
 
 void verifyChangedPersistentValuesBypassPeriodicInterval() {
@@ -369,8 +446,10 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        verifyPersistentRingBoundaries();
+        if (argc == 2 && std::string(argv[1]) == "--persistent-ring-only") return 0;
         verifyReaderDoesNotUnlinkNamedSegment();
         verifyPersistentSamplesRequireAcknowledgement();
         verifyChangedPersistentValuesBypassPeriodicInterval();

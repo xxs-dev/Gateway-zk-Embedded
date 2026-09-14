@@ -1,5 +1,7 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
+#include "edge_gateway/event_store_clock.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -19,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <arpa/inet.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -173,6 +176,16 @@ void sendPubAck(int fd, std::uint16_t id) {
     send(fd, pubAck, sizeof(pubAck), 0);
 }
 
+bool socketReadableWithin(int fd, int timeoutMs) {
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(fd, &readSet);
+    timeval timeout{};
+    timeout.tv_sec = timeoutMs / 1000;
+    timeout.tv_usec = (timeoutMs % 1000) * 1000;
+    return select(fd + 1, &readSet, nullptr, nullptr, &timeout) > 0;
+}
+
 void sendPubRec(int fd, std::uint16_t id) {
     const std::uint8_t pubRec[] = {
         0x50,
@@ -199,10 +212,19 @@ public:
         std::string topic;
         std::string payload;
         int qos = 0;
+        std::uint16_t packetId = 0;
     };
 
-    explicit TestMqttBroker(int expectedPublishes, int requestedPort = 0)
-        : expectedPublishes_(expectedPublishes) {
+    explicit TestMqttBroker(
+        int expectedPublishes,
+        int requestedPort = 0,
+        bool deferQos1Acks = false,
+        bool reverseDeferredQos1Acks = false,
+        std::size_t deferredQos1AckWindow = 0
+    ) : expectedPublishes_(expectedPublishes),
+        deferQos1Acks_(deferQos1Acks),
+        reverseDeferredQos1Acks_(reverseDeferredQos1Acks),
+        deferredQos1AckWindow_(deferredQos1AckWindow) {
         listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
         if (listenFd_ < 0) {
             throw std::runtime_error("test broker socket failed");
@@ -261,6 +283,10 @@ public:
         return publishCount_.load();
     }
 
+    bool qos1WindowViolated() const {
+        return qos1WindowViolated_.load();
+    }
+
 private:
     void run() {
         while (!stop_.load() && publishCount_.load() < expectedPublishes_) {
@@ -269,6 +295,7 @@ private:
                 continue;
             }
             try {
+                std::vector<std::uint16_t> deferredQos1PacketIds;
                 const auto connect = readMqttPacket(fd);
                 require(!connect.empty() && (connect[0] & 0xF0) == 0x10, "test broker expected connect");
                 const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
@@ -280,14 +307,42 @@ private:
                     }
                     require((publish[0] & 0xF0) == 0x30, "test broker expected publish");
                     const auto qos = static_cast<int>((publish[0] >> 1) & 0x03);
+                    const auto id = packetId(publish);
                     {
                         std::lock_guard<std::mutex> lock(messagesMutex_);
-                        messages_.push_back(PublishedMessage{packetTopic(publish), packetPayload(publish), qos});
+                        messages_.push_back(PublishedMessage{
+                            packetTopic(publish),
+                            packetPayload(publish),
+                            qos,
+                            id
+                        });
                     }
                     publishCount_.fetch_add(1);
-                    const auto id = packetId(publish);
                     if (qos == 1) {
-                        sendPubAck(fd, id);
+                        if (deferQos1Acks_) {
+                            deferredQos1PacketIds.push_back(id);
+                            const bool windowReady = deferredQos1AckWindow_ > 0 &&
+                                deferredQos1PacketIds.size() >= deferredQos1AckWindow_;
+                            if (windowReady && publishCount_.load() < expectedPublishes_ &&
+                                socketReadableWithin(fd, 20)) {
+                                qos1WindowViolated_.store(true);
+                            }
+                            if (windowReady || publishCount_.load() >= expectedPublishes_) {
+                                if (reverseDeferredQos1Acks_) {
+                                    for (auto ack = deferredQos1PacketIds.rbegin();
+                                         ack != deferredQos1PacketIds.rend(); ++ack) {
+                                        sendPubAck(fd, *ack);
+                                    }
+                                } else {
+                                    for (const auto deferredId : deferredQos1PacketIds) {
+                                        sendPubAck(fd, deferredId);
+                                    }
+                                }
+                                deferredQos1PacketIds.clear();
+                            }
+                        } else {
+                            sendPubAck(fd, id);
+                        }
                     } else if (qos == 2) {
                         sendPubRec(fd, id);
                         const auto pubRel = readMqttPacket(fd);
@@ -303,14 +358,548 @@ private:
     }
 
     int expectedPublishes_;
+    bool deferQos1Acks_ = false;
+    bool reverseDeferredQos1Acks_ = false;
+    std::size_t deferredQos1AckWindow_ = 0;
     int listenFd_ = -1;
     int port_ = 0;
     std::atomic<bool> stop_ {false};
     std::atomic<int> publishCount_ {0};
+    std::atomic<bool> qos1WindowViolated_ {false};
     std::thread thread_;
     mutable std::mutex messagesMutex_;
     std::vector<PublishedMessage> messages_;
 };
+
+class RejectingAckMqttBroker {
+public:
+    enum class Mode {
+        WrongPacketId,
+        Mqtt5Rejected
+    };
+
+    explicit RejectingAckMqttBroker(Mode mode)
+        : mode_(mode) {
+        listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
+        require(listenFd_ >= 0, "rejecting broker socket failed");
+        int opt = 1;
+        setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        require(bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0,
+                "rejecting broker bind failed");
+        socklen_t len = sizeof(addr);
+        require(getsockname(listenFd_, reinterpret_cast<sockaddr*>(&addr), &len) == 0,
+                "rejecting broker getsockname failed");
+        port_ = ntohs(addr.sin_port);
+        require(listen(listenFd_, 1) == 0, "rejecting broker listen failed");
+        thread_ = std::thread([this]() { run(); });
+    }
+
+    ~RejectingAckMqttBroker() {
+        if (listenFd_ >= 0) {
+            shutdown(listenFd_, SHUT_RDWR);
+            close(listenFd_);
+        }
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+    int port() const {
+        return port_;
+    }
+
+private:
+    void run() {
+        const int fd = accept(listenFd_, nullptr, nullptr);
+        if (fd < 0) {
+            return;
+        }
+        try {
+            const auto connect = readMqttPacket(fd);
+            require(!connect.empty() && (connect[0] & 0xF0) == 0x10,
+                    "rejecting broker expected connect");
+            if (mode_ == Mode::Mqtt5Rejected) {
+                const std::uint8_t connAck[] = {0x20, 0x03, 0x00, 0x00, 0x00};
+                send(fd, connAck, sizeof(connAck), 0);
+            } else {
+                const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
+                send(fd, connAck, sizeof(connAck), 0);
+            }
+
+            const auto publish = readMqttPacket(fd);
+            require(!publish.empty() && (publish[0] & 0xF0) == 0x30,
+                    "rejecting broker expected publish");
+            const auto id = packetId(publish);
+            if (mode_ == Mode::WrongPacketId) {
+                sendPubAck(fd, static_cast<std::uint16_t>(id + 1));
+            } else {
+                const std::uint8_t rejected[] = {
+                    0x40,
+                    0x04,
+                    static_cast<std::uint8_t>((id >> 8) & 0xFF),
+                    static_cast<std::uint8_t>(id & 0xFF),
+                    0x80,
+                    0x00
+                };
+                send(fd, rejected, sizeof(rejected), 0);
+            }
+        } catch (...) {
+        }
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    }
+
+    Mode mode_;
+    int listenFd_ = -1;
+    int port_ = 0;
+    std::thread thread_;
+};
+
+class SlowAckMqttBroker {
+public:
+    explicit SlowAckMqttBroker(std::chrono::milliseconds byteDelay)
+        : byteDelay_(byteDelay) {
+        listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
+        require(listenFd_ >= 0, "slow ACK broker socket failed");
+        int opt = 1;
+        setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        require(bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0,
+                "slow ACK broker bind failed");
+        socklen_t len = sizeof(addr);
+        require(getsockname(listenFd_, reinterpret_cast<sockaddr*>(&addr), &len) == 0,
+                "slow ACK broker getsockname failed");
+        port_ = ntohs(addr.sin_port);
+        require(listen(listenFd_, 1) == 0, "slow ACK broker listen failed");
+        thread_ = std::thread([this]() { run(); });
+    }
+
+    ~SlowAckMqttBroker() {
+        if (listenFd_ >= 0) {
+            shutdown(listenFd_, SHUT_RDWR);
+            close(listenFd_);
+        }
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+    int port() const {
+        return port_;
+    }
+
+private:
+    void run() {
+        const int fd = accept(listenFd_, nullptr, nullptr);
+        if (fd < 0) {
+            return;
+        }
+        try {
+            const auto connect = readMqttPacket(fd);
+            require(!connect.empty() && (connect[0] & 0xF0) == 0x10,
+                    "slow ACK broker expected connect");
+            const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
+            send(fd, connAck, sizeof(connAck), MSG_NOSIGNAL);
+
+            const auto publish = readMqttPacket(fd);
+            require(!publish.empty() && (publish[0] & 0xF0) == 0x30,
+                    "slow ACK broker expected publish");
+            const auto id = packetId(publish);
+            const std::uint8_t pubAck[] = {
+                0x40,
+                0x02,
+                static_cast<std::uint8_t>((id >> 8) & 0xFF),
+                static_cast<std::uint8_t>(id & 0xFF)
+            };
+            for (const auto byte : pubAck) {
+                std::this_thread::sleep_for(byteDelay_);
+                if (send(fd, &byte, 1, MSG_NOSIGNAL) != 1) {
+                    break;
+                }
+            }
+        } catch (...) {
+        }
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    }
+
+    std::chrono::milliseconds byteDelay_;
+    int listenFd_ = -1;
+    int port_ = 0;
+    std::thread thread_;
+};
+
+void requireReliablePublishRejected(
+    RejectingAckMqttBroker::Mode mode,
+    const std::string& protocolVersion,
+    const std::string& expectedError
+) {
+    RejectingAckMqttBroker broker(mode);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_ACK_REJECT";
+    config.topicMachineCode = "GW_ACK_REJECT";
+    config.statusTopic = "edge/status";
+    config.protocolVersion = protocolVersion;
+    config.qos = 1;
+    config.offlineBufferEnabled = false;
+
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    try {
+        publisher.publishReliableJsonMessage(config.statusTopic, "{\"ok\":true}");
+    } catch (const std::exception& ex) {
+        require(std::string(ex.what()).find(expectedError) != std::string::npos,
+                "reliable publish failed with unexpected ACK error");
+        return;
+    }
+    throw std::runtime_error("reliable publish must reject invalid ACK");
+}
+
+void testReliablePublishRejectsWrongPacketId() {
+    requireReliablePublishRejected(
+        RejectingAckMqttBroker::Mode::WrongPacketId,
+        "mqtt3",
+        "packet id mismatch"
+    );
+}
+
+void testReliablePublishRejectsMqtt5FailureReason() {
+    requireReliablePublishRejected(
+        RejectingAckMqttBroker::Mode::Mqtt5Rejected,
+        "mqtt5",
+        "puback rejected"
+    );
+}
+
+void testReliablePublishHasAbsoluteAckDeadline() {
+    SlowAckMqttBroker broker(std::chrono::milliseconds(80));
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_SLOW_ACK";
+    config.topicMachineCode = "GW_SLOW_ACK";
+    config.statusTopic = "edge/status";
+    config.qos = 1;
+    config.connectTimeoutMs = 120;
+    config.offlineBufferEnabled = false;
+
+    const auto startedAt = std::chrono::steady_clock::now();
+    bool timedOut = false;
+    try {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishReliableJsonMessage(config.statusTopic, "{\"ok\":true}");
+    } catch (const std::exception& ex) {
+        timedOut = std::string(ex.what()).find("deadline") != std::string::npos;
+    }
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startedAt
+    ).count();
+    require(timedOut, "slow PUBACK must fail at the reliable publish deadline");
+    require(elapsedMs < 300, "slow PUBACK must not reset the timeout for every received byte");
+}
+
+class LeasedScriptBroker {
+public:
+    explicit LeasedScriptBroker(std::function<void(int)> script, int connections = 1) {
+        listener_ = socket(AF_INET, SOCK_STREAM, 0);
+        require(listener_ >= 0, "leased broker socket failed");
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        require(bind(listener_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0,
+            "leased broker bind failed");
+        socklen_t length = sizeof(address);
+        require(getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &length) == 0,
+            "leased broker getsockname failed");
+        port_ = ntohs(address.sin_port);
+        require(listen(listener_, 1) == 0, "leased broker listen failed");
+        worker_ = std::thread([this, script, connections] {
+          for (int connection = 0; connection < connections; ++connection) {
+            const auto fd = accept(listener_, nullptr, nullptr);
+            if (fd < 0) return;
+            timeval timeout{2, 0};
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            try { script(fd); } catch (...) { failure_ = std::current_exception(); }
+            shutdown(fd, SHUT_RDWR);
+            close(fd);
+            if (failure_) return;
+          }
+        });
+    }
+    ~LeasedScriptBroker() {
+        shutdown(listener_, SHUT_RDWR);
+        close(listener_);
+        if (worker_.joinable()) worker_.join();
+    }
+    int port() const { return port_; }
+    void checked() {
+        if (worker_.joinable()) worker_.join();
+        if (failure_) std::rethrow_exception(failure_);
+    }
+private:
+    int listener_ = -1, port_ = 0;
+    std::thread worker_;
+    std::exception_ptr failure_;
+};
+
+void testLeasedBatchWindowAndExactTopics() {
+    TestMqttBroker broker(16, 0, true, true, 16);
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.clientId = "leased-window"; config.topicMachineCode = "must-not-append";
+    config.offlineBufferEnabled = false;
+    config.qos = 0;
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
+        edge_gateway::MqttEventOutboxOwnership::External);
+    std::vector<edge_gateway::MqttJsonMessage> messages;
+    for (int i = 0; i < 16; ++i) messages.push_back({"exact/topic/" + std::to_string(i), std::to_string(i)});
+    std::vector<std::size_t> attempted, confirmed;
+    const auto now = edge_gateway::readEventStoreLeaseTime();
+    try {
+        publisher.publishLeasedEvents(messages, now.bootId, now.milliseconds + 2000, [] { return true; },
+            [&](auto i) { attempted.push_back(i); }, [&](auto i) { confirmed.push_back(i); });
+    } catch (...) {
+        if (attempted.size() != 16) throw std::runtime_error(
+            "leased batch stalled before 16-message ACK barrier; attempts=" + std::to_string(attempted.size()));
+        throw;
+    }
+    require(attempted.size() == 16 && confirmed.size() == 16 && confirmed.front() == 15,
+        "leased window was serial or PUBACK mapping changed");
+    require(!broker.qos1WindowViolated(), "leased batch exceeded inflight cap");
+    const auto captured = broker.messages();
+    for (std::size_t i = 0; i < messages.size(); ++i)
+        require(captured[i].topic == messages[i].topic && captured[i].payload == messages[i].payload &&
+            captured[i].qos == 1 && captured[i].packetId != 0, "leased batch rewrote topic/payload/QoS/id");
+    std::sort(confirmed.begin(), confirmed.end());
+    for (std::size_t i = 0; i < confirmed.size(); ++i) require(confirmed[i] == i, "leased ACK index duplicated");
+}
+
+// 0=disconnect, 1=duplicate, 2=unknown, 3=malformed, 4=deny+drain,
+// 5=deadline with outstanding ACKs, 6=MQTT5 failure after successful ACK,
+// 7=deny during initial fill after four attempts.
+void testLeasedBatchPartial(int mode) {
+    const bool mqtt5 = mode == 6;
+    LeasedScriptBroker broker([&](int fd) {
+        require((readMqttPacket(fd).at(0) & 0xf0) == 0x10, "leased script expected CONNECT");
+        const std::vector<std::uint8_t> connack = mqtt5 ? std::vector<std::uint8_t>{0x20, 3, 0, 0, 0} :
+            std::vector<std::uint8_t>{0x20, 2, 0, 0};
+        send(fd, connack.data(), connack.size(), MSG_NOSIGNAL);
+        std::vector<std::uint16_t> ids;
+        for (int i = 0; i < (mqtt5 ? 1 : mode == 7 ? 4 : 16); ++i) ids.push_back(packetId(readMqttPacket(fd)));
+        require(!socketReadableWithin(fd, 20), "leased window limit exceeded before first ACK");
+        if (mode == 5) {
+            // Wait for client deadline closure, not an unbounded test sleep.
+            char byte;
+            require(recv(fd, &byte, 1, 0) == 0, "deadline did not close transport");
+            return;
+        }
+        sendPubAck(fd, ids.back());
+        if (mode == 4 || mode == 7) {
+            for (int i = static_cast<int>(ids.size()) - 2; i >= 0; --i) sendPubAck(fd, ids[i]);
+            require(!socketReadableWithin(fd, 50), "denied batch refilled a slot");
+            return;
+        }
+        if (mqtt5) {
+            const auto next = readMqttPacket(fd);
+            require((next.at(0) & 0xf0) == 0x30, "MQTT5 window did not refill after one ACK");
+            const auto id = packetId(next);
+            const std::uint8_t rejected[] = {0x40, 4, static_cast<std::uint8_t>(id >> 8),
+                static_cast<std::uint8_t>(id), 0x80, 0};
+            send(fd, rejected, sizeof(rejected), MSG_NOSIGNAL);
+        } else {
+            sendPubAck(fd, ids[2]);
+            if (mode == 0) return;
+            if (mode == 1) sendPubAck(fd, ids[2]);
+            if (mode == 2) sendPubAck(fd, 65535);
+            if (mode == 3) {
+                const std::uint8_t malformed[] = {0x41, 2, 0, 1};
+                send(fd, malformed, sizeof(malformed), MSG_NOSIGNAL);
+            }
+        }
+        char byte;
+        require(recv(fd, &byte, 1, 0) == 0, "bad ACK did not close transport");
+    });
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.clientId = "leased-partial"; config.offlineBufferEnabled = false;
+    if (mqtt5) config.protocolVersion = "mqtt5";
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
+        edge_gateway::MqttEventOutboxOwnership::External);
+    std::vector<edge_gateway::MqttJsonMessage> messages(16, {"exact/topic", "payload"});
+    std::vector<std::size_t> attempts, confirmations;
+    bool allowed = true, failed = false;
+    const auto now = edge_gateway::readEventStoreLeaseTime();
+    const auto start = std::chrono::steady_clock::now();
+    try {
+        publisher.publishLeasedEvents(messages, now.bootId, now.milliseconds + (mode == 5 ? 150 : 1500),
+            [&] { return allowed; }, [&](auto i) {
+                attempts.push_back(i);
+                if (mode == 7 && attempts.size() == 4) allowed = false;
+            }, [&](auto i) {
+                confirmations.push_back(i);
+                if (mode == 4) allowed = false;
+            });
+    } catch (...) { failed = true; }
+    require(failed == (mode != 4 && mode != 7), "leased transport failure status wrong");
+    if (mode < 4) require(confirmations == std::vector<std::size_t>{15, 2} && attempts.size() == 16,
+        "partial ACK identities lost or wrong after failure");
+    if (mode == 4) require(confirmations.size() == 16 && attempts.size() == 16,
+        "authority denial did not drain exact inflight set");
+    if (mode == 5) require(confirmations.empty() && attempts.size() == 16 &&
+        std::chrono::steady_clock::now() - start < std::chrono::seconds(1), "batch deadline reset per packet");
+    if (mode == 6) require(confirmations == std::vector<std::size_t>{0} && attempts.size() == 2,
+        "MQTT5 rejected ACK counted or receive window exceeded");
+    if (mode == 7) require(confirmations == std::vector<std::size_t>{3, 2, 1, 0} && attempts.size() == 4,
+        "authority denial during fill sent new messages or lost confirmations");
+    broker.checked();
+}
+
+void testLeasedBatchWrapReconnect(bool alreadyWrapped) {
+    const int warmup = alreadyWrapped ? 65540 : 65530;
+    int connections = 0;
+    LeasedScriptBroker broker([&](int fd) {
+        require((readMqttPacket(fd).at(0) & 0xf0) == 0x10, "wrap broker expected CONNECT");
+        const std::uint8_t connack[] = {0x20, 2, 0, 0};
+        send(fd, connack, sizeof(connack), MSG_NOSIGNAL);
+        if (++connections == 1) {
+            for (int i = 0; i < warmup; ++i) (void)readMqttPacket(fd);
+            char byte;
+            require(recv(fd, &byte, 1, 0) == 0, "leased batch reused pre-wrap connection");
+        } else {
+            std::vector<std::uint16_t> ids;
+            for (int i = 0; i < 16; ++i) {
+                const auto id = packetId(readMqttPacket(fd));
+                require(id != 0 && std::find(ids.begin(), ids.end(), id) == ids.end(), "wrap duplicated packet id");
+                ids.push_back(id);
+                sendPubAck(fd, id);
+            }
+        }
+    }, 2);
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.clientId = "leased-wrap"; config.offlineBufferEnabled = false; config.qos = 0;
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
+        edge_gateway::MqttEventOutboxOwnership::External);
+    for (int i = 0; i < warmup; ++i) publisher.publishReliableJsonMessage("test/warmup", "x");
+    const auto now = edge_gateway::readEventStoreLeaseTime();
+    std::size_t confirmed = 0;
+    publisher.publishLeasedEvents(std::vector<edge_gateway::MqttJsonMessage>(16, {"exact", "x"}),
+        now.bootId, now.milliseconds + 1500, [] { return true; }, [](auto) {}, [&](auto) { ++confirmed; });
+    require(confirmed == 16, "wrap lost confirmations");
+    broker.checked();
+    require(connections == 2, "wrap failed to reconnect before batch");
+}
+
+void testLeasedBatchInputGates() {
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:1"; config.offlineBufferEnabled = false;
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
+        edge_gateway::MqttEventOutboxOwnership::External);
+    const auto now = edge_gateway::readEventStoreLeaseTime();
+    int attempts = 0, confirmations = 0;
+    for (int mode = 0; mode < 5; ++mode) {
+        auto messages = std::vector<edge_gateway::MqttJsonMessage>(mode == 0 ? 17 : 1, {"exact", "x"});
+        if (mode == 1) messages[0].payload.assign(32768, 'x');
+        bool failed = false;
+        try {
+            publisher.publishLeasedEvents(messages, mode == 2 ? "foreign-boot" : now.bootId,
+                mode == 3 ? now.milliseconds : now.milliseconds + 1000, [mode] { return mode != 4; },
+                [&](auto) { ++attempts; }, [&](auto) { ++confirmations; });
+        } catch (...) { failed = true; }
+        require(failed == (mode != 4) && attempts == 0 && confirmations == 0, "invalid batch reached network");
+    }
+}
+
+void testLeasedBatchRejectsPersistentSession() {
+    for (int mode = 0; mode < 4; ++mode) {
+        edge_gateway::MqttConfig config;
+        config.broker = "tcp://127.0.0.1:1";
+        config.offlineBufferEnabled = false;
+        config.cleanSession = mode >= 2;
+        if (mode != 0) config.protocolVersion = "mqtt5";
+        if (mode >= 2) config.sessionExpirySec = mode == 2 ? 60 : -1;
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
+            edge_gateway::MqttEventOutboxOwnership::External);
+        int callbacks = 0;
+        const auto now = edge_gateway::readEventStoreLeaseTime();
+        bool rejected = false;
+        try {
+            publisher.publishLeasedEvents({{"exact", "x"}}, now.bootId, now.milliseconds + 1000,
+                [&] { ++callbacks; return true; }, [&](auto) { ++callbacks; }, [&](auto) { ++callbacks; });
+        } catch (const std::invalid_argument& ex) {
+            rejected = std::string(ex.what()) == "leased MQTT batch requires a nonpersistent session";
+        }
+        require(rejected && callbacks == 0, "persistent batch did not fail before authority/network/observers");
+    }
+}
+
+void testReliableBatchPipelinesQos1Publishes() {
+    constexpr int kBatchSize = 8;
+    TestMqttBroker broker(kBatchSize, 0, true, true);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_BATCH_ACK";
+    config.topicMachineCode = "GW_BATCH_ACK";
+    config.statusTopic = "edge/status";
+    config.qos = 1;
+    config.connectTimeoutMs = 1000;
+    config.offlineBufferEnabled = false;
+
+    std::vector<edge_gateway::MqttJsonMessage> messages;
+    for (int index = 0; index < kBatchSize; ++index) {
+        messages.push_back(edge_gateway::MqttJsonMessage{
+            config.statusTopic,
+            std::string("{\"index\":") + std::to_string(index) + "}"
+        });
+    }
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    publisher.publishReliableJsonMessages(messages);
+
+    const auto published = broker.messages();
+    require(published.size() == kBatchSize,
+        "reliable batch did not pipeline every QoS1 publish before ACK wait");
+    for (int index = 0; index < kBatchSize; ++index) {
+        require(published[static_cast<std::size_t>(index)].qos == 1,
+            "reliable batch changed QoS1 delivery");
+        require(published[static_cast<std::size_t>(index)].payload == messages[index].payload,
+            "reliable batch changed publish order or payload");
+    }
+}
+
+void testReliableBatchCapsQos1InFlightWindow() {
+    constexpr int kBatchSize = 20;
+    constexpr std::size_t kExpectedWindow = 8;
+    TestMqttBroker broker(kBatchSize, 0, true, true, kExpectedWindow);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_BATCH_WINDOW";
+    config.topicMachineCode = "GW_BATCH_WINDOW";
+    config.statusTopic = "edge/status";
+    config.qos = 1;
+    config.connectTimeoutMs = 2000;
+    config.offlineBufferEnabled = false;
+
+    std::vector<edge_gateway::MqttJsonMessage> messages;
+    for (int index = 0; index < kBatchSize; ++index) {
+        messages.push_back(edge_gateway::MqttJsonMessage{
+            config.statusTopic,
+            std::string("{\"index\":") + std::to_string(index) + "}"
+        });
+    }
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    publisher.publishReliableJsonMessages(messages);
+
+    require(broker.messages().size() == kBatchSize,
+        "bounded reliable batch lost a QoS1 publish");
+    require(!broker.qos1WindowViolated(),
+        "MQTT3 reliable batch exceeded the eight-publish in-flight window");
+}
 
 int unusedTcpPort() {
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -727,6 +1316,72 @@ void testEventOutboxSurvivesRestartAndClearsAfterReplay() {
     rmdir(dir.c_str());
 }
 
+void testManagementOnlyPublisherNeverConsumesBusinessOutbox() {
+    const auto dir = std::string("/tmp/gateway_mqtt_management_only_test_") +
+        std::to_string(getpid());
+    require(std::system((std::string("mkdir -p ") + dir).c_str()) == 0,
+        "management-only test mkdir failed");
+    const auto port = unusedTcpPort();
+
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.clientId = "GW_MANAGEMENT_ONLY";
+    config.topicMachineCode = "GW_MANAGEMENT_ONLY";
+    config.statusTopic = "edge/status";
+    config.offlineBufferEnabled = true;
+    config.offlineBufferDir = dir;
+    config.offlineRealtimeFile = dir + "/realtime_ring.dat";
+    config.offlineRealtimeFileSizeBytes = 64 * 1024;
+    config.eventOutboxSqlitePath = dir + "/event_outbox.db";
+
+    {
+        edge_gateway::MqttEventOutbox outbox(
+            config.eventOutboxSqlitePath,
+            config.eventOutboxSqliteLibraryPath,
+            config.eventOutboxRetentionMonths,
+            config.eventOutboxCleanupIntervalHours,
+            config.eventOutboxReplayBatchSize,
+            config.eventOutboxMaxDiskBytes
+        );
+        require(outbox.enqueue("alarm", "edge/alarm/GW_MANAGEMENT_ONLY", "{\"active\":true}", 1000) > 0,
+            "failed to seed business outbox row");
+    }
+
+    {
+        TestMqttBroker broker(1, port);
+        edge_gateway::BuiltinMqttDriverPublisher publisher(
+            config,
+            edge_gateway::MqttPublisherMode::Bidirectional,
+            edge_gateway::MqttEventOutboxOwnership::ManagementOnly
+        );
+        publisher.publishJsonMessage(config.statusTopic, "{\"ok\":true}");
+        const auto messages = broker.messages();
+        require(messages.size() == 1 &&
+                messages.front().topic == "edge/status/GW_MANAGEMENT_ONLY",
+            "management-only publisher must send management data without replaying business events");
+    }
+    {
+        edge_gateway::MqttEventOutbox outbox(
+            config.eventOutboxSqlitePath,
+            config.eventOutboxSqliteLibraryPath,
+            config.eventOutboxRetentionMonths,
+            config.eventOutboxCleanupIntervalHours,
+            config.eventOutboxReplayBatchSize,
+            config.eventOutboxMaxDiskBytes
+        );
+        require(outbox.pendingCount("main") == 1,
+            "management-only publisher acknowledged a business event it does not own");
+    }
+
+    std::remove(config.offlineRealtimeFile.c_str());
+    std::remove((dir + "/mqtt_offline_queue.log").c_str());
+    std::remove((dir + "/mqtt_offline_queue.log.lock").c_str());
+    std::remove(config.eventOutboxSqlitePath.c_str());
+    std::remove((config.eventOutboxSqlitePath + "-shm").c_str());
+    std::remove((config.eventOutboxSqlitePath + "-wal").c_str());
+    rmdir(dir.c_str());
+}
+
 void testControlTopicsUseQos2() {
     TestMqttBroker broker(4);
     edge_gateway::MqttConfig config;
@@ -766,13 +1421,45 @@ void testControlTopicsUseQos2() {
     require(messages[3].qos == 2, "recording status should use qos2");
 }
 
+void testPacketIdentifierSkipsZeroAfterWrap() {
+    constexpr int kPublishCount = 65536;
+    TestMqttBroker broker(kPublishCount);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_PACKET_ID_WRAP";
+    config.topicMachineCode = "GW_PACKET_ID_WRAP";
+    config.statusTopic = "edge/status";
+    config.qos = 1;
+    config.offlineBufferEnabled = false;
+
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    for (int i = 0; i < kPublishCount; ++i) {
+        publisher.publishReliableJsonMessage(config.statusTopic, "{}");
+    }
+
+    const auto messages = broker.messages();
+    require(messages.size() == kPublishCount, "packet-id wrap test lost a publish");
+    require(
+        std::all_of(messages.begin(), messages.end(), [](const auto& message) {
+            return message.packetId != 0;
+        }),
+        "MQTT packet identifier must never be zero"
+    );
+    require(
+        messages[65534].packetId == 65535 && messages[65535].packetId == 1,
+        "MQTT packet identifier must wrap from 65535 to 1"
+    );
+}
+
 void testFullTelemetryTopicScopingMode() {
-    TestMqttBroker broker(2);
+    TestMqttBroker broker(6);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
     config.clientId = "GW_FULL_TOPIC";
     config.topicMachineCode = "GW_FULL_TOPIC";
     config.fullTelemetryTopic = "third/site/full";
+    config.changeEventTopic = "third/site/change";
+    config.alarmTopic = "third/site/alarm";
     config.offlineBufferEnabled = false;
 
     edge_gateway::StoredPointValue point;
@@ -782,23 +1469,39 @@ void testFullTelemetryTopicScopingMode() {
     {
         edge_gateway::BuiltinMqttDriverPublisher publisher(config);
         publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+        publisher.publishChangeEvent(config.changeEventTopic, point);
+        publisher.publishAlarm(config.alarmTopic, point.index, point, "high", true);
     }
     config.clientId = "GW_FULL_TOPIC_EXACT";
     config.fullTelemetryTopicMachineScoped = false;
+    config.changeEventTopicMachineScoped = false;
+    config.alarmTopicMachineScoped = false;
     {
         edge_gateway::BuiltinMqttDriverPublisher publisher(config);
         publisher.publishFullSnapshot(config.fullTelemetryTopic, {point}, "object");
+        publisher.publishChangeEvent(config.changeEventTopic, point);
+        publisher.publishAlarm(config.alarmTopic, point.index, point, "high", true);
     }
 
     const auto messages = broker.messages();
-    require(messages.size() == 2, "test broker should capture both full telemetry publishes");
+    require(messages.size() == 6, "test broker should capture scoped and exact telemetry events");
     require(
         messages[0].topic == "third/site/full/GW_FULL_TOPIC",
         "full telemetry topic must remain machine-scoped by default"
     );
     require(
-        messages[1].topic == "third/site/full",
+        messages[1].topic == "third/site/change/GW_FULL_TOPIC" &&
+            messages[2].topic == "third/site/alarm/GW_FULL_TOPIC",
+        "change and alarm topics must remain machine-scoped by default"
+    );
+    require(
+        messages[3].topic == "third/site/full",
         "explicit exact full telemetry topic must not append machineCode"
+    );
+    require(
+        messages[4].topic == "third/site/change" &&
+            messages[5].topic == "third/site/alarm",
+        "explicit exact change and alarm topics must not append machineCode"
     );
 }
 
@@ -956,11 +1659,24 @@ int main() {
     testOfflinePublishSurvivesRestartAndReplaysInOrder();
     testRealtimeRingSurvivesRestartAndReplaysBeforeCurrentSnapshot();
     testEventOutboxSurvivesRestartAndClearsAfterReplay();
+    testManagementOnlyPublisherNeverConsumesBusinessOutbox();
     testControlTopicsUseQos2();
+    testPacketIdentifierSkipsZeroAfterWrap();
     testFullTelemetryTopicScopingMode();
     testNonFinitePointValuesProduceValidJson();
     testClosedTxConnectionReconnectsBeforeNextPublish();
     testUnreachableBrokerHonorsConnectTimeout();
+    testReliablePublishRejectsWrongPacketId();
+    testReliablePublishRejectsMqtt5FailureReason();
+    testReliablePublishHasAbsoluteAckDeadline();
+    testReliableBatchPipelinesQos1Publishes();
+    testReliableBatchCapsQos1InFlightWindow();
+    testLeasedBatchWindowAndExactTopics();
+    for (int mode = 0; mode < 8; ++mode) testLeasedBatchPartial(mode);
+    testLeasedBatchWrapReconnect(false);
+    testLeasedBatchWrapReconnect(true);
+    testLeasedBatchInputGates();
+    testLeasedBatchRejectsPersistentSession();
 #endif
 
     std::cout << "builtin_mqtt_driver_publisher_test passed" << std::endl;

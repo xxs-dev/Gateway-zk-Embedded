@@ -1,20 +1,28 @@
 #include "edge_gateway/mqtt_forwarder_service.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <iomanip>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "edge_gateway/legacy_telemetry_payload.hpp"
+#include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/power_control_ownership.hpp"
 #include "edge_gateway/process_file_lock.hpp"
 
@@ -22,10 +30,134 @@ namespace edge_gateway {
 
 namespace {
 
+bool replaceFileAtomically(const std::string& temporary, const std::string& target) {
+#ifdef _WIN32
+    return MoveFileExA(
+        temporary.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    ) != 0;
+#else
+    return std::rename(temporary.c_str(), target.c_str()) == 0;
+#endif
+}
+
 const char kMqttForwarderOwner[] = "mqtt-forwarder";
 constexpr std::size_t kMaxControlPayloadBytes = 4096;
 // SharedPendingWriteSlot reserves one byte for the terminating NUL.
 constexpr std::size_t kMaxControlIdBytes = 63;
+
+class Sha256 {
+public:
+    Sha256() { reset(); }
+
+    void update(const std::uint8_t* data, std::size_t size) {
+        for (std::size_t i = 0; i < size; ++i) {
+            buffer_[bufferSize_++] = data[i];
+            bitLength_ += 8;
+            if (bufferSize_ == buffer_.size()) {
+                transform();
+                bufferSize_ = 0;
+            }
+        }
+    }
+
+    std::array<std::uint8_t, 32> finish() {
+        const auto originalBitLength = bitLength_;
+        buffer_[bufferSize_++] = 0x80;
+        if (bufferSize_ > 56) {
+            while (bufferSize_ < buffer_.size()) buffer_[bufferSize_++] = 0;
+            transform();
+            bufferSize_ = 0;
+        }
+        while (bufferSize_ < 56) buffer_[bufferSize_++] = 0;
+        for (int shift = 56; shift >= 0; shift -= 8) {
+            buffer_[bufferSize_++] =
+                static_cast<std::uint8_t>((originalBitLength >> shift) & 0xffU);
+        }
+        transform();
+
+        std::array<std::uint8_t, 32> result{};
+        for (std::size_t i = 0; i < state_.size(); ++i) {
+            result[i * 4] = static_cast<std::uint8_t>(state_[i] >> 24U);
+            result[i * 4 + 1] = static_cast<std::uint8_t>(state_[i] >> 16U);
+            result[i * 4 + 2] = static_cast<std::uint8_t>(state_[i] >> 8U);
+            result[i * 4 + 3] = static_cast<std::uint8_t>(state_[i]);
+        }
+        return result;
+    }
+
+private:
+    static std::uint32_t rotateRight(std::uint32_t value, int bits) {
+        return (value >> bits) | (value << (32 - bits));
+    }
+
+    void reset() {
+        state_ = {{
+            0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
+            0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U
+        }};
+        bufferSize_ = 0;
+        bitLength_ = 0;
+    }
+
+    void transform() {
+        static const std::uint32_t constants[64] = {
+            0x428a2f98U,0x71374491U,0xb5c0fbcfU,0xe9b5dba5U,0x3956c25bU,0x59f111f1U,0x923f82a4U,0xab1c5ed5U,
+            0xd807aa98U,0x12835b01U,0x243185beU,0x550c7dc3U,0x72be5d74U,0x80deb1feU,0x9bdc06a7U,0xc19bf174U,
+            0xe49b69c1U,0xefbe4786U,0x0fc19dc6U,0x240ca1ccU,0x2de92c6fU,0x4a7484aaU,0x5cb0a9dcU,0x76f988daU,
+            0x983e5152U,0xa831c66dU,0xb00327c8U,0xbf597fc7U,0xc6e00bf3U,0xd5a79147U,0x06ca6351U,0x14292967U,
+            0x27b70a85U,0x2e1b2138U,0x4d2c6dfcU,0x53380d13U,0x650a7354U,0x766a0abbU,0x81c2c92eU,0x92722c85U,
+            0xa2bfe8a1U,0xa81a664bU,0xc24b8b70U,0xc76c51a3U,0xd192e819U,0xd6990624U,0xf40e3585U,0x106aa070U,
+            0x19a4c116U,0x1e376c08U,0x2748774cU,0x34b0bcb5U,0x391c0cb3U,0x4ed8aa4aU,0x5b9cca4fU,0x682e6ff3U,
+            0x748f82eeU,0x78a5636fU,0x84c87814U,0x8cc70208U,0x90befffaU,0xa4506cebU,0xbef9a3f7U,0xc67178f2U
+        };
+        std::uint32_t words[64]{};
+        for (int i = 0; i < 16; ++i) {
+            const auto offset = static_cast<std::size_t>(i * 4);
+            words[i] = (static_cast<std::uint32_t>(buffer_[offset]) << 24U) |
+                (static_cast<std::uint32_t>(buffer_[offset + 1]) << 16U) |
+                (static_cast<std::uint32_t>(buffer_[offset + 2]) << 8U) |
+                static_cast<std::uint32_t>(buffer_[offset + 3]);
+        }
+        for (int i = 16; i < 64; ++i) {
+            const auto s0 = rotateRight(words[i - 15], 7) ^
+                rotateRight(words[i - 15], 18) ^ (words[i - 15] >> 3U);
+            const auto s1 = rotateRight(words[i - 2], 17) ^
+                rotateRight(words[i - 2], 19) ^ (words[i - 2] >> 10U);
+            words[i] = words[i - 16] + s0 + words[i - 7] + s1;
+        }
+        auto a = state_[0]; auto b = state_[1]; auto c = state_[2]; auto d = state_[3];
+        auto e = state_[4]; auto f = state_[5]; auto g = state_[6]; auto h = state_[7];
+        for (int i = 0; i < 64; ++i) {
+            const auto s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+            const auto choice = (e & f) ^ (~e & g);
+            const auto temp1 = h + s1 + choice + constants[i] + words[i];
+            const auto s0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+            const auto majority = (a & b) ^ (a & c) ^ (b & c);
+            const auto temp2 = s0 + majority;
+            h = g; g = f; f = e; e = d + temp1;
+            d = c; c = b; b = a; a = temp1 + temp2;
+        }
+        state_[0] += a; state_[1] += b; state_[2] += c; state_[3] += d;
+        state_[4] += e; state_[5] += f; state_[6] += g; state_[7] += h;
+    }
+
+    std::array<std::uint32_t, 8> state_{};
+    std::array<std::uint8_t, 64> buffer_{};
+    std::size_t bufferSize_ = 0;
+    std::uint64_t bitLength_ = 0;
+};
+
+std::string sha256Hex(const std::string& value) {
+    Sha256 hash;
+    hash.update(reinterpret_cast<const std::uint8_t*>(value.data()), value.size());
+    const auto digest = hash.finish();
+    std::ostringstream out;
+    out << std::hex << std::setfill('0');
+    for (const auto byte : digest) {
+        out << std::setw(2) << static_cast<unsigned>(byte);
+    }
+    return out.str();
+}
 
 std::int64_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -290,6 +422,34 @@ private:
     std::unordered_map<std::string, JsonPrimitive> values_;
 };
 
+bool readJsonBool(const StrictFlatJsonObject& json, const char* key, bool* value) {
+    const auto* field = json.find(key);
+    if (field == nullptr || field->kind != JsonPrimitiveKind::Literal ||
+        (field->text != "true" && field->text != "false")) {
+        return false;
+    }
+    *value = field->text == "true";
+    return true;
+}
+
+bool readJsonInt64(const StrictFlatJsonObject& json, const char* key, std::int64_t* value) {
+    const auto* field = json.find(key);
+    if (field == nullptr || field->kind != JsonPrimitiveKind::Number || !field->integer) {
+        return false;
+    }
+    *value = field->integerValue;
+    return true;
+}
+
+bool readJsonString(const StrictFlatJsonObject& json, const char* key, std::string* value) {
+    const auto* field = json.find(key);
+    if (field == nullptr || field->kind != JsonPrimitiveKind::String) {
+        return false;
+    }
+    *value = field->text;
+    return true;
+}
+
 struct ParsedControlCommand {
     std::string id;
     int type = -1;
@@ -396,6 +556,32 @@ ParsedControlCommand parseControlCommand(const std::string& payload) {
     return command;
 }
 
+std::string controlCommandFingerprint(
+    const ParsedControlCommand& command,
+    const MqttForwardControlConfig& config
+) {
+    auto ownershipIndexes = config.ownershipIndexes;
+    std::sort(ownershipIndexes.begin(), ownershipIndexes.end());
+    auto targets = config.targets;
+    std::sort(targets.begin(), targets.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.index < rhs.index;
+    });
+
+    std::ostringstream normalized;
+    normalized << "mqtt-forward-control:v1|type=" << command.type
+               << "|target=" << std::hexfloat << command.targetKw
+               << "|scope=" << config.scope << "|ownership=";
+    for (const auto index : ownershipIndexes) {
+        normalized << index << ',';
+    }
+    normalized << "|targets=";
+    for (const auto& target : targets) {
+        normalized << target.index << ':' << std::hexfloat << target.scale
+                   << ':' << target.offset << ',';
+    }
+    return sha256Hex(normalized.str());
+}
+
 std::string escapeJson(const std::string& value) {
     std::string out;
     out.reserve(value.size() + 8);
@@ -460,13 +646,28 @@ MqttForwarderService::MqttForwarderService(
     MqttForwardConfig forwardConfig,
     PointStoreRouter& router,
     std::shared_ptr<IMqttDriverPublisher> publisher,
-    std::string healthFile
+    std::string healthFile,
+    std::unique_ptr<MqttEventOutbox> eventOutbox,
+    std::string eventOutboxPath,
+    std::string eventReplayLockFile,
+    std::string eventDelegationReadyFile,
+    std::unique_ptr<IEventStatsSource> eventStats,
+    MqttEventReplayFactory eventReplayFactory,
+    EventStoreIdentity eventStatsIdentity
 )
     : forwardConfig_(std::move(forwardConfig)),
       router_(router),
       publisher_(std::move(publisher)),
       healthFile_(std::move(healthFile)),
-      retryDelayMs_(forwardConfig_.retryMinMs) {
+      eventOutbox_(std::move(eventOutbox)),
+      eventStats_(std::move(eventStats)),
+      eventStatsIdentity_(std::move(eventStatsIdentity)),
+      eventReplayFactory_(std::move(eventReplayFactory)),
+      eventOutboxPath_(std::move(eventOutboxPath)),
+      eventReplayLockFile_(std::move(eventReplayLockFile)),
+      eventDelegationReadyFile_(std::move(eventDelegationReadyFile)),
+      retryDelayMs_(forwardConfig_.retryMinMs),
+      eventStatsAwaitingDelegation_(forwardConfig_.primaryFullUpload) {
     if (!publisher_) {
         throw std::invalid_argument("mqtt forwarder requires a publisher");
     }
@@ -477,6 +678,29 @@ MqttForwarderService::MqttForwarderService(
     }
     if (forwardConfig_.enabled && forwardConfig_.pointIndexes.empty()) {
         throw std::invalid_argument("mqttForward.pointIndexes must not be empty when enabled");
+    }
+    if (eventReplayFactory_ && (eventOutbox_ || eventStatsIdentity_.storeId.empty() ||
+        eventStatsIdentity_.configGeneration.empty())) {
+        throw std::invalid_argument("IPC replay requires exact statistics identity and no legacy Outbox");
+    }
+    if (forwardConfig_.events.enabled) {
+        if (forwardConfig_.qos < 1) {
+            throw std::invalid_argument("mqttForward.events requires qos 1 or 2");
+        }
+        if ((!eventOutbox_ && !eventReplayFactory_) || (eventOutbox_ && eventReplayFactory_)) {
+            throw std::invalid_argument("mqttForward.events requires an event Outbox");
+        }
+        if (forwardConfig_.events.targetId.empty()) {
+            throw std::invalid_argument("mqttForward.events.targetId must not be empty");
+        }
+        if (forwardConfig_.events.changeTopic.empty() && forwardConfig_.events.alarmTopic.empty()) {
+            throw std::invalid_argument("mqttForward.events requires changeTopic or alarmTopic");
+        }
+        if (forwardConfig_.primaryFullUpload &&
+            (forwardConfig_.events.targetId != "main" || eventReplayLockFile_.empty() ||
+             eventDelegationReadyFile_.empty() || eventOutboxPath_.empty())) {
+            throw std::invalid_argument("primary MQTT event forwarding ownership is incomplete");
+        }
     }
     std::unordered_set<std::uint32_t> uniqueIndexes;
     for (const auto index : forwardConfig_.pointIndexes) {
@@ -537,6 +761,9 @@ MqttForwarderService::MqttForwarderService(
             control.minTargetKw > control.maxTargetKw) {
             throw std::invalid_argument("mqttForward.control timing or target range is invalid");
         }
+        if (forwardConfig_.qos < 1 || forwardConfig_.qos > 2) {
+            throw std::invalid_argument("mqttForward.control requires qos 1 or 2");
+        }
 
         std::unordered_set<std::uint32_t> ownershipIndexes;
         for (const auto index : control.ownershipIndexes) {
@@ -588,9 +815,22 @@ MqttForwarderService::MqttForwarderService(
 
         router_.setPowerControlOwnershipFile(control.ownershipFile, kMqttForwarderOwner);
         ownership_.reset(new PowerControlOwnership(control.ownershipFile, kMqttForwarderOwner));
-        // A restart must return this forwarder to local mode even when its
-        // configured session id changed since the previous process run.
-        ownership_->release();
+        controlResultStore_.reset(new MqttControlResultStore(
+            MqttControlResultStore::defaultPathForOwnershipFile(control.ownershipFile)
+        ));
+        for (const auto& record : controlResultStore_->loadPending()) {
+            PendingControlResult pending;
+            pending.id = record.id;
+            pending.fingerprint = record.fingerprint;
+            pending.type = record.type;
+            pending.targetKw = record.targetKw;
+            pending.generation = record.generation;
+            pending.acceptedAtMs = record.acceptedAtMs;
+            pending.deadlineMs = record.deadlineMs;
+            pending.routes = record.routes;
+            pending.submitted = record.submitted;
+            pendingControlResults_.push_back(std::move(pending));
+        }
     }
 }
 
@@ -619,6 +859,12 @@ MqttConfig MqttForwarderService::makeTxOnlyMqttConfig(
     mqtt.tls = forwardConfig.tls;
     mqtt.offlineBufferEnabled = false;
     clearControlTopics(mqtt);
+    if (forwardConfig.events.enabled) {
+        mqtt.changeEventTopic = forwardConfig.events.changeTopic;
+        mqtt.changeEventTopicMachineScoped = forwardConfig.events.changeTopicMachineScoped;
+        mqtt.alarmTopic = forwardConfig.events.alarmTopic;
+        mqtt.alarmTopicMachineScoped = forwardConfig.events.alarmTopicMachineScoped;
+    }
     return mqtt;
 }
 
@@ -651,10 +897,18 @@ MqttConfig MqttForwarderService::makePrimaryFullMqttConfig(
     mqtt.offlineBufferEnabled = false;
     mqtt.fullSnapshotOfflineBufferEnabled = false;
     clearControlTopics(mqtt);
+    if (workerConfig.eventForwardingEnabled) {
+        mqtt.changeEventTopic = primaryConfig.changeEventTopic;
+        mqtt.changeEventTopicMachineScoped = primaryConfig.changeEventTopicMachineScoped;
+        mqtt.alarmTopic = primaryConfig.alarmTopic;
+        mqtt.alarmTopicMachineScoped = primaryConfig.alarmTopicMachineScoped;
+    }
     return mqtt;
 }
 
 void MqttForwarderService::start() {
+    if (running_.load()) return;
+    if (eventReplay_.active()) throw std::logic_error("drain manual IPC replay before starting the worker");
     if (!forwardConfig_.enabled || running_.exchange(true)) {
         return;
     }
@@ -662,15 +916,271 @@ void MqttForwarderService::start() {
 }
 
 void MqttForwarderService::stop() {
+    eventReplayStopping_.store(true);
     running_.store(false);
     if (loopThread_.joinable()) {
         loopThread_.join();
     }
+    drainIpcEvents();
+    eventReplayStopping_.store(false);
+    eventDelegationActive_ = false;
+    eventHeartbeatMonotonicMs_ = 0;
+    eventLeaseUntilMonotonicMs_ = 0;
+    lastEventReplayMs_ = 0;
     releaseOwnSession();
 }
 
 bool MqttForwarderService::isRunning() const {
     return running_.load();
+}
+
+bool MqttForwarderService::eventDelegationReady(std::int64_t nowMs) const {
+    if (!forwardConfig_.primaryFullUpload) {
+        return true;
+    }
+    if (eventDelegationReadyFile_.empty()) {
+        return false;
+    }
+
+    try {
+        // The ready file is paired with a process-lifetime lock. A stale file
+        // from a stopped or downgraded Driver must never transfer ownership.
+        ProcessFileLock liveLock(eventDelegationReadyFile_ + ".lock");
+        if (liveLock.tryAcquire()) {
+            return false;
+        }
+
+        std::ifstream input(eventDelegationReadyFile_.c_str(), std::ios::in | std::ios::binary);
+        if (!input.is_open()) {
+            return false;
+        }
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        const auto text = buffer.str();
+        if (text.empty() || text.size() > 16 * 1024) {
+            return false;
+        }
+        const StrictFlatJsonObject ready(text);
+        std::string replayBackend;
+        if (ready.find("eventReplayBackend")) {
+            if (!readJsonString(ready, "eventReplayBackend", &replayBackend) ||
+                replayBackend != (eventReplayFactory_ ? "ipc-lab" : "legacy")) return false;
+        } else if (eventReplayFactory_) return false;
+        if (eventReplayFactory_) {
+            std::string storeId, generation;
+            if (!readJsonString(ready, "eventStoreId", &storeId) || storeId != eventStatsIdentity_.storeId ||
+                !readJsonString(ready, "eventStoreConfigGeneration", &generation) ||
+                generation != eventStatsIdentity_.configGeneration) return false;
+        }
+        std::int64_t dataPlaneVersion = 0;
+        std::int64_t heartbeatMonotonicMs = 0;
+        std::int64_t leaseUntilMonotonicMs = 0;
+        bool externalOutbox = false;
+        bool eventFallbackCapable = false;
+        bool changeMachineScoped = true;
+        bool alarmMachineScoped = true;
+        std::string machineCode;
+        std::string outboxPath;
+        std::string changeTopic;
+        std::string alarmTopic;
+        std::string replayLockFile;
+        if (!readJsonInt64(ready, "dataPlaneVersion", &dataPlaneVersion) ||
+            dataPlaneVersion < 2 ||
+            !readJsonBool(ready, "externalOutbox", &externalOutbox) || !externalOutbox ||
+            !readJsonBool(ready, "eventFallbackCapable", &eventFallbackCapable) ||
+            !eventFallbackCapable ||
+            !readJsonString(ready, "machineCode", &machineCode) ||
+            !readJsonString(ready, "outboxPath", &outboxPath) ||
+            !readJsonString(ready, "changeTopic", &changeTopic) ||
+            !readJsonString(ready, "alarmTopic", &alarmTopic) ||
+            !readJsonBool(ready, "changeTopicMachineScoped", &changeMachineScoped) ||
+            !readJsonBool(ready, "alarmTopicMachineScoped", &alarmMachineScoped) ||
+            !readJsonString(ready, "eventReplayLockFile", &replayLockFile) ||
+            !readJsonInt64(ready, "heartbeatMonotonicMs", &heartbeatMonotonicMs) ||
+            !readJsonInt64(ready, "leaseUntilMonotonicMs", &leaseUntilMonotonicMs)) {
+            return false;
+        }
+        if (machineCode != forwardConfig_.primaryMachineCode ||
+            outboxPath != eventOutboxPath_ ||
+            changeTopic != forwardConfig_.events.changeTopic ||
+            alarmTopic != forwardConfig_.events.alarmTopic ||
+            changeMachineScoped != forwardConfig_.events.changeTopicMachineScoped ||
+            alarmMachineScoped != forwardConfig_.events.alarmTopicMachineScoped ||
+            replayLockFile != eventReplayLockFile_) {
+            return false;
+        }
+        const auto monotonicNowMs = currentMonotonicTimeMs();
+        const auto toleranceMs = std::max(100, forwardConfig_.healthLeaseTtlMs);
+        return leaseUntilMonotonicMs >= monotonicNowMs &&
+            heartbeatMonotonicMs <= monotonicNowMs + toleranceMs &&
+            monotonicNowMs - heartbeatMonotonicMs <= toleranceMs && nowMs > 0;
+    } catch (...) {
+        return false;
+    }
+}
+
+void MqttForwarderService::replayIpcEventsIfDue(std::int64_t nowMs) {
+    if (!forwardConfig_.events.enabled) return;
+    const auto intervalMs = std::max(10, forwardConfig_.events.replayIntervalMs);
+    const bool due = lastEventReplayMs_ == 0 || nowMs < lastEventReplayMs_ || nowMs - lastEventReplayMs_ >= intervalMs;
+    const auto delegated = [this] {
+        return !eventReplayStopping_.load() && eventDelegationReady(currentTimeMs());
+    };
+    const bool hasDelegation = delegated();
+    if (!due && hasDelegation) return;
+    if (due) lastEventReplayMs_ = nowMs;
+    eventDelegationActive_ = false;
+    eventHeartbeatMonotonicMs_ = 0;
+    eventLeaseUntilMonotonicMs_ = 0;
+    eventStatsAwaitingDelegation_ = forwardConfig_.primaryFullUpload;
+    MqttEventReplayRequest request;
+    request.lane = MqttEventReplayLane::ForwardEvents;
+    request.targetId = forwardConfig_.events.targetId;
+    if (forwardConfig_.primaryFullUpload || !forwardConfig_.events.alarmTopic.empty()) request.includeTypes.push_back("alarm");
+    if (forwardConfig_.primaryFullUpload || !forwardConfig_.events.changeTopic.empty()) request.includeTypes.push_back("change");
+    request.maxBytes = std::min<std::size_t>(32768, forwardConfig_.events.replayMaxBytes);
+    request.maxMessages = forwardConfig_.control.enabled ? 8 : 16;
+    request.authorized = [this, delegated] {
+        return delegated() && (!forwardConfig_.primaryFullUpload || ipcEventReplayLock_);
+    };
+    try {
+        if (!eventReplay_.active()) {
+            if (!hasDelegation) {
+                eventLastError_ = "mqtt driver event delegation is not ready";
+                eventOutboxHealthy_ = true;
+                return;
+            }
+            if (forwardConfig_.primaryFullUpload) {
+                ipcEventReplayLock_.reset(new ProcessFileLock(eventReplayLockFile_));
+                if (!ipcEventReplayLock_->tryAcquire()) {
+                    ipcEventReplayLock_.reset();
+                    eventLastError_ = "primary event replay ownership is busy";
+                    eventOutboxHealthy_ = true;
+                    return;
+                }
+            }
+            if (!request.authorized()) {
+                ipcEventReplayLock_.reset();
+                eventLastError_ = "mqtt driver event delegation expired";
+                eventOutboxHealthy_ = true;
+                return;
+            }
+        }
+        const bool drainOnly = !request.authorized();
+        eventStatsAwaitingDelegation_ = forwardConfig_.primaryFullUpload && drainOnly;
+        const auto result = eventReplay_.run(eventReplayFactory_, request, drainOnly);
+        if (result.ackedCount) eventLastAckAtMs_ = currentTimeMs();
+        eventOutboxHealthy_ = result.healthy && !result.pending && result.error.empty();
+        eventLastError_ = result.error;
+        // An IPC success while draining cannot confer a new event health lease.
+        if (eventOutboxHealthy_ && !drainOnly && request.authorized()) {
+            eventDelegationActive_ = true;
+            eventHeartbeatMonotonicMs_ = currentMonotonicTimeMs();
+            eventLeaseUntilMonotonicMs_ = eventHeartbeatMonotonicMs_ + std::max(100, forwardConfig_.healthLeaseTtlMs);
+        } else if (eventLastError_.empty()) {
+            eventLastError_ = "IPC event replay incomplete or delegation lost";
+        }
+    } catch (const std::exception& ex) {
+        eventOutboxHealthy_ = false;
+        eventLastError_ = ex.what();
+    } catch (...) {
+        eventOutboxHealthy_ = false;
+        eventLastError_ = "IPC event replay failed";
+    }
+    if (!eventReplay_.active()) ipcEventReplayLock_.reset();
+}
+
+void MqttForwarderService::drainIpcEvents() {
+    while (eventReplay_.active()) {
+        replayIpcEventsIfDue(currentTimeMs());
+        if (eventReplay_.active()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ipcEventReplayLock_.reset();
+}
+
+void MqttForwarderService::replayEventsIfDue(std::int64_t nowMs) {
+    if (eventReplayFactory_) {
+        replayIpcEventsIfDue(nowMs);
+        return;
+    }
+    if (!forwardConfig_.events.enabled || !eventOutbox_) {
+        return;
+    }
+    const auto intervalMs = std::max(10, forwardConfig_.events.replayIntervalMs);
+    if (lastEventReplayMs_ > 0 && nowMs >= lastEventReplayMs_ &&
+        nowMs - lastEventReplayMs_ < intervalMs) {
+        return;
+    }
+    lastEventReplayMs_ = nowMs;
+    eventDelegationActive_ = false;
+    eventHeartbeatMonotonicMs_ = 0;
+    eventLeaseUntilMonotonicMs_ = 0;
+    eventStatsAwaitingDelegation_ = forwardConfig_.primaryFullUpload;
+
+    try {
+        if (forwardConfig_.primaryFullUpload && !eventDelegationReady(nowMs)) {
+            eventLastError_ = "mqtt driver event delegation is not ready";
+            eventOutboxHealthy_ = true;
+            return;
+        }
+
+        std::unique_ptr<ProcessFileLock> eventLock;
+        if (forwardConfig_.primaryFullUpload) {
+            eventLock.reset(new ProcessFileLock(eventReplayLockFile_));
+            if (!eventLock->tryAcquire()) {
+                eventLastError_ = "primary event replay ownership is busy";
+                eventOutboxHealthy_ = true;
+                return;
+            }
+            // Driver may have renewed its capability while the event lock was
+            // contended. Recheck before querying or publishing any row.
+            if (!eventDelegationReady(currentTimeMs())) {
+                eventLastError_ = "mqtt driver event delegation expired";
+                eventOutboxHealthy_ = true;
+                return;
+            }
+        }
+
+        eventStatsAwaitingDelegation_ = false;
+        MqttEventOutbox::EventTypeFilter eventTypes;
+        if (!forwardConfig_.events.alarmTopic.empty()) {
+            eventTypes.include.push_back("alarm");
+        }
+        if (!forwardConfig_.events.changeTopic.empty()) {
+            eventTypes.include.push_back("change");
+        }
+        const auto stats = eventOutbox_->replayBatchWithStats(
+            forwardConfig_.events.targetId,
+            eventTypes,
+            forwardConfig_.events.replayMaxBytes,
+            forwardConfig_.control.enabled ? 8U : 0U,
+            [this](const std::vector<MqttEventOutbox::ReplayMessage>& messages) {
+                std::vector<MqttJsonMessage> publishes;
+                publishes.reserve(messages.size());
+                for (const auto& message : messages) {
+                    publishes.push_back(MqttJsonMessage{message.topic, message.payload});
+                }
+                publisher_->publishReliableJsonMessages(publishes);
+            }
+        );
+        eventOutbox_->cleanupIfDue(nowMs);
+        eventOutboxHealthy_ = true;
+        eventDelegationActive_ = true;
+        eventHeartbeatMonotonicMs_ = currentMonotonicTimeMs();
+        eventLeaseUntilMonotonicMs_ = eventHeartbeatMonotonicMs_ +
+            std::max(100, forwardConfig_.healthLeaseTtlMs);
+        eventLastError_.clear();
+        if (stats.count > 0) {
+            eventLastAckAtMs_ = currentTimeMs();
+        }
+    } catch (const std::exception& ex) {
+        eventOutboxHealthy_ = false;
+        eventDelegationActive_ = false;
+        eventLastError_ = ex.what();
+        std::cerr << "mqtt forwarder event replay failed target="
+                  << forwardConfig_.events.targetId
+                  << " error=" << ex.what() << std::endl;
+    }
 }
 
 void MqttForwarderService::runOnce(std::int64_t nowMs) {
@@ -679,12 +1189,16 @@ void MqttForwarderService::runOnce(std::int64_t nowMs) {
     }
     if (forwardConfig_.control.enabled) {
         try {
+            controlResultStore_->cleanupIfDue(nowMs);
             pollIncomingCommands(nowMs);
+            processPendingControlResults(nowMs);
+            publishUndeliveredControlResults(nowMs);
         } catch (const std::exception& ex) {
             writeHealth(false, std::string("control poll failed: ") + ex.what(), 0, nowMs);
             std::cerr << "mqtt forwarder control poll failed error=" << ex.what() << std::endl;
         }
     }
+    replayEventsIfDue(nowMs);
 
     if (!scheduleInitialized_) {
         scheduleInitialized_ = true;
@@ -849,8 +1363,12 @@ void MqttForwarderService::publishLoop() {
         if (forwardConfig_.control.enabled) {
             cadenceMs = std::min(cadenceMs, forwardConfig_.control.pollIntervalMs);
         }
+        if (forwardConfig_.events.enabled) {
+            cadenceMs = std::min(cadenceMs, forwardConfig_.events.replayIntervalMs);
+        }
         sleepInterruptibly(running_, std::max(1, cadenceMs));
     }
+    drainIpcEvents();
 }
 
 bool MqttForwarderService::writeHealth(
@@ -874,8 +1392,24 @@ bool MqttForwarderService::writeHealth(
         (publishInProgress_ || healthy)
         ? monotonicNowMs + std::max(100, forwardConfig_.healthLeaseTtlMs)
         : 0;
+    // Full snapshot publication and event replay use independent delivery
+    // paths. A transient Full claim/failure must not revoke a healthy event
+    // delegation and trigger the Driver fallback to contend for the outbox.
+    // Only a completed event replay renews this lease. Full or diagnostic
+    // health writes must neither revoke a live lease nor revive an expired one.
+    const bool eventForwarding = forwardConfig_.events.enabled &&
+        eventDelegationActive_ && eventOutboxHealthy_ &&
+        eventHeartbeatMonotonicMs_ > 0 &&
+        eventHeartbeatMonotonicMs_ <= monotonicNowMs &&
+        eventLeaseUntilMonotonicMs_ > monotonicNowMs;
+    const auto eventStats = readMqttEventStats(
+        eventStats_.get(),
+        mqttForwarderStatsQuery(forwardConfig_.events, eventStatsAwaitingDelegation_),
+        eventStatsIdentity_
+    );
     const std::string payload =
         std::string("{\"healthy\":") + (healthy ? "true" : "false") +
+        ",\"dataPlaneVersion\":2" +
         ",\"state\":\"" + state + "\"" +
         ",\"ts\":" + std::to_string(nowMs) +
         ",\"heartbeatAtMs\":" + std::to_string(nowMs) +
@@ -887,6 +1421,26 @@ bool MqttForwarderService::writeHealth(
         ",\"nextAttemptAtMs\":" + std::to_string(nextAttemptMs_) +
         ",\"consecutiveFailures\":" + std::to_string(consecutiveFailures_) +
         ",\"primaryFullUpload\":" + (forwardConfig_.primaryFullUpload ? "true" : "false") +
+        ",\"eventForwarding\":" + (eventForwarding ? "true" : "false") +
+        ",\"eventReplayBackend\":\"" + (eventReplayFactory_ ? "ipc-lab" : "legacy") + "\"" +
+        ",\"eventStoreId\":\"" + escapeJson(eventStatsIdentity_.storeId) + "\"" +
+        ",\"eventStoreConfigGeneration\":\"" + escapeJson(eventStatsIdentity_.configGeneration) + "\"" +
+        ",\"eventOutboxHealthy\":" + (eventOutboxHealthy_ ? "true" : "false") +
+        ",\"eventLeaseVersion\":1" +
+        ",\"eventHeartbeatMonotonicMs\":" + std::to_string(eventHeartbeatMonotonicMs_) +
+        ",\"eventLeaseUntilMonotonicMs\":" + std::to_string(eventLeaseUntilMonotonicMs_) +
+        mqttEventStatsHealthFields(eventStats) +
+        ",\"eventLastAckAtMs\":" + std::to_string(eventLastAckAtMs_) +
+        ",\"eventTargetId\":\"" + escapeJson(forwardConfig_.events.targetId) + "\"" +
+        ",\"eventOutboxPath\":\"" + escapeJson(eventOutboxPath_) + "\"" +
+        ",\"eventReplayLockFile\":\"" + escapeJson(eventReplayLockFile_) + "\"" +
+        ",\"changeTopic\":\"" + escapeJson(forwardConfig_.events.changeTopic) + "\"" +
+        ",\"alarmTopic\":\"" + escapeJson(forwardConfig_.events.alarmTopic) + "\"" +
+        ",\"changeTopicMachineScoped\":" +
+            (forwardConfig_.events.changeTopicMachineScoped ? "true" : "false") +
+        ",\"alarmTopicMachineScoped\":" +
+            (forwardConfig_.events.alarmTopicMachineScoped ? "true" : "false") +
+        ",\"eventLastError\":\"" + escapeJson(eventLastError_) + "\"" +
         ",\"machineCode\":\"" + escapeJson(forwardConfig_.primaryMachineCode) + "\"" +
         ",\"clientId\":\"" + escapeJson(forwardConfig_.primaryClientId) + "\"" +
         ",\"topic\":\"" + escapeJson(forwardConfig_.fullTelemetryTopic) + "\"" +
@@ -903,10 +1457,7 @@ bool MqttForwarderService::writeHealth(
             return false;
         }
     }
-#ifdef _WIN32
-    std::remove(healthFile_.c_str());
-#endif
-    if (std::rename(tempPath.c_str(), healthFile_.c_str()) != 0) {
+    if (!replaceFileAtomically(tempPath, healthFile_)) {
         std::remove(tempPath.c_str());
         return false;
     }
@@ -966,10 +1517,88 @@ void MqttForwarderService::handleCommandMessage(
         return;
     }
 
+    const auto commandFingerprint = controlCommandFingerprint(
+        command,
+        forwardConfig_.control
+    );
+    const auto durableResult = controlResultStore_->find(command.id);
+    if (durableResult) {
+        const bool payloadMatches = durableResult->fingerprint == commandFingerprint;
+        if (!payloadMatches) {
+            const auto active = ownership_->active(nowMs);
+            publishControlReply(
+                command.id,
+                command.type,
+                false,
+                true,
+                active ? "remote" : "local",
+                command.hasTargetKw,
+                command.targetKw,
+                active ? active->generation : durableResult->generation,
+                "command id payload mismatch",
+                nowMs
+            );
+        } else if (!durableResult->finalPayload.empty()) {
+            (void)publishStoredControlResult(*durableResult, nowMs);
+        } else if (durableResult->submitted) {
+            const auto active = ownership_->active(nowMs);
+            publishControlReply(
+                command.id,
+                command.type,
+                true,
+                true,
+                active ? "remote" : "local",
+                command.hasTargetKw,
+                command.targetKw,
+                active ? active->generation : durableResult->generation,
+                "duplicate accepted command pending device result",
+                nowMs
+            );
+        } else {
+            const auto active = ownership_->active(nowMs);
+            publishControlReply(
+                command.id,
+                command.type,
+                false,
+                true,
+                active ? "remote" : "local",
+                command.hasTargetKw,
+                command.targetKw,
+                active ? active->generation : durableResult->generation,
+                "control submission was not confirmed before restart",
+                nowMs
+            );
+        }
+        return;
+    }
+    const auto receipt = ownership_->lookupReceipt(command.id);
+    if (receipt.found) {
+        const auto active = ownership_->active(nowMs);
+        const bool payloadMatches = receipt.fingerprint == commandFingerprint;
+        publishControlReply(
+            command.id,
+            command.type,
+            payloadMatches && receipt.accepted,
+            true,
+            active ? "remote" : "local",
+            command.hasTargetKw,
+            command.targetKw,
+            active ? active->generation : 0,
+            !payloadMatches
+                ? "command id payload mismatch"
+                : (receipt.accepted
+                    ? "duplicate accepted command ignored"
+                    : "duplicate incomplete or rejected command ignored"),
+            nowMs
+        );
+        return;
+    }
+
     if (command.type == 0) {
         if (initialState &&
             (initialState->owner != kMqttForwarderOwner ||
              initialState->sessionId != forwardConfig_.control.sessionId)) {
+            ownership_->recordDetachedReceipt(command.id, false, commandFingerprint);
             publishControlReply(
                 command.id,
                 command.type,
@@ -984,14 +1613,34 @@ void MqttForwarderService::handleCommandMessage(
             );
             return;
         }
+        if (!ownership_->recordDetachedReceipt(command.id, false, commandFingerprint)) {
+            publishControlReply(
+                command.id,
+                command.type,
+                false,
+                false,
+                initialState ? "remote" : "local",
+                false,
+                0.0,
+                initialState ? initialState->generation : 0,
+                "failed to reserve control command id",
+                nowMs
+            );
+            return;
+        }
         const auto releasedGeneration = ownership_->releaseAndAdvance(
             forwardConfig_.control.sessionId
         );
         const bool released = !initialState || releasedGeneration != 0;
+        const bool receiptRecorded = ownership_->recordDetachedReceipt(
+            command.id,
+            released,
+            commandFingerprint
+        );
         publishControlReply(
             command.id,
             command.type,
-            released,
+            released && receiptRecorded,
             false,
             released ? "local" : "remote",
             false,
@@ -999,7 +1648,11 @@ void MqttForwarderService::handleCommandMessage(
             releasedGeneration != 0
                 ? releasedGeneration
                 : (initialState ? initialState->generation : 0),
-            released ? "local control restored" : "failed to release remote control",
+            !released
+                ? "failed to release remote control"
+                : (receiptRecorded
+                    ? "local control restored"
+                    : "local control restored but command receipt finalization failed"),
             nowMs
         );
         return;
@@ -1017,26 +1670,6 @@ void MqttForwarderService::handleCommandMessage(
             command.targetKw,
             initialState ? initialState->generation : 0,
             "control target is outside the configured kW range",
-            nowMs
-        );
-        return;
-    }
-
-    const auto receipt = ownership_->lookupReceipt(command.id);
-    if (receipt.found) {
-        const auto active = ownership_->active(nowMs);
-        publishControlReply(
-            command.id,
-            command.type,
-            receipt.accepted,
-            true,
-            active ? "remote" : "local",
-            true,
-            command.targetKw,
-            active ? active->generation : 0,
-            receipt.accepted
-                ? "duplicate accepted command ignored"
-                : "duplicate incomplete or rejected command ignored",
             nowMs
         );
         return;
@@ -1077,7 +1710,8 @@ void MqttForwarderService::handleCommandMessage(
         forwardConfig_.control.ownershipIndexes,
         command.id,
         nowMs,
-        forwardConfig_.control.leaseTtlMs
+        forwardConfig_.control.leaseTtlMs,
+        commandFingerprint
     );
     if (takeover.duplicate) {
         publishControlReply(
@@ -1113,13 +1747,131 @@ void MqttForwarderService::handleCommandMessage(
     for (auto& pending : commands) {
         pending.controlGeneration = takeover.generation;
     }
-    const auto submitted = router_.submitWriteCommands(commands);
-    if (!submitted.accepted) {
+
+    PendingControlResult pendingResult;
+    pendingResult.id = command.id;
+    pendingResult.fingerprint = commandFingerprint;
+    pendingResult.type = command.type;
+    pendingResult.targetKw = command.targetKw;
+    pendingResult.generation = takeover.generation;
+    pendingResult.acceptedAtMs = nowMs;
+    pendingResult.deadlineMs = nowMs + std::max(1000, forwardConfig_.control.leaseTtlMs);
+    pendingResult.routes.reserve(forwardConfig_.control.targets.size());
+    for (const auto& target : forwardConfig_.control.targets) {
+        const auto route = router_.routeByIndex(target.index);
+        if (!route) {
+            ownership_->recordReceipt(
+                forwardConfig_.control.sessionId,
+                command.id,
+                takeover.generation,
+                false,
+                commandFingerprint
+            );
+            const auto releasedGeneration = ownership_->releaseAndAdvance(
+                forwardConfig_.control.sessionId
+            );
+            publishControlReply(
+                command.id,
+                command.type,
+                false,
+                false,
+                "local",
+                true,
+                command.targetKw,
+                releasedGeneration,
+                "control result route is unavailable",
+                nowMs
+            );
+            return;
+        }
+        pendingResult.routes.push_back(*route);
+    }
+
+    MqttControlResultRecord durablePending;
+    durablePending.id = pendingResult.id;
+    durablePending.fingerprint = pendingResult.fingerprint;
+    durablePending.type = pendingResult.type;
+    durablePending.targetKw = pendingResult.targetKw;
+    durablePending.generation = pendingResult.generation;
+    durablePending.acceptedAtMs = pendingResult.acceptedAtMs;
+    durablePending.deadlineMs = pendingResult.deadlineMs;
+    durablePending.routes = pendingResult.routes;
+    MqttControlReserveStatus reserveStatus;
+    try {
+        reserveStatus = controlResultStore_->reservePending(durablePending);
+    } catch (const std::exception& ex) {
         ownership_->recordReceipt(
             forwardConfig_.control.sessionId,
             command.id,
             takeover.generation,
-            false
+            false,
+            commandFingerprint
+        );
+        const auto releasedGeneration = ownership_->releaseAndAdvance(
+            forwardConfig_.control.sessionId
+        );
+        publishControlReply(
+            command.id,
+            command.type,
+            false,
+            false,
+            "local",
+            true,
+            command.targetKw,
+            releasedGeneration,
+            std::string("failed to persist control result: ") + ex.what(),
+            nowMs
+        );
+        return;
+    }
+    if (reserveStatus != MqttControlReserveStatus::Inserted) {
+        const auto persisted = controlResultStore_->find(command.id);
+        if (reserveStatus == MqttControlReserveStatus::FingerprintMismatch ||
+            !persisted || persisted->fingerprint != commandFingerprint) {
+            publishControlReply(
+                command.id,
+                command.type,
+                false,
+                true,
+                ownership_->active(nowMs) ? "remote" : "local",
+                true,
+                command.targetKw,
+                takeover.generation,
+                "command id payload mismatch",
+                nowMs
+            );
+        } else if (!persisted->finalPayload.empty()) {
+            (void)publishStoredControlResult(*persisted, nowMs);
+        } else {
+            publishControlReply(
+                command.id,
+                command.type,
+                true,
+                true,
+                ownership_->active(nowMs) ? "remote" : "local",
+                true,
+                command.targetKw,
+                persisted->generation,
+                "duplicate accepted command pending device result",
+                nowMs
+            );
+        }
+        return;
+    }
+
+    const auto submitted = router_.submitWriteCommands(commands);
+    if (!submitted.accepted) {
+        try {
+            (void)controlResultStore_->discardPending(command.id, commandFingerprint);
+        } catch (const std::exception& ex) {
+            writeHealth(false, std::string("failed to discard rejected control result: ") + ex.what(), 0, nowMs);
+        }
+        ownership_->recordReceipt(
+            forwardConfig_.control.sessionId,
+            command.id,
+            takeover.generation,
+            false,
+            commandFingerprint
         );
         const auto releasedGeneration = ownership_->releaseAndAdvance(
             forwardConfig_.control.sessionId
@@ -1139,28 +1891,28 @@ void MqttForwarderService::handleCommandMessage(
         return;
     }
 
-    if (!ownership_->recordReceipt(
+    pendingResult.routes = submitted.routes;
+    pendingResult.submitted = true;
+    bool submittedPersisted = false;
+    try {
+        submittedPersisted = controlResultStore_->markSubmitted(command.id, commandFingerprint);
+    } catch (const std::exception& ex) {
+        writeHealth(false, std::string("failed to persist submitted control phase: ") + ex.what(), 0, nowMs);
+    }
+    if (!submittedPersisted) {
+        writeHealth(false, "control write queued but submitted phase was not persisted", 0, nowMs);
+    }
+
+    const bool receiptRecorded = ownership_->recordReceipt(
             forwardConfig_.control.sessionId,
             command.id,
             takeover.generation,
-            true)) {
-        const auto releasedGeneration = ownership_->releaseAndAdvance(
-            forwardConfig_.control.sessionId
-        );
-        publishControlReply(
-            command.id,
-            command.type,
-            false,
-            false,
-            "local",
             true,
-            command.targetKw,
-            releasedGeneration,
-            "control write queued but accepted receipt could not be persisted; command invalidated",
-            nowMs
-        );
-        return;
+            commandFingerprint);
+    if (!receiptRecorded) {
+        writeHealth(false, "control write queued but ownership receipt was not persisted", 0, nowMs);
     }
+    pendingControlResults_.push_back(std::move(pendingResult));
     publishControlReply(
         command.id,
         command.type,
@@ -1170,9 +1922,170 @@ void MqttForwarderService::handleCommandMessage(
         true,
         command.targetKw,
         takeover.generation,
-        takeover.message.empty() ? "remote control accepted" : takeover.message,
+        !submittedPersisted
+            ? "remote control accepted; durable submission marker is degraded"
+            : (!receiptRecorded
+                ? "remote control accepted; ownership receipt persistence is degraded"
+                : (takeover.message.empty() ? "remote control accepted" : takeover.message)),
         nowMs
     );
+}
+
+void MqttForwarderService::processPendingControlResults(std::int64_t nowMs) {
+    for (auto it = pendingControlResults_.begin(); it != pendingControlResults_.end();) {
+        std::vector<WritebackResultRecord> results;
+        results.reserve(it->routes.size());
+        bool complete = true;
+        for (const auto& route : it->routes) {
+            const auto result = router_.getWritebackResult(route, it->id, route.index);
+            if (result) {
+                results.push_back(*result);
+            } else {
+                complete = false;
+            }
+        }
+        const bool timedOut = !complete && nowMs >= it->deadlineMs;
+        if (!complete && !timedOut) {
+            ++it;
+            continue;
+        }
+        const auto payload = buildFinalControlResultPayload(*it, results, timedOut, nowMs);
+        if (!controlResultStore_->storeFinalPayload(it->id, it->fingerprint, payload)) {
+            writeHealth(false, "failed to persist final control result", 0, nowMs);
+            ++it;
+            continue;
+        }
+        it = pendingControlResults_.erase(it);
+    }
+}
+
+void MqttForwarderService::publishUndeliveredControlResults(std::int64_t nowMs) {
+    const auto records = controlResultStore_->loadUndelivered(1);
+    if (!records.empty()) {
+        (void)publishStoredControlResult(records.front(), nowMs);
+    }
+}
+
+std::string MqttForwarderService::buildFinalControlResultPayload(
+    const PendingControlResult& pending,
+    const std::vector<WritebackResultRecord>& results,
+    bool timedOut,
+    std::int64_t nowMs
+) const {
+    std::unordered_map<std::uint32_t, const WritebackResultRecord*> resultsByIndex;
+    const bool submissionConfirmed = pending.submitted || !results.empty();
+    bool success = submissionConfirmed && !timedOut && results.size() == pending.routes.size();
+    std::int64_t requestedAt = pending.acceptedAtMs;
+    std::int64_t writeStartedAt = 0;
+    std::int64_t writeCompletedAt = 0;
+    std::int64_t queueDelayMs = 0;
+    std::int64_t deviceWriteMs = 0;
+    std::int64_t edgeElapsedMs = 0;
+    std::int64_t totalElapsedMs = 0;
+    std::string message = timedOut
+        ? (submissionConfirmed ? "writeback result timeout" : "control submission outcome is uncertain")
+        : "device write completed";
+    for (const auto& result : results) {
+        resultsByIndex[result.index] = &result;
+        success = success && result.success;
+        if (!result.success && message == "device write completed") {
+            message = result.message.empty() ? "device write failed" : result.message;
+        }
+        if (result.requestedAt > 0) {
+            requestedAt = std::min(requestedAt, result.requestedAt);
+        }
+        if (result.startedAt > 0 && (writeStartedAt == 0 || result.startedAt < writeStartedAt)) {
+            writeStartedAt = result.startedAt;
+        }
+        writeCompletedAt = std::max(writeCompletedAt, result.completedAt);
+        queueDelayMs = std::max(queueDelayMs, result.queueDelayMs);
+        deviceWriteMs = std::max(deviceWriteMs, result.deviceWriteMs);
+        edgeElapsedMs = std::max(edgeElapsedMs, result.edgeElapsedMs);
+        totalElapsedMs = std::max(totalElapsedMs, result.totalElapsedMs);
+    }
+    if (timedOut) {
+        totalElapsedMs = std::max<std::int64_t>(
+            totalElapsedMs,
+            std::max<std::int64_t>(0, nowMs - pending.acceptedAtMs)
+        );
+        edgeElapsedMs = std::max(edgeElapsedMs, totalElapsedMs);
+    }
+
+    std::ostringstream payload;
+    payload << "{\"id\":\"" << escapeJson(pending.id) << "\""
+            << ",\"type\":" << pending.type
+            << ",\"accepted\":" << (submissionConfirmed ? "true" : "false")
+            << ",\"duplicate\":false"
+            << ",\"mode\":\"" << (ownership_->active(nowMs) ? "remote" : "local") << "\""
+            << ",\"targetKw\":" << pending.targetKw
+            << ",\"generation\":" << pending.generation
+            << ",\"stage\":\""
+            << (timedOut
+                ? (submissionConfirmed ? "writeback-timeout" : "submission-uncertain")
+                : "device-result")
+            << "\""
+            << ",\"success\":" << (success ? "true" : "false")
+            << ",\"message\":\"" << escapeJson(message) << "\""
+            << ",\"requestedAt\":" << requestedAt
+            << ",\"acceptedAt\":" << pending.acceptedAtMs
+            << ",\"writeStartedAt\":" << writeStartedAt
+            << ",\"writeCompletedAt\":" << writeCompletedAt
+            << ",\"queueDelayMs\":" << queueDelayMs
+            << ",\"deviceWriteMs\":" << deviceWriteMs
+            << ",\"edgeElapsedMs\":" << edgeElapsedMs
+            << ",\"totalElapsedMs\":" << totalElapsedMs
+            << ",\"results\":[";
+    for (std::size_t i = 0; i < pending.routes.size(); ++i) {
+        const auto& route = pending.routes[i];
+        const auto found = resultsByIndex.find(route.index);
+        payload << (i == 0 ? "" : ",") << "{\"index\":" << route.index;
+        if (found == resultsByIndex.end()) {
+            payload << ",\"success\":false,\"stage\":\"writeback-timeout\""
+                    << ",\"message\":\"writeback result timeout\"";
+        } else {
+            const auto& result = *found->second;
+            payload << ",\"value\":" << result.value
+                    << ",\"success\":" << (result.success ? "true" : "false")
+                    << ",\"stage\":\"" << escapeJson(result.stage) << "\""
+                    << ",\"message\":\"" << escapeJson(result.message) << "\""
+                    << ",\"queueDelayMs\":" << result.queueDelayMs
+                    << ",\"deviceWriteMs\":" << result.deviceWriteMs
+                    << ",\"edgeElapsedMs\":" << result.edgeElapsedMs
+                    << ",\"totalElapsedMs\":" << result.totalElapsedMs
+                    << ",\"verifyAttempted\":" << (result.verifyAttempted ? "true" : "false")
+                    << ",\"verifyPassed\":" << (result.verifyPassed ? "true" : "false");
+        }
+        payload << "}";
+    }
+    payload << "],\"ts\":" << nowMs << "}";
+    return payload.str();
+}
+
+bool MqttForwarderService::publishStoredControlResult(
+    const MqttControlResultRecord& record,
+    std::int64_t nowMs
+) const {
+    if (record.finalPayload.empty()) {
+        return false;
+    }
+    if (forwardConfig_.control.replyTopic.empty()) {
+        return controlResultStore_->markDelivered(record.id, record.fingerprint, nowMs);
+    }
+    try {
+        publisher_->publishReliableJsonMessage(
+            forwardConfig_.control.replyTopic,
+            record.finalPayload
+        );
+        if (!controlResultStore_->markDelivered(record.id, record.fingerprint, currentTimeMs())) {
+            writeHealth(false, "final control reply acknowledged but delivery state was not persisted", 0, nowMs);
+            return false;
+        }
+        return true;
+    } catch (const std::exception& ex) {
+        writeHealth(false, std::string("final control reply failed: ") + ex.what(), 0, nowMs);
+        std::cerr << "mqtt forwarder final control reply failed error=" << ex.what() << std::endl;
+        return false;
+    }
 }
 
 void MqttForwarderService::publishControlReply(

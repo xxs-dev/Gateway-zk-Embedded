@@ -123,6 +123,18 @@ public:
     ) const;
     std::vector<MemoryStoreStats> getStoreStats() const;
 
+    bool usesOnlyStores(const std::vector<MemoryPointStore*>& stores) const {
+        for (const auto& entry : stores_) {
+            if (!entry.second) continue;
+            bool found = false;
+            for (auto* store : stores) {
+                if (store == entry.second) { found = true; break; }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
 private:
     MemoryPointStore* storeForRoute(const PointStoreRoute& route) const;
     StoredPointValue enrich(StoredPointValue value) const;

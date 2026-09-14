@@ -105,6 +105,7 @@ private:
         GraphEmsRunResult& result
     );
     bool runChargeDischargeCycleTest(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
+    bool runGridReserve(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runTimedChargeDischarge(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPhotovoltaicCharge(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPhaseBalance(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
@@ -204,6 +205,7 @@ private:
         std::int64_t enteredAt = 0;
     };
     std::unordered_map<std::string, SequenceState> sequenceStates_;
+    std::unordered_map<std::string, bool> gridReserveCharging_;
 };
 
 }  // namespace edge_gateway

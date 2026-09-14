@@ -107,6 +107,9 @@ private:
         edge_gateway::Optional<double> inputMaxValue;
         double inputStep = 0.0;
         bool inputWritable = false;
+        bool pauseGuardRequired = false;
+        std::string pauseGuardModeTag;
+        std::string pauseGuardAppliedTag;
         edge_gateway::ScadaWidgetAction action;
         std::vector<std::uint32_t> indexes;
         ScadaValueMap valueMap;
@@ -162,7 +165,13 @@ private:
     };
 
     void buildScene();
-    void handleAction(const edge_gateway::ScadaWidgetAction& action);
+    void handleAction(const edge_gateway::ScadaWidgetAction& action,
+                      const std::string& pauseModeTag = "",
+                      const std::string& pauseAppliedTag = "",
+                      bool pauseGuardRequired = false);
+    bool pauseGuardSatisfied(const std::string& modeTag, const std::string& appliedTag,
+                             std::int64_t now) const;
+    bool requirePausedControl(const std::string& modeTag, const std::string& appliedTag);
     bool conditionMatches(
         const RuntimeCondition& condition,
         const std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue>& values
@@ -202,6 +211,7 @@ private:
     QGraphicsScene* scene_ = nullptr;
     QTimer* flowAnimationTimer_ = nullptr;
     std::vector<RuntimeWidget> runtimeWidgets_;
+    std::vector<std::uint32_t> pauseGuardIndexes_;
     RuntimeWidget* panningTrend_ = nullptr;
     QPointF lastPanScenePosition_;
 };
