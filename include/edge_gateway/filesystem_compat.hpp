@@ -21,7 +21,7 @@ inline filesystem::path normalizedAbsolutePath(const filesystem::path& path) {
     filesystem::path result = path.root_path();
     for (const auto& part : parts) result /= part;
     const auto last = path.filename();
-    if (!parts.empty() && (last.empty() || last == "." || last == "..")) result /= "";
+    if (!parts.empty() && (last.empty() || last == "." || last == "..")) result += "/";
     return result;
 }
 }
