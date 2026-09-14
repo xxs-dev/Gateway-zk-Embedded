@@ -4,7 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <functional>
 #include <iostream>
 #include <iterator>
@@ -199,7 +199,7 @@ ServiceFixture makeFixture(
 
     fixture.deviceConfig.machineCode = "GW_TEST";
     fixture.deviceConfig.memoryStore.sharedMemoryName = fixture.shmName;
-    fixture.deviceConfig.memoryStore.controlDedupPath = std::filesystem::absolute(fixture.shmName + "_dedup.db").string();
+    fixture.deviceConfig.memoryStore.controlDedupPath = edge_gateway::filesystem::absolute(fixture.shmName + "_dedup.db").string();
     std::remove(fixture.deviceConfig.memoryStore.controlDedupPath.c_str());
     LogicalDeviceConfig meter;
     meter.meterCode = "METER_1";

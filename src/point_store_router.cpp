@@ -11,7 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -440,7 +440,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
 ) {
     std::string commonDedupPath;
     for (const auto& config : deviceConfigs) {
-        const auto path = std::filesystem::path(config.memoryStore.controlDedupPath).lexically_normal();
+        const auto path = normalizedAbsolutePath(edge_gateway::filesystem::path(config.memoryStore.controlDedupPath));
         if (!path.is_absolute()) throw std::invalid_argument("controlDedupPath must be absolute");
         if (!commonDedupPath.empty() && commonDedupPath != path.string())
             throw std::invalid_argument("all device controlDedupPath values must match; per-route ledgers are unsafe");

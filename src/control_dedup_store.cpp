@@ -2,7 +2,7 @@
 #include "edge_gateway/writeback_service.hpp"
 
 #include <cmath>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <iomanip>
 #include <limits>
 #include <locale>
@@ -64,7 +64,7 @@ Api& api() { static Api value; return value; }
 struct Db {
     sqlite3* handle = nullptr;
     explicit Db(const std::string& path, bool write) {
-        if (write) std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+        if (write) edge_gateway::filesystem::create_directories(edge_gateway::filesystem::path(path).parent_path());
         auto& a = api();
         if (a.open(path.c_str(), &handle, (write ? 6 : 1) | 0x10000, nullptr) != 0) {
             if (handle) a.close(handle);
@@ -172,7 +172,7 @@ void bounded(const std::string& text, std::size_t max) {
 
 ControlDedupStore::ControlDedupStore(std::string path, std::size_t capacity)
     : path_(std::move(path)), capacity_(capacity) {
-    if (!std::filesystem::path(path_).is_absolute() || capacity_ == 0 || capacity_ > 100000)
+    if (!edge_gateway::filesystem::path(path_).is_absolute() || capacity_ == 0 || capacity_ > 100000)
         throw std::invalid_argument("control dedup requires an absolute persistent path and capacity 1..100000");
 }
 
@@ -188,7 +188,7 @@ Optional<WritebackResultRecord> ControlDedupStore::bind(const std::string& machi
         return NullOpt;
     };
     // Existing receipts remain readable even when writes/capacity are unavailable.
-    if (std::filesystem::exists(path_)) {
+    if (edge_gateway::filesystem::exists(path_)) {
         Db db(path_, false);
         const auto row = read(db, machine, meter, c.cmdId);
         if (row) return inspect(*row);

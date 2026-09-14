@@ -1,7 +1,7 @@
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/writeback_service.hpp"
 #include "control_dedup_test_support.hpp"
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>

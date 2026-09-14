@@ -494,7 +494,7 @@ MqttEventOutbox::MqttEventOutbox(
     int retentionDays
 ) : dbPath_(std::move(dbPath)),
     libraryPath_(std::move(libraryPath)),
-    retentionDays_(std::clamp(retentionDays, 1, 3650)),
+    retentionDays_(std::min(std::max(retentionDays, 1), 3650)),
     cleanupIntervalHours_(cleanupIntervalHours <= 0 ? 24 : cleanupIntervalHours),
     replayBatchSize_(replayBatchSize == 0 ? 100 : replayBatchSize),
     maxDiskBytes_(maxDiskBytes),

@@ -154,7 +154,7 @@ void gatewayTest() {
     f.config.memoryStore.controlDedupPath = f.dir.file("nonexistent/internal.db"); f.restart();
     c = f.command(""); c.durableControl = false;
     f.store->submitWriteCommand(c); f.gateway->processWritebackOnce(101);
-    require(f.hardware->writes == 6 && !std::filesystem::exists(f.config.memoryStore.controlDedupPath),
+    require(f.hardware->writes == 6 && !edge_gateway::filesystem::exists(f.config.memoryStore.controlDedupPath),
             "internal writes must not touch dedup DB");
     require(dedup_test::Database(f.dir.file("ledger.db")).count() == count, "internal must not consume capacity");
     for (int version : {8, 9}) {

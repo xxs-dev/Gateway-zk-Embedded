@@ -199,7 +199,7 @@ bool tableHasColumn(sqlite3* db, const char* table, const char* column) {
 
 SqliteAlarmWriter::SqliteAlarmWriter(std::string dbPath, std::string libraryPath, int retentionDays)
     : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)),
-      retentionDays_(std::clamp(retentionDays, 1, 3650)) {
+      retentionDays_(std::min(std::max(retentionDays, 1), 3650)) {
     try {
         loadLibrary();
         openDatabase();

@@ -79,7 +79,7 @@ void alarmRetention() {
     for (int days : {30, 45, 0, 99999}) {
         Database db;
         SqliteAlarmWriter writer(db.path, "", days);
-        const auto cutoff = kNow - std::clamp(days, 1, 3650) * kDay;
+        const auto cutoff = kNow - std::min(std::max(days, 1), 3650) * kDay;
         const auto base = Clock::now() + 1h;
         writer.writeEvents({alarm("old", cutoff - 1), alarm("boundary", cutoff), alarm("future", kNow + kDay)});
         require(db.rows("alarm_events") == 3, "writes must not perform inline expiry");

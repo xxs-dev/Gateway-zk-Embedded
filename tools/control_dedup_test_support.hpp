@@ -1,6 +1,6 @@
 #pragma once
 #include <dlfcn.h>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <stdexcept>
 #include <string>
 #include <unistd.h>
@@ -38,13 +38,13 @@ struct Database {
     }
 };
 struct Directory {
-    std::filesystem::path path;
+    edge_gateway::filesystem::path path;
     Directory() {
         static unsigned sequence = 0;
-        path = std::filesystem::absolute("control-fixture-" + std::to_string(getpid()) + "-" + std::to_string(++sequence));
-        std::filesystem::create_directories(path);
+        path = edge_gateway::filesystem::absolute("control-fixture-" + std::to_string(getpid()) + "-" + std::to_string(++sequence));
+        edge_gateway::filesystem::create_directories(path);
     }
-    ~Directory() { std::filesystem::remove_all(path); }
+    ~Directory() { edge_gateway::filesystem::remove_all(path); }
     std::string file(const char* name) const { return (path / name).string(); }
 };
 }

@@ -87,6 +87,9 @@ add_library(edge_gateway
 )
 
 target_include_directories(edge_gateway PUBLIC include)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8)
+    target_link_libraries(edge_gateway PUBLIC stdc++fs)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_library(event_store_runtime src/event_store_runtime.cpp)
@@ -455,6 +458,12 @@ target_link_libraries(memory_point_store_lifecycle_test PRIVATE edge_gateway)
 target_compile_options(memory_point_store_lifecycle_test PRIVATE -fdiagnostics-color=never)
 
 if(UNIX)
+    add_executable(filesystem_compat_test tools/filesystem_compat_test.cpp)
+    target_include_directories(filesystem_compat_test PRIVATE include)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8)
+        target_link_libraries(filesystem_compat_test PRIVATE stdc++fs)
+    endif()
+    add_test(NAME filesystem_compat COMMAND filesystem_compat_test)
     add_executable(control_dedup_store_test tools/control_dedup_store_test.cpp)
     target_link_libraries(control_dedup_store_test PRIVATE edge_gateway)
     add_test(NAME control_dedup_store COMMAND control_dedup_store_test)

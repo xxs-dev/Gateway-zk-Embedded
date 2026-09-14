@@ -93,7 +93,7 @@ lib_dir="$SYSROOT/usr/lib/aarch64-linux-gnu"
   "$EDGE_BUILD_DIR/libedge_gateway.a" \
   -L"$lib_dir" \
   -lQt5Widgets -lQt5Gui -lQt5Core -lGLESv2 \
-  -ldl -lpthread -lrt
+  -ldl -lpthread -lrt -lstdc++fs
 
 "$TOOLCHAIN_BIN/aarch64-linux-gnu-strip" --strip-unneeded "$BUILD_DIR/KY-SCADA"
 file "$BUILD_DIR/KY-SCADA"

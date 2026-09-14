@@ -128,7 +128,7 @@ void rollbackNoThrow(sqlite3* db) noexcept {
 
 SqliteSampleWriter::SqliteSampleWriter(std::string dbPath, std::string libraryPath, int retentionDays)
     : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)),
-      retentionDays_(std::clamp(retentionDays, 1, 3650)) {
+      retentionDays_(std::min(std::max(retentionDays, 1), 3650)) {
     if (dbPath_.empty()) {
         return;
     }

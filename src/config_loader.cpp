@@ -1394,7 +1394,7 @@ PointHistoryConfig parsePointHistoryConfig(const JsonValue* value) {
     const auto* days = findValue(value->asObject(), "retentionDays");
     if (days != nullptr && !days->isNull()) {
         // Clamp before converting to int, including numeric inputs outside the int range.
-        config.retentionDays = static_cast<int>(std::clamp(days->asNumber(), 1.0, 3650.0));
+        config.retentionDays = static_cast<int>(std::min(std::max(days->asNumber(), 1.0), 3650.0));
     }
     return config;
 }
