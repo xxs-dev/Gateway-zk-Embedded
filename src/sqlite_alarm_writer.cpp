@@ -1,6 +1,8 @@
 #include "edge_gateway/sqlite_alarm_writer.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -33,6 +35,7 @@ using sqlite3_finalize_fn = int (*)(sqlite3_stmt*);
 using sqlite3_errmsg_fn = const char* (*)(sqlite3*);
 using sqlite3_free_fn = void (*)(void*);
 using sqlite3_busy_timeout_fn = int (*)(sqlite3*, int);
+using sqlite3_changes_fn = int (*)(sqlite3*);
 
 constexpr int kSqliteOk = 0;
 constexpr int kSqliteBusy = 5;
@@ -59,6 +62,7 @@ sqlite3_finalize_fn g_sqlite3_finalize = nullptr;
 sqlite3_errmsg_fn g_sqlite3_errmsg = nullptr;
 sqlite3_free_fn g_sqlite3_free = nullptr;
 sqlite3_busy_timeout_fn g_sqlite3_busy_timeout = nullptr;
+sqlite3_changes_fn g_sqlite3_changes = nullptr;
 
 class StatementGuard {
 public:
@@ -193,8 +197,9 @@ bool tableHasColumn(sqlite3* db, const char* table, const char* column) {
 
 }  // namespace
 
-SqliteAlarmWriter::SqliteAlarmWriter(std::string dbPath, std::string libraryPath)
-    : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)) {
+SqliteAlarmWriter::SqliteAlarmWriter(std::string dbPath, std::string libraryPath, int retentionDays)
+    : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)),
+      retentionDays_(std::clamp(retentionDays, 1, 3650)) {
     try {
         loadLibrary();
         openDatabase();
@@ -258,6 +263,32 @@ void SqliteAlarmWriter::writeEvents(const std::vector<AlarmEvent>& events) {
     }
 }
 
+void SqliteAlarmWriter::cleanupExpiredEvents(std::int64_t nowMs, MaintenanceClock::time_point now) {
+    if (now < nextCleanup_) return;
+    const auto retentionMs = static_cast<std::int64_t>(retentionDays_) * 86400000;
+    const auto cutoff = nowMs < std::numeric_limits<std::int64_t>::min() + retentionMs
+        ? std::numeric_limits<std::int64_t>::min() : nowMs - retentionMs;
+    auto* db = static_cast<sqlite3*>(databaseHandle_);
+    StatementGuard stmt;
+    const char* sql = "DELETE FROM alarm_events WHERE id IN ("
+        "SELECT id FROM alarm_events INDEXED BY idx_alarm_events_ts_id "
+        "WHERE ts < ? ORDER BY ts,id LIMIT 512);";
+    try {
+        if (g_sqlite3_prepare_v2(db, sql, -1, stmt.output(), nullptr) != kSqliteOk ||
+            g_sqlite3_bind_int64(stmt.get(), 1, cutoff) != kSqliteOk ||
+            g_sqlite3_step(stmt.get()) != kSqliteDone) {
+            throw std::runtime_error(sqliteError(db));
+        }
+    } catch (...) {
+        stmt.finalize();
+        nextCleanup_ = std::max(now, MaintenanceClock::now()) + std::chrono::seconds(5);
+        throw;
+    }
+    const auto delay = std::chrono::seconds(g_sqlite3_changes(db) == 512 ? 1 : 60);
+    stmt.finalize();
+    nextCleanup_ = std::max(now, MaintenanceClock::now()) + delay;
+}
+
 void SqliteAlarmWriter::loadLibrary() {
     if (libraryHandle_ != nullptr) {
         return;
@@ -300,6 +331,7 @@ void SqliteAlarmWriter::loadLibrary() {
     g_sqlite3_errmsg = reinterpret_cast<sqlite3_errmsg_fn>(loadSymbol(libraryHandle_, "sqlite3_errmsg"));
     g_sqlite3_free = reinterpret_cast<sqlite3_free_fn>(loadSymbol(libraryHandle_, "sqlite3_free"));
     g_sqlite3_busy_timeout = reinterpret_cast<sqlite3_busy_timeout_fn>(loadSymbol(libraryHandle_, "sqlite3_busy_timeout"));
+    g_sqlite3_changes = reinterpret_cast<sqlite3_changes_fn>(loadSymbol(libraryHandle_, "sqlite3_changes"));
 }
 
 void SqliteAlarmWriter::openDatabase() {
@@ -354,6 +386,7 @@ void SqliteAlarmWriter::ensureSchema() {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_events_event_id "
         "ON alarm_events(event_id) WHERE event_id IS NOT NULL AND event_id <> '';"
     );
+    execOrThrow(db, "CREATE INDEX IF NOT EXISTS idx_alarm_events_ts_id ON alarm_events(ts,id);");
 }
 
 void SqliteAlarmWriter::closeDatabase() {

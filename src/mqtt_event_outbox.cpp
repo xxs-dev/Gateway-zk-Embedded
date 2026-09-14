@@ -490,15 +490,17 @@ MqttEventOutbox::MqttEventOutbox(
     std::size_t replayBatchSize,
     std::size_t maxDiskBytes,
     StorageProfile storageProfile,
-    AccessMode accessMode
+    AccessMode accessMode,
+    int retentionDays
 ) : dbPath_(std::move(dbPath)),
     libraryPath_(std::move(libraryPath)),
-    retentionMonths_(retentionMonths <= 0 ? 12 : retentionMonths),
+    retentionDays_(std::clamp(retentionDays, 1, 3650)),
     cleanupIntervalHours_(cleanupIntervalHours <= 0 ? 24 : cleanupIntervalHours),
     replayBatchSize_(replayBatchSize == 0 ? 100 : replayBatchSize),
     maxDiskBytes_(maxDiskBytes),
     storageProfile_(storageProfile),
     accessMode_(accessMode) {
+    (void)retentionMonths; // Legacy constructor compatibility; global days supersede calendar months.
     try {
         loadLibrary();
         openDatabase();
@@ -1351,22 +1353,46 @@ void MqttEventOutbox::releaseClaim(std::int64_t id, const std::string& claimToke
     g_finalize(stmt);
 }
 
-void MqttEventOutbox::cleanupIfDue(std::int64_t nowMs) {
-    if (lastCleanupMs_ > 0 &&
-        nowMs - lastCleanupMs_ < static_cast<std::int64_t>(cleanupIntervalHours_) * 60 * 60 * 1000) {
-        return;
-    }
-    lastCleanupMs_ = nowMs;
-    const auto beforeMonth = cleanupBeforeMonth(nowMs);
+void MqttEventOutbox::cleanupIfDue(std::int64_t nowMs, MaintenanceClock::time_point now) {
+    if (accessMode_ != AccessMode::ReadWrite || now < nextCleanup_) return;
+    const auto retentionMs = static_cast<std::int64_t>(retentionDays_) * 86400000;
+    const auto cutoff = nowMs < std::numeric_limits<std::int64_t>::min() + retentionMs
+        ? std::numeric_limits<std::int64_t>::min() : nowMs - retentionMs;
     auto* db = static_cast<sqlite3*>(checkedDatabase());
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "DELETE FROM mqtt_event_outbox WHERE sent=1 AND event_month < ?;";
-    if (g_prepare(db, sql, -1, &stmt, nullptr) != kSqliteOk) {
-        return;
+    // IPC rows are also immutable dedup identities. Do not reclaim them with Legacy expiry.
+    const char* identitySql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_store_identity';";
+    const char* sql = "DELETE FROM mqtt_event_outbox WHERE id IN ("
+        "SELECT id FROM mqtt_event_outbox INDEXED BY idx_mqtt_event_outbox_expiry_days "
+        "WHERE sent=1 AND event_ts < ? "
+        "ORDER BY event_ts,id LIMIT 512);";
+    try {
+        if (g_prepare(db, identitySql, -1, &stmt, nullptr) != kSqliteOk) {
+            throw std::runtime_error(sqliteError(db));
+        }
+        const auto identity = g_step(stmt);
+        if (identity != kSqliteRow && identity != kSqliteDone) {
+            throw std::runtime_error(sqliteError(db));
+        }
+        g_finalize(stmt);
+        stmt = nullptr;
+        if (identity == kSqliteRow) {
+            nextCleanup_ = std::max(now, MaintenanceClock::now()) + std::chrono::hours(cleanupIntervalHours_);
+            return;
+        }
+        if (g_prepare(db, sql, -1, &stmt, nullptr) != kSqliteOk ||
+            g_bind_int64(stmt, 1, cutoff) != kSqliteOk || g_step(stmt) != kSqliteDone) {
+            throw std::runtime_error(sqliteError(db));
+        }
+    } catch (...) {
+        if (stmt) g_finalize(stmt);
+        nextCleanup_ = std::max(now, MaintenanceClock::now()) + std::chrono::seconds(5);
+        throw;
     }
-    g_bind_text(stmt, 1, beforeMonth.c_str(), -1, nullptr);
-    g_step(stmt);
+    const auto delay = g_changes(db) == 512 ? std::chrono::seconds(1)
+        : std::chrono::duration_cast<std::chrono::seconds>(std::chrono::hours(cleanupIntervalHours_));
     g_finalize(stmt);
+    nextCleanup_ = std::max(now, MaintenanceClock::now()) + delay;
 }
 
 void MqttEventOutbox::loadLibrary() {
@@ -1551,6 +1577,8 @@ void MqttEventOutbox::ensureSchema() {
             "CREATE INDEX IF NOT EXISTS idx_mqtt_event_outbox_cleanup "
             "ON mqtt_event_outbox(sent, event_month);"
         );
+        execOnceOrThrow(db, "CREATE INDEX IF NOT EXISTS idx_mqtt_event_outbox_expiry_days "
+            "ON mqtt_event_outbox(sent,event_ts,id);");
         execOnceOrThrow(
             db,
             "CREATE TABLE IF NOT EXISTS mqtt_event_state ("
@@ -2054,27 +2082,6 @@ std::string MqttEventOutbox::eventMonth(std::int64_t eventTs) const {
     out << (tm.tm_year + 1900) << "-";
     if (tm.tm_mon + 1 < 10) out << "0";
     out << (tm.tm_mon + 1);
-    return out.str();
-}
-
-std::string MqttEventOutbox::cleanupBeforeMonth(std::int64_t nowMs) const {
-    const std::time_t sec = static_cast<std::time_t>(nowMs / 1000);
-    std::tm tm {};
-#ifdef _WIN32
-    gmtime_s(&tm, &sec);
-#else
-    gmtime_r(&sec, &tm);
-#endif
-    int year = tm.tm_year + 1900;
-    int month = tm.tm_mon + 1 - retentionMonths_;
-    while (month <= 0) {
-        month += 12;
-        --year;
-    }
-    std::ostringstream out;
-    out << year << "-";
-    if (month < 10) out << "0";
-    out << month;
     return out.str();
 }
 

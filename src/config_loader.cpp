@@ -4136,6 +4136,7 @@ AppConfig parseAppConfig(const std::string& text) {
     config.pointHistory = parsePointHistoryConfig(root.find("pointHistory"));
     config.timingPolicy = parseTimingPolicy(root.find("timingPolicy"));
     config.mqtt = parseMqttConfig(root.find("mqtt"));
+    config.mqtt.eventOutboxRetentionDays = config.pointHistory.retentionDays;
     config.mqttForward = parseMqttForwardConfig(root.find("mqttForward"));
     config.mqttDriver = parseMqttDriverConfig(root.find("mqttDriver"));
     config.eventEngine = parseEventEngineConfig(root.find("eventEngine"));

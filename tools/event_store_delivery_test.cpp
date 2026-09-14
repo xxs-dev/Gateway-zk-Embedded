@@ -716,19 +716,20 @@ void claimedRowCleanupProtection() {
     finish(db, finishRequest("AckBatch", 2, batch, {batch.items[0]}), {"APPLIED"});
     DataVersion observer(db.path(), db.library);
     const std::int64_t future = 2000000000000LL;
-    db.box->cleanupIfDue(future);
-    require(observer.scalar("SELECT count(*) FROM mqtt_event_outbox WHERE event_id='old-sent';") == 0,
-        "cleanup fixture did not remove an old sent row");
+    const auto maintenance = Outbox::MaintenanceClock::now() + std::chrono::hours(1);
+    db.box->cleanupIfDue(future, maintenance);
+    require(observer.scalar("SELECT count(*) FROM mqtt_event_outbox WHERE event_id='old-sent' AND sent=1;") == 1,
+        "legacy cleanup removed IPC acknowledged dedup identity");
     require(observer.scalar("SELECT count(*) FROM mqtt_event_outbox WHERE sent=0;") == 2 &&
         db.box->pendingCount("main") == 2, "cleanup removed old pending/claimed rows");
     require(observer.scalar("SELECT claim_until FROM mqtt_event_outbox WHERE event_id='old-claimed';") ==
         std::numeric_limits<std::int64_t>::max(), "cleanup changed claim protection");
     rejectsUnchanged(db, claimRequest(3));
     finish(db, finishRequest("AckBatch", 3, batch, {batch.items[1]}), {"APPLIED"});
-    db.box->cleanupIfDue(future + 24 * 60 * 60 * 1000LL + 1);
-    require(observer.scalar("SELECT count(*) FROM mqtt_event_outbox WHERE event_id='old-claimed';") == 0 &&
+    db.box->cleanupIfDue(future + 24 * 60 * 60 * 1000LL + 1, maintenance + std::chrono::hours(25));
+    require(observer.scalar("SELECT count(*) FROM mqtt_event_outbox WHERE event_id='old-claimed' AND sent=1;") == 1 &&
         observer.scalar("SELECT count(*) FROM mqtt_event_outbox WHERE event_id='old-unclaimed';") == 1 &&
-        db.box->pendingCount("main") == 1, "cleanup did not restrict deletion to sent=1");
+        db.box->pendingCount("main") == 1, "cleanup changed IPC delivery/dedup state");
 }
 
 void realLeaseClock() {
@@ -998,7 +999,7 @@ int main(int argc, char** argv) {
         failed += !run("byte-count-limits-oversized-head", limitsAndOversizedHead);
         failed += !run("read-only-delivery-contract", readOnlyContract);
         failed += !run("claimed-row-prune-int64-max-protection", claimedRowPruneProtection);
-        failed += !run("claimed-row-cleanup-sent-only-protection", claimedRowCleanupProtection);
+        failed += !run("legacy-cleanup-preserves-ipc-delivery-identities", claimedRowCleanupProtection);
         failed += !run("real-boot-clock-consecutive-samples", realLeaseClock);
         failed += !run("delivery-response-byte-limit-rollback-reopen", deliveryResponseLimit);
         failed += !run("foreign-claim-startup-reject-explicit-repair", foreignClaimStartupGuard);

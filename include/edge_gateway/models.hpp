@@ -720,6 +720,8 @@ struct MqttConfig {
     std::string eventOutboxSqlitePath = "/opt/modbus-gateway/data/mqtt_event_outbox.db";
     std::string eventOutboxSqliteLibraryPath;
     int eventOutboxRetentionMonths = 12;
+    // Effective global policy; retentionMonths is accepted only for old config compatibility.
+    int eventOutboxRetentionDays = PointHistoryConfig{}.retentionDays;
     int eventOutboxCleanupIntervalHours = 24;
     std::size_t eventOutboxReplayBatchSize = 100;
     std::size_t eventOutboxMaxDiskBytes = 32 * 1024 * 1024;

@@ -1,7 +1,9 @@
 #pragma once
 
 #include "edge_gateway/event_store_stats.hpp"
+#include "edge_gateway/models.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -13,6 +15,7 @@ class EventStoreDatabase;
 
 class MqttEventOutbox {
 public:
+    using MaintenanceClock = std::chrono::steady_clock;
     enum class AccessMode { ReadWrite, ReadOnly };
     // Change journal profiles only while all users of a database are stopped.
     // Every writer must use the same profile; do not mix SQLite libraries within one process.
@@ -77,7 +80,8 @@ public:
         std::size_t replayBatchSize,
         std::size_t maxDiskBytes = 0,
         StorageProfile storageProfile = StorageProfile::DeleteNormal,
-        AccessMode accessMode = AccessMode::ReadWrite
+        AccessMode accessMode = AccessMode::ReadWrite,
+        int retentionDays = PointHistoryConfig{}.retentionDays
     );
     ~MqttEventOutbox();
 
@@ -170,7 +174,8 @@ public:
         std::size_t maxCount,
         const std::function<void(const std::vector<ReplayMessage>&)>& send
     );
-    void cleanupIfDue(std::int64_t nowMs);
+    void cleanupIfDue(std::int64_t nowMs,
+        MaintenanceClock::time_point now = MaintenanceClock::now());
     StorageSettings storageSettings() const;
 
 private:
@@ -216,17 +221,16 @@ private:
     void rollbackAfterFailure() noexcept;
     void unloadLibrary();
     std::string eventMonth(std::int64_t eventTs) const;
-    std::string cleanupBeforeMonth(std::int64_t nowMs) const;
 
     std::string dbPath_;
     std::string libraryPath_;
-    int retentionMonths_;
+    int retentionDays_;
     int cleanupIntervalHours_;
     std::size_t replayBatchSize_;
     std::size_t maxDiskBytes_;
     StorageProfile storageProfile_;
     AccessMode accessMode_;
-    std::int64_t lastCleanupMs_ = 0;
+    MaintenanceClock::time_point nextCleanup_{};
     void* libraryHandle_ = nullptr;
     void* databaseHandle_ = nullptr;
     bool databasePoisoned_ = false;

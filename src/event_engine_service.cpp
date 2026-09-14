@@ -198,6 +198,19 @@ void EventEngineService::runOnce(std::int64_t nowMs) {
     if (commitSink_ && !prepareCommitSink(nowMs)) return;
     if (commitSink_ && !processPendingInputs(nowMs)) return;
     flushPendingAlarmPersistence(nowMs);
+    // Maintenance must run even without new alarms and must not abort event delivery.
+    if (alarmWriter_) {
+        try { alarmWriter_->cleanupExpiredEvents(nowMs); }
+        catch (const std::exception& ex) {
+            std::cerr << "alarm history cleanup failed error=" << ex.what() << std::endl;
+        }
+    }
+    if (eventOutbox_) {
+        try { eventOutbox_->cleanupIfDue(nowMs); }
+        catch (const std::exception& ex) {
+            std::cerr << "event outbox cleanup failed error=" << ex.what() << std::endl;
+        }
+    }
     std::vector<StoredPointValue> values;
     const std::size_t limit = std::max<std::size_t>(1, eventConfig_.updateDrainBatchSize);
     std::size_t sequenceGapCount = 0;

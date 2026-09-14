@@ -2049,7 +2049,10 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(
                     config_.eventOutboxRetentionMonths,
                     config_.eventOutboxCleanupIntervalHours,
                     config_.eventOutboxReplayBatchSize,
-                    config_.eventOutboxMaxDiskBytes
+                    config_.eventOutboxMaxDiskBytes,
+                    MqttEventOutbox::StorageProfile::DeleteNormal,
+                    MqttEventOutbox::AccessMode::ReadWrite,
+                    config_.eventOutboxRetentionDays
                 ));
             } catch (...) {
                 eventOutbox_.reset();

@@ -100,7 +100,10 @@ std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(
                 config.eventOutboxRetentionMonths,
                 config.eventOutboxCleanupIntervalHours,
                 config.eventOutboxReplayBatchSize,
-                config.eventOutboxMaxDiskBytes
+                config.eventOutboxMaxDiskBytes,
+                edge_gateway::MqttEventOutbox::StorageProfile::DeleteNormal,
+                edge_gateway::MqttEventOutbox::AccessMode::ReadWrite,
+                config.eventOutboxRetentionDays
             ));
         } catch (const std::exception& ex) {
             lastError = ex.what();
