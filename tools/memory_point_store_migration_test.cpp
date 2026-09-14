@@ -242,6 +242,46 @@ void rejectionCases() {
     refusal(f, "mutex", migrate);
     std::cout << "PASS fail-closed cases, exact original bytes retained\n";
 }
+
+void deduplication(std::uint32_t version) {
+    Fixture f(version);
+    auto before = f.read();
+    before->latest[5] = before->latest[0];
+    before->latest[5].ts += 1;
+    before->latest[7] = before->latest[5];
+    before->latest[7].reserved[0] = 99;
+    before->header.latestCount = 4;
+    f.save(*before);
+    refusal(f, "duplicate latest", [&] { migrateOfflinePointStore(f.name, f.backup, true); });
+    OfflineMigrationOptions options;
+    options.checkOnly = true;
+    options.deduplicateLatest = true;
+    const auto plan = migrateOfflinePointStore(f.name, "", true, options);
+    require(plan.oldVersion == version && plan.occupiedBefore == 4 && plan.occupiedAfter == 2 &&
+        plan.duplicateGroups.size() == 1 && plan.removedCount == 2, "incorrect dedup summary");
+    const auto& group = plan.duplicateGroups[0];
+    require(group.index == 1001 && group.winnerSlot == 5 &&
+        group.removedSlots == std::vector<std::uint32_t>({0, 7}), "incorrect original winner/loser slots");
+    auto checked = f.read();
+    require(std::memcmp(before.get(), checked.get(), sizeof(*before)) == 0 &&
+        access(f.backup.c_str(), F_OK) != 0, "check wrote bytes or backup");
+    options.checkOnly = false;
+    const auto result = migrateOfflinePointStore(f.name, f.backup, true, options);
+    require(result.removedCount == plan.removedCount, "execute differs from preflight");
+    int backup = open(f.backup.c_str(), O_RDONLY);
+    require(backup >= 0, "dedup backup missing");
+    require(pread(backup, checked.get(), sizeof(*checked), 0) == sizeof(*checked), "dedup backup size");
+    close(backup);
+    require(std::memcmp(before.get(), checked.get(), sizeof(*before)) == 0, "dedup backup mismatch");
+    before->header.version = 10;
+    before->header.latestCount = 2;
+    before->latest[0].occupied = 0;
+    before->latest[7].occupied = 0;
+    checked = f.read();
+    require(std::memcmp(before.get(), checked.get(), sizeof(*before)) == 0, "dedup changed forbidden bytes");
+    refusal(f, "v8 or v9", [&] { migrateOfflinePointStore(f.name, f.backup, true, options); });
+    std::cout << "PASS v" << version << " dedup preflight, original slots and exact allowed bytes\n";
+}
 }  // namespace
 
 int main() {
@@ -253,6 +293,8 @@ int main() {
         success(8);
         success(9);
         rejectionCases();
+        deduplication(8);
+        deduplication(9);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

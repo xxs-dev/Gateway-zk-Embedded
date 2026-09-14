@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace edge_gateway {
 
@@ -9,5 +10,29 @@ namespace edge_gateway {
 // Throws on refusal or IO failure; never unlinks the segment or overwrites a backup.
 std::uint32_t migrateOfflinePointStore(
     const std::string& segmentName, const std::string& backupPath, bool offlineConfirmed);
+
+struct OfflineMigrationOptions {
+    bool checkOnly = false;
+    bool deduplicateLatest = false;
+};
+
+struct LatestDuplicateGroup {
+    std::uint32_t index = 0;
+    std::uint32_t winnerSlot = 0;
+    std::vector<std::uint32_t> removedSlots;
+};
+
+// Slot numbers are zero-based; no sample values are returned.
+struct OfflineMigrationResult {
+    std::uint32_t oldVersion = 0;
+    std::uint32_t occupiedBefore = 0;
+    std::uint32_t occupiedAfter = 0;
+    std::uint32_t removedCount = 0;
+    std::vector<LatestDuplicateGroup> duplicateGroups;
+};
+
+OfflineMigrationResult migrateOfflinePointStore(
+    const std::string& segmentName, const std::string& backupPath, bool offlineConfirmed,
+    const OfflineMigrationOptions& options);
 
 }  // namespace edge_gateway

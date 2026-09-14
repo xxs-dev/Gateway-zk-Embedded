@@ -18,7 +18,7 @@
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
 #include <unistd.h>
-#include <unordered_set>
+#include <map>
 
 namespace edge_gateway {
 namespace {
@@ -96,7 +96,8 @@ void assertNoMappings(const struct stat& segment) {
     }
 }
 
-void validateOfflineLayout(const SharedStoreLayout& layout) {
+OfflineMigrationResult validateOfflineLayout(const SharedStoreLayout& layout, bool deduplicate) {
+    OfflineMigrationResult plan;
     const auto& h = layout.header;
     require(h.magic == kSharedStoreMagic, "invalid SHM magic");
     require(h.version == 8 || h.version == 9, "migration requires SHM v8 or v9");
@@ -122,12 +123,42 @@ void validateOfflineLayout(const SharedStoreLayout& layout) {
         require(!claim.occupied || claim.heartbeatMs <= 0 || claim.heartbeatMs < now - kOwnerLeaseMs,
                 "active or future point claim: wait for expiry with all services stopped");
     }
-    std::unordered_set<std::uint32_t> indexes;
-    for (const auto& latest : layout.latest) {
+    std::map<std::uint32_t, std::vector<std::uint32_t>> indexes;
+    for (std::uint32_t i = 0; i < kMaxLatestSlots; ++i) {
+        const auto& latest = layout.latest[i];
         require(latest.occupied <= 1, "invalid latest occupancy");
-        if (latest.occupied) require(indexes.insert(latest.index).second, "duplicate latest index");
+        if (latest.occupied) {
+            indexes[latest.index].push_back(i);
+            ++plan.occupiedBefore;
+        }
     }
-    require(indexes.size() == h.latestCount, "latest count mismatch");
+    require(plan.occupiedBefore == h.latestCount, "latest count mismatch");
+    plan.oldVersion = h.version;
+    plan.occupiedAfter = static_cast<std::uint32_t>(indexes.size());
+    for (const auto& entry : indexes) {
+        const auto& slots = entry.second;
+        if (slots.size() == 1) continue;
+        require(deduplicate, "duplicate latest index; explicit --deduplicate-latest required");
+        LatestDuplicateGroup group;
+        group.index = entry.first;
+        group.winnerSlot = slots.front();
+        for (auto slot : slots)
+            if (layout.latest[slot].ts > layout.latest[group.winnerSlot].ts) group.winnerSlot = slot;
+        const auto& winner = layout.latest[group.winnerSlot];
+        for (auto slot : slots) {
+            if (slot == group.winnerSlot) continue;
+            const auto& other = layout.latest[slot];
+            if (other.ts == winner.ts &&
+                !(std::memcmp(&other.value, &winner.value, sizeof(winner.value)) == 0 &&
+                  other.quality == winner.quality && other.expireAt == winner.expireAt &&
+                  other.stale == winner.stale))
+                throw std::runtime_error("conflicting highest-ts latest samples for index " +
+                    std::to_string(group.index) + "; migration refused");
+            group.removedSlots.push_back(slot);
+            ++plan.removedCount;
+        }
+        plan.duplicateGroups.push_back(std::move(group));
+    }
 
     // Conservative native-ABI check: never lock/recover the original mutex, since
     // the runtime's EOWNERDEAD recovery clears payload. Unknown representations fail closed.
@@ -146,12 +177,19 @@ void validateOfflineLayout(const SharedStoreLayout& layout) {
     const bool usedAndUnlocked = unlocked == 0 && std::memcmp(&clean, &h.mutex, sizeof(clean)) == 0;
     pthread_mutex_destroy(&clean);
     require(pristine || usedAndUnlocked, "mutex is locked, abandoned, damaged or unsupported by this native ABI; migration refused");
+    return plan;
 }
 
 }  // namespace
 
 std::uint32_t migrateOfflinePointStore(
     const std::string& segmentName, const std::string& backupPath, bool offlineConfirmed) {
+    return migrateOfflinePointStore(segmentName, backupPath, offlineConfirmed, {}).oldVersion;
+}
+
+OfflineMigrationResult migrateOfflinePointStore(
+    const std::string& segmentName, const std::string& backupPath, bool offlineConfirmed,
+    const OfflineMigrationOptions& options) {
     require(offlineConfirmed, "explicit --offline-confirmed required; stop all participants and disable restarts first");
     require(geteuid() == 0, "run as root in the host PID/mount namespaces to inspect all participants");
     std::string name = segmentName;
@@ -159,9 +197,9 @@ std::uint32_t migrateOfflinePointStore(
     require(!name.empty() && name != "." && name != ".." &&
         name.find('/') == std::string::npos && name.find('\0') == std::string::npos,
         "invalid segment name");
-    require(!backupPath.empty() && backupPath.front() == '/' && backupPath.back() != '/' &&
-        backupPath.find('\0') == std::string::npos, "backup requires an absolute regular file path");
-    Fd source(shm_open(("/" + name).c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0));
+    require(options.checkOnly || (!backupPath.empty() && backupPath.front() == '/' && backupPath.back() != '/' &&
+        backupPath.find('\0') == std::string::npos), "backup requires an absolute regular file path");
+    Fd source(shm_open(("/" + name).c_str(), (options.checkOnly ? O_RDONLY : O_RDWR) | O_CLOEXEC | O_NOFOLLOW, 0));
     require(flock(source.value, LOCK_EX | LOCK_NB) == 0, "segment is locked by another opener/migration");
     struct stat original{};
     require(fstat(source.value, &original) == 0 && S_ISREG(original.st_mode) &&
@@ -169,7 +207,8 @@ std::uint32_t migrateOfflinePointStore(
     assertNoMappings(original);
     auto before = std::make_unique<SharedStoreLayout>();
     readExact(source.value, before.get(), sizeof(*before));
-    validateOfflineLayout(*before);
+    const auto plan = validateOfflineLayout(*before, options.deduplicateLatest);
+    if (options.checkOnly) return plan;
 
     const auto separator = backupPath.find_last_of('/');
     Fd parent(open((separator == 0 ? "/" : backupPath.substr(0, separator)).c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
@@ -194,7 +233,21 @@ std::uint32_t migrateOfflinePointStore(
     readExact(source.value, check.get(), sizeof(*check));
     require(std::memcmp(before.get(), check.get(), sizeof(*before)) == 0,
             "segment changed during backup; migration refused");
-    const auto oldVersion = before->header.version;
+    // Apply only the approved occupancy bytes and count, then publish v10 last.
+    // The full expected image below verifies every other byte, including padding.
+    for (const auto& group : plan.duplicateGroups) {
+        for (auto slot : group.removedSlots) {
+            before->latest[slot].occupied = 0;
+            writeExact(source.value, &before->latest[slot].occupied, sizeof(before->latest[slot].occupied),
+                offsetof(SharedStoreLayout, latest) + slot * sizeof(SharedLatestSlot) +
+                offsetof(SharedLatestSlot, occupied));
+        }
+    }
+    if (plan.removedCount) {
+        before->header.latestCount = plan.occupiedAfter;
+        writeExact(source.value, &before->header.latestCount, sizeof(before->header.latestCount),
+            offsetof(SharedStoreHeader, latestCount));
+    }
     const std::uint32_t version = 10;
     writeExact(source.value, &version, sizeof(version), offsetof(SharedStoreHeader, version));
     require(fsync(source.value) == 0, "SHM sync failed; keep services stopped and inspect backup/segment");
@@ -202,7 +255,7 @@ std::uint32_t migrateOfflinePointStore(
     readExact(source.value, check.get(), sizeof(*check));
     require(std::memcmp(before.get(), check.get(), sizeof(*before)) == 0,
             "post-migration verification failed; keep services stopped and inspect backup/segment");
-    return oldVersion;
+    return plan;
 }
 
 }  // namespace edge_gateway
