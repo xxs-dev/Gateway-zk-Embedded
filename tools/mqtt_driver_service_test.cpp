@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -14,6 +15,7 @@
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/json_value.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
@@ -73,6 +75,10 @@ public:
         const std::string&,
         const std::string& sessionId
     ) override {
+        if (realtimeFailuresRemaining > 0) {
+            --realtimeFailuresRemaining;
+            throw std::invalid_argument("injected realtime publication failure");
+        }
         onDemandTopics.push_back(topic);
         onDemandCounts.push_back(values.size());
         realtimePublications.push_back(RealtimePublication{topic, sessionId, values});
@@ -108,6 +114,7 @@ public:
         const std::string& topic,
         const std::string& payload
     ) override {
+        if (beforeStatus) beforeStatus(payload);
         jsonTopics.push_back(topic);
         statusPayloads.push_back(payload);
     }
@@ -130,6 +137,8 @@ public:
     std::vector<int> pollTimeouts;
     int commandReplyCount = 0;
     std::vector<MqttCommandReply> commandReplies;
+    std::function<void(const std::string&)> beforeStatus;
+    int realtimeFailuresRemaining = 0;
 };
 
 class FlakyFullMqttDriverPublisher : public CapturingMqttDriverPublisher {
@@ -1088,6 +1097,139 @@ std::string sessionFields(const std::string& id, int interval = 60000, int ttl =
         R"(,"ttlSec":)" + std::to_string(ttl) + R"(,"indexes":[1001])";
 }
 
+std::size_t realtimeStatusCount(
+    const ServiceFixture& fixture, const std::string& event, const std::string& sessionId,
+    const std::string& reason = std::string()
+) {
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < fixture.publisher->statusPayloads.size(); ++i) {
+        const auto root = json::JsonParser(fixture.publisher->statusPayloads[i], 32, 256).parse();
+        const auto* actualEvent = root.find("event");
+        const auto* actualId = root.find("sessionId");
+        if (!actualEvent || !actualId || actualEvent->asString() != event ||
+            actualId->asString() != sessionId) continue;
+        require(fixture.publisher->jsonTopics[i] == fixture.mqttConfig.statusTopic,
+            "feedback must use configured status output");
+        require(root.find("service") && root.find("service")->asString() == "mqtt-driver",
+            "feedback service must be authoritative");
+        require(root.find("machineCode") && root.find("machineCode")->asString() == "GW_TEST",
+            "feedback must not echo request machine identity");
+        require(root.find("ts") && root.find("ts")->isNumber(), "feedback ts must be numeric");
+        if (!reason.empty()) {
+            require(root.find("reasonCode") && root.find("reasonCode")->asString() == reason,
+                "feedback must contain only the expected bounded reason");
+            require(root.asObject().values.size() == 6, "rejection must not echo payload/exception details");
+        }
+        ++count;
+    }
+    return count;
+}
+
+void testRealtimeAdmissionFeedbackAndSafeIdentity() {
+    auto fixture = makeFixture("admission_feedback", 1000);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t now = 1770000100000LL;
+    fixture.service->runScanOnce(now);
+    sendRealtime(fixture, sessionFields("LIVE", 250, 30), now + 1);
+    require(realtimeStatusCount(fixture, "realtime-session-started", "LIVE") == 1,
+        "admitted session must report started");
+
+    const std::vector<std::string> unsafe = {
+        R"({"sessionId":"LIVE","action":"stop","machineCode":"OTHER"})",
+        R"({"sessionId":"LIVE","sessionId":"OTHER","action":"stop"})",
+        R"({"sessionId":"LIVE","sessionId":"LIVE","action":"stop"})",
+        R"({"sessionId":"LIVE","\u0073essionId":"OTHER","action":"stop"})",
+        R"({"sessionId":"LIVE","action":"stop","machineCode":"GW_TEST","machineCode":"OTHER"})",
+        R"({"sessionId":"LIVE","action":"stop","action":"start"})",
+        R"({"sessionId":"LIVE","action":"stop","note":invalid})",
+        R"({"sessionId":"LIVE","action":"stop","note":{"broken":}})",
+        R"({"sessionId":"LIVE","action":"stop","note":"bad\q"})",
+        R"({"sessionId":"LIVE","action":"stop","note":01})",
+        R"({"sessionId":"LIVE","action":"stop"} trailing)",
+        R"({"note":"\"sessionId\":\"LIVE\"","intervalMs":1})",
+        R"({"note":{"sessionId":"LIVE"},"intervalMs":1})",
+        R"({"sessionId":null,"intervalMs":1})",
+        R"({"sessionId":"","intervalMs":1})",
+        R"({"sessionId":"has space","intervalMs":1})",
+        R"({"sessionId":"LIVE","machineCode":false,"intervalMs":1})",
+        R"({"sessionId":"LIVE","machineCode":"OTHER","intervalMs":1})"
+    };
+    for (const auto& payload : unsafe) {
+        const auto before = fixture.publisher->statusPayloads.size();
+        fixture.publisher->incoming.push_back(realtimeRequest(payload));
+        fixture.service->runScanOnce(now + 2);
+        require(fixture.publisher->statusPayloads.size() == before,
+            "unsafe identity/payload must not emit correlated status: " + payload);
+    }
+    fixture.service->runScanOnce(now + 251);
+    require(fixture.publisher->realtimePublications.size() == 2,
+        "forged/duplicate/malformed stops must preserve live session");
+
+    for (const auto& field : {R"("intervalMs":1)", R"("ttlSec":301)",
+             R"("indexes":[0])", R"("meterCode":{})", R"("action":123)"}) {
+        sendRealtime(fixture, std::string(R"("sessionId":"INVALID","machineCode":"GW_TEST",)") + field,
+            now + 252);
+    }
+    sendRealtime(fixture, R"("sessionId":"INVALID","indexes":)" + realtimeIndexArray(4097), now + 252);
+    require(realtimeStatusCount(fixture, "realtime-session-rejected", "INVALID", "INVALID_REQUEST") == 6,
+        "safe identity must receive invalid timing/selector/action feedback");
+    require(realtimeStatusCount(fixture, "realtime-session-started", "INVALID") == 0,
+        "invalid admission cannot report started");
+    fixture.service->runScanOnce(now + 1000);
+    require(fixture.publisher->fullSnapshotCounts.size() == 1,
+        "invalid realtime input must not stop full upload");
+    std::cout << "realtime feedback: safe identity, rejection envelope and full isolation passed\n";
+}
+
+void testRealtimeStartedPrecedesReadAndSurvivesFailures() {
+    auto fixture = makeFixture("admission_order", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t now = 1770000100000LL;
+    fixture.service->runScanOnce(now);
+    int startedAttempts = 0;
+    fixture.publisher->beforeStatus = [&](const std::string& payload) {
+        if (payload.find("realtime-session-started") == std::string::npos) return;
+        ++startedAttempts;
+        PointValue value;
+        value.index = 1001;
+        value.value = 876.5;
+        value.ts = now;
+        value.expireAt = now + 60000;
+        require(fixture.router.putLatestByIndex(value).accepted, "failed to change point during started");
+    };
+    sendRealtime(fixture, sessionFields("ORDER", 250, 30), now + 1);
+    require(startedAttempts == 1 && fixture.publisher->realtimePublications.back().values.front().value == 876.5,
+        "started must precede the actual first PointStore read, not just publication");
+    sendRealtime(fixture, sessionFields("ORDER", 250, 30), now + 2);
+    require(startedAttempts == 2 && fixture.publisher->realtimePublications.size() == 1,
+        "renewal must acknowledge admission without adding an immediate sample");
+
+    fixture.publisher->realtimeFailuresRemaining = 1;
+    sendRealtime(fixture, sessionFields("PUBLISH_FAIL", 250, 30), now + 3);
+    require(realtimeStatusCount(fixture, "realtime-session-started", "PUBLISH_FAIL") == 1 &&
+            realtimeStatusCount(fixture, "realtime-session-rejected", "PUBLISH_FAIL") == 0,
+        "post-admission invalid_argument must never become a rejection");
+    fixture.publisher->beforeStatus = [&](const std::string& payload) {
+        if (payload.find("realtime-session-started") != std::string::npos) {
+            ++startedAttempts;
+            throw std::invalid_argument("injected status publication failure");
+        }
+    };
+    sendRealtime(fixture, sessionFields("STATUS_FAIL", 250, 30), now + 4);
+    require(startedAttempts == 4 && realtimeStatusCount(fixture, "realtime-session-rejected", "STATUS_FAIL") == 0,
+        "failed admission status delivery must not reject the admitted session");
+    fixture.publisher->beforeStatus = {};
+    fixture.service->runScanOnce(now + 254);
+    for (const auto& id : {"ORDER", "PUBLISH_FAIL", "STATUS_FAIL"}) {
+        require(std::count_if(fixture.publisher->realtimePublications.begin(),
+            fixture.publisher->realtimePublications.end(), [&](const auto& publication) {
+                return publication.sessionId == id;
+            }) >= (std::string(id) == "PUBLISH_FAIL" ? 1 : 2),
+            "admitted sessions must survive first/status publication failure");
+    }
+    std::cout << "realtime feedback: admission-before-read, renewal and publication failures passed\n";
+}
+
 void testRealtimeCapacityRenewStopAndExpiry() {
     auto fixture = makeFixture("admission_capacity", 0);
     RealtimeFixtureCleanup cleanup{fixture};
@@ -1100,6 +1242,13 @@ void testRealtimeCapacityRenewStopAndExpiry() {
     require(fixture.publisher->onDemandCounts.size() == 16, "16 sessions should be admitted");
     sendRealtime(fixture, sessionFields("OVER_CAPACITY"), start + 101);
     require(fixture.publisher->onDemandCounts.size() == 16, "17th session must not read/publish first");
+    require(realtimeStatusCount(fixture, "realtime-session-rejected", "OVER_CAPACITY", "CAPACITY_REACHED") == 1,
+        "17th session must receive a bounded capacity rejection");
+    require(realtimeStatusCount(fixture, "realtime-session-started", "OVER_CAPACITY") == 0,
+        "rejected session cannot report started");
+    sendRealtime(fixture, R"("action":"start","meterCode":"LEGACY")", start + 101);
+    require(realtimeStatusCount(fixture, "realtime-session-rejected", "default:GW_TEST:LEGACY") == 0,
+        "legacy capacity rejection must not invent a correlation ID");
     sendRealtime(fixture, sessionFields("S0", 60000, 30) + R"(,"action":"renew")", start + 102);
     require(fixture.publisher->onDemandCounts.size() == 16, "full-capacity renewal must not publish immediately");
     sendRealtime(fixture,
@@ -1241,7 +1390,13 @@ void testRealtimeTimingBoundariesDefaultsAndDeadlineOverflow() {
         fixture.service->runScanOnce(now);
         sendRealtime(fixture, R"("sessionId":"DEFAULTS")", now + 100);
         const int interval = scanInterval == 1 ? 250 : 60000;
-        const auto started = fixture.publisher->statusPayloads.back();
+        const auto startedIt = std::find_if(fixture.publisher->statusPayloads.begin(),
+            fixture.publisher->statusPayloads.end(), [](const std::string& payload) {
+                return payload.find("realtime-session-started") != std::string::npos &&
+                    payload.find(R"("sessionId":"DEFAULTS")") != std::string::npos;
+            });
+        require(startedIt != fixture.publisher->statusPayloads.end(), "default session must report admission");
+        const auto& started = *startedIt;
         require(started.find("\"intervalMs\":" + std::to_string(interval)) != std::string::npos,
             "missing interval must clamp configured scan to approved bounds");
         require(started.find("\"expireAtMs\":" + std::to_string(now + 30100)) != std::string::npos,
@@ -2312,6 +2467,8 @@ void testIpcDriverStatsIdentityAndBackoff() {
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--realtime-admission") {
+            testRealtimeAdmissionFeedbackAndSafeIdentity();
+            testRealtimeStartedPrecedesReadAndSurvivesFailures();
             testRealtimeRejectsInvalidTimingBeforePublish();
             testRealtimeSelectorsAreBoundedWithoutAllFallback();
             testRealtimeCapacityRenewStopAndExpiry();
@@ -2359,6 +2516,8 @@ int main(int argc, char** argv) {
         testIsolatedEventFallbackDoesNotConsumeWhenReplayLockIsBusy();
         testEventDelegationReadyFileFollowsServiceLifecycle();
         testRealtimeRejectsInvalidTimingBeforePublish();
+        testRealtimeAdmissionFeedbackAndSafeIdentity();
+        testRealtimeStartedPrecedesReadAndSurvivesFailures();
         testRealtimeSelectorsAreBoundedWithoutAllFallback();
         testRealtimeCapacityRenewStopAndExpiry();
         testRealtimeRenewFloodPreservesPendingDue();
