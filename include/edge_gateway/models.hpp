@@ -269,6 +269,7 @@ struct PendingWriteCommand {
     std::int64_t acceptedAt = 0;
     bool highPriority = false;
     std::uint32_t controlGeneration = 0;
+    bool durableControl = false; // Set by trusted external ingress, never parsed from user JSON.
 };
 
 struct WritebackResultRecord {
@@ -582,12 +583,13 @@ struct MemoryStoreConfig {
     std::int64_t defaultTtlMs = 600000;
     std::vector<std::string> indexBy = {"machineCode", "meterCode", "pointCode"};
     std::string sharedMemoryName = "gateway_point_store";
-    int sharedMemoryCreateVersion = 9;
+    int sharedMemoryCreateVersion = 10;
     std::size_t maxLatestPoints = 100000;
     std::size_t maxPendingWrites = 4096;
     std::size_t maxPersistentSamples = 20000;
     std::string sqlitePath = "point_samples.db";
     std::string sqliteLibraryPath;
+    std::string controlDedupPath = "/opt/modbus-gateway/data/control_dedup.db";
     int historyRetentionDays = 30;
     int persistFlushIntervalMs = 60000;
     int writebackIntervalMs = 500;

@@ -12,6 +12,8 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <random>
+#include <iomanip>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -21,6 +23,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
@@ -634,11 +637,12 @@ edge_gateway::Optional<edge_gateway::WritebackResultRecord> waitForWritebackResu
     const edge_gateway::PointStoreRouter& router,
     const edge_gateway::PointStoreRoute& route,
     const std::string& cmdId,
+    std::int64_t acceptedAt,
     int timeoutMs
 ) {
     const auto deadline = nowMs() + std::max(0, timeoutMs);
     do {
-        auto result = router.getWritebackResult(route, cmdId);
+        auto result = router.getDurableWritebackResult(route, cmdId, acceptedAt);
         if (result) {
             return result;
         }
@@ -1549,9 +1553,14 @@ std::vector<DirectControlCommand> parseBatchControlCommands(const std::string& b
         command.highPriority = jsonBool(objectText, "highPriority", false) ||
             jsonBool(objectText, "priority", false) ||
             jsonBool(objectText, "priorityControl", false);
-        if (command.cmdId.empty()) {
-            command.cmdId = "DIRECT_CTRL_" + std::to_string(nowMs()) + "_" + std::to_string(commands.size() + 1);
+        if (findJsonValue(objectText, "cmdId") == std::string::npos) {
+            std::random_device random;
+            std::ostringstream id;
+            id << "DIRECT_" << std::hex << std::setfill('0');
+            for (int part = 0; part < 4; ++part) id << std::setw(8) << random();
+            command.cmdId = id.str();
         }
+        edge_gateway::validateControlCommandId(command.cmdId);
         commands.push_back(std::move(command));
         if (commands.size() > kMaxBatchControlCommands) {
             throw std::runtime_error("too many batch control commands");
@@ -2192,8 +2201,10 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
             command.ts = requestedAt;
             command.acceptedAt = nowMs();
             command.highPriority = item.highPriority;
+            command.durableControl = context->router.isOrdinaryPhysicalWrite(item.index);
             acceptedAt = command.acceptedAt;
             if (route->commandMailbox) {
+                command.durableControl = false; // Trusted mailbox route retains its separate injection contract.
                 if (!context->agcAvcCommandMailbox.contains(item.index)) {
                     throw std::runtime_error("AGC/AVC command mailbox is not configured for this index");
                 }
@@ -2238,12 +2249,14 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
                 }
 
                 route = submitResult.route;
-                writeback = waitForWritebackResult(
+                writeback = submitResult.writeback ? submitResult.writeback : waitForWritebackResult(
                     context->router,
                     *route,
                     item.cmdId,
+                    acceptedAt,
                     context->appConfig.mqttDriver.controlResultWaitTimeoutMs
                 );
+                if (submitResult.writeback && item.highPriority) priorityLease.release(item.cmdId);
                 if (writeback) {
                     success = writeback->success;
                     message = writeback->message.empty() ? (success ? "ok" : "writeback failed") : writeback->message;

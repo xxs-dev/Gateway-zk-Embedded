@@ -1892,7 +1892,9 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
 void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
     for (auto it = pendingCommandReplies_.begin(); it != pendingCommandReplies_.end();) {
         auto reply = it->reply;
-        const auto writeback = router_.getWritebackResult(it->route, reply.cmdId);
+        const auto writeback = it->durableControl
+            ? router_.getDurableWritebackResult(it->route, reply.cmdId, reply.acceptedAt)
+            : router_.getWritebackResult(it->route, reply.cmdId);
         if (writeback) {
             applyWritebackResultToReply(reply, *writeback, it->route);
             reply.highPriority = it->reply.highPriority;
@@ -2029,30 +2031,23 @@ void MqttDriverService::replayLoop() {
 bool MqttDriverService::admitCommand(
     const std::string& meterCode,
     const std::string& cmdId,
-    std::int64_t nowMs
+    std::int64_t nowMs,
+    bool durableControl
 ) {
     const int windowMs = std::max(1, driverConfig_.commandRateWindowMs);
     const std::size_t maxInWindow = driverConfig_.commandRateMaxPerWindow > 0
         ? static_cast<std::size_t>(driverConfig_.commandRateMaxPerWindow)
         : 0;
-    const std::int64_t dedupTtlMs = std::max<std::int64_t>(0, driverConfig_.commandDedupTtlMs);
 
     std::lock_guard<std::mutex> lock(commandRateMutex_);
 
-    // Deduplicate by cmdId within the dedup TTL. Empty cmdId is never deduplicated.
-    if (!cmdId.empty() && dedupTtlMs > 0) {
-        // Opportunistically evict expired dedup entries to bound memory.
+    const auto ttl = std::max<std::int64_t>(0, driverConfig_.commandDedupTtlMs);
+    if (!durableControl && !cmdId.empty() && ttl > 0) {
         for (auto it = recentCommandIds_.begin(); it != recentCommandIds_.end();) {
-            if (nowMs - it->second > dedupTtlMs) {
-                it = recentCommandIds_.erase(it);
-            } else {
-                ++it;
-            }
+            if (nowMs - it->second > ttl) it = recentCommandIds_.erase(it);
+            else ++it;
         }
-        const auto existing = recentCommandIds_.find(cmdId);
-        if (existing != recentCommandIds_.end() && nowMs - existing->second <= dedupTtlMs) {
-            return false;
-        }
+        if (recentCommandIds_.find(cmdId) != recentCommandIds_.end()) return false;
     }
 
     // Sliding-window rate limit per meterCode (0 disables the limit).
@@ -2066,10 +2061,7 @@ bool MqttDriverService::admitCommand(
         }
         window.push_back(nowMs);
     }
-
-    if (!cmdId.empty() && dedupTtlMs > 0) {
-        recentCommandIds_[cmdId] = nowMs;
-    }
+    if (!durableControl && !cmdId.empty() && ttl > 0) recentCommandIds_[cmdId] = nowMs;
     return true;
 }
 
@@ -2159,8 +2151,9 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         if (activePriorityLease && activePriorityLease->cmdId != request.cmdId) {
             throw std::invalid_argument("priority control in progress");
         }
-        if (!admitCommand(route.meterCode, request.cmdId, nowMs)) {
-            throw std::invalid_argument("command rate limit exceeded or duplicate cmdId");
+        const bool durableControl = router_.isOrdinaryPhysicalWrite(request.index);
+        if (!admitCommand(route.meterCode, request.cmdId, nowMs, durableControl)) {
+            throw std::invalid_argument("command rate limit exceeded");
         }
         if (request.highPriority) {
             priorityControlLease_.acquire(
@@ -2179,6 +2172,7 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         command.ts = request.ts > 0 ? request.ts : nowMs;
         command.acceptedAt = nowMs;
         command.highPriority = request.highPriority;
+        command.durableControl = durableControl;
         const auto submitResult = router_.submitWriteCommand(command);
         if (!submitResult.accepted) {
             if (request.highPriority) {
@@ -2193,6 +2187,12 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         reply.value = request.value;
         reply.requestedAt = command.ts;
         reply.acceptedAt = command.acceptedAt;
+        if (submitResult.writeback) {
+            applyWritebackResultToReply(reply, *submitResult.writeback, submitResult.route);
+            if (request.highPriority) priorityControlLease_.release(request.cmdId);
+            publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
+            return;
+        }
         std::cout << "mqtt command accepted"
                   << " cmdId=" << reply.cmdId
                   << " index=" << reply.index
@@ -2210,6 +2210,7 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         PendingCommandReply pending;
         pending.reply = reply;
         pending.route = submitResult.route;
+        pending.durableControl = durableControl;
         pending.deadlineMs = nowMs + std::max(0, driverConfig_.controlResultWaitTimeoutMs);
         pendingCommandReplies_.push_back(std::move(pending));
         return;

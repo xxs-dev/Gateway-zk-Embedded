@@ -26,7 +26,7 @@ public:
     explicit MemoryPointStore(const MemoryStoreConfig& config);
     ~MemoryPointStore();
 
-    static bool cleanupOrphanedSegment(const std::string& segmentName);
+    static bool cleanupOrphanedSegment(const std::string& segmentName, bool allowLegacyRemoval = false);
 
     MemoryPointStore(const MemoryPointStore&) = delete;
     MemoryPointStore& operator=(const MemoryPointStore&) = delete;

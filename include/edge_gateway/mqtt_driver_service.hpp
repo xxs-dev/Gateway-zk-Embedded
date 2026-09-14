@@ -100,6 +100,7 @@ private:
         MqttCommandReply reply;
         PointStoreRoute route;
         std::int64_t deadlineMs = 0;
+        bool durableControl = false;
     };
 
     void runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs);
@@ -121,7 +122,7 @@ private:
     void processPendingCommandReplies(std::int64_t nowMs);
     int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
-    bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs);
+    bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs, bool durableControl);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
     void startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs);

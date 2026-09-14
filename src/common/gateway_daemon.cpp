@@ -1,4 +1,5 @@
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -470,6 +471,31 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             if (command.highPriority) {
                 priorityControlLease_.release(command.cmdId);
             }
+            continue;
+        }
+        if (command.durableControl) {
+            const auto& device = runtimeDevices_[it->second];
+            try {
+                ControlDedupStore dedup(config_.memoryStore.controlDedupPath);
+                writebackResult = dedup.dispatch(device.config.machineCode, device.config.meterCode,
+                    command, startedAt, [&] {
+                        const auto result = device.executor->executeByIndex(
+                            command.cmdId, command.index, command.value, nowMsValue);
+                        auto receipt = beginWritebackResult(command, startedAt);
+                        completeWritebackResult(receipt, result.success, result.message,
+                            result.success ? "writeback-succeeded" : "writeback-failed", nowMs(),
+                            result.verifyAttempted, result.verifyPassed);
+                        return receipt;
+                    });
+            } catch (const std::exception& ex) {
+                completeWritebackResult(writebackResult, false, ex.what(), "writeback-failed", nowMs());
+            }
+            store_.recordWritebackResult(writebackResult);
+            publishStatusEvent(writebackResult.stage, nowMsValue,
+                std::string(R"("index":)") + std::to_string(command.index) +
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")");
+            if (command.highPriority) priorityControlLease_.release(command.cmdId);
+            if (writebackResult.success) ++processed;
             continue;
         }
         try {

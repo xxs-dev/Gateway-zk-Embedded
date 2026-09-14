@@ -1,4 +1,5 @@
 #include "edge_gateway/can_driver_service.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -621,6 +622,29 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
         }
         const auto& runtimePoint = runtimePoints_[pointIt->second];
         const auto& point = runtimePoint.point;
+        if (command.durableControl) {
+            const auto& device = runtimeDevices_[runtimePoint.deviceIndex].config;
+            try {
+                validateWriteValue(point, command.value);
+                ControlDedupStore dedup(config_.memoryStore.controlDedupPath);
+                writebackResult = dedup.dispatch(device.machineCode, device.meterCode,
+                    command, startedAt, [&] {
+                        sendCanWrite(point, command.value);
+                        auto receipt = beginWritebackResult(command, startedAt);
+                        completeWritebackResult(receipt, true, "ok", "writeback-succeeded", nowMs());
+                        return receipt;
+                    });
+            } catch (const std::exception& ex) {
+                completeWritebackResult(writebackResult, false, ex.what(), "writeback-failed", nowMs());
+            }
+            store_.recordWritebackResult(writebackResult);
+            publishStatusEvent(writebackResult.stage, nowMsValue,
+                std::string(R"("index":)") + std::to_string(command.index) +
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")");
+            if (command.highPriority) priorityControlLease_.release(command.cmdId);
+            if (writebackResult.success) ++processed;
+            continue;
+        }
         try {
             validateWriteValue(point, command.value);
             sendCanWrite(point, command.value);

@@ -1374,13 +1374,14 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.sharedMemoryCreateVersion = boundedInt(
         requireInt(object, "sharedMemoryCreateVersion", config.sharedMemoryCreateVersion),
         8,
-        9
+        10
     );
     config.maxLatestPoints = requireSize(object, "maxLatestPoints", config.maxLatestPoints);
     config.maxPendingWrites = requireSize(object, "maxPendingWrites", config.maxPendingWrites);
     config.maxPersistentSamples = requireSize(object, "maxPersistentSamples", config.maxPersistentSamples);
     config.sqlitePath = requireString(object, "sqlitePath", config.sqlitePath);
     config.sqliteLibraryPath = requireString(object, "sqliteLibraryPath", config.sqliteLibraryPath);
+    config.controlDedupPath = requireString(object, "controlDedupPath", config.controlDedupPath);
     config.persistFlushIntervalMs = requireInt(object, "persistFlushIntervalMs", config.persistFlushIntervalMs);
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);

@@ -37,6 +37,7 @@ struct PointStoreRoute {
     Optional<double> initialValue;
     bool retain = false;
     WriteSpec write;
+    std::string controlDedupPath = "/opt/modbus-gateway/data/control_dedup.db";
     ValueNormalizeConfig normalize;
 };
 
@@ -44,6 +45,7 @@ struct CommandSubmitResult {
     bool accepted = false;
     std::string message;
     PointStoreRoute route;
+    Optional<WritebackResultRecord> writeback;
 };
 
 struct CommandGroupSubmitResult {
@@ -103,6 +105,7 @@ public:
     ) const;
 
     CommandSubmitResult submitWriteCommand(const PendingWriteCommand& command);
+    bool isOrdinaryPhysicalWrite(std::uint32_t index) const;
     CommandSubmitResult submitWriteCommand(
         const PointStoreRoute& route,
         const PendingWriteCommand& command
@@ -116,6 +119,8 @@ public:
     );
     std::vector<PendingWriteCommand> peekPendingWrites(std::size_t limit = 0) const;
     Optional<WritebackResultRecord> getWritebackResult(const PointStoreRoute& route, const std::string& cmdId) const;
+    Optional<WritebackResultRecord> getDurableWritebackResult(const PointStoreRoute& route, const std::string& cmdId,
+                                                           std::int64_t acceptedAt) const;
     Optional<WritebackResultRecord> getWritebackResult(
         const PointStoreRoute& route,
         const std::string& cmdId,

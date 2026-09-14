@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
@@ -188,6 +190,8 @@ ServiceFixture makeFixture(
 
     fixture.deviceConfig.machineCode = "GW_TEST";
     fixture.deviceConfig.memoryStore.sharedMemoryName = fixture.shmName;
+    fixture.deviceConfig.memoryStore.controlDedupPath = std::filesystem::absolute(fixture.shmName + "_dedup.db").string();
+    std::remove(fixture.deviceConfig.memoryStore.controlDedupPath.c_str());
     LogicalDeviceConfig meter;
     meter.meterCode = "METER_1";
     meter.points.push_back(makePoint(1001, "P_1"));
@@ -449,6 +453,7 @@ std::size_t publishedTopicCount(
 }
 
 void cleanupFixture(ServiceFixture& fixture) {
+    std::remove(fixture.deviceConfig.memoryStore.controlDedupPath.c_str());
     std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
     std::remove(fixture.driverConfig.powerControlOwnershipFile.c_str());
     if (!fixture.driverConfig.healthFile.empty()) {
@@ -1936,6 +1941,10 @@ void testCommandWritebackWaitDoesNotBlockMqttScan() {
     result.edgeElapsedMs = 40;
     result.totalElapsedMs = 40;
     fixture.store->recordWritebackResult(result);
+    ControlDedupStore ledger(fixture.deviceConfig.memoryStore.controlDedupPath);
+    const auto command = fixture.store->peekPendingWriteCommands().front();
+    require(ledger.claim("GW_TEST", "METER_1", command, result.startedAt).owner, "async fixture must reserve durable dispatch");
+    ledger.finish("GW_TEST", "METER_1", result);
 
     fixture.service->runScanOnce(1770000045050LL);
     require(fixture.publisher->commandReplies.size() == 1, "completed writeback should publish one final reply");

@@ -334,10 +334,13 @@ void verifyConfiguredLegacyVersionIsUsedForNewSegment() {
 void verifyPreviousVersionOpensWithoutReinitializing() {
     const std::string storeName = "gateway_memory_version_mismatch_test";
     const std::string posixName = "/" + storeName;
-    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
 
     {
-        edge_gateway::MemoryPointStore store(storeName);
+        edge_gateway::MemoryStoreConfig config;
+        config.sharedMemoryName = storeName;
+        config.sharedMemoryCreateVersion = 9;
+        edge_gateway::MemoryPointStore store(config);
         const int fd = shm_open(posixName.c_str(), O_RDWR, 0600);
         require(fd >= 0, "failed to open shared memory for version mismatch test");
         void* view = mmap(
@@ -370,10 +373,10 @@ void verifyPreviousVersionOpensWithoutReinitializing() {
         msync(view, sizeof(SharedStoreHeaderProbe), MS_SYNC);
         munmap(view, sizeof(SharedStoreHeaderProbe));
         close(fd);
-        require(opened, "v9 process must open the layout-compatible v8 shared memory segment");
+        require(opened, "current process must open the layout-compatible v8 shared memory segment");
     }
 
-    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
 }
 
 void verifyRobustMutexRecoversAfterOwnerDeath() {
@@ -406,7 +409,8 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
                 _exit(11);
             }
             auto* header = static_cast<SharedStoreHeaderProbe*>(view);
-            if (header->magic != 0x4D505354 || header->version != 9) {
+            if (header->magic != 0x4D505354 ||
+                header->version != static_cast<std::uint32_t>(edge_gateway::MemoryStoreConfig{}.sharedMemoryCreateVersion)) {
                 _exit(12);
             }
             if (pthread_mutex_lock(&header->mutex) != 0) {

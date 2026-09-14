@@ -22,6 +22,7 @@ add_library(edge_gateway
     src/command_executor.cpp
     src/compute_engine_service.cpp
     src/config_loader.cpp
+    src/control_dedup_store.cpp
     src/dio_command_executor.cpp
     src/dio_collector.cpp
     src/dlt645_client.cpp
@@ -439,6 +440,15 @@ target_link_libraries(memory_point_store_lifecycle_test PRIVATE edge_gateway)
 target_compile_options(memory_point_store_lifecycle_test PRIVATE -fdiagnostics-color=never)
 
 if(UNIX)
+    add_executable(control_dedup_store_test tools/control_dedup_store_test.cpp)
+    target_link_libraries(control_dedup_store_test PRIVATE edge_gateway)
+    add_test(NAME control_dedup_store COMMAND control_dedup_store_test)
+    add_executable(control_dedup_integration_test tools/control_dedup_integration_test.cpp)
+    target_link_libraries(control_dedup_integration_test PRIVATE edge_gateway)
+    add_test(NAME control_dedup_integration COMMAND control_dedup_integration_test)
+    add_executable(control_dedup_protocol_test tools/control_dedup_protocol_test.cpp)
+    target_link_libraries(control_dedup_protocol_test PRIVATE edge_gateway)
+    add_test(NAME control_dedup_protocol COMMAND control_dedup_protocol_test)
     add_library(sqlite_failure_fixture SHARED tools/sqlite_failure_fixture.cpp)
     target_compile_options(sqlite_failure_fixture PRIVATE -fdiagnostics-color=never)
     add_executable(sqlite_writer_failure_test tools/sqlite_writer_failure_test.cpp)
