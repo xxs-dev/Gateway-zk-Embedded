@@ -1569,6 +1569,137 @@ void testUnreachableBrokerHonorsConnectTimeout() {
     ).count();
     require(elapsedMs < 1000, "MQTT connect must honor connectTimeoutMs");
 }
+
+void testRealtimeSessionIdIsPresentInEveryFormatChunkAndAbsentFromFull() {
+    TestMqttBroker broker(16);
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.clientId = "GW_REALTIME_SESSION";
+    config.topicMachineCode = "GW_TEST";
+    config.realtimeTelemetryTopic = "edge/telemetry/realtime";
+    config.fullTelemetryTopic = "edge/telemetry/full";
+    config.qos = 1;
+    config.offlineBufferEnabled = false;
+    config.maxPayloadBytes = 4096;
+
+    std::vector<edge_gateway::StoredPointValue> values;
+    for (std::uint32_t i = 0; i < 10; ++i) {
+        edge_gateway::StoredPointValue value;
+        value.index = 1000 + i;
+        value.machineCode = "GW_TEST";
+        value.meterCode = "METER_A";
+        value.pointCode = std::string(1000, static_cast<char>('A' + i));
+        value.value = static_cast<double>(i);
+        value.quality = 0;
+        value.ts = 1770000000000LL;
+        value.expireAt = 1770000600000LL;
+        values.push_back(value);
+    }
+
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishRealtime(config.realtimeTelemetryTopic, values, "compactArray", "SESSION_COMPACT");
+        publisher.publishRealtime(config.realtimeTelemetryTopic, values, "object", "SESSION_OBJECT");
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, values, "compactArray");
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, values, "object");
+    }
+
+    const auto messages = broker.messages();
+    require(messages.size() == 16, "chunk fixture should produce four chunks for each publication");
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        const bool realtime = i < 8;
+        require(messages[i].payload.size() <= config.maxPayloadBytes,
+            "session metadata must be included in chunk size accounting");
+        require(
+            messages[i].topic == (realtime ? "edge/telemetry/realtime/GW_TEST" : "edge/telemetry/full/GW_TEST"),
+            "realtime/full topic must remain unchanged"
+        );
+        if (i < 4) {
+            require(
+                messages[i].payload.find("\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_COMPACT\"") != std::string::npos,
+                "every compact realtime chunk should contain the original top-level sessionId"
+            );
+            require(messages[i].payload.find("\"values\":[[") != std::string::npos,
+                "compact realtime chunk should keep compact array values");
+        } else if (i < 8) {
+            require(
+                messages[i].payload.find("\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_OBJECT\"") != std::string::npos,
+                "every object realtime chunk should contain the original top-level sessionId"
+            );
+            require(messages[i].payload.find("\"values\":[{") != std::string::npos,
+                "object realtime chunk should keep structured values");
+        } else {
+            require(messages[i].payload.find("\"sessionId\"") == std::string::npos,
+                "full payload must not fabricate a realtime sessionId");
+        }
+    }
+}
+
+void testRealtimeRingReplayPreservesSerializedSessionId() {
+    const auto dir = std::string("/tmp/gateway_mqtt_realtime_session_test_") + std::to_string(getpid());
+    require(std::system((std::string("mkdir -p ") + dir).c_str()) == 0, "realtime ring test mkdir failed");
+    const auto ringPath = dir + "/realtime_ring.dat";
+    const std::string topic = "edge/telemetry/realtime/GW_TEST";
+    const std::string payload =
+        "{\"type\":\"telemetry\",\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_REPLAY\",\"meters\":[]}";
+
+    edge_gateway::MqttRealtimeRingBuffer ring(ringPath, 16ULL * 1024ULL * 1024ULL, 1024U * 1024U, 10);
+    ring.enqueue(topic, payload);
+    std::string replayedTopic;
+    std::string replayedPayload;
+    const auto replayed = ring.replay([&](const std::string& valueTopic, const std::string& valuePayload) {
+        replayedTopic = valueTopic;
+        replayedPayload = valuePayload;
+    });
+    require(replayed == 1, "realtime ring should replay the queued payload once");
+    require(replayedTopic == topic, "realtime ring replay should preserve the scoped topic");
+    require(replayedPayload == payload, "realtime ring replay should preserve serialized sessionId exactly");
+    require(ring.replay([](const std::string&, const std::string&) {}) == 0,
+        "realtime ring should remove a successfully replayed payload");
+
+    std::remove(ringPath.c_str());
+    rmdir(dir.c_str());
+}
+
+void testRealtimeLegacyEscapingAndTxOnlyIsolation() {
+    TestMqttBroker broker(4);
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.topicMachineCode = "GW_TEST";
+    config.clientId = "GW_SESSION_COMPAT";
+    config.realtimeTelemetryTopic = "edge/telemetry/realtime";
+    config.fullTelemetryTopic = "edge/telemetry/full";
+    config.offlineBufferEnabled = false;
+    config.qos = 1;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishOnDemand(config.realtimeTelemetryTopic, {}, "compactArray");
+        publisher.publishRealtime(config.realtimeTelemetryTopic, {}, "object", "A\"\\\nB");
+    }
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly);
+        publisher.publishRealtime(config.realtimeTelemetryTopic, {}, "object", "MUST_NOT_PUBLISH");
+        publisher.publishOnDemand(config.realtimeTelemetryTopic, {}, "compactArray");
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, {}, "object");
+        publisher.publishFullSnapshot(config.fullTelemetryTopic, {}, "compactArray");
+    }
+    const auto messages = broker.messages();
+    require(messages.size() == 4, "TX-only must suppress both realtime entry points while allowing full");
+    require(messages[0].payload.find("\"sessionId\"") == std::string::npos,
+        "legacy one-shot must not fabricate a sessionId");
+    require(messages[1].payload.find(R"("sessionId":"A\"\\\nB")") != std::string::npos,
+        "sessionId must retain JSON escaping");
+    require(messages[1].payload.find("\"machineCode\":\"GW_TEST\"") != std::string::npos,
+        "empty realtime response must keep fallback machine identity");
+    for (std::size_t i = 2; i < messages.size(); ++i) {
+        require(messages[i].topic == "edge/telemetry/full/GW_TEST", "TX-only must keep full topic");
+        require(messages[i].payload.find("\"sessionId\"") == std::string::npos,
+            "TX-only full must remain unscoped by session");
+        require(messages[i].payload.find("\"type\":\"snapshot\"") != std::string::npos,
+            "TX-only full must remain a snapshot");
+    }
+    std::cout << "Builtin session chunks, formats, legacy, escaping, TX-only/full isolation passed\n";
+}
 #endif
 
 }  // namespace
@@ -1677,6 +1808,9 @@ int main() {
     testLeasedBatchWrapReconnect(true);
     testLeasedBatchInputGates();
     testLeasedBatchRejectsPersistentSession();
+    testRealtimeSessionIdIsPresentInEveryFormatChunkAndAbsentFromFull();
+    testRealtimeRingReplayPreservesSerializedSessionId();
+    testRealtimeLegacyEscapingAndTxOnlyIsolation();
 #endif
 
     std::cout << "builtin_mqtt_driver_publisher_test passed" << std::endl;

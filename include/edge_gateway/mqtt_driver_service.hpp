@@ -87,6 +87,7 @@ private:
         bool commandMailbox = false;
     };
     struct RealtimeSession {
+        std::string sessionId;
         std::string machineCode;
         std::string meterCode;
         std::vector<std::uint32_t> indexes;
@@ -140,7 +141,8 @@ private:
     void publishRealtimeValues(
         std::vector<StoredPointValue> values,
         std::size_t requestedCount,
-        std::int64_t nowMs
+        std::int64_t nowMs,
+        const std::string& sessionId
     );
     bool isLegacyTelemetryDue(std::int64_t nowMs) const;
     void publishLegacyTelemetryNow(std::int64_t nowMs);
@@ -190,7 +192,6 @@ private:
     int isolatedFallbackRetryDelayMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::deque<PendingCommandReply> pendingCommandReplies_;
-    std::int64_t lastRealtimeSessionCleanupMs_ = 0;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
     std::unordered_map<std::string, std::int64_t> recentCommandIds_;

@@ -78,6 +78,7 @@ int main(int argc, char* argv[]) {
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
+    config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "dlt645_2007") {
         throw std::invalid_argument("Dlt645Driver requires protocol.type=dlt645_2007");

@@ -16,6 +16,7 @@
 
 - `runtime/device_identity.json`：网关身份模板，默认 `machineCode=GW_FACTORY_001`。
 - `runtime/apps/mqtt-service.json`：主 MQTT、默认关闭的第三方 MQTT 全量转发、事件和 OTA 配置。
+- `runtime/apps/mqtt-service.json:pointHistory.retentionDays`：全局点位历史保留天数，出厂及旧配置缺省 30，数值夹取到 1..3650；只清理进入点位历史库的样本，不改变历史点筛选或 MQTT/事件保留策略。后台分批逻辑删除不保证数据库文件缩小。
 - `runtime/apps/monitor-service.json`：主站监测、诊断、配置拉取、本地画面配置。
 - `runtime/apps/camera-service.json`：摄像头推流配置，出厂默认关闭。
 - `runtime/logic/shuntong_ems_graph.json`：舜通 EMS 图形化逻辑模板，当前为 V2 单文件，包含 487 个执行节点、489 条有类型源链接，折叠 `pointInput` 后形成 486 条运行依赖；量产初始化为网关模式时会保留模板文件但不会加入运行规则。

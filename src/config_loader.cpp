@@ -1387,6 +1387,17 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     return config;
 }
 
+PointHistoryConfig parsePointHistoryConfig(const JsonValue* value) {
+    PointHistoryConfig config;
+    if (value == nullptr || value->isNull()) return config;
+    const auto* days = findValue(value->asObject(), "retentionDays");
+    if (days != nullptr && !days->isNull()) {
+        // Clamp before converting to int, including numeric inputs outside the int range.
+        config.retentionDays = static_cast<int>(std::clamp(days->asNumber(), 1.0, 3650.0));
+    }
+    return config;
+}
+
 NorthboundServerConfig parseNorthboundServerConfig(const JsonValue* value) {
     NorthboundServerConfig config;
     if (value == nullptr || value->isNull()) {
@@ -4121,6 +4132,7 @@ AppConfig parseAppConfig(const std::string& text) {
     }
     config.identityConfigFile = requireString(root.asObject(), "identityConfigFile", config.identityConfigFile);
     config.deviceConfigFiles = parseStringArray(root.find("deviceConfigFiles"));
+    config.pointHistory = parsePointHistoryConfig(root.find("pointHistory"));
     config.timingPolicy = parseTimingPolicy(root.find("timingPolicy"));
     config.mqtt = parseMqttConfig(root.find("mqtt"));
     config.mqttForward = parseMqttForwardConfig(root.find("mqttForward"));

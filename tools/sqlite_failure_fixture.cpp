@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 
@@ -13,10 +14,11 @@ namespace {
 sqlite3 g_database;
 sqlite3_stmt g_statements[32];
 int g_statementCount = 0;
-int g_finalizeCount = 0;
-int g_doubleFinalizeCount = 0;
-int g_rollbackCount = 0;
-bool g_failCommit = true;
+std::atomic<int> g_finalizeCount{0};
+std::atomic<int> g_doubleFinalizeCount{0};
+std::atomic<int> g_rollbackCount{0};
+std::atomic<int> g_execCount{0};
+std::atomic<bool> g_failCommit{true};
 
 void setErrorMessage(char** errorMessage, const char* message) {
     if (errorMessage == nullptr) {
@@ -38,6 +40,7 @@ void fake_sqlite_reset() {
     g_finalizeCount = 0;
     g_doubleFinalizeCount = 0;
     g_rollbackCount = 0;
+    g_execCount = 0;
     g_failCommit = true;
 }
 
@@ -57,6 +60,10 @@ int fake_sqlite_rollback_count() {
     return g_rollbackCount;
 }
 
+int fake_sqlite_exec_count() {
+    return g_execCount;
+}
+
 int sqlite3_open_v2(const char*, sqlite3** database, int, const char*) {
     *database = &g_database;
     return 0;
@@ -67,6 +74,7 @@ int sqlite3_close_v2(sqlite3*) {
 }
 
 int sqlite3_exec(sqlite3*, const char* sql, int (*)(void*, int, char**, char**), void*, char** errorMessage) {
+    ++g_execCount;
     if (std::strcmp(sql, "COMMIT;") == 0 && g_failCommit) {
         setErrorMessage(errorMessage, "injected commit failure");
         return 5;
@@ -132,6 +140,10 @@ void sqlite3_free(void* memory) {
 }
 
 int sqlite3_busy_timeout(sqlite3*, int) {
+    return 0;
+}
+
+int sqlite3_changes(sqlite3*) {
     return 0;
 }
 

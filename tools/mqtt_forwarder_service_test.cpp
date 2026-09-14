@@ -2054,7 +2054,7 @@ void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
     const std::int64_t startedAt = 1770000200000LL;
     driver.runScanOnce(startedAt);
     driverPublisher->incoming.push_back(realtimeRequest(
-        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_TARGET\",\"indexes\":[3001],\"intervalMs\":100,\"ttlSec\":30}"
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_TARGET\",\"indexes\":[3001],\"intervalMs\":250,\"ttlSec\":30}"
     ));
     driver.runScanOnce(startedAt + 100);
     require(driverPublisher->onDemandCounts.size() == 1, "realtime session should start");

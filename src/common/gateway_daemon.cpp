@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/common/persistent_flush_schedule.hpp"
 #include "edge_gateway/writeback_service.hpp"
 
 namespace edge_gateway {
@@ -229,7 +230,8 @@ GatewayDaemon::GatewayDaemon(
         config_.mqttDriver.powerControlOwnershipFile,
         "mqtt-forwarder"
     ),
-    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath,
+                  config_.memoryStore.historyRetentionDays),
     mqttPublisher_(std::move(mqttPublisher)),
     collectorFactory_(std::move(collectorFactory)),
     commandExecutorFactory_(std::move(commandExecutorFactory)),
@@ -658,23 +660,29 @@ std::vector<std::size_t> GatewayDaemon::activeRealtimeDeviceIndexes(std::int64_t
 }
 
 void GatewayDaemon::persistLoop() {
-    const auto intervalMs = std::max(1000, config_.memoryStore.persistFlushIntervalMs);
-    auto nextDeadline = nowMs() + intervalMs;
+    PersistentFlushSchedule schedule(config_.memoryStore.persistFlushIntervalMs);
     while (running_.load()) {
         try {
             const auto ts = nowMs();
             if (!priorityControlBlocked(ts)) {
-                flushPersistentOnce();
+                const auto stats = store_.getStats();
+                if (schedule.shouldFlush(stats.persistentCount, stats.persistentConfiguredLimit)) {
+                    flushPersistentOnce();
+                    schedule.succeeded();
+                }
             }
         } catch (...) {
+            schedule.failed();
         }
-        const auto remaining = static_cast<int>(nextDeadline - nowMs());
-        sleepInterruptibly(running_, std::max(10, remaining));
-        nextDeadline += intervalMs;
-        const auto now = nowMs();
-        if (nextDeadline < now) {
-            nextDeadline = now + intervalMs;
+        try {
+            std::unique_lock<std::mutex> lock(persistentFlushMutex_, std::try_to_lock);
+            if (lock.owns_lock() && running_.load() && !priorityControlBlocked(nowMs())) {
+                sqliteWriter_.cleanupExpiredSamples(nowMs());
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "point history cleanup failed: " << ex.what() << std::endl;
         }
+        sleepInterruptibly(running_, PersistentFlushSchedule::kCheckIntervalMs);
     }
 }
 

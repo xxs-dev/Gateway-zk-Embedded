@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -406,6 +407,24 @@ struct RealtimeSnapshotRequest {
     int intervalMs = 0;
 };
 
+constexpr std::size_t kMaxRealtimeSessions = 16;
+constexpr std::size_t kMaxRealtimeSelectorItems = 4096;
+constexpr std::size_t kMaxRealtimeIdentityBytes = 128;
+constexpr std::size_t kMaxRealtimeDefaultKeyBytes = 265;
+constexpr int kMinRealtimeIntervalMs = 250;
+constexpr int kMaxRealtimeIntervalMs = 60000;
+constexpr std::int64_t kMinRealtimeTtlSec = 5;
+constexpr std::int64_t kMaxRealtimeTtlSec = 300;
+
+bool isRealtimeStopAction(const std::string& action);
+
+std::int64_t realtimeDeadline(std::int64_t nowMs, std::int64_t delayMs) {
+    if (nowMs > std::numeric_limits<std::int64_t>::max() - delayMs) {
+        throw std::invalid_argument("realtime deadline overflow");
+    }
+    return nowMs + delayMs;
+}
+
 std::size_t skipJsonWhitespace(const std::string& text, std::size_t pos) {
     while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])) != 0) {
         ++pos;
@@ -413,89 +432,226 @@ std::size_t skipJsonWhitespace(const std::string& text, std::size_t pos) {
     return pos;
 }
 
-std::size_t findJsonValueStart(const std::string& text, const char* key) {
-    const std::string needle = std::string("\"") + key + "\"";
-    auto keyPos = text.find(needle);
-    if (keyPos == std::string::npos) {
-        return std::string::npos;
+void skipRealtimeString(const std::string& text, std::size_t& cursor) {
+    if (cursor == text.size() || text[cursor++] != '"') {
+        throw std::invalid_argument("realtime string required");
     }
-    keyPos += needle.size();
-    keyPos = skipJsonWhitespace(text, keyPos);
-    if (keyPos >= text.size() || text[keyPos] != ':') {
-        return std::string::npos;
+    while (cursor < text.size()) {
+        const auto ch = text[cursor++];
+        if (ch == '"') return;
+        if (ch == '\\' && cursor < text.size()) ++cursor;
     }
-    return skipJsonWhitespace(text, keyPos + 1);
+    throw std::invalid_argument("incomplete realtime string");
 }
 
-std::vector<std::uint32_t> parseUInt32ArrayField(const std::string& text, const char* key) {
-    std::vector<std::uint32_t> values;
-    auto cursor = findJsonValueStart(text, key);
-    if (cursor == std::string::npos || cursor >= text.size() || text[cursor] != '[') {
-        return values;
-    }
-    ++cursor;
-    while (cursor < text.size()) {
-        cursor = skipJsonWhitespace(text, cursor);
-        if (cursor >= text.size() || text[cursor] == ']') {
-            break;
-        }
-        const bool quoted = text[cursor] == '"';
-        if (quoted) {
-            ++cursor;
-        }
+void skipRealtimeValue(const std::string& text, std::size_t& cursor) {
+    if (cursor == text.size()) throw std::invalid_argument("missing realtime field value");
+    if (text[cursor] == '"') {
+        skipRealtimeString(text, cursor);
+    } else if (text[cursor] == '[' || text[cursor] == '{') {
+        std::vector<char> closing;
+        do {
+            if (cursor == text.size()) throw std::invalid_argument("incomplete realtime field value");
+            const auto ch = text[cursor++];
+            if (ch == '"') {
+                --cursor;
+                skipRealtimeString(text, cursor);
+            } else if (ch == '[' || ch == '{') {
+                closing.push_back(ch == '[' ? ']' : '}');
+            } else if (ch == ']' || ch == '}') {
+                if (closing.back() != ch) throw std::invalid_argument("invalid realtime field brackets");
+                closing.pop_back();
+            }
+        } while (!closing.empty());
+    } else {
         const auto begin = cursor;
-        while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
+        while (cursor < text.size() &&
+               (std::isalnum(static_cast<unsigned char>(text[cursor])) ||
+                text[cursor] == '-' || text[cursor] == '+' || text[cursor] == '.')) {
             ++cursor;
         }
-        if (begin != cursor) {
-            const auto parsed = std::strtoul(text.c_str() + begin, nullptr, 10);
-            if (parsed > 0 && parsed <= 0xFFFFFFFFUL) {
-                values.push_back(static_cast<std::uint32_t>(parsed));
+        if (cursor == begin) throw std::invalid_argument("invalid realtime field value");
+    }
+}
+
+std::size_t findJsonValueStart(const std::string& text, const char* key) {
+    auto cursor = skipJsonWhitespace(text, 0);
+    if (cursor == text.size() || text[cursor++] != '{') {
+        throw std::invalid_argument("realtime request must be an object");
+    }
+    std::size_t result = std::string::npos;
+    cursor = skipJsonWhitespace(text, cursor);
+    if (cursor < text.size() && text[cursor] == '}' && skipJsonWhitespace(text, cursor + 1) == text.size()) {
+        return result;
+    }
+    // Check root field boundaries without interpreting unrelated nested payloads.
+    while (cursor < text.size()) {
+        const auto begin = cursor + 1;
+        skipRealtimeString(text, cursor);
+        const auto end = cursor - 1;
+        cursor = skipJsonWhitespace(text, cursor);
+        if (text.find('\\', begin) < end || cursor == text.size() || text[cursor++] != ':') {
+            throw std::invalid_argument("invalid realtime field name");
+        }
+        cursor = skipJsonWhitespace(text, cursor);
+        if (text.compare(begin, end - begin, key) == 0) {
+            if (result != std::string::npos) throw std::invalid_argument("duplicate realtime field");
+            result = cursor;
+        }
+        skipRealtimeValue(text, cursor);
+        cursor = skipJsonWhitespace(text, cursor);
+        if (cursor == text.size()) break;
+        if (text[cursor] == '}' && skipJsonWhitespace(text, cursor + 1) == text.size()) return result;
+        if (text[cursor++] != ',') throw std::invalid_argument("realtime fields require a comma");
+        cursor = skipJsonWhitespace(text, cursor);
+    }
+    throw std::invalid_argument("incomplete realtime request");
+}
+
+std::uint64_t readRealtimeUnsigned(
+    const std::string& text, std::size_t& cursor, std::uint64_t minimum, std::uint64_t maximum,
+    bool quoted = false
+) {
+    const auto begin = cursor;
+    std::uint64_t value = 0;
+    while (cursor < text.size() && text[cursor] >= '0' && text[cursor] <= '9') {
+        const auto digit = static_cast<unsigned>(text[cursor++] - '0');
+        if (value > maximum / 10 || (value == maximum / 10 && digit > maximum % 10)) {
+            throw std::invalid_argument("realtime integer out of range");
+        }
+        value = value * 10 + digit;
+    }
+    if (cursor == begin || value < minimum || (!quoted && cursor > begin + 1 && text[begin] == '0')) {
+        throw std::invalid_argument("realtime integer out of range");
+    }
+    return value;
+}
+
+void requireRealtimeFieldEnd(const std::string& text, std::size_t cursor) {
+    cursor = skipJsonWhitespace(text, cursor);
+    if (cursor >= text.size() || (text[cursor] != ',' && text[cursor] != '}')) {
+        throw std::invalid_argument("invalid realtime field value");
+    }
+}
+
+std::string readRealtimeString(const std::string& text, const char* key, std::size_t maximum) {
+    auto cursor = findJsonValueStart(text, key);
+    if (cursor == std::string::npos) return {};
+    if (cursor == text.size() || text[cursor++] != '"') {
+        throw std::invalid_argument("realtime identity/action must be a string");
+    }
+    std::string value;
+    while (cursor < text.size()) {
+        char ch = text[cursor++];
+        if (ch == '"') {
+            requireRealtimeFieldEnd(text, cursor);
+            return value;
+        }
+        if (static_cast<unsigned char>(ch) < 0x20 || value.size() >= maximum) {
+            throw std::invalid_argument("invalid or oversized realtime string");
+        }
+        if (ch == '\\') {
+            if (cursor == text.size()) break;
+            switch (text[cursor++]) {
+                case '"': ch = '"'; break;
+                case '\\': ch = '\\'; break;
+                case '/': ch = '/'; break;
+                case 'b': ch = '\b'; break;
+                case 'f': ch = '\f'; break;
+                case 'n': ch = '\n'; break;
+                case 'r': ch = '\r'; break;
+                case 't': ch = '\t'; break;
+                default: throw std::invalid_argument("invalid realtime string escape");
             }
         }
-        if (quoted && cursor < text.size() && text[cursor] == '"') {
-            ++cursor;
-        }
+        value.push_back(ch);
+    }
+    throw std::invalid_argument("incomplete realtime string");
+}
+
+bool isNormalRealtimeId(const std::string& id) {
+    return id.size() <= kMaxRealtimeIdentityBytes &&
+        std::all_of(id.begin(), id.end(), [](unsigned char ch) { return ch >= 0x21 && ch <= 0x7e; });
+}
+
+std::int64_t readRealtimeIntegerField(
+    const std::string& text, const char* key, std::uint64_t minimum, std::uint64_t maximum
+) {
+    auto cursor = findJsonValueStart(text, key);
+    if (cursor == std::string::npos) {
+        return 0;
+    }
+    const auto value = readRealtimeUnsigned(text, cursor, minimum, maximum);
+    requireRealtimeFieldEnd(text, cursor);
+    return static_cast<std::int64_t>(value);
+}
+
+void parseUInt32ArrayField(
+    const std::string& text, const char* key, std::vector<std::uint32_t>& values
+) {
+    auto cursor = findJsonValueStart(text, key);
+    if (cursor == std::string::npos) return;
+    if (cursor >= text.size() || text[cursor++] != '[') {
+        throw std::invalid_argument("realtime selector must be an array");
+    }
+    cursor = skipJsonWhitespace(text, cursor);
+    if (cursor < text.size() && text[cursor] == ']') {
+        requireRealtimeFieldEnd(text, cursor + 1);
+        return;
+    }
+    while (true) {
         cursor = skipJsonWhitespace(text, cursor);
+        if (values.size() >= kMaxRealtimeSelectorItems) {
+            throw std::invalid_argument("realtime selector exceeds 4096 raw items");
+        }
+        const bool quoted = cursor < text.size() && text[cursor] == '"';
+        if (quoted) ++cursor;
+        const auto value = readRealtimeUnsigned(text, cursor, 1, UINT32_MAX, quoted);
+        if (quoted && (cursor >= text.size() || text[cursor++] != '"')) {
+            throw std::invalid_argument("invalid quoted realtime index");
+        }
+        values.push_back(static_cast<std::uint32_t>(value));
+        cursor = skipJsonWhitespace(text, cursor);
+        if (cursor < text.size() && text[cursor] == ']') {
+            requireRealtimeFieldEnd(text, cursor + 1);
+            return;
+        }
         if (cursor < text.size() && text[cursor] == ',') {
             ++cursor;
             continue;
         }
-        if (cursor < text.size() && text[cursor] == ']') {
-            break;
-        }
-        break;
+        throw std::invalid_argument("invalid realtime selector item");
     }
-    return values;
 }
 
 RealtimeSnapshotRequest parseRealtimeSnapshotRequest(const std::string& payload) {
-    FlatJsonReader json(payload);
     RealtimeSnapshotRequest request;
-    json.tryGetString("sessionId", &request.sessionId);
-    json.tryGetString("action", &request.action);
+    request.action = readRealtimeString(payload, "action", payload.size());
     if (request.action.empty()) {
-        json.tryGetString("op", &request.action);
+        request.action = readRealtimeString(payload, "op", payload.size());
     }
     if (request.action.empty()) {
-        json.tryGetString("mode", &request.action);
+        request.action = readRealtimeString(payload, "mode", payload.size());
     }
-    json.tryGetString("machineCode", &request.machineCode);
-    json.tryGetString("meterCode", &request.meterCode);
-    json.tryGetInt64("ttlSec", &request.ttlSec);
-    std::uint32_t intervalMs = 0;
-    if (json.tryGetUInt32("intervalMs", &intervalMs)) {
-        request.intervalMs = static_cast<int>(intervalMs);
+    const bool stopRequest = isRealtimeStopAction(request.action);
+    request.sessionId = readRealtimeString(payload, "sessionId",
+        stopRequest ? kMaxRealtimeDefaultKeyBytes : kMaxRealtimeIdentityBytes);
+    request.machineCode = readRealtimeString(payload, "machineCode", kMaxRealtimeIdentityBytes);
+    if (stopRequest && !request.sessionId.empty() && isNormalRealtimeId(request.sessionId)) {
+        return request;
     }
+    request.meterCode = readRealtimeString(payload, "meterCode", kMaxRealtimeIdentityBytes);
+    if (stopRequest) return request;
+    request.ttlSec = readRealtimeIntegerField(payload, "ttlSec", kMinRealtimeTtlSec, kMaxRealtimeTtlSec);
+    request.intervalMs = static_cast<int>(readRealtimeIntegerField(
+        payload, "intervalMs", kMinRealtimeIntervalMs, kMaxRealtimeIntervalMs));
 
-    std::uint32_t index = 0;
-    if (json.tryGetUInt32("index", &index) && index != 0) {
-        request.indexes.push_back(index);
+    const auto index = readRealtimeIntegerField(payload, "index", 1, UINT32_MAX);
+    if (index != 0) {
+        request.indexes.push_back(static_cast<std::uint32_t>(index));
     }
-    auto indexes = parseUInt32ArrayField(payload, "indexes");
-    request.indexes.insert(request.indexes.end(), indexes.begin(), indexes.end());
-    indexes = parseUInt32ArrayField(payload, "indices");
-    request.indexes.insert(request.indexes.end(), indexes.begin(), indexes.end());
+    parseUInt32ArrayField(payload, "indexes", request.indexes);
+    parseUInt32ArrayField(payload, "indices", request.indexes);
     std::sort(request.indexes.begin(), request.indexes.end());
     request.indexes.erase(std::unique(request.indexes.begin(), request.indexes.end()), request.indexes.end());
     return request;
@@ -1657,18 +1813,19 @@ void MqttDriverService::publishLegacyTelemetry(
 
 void MqttDriverService::publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs) {
     const auto values = indexes.empty() ? enrichValues(router_.getAllLatest(nowMs)) : filterValues(indexes, nowMs);
-    publishRealtimeValues(values, indexes.size(), nowMs);
+    publishRealtimeValues(values, indexes.size(), nowMs, std::string());
 }
 
 void MqttDriverService::publishRealtimeValues(
     std::vector<StoredPointValue> values,
     std::size_t requestedCount,
-    std::int64_t nowMs
+    std::int64_t nowMs,
+    const std::string& sessionId
 ) {
     const auto& topic = mqttConfig_.realtimeTelemetryTopic.empty()
         ? mqttConfig_.telemetryTopic
         : mqttConfig_.realtimeTelemetryTopic;
-    publisher_->publishOnDemand(topic, values, driverConfig_.fullUploadJsonFormat);
+    publisher_->publishRealtime(topic, values, driverConfig_.fullUploadJsonFormat, sessionId);
     publishStatusEvent(
         "on-demand",
         nowMs,
@@ -1687,10 +1844,6 @@ bool MqttDriverService::hasActiveRealtimeSessions(std::int64_t nowMs) const {
 }
 
 void MqttDriverService::cleanupExpiredRealtimeSessions(std::int64_t nowMs) {
-    if (lastRealtimeSessionCleanupMs_ > 0 && nowMs - lastRealtimeSessionCleanupMs_ < 1000) {
-        return;
-    }
-    lastRealtimeSessionCleanupMs_ = nowMs;
     for (auto it = realtimeSessions_.begin(); it != realtimeSessions_.end();) {
         if (it->second.expireAtMs <= nowMs) {
             it = realtimeSessions_.erase(it);
@@ -1708,19 +1861,31 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
         }
         try {
             if (!session.indexes.empty()) {
-                publishRealtimeValues(filterValues(session.indexes, nowMs), session.requestedCount, nowMs);
+                publishRealtimeValues(
+                    filterValues(session.indexes, nowMs),
+                    session.requestedCount,
+                    nowMs,
+                    session.sessionId
+                );
             } else if (!session.meterCode.empty()) {
                 publishRealtimeValues(
                     filterValuesByMeter(session.machineCode, session.meterCode, nowMs),
                     session.requestedCount,
-                    nowMs
+                    nowMs,
+                    session.sessionId
                 );
             } else {
-                publishOnDemandNow({}, nowMs);
+                publishRealtimeValues(
+                    enrichValues(router_.getAllLatest(nowMs)),
+                    session.requestedCount,
+                    nowMs,
+                    session.sessionId
+                );
             }
         } catch (...) {
         }
-        session.nextPublishMs = nowMs + std::max(10, session.intervalMs);
+        session.nextPublishMs = nowMs > std::numeric_limits<std::int64_t>::max() - session.intervalMs
+            ? session.expireAtMs : nowMs + session.intervalMs;
     }
 }
 
@@ -2166,7 +2331,7 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
     const auto request = parseRealtimeSnapshotRequest(payload);
     const auto primaryMachine = primaryMachineCode();
     const auto machineCode = request.machineCode.empty() ? primaryMachine : request.machineCode;
-    if (machineCode.empty()) {
+    if (machineCode.empty() || machineCode.size() > kMaxRealtimeIdentityBytes) {
         throw std::invalid_argument("machineCode is required");
     }
     if (!primaryMachine.empty() && machineCode != primaryMachine) {
@@ -2195,11 +2360,13 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
         request.intervalMs > 0 ||
         isRealtimeStartAction(request.action) ||
         stopRequest;
-    const std::string sessionId = request.sessionId.empty()
-        ? std::string("default:")
-            + machineCode + ":"
-            + (request.meterCode.empty() ? std::string("*") : request.meterCode)
-        : request.sessionId;
+    const std::string defaultKey = "default:" + machineCode + ":" +
+        (request.meterCode.empty() ? std::string("*") : request.meterCode);
+    if (!isNormalRealtimeId(request.sessionId) &&
+        !(stopRequest && request.sessionId == defaultKey && defaultKey.size() <= kMaxRealtimeDefaultKeyBytes)) {
+        throw std::invalid_argument("realtime sessionId must be at most 128 visible ASCII bytes");
+    }
+    const std::string sessionId = request.sessionId.empty() ? defaultKey : request.sessionId;
 
     if (stopRequest) {
         realtimeSessions_.erase(sessionId);
@@ -2211,32 +2378,52 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
         return;
     }
 
-    if (!request.indexes.empty()) {
-        publishOnDemandNow(request.indexes, nowMs);
-    } else if (!request.meterCode.empty()) {
+    bool publishImmediately = true;
+    if (sessionRequest) {
+        const auto ttlSec = request.ttlSec > 0 ? request.ttlSec : 30;
+        RealtimeSession session;
+        session.sessionId = request.sessionId;
+        session.machineCode = machineCode;
+        session.meterCode = request.meterCode;
+        session.indexes = request.indexes;
+        session.expireAtMs = realtimeDeadline(nowMs, ttlSec * 1000);
+        session.intervalMs = request.intervalMs > 0 ? request.intervalMs
+            : std::max(kMinRealtimeIntervalMs, std::min(kMaxRealtimeIntervalMs, driverConfig_.scanIntervalMs));
+        session.nextPublishMs = realtimeDeadline(nowMs, session.intervalMs);
+        session.requestedCount = request.indexes.size();
+
+        cleanupExpiredRealtimeSessions(nowMs);
+        const auto existing = realtimeSessions_.find(sessionId);
+        publishImmediately = existing == realtimeSessions_.end();
+        if (publishImmediately && realtimeSessions_.size() >= kMaxRealtimeSessions) {
+            throw std::invalid_argument("realtime session capacity reached");
+        }
+        if (!publishImmediately) {
+            session.nextPublishMs = existing->second.nextPublishMs;
+        }
+        // Admission and allocation precede the first PointStore read, including renewals.
+        realtimeSessions_[sessionId] = std::move(session);
+    }
+
+    if (publishImmediately && !request.indexes.empty()) {
+        publishRealtimeValues(
+            filterValues(request.indexes, nowMs),
+            request.indexes.size(),
+            nowMs,
+            request.sessionId
+        );
+    } else if (publishImmediately && !request.meterCode.empty()) {
         auto values = filterValuesByMeter(machineCode, request.meterCode, nowMs);
-        publishRealtimeValues(std::move(values), 0, nowMs);
-    } else {
-        publishOnDemandNow({}, nowMs);
+        publishRealtimeValues(std::move(values), 0, nowMs, request.sessionId);
+    } else if (publishImmediately) {
+        publishRealtimeValues(enrichValues(router_.getAllLatest(nowMs)), 0, nowMs, request.sessionId);
     }
 
     if (!sessionRequest) {
         return;
     }
 
-    const auto ttlSec = request.ttlSec > 0 ? request.ttlSec : 30;
-    RealtimeSession session;
-    session.machineCode = machineCode;
-    session.meterCode = request.meterCode;
-    session.indexes = request.indexes;
-    session.expireAtMs = nowMs + ttlSec * 1000;
-    session.intervalMs = request.intervalMs > 0
-        ? request.intervalMs
-        : std::max(10, driverConfig_.scanIntervalMs);
-    session.intervalMs = std::max(10, session.intervalMs);
-    session.nextPublishMs = nowMs + session.intervalMs;
-    session.requestedCount = request.indexes.size();
-    realtimeSessions_[sessionId] = session;
+    const auto& session = realtimeSessions_.at(sessionId);
     publishStatusEvent(
         "realtime-session-started",
         nowMs,

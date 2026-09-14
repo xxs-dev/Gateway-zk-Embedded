@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "edge_gateway/can_signal_codec.hpp"
+#include "edge_gateway/common/persistent_flush_schedule.hpp"
 #include "edge_gateway/virtual_can_datagram.hpp"
 #include "edge_gateway/writeback_service.hpp"
 
@@ -185,7 +186,8 @@ CanDriverService::CanDriverService(
     std::shared_ptr<IMqttPublisher> mqttPublisher
 ) : config_(std::move(config)),
     store_(store),
-    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath),
+    sqliteWriter_(config_.memoryStore.sqlitePath, config_.memoryStore.sqliteLibraryPath,
+                  config_.memoryStore.historyRetentionDays),
     priorityControlLease_(
         config_.mqttDriver.priorityControlLeaseFile,
         config_.protocol.type + ":" + config_.memoryStore.sharedMemoryName
@@ -927,16 +929,29 @@ void CanDriverService::writebackLoop() {
 }
 
 void CanDriverService::persistLoop() {
-    const auto intervalMs = std::max(1000, config_.memoryStore.persistFlushIntervalMs);
+    PersistentFlushSchedule schedule(config_.memoryStore.persistFlushIntervalMs);
     while (running_.load()) {
         try {
             const auto ts = nowMs();
             if (!priorityControlBlocked(ts)) {
-                flushPersistentOnce();
+                const auto stats = store_.getStats();
+                if (schedule.shouldFlush(stats.persistentCount, stats.persistentConfiguredLimit)) {
+                    flushPersistentOnce();
+                    schedule.succeeded();
+                }
             }
         } catch (...) {
+            schedule.failed();
         }
-        sleepInterruptibly(running_, intervalMs);
+        try {
+            std::unique_lock<std::mutex> lock(persistentFlushMutex_, std::try_to_lock);
+            if (lock.owns_lock() && running_.load() && !priorityControlBlocked(nowMs())) {
+                sqliteWriter_.cleanupExpiredSamples(nowMs());
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "CAN point history cleanup failed: " << ex.what() << std::endl;
+        }
+        sleepInterruptibly(running_, PersistentFlushSchedule::kCheckIntervalMs);
     }
 }
 

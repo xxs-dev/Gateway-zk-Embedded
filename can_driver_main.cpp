@@ -70,6 +70,7 @@ int main(int argc, char* argv[]) {
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
+    config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;
     if (config.protocol.type != "can_socketcan" && config.protocol.type != "can") {
         throw std::invalid_argument("CanDriver requires protocol.type=can_socketcan");

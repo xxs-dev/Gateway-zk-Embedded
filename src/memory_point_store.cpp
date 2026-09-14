@@ -1480,44 +1480,59 @@ Optional<StoredPointValue> MemoryPointStore::getLatestByIndex(
     std::uint32_t index,
     std::int64_t nowMs
 ) const {
-    ensureCurrentMapping();
+    // Keep cache writeback in the same mapping protected by the instance lock.
+    WriteLock lock(mutex_);
+    refreshCurrentMappingLocked();
     Optional<PointBinding> binding;
     Optional<std::size_t> cachedSlot;
-    ReadLock lock(mutex_);
     binding = getBindingByIndex(index);
     const auto cached = latestSlotByIndex_.find(index);
     if (cached != latestSlotByIndex_.end()) {
         cachedSlot = cached->second;
     }
 
+    SharedLatestSlot sample;
+    {
 #ifdef _WIN32
-    SharedLockGuard sharedLock(mutexHandle_);
+        SharedLockGuard sharedLock(mutexHandle_);
 #else
-    auto* layout = layoutFrom(sharedView_);
-    SharedLockGuard sharedLock(&layout->header.mutex);
+        auto* layout = layoutFrom(sharedView_);
+        SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
-    const auto* layout2 = layoutFrom(sharedView_);
-    const SharedLatestSlot* slot = nullptr;
-    if (cachedSlot && *cachedSlot < kMaxLatestSlots) {
-        const auto* candidate = &layout2->latest[*cachedSlot];
-        if (candidate->occupied && candidate->index == index) {
-            slot = candidate;
+        const auto* layout2 = layoutFrom(sharedView_);
+        const SharedLatestSlot* slot = nullptr;
+        if (cachedSlot && *cachedSlot < kMaxLatestSlots) {
+            const auto* candidate = &layout2->latest[*cachedSlot];
+            if (candidate->occupied && candidate->index == index) {
+                slot = candidate;
+            }
         }
-    }
-    if (slot == nullptr) {
-        slot = findLatestSlot(layout2, index);
-    }
-    if (slot == nullptr) {
-        return NullOpt;
+        if (slot == nullptr) {
+            slot = findLatestSlot(layout2, index);
+            if (slot != nullptr) {
+                // Bound old keys left behind when other writers delete or reuse slots.
+                if (latestSlotByIndex_.size() >= kMaxLatestSlots &&
+                    latestSlotByIndex_.find(index) == latestSlotByIndex_.end()) {
+                    latestSlotByIndex_.clear();
+                }
+                latestSlotByIndex_[index] = static_cast<std::size_t>(slot - layout2->latest);
+            } else {
+                latestSlotByIndex_.erase(index);
+            }
+        }
+        if (slot == nullptr) {
+            return NullOpt;
+        }
+        sample = *slot;
     }
 
     StoredPointValue value;
-    value.index = slot->index;
-    value.value = slot->value;
-    value.quality = slot->quality;
-    value.ts = slot->ts;
-    value.expireAt = slot->expireAt;
-    value.stale = slot->stale != 0;
+    value.index = sample.index;
+    value.value = sample.value;
+    value.quality = sample.quality;
+    value.ts = sample.ts;
+    value.expireAt = sample.expireAt;
+    value.stale = sample.stale != 0;
     if (binding) {
         value.machineCode = binding->machineCode;
         value.meterCode = binding->meterCode;
@@ -1530,11 +1545,11 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
     const std::vector<std::uint32_t>& indexes,
     std::int64_t nowMs
 ) const {
-    ensureCurrentMapping();
+    WriteLock lock(mutex_);
+    refreshCurrentMappingLocked();
     std::unordered_map<std::uint32_t, PointBinding> bindingsSnapshot;
     std::unordered_map<std::uint32_t, std::size_t> slotSnapshot;
     std::unordered_set<std::uint32_t> missingSlotIndexes;
-    ReadLock lock(mutex_);
     bindingsSnapshot.reserve(indexes.size());
     slotSnapshot.reserve(indexes.size());
     missingSlotIndexes.reserve(indexes.size());
@@ -1551,63 +1566,79 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
         }
     }
 
+    // Copy only fixed-size records under the SHM lock; build strings after releasing it.
+    std::vector<SharedLatestSlot> samples;
+    samples.reserve(indexes.size());
+    {
 #ifdef _WIN32
-    SharedLockGuard sharedLock(mutexHandle_);
+        SharedLockGuard sharedLock(mutexHandle_);
 #else
-    auto* layout = layoutFrom(sharedView_);
-    SharedLockGuard sharedLock(&layout->header.mutex);
+        auto* layout = layoutFrom(sharedView_);
+        SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
-    const auto* layout2 = layoutFrom(sharedView_);
-    const bool scannedMissingSlots = !missingSlotIndexes.empty();
-    std::unordered_map<std::uint32_t, std::size_t> discoveredSlots;
-    if (!missingSlotIndexes.empty()) {
-        discoveredSlots.reserve(missingSlotIndexes.size());
-        for (std::size_t slotIndex = 0;
-             slotIndex < kMaxLatestSlots && discoveredSlots.size() < missingSlotIndexes.size();
-             ++slotIndex) {
-            const auto& candidate = layout2->latest[slotIndex];
-            if (candidate.occupied && missingSlotIndexes.find(candidate.index) != missingSlotIndexes.end()) {
-                discoveredSlots.emplace(candidate.index, slotIndex);
+        const auto* layout2 = layoutFrom(sharedView_);
+        const bool scannedMissingSlots = !missingSlotIndexes.empty();
+        std::unordered_map<std::uint32_t, std::size_t> discoveredSlots;
+        if (!missingSlotIndexes.empty()) {
+            discoveredSlots.reserve(missingSlotIndexes.size());
+            for (std::size_t slotIndex = 0;
+                 slotIndex < kMaxLatestSlots && discoveredSlots.size() < missingSlotIndexes.size();
+                 ++slotIndex) {
+                const auto& candidate = layout2->latest[slotIndex];
+                if (candidate.occupied && missingSlotIndexes.find(candidate.index) != missingSlotIndexes.end()) {
+                    discoveredSlots.emplace(candidate.index, slotIndex);
+                }
             }
         }
-    }
 
-    std::vector<StoredPointValue> result;
-    result.reserve(indexes.size());
-    for (const auto index : indexes) {
-        const SharedLatestSlot* slot = nullptr;
-        const auto cached = slotSnapshot.find(index);
-        if (cached != slotSnapshot.end() && cached->second < kMaxLatestSlots) {
-            const auto* candidate = &layout2->latest[cached->second];
-            if (candidate->occupied && candidate->index == index) {
-                slot = candidate;
-            }
-        }
-        if (slot == nullptr) {
-            const auto discovered = discoveredSlots.find(index);
-            if (discovered != discoveredSlots.end() && discovered->second < kMaxLatestSlots) {
-                const auto* candidate = &layout2->latest[discovered->second];
+        for (const auto index : indexes) {
+            const SharedLatestSlot* slot = nullptr;
+            const auto cached = slotSnapshot.find(index);
+            if (cached != slotSnapshot.end() && cached->second < kMaxLatestSlots) {
+                const auto* candidate = &layout2->latest[cached->second];
                 if (candidate->occupied && candidate->index == index) {
                     slot = candidate;
                 }
             }
+            if (slot == nullptr) {
+                const auto discovered = discoveredSlots.find(index);
+                if (discovered != discoveredSlots.end() && discovered->second < kMaxLatestSlots) {
+                    const auto* candidate = &layout2->latest[discovered->second];
+                    if (candidate->occupied && candidate->index == index) {
+                        slot = candidate;
+                    }
+                }
+            }
+            if (slot == nullptr && scannedMissingSlots && missingSlotIndexes.find(index) != missingSlotIndexes.end()) {
+                continue;
+            }
+            if (slot == nullptr) {
+                slot = findLatestSlot(layout2, index);
+            }
+            if (slot == nullptr) {
+                latestSlotByIndex_.erase(index);
+                continue;
+            }
+            const auto slotIndex = static_cast<std::size_t>(slot - layout2->latest);
+            if (latestSlotByIndex_.size() >= kMaxLatestSlots &&
+                latestSlotByIndex_.find(index) == latestSlotByIndex_.end()) {
+                latestSlotByIndex_.clear();
+            }
+            latestSlotByIndex_[index] = slotIndex;
+            samples.push_back(*slot);
         }
-        if (slot == nullptr && scannedMissingSlots && missingSlotIndexes.find(index) != missingSlotIndexes.end()) {
-            continue;
-        }
-        if (slot == nullptr) {
-            slot = findLatestSlot(layout2, index);
-        }
-        if (slot == nullptr) {
-            continue;
-        }
+    }
+
+    std::vector<StoredPointValue> result;
+    result.reserve(samples.size());
+    for (const auto& sample : samples) {
         StoredPointValue value;
-        value.index = slot->index;
-        value.value = slot->value;
-        value.quality = slot->quality;
-        value.ts = slot->ts;
-        value.expireAt = slot->expireAt;
-        value.stale = slot->stale != 0;
+        value.index = sample.index;
+        value.value = sample.value;
+        value.quality = sample.quality;
+        value.ts = sample.ts;
+        value.expireAt = sample.expireAt;
+        value.stale = sample.stale != 0;
         const auto binding = bindingsSnapshot.find(value.index);
         if (binding != bindingsSnapshot.end()) {
             value.machineCode = binding->second.machineCode;

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -30,11 +31,18 @@ void require(bool condition, const std::string& message) {
 
 class CapturingMqttDriverPublisher : public IMqttDriverPublisher {
 public:
+    struct RealtimePublication {
+        std::string topic;
+        std::string sessionId;
+        std::vector<StoredPointValue> values;
+    };
+
     void publishFullSnapshot(
-        const std::string&,
+        const std::string& topic,
         const std::vector<StoredPointValue>& values,
         const std::string&
     ) override {
+        fullSnapshotTopics.push_back(topic);
         fullSnapshotCounts.push_back(values.size());
     }
 
@@ -48,11 +56,24 @@ public:
     }
 
     void publishOnDemand(
-        const std::string&,
+        const std::string& topic,
         const std::vector<StoredPointValue>& values,
         const std::string&
     ) override {
+        onDemandTopics.push_back(topic);
         onDemandCounts.push_back(values.size());
+        realtimePublications.push_back(RealtimePublication{topic, std::string(), values});
+    }
+
+    void publishRealtime(
+        const std::string& topic,
+        const std::vector<StoredPointValue>& values,
+        const std::string&,
+        const std::string& sessionId
+    ) override {
+        onDemandTopics.push_back(topic);
+        onDemandCounts.push_back(values.size());
+        realtimePublications.push_back(RealtimePublication{topic, sessionId, values});
     }
 
     void publishChangeEvent(
@@ -98,7 +119,10 @@ public:
 
     std::vector<MqttIncomingMessage> incoming;
     std::vector<std::size_t> fullSnapshotCounts;
+    std::vector<std::string> fullSnapshotTopics;
+    std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
+    std::vector<RealtimePublication> realtimePublications;
     std::vector<std::string> statusPayloads;
     std::vector<std::string> jsonTopics;
     std::vector<int> pollTimeouts;
@@ -153,7 +177,8 @@ ServiceFixture makeFixture(
     const std::string& suffix,
     int fullUploadIntervalMs,
     bool firstPointWritable = false,
-    const std::string& healthFile = std::string()
+    const std::string& healthFile = std::string(),
+    bool includeSecondMeter = false
 ) {
     ServiceFixture fixture;
     fixture.shmName = "mqtt_driver_service_test_" + suffix;
@@ -169,6 +194,12 @@ ServiceFixture makeFixture(
     meter.points.push_back(makePoint(1002, "P_2"));
     meter.points[0].write.enable = firstPointWritable;
     fixture.deviceConfig.meters.push_back(meter);
+    if (includeSecondMeter) {
+        LogicalDeviceConfig secondMeter;
+        secondMeter.meterCode = "METER_2";
+        secondMeter.points.push_back(makePoint(2001, "P_3"));
+        fixture.deviceConfig.meters.push_back(secondMeter);
+    }
 
     fixture.router.addStore(fixture.shmName, *fixture.store);
     fixture.router.addRoutesFromDeviceConfigs({fixture.deviceConfig}, fixture.shmName);
@@ -186,6 +217,15 @@ ServiceFixture makeFixture(
     value2.ts = 1770000000000LL;
     value2.expireAt = 1770000600000LL;
     require(fixture.router.putLatestByIndex(value2).accepted, "failed to seed point 1002");
+
+    if (includeSecondMeter) {
+        PointValue value3;
+        value3.index = 2001;
+        value3.value = 78.9;
+        value3.ts = 1770000000000LL;
+        value3.expireAt = 1770000600000LL;
+        require(fixture.router.putLatestByIndex(value3).accepted, "failed to seed point 2001");
+    }
 
     fixture.mqttConfig.enabled = true;
     fixture.mqttConfig.clientId = "GW_TEST";
@@ -210,6 +250,9 @@ ServiceFixture makeFixture(
     fixture.driverConfig.healthFile = healthFile;
     fixture.driverConfig.healthPublishIntervalMs = 100;
     fixture.driverConfig.healthWindowCycles = 20;
+    if (includeSecondMeter) {
+        fixture.driverConfig.fullUploadIndexes.push_back(2001);
+    }
 
     fixture.publisher.reset(new CapturingMqttDriverPublisher());
     fixture.service.reset(new MqttDriverService(
@@ -699,6 +742,10 @@ void testOneShotRealtimeRequestDoesNotCreatePeriodicSession() {
     fixture.service->runScanOnce(1770000010100LL);
     require(fixture.publisher->onDemandCounts.size() == 1, "one-shot realtime request should publish immediately");
     require(fixture.publisher->onDemandCounts.back() == 2, "meter realtime request should include meter points");
+    require(
+        fixture.publisher->realtimePublications.back().sessionId.empty(),
+        "legacy one-shot realtime response should remain unscoped"
+    );
 
     fixture.service->runScanOnce(1770000010200LL);
     fixture.service->runScanOnce(1770000010500LL);
@@ -710,18 +757,18 @@ void testRealtimeSessionPublishesUntilTtl() {
     auto fixture = makeFixture("session", 10000);
     fixture.service->runScanOnce(1770000020000LL);
     fixture.publisher->incoming.push_back(realtimeRequest(
-        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"S1\",\"meterCode\":\"METER_1\",\"intervalMs\":200,\"ttlSec\":1}"
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"S1\",\"meterCode\":\"METER_1\",\"intervalMs\":250,\"ttlSec\":5}"
     ));
     fixture.service->runScanOnce(1770000020100LL);
     require(fixture.publisher->onDemandCounts.size() == 1, "realtime session should publish immediately");
 
     fixture.service->runScanOnce(1770000020200LL);
     require(fixture.publisher->onDemandCounts.size() == 1, "session should respect requested interval");
-    fixture.service->runScanOnce(1770000020300LL);
+    fixture.service->runScanOnce(1770000020350LL);
     require(fixture.publisher->onDemandCounts.size() == 2, "session should publish when interval is due");
-    fixture.service->runScanOnce(1770000020500LL);
+    fixture.service->runScanOnce(1770000020600LL);
     require(fixture.publisher->onDemandCounts.size() == 3, "session should keep publishing while active");
-    fixture.service->runScanOnce(1770000021200LL);
+    fixture.service->runScanOnce(1770000025100LL);
     require(fixture.publisher->onDemandCounts.size() == 3, "session should stop after ttl expires");
     cleanupFixture(fixture);
 }
@@ -730,7 +777,7 @@ void testRealtimeSessionStopRequest() {
     auto fixture = makeFixture("stop", 10000);
     fixture.service->runScanOnce(1770000030000LL);
     fixture.publisher->incoming.push_back(realtimeRequest(
-        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"S1\",\"meterCode\":\"METER_1\",\"intervalMs\":100,\"ttlSec\":30}"
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"S1\",\"meterCode\":\"METER_1\",\"intervalMs\":250,\"ttlSec\":30}"
     ));
     fixture.service->runScanOnce(1770000030100LL);
     require(fixture.publisher->onDemandCounts.size() == 1, "session should publish immediately before stop");
@@ -738,9 +785,485 @@ void testRealtimeSessionStopRequest() {
         "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"S1\",\"action\":\"stop\"}"
     ));
     fixture.service->runScanOnce(1770000030150LL);
-    fixture.service->runScanOnce(1770000030300LL);
+    fixture.service->runScanOnce(1770000030350LL);
     require(fixture.publisher->onDemandCounts.size() == 1, "stopped realtime session should not publish again");
     cleanupFixture(fixture);
+}
+
+void testRealtimeSessionUnsubscribeIsIsolatedFromOtherSessionsAndFullUpload() {
+    auto fixture = makeFixture("unsubscribe_isolation", 1000);
+    const std::int64_t startedAt = 1770000035000LL;
+    require(
+        fixture.mqttConfig.realtimeTelemetryTopic != fixture.mqttConfig.fullTelemetryTopic,
+        "test fixture must use independent realtime and full topics"
+    );
+    fixture.service->runScanOnce(startedAt);
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_TARGET\",\"indexes\":[1001],\"intervalMs\":250,\"ttlSec\":30}"
+    ));
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_SURVIVOR\",\"indexes\":[1001,1002],\"intervalMs\":250,\"ttlSec\":30}"
+    ));
+    fixture.service->runScanOnce(startedAt + 100);
+    require(fixture.publisher->onDemandCounts.size() == 2, "both realtime sessions should publish immediately");
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 1) == 1,
+        "target realtime session should publish its configured point"
+    );
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 2) == 1,
+        "surviving realtime session should publish its configured points"
+    );
+    require(fixture.publisher->fullSnapshotCounts.empty(), "full snapshot should not publish before interval");
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"UNKNOWN_SESSION\",\"action\":\"unsubscribe\"}"
+    ));
+    fixture.service->runScanOnce(startedAt + 150);
+    fixture.service->runScanOnce(startedAt + 350);
+    require(fixture.publisher->onDemandCounts.size() == 4, "unknown unsubscribe should leave both sessions active");
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 1) == 2 &&
+            std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 2) == 2,
+        "unknown unsubscribe should be a no-op for each realtime session"
+    );
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"REALTIME_TARGET\",\"action\":\"unsubscribe\"}"
+    ));
+    fixture.service->runScanOnce(startedAt + 400);
+    fixture.service->runScanOnce(startedAt + 600);
+    require(fixture.publisher->onDemandCounts.size() == 5, "only the surviving session should keep publishing");
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 1) == 2,
+        "target realtime session should stop after unsubscribe"
+    );
+    require(
+        std::count(fixture.publisher->onDemandCounts.begin(), fixture.publisher->onDemandCounts.end(), 2) == 3,
+        "unsubscribing one session should not stop the other session"
+    );
+
+    fixture.service->runScanOnce(startedAt + 999);
+    require(fixture.publisher->fullSnapshotCounts.empty(), "full snapshot should wait for fullUploadIntervalMs");
+    fixture.service->runScanOnce(startedAt + 1000);
+    require(fixture.publisher->onDemandCounts.size() == 6, "full upload should not create a realtime publication");
+    require(fixture.publisher->fullSnapshotCounts.size() == 1, "full snapshot should continue after realtime unsubscribe");
+    require(fixture.publisher->fullSnapshotCounts.back() == 2, "full snapshot after unsubscribe should include configured full points");
+    require(
+        fixture.publisher->fullSnapshotTopics.front() == fixture.mqttConfig.fullTelemetryTopic,
+        "full snapshot should publish to fullTelemetryTopic"
+    );
+    require(
+        fixture.publisher->onDemandTopics.size() == fixture.publisher->onDemandCounts.size(),
+        "each realtime publication should capture its topic"
+    );
+    require(
+        std::all_of(
+            fixture.publisher->onDemandTopics.begin(),
+            fixture.publisher->onDemandTopics.end(),
+            [&](const std::string& topic) { return topic == fixture.mqttConfig.realtimeTelemetryTopic; }
+        ),
+        "realtime sessions should publish only to realtimeTelemetryTopic"
+    );
+    cleanupFixture(fixture);
+}
+
+void testRealtimeSessionsKeepMeterAndIndexSelectorsIsolated() {
+    auto fixture = makeFixture("session_selector_isolation", 1000, false, std::string(), true);
+    const std::int64_t startedAt = 1770000037000LL;
+    fixture.service->runScanOnce(startedAt);
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_A\",\"meterCode\":\"METER_1\",\"intervalMs\":250,\"ttlSec\":30}"
+    ));
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_B\",\"indexes\":[2001],\"intervalMs\":250,\"ttlSec\":30}"
+    ));
+    fixture.service->runScanOnce(startedAt + 100);
+
+    const auto countSession = [&](const std::string& sessionId) {
+        return std::count_if(
+            fixture.publisher->realtimePublications.begin(),
+            fixture.publisher->realtimePublications.end(),
+            [&](const CapturingMqttDriverPublisher::RealtimePublication& publication) {
+                return publication.sessionId == sessionId;
+            }
+        );
+    };
+    const auto assertSessionValues = [&](const std::string& sessionId, const std::string& meterCode, std::uint32_t index) {
+        for (const auto& publication : fixture.publisher->realtimePublications) {
+            if (publication.sessionId != sessionId) {
+                continue;
+            }
+            require(!publication.values.empty(), "session realtime publication should contain values");
+            for (const auto& value : publication.values) {
+                require(value.meterCode == meterCode, "session realtime publication leaked another meter");
+                if (index != 0) {
+                    require(value.index == index, "session realtime publication leaked another index");
+                }
+            }
+        }
+    };
+
+    require(countSession("SESSION_A") == 1, "meter-scoped session should publish immediately with its sessionId");
+    require(countSession("SESSION_B") == 1, "index-scoped session should publish immediately with its sessionId");
+    assertSessionValues("SESSION_A", "METER_1", 0);
+    assertSessionValues("SESSION_B", "METER_2", 2001);
+
+    fixture.service->runScanOnce(startedAt + 350);
+    require(countSession("SESSION_A") == 2, "meter-scoped session should keep its sessionId periodically");
+    require(countSession("SESSION_B") == 2, "index-scoped session should keep its sessionId periodically");
+
+    fixture.publisher->incoming.push_back(realtimeRequest(
+        "{\"machineCode\":\"GW_TEST\",\"sessionId\":\"SESSION_A\",\"action\":\"unsubscribe\"}"
+    ));
+    fixture.service->runScanOnce(startedAt + 400);
+    fixture.service->runScanOnce(startedAt + 600);
+    require(countSession("SESSION_A") == 2, "unsubscribed session A should stop publishing");
+    require(countSession("SESSION_B") == 3, "session B should continue after session A unsubscribes");
+    assertSessionValues("SESSION_A", "METER_1", 0);
+    assertSessionValues("SESSION_B", "METER_2", 2001);
+
+    fixture.service->runScanOnce(startedAt + 1000);
+    require(countSession("SESSION_A") == 2, "full upload must not restart stopped session A");
+    require(countSession("SESSION_B") == 4, "session B should continue alongside full upload");
+    require(fixture.publisher->fullSnapshotCounts.size() == 1, "full upload should continue after session A stops");
+    require(fixture.publisher->fullSnapshotCounts.front() == 3, "full upload configuration should remain unchanged");
+    cleanupFixture(fixture);
+}
+
+void testRealtimeSessionEchoForEverySelectorAndLegacyDefault() {
+    const std::vector<std::string> selectors = {
+        R"(,"indexes":[1001])", R"(,"meterCode":"METER_1")", ""
+    };
+    const std::vector<std::vector<std::uint32_t>> expectedIndexes = {
+        {1001}, {1001, 1002}, {1001, 1002, 2001}
+    };
+    for (std::size_t i = 0; i < selectors.size(); ++i) {
+        for (const bool legacyDefault : {false, true}) {
+            auto fixture = makeFixture("echo_matrix_" + std::to_string(i) +
+                (legacyDefault ? "_legacy" : "_explicit"), 2000, false, std::string(), true);
+            const std::string id = legacyDefault ? "" : "STUDIO_RT_owner_0123456789abcdef";
+            const std::int64_t start = 1770000040000LL;
+            fixture.service->runScanOnce(start);
+            fixture.publisher->incoming.push_back(realtimeRequest(
+                R"({"machineCode":"GW_TEST","action":"start","sessionId":")" + id +
+                R"(","intervalMs":1000,"ttlSec":20)" + selectors[i] + "}"));
+            fixture.service->runScanOnce(start + 100);
+            require(fixture.publisher->realtimePublications.size() == 1,
+                "each selector should publish immediately exactly once");
+            fixture.service->runScanOnce(start + 1099);
+            require(fixture.publisher->realtimePublications.size() == 1,
+                "each selector should wait for its interval");
+            fixture.service->runScanOnce(start + 1100);
+            require(fixture.publisher->realtimePublications.size() == 2,
+                "each selector should publish once when due");
+            require(fixture.publisher->fullSnapshotCounts.empty(),
+                "full must wait for its independently configured interval");
+            for (const auto& publication : fixture.publisher->realtimePublications) {
+                require(publication.sessionId == id,
+                    "immediate and periodic echo must preserve explicit IDs and omit synthesized defaults");
+                require(publication.topic == fixture.mqttConfig.realtimeTelemetryTopic,
+                    "each selector must keep the realtime topic");
+                std::vector<std::uint32_t> indexes;
+                for (const auto& value : publication.values) {
+                    indexes.push_back(value.index);
+                }
+                std::sort(indexes.begin(), indexes.end());
+                require(indexes == expectedIndexes[i], "selector returned unexpected points");
+            }
+            const auto stopId = legacyDefault
+                ? std::string("default:GW_TEST:") + (i == 1 ? "METER_1" : "*") : id;
+            fixture.publisher->incoming.push_back(realtimeRequest(
+                R"({"machineCode":"GW_TEST","action":"stop","sessionId":")" + stopId + "\"}"));
+            fixture.service->runScanOnce(start + 1200);
+            fixture.service->runScanOnce(start + 2100);
+            require(fixture.publisher->realtimePublications.size() == 2,
+                "explicit or synthesized default ID must stop only that session");
+            require(fixture.publisher->fullSnapshotCounts == std::vector<std::size_t>({3}),
+                "full cadence and selected points must survive realtime start and stop");
+            cleanupFixture(fixture);
+        }
+    }
+    std::cout << "session echo: indexes/meter/all, immediate/periodic, Studio/default, stop/full passed\n";
+}
+
+struct RealtimeFixtureCleanup {
+    ServiceFixture& fixture;
+    ~RealtimeFixtureCleanup() { cleanupFixture(fixture); }
+};
+
+void testRealtimeRejectsInvalidTimingBeforePublish() {
+    auto fixture = makeFixture("admission_timing", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t now = 1770000100000LL;
+    fixture.service->runScanOnce(now);
+    const std::vector<std::string> fields = {
+        R"("intervalMs":249)", R"("intervalMs":60001)", R"("intervalMs":0)",
+        R"("intervalMs":-1)", R"("intervalMs":4294967295)", R"("intervalMs":4294967296)",
+        R"("intervalMs":250.5)", R"("intervalMs":1e300)", R"("intervalMs":"1000")",
+        R"("intervalMs":null)", R"("intervalMs":1000junk)",
+        R"("ttlSec":4)", R"("ttlSec":301)", R"("ttlSec":0)", R"("ttlSec":-1)",
+        R"("ttlSec":9223372036854775807)", R"("ttlSec":18446744073709551616)",
+        R"("ttlSec":5.5)", R"("ttlSec":1e300)", R"("ttlSec":true)"
+    };
+    for (const auto& field : fields) {
+        fixture.publisher->incoming.push_back(realtimeRequest(
+            R"({"sessionId":"INVALID",)" + field + "}"));
+        fixture.service->runScanOnce(now + 1);
+        require(fixture.publisher->realtimePublications.empty(),
+            "invalid realtime timing published before rejection: " + field);
+    }
+    std::cout << "realtime admission: invalid timing rejected before publish passed\n";
+}
+
+std::string realtimeIndexArray(std::size_t count) {
+    std::string result = "[";
+    for (std::size_t i = 0; i < count; ++i) {
+        if (i != 0) result += ',';
+        result += "1001";
+    }
+    return result + ']';
+}
+
+void testRealtimeSelectorsAreBoundedWithoutAllFallback() {
+    auto fixture = makeFixture("admission_selectors", 0, false, std::string(), true);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t now = 1770000100000LL;
+    fixture.service->runScanOnce(now);
+    const std::vector<std::string> invalid = {
+        R"("indexes":[0])", R"("indexes":[1001,0])", R"("indexes":[4294967296])",
+        R"("indexes":[-1])", R"("indexes":[1.5])", R"("indexes":[1e3])",
+        R"("indexes":["bad"])", R"("indexes":[true])", R"("indexes":[{}])",
+        R"("indexes":[1001,])", R"("indexes":[1001)", R"("indexes":"1001")",
+        R"("indexes":null)", R"("indices":{})", R"("index":0)", R"("index":4294967296)",
+        R"("index":1001.5)", R"("index":"1001")", R"("indexes":[01])",
+        R"("note":"indexes","indexes":[0])", R"("indexes":[],"indexes":[0])",
+        R"("note":0 "indexes":[0])", R"("note":"x" "indexes":[0])",
+        R"("note":[] "indexes":[0])", R"("note":{} "indexes":[0])",
+        "\"indexes\":" + realtimeIndexArray(4097),
+        "\"index\":1001,\"indexes\":" + realtimeIndexArray(4096),
+        "\"indexes\":" + realtimeIndexArray(4096) + R"(,"indices":[1001])"
+    };
+    for (const auto& fields : invalid) {
+        fixture.publisher->incoming.push_back(realtimeRequest("{" + fields + "}"));
+        fixture.service->runScanOnce(now + 1);
+        require(fixture.publisher->realtimePublications.empty(),
+            "invalid selector published or fell back to all: " + fields.substr(0, 100));
+    }
+    const std::vector<std::pair<std::string, std::size_t>> valid = {
+        {"", 3}, {R"("indexes":[])", 3}, {R"("indices":[])", 3},
+        {R"("indexes":[],"meterCode":"METER_1")", 2},
+        {R"("indexes":[1001],"meterCode":"METER_2")", 1},
+        {R"("indexes":["1001",1001],"indices":["1002"])", 2},
+        {R"("indexes":[4294967295])", 0},
+        {"\"indexes\":" + realtimeIndexArray(4096), 1},
+        {R"("metadata":{"indexes":[0]},"indexes":[1001])", 1}
+    };
+    for (const auto& item : valid) {
+        const auto before = fixture.publisher->realtimePublications.size();
+        fixture.publisher->incoming.push_back(realtimeRequest("{" + item.first + "}"));
+        fixture.service->runScanOnce(now + 2);
+        require(fixture.publisher->realtimePublications.size() == before + 1,
+            "valid selector should produce one legacy snapshot");
+        require(fixture.publisher->realtimePublications.back().values.size() == item.second,
+            "empty/meter/index selector precedence changed");
+    }
+    std::cout << "realtime admission: selector validity/raw bounds/empty precedence passed\n";
+}
+
+void sendRealtime(ServiceFixture& fixture, const std::string& fields, std::int64_t now) {
+    fixture.publisher->incoming.push_back(realtimeRequest("{" + fields + "}"));
+    fixture.service->runScanOnce(now);
+}
+
+std::string sessionFields(const std::string& id, int interval = 60000, int ttl = 5) {
+    return R"("sessionId":")" + id + R"(","intervalMs":)" + std::to_string(interval) +
+        R"(,"ttlSec":)" + std::to_string(ttl) + R"(,"indexes":[1001])";
+}
+
+void testRealtimeCapacityRenewStopAndExpiry() {
+    auto fixture = makeFixture("admission_capacity", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t start = 1770000100000LL;
+    fixture.service->runScanOnce(start);
+    for (int i = 0; i < 16; ++i) {
+        fixture.publisher->incoming.push_back(realtimeRequest("{" + sessionFields("S" + std::to_string(i)) + "}"));
+    }
+    fixture.service->runScanOnce(start + 100);
+    require(fixture.publisher->onDemandCounts.size() == 16, "16 sessions should be admitted");
+    sendRealtime(fixture, sessionFields("OVER_CAPACITY"), start + 101);
+    require(fixture.publisher->onDemandCounts.size() == 16, "17th session must not read/publish first");
+    sendRealtime(fixture, sessionFields("S0", 60000, 30) + R"(,"action":"renew")", start + 102);
+    require(fixture.publisher->onDemandCounts.size() == 16, "full-capacity renewal must not publish immediately");
+    sendRealtime(fixture,
+        R"("sessionId":"S1","action":"stop","indexes":"ignored","meterCode":{},"intervalMs":1,"ttlSec":"ignored")",
+        start + 103);
+    sendRealtime(fixture, sessionFields("REPLACEMENT"), start + 104);
+    require(fixture.publisher->onDemandCounts.size() == 17, "stop at capacity must release its slot");
+    fixture.service->runScanOnce(start + 4999);
+    for (int i = 0; i < 14; ++i) {
+        fixture.publisher->incoming.push_back(realtimeRequest("{" + sessionFields("EXPIRED_SLOT_" + std::to_string(i)) + "}"));
+    }
+    fixture.service->runScanOnce(start + 5100);
+    require(fixture.publisher->onDemandCounts.size() == 31, "admission must reap expiry without waiting for cleanup tick");
+    sendRealtime(fixture, sessionFields("STILL_FULL"), start + 5101);
+    require(fixture.publisher->onDemandCounts.size() == 31, "renewed session must retain its capacity slot past original TTL");
+    std::cout << "realtime admission: 16 slots, renew/stop at capacity, expiry release passed\n";
+}
+
+void testRealtimeRenewFloodPreservesPendingDue() {
+    auto fixture = makeFixture("admission_renew", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t start = 1770000100000LL;
+    fixture.service->runScanOnce(start);
+    sendRealtime(fixture, sessionFields("S", 1000, 20), start + 100);
+    for (const int elapsed : {200, 600, 1000, 1100}) {
+        for (int i = 0; i < 50; ++i) {
+            fixture.publisher->incoming.push_back(realtimeRequest("{" + sessionFields("S", 250, 300) +
+                (i % 2 ? R"(,"action":"start"})" : R"(,"action":"renew"})")));
+        }
+        fixture.service->runScanOnce(start + elapsed);
+        require(fixture.publisher->onDemandCounts.size() == (elapsed == 1100 ? 2U : 1U),
+            "repeat start/renew must neither publish immediately nor postpone pending due");
+    }
+    sendRealtime(fixture, sessionFields("S", 60000, 300), start + 1200);
+    fixture.service->runScanOnce(start + 1350);
+    require(fixture.publisher->onDemandCounts.size() == 3, "larger renewed interval must not postpone pending due");
+    fixture.service->runScanOnce(start + 61349);
+    require(fixture.publisher->onDemandCounts.size() == 3, "subsequent due must use new interval");
+    fixture.service->runScanOnce(start + 61350);
+    require(fixture.publisher->onDemandCounts.size() == 4, "renewed interval should apply after pending publication");
+    std::cout << "realtime admission: repeated start/renew interval and starvation guard passed\n";
+}
+
+void testRealtimeIdentityBoundsAndStudioCompatibility() {
+    auto fixture = makeFixture("admission_identity", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::int64_t now = 1770000100000LL;
+    fixture.service->runScanOnce(now);
+    const std::vector<std::string> invalid = {
+        R"("sessionId":")" + std::string(129, 'S') + '"',
+        R"("sessionId":"has space")", R"("sessionId":"has\ncontrol")",
+        std::string(R"("sessionId":")") + char(127) + '"',
+        std::string(R"("sessionId":")") + "\xc3\xa9" + '"',
+        R"("sessionId":null)", R"("sessionId":123)", R"("sessionId":"bad\u0041")",
+        R"("meterCode":")" + std::string(129, 'M') + '"', R"("meterCode":{})",
+        R"("machineCode":true)", R"("action":123)",
+        R"("note":"sessionId","sessionId":false)",
+        R"("sessionId":"A","sessionId":"B")"
+    };
+    for (const auto& fields : invalid) {
+        sendRealtime(fixture, fields, now + 1);
+        require(fixture.publisher->realtimePublications.empty(), "invalid identity published: " + fields);
+    }
+    const std::string studioId = "STUDIO_RT_" + std::string(32, 'a') + "_" + std::string(16, 'b');
+    require(studioId.size() == 59, "Studio fixture must follow confirmed owner/hash sizing");
+    for (const auto& id : {studioId, std::string(128, 'S'), std::string("REALTIME_A"), std::string("default:GW_TEST:*")}) {
+        sendRealtime(fixture, sessionFields(id), now + 2);
+        require(fixture.publisher->realtimePublications.back().sessionId == id, "valid ID must echo without prefix restriction");
+    }
+    require(fixture.publisher->realtimePublications.size() == 4, "valid IDs should each publish exactly once");
+    std::cout << "realtime admission: ID bytes/ASCII/types/Studio59 and 128 boundary passed\n";
+}
+
+void useRealtimeIdentity(ServiceFixture& fixture, const std::string& machine, const std::string& meter) {
+    fixture.service.reset();
+    fixture.deviceConfig.machineCode = machine;
+    fixture.deviceConfig.meters.front().meterCode = meter;
+    fixture.mqttConfig.topicMachineCode = machine;
+    fixture.mqttConfig.clientId = machine;
+    fixture.router = PointStoreRouter();
+    fixture.router.addStore(fixture.shmName, *fixture.store);
+    fixture.router.addRoutesFromDeviceConfigs({fixture.deviceConfig}, fixture.shmName);
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher));
+}
+
+void testRealtimeLongDefaultStopExceptionIsExact() {
+    auto fixture = makeFixture("admission_default_stop", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const std::string machine(128, 'G');
+    const std::string meter(128, 'M');
+    const std::string key = "default:" + machine + ":" + meter;
+    require(key.size() == 265, "default stop fixture must hit the exact composite-key bound");
+    useRealtimeIdentity(fixture, machine, meter);
+    const std::int64_t now = 1770000100000LL;
+    fixture.service->runScanOnce(now);
+    const auto identity = R"("machineCode":")" + machine + R"(","meterCode":")" + meter + '"';
+    sendRealtime(fixture, identity + R"(,"action":"start","intervalMs":1000,"ttlSec":20)", now + 100);
+    require(fixture.publisher->realtimePublications.size() == 1, "long synthetic default should start without supplied ID");
+    const auto stoppedCount = [&]() {
+        return std::count_if(fixture.publisher->statusPayloads.begin(), fixture.publisher->statusPayloads.end(),
+            [](const std::string& value) { return value.find("realtime-session-stopped") != std::string::npos; });
+    };
+    const std::vector<std::string> rejected = {
+        identity + R"(,"action":"start","sessionId":")" + key + '"',
+        identity + R"(,"action":"renew","sessionId":")" + key + '"',
+        identity + R"(,"action":"stop","sessionId":")" + key + "X\"",
+        identity + R"(,"action":"stop","sessionId":")" + key.substr(0, 264) + "N\"",
+        R"("machineCode":")" + machine + R"(","action":"stop","sessionId":")" + key + '"',
+        R"("machineCode":"GW_TEST","meterCode":")" + meter + R"(","action":"stop","sessionId":")" + key + '"'
+    };
+    for (const auto& fields : rejected) {
+        sendRealtime(fixture, fields, now + 200);
+        require(fixture.publisher->realtimePublications.size() == 1, "long supplied ID must not start or renew");
+        require(stoppedCount() == 0, "only exact verified default key may use the long-ID stop exception");
+    }
+    fixture.service->runScanOnce(now + 1100);
+    require(fixture.publisher->realtimePublications.size() == 2, "rejected stops must preserve synthetic session");
+    sendRealtime(fixture, identity + R"(,"action":"stop","sessionId":")" + key +
+        R"(","indexes":[0],"intervalMs":1,"ttlSec":9223372036854775807)", now + 1200);
+    fixture.service->runScanOnce(now + 2100);
+    require(stoppedCount() == 1 && fixture.publisher->realtimePublications.size() == 2,
+        "exact 265-byte default key should stop despite irrelevant numeric/selector values");
+    sendRealtime(fixture, identity + R"(,"action":"start","intervalMs":1000,"ttlSec":20)", now + 2200);
+    sendRealtime(fixture, identity + R"(,"action":"stop","indexes":false)", now + 2300);
+    fixture.service->runScanOnce(now + 3200);
+    require(stoppedCount() == 2 && fixture.publisher->realtimePublications.size() == 3,
+        "no-ID machine/meter stop must remain supported");
+    std::cout << "realtime admission: exact long default stop positive/negative and no-ID stop passed\n";
+}
+
+void testRealtimeTimingBoundariesDefaultsAndDeadlineOverflow() {
+    const std::int64_t now = 1770000100000LL;
+    for (const int scanInterval : {1, 100000}) {
+        auto fixture = makeFixture("admission_defaults_" + std::to_string(scanInterval), 0);
+        RealtimeFixtureCleanup cleanup{fixture};
+        fixture.driverConfig.scanIntervalMs = scanInterval;
+        useRealtimeIdentity(fixture, "GW_TEST", "METER_1");
+        fixture.service->runScanOnce(now);
+        sendRealtime(fixture, R"("sessionId":"DEFAULTS")", now + 100);
+        const int interval = scanInterval == 1 ? 250 : 60000;
+        const auto started = fixture.publisher->statusPayloads.back();
+        require(started.find("\"intervalMs\":" + std::to_string(interval)) != std::string::npos,
+            "missing interval must clamp configured scan to approved bounds");
+        require(started.find("\"expireAtMs\":" + std::to_string(now + 30100)) != std::string::npos,
+            "missing TTL must remain 30 seconds");
+        fixture.service->runScanOnce(now + 349);
+        require(fixture.publisher->onDemandCounts.size() == 1, "default must not fire below 250ms");
+        fixture.service->runScanOnce(now + 350);
+        require(fixture.publisher->onDemandCounts.size() == (scanInterval == 1 ? 2U : 1U),
+            "clamped minimum must publish exactly when due");
+        fixture.service->runScanOnce(now + 30100);
+        require(fixture.publisher->onDemandCounts.size() == (scanInterval == 1 ? 2U : 1U),
+            "default TTL must expire at 30 seconds");
+    }
+    auto fixture = makeFixture("admission_deadline", 0);
+    RealtimeFixtureCleanup cleanup{fixture};
+    const auto maximum = std::numeric_limits<std::int64_t>::max();
+    fixture.service->runScanOnce(maximum - 100000);
+    sendRealtime(fixture, sessionFields("TTL_OVERFLOW", 250, 300), maximum - 100000);
+    sendRealtime(fixture, sessionFields("DUE_OVERFLOW", 60000, 5), maximum - 5000);
+    require(fixture.publisher->onDemandCounts.empty(), "deadline overflow must reject before immediate snapshot");
+    sendRealtime(fixture, sessionFields("LAST", 1000, 5), maximum - 5000);
+    require(fixture.publisher->onDemandCounts.size() == 1, "exact maximum expiry should be representable");
+    fixture.service->runScanOnce(maximum - 1);
+    require(fixture.publisher->onDemandCounts.size() == 2, "final periodic snapshot should not overflow next due");
+    fixture.service->runScanOnce(maximum);
+    require(fixture.publisher->onDemandCounts.size() == 2, "session must expire at maximum deadline");
+    std::cout << "realtime admission: defaults, numeric boundaries, checked deadlines passed\n";
 }
 
 void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
@@ -1777,8 +2300,18 @@ void testIpcDriverStatsIdentityAndBackoff() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--realtime-admission") {
+            testRealtimeRejectsInvalidTimingBeforePublish();
+            testRealtimeSelectorsAreBoundedWithoutAllFallback();
+            testRealtimeCapacityRenewStopAndExpiry();
+            testRealtimeRenewFloodPreservesPendingDue();
+            testRealtimeIdentityBoundsAndStudioCompatibility();
+            testRealtimeLongDefaultStopExceptionIsExact();
+            testRealtimeTimingBoundariesDefaultsAndDeadlineOverflow();
+            return 0;
+        }
         testIpcDriverBudgetsAndCadence();
         testIpcDriverDelegationDrainsBeforeUnlock();
         testIpcDriverShutdownDrainsOnWorker();
@@ -1797,6 +2330,9 @@ int main() {
         testOneShotRealtimeRequestDoesNotCreatePeriodicSession();
         testRealtimeSessionPublishesUntilTtl();
         testRealtimeSessionStopRequest();
+        testRealtimeSessionUnsubscribeIsIsolatedFromOtherSessionsAndFullUpload();
+        testRealtimeSessionsKeepMeterAndIndexSelectorsIsolated();
+        testRealtimeSessionEchoForEverySelectorAndLegacyDefault();
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
         testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
@@ -1813,6 +2349,13 @@ int main() {
         testIsolatedEventFallbackConsumesMainWhenForwardingIsDisabled();
         testIsolatedEventFallbackDoesNotConsumeWhenReplayLockIsBusy();
         testEventDelegationReadyFileFollowsServiceLifecycle();
+        testRealtimeRejectsInvalidTimingBeforePublish();
+        testRealtimeSelectorsAreBoundedWithoutAllFallback();
+        testRealtimeCapacityRenewStopAndExpiry();
+        testRealtimeRenewFloodPreservesPendingDue();
+        testRealtimeIdentityBoundsAndStudioCompatibility();
+        testRealtimeLongDefaultStopExceptionIsExact();
+        testRealtimeTimingBoundariesDefaultsAndDeadlineOverflow();
         std::cout << "mqtt_driver_service_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

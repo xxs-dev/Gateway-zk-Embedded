@@ -32,6 +32,29 @@ std::string tempPath() {
 #endif
 }
 
+void verifyPointHistoryConfig() {
+    const auto load = [](const std::string& json) {
+        const auto path = tempPath();
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        output << json;
+        output.close();
+        const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path).pointHistory;
+        std::remove(path.c_str());
+        return config.retentionDays;
+    };
+    require(load("{}") == 30, "missing pointHistory must default to 30 days");
+    require(load(R"({"pointHistory":null})") == 30, "null pointHistory must default to 30");
+    require(load(R"({"pointHistory":{}})") == 30, "empty pointHistory must default to 30");
+    require(load(R"({"pointHistory":{"retentionDays":null}})") == 30, "null days must default to 30");
+    for (const auto& entry : std::vector<std::pair<std::string, int>>{
+             {"45", 45}, {"1", 1}, {"3650", 3650}, {"0", 1}, {"-99", 1},
+             {"99999", 3650}, {"1e20", 3650}, {"-1e20", 1}, {"45.9", 45}}) {
+        require(load("{\"pointHistory\":{\"retentionDays\":" + entry.first + "}}") == entry.second,
+                "global pointHistory retention must parse and clamp compatibly");
+    }
+    std::cout << "pointHistory defaults/custom/clamp passed" << std::endl;
+}
+
 void verifyDeviceCollectBackgroundTaskConfig() {
     const auto config = edge_gateway::ConfigLoader::loadFromText(
         "{"
@@ -1685,6 +1708,8 @@ void verifyEventStoreBackendConfig() {
 
 int main() {
     using namespace edge_gateway;
+
+    verifyPointHistoryConfig();
 
     const auto path = tempPath();
     std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
