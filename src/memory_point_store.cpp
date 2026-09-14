@@ -1,4 +1,5 @@
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -32,7 +33,7 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::uint32_t kSharedStoreMagic = 0x4D505354;  // MPST
-constexpr std::uint32_t kSharedStoreVersion = 9;
+constexpr std::uint32_t kSharedStoreVersion = 10;
 constexpr std::uint32_t kMinimumCompatibleSharedStoreVersion = 8;
 constexpr std::size_t kMaxLatestSlots = 100000;
 constexpr std::size_t kMaxPendingWriteSlots = 4096;
@@ -530,6 +531,7 @@ void pushPendingWrite(
     slot.occupied = 1;
     slot.highPriority = command.highPriority ? 1 : 0;
     slot.controlGeneration = command.controlGeneration;
+    slot.reserved[0] = command.durableControl ? 1 : 0;
 
     layout->header.pendingWriteTail =
         (layout->header.pendingWriteTail + 1) % kMaxPendingWriteSlots;
@@ -565,7 +567,8 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     slot.ts,
                     slot.acceptedAt,
                     slot.highPriority != 0,
-                    slot.controlGeneration
+                    slot.controlGeneration,
+                    layout->header.version >= 10 && slot.reserved[0] == 1
                 });
             } else {
                 retained.push_back(slot);
@@ -605,7 +608,8 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 slot.ts,
                 slot.acceptedAt,
                 slot.highPriority != 0,
-                slot.controlGeneration
+                slot.controlGeneration,
+                layout->header.version >= 10 && slot.reserved[0] == 1
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;
@@ -1044,9 +1048,10 @@ MemoryPointStore::MemoryPointStore(
 #endif
 }
 
-bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName) {
+bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName, bool allowLegacyRemoval) {
 #ifdef _WIN32
     (void)segmentName;
+    (void)allowLegacyRemoval;
     return false;
 #else
     const auto normalizedName = normalizeSegmentName(segmentName);
@@ -1060,7 +1065,8 @@ bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName) {
     if (view != MAP_FAILED) {
         auto* layout = layoutFrom(view);
         if (layout->header.magic == kSharedStoreMagic &&
-            isCompatibleSharedStoreVersion(layout->header.version)) {
+            isCompatibleSharedStoreVersion(layout->header.version) &&
+            (layout->header.version >= 10 || allowLegacyRemoval)) {
             try {
                 SharedLockGuard sharedLock(&layout->header.mutex);
                 const auto ts = currentTimeMs();
@@ -1777,6 +1783,7 @@ std::vector<StoredPointValue> MemoryPointStore::getDeviceLatest(
 }
 
 void MemoryPointStore::submitWriteCommand(const PendingWriteCommand& command) {
+    if (command.durableControl) validateControlCommandId(command.cmdId);
     if (command.index == 0) {
         throw std::invalid_argument("pending write index must be non-zero");
     }
@@ -1790,6 +1797,9 @@ void MemoryPointStore::submitWriteCommand(const PendingWriteCommand& command) {
     SharedLockGuard sharedLock(&layout->header.mutex);
 #endif
     auto* layout2 = layoutFrom(sharedView_);
+    if (command.durableControl && layout2->header.version < 10) {
+        throw std::runtime_error("durable control requires a controlled SHM v10 migration with all participants stopped and data preserved");
+    }
     pushPendingWrite(layout2, command, maxPendingWrites_);
 }
 
@@ -1802,6 +1812,9 @@ void MemoryPointStore::submitWriteCommands(const std::vector<PendingWriteCommand
         throw std::invalid_argument("pending write group cmdId must not be empty");
     }
     for (const auto& command : commands) {
+        if (command.durableControl) {
+            throw std::invalid_argument("durable controls require individual operation IDs, not internal atomic groups");
+        }
         if (command.index == 0) {
             throw std::invalid_argument("pending write index must be non-zero");
         }

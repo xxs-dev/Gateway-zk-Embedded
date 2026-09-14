@@ -1,4 +1,5 @@
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -10,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -436,6 +438,14 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
     const std::vector<DeviceConfig>& deviceConfigs,
     const std::string& fallbackSharedMemoryName
 ) {
+    std::string commonDedupPath;
+    for (const auto& config : deviceConfigs) {
+        const auto path = std::filesystem::path(config.memoryStore.controlDedupPath).lexically_normal();
+        if (!path.is_absolute()) throw std::invalid_argument("controlDedupPath must be absolute");
+        if (!commonDedupPath.empty() && commonDedupPath != path.string())
+            throw std::invalid_argument("all device controlDedupPath values must match; per-route ledgers are unsafe");
+        commonDedupPath = path.string();
+    }
     for (const auto& config : deviceConfigs) {
         const auto sharedMemoryName = config.memoryStore.sharedMemoryName.empty()
             ? fallbackSharedMemoryName
@@ -465,6 +475,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
                     route.interfaceCode = interfaceCode;
                     route.interfaceType = interfaceType;
                     route.sharedMemoryName = sharedMemoryName;
+                    route.controlDedupPath = config.memoryStore.controlDedupPath;
                     route.writable = point.write.enable;
                     route.commandMailbox = config.protocol.type == "agc_avc_virtual" && point.category == "command";
                     route.fullUpload = point.fullUpload;
@@ -496,6 +507,7 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
             route.interfaceCode = interfaceCode;
             route.interfaceType = interfaceType;
             route.sharedMemoryName = sharedMemoryName;
+            route.controlDedupPath = config.memoryStore.controlDedupPath;
             route.writable = point.write.enable;
             route.commandMailbox = config.protocol.type == "agc_avc_virtual" && point.category == "command";
             route.fullUpload = point.fullUpload;
@@ -715,6 +727,11 @@ std::vector<StoredPointValue> PointStoreRouter::getLatestByMeter(
     return getLatestByIndexes(indexes, nowMs);
 }
 
+bool PointStoreRouter::isOrdinaryPhysicalWrite(std::uint32_t index) const {
+    const auto route = routeByIndex(index);
+    return route && !route->commandMailbox && !isDirectEmsVirtualParameter(*route);
+}
+
 CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteCommand& command) {
     const auto route = routeByIndex(command.index);
     if (!route) {
@@ -759,6 +776,7 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
         return result;
     }
     try {
+        if (command.durableControl) validateControlCommandId(command.cmdId);
         if (isDirectEmsVirtualParameter(route)) {
             const auto validationError = validateEmsVirtualParameter(route, command.value);
             if (!validationError.empty()) {
@@ -800,7 +818,17 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
 
             result.accepted = true;
             result.message = writeback.message;
+            result.writeback = writeback; // Independent local-parameter semantics, not device deduplication.
             return result;
+        }
+        if (command.durableControl) {
+            ControlDedupStore dedup(route.controlDedupPath);
+            result.writeback = dedup.bind(route.machineCode, route.meterCode, routedCommand);
+            if (result.writeback) {
+                result.accepted = true;
+                result.message = result.writeback->message;
+                return result;
+            }
         }
         store->submitWriteCommand(routedCommand);
     } catch (const std::exception& ex) {
@@ -810,6 +838,21 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
     result.accepted = true;
     result.message = "write command routed";
     return result;
+}
+
+Optional<WritebackResultRecord> PointStoreRouter::getDurableWritebackResult(
+    const PointStoreRoute& route, const std::string& cmdId, std::int64_t acceptedAt
+) const {
+    (void)acceptedAt;
+    try {
+        ControlDedupStore dedup(route.controlDedupPath);
+        const auto result = dedup.result(route.machineCode, route.meterCode, cmdId);
+        if (result) return result;
+    } catch (...) {
+        // A queued retry may already be in flight. Neither an old SHM success
+        // nor an old pre-reservation failure is authoritative for this operation.
+    }
+    return NullOpt;
 }
 
 CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
