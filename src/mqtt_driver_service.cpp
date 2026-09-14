@@ -574,6 +574,20 @@ bool isNormalRealtimeId(const std::string& id) {
         std::all_of(id.begin(), id.end(), [](unsigned char ch) { return ch >= 0x21 && ch <= 0x7e; });
 }
 
+void validateRealtimeEnvelope(const std::string& payload) {
+    // Use the existing strict parser only as an envelope/ambiguity gate. Keep
+    // the realtime reader's legacy field semantics and selector limits below.
+    if (payload.size() > 256 * 1024) throw std::invalid_argument("realtime payload too large");
+    const auto root = json::JsonParser(payload, 32, 16384).parse();
+    if (!root.isObject()) throw std::invalid_argument("realtime request must be an object");
+    std::unordered_set<std::string> keys;
+    for (const auto& member : root.asObject().values) {
+        if (!keys.insert(member.key).second) {
+            throw std::invalid_argument("duplicate realtime field");
+        }
+    }
+}
+
 std::int64_t readRealtimeIntegerField(
     const std::string& text, const char* key, std::uint64_t minimum, std::uint64_t maximum
 ) {
@@ -2329,6 +2343,37 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
 }
 
 void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::int64_t nowMs) {
+    // Never recover correlation from malformed JSON or ambiguous root fields.
+    validateRealtimeEnvelope(payload);
+    std::string feedbackSessionId;
+    try {
+        const auto id = readRealtimeString(payload, "sessionId", kMaxRealtimeIdentityBytes);
+        const auto machine = readRealtimeString(payload, "machineCode", kMaxRealtimeIdentityBytes);
+        const auto primary = primaryMachineCode();
+        if (!id.empty() && isNormalRealtimeId(id) && !primary.empty() &&
+            (machine.empty() || machine == primary) &&
+            (machineCodes_.empty() || machineCodes_.count(primary) != 0)) {
+            feedbackSessionId = id;
+        }
+    } catch (const std::exception&) {
+        // Invalid/legacy synthetic IDs cannot identify a rejection recipient.
+    }
+    bool admitted = false;
+    try {
+        processRealtimeRequest(payload, nowMs, admitted);
+    } catch (const std::invalid_argument&) {
+        if (!admitted && !feedbackSessionId.empty()) {
+            publishStatusEvent("realtime-session-rejected", nowMs,
+                std::string(R"("sessionId":")") + escapeJson(feedbackSessionId) +
+                R"(","reasonCode":"INVALID_REQUEST")");
+        }
+        throw;
+    }
+}
+
+void MqttDriverService::processRealtimeRequest(
+    const std::string& payload, std::int64_t nowMs, bool& admitted
+) {
     const auto request = parseRealtimeSnapshotRequest(payload);
     const auto primaryMachine = primaryMachineCode();
     const auto machineCode = request.machineCode.empty() ? primaryMachine : request.machineCode;
@@ -2370,6 +2415,7 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
     const std::string sessionId = request.sessionId.empty() ? defaultKey : request.sessionId;
 
     if (stopRequest) {
+        admitted = true;
         realtimeSessions_.erase(sessionId);
         publishStatusEvent(
             "realtime-session-stopped",
@@ -2397,13 +2443,29 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
         const auto existing = realtimeSessions_.find(sessionId);
         publishImmediately = existing == realtimeSessions_.end();
         if (publishImmediately && realtimeSessions_.size() >= kMaxRealtimeSessions) {
-            throw std::invalid_argument("realtime session capacity reached");
+            if (!request.sessionId.empty() && !primaryMachine.empty()) {
+                publishStatusEvent("realtime-session-rejected", nowMs,
+                    std::string(R"("sessionId":")") + escapeJson(request.sessionId) +
+                    R"(","reasonCode":"CAPACITY_REACHED")");
+            }
+            return;
         }
         if (!publishImmediately) {
             session.nextPublishMs = existing->second.nextPublishMs;
         }
         // Admission and allocation precede the first PointStore read, including renewals.
         realtimeSessions_[sessionId] = std::move(session);
+        admitted = true;
+        const auto& accepted = realtimeSessions_.at(sessionId);
+        publishStatusEvent(
+            "realtime-session-started",
+            nowMs,
+            std::string(R"("sessionId":")") + escapeJson(sessionId) +
+                R"(","meterCode":")" + escapeJson(request.meterCode) +
+                R"(","indexCount":)" + std::to_string(request.indexes.size()) +
+                R"(,"intervalMs":)" + std::to_string(accepted.intervalMs) +
+                R"(,"expireAtMs":)" + std::to_string(accepted.expireAtMs)
+        );
     }
 
     if (publishImmediately && !request.indexes.empty()) {
@@ -2419,21 +2481,6 @@ void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::i
     } else if (publishImmediately) {
         publishRealtimeValues(enrichValues(router_.getAllLatest(nowMs)), 0, nowMs, request.sessionId);
     }
-
-    if (!sessionRequest) {
-        return;
-    }
-
-    const auto& session = realtimeSessions_.at(sessionId);
-    publishStatusEvent(
-        "realtime-session-started",
-        nowMs,
-        std::string(R"("sessionId":")") + escapeJson(sessionId) +
-            R"(","meterCode":")" + escapeJson(request.meterCode) +
-            R"(","indexCount":)" + std::to_string(request.indexes.size()) +
-            R"(,"intervalMs":)" + std::to_string(session.intervalMs) +
-            R"(,"expireAtMs":)" + std::to_string(session.expireAtMs)
-    );
 }
 
 void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs) {
