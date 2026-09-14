@@ -1,4 +1,5 @@
 #include "edge_gateway/sqlite_sample_writer.hpp"
+#include "sqlite_query_plan_test_support.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -73,39 +74,6 @@ void expectFailure(const std::function<void()>& operation) {
     require(failed, "expected SQLite failure was not exercised");
 }
 
-bool cleanupUsesTimestampSeek(const std::string& plan) {
-    const auto modernSeek = "SEARCH point_samples USING COVERING INDEX idx_point_samples_ts (ts<?)";
-    const auto legacySeek = "SEARCH TABLE point_samples USING COVERING INDEX idx_point_samples_ts (ts<?)";
-    return (plan.find(modernSeek) != std::string::npos || plan.find(legacySeek) != std::string::npos) &&
-        plan.find("SCAN point_samples") == std::string::npos &&
-        plan.find("SCAN TABLE point_samples") == std::string::npos &&
-        plan.find("TEMP B-TREE") == std::string::npos;
-}
-
-void verifyQueryPlanAssertions() {
-    const std::string modernSeek = "SEARCH point_samples USING COVERING INDEX idx_point_samples_ts (ts<?)";
-    const std::string legacySeek = "SEARCH TABLE point_samples USING COVERING INDEX idx_point_samples_ts (ts<?)";
-    require(cleanupUsesTimestampSeek("2|0|0|SEARCH point_samples USING INTEGER PRIMARY KEY (rowid=?)|"
-        "7|0|0|LIST SUBQUERY 1|11|7|0|" + modernSeek + "|"), "modern query-plan fixture rejected");
-    require(cleanupUsesTimestampSeek("2|0|0|SEARCH TABLE point_samples USING INTEGER PRIMARY KEY (rowid=?)|"
-        "7|0|0|LIST SUBQUERY 1|11|7|0|" + legacySeek + "|"), "SQLite 3.31 query-plan fixture rejected");
-    for (const auto* plan : {
-        "SCAN point_samples USING COVERING INDEX idx_point_samples_ts",
-        "SCAN TABLE point_samples USING COVERING INDEX idx_point_samples_ts",
-        "SEARCH point_samples USING COVERING INDEX wrong_index (ts<?)",
-        "SEARCH TABLE point_samples USING COVERING INDEX wrong_index (ts<?)",
-        "SEARCH point_samples USING COVERING INDEX idx_point_samples_ts",
-        "SEARCH TABLE point_samples USING COVERING INDEX idx_point_samples_ts (ts<=?)",
-        "SEARCH point_samples USING COVERING INDEX idx_point_samples_ts (ts>?)",
-        "SEARCH point_samples USING INDEX idx_point_samples_ts (ts<?)"}) {
-        require(!cleanupUsesTimestampSeek(plan), "unsafe query-plan fixture accepted: " + std::string(plan));
-    }
-    for (const auto& seek : {modernSeek, legacySeek}) {
-        for (const auto* extra : {"|SCAN point_samples|", "|SCAN TABLE point_samples|", "|USE TEMP B-TREE FOR ORDER BY|"}) {
-            require(!cleanupUsesTimestampSeek(seek + extra), "seek hid a scan/sort query-plan fixture");
-        }
-    }
-}
 
 void verifyOldSchemaAndQueryPlan() {
     Database db;
@@ -119,7 +87,8 @@ void verifyOldSchemaAndQueryPlan() {
         const auto plan = db.query("EXPLAIN QUERY PLAN DELETE FROM point_samples WHERE rowid IN ("
             "SELECT rowid FROM point_samples INDEXED BY idx_point_samples_ts WHERE ts < 2 ORDER BY ts LIMIT 512);");
         std::cout << "cleanup query plan: " << plan << std::endl;
-        require(cleanupUsesTimestampSeek(plan), "cleanup must seek the timestamp index without a full scan or sorting pass");
+        require(sqlite_plan_test::usesCoveringRangeSeek(plan, "point_samples", "idx_point_samples_ts", "ts<?"),
+                "cleanup must seek the timestamp index without a full scan or sorting pass");
     }
     SqliteSampleWriter reopened(db.path);
     require(db.rows() == 1, "reopening old/new schema changed data");
@@ -240,7 +209,7 @@ int main() {
             test();
             std::cout << name << " passed" << std::endl;
         };
-        run("query-plan assertion fixtures", verifyQueryPlanAssertions);
+        run("query-plan assertion fixtures", sqlite_plan_test::verifyFixtures);
         run("old schema and indexed query", verifyOldSchemaAndQueryPlan);
         run("boundary future and idempotence", verifyBoundaryAndIdempotence);
         run("custom clamp and overflow", verifyCustomAndClampedRetention);

@@ -1,6 +1,7 @@
 #include "edge_gateway/event_engine_service.hpp"
 #include "edge_gateway/event_store.hpp"
 #include "edge_gateway/sqlite_alarm_writer.hpp"
+#include "sqlite_query_plan_test_support.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -89,8 +90,9 @@ void alarmRetention() {
         writer.writeEvents({alarm("boundary", cutoff)});
         require(db.rows("alarm_events") == 2, "alarm idempotency regressed");
         const auto plan = db.sql("EXPLAIN QUERY PLAN SELECT id FROM alarm_events INDEXED BY idx_alarm_events_ts_id WHERE ts < 1 ORDER BY ts,id LIMIT 512");
-        require(plan.find("SEARCH alarm_events USING COVERING INDEX idx_alarm_events_ts_id") != std::string::npos &&
-            plan.find("TEMP B-TREE") == std::string::npos, "alarm cleanup must use timestamp index");
+        std::cout << "alarm cleanup query plan: " << plan << std::endl;
+        require(sqlite_plan_test::usesCoveringRangeSeek(plan, "alarm_events", "idx_alarm_events_ts_id", "ts<?"),
+            "alarm cleanup must use timestamp index range seek without scan/sort");
     }
     Database db;
     SqliteAlarmWriter writer(db.path);
@@ -147,8 +149,9 @@ void outboxRetention() {
         require(db.rows("mqtt_event_outbox") == 3, "only confirmed rows strictly older than cutoff may expire");
         require(box.pendingCount("main") == 1 && box.pendingCount("third") == 1, "expiry deleted unconfirmed fanout/critical events");
         const auto plan = db.sql("EXPLAIN QUERY PLAN SELECT id FROM mqtt_event_outbox INDEXED BY idx_mqtt_event_outbox_expiry_days WHERE sent=1 AND event_ts < 1 ORDER BY event_ts,id LIMIT 512");
-        require(plan.find("SEARCH mqtt_event_outbox USING COVERING INDEX idx_mqtt_event_outbox_expiry_days") != std::string::npos &&
-            plan.find("TEMP B-TREE") == std::string::npos, "outbox expiry requires indexed bounded seek");
+        std::cout << "outbox expiry query plan: " << plan << std::endl;
+        require(sqlite_plan_test::usesCoveringRangeSeek(plan, "mqtt_event_outbox", "idx_mqtt_event_outbox_expiry_days",
+            "sent=? AND event_ts<?"), "outbox expiry requires indexed bounded seek without scan/sort");
     }
 }
 void outboxBatchesFailureAndIpcGuard() {
@@ -225,6 +228,8 @@ void idleProductionMaintenance() {
 } // namespace
 int main() {
     try {
+        sqlite_plan_test::verifyFixtures();
+        std::cout << "query-plan assertion fixtures passed" << std::endl;
         alarmRetention(); alarmBatchesAndFailure(); outboxRetention();
         outboxBatchesFailureAndIpcGuard(); criticalCapacityProtection(); idleProductionMaintenance();
         std::cout << "storage retention: 6 groups PASS\n";
