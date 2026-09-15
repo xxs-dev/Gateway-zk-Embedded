@@ -126,9 +126,11 @@ void rollbackNoThrow(sqlite3* db) noexcept {
 
 }  // namespace
 
-SqliteSampleWriter::SqliteSampleWriter(std::string dbPath, std::string libraryPath, int retentionDays)
+SqliteSampleWriter::SqliteSampleWriter(std::string dbPath, std::string libraryPath, int retentionDays,
+    std::uint64_t minFreeBytes, StorageSpaceProbe availableBytesProbe)
     : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)),
-      retentionDays_(std::min(std::max(retentionDays, 1), 3650)) {
+      retentionDays_(std::min(std::max(retentionDays, 1), 3650)),
+      storageBudget_{0, minFreeBytes}, availableBytesProbe_(std::move(availableBytesProbe)) {
     if (dbPath_.empty()) {
         return;
     }
@@ -152,6 +154,12 @@ SqliteSampleWriter::~SqliteSampleWriter() {
 void SqliteSampleWriter::writeSamples(const std::vector<PersistentPointSample>& samples) {
     if (!enabled_ || samples.empty()) {
         return;
+    }
+
+    const auto admission = checkStorageWriteAdmission(
+        storageBudget_, dbPath_, estimateStorageWriteBytes(samples.size()), availableBytesProbe_);
+    if (!admission.allowed) {
+        throw std::runtime_error(std::string("point history storage admission rejected: ") + admission.reason);
     }
 
     auto* db = static_cast<sqlite3*>(databaseHandle_);

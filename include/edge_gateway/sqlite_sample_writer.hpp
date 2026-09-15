@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/storage_budget.hpp"
 
 namespace edge_gateway {
 
@@ -12,8 +13,10 @@ class SqliteSampleWriter {
 public:
     using MaintenanceClock = std::chrono::steady_clock;
     static constexpr int kCleanupBatchSize = 512;
+    static constexpr std::uint64_t kDefaultMinFreeBytes = 256ULL * 1024ULL * 1024ULL;
 
-    explicit SqliteSampleWriter(std::string dbPath, std::string libraryPath = "", int retentionDays = 30);
+    explicit SqliteSampleWriter(std::string dbPath, std::string libraryPath = "", int retentionDays = 30,
+        std::uint64_t minFreeBytes = kDefaultMinFreeBytes, StorageSpaceProbe availableBytesProbe = {});
     ~SqliteSampleWriter();
 
     SqliteSampleWriter(const SqliteSampleWriter&) = delete;
@@ -34,6 +37,8 @@ private:
     std::string dbPath_;
     std::string libraryPath_;
     int retentionDays_;
+    StorageBudget storageBudget_;
+    StorageSpaceProbe availableBytesProbe_;
     MaintenanceClock::time_point nextCleanup_ = MaintenanceClock::time_point::min();
     bool enabled_ = false;
     void* libraryHandle_ = nullptr;

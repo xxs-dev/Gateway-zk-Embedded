@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
+#include <functional>
+#include <string>
 
 namespace edge_gateway {
 
@@ -24,8 +27,18 @@ struct StorageAdmission {
     const char* reason = "ok";
 };
 
+using StorageSpaceProbe = std::function<std::uint64_t(const std::string& path)>;
+
 StorageAdmission checkStorageAdmission(
     StorageBudget budget, StorageUsage usage, std::uint64_t incomingBytes,
     std::uint64_t availableBytes);
+
+// Observe one SQLite database and its sidecars before a write. The available
+// byte value is measured before the write; a probe is injectable for tests.
+StorageAdmission checkStorageWriteAdmission(
+    StorageBudget budget, const std::string& databasePath,
+    std::uint64_t incomingBytes, StorageSpaceProbe availableBytesProbe = {});
+
+std::uint64_t estimateStorageWriteBytes(std::size_t itemCount);
 
 } // namespace edge_gateway

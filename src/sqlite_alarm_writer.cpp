@@ -197,9 +197,11 @@ bool tableHasColumn(sqlite3* db, const char* table, const char* column) {
 
 }  // namespace
 
-SqliteAlarmWriter::SqliteAlarmWriter(std::string dbPath, std::string libraryPath, int retentionDays)
+SqliteAlarmWriter::SqliteAlarmWriter(std::string dbPath, std::string libraryPath, int retentionDays,
+    std::uint64_t minFreeBytes, StorageSpaceProbe availableBytesProbe)
     : dbPath_(std::move(dbPath)), libraryPath_(std::move(libraryPath)),
-      retentionDays_(std::min(std::max(retentionDays, 1), 3650)) {
+      retentionDays_(std::min(std::max(retentionDays, 1), 3650)),
+      storageBudget_{0, minFreeBytes}, availableBytesProbe_(std::move(availableBytesProbe)) {
     try {
         loadLibrary();
         openDatabase();
@@ -219,6 +221,12 @@ SqliteAlarmWriter::~SqliteAlarmWriter() {
 void SqliteAlarmWriter::writeEvents(const std::vector<AlarmEvent>& events) {
     if (events.empty()) {
         return;
+    }
+
+    const auto admission = checkStorageWriteAdmission(
+        storageBudget_, dbPath_, estimateStorageWriteBytes(events.size()), availableBytesProbe_);
+    if (!admission.allowed) {
+        throw std::runtime_error(std::string("alarm history storage admission rejected: ") + admission.reason);
     }
 
     auto* db = static_cast<sqlite3*>(databaseHandle_);
