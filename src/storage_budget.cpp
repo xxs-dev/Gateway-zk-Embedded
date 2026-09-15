@@ -1,10 +1,14 @@
 #include "edge_gateway/storage_budget.hpp"
 
+#include <cerrno>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <sys/stat.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/statvfs.h>
 #endif
 
@@ -18,8 +22,19 @@ bool add(std::uint64_t& total, std::uint64_t value) {
 
 std::uint64_t fileSizeIfPresent(const std::string& path) {
     struct stat info {};
-    if (stat(path.c_str(), &info) != 0) return 0;
-    if (!S_ISREG(info.st_mode) || info.st_size < 0) {
+    if (stat(path.c_str(), &info) != 0) {
+        const auto error = errno;
+        if (error == ENOENT) return 0;
+        throw std::runtime_error("cannot inspect storage budget file " + path + ": " + std::strerror(error));
+    }
+#if defined(S_ISREG)
+    const bool regular = S_ISREG(info.st_mode);
+#elif defined(_S_IFREG) && defined(_S_IFMT)
+    const bool regular = (info.st_mode & _S_IFMT) == _S_IFREG;
+#else
+#error "No regular-file mode test is available for this platform"
+#endif
+    if (!regular || info.st_size < 0) {
         throw std::runtime_error("storage budget sidecar is not a regular file: " + path);
     }
     return static_cast<std::uint64_t>(info.st_size);
@@ -36,18 +51,30 @@ std::uint64_t databaseFootprint(const std::string& path) {
 
 std::uint64_t filesystemAvailable(const std::string& path) {
 #ifdef _WIN32
-    (void)path;
-    return std::numeric_limits<std::uint64_t>::max();
+    const auto separator = path.find_last_of("/\\");
+    const auto parent = separator == std::string::npos ? std::string(".") :
+        (separator == 0 ? path.substr(0, 1) : path.substr(0, separator));
+    ULARGE_INTEGER available {};
+    if (!GetDiskFreeSpaceExA(parent.c_str(), &available, nullptr, nullptr)) {
+        throw std::runtime_error("cannot inspect storage filesystem: " + path);
+    }
+    return static_cast<std::uint64_t>(available.QuadPart);
 #else
     struct statvfs info {};
     if (statvfs(path.c_str(), &info) != 0) {
-        // A test double or a not-yet-created database has no file to stat;
-        // inspect its parent, which is the filesystem that will receive it.
+        const auto error = errno;
+        if (error != ENOENT) {
+            throw std::runtime_error("cannot inspect storage filesystem " + path + ": " + std::strerror(error));
+        }
+        // A not-yet-created database has no path to inspect; use the existing
+        // parent filesystem that will receive it. Other failures stay fatal.
         const auto separator = path.find_last_of('/');
         const auto parent = separator == std::string::npos ? std::string(".") :
             (separator == 0 ? std::string("/") : path.substr(0, separator));
         if (statvfs(parent.c_str(), &info) != 0) {
-            throw std::runtime_error("cannot inspect storage filesystem: " + path);
+            const auto parentError = errno;
+            throw std::runtime_error("cannot inspect storage filesystem " + parent + ": " +
+                std::strerror(parentError));
         }
     }
     const auto unit = static_cast<std::uint64_t>(info.f_frsize ? info.f_frsize : info.f_bsize);

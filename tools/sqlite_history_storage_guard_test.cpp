@@ -111,18 +111,47 @@ int main() {
         }
 
         // Confirm the same observation includes SQLite sidecars, not only the main DB.
+        const auto beforeSidecar = edge_gateway::checkStorageWriteAdmission(
+            {0, 0}, samplePath, 0, [](const std::string&) { return std::numeric_limits<std::uint64_t>::max(); });
         {
             std::ofstream sidecar(samplePath + "-wal", std::ios::binary);
             sidecar << std::string(1234, 'x');
         }
-        const auto observed = edge_gateway::checkStorageWriteAdmission(
+        const auto afterSidecar = edge_gateway::checkStorageWriteAdmission(
             {0, 0}, samplePath, 0, [](const std::string&) { return std::numeric_limits<std::uint64_t>::max(); });
-        require(observed.usedBytes >= 1234, "SQLite sidecar was not included in footprint");
+        require(afterSidecar.usedBytes == beforeSidecar.usedBytes + 1234,
+            "SQLite sidecar footprint delta was not exact");
+
+        // Exercise the real filesystem probe for an existing database and a
+        // not-yet-created database whose parent already exists.
+        const auto actual = edge_gateway::checkStorageWriteAdmission({0, 0}, samplePath, 0);
+        require(actual.allowed, "real statvfs path should be available");
+        const auto missingPath = base + "_missing.db";
+        const auto missing = edge_gateway::checkStorageWriteAdmission({0, 0}, missingPath, 0);
+        require(missing.allowed && missing.usedBytes == 0,
+            "missing database with an existing parent should use parent filesystem");
+
+#ifndef _WIN32
+        const auto blockerPath = base + "_not_a_directory";
+        {
+            std::ofstream blocker(blockerPath, std::ios::binary);
+            blocker << 'x';
+        }
+        bool notDirectoryRejected = false;
+        try {
+            (void)edge_gateway::checkStorageWriteAdmission({0, 0}, blockerPath + "/db", 0);
+        } catch (const std::exception&) {
+            notDirectoryRejected = true;
+        }
+        require(notDirectoryRejected, "ENOTDIR must fail closed instead of falling back");
+        std::remove(blockerPath.c_str());
+#endif
 
         for (const auto& path : {samplePath, alarmPath}) {
             for (const auto* suffix : {"", "-wal", "-shm", "-journal"}) std::remove((path + suffix).c_str());
         }
-        std::cout << "sqlite history storage guard: 7 assertions PASS\n";
+        std::remove(missingPath.c_str());
+        std::cout << "sqlite history storage guard: 11 assertions PASS\n";
         return 0;
     } catch (const std::exception& ex) {
         std::cerr << ex.what() << '\n';
