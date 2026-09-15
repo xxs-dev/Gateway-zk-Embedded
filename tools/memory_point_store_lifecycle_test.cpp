@@ -27,6 +27,15 @@ void require(bool condition, const std::string& message) {
     }
 }
 
+template <typename Function>
+void runStage(const char* name, Function function) {
+    try {
+        function();
+    } catch (const std::exception& ex) {
+        throw std::runtime_error(std::string(name) + ": " + ex.what());
+    }
+}
+
 edge_gateway::PointDefinition buildPoint() {
     edge_gateway::PointDefinition point;
     point.index = 610001;
@@ -452,16 +461,25 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
 
 int main(int argc, char** argv) {
     try {
-        verifyPersistentRingBoundaries();
-        if (argc == 2 && std::string(argv[1]) == "--persistent-ring-only") return 0;
-        verifyReaderDoesNotUnlinkNamedSegment();
-        verifyPersistentSamplesRequireAcknowledgement();
-        verifyChangedPersistentValuesBypassPeriodicInterval();
+        if (argc == 2 && std::string(argv[1]) == "--robust-owner-death-only") {
 #ifndef _WIN32
-        verifyReaderRemapsRecreatedNamedSegment();
-        verifyConfiguredLegacyVersionIsUsedForNewSegment();
-        verifyPreviousVersionOpensWithoutReinitializing();
-        verifyRobustMutexRecoversAfterOwnerDeath();
+            runStage("robust owner-death recovery", verifyRobustMutexRecoversAfterOwnerDeath);
+            std::cout << "memory_point_store robust owner-death test passed" << std::endl;
+            return 0;
+#else
+            throw std::runtime_error("robust owner-death recovery is a POSIX-only gate");
+#endif
+        }
+        runStage("persistent ring boundaries", verifyPersistentRingBoundaries);
+        if (argc == 2 && std::string(argv[1]) == "--persistent-ring-only") return 0;
+        runStage("named segment reader lifecycle", verifyReaderDoesNotUnlinkNamedSegment);
+        runStage("persistent sample acknowledgement", verifyPersistentSamplesRequireAcknowledgement);
+        runStage("changed-value persistence", verifyChangedPersistentValuesBypassPeriodicInterval);
+#ifndef _WIN32
+        runStage("recreated segment remap", verifyReaderRemapsRecreatedNamedSegment);
+        runStage("configured legacy version", verifyConfiguredLegacyVersionIsUsedForNewSegment);
+        runStage("previous version compatibility", verifyPreviousVersionOpensWithoutReinitializing);
+        runStage("robust owner-death recovery", verifyRobustMutexRecoversAfterOwnerDeath);
 #endif
         std::cout << "memory_point_store_lifecycle_test passed" << std::endl;
         return 0;
