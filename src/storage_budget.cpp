@@ -29,7 +29,15 @@ StorageAdmission checkStorageAdmission(
         result.reason = "max-bytes";
         return result;
     }
-    if (budget.minFreeBytes != 0 && availableBytes < budget.minFreeBytes) {
+    // availableBytes is measured before this write. Reject an oversized write
+    // even when the configured reserve is zero, then apply the reserve to the
+    // space left after the write without overflowing availableBytes + incoming.
+    if (incomingBytes > availableBytes) {
+        result.allowed = false;
+        result.reason = "insufficient-available-bytes";
+        return result;
+    }
+    if (availableBytes - incomingBytes < budget.minFreeBytes) {
         result.allowed = false;
         result.reason = "min-free-bytes";
     }
