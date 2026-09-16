@@ -375,6 +375,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$INSTALL_SYSTEMD" = "0" ]; then
+  truthy "$INIT_START_SERVICES" && { echo "INSTALL_SYSTEMD=0 requires --no-start" >&2; exit 2; }
+  truthy "$INIT_RESET_SHM" && { echo "INSTALL_SYSTEMD=0 forbids --reset-shm" >&2; exit 2; }
+  truthy "$INIT_RUN_SMOKE" && { echo "INSTALL_SYSTEMD=0 requires --no-smoke" >&2; exit 2; }
+fi
+
 if [ -z "${INIT_PROMPT:-}" ]; then
   if [ -t 0 ]; then
     INIT_PROMPT=1
@@ -785,6 +791,7 @@ export INIT_MQTT_PASSWORD="${INIT_MQTT_PASSWORD:-$DEFAULT_MQTT_PASSWORD}"
 export INIT_MQTT_TLS_ENABLED="${INIT_MQTT_TLS_ENABLED:-$DEFAULT_MQTT_TLS_ENABLED}"
 export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-$DEFAULT_MQTT_TLS_INSECURE}"
 export INIT_START_SERVICES INIT_RUN_SMOKE INIT_RESET_SHM INIT_MQTT_CONNECT_TEST
+export INSTALL_SYSTEMD SYSTEMD_UNIT_DIR
 export INIT_DIRECT_MAINTENANCE_ENABLED="$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")"
 export INIT_DIRECT_LISTEN_HOSTS="$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")"
 export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")"
@@ -807,6 +814,11 @@ if [ "$tls_requested" -eq 1 ] && [ -n "${INIT_MACHINE_CODE:-}" ]; then
   export INIT_MQTT_CA_FILE="${INIT_MQTT_CA_FILE:-$GATEWAY_HOME/config/runtime/tls/ca.crt}"
   export INIT_MQTT_CERT_FILE="${INIT_MQTT_CERT_FILE:-$GATEWAY_HOME/config/runtime/tls/$safe_machine-client.pem}"
   export INIT_MQTT_KEY_FILE="${INIT_MQTT_KEY_FILE:-$GATEWAY_HOME/config/runtime/tls/$safe_machine-client.key}"
+fi
+
+if [ "$INSTALL_SYSTEMD" = "0" ] && [ "$tls_requested" -eq 1 ]; then
+  echo "INSTALL_SYSTEMD=0 isolation forbids TLS enrollment or certificate generation" >&2
+  exit 2
 fi
 
 export SOURCE_ROOT="$PACKAGE_ROOT"

@@ -118,6 +118,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$INSTALL_SYSTEMD" = "0" ]; then
+  [ "$START_SERVICES" = "0" ] || { echo "INSTALL_SYSTEMD=0 requires START_SERVICES=0" >&2; exit 2; }
+  [ "$RESET_SHM" = "0" ] || { echo "INSTALL_SYSTEMD=0 requires RESET_SHM=0" >&2; exit 2; }
+fi
+
 cleanup_factory_extract() {
   rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then

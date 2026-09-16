@@ -35,6 +35,11 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ "$RESTART" -eq 1 ]; then
+    echo "--restart is not permitted by the offline SCADA installer" >&2
+    exit 2
+fi
+
 [ -n "$PACKAGE" ] || { echo "--package is required" >&2; exit 2; }
 [ -n "$MACHINE_CODE" ] || { echo "--machine-code is required" >&2; exit 2; }
 [ -f "$PACKAGE" ] || { echo "SCADA package not found: $PACKAGE" >&2; exit 2; }
