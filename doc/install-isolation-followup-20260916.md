@@ -68,6 +68,21 @@ setup failures are retained in `fixed-full` and `green-final`, not counted as PA
 
 ## Boundaries
 
+### Mixed-Case Boolean Follow-Up
+
+The early production-init guards now call the same `truthy` helper used by the
+later execution paths. The helper is defined before the guards; its accepted
+values and default-mode behavior are unchanged. Against `7291416`, three added
+tests (start/reset/smoke, each with `tRuE`, `yEs`, `oN`) produced nine failing
+subcases: start proceeded with installation, reset was rejected only by the
+downstream factory guard, and smoke reached execution. The corrected fixture
+uses an unchanged copied init script and a harmless smoke marker script.
+Evidence: `mixed-case-red-fixture/result.txt` and `mixed-case-green/result.txt`
+under the evidence directory above. After the fix all 22 tests passed in 7.487
+seconds, including all nine mixed-case subcases; rejection occurs before the
+gateway home is created, with no systemctl/smoke call or protected-path change.
+POSIX syntax and whitespace checks passed. C++/CMake remain unchanged.
+
 `INSTALL_SYSTEMD=0` is a side-effect switch, not a filesystem sandbox. Callers
 must supply a dedicated `GATEWAY_HOME`, app config, SCADA root, state-file path
 and backup paths. `FACTORY_TMP_DIR`, `SCADA_TMP_DIR`, `TMPDIR` and `INIT_WORK_DIR`

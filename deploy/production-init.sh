@@ -376,10 +376,17 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+truthy() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|y|yes|true|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [ "$INSTALL_SYSTEMD" = "0" ]; then
-  case "$INIT_START_SERVICES" in true|TRUE|True|1|yes|YES|Yes|y|Y|on|ON|On) echo "INSTALL_SYSTEMD=0 requires --no-start" >&2; exit 2;; esac
-  case "$INIT_RESET_SHM" in true|TRUE|True|1|yes|YES|Yes|y|Y|on|ON|On) echo "INSTALL_SYSTEMD=0 forbids --reset-shm" >&2; exit 2;; esac
-  case "$INIT_RUN_SMOKE" in true|TRUE|True|1|yes|YES|Yes|y|Y|on|ON|On) echo "INSTALL_SYSTEMD=0 requires --no-smoke" >&2; exit 2;; esac
+  if truthy "$INIT_START_SERVICES"; then echo "INSTALL_SYSTEMD=0 requires --no-start" >&2; exit 2; fi
+  if truthy "$INIT_RESET_SHM"; then echo "INSTALL_SYSTEMD=0 forbids --reset-shm" >&2; exit 2; fi
+  if truthy "$INIT_RUN_SMOKE"; then echo "INSTALL_SYSTEMD=0 requires --no-smoke" >&2; exit 2; fi
 fi
 
 if [ -z "${INIT_PROMPT:-}" ]; then
@@ -400,13 +407,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-truthy() {
-  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-    1|y|yes|true|on) return 0 ;;
-    *) return 1 ;;
-  esac
-}
 
 normalize_bool() {
   value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')

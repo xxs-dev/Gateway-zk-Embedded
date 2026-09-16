@@ -255,6 +255,37 @@ exec /bin/cp "$@"
             self.assertEqual(2, result.returncode, result.stdout)
         self.assert_isolated()
 
+    def assert_mixed_case_flag_rejected(self, flag, message):
+        self.factory()
+        source = self.root / "source"
+        write(source / "deploy/production-smoke-test.sh",
+              '#!/bin/sh\nprintf "SMOKE_INVOKED\\n" >> "$SYSTEMCTL_LOG"\n')
+        package = self.root / "factory.tar.gz"
+        with tarfile.open(package, "w:gz") as archive:
+            archive.add(source, arcname="gateway-factory-defaults")
+        for value in ("tRuE", "yEs", "oN"):
+            with self.subTest(flag=flag, value=value):
+                home = self.root / value
+                result = self.run_script(str(source / "deploy/production-init.sh"),
+                                         ["--auto", "--package", package, "--package-profile", "base",
+                                          "--no-mqtt-tls", "--no-direct-maintenance"],
+                                         {"INSTALL_SYSTEMD": "0", "GATEWAY_HOME": str(home),
+                                          "INIT_START_SERVICES": "0", "INIT_RESET_SHM": "0",
+                                          "INIT_RUN_SMOKE": "0", flag: value})
+                self.assertEqual(2, result.returncode, result.stdout)
+                self.assertIn(message, result.stdout)
+                self.assertFalse(home.exists(), "guard ran after extraction or installation")
+                self.assert_isolated()
+
+    def test_init_mixed_case_start_rejected(self):
+        self.assert_mixed_case_flag_rejected("INIT_START_SERVICES", "requires --no-start")
+
+    def test_init_mixed_case_reset_rejected(self):
+        self.assert_mixed_case_flag_rejected("INIT_RESET_SHM", "forbids --reset-shm")
+
+    def test_init_mixed_case_smoke_rejected(self):
+        self.assert_mixed_case_flag_rejected("INIT_RUN_SMOKE", "requires --no-smoke")
+
     def test_init_existing_directory_valid_package_rejected(self):
         package = self.root / "empty.tar.gz"
         with tarfile.open(package, "w:gz"):
