@@ -929,7 +929,7 @@ mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEW
 if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   systemctl stop gateway-services.service 2>/dev/null || true
 fi
-if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
+if [ "$INSTALL_SYSTEMD" = "1" ] && [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
   "$GATEWAY_HOME/bin/gateway-services.sh" stop 2>/dev/null || true
 fi
 
