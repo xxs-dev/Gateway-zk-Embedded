@@ -8,6 +8,8 @@ AGC_AVC_PACKAGE="${2:-$ROOT_DIR/gateway-agc-avc-runtime.tar.gz}"
 TEST_ROOT="${TMPDIR:-/tmp}/gateway-runtime-mode-test.$$"
 GATEWAY_HOME="$TEST_ROOT/gateway"
 AGC_AVC_HOME="$TEST_ROOT/agc-avc"
+MOCK_BIN="$TEST_ROOT/mock-bin"
+SYSTEMCTL_LOG="$TEST_ROOT/systemctl.log"
 
 cleanup() {
   rm -rf "$TEST_ROOT"
@@ -28,8 +30,20 @@ if tar -tzf "$FACTORY_PACKAGE" | grep -Ei 'agc.avc|AgcAvc' >/dev/null; then
 fi
 
 mkdir -p "$TEST_ROOT"
+cat >"$MOCK_BIN/systemctl" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+exit 99
+SH
+chmod +x "$MOCK_BIN/systemctl"
+: >"$SYSTEMCTL_LOG"
+export SYSTEMCTL_LOG
+
 GATEWAY_HOME="$GATEWAY_HOME" \
 INIT_WORK_DIR="$TEST_ROOT/gateway-work" \
+TMPDIR="$TEST_ROOT/tmp" \
+PATH="$MOCK_BIN:$PATH" \
+SYSTEMD_UNIT_DIR="$TEST_ROOT/systemd" \
 INSTALL_SYSTEMD=0 \
 sh "$ROOT_DIR/deploy/production-init.sh" \
   --auto \
@@ -48,6 +62,9 @@ sh "$ROOT_DIR/deploy/production-init.sh" \
 
 GATEWAY_HOME="$AGC_AVC_HOME" \
 INIT_WORK_DIR="$TEST_ROOT/agc-avc-work" \
+TMPDIR="$TEST_ROOT/tmp" \
+PATH="$MOCK_BIN:$PATH" \
+SYSTEMD_UNIT_DIR="$TEST_ROOT/systemd" \
 INSTALL_SYSTEMD=0 \
 sh "$ROOT_DIR/deploy/production-init.sh" \
   --auto \
@@ -78,5 +95,15 @@ assert config.get("enabled") is True
 assert config.get("shadowMode") is True
 assert config.get("submitWrites") is False
 PY
+
+[ ! -s "$SYSTEMCTL_LOG" ] || {
+  echo "INSTALL_SYSTEMD=0 invoked systemctl: $(cat "$SYSTEMCTL_LOG")" >&2
+  exit 1
+}
+[ ! -e "$TEST_ROOT/systemd/agc-avc@.service" ] &&
+[ ! -e "$TEST_ROOT/systemd/ems-cluster@.service" ] || {
+  echo "INSTALL_SYSTEMD=0 wrote a systemd unit" >&2
+  exit 1
+}
 
 echo "runtime_mode_package_test passed"

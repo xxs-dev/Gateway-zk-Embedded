@@ -12,6 +12,8 @@ TRAVERSAL_PACKAGE="$ROOT/traversal.kyscada"
 SYMLINK_PACKAGE="$ROOT/symlink.kyscada"
 SPECIAL_PACKAGE="$ROOT/special.kyscada"
 FILE_PARENT_PACKAGE="$ROOT/file-parent.kyscada"
+MOCK_BIN="$ROOT/mock-bin"
+SYSTEMCTL_LOG="$ROOT/systemctl.log"
 
 cleanup() {
     rm -rf "$ROOT"
@@ -24,6 +26,15 @@ trap cleanup EXIT INT TERM
 }
 
 mkdir -p "$SOURCE/screens"
+mkdir -p "$MOCK_BIN"
+cat >"$MOCK_BIN/systemctl" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+exit 99
+SH
+chmod +x "$MOCK_BIN/systemctl"
+: >"$SYSTEMCTL_LOG"
+export PATH="$MOCK_BIN:$PATH" SYSTEMCTL_LOG
 python3 - "$PACKAGE" <<'PY'
 import hashlib
 import json
@@ -173,6 +184,11 @@ sh "$INSTALLER" \
     --require-local-scada \
     --no-restart \
     --state-file "$STATE_FILE"
+
+[ ! -s "$SYSTEMCTL_LOG" ] || {
+    echo "SCADA install without --restart invoked systemctl: $(cat "$SYSTEMCTL_LOG")" >&2
+    exit 1
+}
 
 [ -L "$SCADA_ROOT/current" ]
 [ -f "$SCADA_ROOT/current/manifest.json" ]
