@@ -141,6 +141,30 @@ exec /bin/cp "$@"
             self.assertEqual(2, result.returncode, result.stdout)
         self.assert_isolated()
 
+    def test_factory_archive_extraction_cleanup(self):
+        env = self.factory()
+        package = self.root / "factory.tar.gz"
+        with tarfile.open(package, "w:gz") as archive:
+            archive.add(self.root / "source", arcname="gateway-factory-defaults")
+        temporary = self.root / "extract"
+        result = self.run_script("install-factory-config.sh", env={**env, "FACTORY_PACKAGE": str(package),
+                                 "FACTORY_TMP_DIR": str(temporary)})
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual([], list(temporary.iterdir()))
+        self.assert_isolated()
+
+    def test_factory_corrupt_archive_fails_closed(self):
+        env = self.factory()
+        package = self.root / "corrupt.tar.gz"
+        write(package, "not a tar archive\n")
+        temporary = self.root / "extract"
+        result = self.run_script("install-factory-config.sh", env={**env, "FACTORY_PACKAGE": str(package),
+                                 "FACTORY_TMP_DIR": str(temporary)})
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.root / "gateway/bin/SystemMonitor").exists(), "silently used fallback source")
+        self.assertEqual([], list(temporary.iterdir()))
+        self.assert_isolated()
+
     def scada(self):
         documents = {"manifest.json": {"schemaVersion": "2.0", "projectId": "fixture", "packageVersion": "1"},
                      "topology.json": {"mode": "integrated"},
@@ -229,6 +253,60 @@ exec /bin/cp "$@"
             result = self.run_script("production-init.sh", ["--auto", *flags],
                                      {"INSTALL_SYSTEMD": "0", "GATEWAY_HOME": str(self.root / "gateway")})
             self.assertEqual(2, result.returncode, result.stdout)
+        self.assert_isolated()
+
+    def test_init_existing_directory_valid_package_rejected(self):
+        package = self.root / "empty.tar.gz"
+        with tarfile.open(package, "w:gz"):
+            pass
+        work = self.root / "existing-work"
+        write(work / "keep", "another invocation\n")
+        result = self.run_script("production-init.sh", ["--auto", "--package", package, "--no-start", "--no-smoke"],
+                                 {"INSTALL_SYSTEMD": "0", "INIT_WORK_DIR": str(work),
+                                  "GATEWAY_HOME": str(self.root / "gateway")})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("must not already exist", result.stdout)
+        self.assertEqual("another invocation\n", (work / "keep").read_text())
+        self.assert_isolated()
+
+    def test_init_corrupt_archive_cleans_owned_directory(self):
+        package = self.root / "corrupt.tar.gz"
+        write(package, "not a tar archive\n")
+        work = self.root / "owned-work"
+        result = self.run_script("production-init.sh", ["--auto", "--package", package, "--no-start", "--no-smoke"],
+                                 {"INSTALL_SYSTEMD": "0", "INIT_WORK_DIR": str(work),
+                                  "GATEWAY_HOME": str(self.root / "gateway")})
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse(work.exists())
+        self.assert_isolated()
+
+    def test_existing_shell_regressions(self):
+        for script in ("scada_install_test.sh", "scada_rollback_test.sh",
+                       "factory_package_component_version_test.sh"):
+            with self.subTest(script=script):
+                result = self.run_script("../tools/" + script, env={"TMPDIR": str(self.root)})
+                self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_runtime_mode_packages_with_fixture(self):
+        self.factory()
+        source = self.root / "source"
+        for binary in ("ModbusRtu", "Dlt645Driver", "DioDriver", "CanDriver", "IecDriver", "EventEngine",
+                       "ComputeEngine", "EmsParityCheck", "EmsClusterCoordinator"):
+            write(source / "build-aarch64" / binary, "fixture-not-executable\n")
+        package = self.root / "factory.tar.gz"
+        with tarfile.open(package, "w:gz") as archive:
+            archive.add(source, arcname="gateway-factory-defaults",
+                        filter=lambda entry: None if "agc" in entry.name.lower() else entry)
+        overlay = self.root / "overlay"
+        write(overlay / "build-aarch64/AgcAvcController", "fixture-not-executable\n")
+        write(overlay / "config/factory/runtime/apps/agc-avc-service.json", '{"agcAvc":{}}\n')
+        write(overlay / "config/factory/runtime/devices/device_agc_avc_virtual.json", '{}\n')
+        runtime = self.root / "agc.tar.gz"
+        with tarfile.open(runtime, "w:gz") as archive:
+            archive.add(overlay, arcname="gateway-factory-defaults")
+        result = self.run_script("../tools/runtime_mode_package_test.sh", [package, runtime],
+                                 {"TMPDIR": str(self.root)})
+        self.assertEqual(0, result.returncode, result.stdout)
         self.assert_isolated()
 
 

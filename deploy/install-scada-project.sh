@@ -9,6 +9,8 @@ DRY_RUN=0
 RESTART=0
 STATE_FILE=""
 SCADA_TMP_DIR="${SCADA_TMP_DIR:-${TMPDIR:-}}"
+INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
+STATE_TMP=""
 
 usage() {
     cat <<'EOF'
@@ -18,6 +20,8 @@ Usage: install-scada-project.sh --package FILE --machine-code CODE [options]
   --dry-run           validate only
   --restart           restart only the configured local SCADA display service
   --state-file FILE   write rollback metadata after successful activation
+
+Set INSTALL_SYSTEMD=0 for isolated installation; --restart is then forbidden.
 EOF
 }
 
@@ -35,8 +39,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ "$RESTART" -eq 1 ]; then
-    echo "--restart is not permitted by the offline SCADA installer" >&2
+if [ "$INSTALL_SYSTEMD" = "0" ] && [ "$RESTART" -eq 1 ]; then
+    echo "INSTALL_SYSTEMD=0 forbids --restart" >&2
     exit 2
 fi
 
@@ -65,8 +69,11 @@ mkdir -p "$SCADA_TMP_DIR"
 META_FILE="$(mktemp "$SCADA_TMP_DIR/gateway-scada-meta.XXXXXX")"
 cleanup() {
     rm -f "$META_FILE"
+    [ -z "$STATE_TMP" ] || rm -f "$STATE_TMP"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 python3 - "$PACKAGE" "$MACHINE_CODE" "$META_FILE" <<'PY'
 import hashlib
@@ -189,6 +196,8 @@ fi
 
 rollback() {
     status=$?
+    trap - EXIT INT TERM
+    cleanup
     if [ "$status" -eq 0 ]; then
         return
     fi
@@ -200,13 +209,14 @@ rollback() {
         rm -f "$SCADA_ROOT/current"
     fi
     [ ! -f "$CONFIG_BACKUP" ] || cp -p "$CONFIG_BACKUP" "$APP_CONFIG"
+    rm -f "$SCADA_ROOT/current.new"
     rm -rf "$STAGING" "$RELEASE"
     if [ -n "$SCADA_SERVICE" ]; then
         systemctl restart "$SCADA_SERVICE" >/dev/null 2>&1 || true
     fi
     exit "$status"
 }
-trap rollback EXIT INT TERM
+trap rollback EXIT
 
 mkdir -p "$STAGING"
 python3 - "$PACKAGE" "$STAGING" <<'PY'
@@ -299,5 +309,6 @@ if [ -n "$STATE_FILE" ]; then
     mv "$STATE_TMP" "$STATE_FILE"
 fi
 
+cleanup
 trap - EXIT INT TERM
 echo "SCADA release activated: $RELEASE"

@@ -12,6 +12,7 @@ if [ -n "${package:-}" ]; then
   INIT_PACKAGE="$package"
 fi
 INIT_WORK_DIR="${INIT_WORK_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}/gateway-production-init.$$}"
+INIT_WORK_DIR_OWNED=0
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 INIT_START_SERVICES="${INIT_START_SERVICES:-1}"
@@ -391,12 +392,14 @@ fi
 export INIT_PROMPT
 
 cleanup() {
-  if [ "$INIT_KEEP_WORK_DIR" != "1" ] && [ -n "$INIT_WORK_DIR" ] && [ -d "$INIT_WORK_DIR" ]; then
+  if [ "$INIT_WORK_DIR_OWNED" = "1" ] && [ "$INIT_KEEP_WORK_DIR" != "1" ] && [ -d "$INIT_WORK_DIR" ]; then
     rm -rf "$INIT_WORK_DIR"
   fi
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 truthy() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
@@ -705,8 +708,10 @@ if [ -n "$INIT_RUNTIME_PACKAGE" ]; then
   require_file "$INIT_RUNTIME_PACKAGE" "runtime package"
 fi
 
-rm -rf "$INIT_WORK_DIR"
-mkdir -p "$INIT_WORK_DIR"
+# Never reuse or remove a work directory owned by another invocation.
+mkdir -p "$(dirname "$INIT_WORK_DIR")"
+mkdir "$INIT_WORK_DIR" || { echo "init work directory must not already exist: $INIT_WORK_DIR" >&2; exit 1; }
+INIT_WORK_DIR_OWNED=1
 tar -xzf "$INIT_PACKAGE" -C "$INIT_WORK_DIR"
 if [ -n "$INIT_RUNTIME_PACKAGE" ]; then
   tar -xzf "$INIT_RUNTIME_PACKAGE" -C "$INIT_WORK_DIR"

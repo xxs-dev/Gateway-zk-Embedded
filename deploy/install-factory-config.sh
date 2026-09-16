@@ -21,6 +21,7 @@ FACTORY_TMP_DIR="${FACTORY_TMP_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}}"
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
 WATCHDOG_MANUAL_STOP_FILE="$WATCHDOG_RUN_DIR/manual-stop"
+WATCHDOG_APPLYING_OWNED=0
 
 watchdog_boot_id() {
   if [ -r /proc/sys/kernel/random/boot_id ]; then
@@ -48,6 +49,7 @@ write_watchdog_applying_marker() {
     printf 'created_uptime_sec=%s\n' "$(watchdog_uptime_sec)"
   } > "$tmp"
   mv -f "$tmp" "$WATCHDOG_APPLYING_FILE"
+  WATCHDOG_APPLYING_OWNED=1
 }
 
 usage() {
@@ -124,13 +126,17 @@ if [ "$INSTALL_SYSTEMD" = "0" ]; then
 fi
 
 cleanup_factory_extract() {
-  rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
+  if [ "$WATCHDOG_APPLYING_OWNED" = "1" ] && grep -qx "pid=$$" "$WATCHDOG_APPLYING_FILE" 2>/dev/null; then
+    rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
+  fi
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
     rm -rf "$FACTORY_EXTRACT_DIR"
   fi
 }
 
-trap cleanup_factory_extract EXIT INT TERM
+trap cleanup_factory_extract EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 path_abs() {
   path="$1"
@@ -186,10 +192,9 @@ extract_factory_package() {
     echo "tar command not found, cannot extract factory package: $package" >&2
     return 1
   fi
-  FACTORY_EXTRACT_DIR="${FACTORY_EXTRACT_DIR:-$FACTORY_TMP_DIR/gateway-factory-defaults.$$}"
-  rm -rf "$FACTORY_EXTRACT_DIR"
-  mkdir -p "$FACTORY_EXTRACT_DIR"
-  tar -xzf "$package" -C "$FACTORY_EXTRACT_DIR"
+  mkdir -p "$FACTORY_TMP_DIR" || return 1
+  FACTORY_EXTRACT_DIR=$(mktemp -d "$FACTORY_TMP_DIR/gateway-factory-defaults.XXXXXX") || return 1
+  tar -xzf "$package" -C "$FACTORY_EXTRACT_DIR" || return 1
   echo "factory package extracted: $package"
   return 0
 }
@@ -212,7 +217,8 @@ if [ -z "$FACTORY_PACKAGE" ] && [ -z "${SOURCE_ROOT:-}" ]; then
 fi
 
 PACKAGE_ROOT=""
-if [ -n "$FACTORY_PACKAGE" ] && extract_factory_package "$FACTORY_PACKAGE"; then
+if [ -n "$FACTORY_PACKAGE" ]; then
+  extract_factory_package "$FACTORY_PACKAGE" || { echo "factory package extraction failed: $FACTORY_PACKAGE" >&2; exit 1; }
   PACKAGE_ROOT=$(pick_source_root \
     "$FACTORY_EXTRACT_DIR" \
     "$FACTORY_EXTRACT_DIR/gateway-factory-defaults" \
@@ -964,7 +970,7 @@ install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.s
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"
-if [ ! -f /etc/default/gateway-network-failover ]; then
+if [ "$INSTALL_SYSTEMD" = "1" ] && [ ! -f /etc/default/gateway-network-failover ]; then
   install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"
 fi
 install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
