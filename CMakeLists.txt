@@ -648,6 +648,13 @@ if(BUILD_TESTING)
     add_test(NAME memory_point_store_lifecycle COMMAND memory_point_store_lifecycle_test)
     set_tests_properties(memory_point_store_lifecycle PROPERTIES TIMEOUT 15)
     if(UNIX)
+        add_executable(memory_point_store_multiwriter_test
+            tools/memory_point_store_multiwriter_test.cpp src/memory_point_store.cpp)
+        target_include_directories(memory_point_store_multiwriter_test PRIVATE include)
+        target_link_libraries(memory_point_store_multiwriter_test PRIVATE pthread rt)
+        target_compile_options(memory_point_store_multiwriter_test PRIVATE -fdiagnostics-color=never)
+        add_test(NAME memory_point_store_multiwriter COMMAND memory_point_store_multiwriter_test)
+        set_tests_properties(memory_point_store_multiwriter PROPERTIES TIMEOUT 35)
         add_executable(memory_point_store_reader_cache_test
             tools/memory_point_store_reader_cache_test.cpp src/memory_point_store.cpp)
         target_include_directories(memory_point_store_reader_cache_test PRIVATE include)
