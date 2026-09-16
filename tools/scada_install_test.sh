@@ -8,6 +8,8 @@ APP_CONFIG="$ROOT/monitor.json"
 SCADA_ROOT="$ROOT/runtime"
 STATE_FILE="$ROOT/install-state.txt"
 INSTALLER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/deploy/install-scada-project.sh"
+MOCK_BIN="$ROOT/mock-bin"
+SYSTEMCTL_LOG="$ROOT/systemctl.log"
 
 cleanup() {
     rm -rf "$ROOT"
@@ -15,6 +17,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$SOURCE/screens"
+mkdir -p "$MOCK_BIN"
+cat >"$MOCK_BIN/systemctl" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+exit 99
+SH
+chmod +x "$MOCK_BIN/systemctl"
+: >"$SYSTEMCTL_LOG"
+export PATH="$MOCK_BIN:$PATH" SYSTEMCTL_LOG
 python3 - "$PACKAGE" <<'PY'
 import hashlib
 import json
@@ -77,6 +88,11 @@ sh "$INSTALLER" \
     --app-config "$APP_CONFIG" \
     --scada-root "$SCADA_ROOT" \
     --state-file "$STATE_FILE"
+
+[ ! -s "$SYSTEMCTL_LOG" ] || {
+    echo "SCADA install without --restart invoked systemctl: $(cat "$SYSTEMCTL_LOG")" >&2
+    exit 1
+}
 
 [ -L "$SCADA_ROOT/current" ]
 [ -f "$SCADA_ROOT/current/manifest.json" ]
