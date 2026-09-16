@@ -11,7 +11,9 @@ INIT_RUNTIME_PACKAGE="${INIT_RUNTIME_PACKAGE:-}"
 if [ -n "${package:-}" ]; then
   INIT_PACKAGE="$package"
 fi
-INIT_WORK_DIR="${INIT_WORK_DIR:-/tmp/gateway-production-init.$$}"
+INIT_WORK_DIR="${INIT_WORK_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}/gateway-production-init.$$}"
+INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 INIT_START_SERVICES="${INIT_START_SERVICES:-1}"
 INIT_RUN_SMOKE="${INIT_RUN_SMOKE:-1}"
 INIT_RESET_SHM="${INIT_RESET_SHM:-0}"
@@ -609,11 +611,15 @@ PY
 
   if [ "$runtime_mode" != "agc_avc" ]; then
     rm -f "$GATEWAY_HOME/bin/AgcAvcController"
-    rm -f /etc/systemd/system/agc-avc@.service
+    if [ "$INSTALL_SYSTEMD" = "1" ]; then
+      rm -f "$SYSTEMD_UNIT_DIR/agc-avc@.service"
+    fi
   fi
   if [ "$runtime_mode" != "ems" ]; then
     rm -f "$GATEWAY_HOME/bin/EmsClusterCoordinator"
-    rm -f /etc/systemd/system/ems-cluster@.service
+    if [ "$INSTALL_SYSTEMD" = "1" ]; then
+      rm -f "$SYSTEMD_UNIT_DIR/ems-cluster@.service"
+    fi
   fi
 }
 
@@ -880,9 +886,9 @@ if [ "$tls_requested" -eq 1 ]; then
 fi
 
 if truthy "$INIT_START_SERVICES"; then
-  if command -v systemctl >/dev/null 2>&1; then
+  if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl restart gateway-services.service
-  elif [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
+  elif [ "$INSTALL_SYSTEMD" = "1" ] && [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
     "$GATEWAY_HOME/bin/gateway-services.sh" restart
   fi
 fi

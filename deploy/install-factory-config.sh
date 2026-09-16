@@ -9,6 +9,7 @@ BACKUP_DIR="${BACKUP_DIR:-$GATEWAY_HOME/backup}"
 START_SERVICES="${START_SERVICES:-1}"
 RESET_SHM="${RESET_SHM:-0}"
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 FACTORY_PACKAGE_NAME="${FACTORY_PACKAGE_NAME:-gateway-factory-defaults.tar.gz}"
 PACKAGE_PROFILE="${PACKAGE_PROFILE:-}"
 EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
@@ -16,6 +17,7 @@ INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
 INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
 INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
+FACTORY_TMP_DIR="${FACTORY_TMP_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}}"
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
 WATCHDOG_MANUAL_STOP_FILE="$WATCHDOG_RUN_DIR/manual-stop"
@@ -179,7 +181,7 @@ extract_factory_package() {
     echo "tar command not found, cannot extract factory package: $package" >&2
     return 1
   fi
-  FACTORY_EXTRACT_DIR="/tmp/gateway-factory-defaults.$$"
+  FACTORY_EXTRACT_DIR="${FACTORY_EXTRACT_DIR:-$FACTORY_TMP_DIR/gateway-factory-defaults.$$}"
   rm -rf "$FACTORY_EXTRACT_DIR"
   mkdir -p "$FACTORY_EXTRACT_DIR"
   tar -xzf "$package" -C "$FACTORY_EXTRACT_DIR"
@@ -779,7 +781,9 @@ PY
 
   if [ "$runtime_mode" != "agc_avc" ]; then
     rm -f "$GATEWAY_HOME/bin/AgcAvcController"
-    rm -f /etc/systemd/system/agc-avc@.service
+    if [ "$INSTALL_SYSTEMD" = "1" ]; then
+      rm -f "$SYSTEMD_UNIT_DIR/agc-avc@.service"
+    fi
   fi
 }
 
@@ -1110,7 +1114,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
 fi
 
 if [ "$RESET_SHM" = "1" ]; then
-  if command -v systemctl >/dev/null 2>&1; then
+  if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
       "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
     else
@@ -1120,7 +1124,7 @@ if [ "$RESET_SHM" = "1" ]; then
   rm -f /dev/shm/gateway_point_store* 2>/dev/null || true
 fi
 
-if [ "$START_SERVICES" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+if [ "$START_SERVICES" = "1" ] && [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   rm -f "$WATCHDOG_MANUAL_STOP_FILE"
   systemctl reset-failed gateway-services.service >/dev/null 2>&1 || true
   systemctl start gateway-services.service

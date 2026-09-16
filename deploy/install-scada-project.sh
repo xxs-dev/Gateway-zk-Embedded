@@ -8,6 +8,7 @@ SCADA_ROOT="/opt/modbus-gateway/scada"
 DRY_RUN=0
 RESTART=0
 STATE_FILE=""
+SCADA_TMP_DIR="${SCADA_TMP_DIR:-${TMPDIR:-}}"
 
 usage() {
     cat <<'EOF'
@@ -52,7 +53,11 @@ if [ -n "$STATE_FILE" ]; then
 fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 2; }
 
-META_FILE="$(mktemp /tmp/gateway-scada-meta.XXXXXX)"
+if [ -z "$SCADA_TMP_DIR" ]; then
+    SCADA_TMP_DIR="$(dirname "$SCADA_ROOT")"
+fi
+mkdir -p "$SCADA_TMP_DIR"
+META_FILE="$(mktemp "$SCADA_TMP_DIR/gateway-scada-meta.XXXXXX")"
 cleanup() {
     rm -f "$META_FILE"
 }
@@ -149,7 +154,7 @@ VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["vers
 NODE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nodeId"])' "$META_FILE")"
 LOCAL_SCADA="$(python3 -c 'import json,sys; print("true" if json.load(open(sys.argv[1]))["localScada"] else "false")' "$META_FILE")"
 SCADA_SERVICE=""
-if [ "$LOCAL_SCADA" = "true" ] && command -v systemctl >/dev/null 2>&1; then
+if [ "$RESTART" -eq 1 ] && [ "$LOCAL_SCADA" = "true" ] && command -v systemctl >/dev/null 2>&1; then
     if systemctl list-unit-files ky-ems.service --no-legend 2>/dev/null | grep -q '^ky-ems.service'; then
         SCADA_SERVICE="ky-ems.service"
     elif systemctl list-unit-files local-display@.service --no-legend 2>/dev/null | grep -q '^local-display@.service'; then
