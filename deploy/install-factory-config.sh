@@ -89,6 +89,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$INSTALL_SYSTEMD" = "0" ]; then
+  [ "$START_SERVICES" = "0" ] || { echo "INSTALL_SYSTEMD=0 requires START_SERVICES=0" >&2; exit 2; }
+  [ "$RESET_SHM" = "0" ] || { echo "INSTALL_SYSTEMD=0 requires RESET_SHM=0" >&2; exit 2; }
+fi
+
 cleanup_factory_extract() {
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
     rm -rf "$FACTORY_EXTRACT_DIR"
