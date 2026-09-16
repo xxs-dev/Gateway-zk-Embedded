@@ -19,6 +19,7 @@ INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
 INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
 INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
+FACTORY_TMP_DIR="${FACTORY_TMP_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -150,7 +151,7 @@ extract_factory_package() {
     echo "tar command not found, cannot extract factory package: $package" >&2
     return 1
   fi
-  FACTORY_EXTRACT_DIR="/tmp/gateway-factory-defaults.$$"
+  FACTORY_EXTRACT_DIR="${FACTORY_EXTRACT_DIR:-$FACTORY_TMP_DIR/gateway-factory-defaults.$$}"
   rm -rf "$FACTORY_EXTRACT_DIR"
   mkdir -p "$FACTORY_EXTRACT_DIR"
   tar -xzf "$package" -C "$FACTORY_EXTRACT_DIR"
@@ -840,7 +841,9 @@ PY
 
   if [ "$runtime_mode" != "agc_avc" ]; then
     rm -f "$GATEWAY_HOME/bin/AgcAvcController"
-    rm -f /etc/systemd/system/agc-avc@.service
+    if [ "$INSTALL_SYSTEMD" = "1" ]; then
+      rm -f "$SYSTEMD_UNIT_DIR/agc-avc@.service"
+    fi
   fi
 }
 
@@ -923,7 +926,7 @@ PY
 
 mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$BACKUP_DIR"
 
-if command -v systemctl >/dev/null 2>&1; then
+if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   systemctl stop gateway-services.service 2>/dev/null || true
 fi
 if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
@@ -1171,7 +1174,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
 fi
 
 if [ "$RESET_SHM" = "1" ]; then
-  if command -v systemctl >/dev/null 2>&1; then
+  if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
       "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
     else
@@ -1181,7 +1184,7 @@ if [ "$RESET_SHM" = "1" ]; then
   rm -f /dev/shm/gateway_point_store* 2>/dev/null || true
 fi
 
-if [ "$START_SERVICES" = "1" ] && command -v systemctl >/dev/null 2>&1; then
+if [ "$START_SERVICES" = "1" ] && [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   systemctl restart gateway-services.service
 fi
 
