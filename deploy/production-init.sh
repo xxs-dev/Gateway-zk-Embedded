@@ -376,9 +376,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$INSTALL_SYSTEMD" = "0" ]; then
-  truthy "$INIT_START_SERVICES" && { echo "INSTALL_SYSTEMD=0 requires --no-start" >&2; exit 2; }
-  truthy "$INIT_RESET_SHM" && { echo "INSTALL_SYSTEMD=0 forbids --reset-shm" >&2; exit 2; }
-  truthy "$INIT_RUN_SMOKE" && { echo "INSTALL_SYSTEMD=0 requires --no-smoke" >&2; exit 2; }
+  case "$INIT_START_SERVICES" in true|TRUE|True|1|yes|YES|Yes|y|Y|on|ON|On) echo "INSTALL_SYSTEMD=0 requires --no-start" >&2; exit 2;; esac
+  case "$INIT_RESET_SHM" in true|TRUE|True|1|yes|YES|Yes|y|Y|on|ON|On) echo "INSTALL_SYSTEMD=0 forbids --reset-shm" >&2; exit 2;; esac
+  case "$INIT_RUN_SMOKE" in true|TRUE|True|1|yes|YES|Yes|y|Y|on|ON|On) echo "INSTALL_SYSTEMD=0 requires --no-smoke" >&2; exit 2;; esac
 fi
 
 if [ -z "${INIT_PROMPT:-}" ]; then
