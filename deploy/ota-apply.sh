@@ -216,6 +216,10 @@ case "$ARTIFACT_NAME" in
 esac
 
 MANIFEST_PATH="$WORK_DIR/manifest.json"
+if [ ! -f "$MANIFEST_PATH" ]; then
+  echo "[ota-apply] root manifest.json is required for non-SCADA packages" >&2
+  exit 4
+fi
 RESTART_FILE=""
 SYSTEMD_RELOAD_FILE=""
 CHMOD_FILE=""
@@ -240,6 +244,14 @@ restart_service_set = set()
 
 with open(manifest_path, "r", encoding="utf-8") as fh:
     manifest = json.load(fh)
+
+if not isinstance(manifest, dict):
+    raise SystemExit("manifest root must be an object")
+files = manifest.get("files")
+if not isinstance(files, list) or not files:
+    raise SystemExit("manifest files must be a non-empty array")
+if any(not isinstance(item, dict) for item in files):
+    raise SystemExit("manifest files entries must be objects")
 
 allowed_clean_roots = (
     "/opt/modbus-gateway/config/runtime/devices",
