@@ -133,17 +133,28 @@ def stage_config(stage):
     write(stage / "config/generic-scada-widgets.json", prototypes)
 
 
-def main(args):
-    if sha(args.programs) != PROGRAM_SHA or sha(args.manifest) != MANIFEST_SHA:
+def verify_program_inputs(programs, manifest_path, commit, program_sha, manifest_sha):
+    for value, length in ((commit, 40), (program_sha, 64), (manifest_sha, 64)):
+        if not re.fullmatch(r"[0-9a-f]{" + str(length) + r"}", value):
+            raise ValueError("program source and digest pins must be full lowercase hexadecimal values")
+    if sha(programs) != program_sha or sha(manifest_path) != manifest_sha:
         raise ValueError("fixed program archive/manifest SHA mismatch")
-    manifest = read(args.manifest)
-    if manifest["sourceCommit"] != PROGRAM_COMMIT or manifest["sourceDirty"]:
+    manifest = read(manifest_path)
+    if manifest["sourceCommit"] != commit or manifest["sourceDirty"] is not False:
         raise ValueError("unexpected binary source provenance")
+    return manifest
+
+
+def main(args):
+    program_commit = args.program_commit
+    program_sha = args.programs_sha256
+    manifest_sha = args.manifest_sha256
+    manifest = verify_program_inputs(args.programs, args.manifest, program_commit, program_sha, manifest_sha)
     previous = None
     if args.reuse_agc_from:
         previous = read(args.reuse_agc_from / "component-provenance.json")
-        if (previous["binarySourceCommit"] != PROGRAM_COMMIT or previous["programArchiveSha256"] != PROGRAM_SHA or
-                previous["programManifestSha256"] != MANIFEST_SHA):
+        if (previous["binarySourceCommit"] != program_commit or previous["programArchiveSha256"] != program_sha or
+                previous["programManifestSha256"] != manifest_sha):
             raise ValueError("reused AGC has different binary provenance")
         for name, metadata in previous["artifacts"].items():
             if sha(args.reuse_agc_from / name) != metadata["sha256"]:
@@ -189,7 +200,7 @@ def main(args):
                 destination.chmod(0o755)
                 components.append({"binary": component["binary"], "path": relative,
                                    "sizeBytes": len(data), "sha256": component["sha256"],
-                                   "sourceCommit": PROGRAM_COMMIT, "sourceArchiveSha256": PROGRAM_SHA})
+                                   "sourceCommit": program_commit, "sourceArchiveSha256": program_sha})
         factory_raw = Path(temporary) / "factory.tar.gz"
         overlay_raw = Path(temporary) / "overlay.tar.gz"
         for script, target in (("build-factory-package.sh", factory_raw), ("build-agc-avc-runtime-package.sh", overlay_raw)):
@@ -210,7 +221,7 @@ def main(args):
         shutil.copyfile(stage / "config/generic-scada-widgets.json", factory / "config/generic-scada-widgets.json")
         agc_components = [item for item in components if item["binary"] == "AgcAvcController"]
         agc_manifest = read(overlay / "agc-avc-runtime-manifest.json")
-        agc_manifest.update(sourceCommit=PROGRAM_COMMIT, binarySourceCommit=PROGRAM_COMMIT,
+        agc_manifest.update(sourceCommit=program_commit, binarySourceCommit=program_commit,
                             assemblySourceCommit=source_commit, assemblySourceDirty=bool(source_status),
                             sourceFileHashes=inputs, components=agc_components, files=hashes(overlay))
         agc_manifest["files"].pop("agc-avc-runtime-manifest.json", None)
@@ -219,16 +230,16 @@ def main(args):
         package_manifest.update(sourceCommit=source_commit, sourceDirty=bool(source_status),
                                 initializationKind="generic-uncommissioned",
                                 packageVersion="generic-review-20260917" + ("-" + args.candidate_id if args.candidate_id else ""),
-                                binarySourceCommit=PROGRAM_COMMIT,
+                                binarySourceCommit=program_commit,
                                 assemblySourceCommit=source_commit, assemblySourceDirty=bool(source_status),
                                 createdBy="build_generic_factory.py", deploymentApproved=False)
         for component in package_manifest["components"]:
-            component["sourceCommit"] = PROGRAM_COMMIT
-            component["sourceArchiveSha256"] = PROGRAM_SHA
+            component["sourceCommit"] = program_commit
+            component["sourceArchiveSha256"] = program_sha
         write(factory / "edge-package-manifest.json", package_manifest)
         write(factory / "generic-package.json", {"schemaVersion": 1, "kind": "generic-review-candidate",
               "initializationKind": "generic-uncommissioned",
-              "binarySourceCommit": PROGRAM_COMMIT, "assemblySourceCommit": source_commit,
+              "binarySourceCommit": program_commit, "assemblySourceCommit": source_commit,
               "assemblySourceDirty": bool(source_status), "deploymentApproved": False,
               "hardwareAcceptance": "NOT_RUN", "files": hashes(factory)})
         archive(factory, output / "gateway-factory-defaults.tar.gz")
@@ -272,9 +283,9 @@ def main(args):
                            "programComponentsUnchanged": True,
                            "factoryChanges": changes(previous["factoryFiles"], hashes(factory)),
                            "pairedDeployChanges": changes(previous["pairedDeployFiles"], hashes(output / "deploy"))}
-        write(output / "component-provenance.json", {"binarySourceCommit": PROGRAM_COMMIT,
+        write(output / "component-provenance.json", {"binarySourceCommit": program_commit,
               "candidateId": args.candidate_id, "inheritedCandidate": inheritance,
-              "programArchiveSha256": PROGRAM_SHA, "programManifestSha256": MANIFEST_SHA,
+              "programArchiveSha256": program_sha, "programManifestSha256": manifest_sha,
               "assemblySourceCommit": source_commit, "assemblySourceDirty": bool(source_status),
               "sourceFileHashes": inputs, "components": components,
               "factoryFiles": hashes(factory), "overlayFiles": overlay_files, "pairedDeployFiles": hashes(output / "deploy"),
@@ -288,6 +299,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--programs", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--program-commit", default=PROGRAM_COMMIT,
+                        help="Exact source commit of the independently verified binary archive")
+    parser.add_argument("--programs-sha256", default=PROGRAM_SHA)
+    parser.add_argument("--manifest-sha256", default=MANIFEST_SHA)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--candidate-id", default="")
     parser.add_argument("--reuse-agc-from", type=Path,
