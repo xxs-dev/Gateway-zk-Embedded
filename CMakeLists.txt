@@ -704,6 +704,9 @@ if(BUILD_TESTING)
     add_test(NAME timing_policy COMMAND timing_policy_test)
     if(UNIX)
         add_test(NAME mqtt_offline_restart_replay COMMAND builtin_mqtt_driver_publisher_test)
+        add_test(NAME gateway_services_boot
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_boot_test.sh")
+        set_tests_properties(gateway_services_boot PROPERTIES TIMEOUT 15)
         add_test(
             NAME gateway_test_lab_modbus_e2e
             COMMAND sh

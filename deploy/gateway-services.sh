@@ -541,8 +541,8 @@ start_one_unit() {
   unit="$1"
   echo "[gateway-services] starting $unit"
   case "$unit" in
-    ky-ems.service)
-      # The display session may still be starting; do not block driver startup on it.
+    ky-ems.service|local-kiosk@*.service)
+      # Display sessions can depend on boot completion; never wait here for them.
       systemctl start --no-block "$unit"
       ;;
     *)
