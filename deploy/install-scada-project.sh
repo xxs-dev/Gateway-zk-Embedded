@@ -11,6 +11,7 @@ STATE_FILE=""
 SCADA_TMP_DIR="${SCADA_TMP_DIR:-${TMPDIR:-}}"
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
 STATE_TMP=""
+ENABLE_NATIVE_DISPLAY=0
 
 usage() {
     cat <<'EOF'
@@ -20,6 +21,7 @@ Usage: install-scada-project.sh --package FILE --machine-code CODE [options]
   --dry-run           validate only
   --restart           restart only the configured local SCADA display service
   --state-file FILE   write rollback metadata after successful activation
+  --enable-native-display  enable nativeQt together with SCADA activation
 
 Set INSTALL_SYSTEMD=0 for isolated installation; --restart is then forbidden.
 EOF
@@ -34,6 +36,7 @@ while [ "$#" -gt 0 ]; do
         --dry-run) DRY_RUN=1; shift ;;
         --restart) RESTART=1; shift ;;
         --state-file) STATE_FILE="${2:-}"; shift 2 ;;
+        --enable-native-display) ENABLE_NATIVE_DISPLAY=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -242,16 +245,20 @@ PY
 mv "$STAGING" "$RELEASE"
 cp -p "$APP_CONFIG" "$CONFIG_BACKUP"
 
-python3 - "$APP_CONFIG" "$LOCAL_SCADA" "$NODE_ID" "$SCADA_ROOT/current" <<'PY'
+python3 - "$APP_CONFIG" "$LOCAL_SCADA" "$NODE_ID" "$SCADA_ROOT/current" "$ENABLE_NATIVE_DISPLAY" <<'PY'
 import json
 import os
 import sys
 import tempfile
 
-path, enabled, node_id, project_directory = sys.argv[1:]
+path, enabled, node_id, project_directory, native_display = sys.argv[1:]
 with open(path, "r", encoding="utf-8") as source:
     root = json.load(source)
 local_display = root.setdefault("localDisplay", {})
+if native_display == "1":
+    if enabled != "true":
+        raise SystemExit("native display requires an integrated local SCADA project")
+    local_display.update(enabled=True, renderer="nativeQt")
 scada = local_display.setdefault("scada", {})
 scada.update({
     "enabled": enabled == "true",

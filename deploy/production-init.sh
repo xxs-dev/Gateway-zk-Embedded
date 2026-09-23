@@ -11,7 +11,7 @@ INIT_RUNTIME_PACKAGE="${INIT_RUNTIME_PACKAGE:-}"
 if [ -n "${package:-}" ]; then
   INIT_PACKAGE="$package"
 fi
-INIT_WORK_DIR="${INIT_WORK_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}/gateway-production-init.$$}"
+INIT_WORK_DIR="${INIT_WORK_DIR:-}"
 INIT_WORK_DIR_OWNED=0
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-1}"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
@@ -35,6 +35,7 @@ INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
 INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
 INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
+INIT_LOCAL_QT_DISPLAY="${INIT_LOCAL_QT_DISPLAY:-auto}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -53,6 +54,8 @@ Options:
   --runtime-mode MODE             Runtime mode: gateway, ems or agc_avc; defaults to gateway
   --package-profile PROFILE       Driver package profile: base, project or full
   --manifest FILE                 Edge package manifest for project profile
+  --local-qt-display              enable generic read-only Qt SCADA (project/full)
+  --no-local-qt-display           leave generic Qt disabled; default auto for project KY-EMS
   --machine-code CODE             Device machineCode
   --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
   --mqtt-username USER            MQTT username
@@ -135,6 +138,14 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || { echo "--manifest requires a value" >&2; exit 2; }
       INIT_EDGE_PACKAGE_MANIFEST="$2"
       shift 2
+      ;;
+    --local-qt-display)
+      INIT_LOCAL_QT_DISPLAY=1
+      shift
+      ;;
+    --no-local-qt-display)
+      INIT_LOCAL_QT_DISPLAY=0
+      shift
       ;;
     --machine-code)
       [ "$#" -ge 2 ] || { echo "--machine-code requires a value" >&2; exit 2; }
@@ -375,6 +386,9 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+export GATEWAY_HOME
+INIT_WORK_DIR="${INIT_WORK_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}/gateway-production-init.$$}"
 
 truthy() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
@@ -833,6 +847,21 @@ else
   export DEPLOY_DIR="$PACKAGE_ROOT/deploy"
 fi
 require_file "$DEPLOY_DIR/install-factory-config.sh" "install script"
+if [ -f "$PACKAGE_ROOT/generic-package.json" ]; then
+  require_file "$DEPLOY_DIR/prepare-generic-runtime.py" "generic runtime preparation script"
+  INIT_LOCAL_QT_DISPLAY_ENABLED=$(python3 "$DEPLOY_DIR/prepare-generic-runtime.py" preflight \
+    --package-root "$PACKAGE_ROOT" --deploy-dir "$DEPLOY_DIR" \
+    --profile "${INIT_PACKAGE_PROFILE:-full}" --mode "$INIT_RUNTIME_MODE" \
+    --manifest "${INIT_EDGE_PACKAGE_MANIFEST:-}" --selection "$INIT_WORK_DIR/generic-selection.json" \
+    --machine "$INIT_MACHINE_CODE" --qt "$INIT_LOCAL_QT_DISPLAY" \
+    --home "$GATEWAY_HOME" --start "$INIT_START_SERVICES")
+  if [ "${INIT_PACKAGE_PROFILE:-full}" = "project" ]; then
+    INIT_EDGE_PACKAGE_MANIFEST="$INIT_WORK_DIR/generic-selection.json"
+  fi
+elif [ "$INIT_LOCAL_QT_DISPLAY" != "auto" ]; then
+  echo "local Qt initialization requires a qualified generic-capable package" >&2
+  exit 2
+fi
 export FACTORY_PROMPT=0
 export FACTORY_PACKAGE=""
 export FACTORY_DIR="$PACKAGE_ROOT/config/factory"
@@ -852,6 +881,12 @@ if [ -n "${INIT_EDGE_PACKAGE_MANIFEST:-}" ]; then
 fi
 sh "$@"
 apply_runtime_mode "$INIT_RUNTIME_MODE"
+if [ -f "$PACKAGE_ROOT/generic-package.json" ]; then
+  mkdir -p "$GATEWAY_HOME/tmp"
+  python3 "$DEPLOY_DIR/prepare-generic-runtime.py" prepare --home "$GATEWAY_HOME" \
+    --machine "$INIT_MACHINE_CODE" --qt "$INIT_LOCAL_QT_DISPLAY_ENABLED" \
+    --qt-environment "$INIT_WORK_DIR/generic-qt-environment.json"
+fi
 
 if [ "$tls_requested" -eq 1 ]; then
   if [ -z "${INIT_MACHINE_CODE:-}" ]; then
@@ -905,6 +940,7 @@ fi
 if truthy "$INIT_START_SERVICES"; then
   if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl restart gateway-services.service
+    systemctl start gateway-health-watchdog.service
   elif [ "$INSTALL_SYSTEMD" = "1" ] && [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
     "$GATEWAY_HOME/bin/gateway-services.sh" restart
   fi

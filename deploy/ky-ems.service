@@ -9,12 +9,15 @@ StartLimitBurst=5
 [Service]
 Type=simple
 User=root
+RuntimeDirectory=ky-ems
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 WorkingDirectory=/opt/modbus-gateway/ky-ems
 Environment=DISPLAY=:0
-Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
-Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=QT_QPA_PLATFORM=xcb
-ExecStart=/opt/modbus-gateway/ky-ems/KY-EMS --app-config /opt/modbus-gateway/config/runtime/apps/monitor-service.json
+Environment=XDG_RUNTIME_DIR=/run/ky-ems
+EnvironmentFile=-/opt/modbus-gateway/config/runtime/qt-display.env
+ExecStart=/bin/sh /opt/modbus-gateway/bin/gateway-qt-run.sh
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15

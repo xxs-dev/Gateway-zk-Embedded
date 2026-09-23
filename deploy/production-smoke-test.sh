@@ -187,30 +187,37 @@ runtime_package_profile() {
 
 required_runtime_binaries() {
   profile=$(runtime_package_profile)
+  runtime_mode=$(app_runtime_mode "$APP_CONFIG")
   base_bins="SystemMonitor MqttDriver MqttForwarder pointctl"
   full_bins="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor LocalDisplay QtDisplayBridge KY-EMS CameraService pointctl"
-  if [ "$(app_runtime_mode "$APP_CONFIG")" = "agc_avc" ]; then
+  if [ "$runtime_mode" = "agc_avc" ]; then
     full_bins="$full_bins AgcAvcController"
   fi
   case "$profile" in
     base)
-      printf '%s\n' $base_bins | unique_lines
+      selected_bins="$base_bins"
       ;;
     project)
       if [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
         project_bins=$(printf '%s\n' $base_bins $(manifest_binaries "$EDGE_PACKAGE_MANIFEST") | unique_lines)
-        if [ "$(app_runtime_mode "$APP_CONFIG")" = "ems" ]; then
+        if [ "$runtime_mode" = "ems" ]; then
           project_bins=$(printf '%s\n' $project_bins ComputeEngine EmsParityCheck EmsClusterCoordinator | unique_lines)
         fi
-        printf '%s\n' $project_bins
+        selected_bins="$project_bins"
       else
-        printf '%s\n' $base_bins | unique_lines
+        selected_bins="$base_bins"
       fi
       ;;
     *)
-      printf '%s\n' $full_bins | unique_lines
+      selected_bins="$full_bins"
       ;;
   esac
+  # production-init removes the cluster program in non-EMS runtime modes.
+  if [ "$runtime_mode" = "ems" ]; then
+    printf '%s\n' $selected_bins | unique_lines
+  else
+    printf '%s\n' $selected_bins | awk '$0 != "EmsClusterCoordinator"' | unique_lines
+  fi
 }
 
 check_identity() {
@@ -389,21 +396,69 @@ resolve_config_path() {
 
 check_device_refs() {
   echo "== device config references =="
-  refs_found=0
-  for cfg in "$APP_CONFIG" "$MONITOR_CONFIG"; do
-    [ -f "$cfg" ] || continue
-    for device_file in $(extract_device_files "$cfg"); do
-      refs_found=1
-      resolved_device_file=$(resolve_config_path "$cfg" "$device_file")
-      if [ -f "$resolved_device_file" ]; then
-        pass "device config referenced by $(basename "$cfg") exists: $resolved_device_file"
-      else
-        fail "device config referenced by $(basename "$cfg") missing: $resolved_device_file"
-      fi
-    done
-  done
-  if [ "$refs_found" -eq 0 ]; then
-    fail "no deviceConfigFiles found in app configs"
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 missing; cannot validate device references"
+    return
+  fi
+  if refs_report=$(python3 - "$EDGE_PACKAGE_MANIFEST" "$APP_CONFIG" "$MONITOR_CONFIG" <<'PY'
+import json
+import os
+import sys
+
+def emit(level, message):
+    print(level + ":" + message.replace("\n", "\\n").replace("\r", "\\r"))
+
+def read_object(path):
+    with open(path, "r", encoding="utf-8") as source:
+        value = json.load(source)
+    if not isinstance(value, dict):
+        raise ValueError("JSON object required")
+    return value
+
+try:
+    generic = read_object(sys.argv[1]).get("initializationKind") == "generic-uncommissioned"
+except (OSError, ValueError):
+    generic = False
+
+valid = True
+refs_found = 0
+for config in sys.argv[2:]:
+    label = os.path.basename(config)
+    try:
+        app = read_object(config)
+        refs = app.get("deviceConfigFiles")
+        if not isinstance(refs, list) or any(not isinstance(name, str) or not name.strip() for name in refs):
+            raise ValueError("deviceConfigFiles must be an array of nonempty paths")
+    except (OSError, ValueError) as error:
+        emit("FAIL", "invalid device references in " + label + ": " + str(error))
+        valid = False
+        continue
+    for name in refs:
+        refs_found += 1
+        path = name if os.path.isabs(name) else os.path.join(os.path.dirname(config), name)
+        if not os.path.isfile(path):
+            emit("FAIL", "device config referenced by " + label + " missing: " + path)
+            valid = False
+            continue
+        try:
+            read_object(path)
+            emit("PASS", "device config referenced by " + label + " exists and is valid JSON: " + path)
+        except (OSError, ValueError) as error:
+            emit("FAIL", "device config referenced by " + label + " invalid: " + path + ": " + str(error))
+            valid = False
+
+if valid and refs_found == 0:
+    if generic:
+        emit("PASS", "generic-uncommissioned: valid empty deviceConfigFiles; no physical points commissioned")
+    else:
+        emit("FAIL", "no deviceConfigFiles found in app configs")
+PY
+  ); then
+    report_check_lines /dev/stdin <<EOF
+$refs_report
+EOF
+  else
+    fail "device reference validation failed"
   fi
 }
 
