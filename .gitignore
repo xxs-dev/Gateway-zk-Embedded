@@ -7,6 +7,12 @@
 /deploy/devices.csv
 
 # Generated CMake dependency folders can be recreated by the build.
+/build-aarch64/
+/gateway-factory-defaults.tar.gz
+/test-lab/dist-windows/*.exe
+/test-lab/dist-windows/*.dll
+/test-lab/dist-windows/SHA256SUMS.txt
+/config/samples/messages.zip
 /build-aarch64/CMakeFiles/
 /build-aarch64/can_signal_codec_test
 /build-aarch64/dio_smoke_test
