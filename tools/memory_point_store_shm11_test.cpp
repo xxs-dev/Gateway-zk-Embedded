@@ -57,7 +57,7 @@ void authorizationSurvivesSharedQueue() {
     const auto verify = [&](const std::vector<PendingWriteCommand>& commands) {
         require(commands.size() == 1, "one queued command expected");
         const auto& received = commands.front();
-        require(received.clusterAuthorization.has_value(), "cluster authorization disappeared in shared queue");
+        require(static_cast<bool>(received.clusterAuthorization), "cluster authorization disappeared in shared queue");
         const auto& got = *received.clusterAuthorization;
         require(got.version == 1 && got.flags == 0 && got.kernelBootId == auth.kernelBootId &&
                 got.authorityEpoch == auth.authorityEpoch && got.notAfterMonotonicMs == auth.notAfterMonotonicMs &&
