@@ -1,0 +1,5 @@
+local_dio cluster=0 ordinary=1 passed
+iec104 cluster=0 ordinary=1 passed
+dlt645_2007 cluster=0 ordinary=1 passed
+ordinary CAN receipt: control dedup database unavailable
+exit=1

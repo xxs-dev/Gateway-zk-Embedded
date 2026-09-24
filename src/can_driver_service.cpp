@@ -1,4 +1,5 @@
 #include "edge_gateway/can_driver_service.hpp"
+#include "edge_gateway/cluster_write_authorization.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
@@ -622,6 +623,13 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
         }
         const auto& runtimePoint = runtimePoints_[pointIt->second];
         const auto& point = runtimePoint.point;
+        if (clusterAuthorizationRequired(config_.emsCluster, command)) {
+            completeWritebackResult(writebackResult, false,
+                "cluster physical write is unsupported by CAN", "control-rejected", nowMs());
+            store_.recordWritebackResult(writebackResult);
+            if (command.highPriority) priorityControlLease_.release(command.cmdId);
+            continue;
+        }
         if (command.durableControl) {
             const auto& device = runtimeDevices_[runtimePoint.deviceIndex].config;
             try {
