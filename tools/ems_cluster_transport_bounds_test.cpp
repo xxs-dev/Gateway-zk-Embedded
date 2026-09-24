@@ -16,10 +16,11 @@
 namespace {
 bool measure = false;
 int accepts = 0, reads = 0, datagrams = 0, writeCalls = 0, maxWait = 0;
+int wouldBlock = 0;
 std::size_t readBytes = 0;
 enum class WriteMode { Real, Trickle, ConnectTimeout };
 WriteMode writeMode = WriteMode::Real;
-void resetCounters() { accepts = reads = datagrams = writeCalls = maxWait = 0; readBytes = 0; }
+void resetCounters() { accepts = reads = datagrams = writeCalls = maxWait = wouldBlock = 0; readBytes = 0; }
 void require(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 }
 
@@ -43,6 +44,21 @@ ssize_t __wrap_recvfrom(int fd, void* buffer, size_t size, int flags, sockaddr* 
     if (measure) ++datagrams;
     return __real_recvfrom(fd, buffer, size, flags, address, length);
 }
+#ifdef __GLIBC__
+// Optimized fortified builds may bypass recv/recvfrom via their checked entry points.
+ssize_t __real___recv_chk(int, void*, size_t, size_t, int);
+ssize_t __real___recvfrom_chk(int, void*, size_t, size_t, int, sockaddr*, socklen_t*);
+ssize_t __wrap___recv_chk(int fd, void* buffer, size_t size, size_t capacity, int flags) {
+    const auto result = __real___recv_chk(fd, buffer, size, capacity, flags);
+    if (measure) { ++reads; if (result > 0) readBytes += result; }
+    return result;
+}
+ssize_t __wrap___recvfrom_chk(int fd, void* buffer, size_t size, size_t capacity, int flags,
+                            sockaddr* address, socklen_t* length) {
+    if (measure) ++datagrams;
+    return __real___recvfrom_chk(fd, buffer, size, capacity, flags, address, length);
+}
+#endif
 ssize_t __wrap_send(int fd, const void* buffer, size_t size, int flags) {
     if (writeMode == WriteMode::Trickle) {
         ++writeCalls;
@@ -50,9 +66,12 @@ ssize_t __wrap_send(int fd, const void* buffer, size_t size, int flags) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
         return std::min(size, size_t(1));
     }
-    return __real_send(fd, buffer, size, flags);
+    const auto result = __real_send(fd, buffer, size, flags);
+    if (measure && result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) ++wouldBlock;
+    return result;
 }
 int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
+    if (measure && count == 1 && fds[0].events == POLLOUT) maxWait = std::max(maxWait, timeout);
     if (writeMode != WriteMode::Real && count == 1 && fds[0].events == POLLOUT) {
         maxWait = std::max(maxWait, timeout);
         if (writeMode == WriteMode::ConnectTimeout) return 0;
@@ -135,10 +154,10 @@ int fdCount() {
     closedir(directory);
     return count;
 }
-std::vector<EmsClusterInbound> measuredPoll(IClusterTransport& transport) {
+std::vector<EmsClusterInbound> measuredPoll(IClusterTransport& transport, int timeoutMs = 0) {
     resetCounters();
     measure = true;
-    auto result = transport.poll(0);
+    auto result = transport.poll(timeoutMs);
     measure = false;
     return result;
 }
@@ -216,13 +235,16 @@ void incompatibleIdentity() {
     auto transport = makeEthernetClusterTransport(config, "local");
     transport->start();
     Socket udp(SOCK_DGRAM);
-    for (int variant = 0; variant < 4; ++variant) {
+    for (int variant = 0; variant < 6; ++variant) {
         auto message = messageFor(config);
         if (variant == 0) ++message.clusterIdHash;
         if (variant == 1) ++message.configHash;
         if (variant == 2) message.senderNodeId.clear();
-        if (variant == 3) message.senderNodeId = "local";
-        const auto frame = EmsClusterProtocol::encode(message, config);
+        if (variant == 3) message.tcpPort = 0;
+        auto encodingConfig = config;
+        if (variant == 4) encodingConfig.psk = "wrong-authentication-key";
+        if (variant == 5) encodingConfig.securityMode = "none";
+        const auto frame = EmsClusterProtocol::encode(message, encodingConfig);
         udpWrite(udp, config.discoveryPort, frame);
         require(transport->poll(0).empty(), "incompatible UDP identity accepted");
         Socket tcp(SOCK_STREAM);
@@ -231,6 +253,132 @@ void incompatibleIdentity() {
         writeAll(tcp, frame);
         require(transport->poll(0).empty(), "incompatible TCP identity accepted");
     }
+}
+void duplicateLocalIdentitySignal() {
+    auto config = configFor();
+    auto transport = makeEthernetClusterTransport(config, "local");
+    transport->start();
+    Socket udp(SOCK_DGRAM);
+    auto duplicate = messageFor(config, "local");
+    duplicate.senderBootId = "different-process-incarnation";
+    const auto frame = EmsClusterProtocol::encode(duplicate, config);
+    for (int i = 0; i < 12; ++i) udpWrite(udp, config.discoveryPort, frame);
+    const auto received = measuredPoll(*transport);
+    require(received.size() == 4 && datagrams == 4, "duplicate-local UDP signal missing or unbounded");
+    require(received.front().message.senderBootId == duplicate.senderBootId, "duplicate incarnation changed");
+    for (int i = 0; i < 4; ++i) transport->poll(0);
+    Socket client(SOCK_STREAM);
+    tcpConnect(client, config.tcpPort);
+    transport->poll(0);
+    const int before = fdCount();
+    writeAll(client, frame);
+    require(transport->poll(0).size() == 1, "duplicate-local TCP signal missing");
+    require(fdCount() == before - 1, "duplicate-local TCP connection retained");
+    EmsClusterOutbound outbound;
+    outbound.message = messageFor(config);
+    outbound.targetNodeId = "local";
+    require(!transport->send(outbound), "self identity created an endpoint/peer mapping");
+    Socket peer(SOCK_STREAM);
+    tcpConnect(peer, config.tcpPort);
+    transport->poll(0);
+    writeAll(peer, EmsClusterProtocol::encode(messageFor(config), config));
+    require(transport->poll(0).size() == 1, "remote peer identification");
+    writeAll(peer, frame);
+    require(transport->poll(0).empty(), "identified peer switched sender to local identity");
+}
+void endpointBoundAndStreamIdentity() {
+    for (int members : {2, 5}) {
+        auto config = configFor(members);
+        auto transport = makeEthernetClusterTransport(config, "local");
+        transport->start();
+        Socket udp(SOCK_DGRAM);
+        std::size_t accepted = 0;
+        for (int i = 0; i < members + 3; ++i) {
+            auto message = messageFor(config, "peer" + std::to_string(i));
+            udpWrite(udp, config.discoveryPort, EmsClusterProtocol::encode(message, config));
+            accepted += transport->poll(0).size();
+        }
+        require(accepted == static_cast<std::size_t>(members - 1), "endpoint table exceeds remote-member capacity");
+        Socket tcp(SOCK_STREAM);
+        tcpConnect(tcp, config.tcpPort);
+        transport->poll(0);
+        writeAll(tcp, EmsClusterProtocol::encode(messageFor(config, "peer0"), config));
+        require(transport->poll(0).size() == 1, "known endpoint blocked by identity flood");
+        const int before = fdCount();
+        writeAll(tcp, EmsClusterProtocol::encode(messageFor(config, "different-peer"), config));
+        require(transport->poll(0).empty(), "stream sender identity changed");
+        require(fdCount() == before - 1, "identity-switch connection retained");
+    }
+}
+void largeFrameAndSlowPartial() {
+    auto config = configFor();
+    auto transport = makeEthernetClusterTransport(config, "local");
+    transport->start();
+    Socket client(SOCK_STREAM);
+    tcpConnect(client, config.tcpPort);
+    transport->poll(0);
+    auto frame = EmsClusterProtocol::encode(messageFor(config), config);
+    frame.resize(65536, 0);
+    const auto payloadSize = static_cast<uint32_t>(frame.size() - 16 - 32);
+    for (int i = 0; i < 4; ++i) frame[8 + i] = static_cast<uint8_t>(payloadSize >> (24 - i * 8));
+    writeAll(client, frame);
+    const int before = fdCount();
+    std::size_t totalBytes = 0;
+    for (int i = 0; i < 10 && fdCount() == before; ++i) {
+        require(measuredPoll(*transport, 50).empty(), "unauthenticated large frame delivered");
+        require(readBytes <= 16384, "per-connection byte budget exceeded");
+        totalBytes += readBytes;
+    }
+    if (totalBytes != 65536 || fdCount() != before - 1) {
+        throw std::runtime_error("large malformed frame: bytes=" + std::to_string(totalBytes) +
+            " fd_delta=" + std::to_string(fdCount() - before));
+    }
+    Socket slow(SOCK_STREAM);
+    tcpConnect(slow, config.tcpPort);
+    transport->poll(0);
+    frame = EmsClusterProtocol::encode(messageFor(config), config);
+    writeAll(slow, frame);
+    require(transport->poll(0).size() == 1, "slow peer identification");
+    writeAll(slow, std::vector<uint8_t>(frame.begin(), frame.begin() + 9));
+    std::size_t partialBytes = 0;
+    for (int i = 0; i < 5 && partialBytes < 9; ++i) {
+        require(measuredPoll(*transport, 50).empty(), "partial frame delivered");
+        partialBytes += readBytes;
+    }
+    require(partialBytes == 9, "fixture partial bytes not received");
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    writeAll(slow, std::vector<uint8_t>(frame.begin() + 9, frame.begin() + 10));
+    transport->poll(0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    const int partialFds = fdCount();
+    transport->poll(0);
+    require(fdCount() == partialFds - 1, "trickle bytes renewed absolute partial-frame deadline");
+}
+void realStalledWriter() {
+    auto config = configFor();
+    auto transport = makeEthernetClusterTransport(config, "local");
+    transport->start();
+    Socket client(SOCK_STREAM);
+    const int small = 1024;
+    require(setsockopt(client.fd, SOL_SOCKET, SO_RCVBUF, &small, sizeof(small)) == 0, "small receive window");
+    tcpConnect(client, config.tcpPort);
+    transport->poll(0);
+    writeAll(client, EmsClusterProtocol::encode(messageFor(config), config));
+    require(transport->poll(0).size() == 1, "stalled peer identification");
+    EmsClusterOutbound outbound;
+    outbound.message = messageFor(config, "local");
+    outbound.message.senderBootId.assign(1024, 'b');
+    outbound.targetNodeId = "peer";
+    resetCounters();
+    measure = true;
+    bool failed = false;
+    const int before = fdCount();
+    for (int i = 0; i < 128; ++i) {
+        if (!transport->send(outbound)) { failed = true; break; }
+    }
+    measure = false;
+    require(failed && wouldBlock > 0, "kernel backpressure did not fail bounded writer");
+    require(maxWait <= 20 && fdCount() == before - 1, "stalled writer wait/cleanup bound failed");
 }
 void writerDeadlines() {
     auto config = configFor();
@@ -265,12 +413,13 @@ void writerDeadlines() {
 }
 void twoPeerRecovery() {
     auto aConfig = configFor();
+    auto a = makeEthernetClusterTransport(aConfig, "a");
+    a->start();
     auto bConfig = aConfig;
     bConfig.tcpPort = freePort(SOCK_STREAM);
     bConfig.discoveryPort = freePort(SOCK_DGRAM);
-    auto a = makeEthernetClusterTransport(aConfig, "a");
     auto b = makeEthernetClusterTransport(bConfig, "b");
-    a->start(); b->start();
+    b->start();
     Socket udp(SOCK_DGRAM);
     for (int round = 0; round < 2; ++round) {
         udpWrite(udp, bConfig.discoveryPort, EmsClusterProtocol::encode(messageFor(aConfig, "a"), aConfig));
@@ -292,21 +441,27 @@ void twoPeerRecovery() {
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
     alarm(18);
     int failed = 0;
+    int selected = 0;
     const std::pair<const char*, std::function<void()>> tests[] = {
         {"udp-budget", udpBudget}, {"accept-pending-budget-expiry", acceptAndPendingBudget},
         {"tcp-budget-partial", tcpBudgetAndPartial}, {"malformed-version-auth", malformedAndVersion},
         {"incompatible-identity", incompatibleIdentity}, {"writer-deadlines", writerDeadlines},
+        {"endpoint-bound-stream-identity", endpointBoundAndStreamIdentity},
+        {"duplicate-local-identity-signal", duplicateLocalIdentitySignal},
+        {"large-frame-slow-partial", largeFrameAndSlowPartial}, {"real-stalled-writer", realStalledWriter},
         {"two-peer-recovery", twoPeerRecovery}
     };
     for (const auto& test : tests) {
+        if (argc > 1 && std::string(argv[1]) != test.first) continue;
+        ++selected;
         try { test.second(); std::cout << "PASS " << test.first << std::endl; }
         catch (const std::exception& error) {
             measure = false; writeMode = WriteMode::Real;
             ++failed; std::cout << "FAIL " << test.first << ": " << error.what() << std::endl;
         }
     }
-    return failed == 0 ? 0 : 1;
+    return failed == 0 && selected != 0 ? 0 : 1;
 }

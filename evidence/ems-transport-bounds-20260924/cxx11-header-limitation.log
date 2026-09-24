@@ -1,0 +1,47 @@
+In file included from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:8,
+                 from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/ems_cluster.hpp:9,
+                 from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/ems_cluster_transport.hpp:7,
+                 from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/src/ems_cluster_transport.cpp:1:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:21:23: error: ‘experimental’ in namespace ‘std’ does not name a type
+   21 | using Optional = std::experimental::optional<T>;
+      |                       ^~~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:22:31: error: ‘std::experimental’ has not been declared
+   22 | constexpr auto NullOpt = std::experimental::nullopt;
+      |                               ^~~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:23:26: error: ‘shared_timed_mutex’ in namespace ‘std’ does not name a type
+   23 | using SharedMutex = std::shared_timed_mutex;
+      |                          ^~~~~~~~~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:23:21: note: ‘std::shared_timed_mutex’ is only available from C++14 onwards
+   23 | using SharedMutex = std::shared_timed_mutex;
+      |                     ^~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:24:23: error: ‘shared_lock’ in namespace ‘std’ does not name a template type
+   24 | using ReadLock = std::shared_lock<SharedMutex>;
+      |                       ^~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:24:18: note: ‘std::shared_lock’ is only available from C++14 onwards
+   24 | using ReadLock = std::shared_lock<SharedMutex>;
+      |                  ^~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:25:36: error: ‘SharedMutex’ was not declared in this scope
+   25 | using WriteLock = std::unique_lock<SharedMutex>;
+      |                                    ^~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/compat.hpp:25:47: error: template argument 1 is invalid
+   25 | using WriteLock = std::unique_lock<SharedMutex>;
+      |                                               ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:89:5: error: ‘Optional’ does not name a type
+   89 |     Optional<double> minValue;
+      |     ^~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:90:5: error: ‘Optional’ does not name a type
+   90 |     Optional<double> maxValue;
+      |     ^~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:91:5: error: ‘Optional’ does not name a type
+   91 |     Optional<double> startupValue;
+      |     ^~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:166:5: error: ‘Optional’ does not name a type
+  166 |     Optional<double> initialValue;
+      |     ^~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:812:5: error: ‘Optional’ does not name a type
+  812 |     Optional<double> high;
+      |     ^~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-transport-bounds-20260924/include/edge_gateway/models.hpp:813:5: error: ‘Optional’ does not name a type
+  813 |     Optional<double> low;
+      |     ^~~~~~~~
+exit=1
