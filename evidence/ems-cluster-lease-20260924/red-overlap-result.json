@@ -1,0 +1,48 @@
+{
+  "label": "red-overlap",
+  "steps": {
+    "compile-ems_cluster_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/tools/ems_cluster_test.cpp",
+        "/home/wmzdxs/.cache/edge-cluster-fixed-7e392ce-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/ems_cluster_test-red-overlap"
+      ],
+      "exitCode": 0,
+      "seconds": 1.821
+    },
+    "ems_cluster_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/ems_cluster_test-red-overlap",
+        "/tmp/cluster-fix-3jxbnr4c"
+      ],
+      "exitCode": 1,
+      "seconds": 0.019,
+      "binarySha256": "415b5ef9991b78c0c3b3f613f26d906fe52bcb83134b238bc397350653ba8802"
+    }
+  },
+  "sourceSha256": {
+    "src/ems_cluster.cpp": "18ad50ca9d2bd583e229e67f704af86aa8b2adf21996d80442a73d156e4f4adc",
+    "src/ems_cluster_dispatch.cpp": "058295f162f50699b19b9a86c7c4398f903dc1ad09300d437dd22cbfdc8015f8",
+    "include/edge_gateway/ems_cluster.hpp": "97039d198f3725ae4af00ca9f9b61a516d4979a86cf8eb93c266aa43398a2b03",
+    "tools/ems_cluster_test.cpp": "b0be5a109e733abd27d9e69594d2417eb260e3bc83f3b6e1135af92c7425b48d"
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "librarySha256": "385b538253e5a7efd82d845da035ad7afba9533c2b120fc2e405ded14da4869f"
+}

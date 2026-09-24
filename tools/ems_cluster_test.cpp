@@ -276,6 +276,29 @@ void testTwoNodePartitionStopsBoth() {
     require(simulation.leaderCount() == 0, "both nodes must leave leader state after a two-node split");
 }
 
+void testPartitionNeverOverlapsControlLeaders() {
+    Simulation simulation("control-leader-overlap", 3, {}, 3, true);
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    require(simulation.leaderIndex() == 0, "overlap regression requires initial low-load leader");
+    simulation.partition({0}, {1, 2});
+    for (int elapsed = 25; elapsed <= 2500; elapsed += 25) {
+        simulation.run(25);
+        int activeLeaders = 0;
+        for (int i = 0; i < 3; ++i) {
+            const auto status = simulation.at(i).node->status(simulation.now());
+            const auto dispatch = simulation.at(i).node->activeDispatch(simulation.now());
+            if (status.role == edge_gateway::EmsClusterRole::Leader &&
+                status.quorumValid && status.controlActive && dispatch.valid) ++activeLeaders;
+        }
+        require(activeLeaders <= 1,
+                "partition must not overlap effective control leaders at " + std::to_string(elapsed) + "ms");
+    }
+}
+
 void testFiveNodeFormation() {
     Simulation simulation("five", 5);
     simulation.run(6000);
@@ -937,6 +960,7 @@ void testEthernetTransportLoopback() {
 int main() {
     try {
         testProtocolAuthentication();
+        testPartitionNeverOverlapsControlLeaders();
         testThreeNodeElectionAndMembership();
         testLeaderPartitionFencesMinority();
         testTwoNodePartitionStopsBoth();
