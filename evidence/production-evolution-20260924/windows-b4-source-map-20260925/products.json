@@ -1,0 +1,49 @@
+{
+  "scope": "WINDOWS_PAIRING_INPUT_ONLY_NOT_PROGRAM_MANIFEST",
+  "stableApproved": false,
+  "mainRuntimeUpgradeQualified": false,
+  "payloadAssembled": false,
+  "productCount": 20,
+  "unchangedFromR5Count": 19,
+  "r5ProgramManifestSha256": "75c7018d4d78d93e67f8239c041b5f1003d460f0266f549e0c25053cc9795ca6",
+  "b4ProgramManifestSha256": "00c1b29f55c8ab0cb82e509e8cc093b17006cc75886d4c57b9d053af306a4d20",
+  "sourceArtifacts": {
+    "R3-base": {
+      "sourceCommit": "cd6b52949317f1640611d690128c5c5928f62b20",
+      "path": "D:/workspace/GatewaySuite-workspaces/GW-20260809-002/acceptance-evidence-20260924/evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz",
+      "sha256": "0232f029a66b9df5a502ee8d10e3e24eac807edea82ee7346ae1042c8901a2d9"
+    },
+    "R5-delta": {
+      "sourceCommit": "9ccfce8822a2504524c29d9505179ab9e94aa775",
+      "path": "D:/workspace/GatewaySuite-workspaces/GW-20260809-002/acceptance-evidence-20260924/evidence/raw/GW-20260809-002/arm-r5-20260924/r5-reelection-9ccfce8-delta.tar.gz",
+      "sha256": "2dc8582535ea8358c839eec95ba509df2001915b91989132793164866ca3a652"
+    },
+    "B4-file": {
+      "sourceCommit": "98e87e9da29a6a948ed92e8e0542098dee57540f",
+      "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/arm-authority-98e87e9-20260925-b4/EmsClusterCoordinator",
+      "sha256": "e2d1594b0fb5ad68aa2f0791b29a984cf57a53ee0dd1fa99e07d8ad120bdf274"
+    }
+  },
+  "products": [
+    {"target":"ModbusRtu","archivePath":"programs/bin/ModbusRtu","installPath":"bin/ModbusRtu","bytes":3178416,"sha256":"8811cb4dcf001f0d2f3dd4ae7b5a631464a7949637c6f2ef0b279723125025cb","source":"R3-base"},
+    {"target":"Dlt645Driver","archivePath":"programs/bin/Dlt645Driver","installPath":"bin/Dlt645Driver","bytes":2932624,"sha256":"f74b9d8ee08aa7be3356b4d0a546db58cb00b444650c3b27a6badcabc1bb7325","source":"R3-base"},
+    {"target":"DioDriver","archivePath":"programs/bin/DioDriver","installPath":"bin/DioDriver","bytes":2867168,"sha256":"f2f515cdf71c0725eac472d671003ebed6441c949d594c0b52ea266a416d8ccf","source":"R3-base"},
+    {"target":"CanDriver","archivePath":"programs/bin/CanDriver","installPath":"bin/CanDriver","bytes":2800176,"sha256":"5191f162d068d4822fdf9937567793ff6f567d1f3d31fc9c5a7626068a6115db","source":"R3-base"},
+    {"target":"IecDriver","archivePath":"programs/bin/IecDriver","installPath":"bin/IecDriver","bytes":3105336,"sha256":"1cf882bdcb6c457f63d094a203f395cba9c380b0b29c98dad8ff52a9472ba9a8","source":"R3-base"},
+    {"target":"MqttDriver","archivePath":"programs/bin/MqttDriver","installPath":"bin/MqttDriver","bytes":4011264,"sha256":"4ed3cb21ee7760af33bd74c3247b5f1207f4d70d88a023418f016d8bf76ede18","source":"R5-delta"},
+    {"target":"MqttForwarder","archivePath":"programs/bin/MqttForwarder","installPath":"bin/MqttForwarder","bytes":3813104,"sha256":"5bf6082333fcca9506628fd26eeae1d274c4888ccb12dcd7fd166d4c091efdac","source":"R5-delta"},
+    {"target":"EventEngine","archivePath":"programs/bin/EventEngine","installPath":"bin/EventEngine","bytes":3466240,"sha256":"d71893f0af787cbd204c35110d5e92c73c6e0090e170a299b6ad874f31b85e33","source":"R3-base"},
+    {"target":"ComputeEngine","archivePath":"programs/bin/ComputeEngine","installPath":"bin/ComputeEngine","bytes":3323744,"sha256":"2fa3e8b953bfe3f1c49ceabbe9ca10feeb95cf327bed733e4d981cafd83a71c3","source":"R5-delta"},
+    {"target":"AgcAvcController","archivePath":"programs/bin/AgcAvcController","installPath":"bin/AgcAvcController","bytes":2896120,"sha256":"a4ceb9ffa99c1ca2a672e4cca8fb402e8bb9af81e1fff4519ffc93a7abeb4f12","source":"R3-base"},
+    {"target":"EmsClusterCoordinator","archivePath":"programs/bin/EmsClusterCoordinator","installPath":"bin/EmsClusterCoordinator","bytes":2837656,"sha256":"e2d1594b0fb5ad68aa2f0791b29a984cf57a53ee0dd1fa99e07d8ad120bdf274","source":"B4-file"},
+    {"target":"SystemMonitor","archivePath":"programs/bin/SystemMonitor","installPath":"bin/SystemMonitor","bytes":3910016,"sha256":"91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928","source":"R3-base"},
+    {"target":"LocalDisplay","archivePath":"programs/bin/LocalDisplay","installPath":"bin/LocalDisplay","bytes":2702592,"sha256":"e211c72c991f82274aaa7ecabeb9ca735b2433ea9467ea7e1d197bc928e0ca10","source":"R3-base"},
+    {"target":"QtDisplayBridge","archivePath":"programs/bin/QtDisplayBridge","installPath":"bin/QtDisplayBridge","bytes":2774016,"sha256":"d9a4815eb3f13994c1ee8f44d47df2407bfad15b9efc7f2b8cd8672421e2c67d","source":"R3-base"},
+    {"target":"CameraService","archivePath":"programs/bin/CameraService","installPath":"bin/CameraService","bytes":726992,"sha256":"b5c278a28ba37e40bf26405486e8e00dfde2a131773d1508caf1dfe0f37a439b","source":"R3-base"},
+    {"target":"pointctl","archivePath":"programs/bin/pointctl","installPath":"bin/pointctl","bytes":2813136,"sha256":"a3d3b8fd589d1b62a3fac498dc4ab15ba5212388b72bbbc393abe781920d973b","source":"R3-base"},
+    {"target":"EmsParityCheck","archivePath":"programs/bin/EmsParityCheck","installPath":"bin/EmsParityCheck","bytes":3367480,"sha256":"8e4fe778d9711d495ddfcabcff309fa52aec2d752293860e9cfda4a1636c0a31","source":"R3-base"},
+    {"target":"stress_runner","archivePath":"programs/bin/stress_runner","installPath":"bin/stress_runner","bytes":3378184,"sha256":"08e8d2864c62710953e1137b170807d60aae20c13548be6d9814e43e25efc368","source":"R3-base"},
+    {"target":"memory_point_store_migrate","archivePath":"programs/bin/memory_point_store_migrate","installPath":"bin/memory_point_store_migrate","bytes":1411256,"sha256":"dab6fa2610663fe38d1b43006edea3ba745d31e1c3e3a1fadcf27f91ae7491da","source":"R3-base"},
+    {"target":"LocalDisplayQtEms","archivePath":"programs/qt/KY-SCADA","installPath":"ky-ems/KY-EMS","bytes":1108120,"sha256":"27dcffc5dfa538640ac4d249f2fea934495fe49a87910d0693c4cbeb0994d4b6","source":"R3-base"}
+  ]
+}
