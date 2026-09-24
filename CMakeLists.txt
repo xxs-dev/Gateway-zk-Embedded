@@ -575,6 +575,18 @@ add_executable(ems_cluster_test tools/ems_cluster_test.cpp)
 target_link_libraries(ems_cluster_test PRIVATE edge_gateway)
 target_compile_options(ems_cluster_test PRIVATE -fdiagnostics-color=never)
 
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(ems_cluster_transport_bounds_test
+        tools/ems_cluster_transport_bounds_test.cpp
+        src/ems_cluster.cpp src/ems_cluster_dispatch.cpp src/ems_cluster_transport.cpp)
+    target_include_directories(ems_cluster_transport_bounds_test PRIVATE include)
+    target_link_options(ems_cluster_transport_bounds_test PRIVATE
+        -Wl,--wrap=accept -Wl,--wrap=recv -Wl,--wrap=recvfrom
+        -Wl,--wrap=send -Wl,--wrap=poll)
+    add_test(NAME ems_cluster_transport_bounds COMMAND ems_cluster_transport_bounds_test)
+    set_tests_properties(ems_cluster_transport_bounds PROPERTIES TIMEOUT 20)
+endif()
+
 add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
