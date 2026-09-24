@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -69,6 +70,7 @@ struct SimNode {
 
 class Simulation {
 public:
+    std::function<bool(int, int, const edge_gateway::EmsClusterMessage&)> deliverMessage;
     Simulation(
         std::string name,
         int count,
@@ -193,6 +195,7 @@ private:
                 edge_gateway::EmsClusterInbound inbound;
                 inbound.message = envelope.outbound.message;
                 inbound.sourceAddress = "169.254.1." + std::to_string(envelope.source + 1);
+                if (deliverMessage && !deliverMessage(envelope.source, static_cast<int>(target), inbound.message)) continue;
                 nodes_[target].node->receive(inbound, nowMs_);
                 if (inbound.message.type == edge_gateway::EmsClusterMessageType::HeartbeatAck) {
                     nodes_[target].lastHeartbeatAckMs = nowMs_;
@@ -208,6 +211,45 @@ private:
     std::vector<SimNode> nodes_;
     std::vector<std::vector<bool>> links_;
 };
+
+void testDelayedFirstAckCannotMoveSendDeadline() {
+    Simulation simulation("delayed-first-ack", 3);
+    simulation.run(5000);
+    require(simulation.leaderIndex() == 0, "delayed ACK test needs leader zero");
+    edge_gateway::EmsClusterMessage delayed;
+    std::int64_t sentAt = 0;
+    simulation.deliverMessage = [&](int, int target, const edge_gateway::EmsClusterMessage& message) {
+        if (target != 0) return true;
+        if (message.type == edge_gateway::EmsClusterMessageType::HeartbeatAck) {
+            delayed = message;
+            sentAt = simulation.now();
+        }
+        return false;
+    };
+    simulation.run(100);
+    require(sentAt > 0, "must capture an undelivered first ACK");
+    simulation.partition({0}, {1, 2});
+    simulation.run(250);
+    simulation.at(0).node->receive({delayed, "169.254.1.3"}, simulation.now());
+    require(!simulation.at(0).node->status(sentAt + 400).quorumValid,
+            "delayed first ACK must not extend authority beyond originating heartbeat send+L");
+}
+
+void testDiscoverCannotResetAckReplayWindow() {
+    Simulation simulation("discover-ack-replay", 3);
+    simulation.run(5000);
+    const auto ack = simulation.at(0).lastHeartbeatAck;
+    const auto expiry = simulation.now() + 400;
+    simulation.partition({0}, {1, 2});
+    simulation.run(375);
+    auto discover = ack;
+    discover.type = edge_gateway::EmsClusterMessageType::Discover;
+    discover.sequence = 1;
+    simulation.at(0).node->receive({discover, "169.254.1.3"}, simulation.now());
+    simulation.at(0).node->receive({ack, "169.254.1.3"}, simulation.now());
+    require(!simulation.at(0).node->status(expiry).quorumValid,
+            "Discover must not reset replay state and admit an already-used ACK");
+}
 
 void testProtocolAuthentication() {
     auto config = configFor("protocol", 2);
@@ -1129,8 +1171,18 @@ void testEthernetTransportLoopback() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2) {
+            const std::string scenario(argv[1]);
+            if (scenario == "delayed-ack") testDelayedFirstAckCannotMoveSendDeadline();
+            else if (scenario == "discover-replay") testDiscoverCannotResetAckReplayWindow();
+            else throw std::runtime_error("unknown regression case");
+            std::cout << scenario << " passed" << std::endl;
+            return 0;
+        }
+        testDelayedFirstAckCannotMoveSendDeadline();
+        testDiscoverCannotResetAckReplayWindow();
         testProtocolAuthentication();
         testLeaseExpiresAtLastAckBoundary();
         testControlPartitionAndRejoin(2);
