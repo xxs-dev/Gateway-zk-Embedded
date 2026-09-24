@@ -533,6 +533,73 @@ exec /bin/cp "$@"
         self.assertEqual(0, self.offline_run('recover').returncode)
         self.assertEqual('preserved disabled historical roster\n', (home / 'data/cluster-membership.json').read_text())
 
+    def test_offline_standalone_disabled_absent_ems_roundtrip(self):
+        home, approval = self.standalone_fixture()
+        config = home / 'config/runtime/apps/mqtt-service.json'
+        document = json.loads(config.read_text())
+        document['emsCluster'] = {'enabled': False, 'controlEnabled': False,
+                                  'virtualSharedMemoryName': 'ems_cluster_store'}
+        write(config, json.dumps(document))
+        approval['configSha256']['apps/mqtt-service.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+        self.assertFalse(Path('/dev/shm/ems_cluster_store').exists())
+        self.assertNotIn('ems_cluster_store', {item['source'] for item in approval['segments']})
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertFalse(Path('/dev/shm/ems_cluster_store').exists())
+        self.assertEqual('ems_cluster_store', json.loads(config.read_text())['emsCluster']['virtualSharedMemoryName'])
+        self.assertFalse((home / 'data/cluster-membership.json').exists())
+        self.offline_ready(approval)
+        self.assertEqual(0, self.offline_run('observe').returncode)
+        self.assertNotIn('ems-cluster', self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertFalse(Path('/dev/shm/ems_cluster_store').exists())
+
+    def test_offline_standalone_ems_reference_boundaries(self):
+        home, approval = self.standalone_fixture()
+        config = home / 'config/runtime/apps/mqtt-service.json'
+        original = json.loads(config.read_text())
+        for enabled, extra, expected in ((True, False, 'standalone cannot bypass'),
+                                         ('false', False, 'ambiguous EMS'),
+                                         (None, False, 'all SHM references'),
+                                         (False, True, 'all SHM references')):
+            with self.subTest(enabled=enabled, other_reader=extra):
+                document = copy.deepcopy(original)
+                cluster = {'controlEnabled': False, 'virtualSharedMemoryName': 'ems_cluster_store'}
+                if enabled is not None:
+                    cluster['enabled'] = enabled
+                document['emsCluster'] = cluster
+                if extra:
+                    document['mqttDriver']['sharedMemoryNames'].append('ems_cluster_store')
+                write(config, json.dumps(document))
+                approval['configSha256']['apps/mqtt-service.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+                result = self.offline_run(approval=approval)
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertIn(expected, result.stdout)
+                self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+                self.assertFalse(Path('/dev/shm/ems_cluster_store').exists())
+
+    def test_startup_guard_disabled_ems_reference_scope(self):
+        home = self.root / 'gateway'
+        config = home / 'config/runtime/apps/mqtt-service.json'
+        segment = Path('/dev/shm/ems_cluster_store')
+        segment.write_bytes(struct.pack('<II', 0x4d505354, 10))
+        document = {'emsCluster': {'enabled': False, 'virtualSharedMemoryName': 'ems_cluster_store'},
+                    'cameraService': {'sharedMemoryName': ''}}
+        command = ['python3', '-B', str(REPO / 'deploy/runtime-upgrade-guard.py'), 'startup', str(home)]
+        def startup():
+            write(config, json.dumps(document))
+            return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, timeout=10)
+        self.assertEqual(0, startup().returncode)
+        document['emsCluster']['enabled'] = True
+        self.assertIn('point-store ABI mismatch', startup().stdout)
+        document['emsCluster']['enabled'] = False
+        document['mqttDriver'] = {'enabled': True, 'sharedMemoryName': 'ems_cluster_store'}
+        self.assertIn('point-store ABI mismatch', startup().stdout)
+        del document['mqttDriver']
+        document['cameraService']['sharedMemoryName'] = 'ems_cluster_store'
+        self.assertIn('point-store ABI mismatch', startup().stdout)
+
     def test_offline_upgrade_actual_cli_and_stopped_recovery(self):
         home, approval = self.offline_fixture()
         originals = {str(p): p.read_bytes() for p in (home / 'config').rglob('*') if p.is_file()}
@@ -877,6 +944,20 @@ exec /bin/cp "$@"
                         {'outputDefaultSharedMemoryName': '//old'}, {'unknownSharedMemoryName': 'old'}):
             with self.assertRaises(ValueError):
                 module.guard.configured_names(invalid)
+        for enabled in (True, 'false', 0, None):
+            cluster = {'virtualSharedMemoryName': 'ems_cluster_store'}
+            if enabled is not None:
+                cluster['enabled'] = enabled
+            self.assertEqual({'ems_cluster_store'}, module.guard.configured_names({'emsCluster': cluster}))
+        disabled = {'emsCluster': {'enabled': False, 'virtualSharedMemoryName': 'ems_cluster_store'}}
+        self.assertEqual(set(), module.guard.configured_names(disabled))
+        self.assertEqual({'ems_cluster_store'}, module.guard.configured_names({
+            **disabled, 'mqttDriver': {'sharedMemoryName': 'ems_cluster_store'}}))
+        self.assertEqual({'ems_cluster_store'}, module.guard.configured_names({
+            'cameraService': {'enabled': False, 'sharedMemoryName': 'ems_cluster_store'}}))
+        with self.assertRaises(ValueError):
+            module.guard.configured_names({'emsCluster': {
+                'enabled': False, 'virtualSharedMemoryName': '//invalid'}})
         with self.assertRaises(ValueError):
             module.no_old_references({'unrecognizedStore': 'old'}, {'old': 'new'})
         write(EVIDENCE / 'runtime-shm-key-coverage.json', json.dumps({'runtimeParserKeys': sorted(keys),
@@ -893,7 +974,10 @@ exec /bin/cp "$@"
         self.assertNotEqual(0, result.returncode)
         self.assertIn('physical participants remain inhibited', result.stdout)
         self.offline_ready(approval)
-        write(home / 'config/runtime/apps/compute.json', '{"emsCluster":{"controlEnabled":true}}')
+        config = home / 'config/runtime/apps/compute.json'
+        changed = json.loads(config.read_text())
+        changed['emsCluster']['controlEnabled'] = True
+        write(config, json.dumps(changed))
         result = self.offline_run('observe')
         self.assertNotEqual(0, result.returncode)
         self.assertIn('configuration changed', result.stdout)

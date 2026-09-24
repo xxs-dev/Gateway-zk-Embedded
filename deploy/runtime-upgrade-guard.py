@@ -112,13 +112,13 @@ def shm_name(value):
     return name
 
 
-def configured_names(value):
+def configured_names(value, disabled_ems=False):
     names = set()
     if isinstance(value, dict):
         for key, item in value.items():
             if key in SINGLE_SHM_KEYS:
                 name = shm_name(item)
-                if name:
+                if name and not (disabled_ems and key == 'virtualSharedMemoryName'):
                     names.add(name)
             elif key in MULTI_SHM_KEYS:
                 if not isinstance(item, list):
@@ -127,7 +127,8 @@ def configured_names(value):
             elif key.lower().endswith(('sharedmemoryname', 'sharedmemorynames')):
                 raise ValueError('unsupported SHM reference key: ' + key)
             else:
-                names.update(configured_names(item))
+                names.update(configured_names(item, key == 'emsCluster' and isinstance(item, dict)
+                                              and item.get('enabled') is False))
     elif isinstance(value, list):
         for item in value:
             names.update(configured_names(item))

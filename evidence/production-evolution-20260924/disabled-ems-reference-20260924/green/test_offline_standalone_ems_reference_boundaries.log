@@ -1,0 +1,28 @@
+action=apply exit=2
+offline upgrade refused/failed: standalone cannot bypass an enabled EMS cluster
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: ambiguous EMS cluster configuration
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: all SHM references must be explicit and covered exactly
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: all SHM references must be explicit and covered exactly
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: standalone cannot bypass an enabled EMS cluster
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: all SHM references must be explicit and covered exactly
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: all SHM references must be explicit and covered exactly
+Keep all participants stopped; no automatic ABI rollback.
+

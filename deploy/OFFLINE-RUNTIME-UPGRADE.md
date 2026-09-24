@@ -78,10 +78,16 @@ approval/state to schema2. Required fields:
   is inspected: any enabled EMS cluster or ambiguous enabled type refuses this
   mode. Do not substitute a shadow app or synthesize a one-member roster. Existing
   disabled historical roster/consensus files are neither written nor removed.
-- `segments`: unique `{source,target,sha256}` records for ALL configured SHM
-  names. The hash describes the stopped source, the target must not exist and
-  must differ from every source. All SHM references must be explicit; custom
-  readers/implicit defaults must be removed or provisioned explicitly first.
+- `segments`: unique `{source,target,sha256}` records for every required SHM
+  reference. The hash describes the stopped source, the target must not exist
+  and must differ from every source. The sole reference exception is the direct
+  `emsCluster.virtualSharedMemoryName` field when that same object has explicit
+  boolean `enabled:false`: the disabled cluster coordinator and the known
+  compute/MQTT/authorization consumers do not open it. It need not be listed
+  when absent. Its name is still validated. Enabled, missing or mistyped
+  `enabled` never gains this exception; another reference to the same name
+  still requires a segment. No missing-segment migration or synthetic roster
+  is supported. Custom readers/implicit defaults require separate review.
 
 The entrypoint handles `sharedMemoryName`, `sharedMemoryNames`,
 `virtualSharedMemoryName`, `outputSharedMemoryName`, and
@@ -92,6 +98,10 @@ in unsupported fields are refused, never rewritten as arbitrary JSON strings.
 Existing emsCluster
 configuration must explicitly have `controlEnabled:false`; this tool does not
 silently edit authority or identity settings to make validation pass.
+An empty `cameraService.sharedMemoryName` remains empty during config parsing;
+the camera service may select its default store only after its enabled/camera-list
+checks. A nonempty camera reference is still collected even when its camera
+service is disabled. No camera exception is implied by absent active units.
 
 ## Apply and recovery
 

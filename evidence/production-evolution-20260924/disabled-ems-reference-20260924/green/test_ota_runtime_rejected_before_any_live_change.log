@@ -1,0 +1,8 @@
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-595pafzp/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-595pafzp/backup'), PosixPath('/var/tmp/gateway-install-test-595pafzp/staging')] exit=2
+[2026-09-24 22:50:11] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-595pafzp/fixture.tar.gz
+runtime upgrade refused: runtime ELF OTA requires the offline all-participant upgrade; declarations alone do not prove ABI compatibility
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-ireknwtu/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-ireknwtu/backup'), PosixPath('/var/tmp/gateway-install-test-ireknwtu/staging')] exit=2
+[2026-09-24 22:51:31] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-ireknwtu/fixture.tar.gz
+runtime upgrade refused: runtime ELF OTA requires the offline all-participant upgrade; declarations alone do not prove ABI compatibility
+
