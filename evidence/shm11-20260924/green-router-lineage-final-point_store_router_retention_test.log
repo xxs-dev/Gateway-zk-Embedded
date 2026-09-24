@@ -1,0 +1,2 @@
+point store router EMS virtual retention load failed; live value remains available firstIndex=880002 error=persisted EMS virtual parameter is invalid
+point_store_router_retention_test passed

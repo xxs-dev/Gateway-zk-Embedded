@@ -2846,6 +2846,9 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
 
     for (const auto* nodePtr : executionOrder_) {
         const auto& node = *nodePtr;
+        clusterInputAuthorization_ = NullOpt;
+        clusterLineageInvalid_ = false;
+        propagateClusterLineage_ = node.type == "formula" || node.type == "powerConstraint";
         if (!shouldRunNode(node)) {
             continue;
         }
@@ -2928,6 +2931,28 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
     return result;
 }
 
+void GraphEmsEngine::observeClusterInput(const Optional<PointSnapshot>& point) const {
+    if (!snapshotActive_ || !propagateClusterLineage_ || clusterLineageInvalid_) return;
+    if (!point || point->quality != 1 || point->stale || !point->clusterAuthorization) {
+        clusterLineageInvalid_ = true;
+        clusterInputAuthorization_ = NullOpt;
+        return;
+    }
+    const auto& next = *point->clusterAuthorization;
+    if (clusterInputAuthorization_) {
+        const auto& current = *clusterInputAuthorization_;
+        if (current.version != next.version || current.flags != next.flags ||
+            current.kernelBootId != next.kernelBootId || current.authorityEpoch != next.authorityEpoch ||
+            current.dispatchSequence != next.dispatchSequence || current.notAfterMonotonicMs != next.notAfterMonotonicMs ||
+            current.authorityStoreName != next.authorityStoreName) {
+            clusterLineageInvalid_ = true;
+            clusterInputAuthorization_ = NullOpt;
+            return;
+        }
+    }
+    clusterInputAuthorization_ = next;
+}
+
 Optional<GraphEmsEngine::PointSnapshot> GraphEmsEngine::latestPoint(
     std::uint32_t index,
     std::int64_t nowMs
@@ -2935,9 +2960,11 @@ Optional<GraphEmsEngine::PointSnapshot> GraphEmsEngine::latestPoint(
     if (snapshotActive_) {
         const auto cached = snapshotPoints_.find(index);
         if (cached != snapshotPoints_.end()) {
+            observeClusterInput(cached->second);
             return cached->second;
         }
         if (snapshotResolvedIndexes_.find(index) != snapshotResolvedIndexes_.end()) {
+            observeClusterInput(NullOpt);
             return NullOpt;
         }
     }
@@ -2946,36 +2973,20 @@ Optional<GraphEmsEngine::PointSnapshot> GraphEmsEngine::latestPoint(
         snapshotResolvedIndexes_.insert(index);
         if (latest) {
             snapshotPoints_[index] = PointSnapshot{latest->value, latest->quality, latest->ts, latest->stale};
+            observeClusterInput(snapshotPoints_[index]);
             return snapshotPoints_[index];
         }
     }
     if (!latest) {
+        observeClusterInput(NullOpt);
         return NullOpt;
     }
     return PointSnapshot{latest->value, latest->quality, latest->ts, latest->stale};
 }
 
 Optional<double> GraphEmsEngine::latestValue(std::uint32_t index, std::int64_t nowMs) const {
-    if (snapshotActive_) {
-        const auto cached = snapshotValues_.find(index);
-        if (cached != snapshotValues_.end()) {
-            return cached->second;
-        }
-        if (snapshotResolvedIndexes_.find(index) != snapshotResolvedIndexes_.end()) {
-            return NullOpt;
-        }
-    }
-    const auto latest = router_.getLatestByIndex(index, nowMs);
-    if (!latest || latest->quality != 1 || latest->stale) {
-        if (snapshotActive_) {
-            snapshotResolvedIndexes_.insert(index);
-        }
-        return NullOpt;
-    }
-    if (snapshotActive_) {
-        snapshotResolvedIndexes_.insert(index);
-        snapshotValues_[index] = latest->value;
-    }
+    const auto latest = latestPoint(index, nowMs);
+    if (!latest || latest->quality != 1 || latest->stale) return NullOpt;
     return latest->value;
 }
 
@@ -2991,6 +3002,8 @@ CommandSubmitResult GraphEmsEngine::set(std::uint32_t index, double value, std::
         snapshotResolvedIndexes_.insert(index);
         snapshotValues_[index] = value;
         snapshotPoints_[index] = PointSnapshot{value, 1, nowMs, false};
+        if (propagateClusterLineage_ && !clusterLineageInvalid_)
+            snapshotPoints_[index].clusterAuthorization = clusterInputAuthorization_;
     }
     return result;
 }
@@ -5420,8 +5433,15 @@ bool GraphEmsEngine::runClusterDispatch(
     const auto& clusterConfig = router_.emsClusterConfig();
     if (clusterConfig.enabled) {
         // Read the atomic record before sampling time: a blocked store read must not extend a lease.
-        const auto authority = router_.clusterAuthority();
-        const auto boot = localKernelBootId();
+        Optional<ClusterAuthoritySnapshot> authority;
+        ClusterBootId boot{};
+        try {
+            authority = router_.clusterAuthority();
+            boot = localKernelBootId();
+        } catch (const std::exception& error) {
+            result.errors.push_back(std::string("clusterDispatch authority unavailable: ") + error.what());
+            authority = NullOpt;
+        }
         const auto monotonicNow = clusterMonotonicNowMs();
         const bool enabled = clusterConfig.controlEnabled && enable && enable->value >= 0.5;
         const bool stationLeader = enabled && authority &&
@@ -5436,6 +5456,10 @@ bool GraphEmsEngine::runClusterDispatch(
         for (std::size_t i = 0; i < 3; ++i) {
             write(activeOutputs[i], valid ? authority->targets[i] : 0.0);
             write(reactiveOutputs[i], valid ? authority->targets[i + 3] : 0.0);
+            if (valid) {
+                snapshotPoints_[activeOutputs[i]].clusterAuthorization = authority->authorization;
+                snapshotPoints_[reactiveOutputs[i]].clusterAuthorization = authority->authorization;
+            }
         }
         write(paramIndex(node, "validOutputIndex"), valid ? 1.0 : 0.0);
         write(paramIndex(node, "stationLeaderOutputIndex"), stationLeader ? 1.0 : 0.0);
@@ -6097,6 +6121,8 @@ bool GraphEmsEngine::runControlWrite(
     pending.source = "graph-ems";
     pending.ts = nowMs;
     pending.highPriority = paramBool(node, "highPriority", false);
+    const auto inputPoint = latestPoint(paramIndex(node, "inputIndex"), nowMs);
+    if (inputPoint) pending.clusterAuthorization = inputPoint->clusterAuthorization;
     const auto routed = submitDeviceWrite(node, std::move(pending), result);
     if (!routed.accepted) {
         if (routed.message == "maxWritesPerScan reached before submit") {

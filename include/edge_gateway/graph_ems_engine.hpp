@@ -83,7 +83,9 @@ private:
         int quality = 0;
         std::int64_t ts = 0;
         bool stale = true;
+        Optional<ClusterWriteAuthorization> clusterAuthorization;
     };
+    void observeClusterInput(const Optional<PointSnapshot>& point) const;
     Optional<PointSnapshot> latestPoint(std::uint32_t index, std::int64_t nowMs) const;
     Optional<double> latestValue(std::uint32_t index, std::int64_t nowMs) const;
     CommandSubmitResult set(std::uint32_t index, double value, std::int64_t nowMs);
@@ -153,6 +155,9 @@ private:
     std::vector<const GraphEmsNodeConfig*> executionOrder_;
     std::vector<std::uint32_t> snapshotIndexes_;
     mutable bool snapshotActive_ = false;
+    bool propagateClusterLineage_ = false;
+    mutable bool clusterLineageInvalid_ = false;
+    mutable Optional<ClusterWriteAuthorization> clusterInputAuthorization_;
     mutable std::unordered_map<std::uint32_t, PointSnapshot> snapshotPoints_;
     mutable std::unordered_map<std::uint32_t, double> snapshotValues_;
     mutable std::unordered_set<std::uint32_t> snapshotResolvedIndexes_;

@@ -145,6 +145,7 @@ public:
     }
 
 private:
+    void checkClusterCommand(const PendingWriteCommand& command) const;
     MemoryPointStore* storeForRoute(const PointStoreRoute& route) const;
     StoredPointValue enrich(StoredPointValue value) const;
     Optional<PointStoreRoute> routeByPointCode(
