@@ -483,6 +483,16 @@ void testLeaderSelfVoteProtectsOldFollowerTargets() {
             "self-vote scenario must reconnect a majority and eventually elect one leader");
 }
 
+void testMissingMembershipCannotBootstrap() {
+    auto config = configFor("missing-voters", 3);
+    config.consensusStateFile = "missing-voters-consensus.json";
+    config.membershipFile = "missing-voters-membership.json";
+    bool rejected = false;
+    try { edge_gateway::EmsClusterNode node(config, "COMM_A", "PROCESS_A"); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, "missing complete voting membership must fail startup, not auto-bootstrap");
+}
+
 void testProtocolAuthentication() {
     auto config = configFor("protocol", 2);
     edge_gateway::EmsClusterMessage message;
@@ -1450,6 +1460,7 @@ int main(int argc, char** argv) {
             else if (scenario == "discover-replay") testDiscoverCannotResetAckReplayWindow();
             else if (scenario == "window-capacity") testLongLeaseBoundedWindows();
             else if (scenario == "self-vote") testLeaderSelfVoteProtectsOldFollowerTargets();
+            else if (scenario == "membership") testMissingMembershipCannotBootstrap();
             else throw std::runtime_error("unknown regression case");
             std::cout << scenario << " passed" << std::endl;
             return 0;
