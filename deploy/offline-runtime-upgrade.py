@@ -24,6 +24,13 @@ MONITOR_UNIT = 'system-monitor@monitor-service.service'
 MONITOR_DROPIN = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
 MONITOR_ENV = b'[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME='
 MONITOR_IMPLICIT_SHM = 'gateway_point_store_system_monitor'
+A_QT_UNIT = 'ky-ems.service'
+A_QT_UNIT_SHA256 = 'e101679abdc622ad35253ec6a79cbb7a9178fafc474d50802026d8c37f9d9593'
+A_QT_WRAPPER_SHA256 = '9c0bf58d8002f76407b1a40bbf26a8957e63dc5bfc2df2fe13f9eb04332d5f52'
+A_QT_BINARY_SHA256 = '27dcffc5dfa538640ac4d249f2fea934495fe49a87910d0693c4cbeb0994d4b6'
+A_BRIDGE_UNIT_SHA256 = '3e219d806f05bd6746cc97a8e57453288577e2cc22fb2fb2aa74f65d1045d2d5'
+A_EMPTY_RUNTIME_MAP_SHA256 = '37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570'
+A_QT_ENV_KEY = b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME'
 B_MONITOR_BINARY_SHA256 = '91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928'
 B_MONITOR_UNIT_SHA256 = '946e192e53d54482d0758aac4260575a617f2495b43ad87b4dd1a2f3257465a2'
 B_MONITOR_APPS = {'camera-service.json', 'monitor-service.json', 'mqtt-service.json'}
@@ -195,6 +202,73 @@ def monitor_effective_target(target):
             systemctl('show', '--property=UnsetEnvironment', '--value', MONITOR_UNIT) == '')
 
 
+def a_scada_empty_map(home, documents):
+    app = documents.get('apps/monitor-service.json')
+    display = app.get('localDisplay') if isinstance(app, dict) else None
+    scada = display.get('scada') if isinstance(display, dict) else None
+    current = home / 'scada/current'
+    require(isinstance(scada, dict) and scada.get('enabled') is True and
+            scada.get('autoReload') is True and scada.get('projectDirectory') == str(current) and
+            current.is_symlink(), 'A Qt SCADA project binding changed')
+    relative = os.readlink(str(current))
+    require(re.fullmatch(r'releases/[A-Za-z0-9_.-]+', relative) is not None and
+            relative.split('/')[-1] not in ('.', '..'), 'A Qt SCADA current target changed')
+    mapping = home / 'scada' / relative / 'runtime-map.json'
+    require(digest(mapping) == A_EMPTY_RUNTIME_MAP_SHA256 and regular(mapping).read_bytes() == b'[]\n',
+            'A Qt SCADA runtime map is not empty')
+
+
+def a_joint_binding(home, approval, names, documents):
+    pin = approval.get('qtDisplayEnvSha256')
+    if pin is None:
+        return None
+    require(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) is not None and
+            MONITOR_IMPLICIT_SHM in names and
+            {MONITOR_UNIT, A_QT_UNIT} <= set(approval['units']) and
+            pin == approval['configSha256'].get('qt-display.env'),
+            'A Qt monitor environment approval incomplete')
+    envfile = home / 'config/runtime/qt-display.env'
+    old = regular(envfile).read_bytes()
+    require(hashlib.sha256(old).hexdigest() == pin and A_QT_ENV_KEY not in old and
+            b'\x00' not in old, 'A Qt monitor environment changed or already bound')
+    require(digest(Path('/etc/systemd/system/ky-ems.service')) == A_QT_UNIT_SHA256 and
+            digest(home / 'bin/gateway-qt-run.sh') == A_QT_WRAPPER_SHA256 and
+            digest(Path('/etc/systemd/system/system-monitor@.service')) == B_MONITOR_UNIT_SHA256,
+            'A Qt or monitor startup binding changed')
+    a_scada_empty_map(home, documents)
+    target = names[MONITOR_IMPLICIT_SHM]
+    return {'old': old, 'new': a_qt_env_new(old, target),
+            'mode': stat.S_IMODE(envfile.stat().st_mode), 'target': target,
+            'monitorNew': MONITOR_ENV + target.encode() + b'\n'}
+
+
+def a_qt_env_new(old, target):
+    return old + (b'' if old.endswith(b'\n') else b'\n') + A_QT_ENV_KEY + b'=' + target.encode() + b'\n'
+
+
+def checked_a_joint_record(state_dir, state, approval):
+    record = state.get('aJointMonitorQt')
+    if record is None:
+        return None
+    require(isinstance(record, dict) and set(record) ==
+            {'oldSha256', 'newSha256', 'monitorSha256', 'target', 'mode'} and
+            type(record['mode']) is int and 0 <= record['mode'] <= 0o777,
+            'invalid A joint monitor/Qt binding state')
+    names = {s['source']: s['target'] for s in approval['segments']}
+    target = names.get(MONITOR_IMPLICIT_SHM)
+    old = regular(state_dir / 'qt-env-old').read_bytes()
+    new = a_qt_env_new(old, target) if target else b''
+    monitor_new = MONITOR_ENV + target.encode() + b'\n' if target else b''
+    require(target and record['target'] == target and
+            record['oldSha256'] == approval.get('qtDisplayEnvSha256') == hashlib.sha256(old).hexdigest() and
+            record['newSha256'] == hashlib.sha256(new).hexdigest() and
+            record['monitorSha256'] == hashlib.sha256(monitor_new).hexdigest() and
+            regular(state_dir / 'qt-env-new').read_bytes() == new and
+            regular(state_dir / 'a-monitor-dropin-new').read_bytes() == monitor_new,
+            'A joint monitor/Qt binding state/backup mismatch')
+    return record, old, new, monitor_new
+
+
 def monitor_default_unit_binding(approval, inhibited):
     template = Path('/etc/systemd/system/system-monitor@.service')
     require(digest(template) == B_MONITOR_UNIT_SHA256 and
@@ -259,6 +333,78 @@ def b_monitor_default_safe(home, approval, manifest, state, selected, monitor, d
             require(isinstance(doc['systemMonitor'], dict) and
                     doc['systemMonitor'].get('enabled') is False,
                     'B monitor default sibling service gate changed')
+
+
+def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documents, inhibited):
+    record, _, new_env, new_dropin = joint
+    require(approval_mode(approval) == 'standalone' and selected == [MONITOR_UNIT] and
+            state.get('unreferencedDefaultShm') is True and
+            {MONITOR_UNIT, A_QT_UNIT, 'qt-display-bridge.service'} <= set(approval['units']) and
+            {s['source'] for s in state['segments']} >= {'gateway_point_store', MONITOR_IMPLICIT_SHM},
+            'A joint monitor-only observation scope changed')
+    apps = home / 'config/runtime/apps'
+    require({p.name for p in apps.glob('*.json')} == B_MONITOR_APPS and
+            all(regular(apps / name) for name in B_MONITOR_APPS),
+            'A joint effective app set changed')
+    app = documents.get('apps/monitor-service.json')
+    device = 'devices/device_modbusRTU_2_readonly.json'
+    device_file = str(home / 'config/runtime' / device)
+    camera_app = documents.get('apps/camera-service.json')
+    mqtt_app = documents.get('apps/mqtt-service.json')
+    memory_store = documents[device].get('memoryStore') if isinstance(documents.get(device), dict) else None
+    require(isinstance(app, dict) and app.get('deviceConfigFiles') ==
+            [device_file] and isinstance(mqtt_app, dict) and
+            mqtt_app.get('deviceConfigFiles') == [device_file] and
+            isinstance(camera_app, dict) and camera_app.get('deviceConfigFiles') == [] and
+            isinstance(camera_app.get('cameraService'), dict) and
+            camera_app['cameraService'].get('enabled') is False and
+            all(not isinstance(doc.get('cameraService'), dict) or
+                doc['cameraService'].get('enabled') is False for doc in (app, mqtt_app)) and
+            isinstance(memory_store, dict) and memory_store.get('sharedMemoryName') in
+            {s['target'] for s in state['segments']} and
+            isinstance(app.get('systemMonitor'), dict) and app['systemMonitor'].get('enabled') is True and
+            isinstance(app.get('cameraService'), dict) and app['cameraService'].get('enabled') is False,
+            'A joint monitor loader or disabled camera shape changed')
+    mqtt = app.get('mqtt')
+    direct = app['systemMonitor'].get('directMaintenance')
+    require(isinstance(mqtt, dict) and mqtt.get('enabled') is False and
+            isinstance(direct, dict) and direct.get('enabled') is False,
+            'A monitor inbound maintenance must be disabled')
+    a_scada_empty_map(home, documents)
+    envfile = home / 'config/runtime/qt-display.env'
+    require(regular(envfile).read_bytes() == new_env and digest(envfile) == record['newSha256'] and
+            stat.S_IMODE(envfile.stat().st_mode) == record['mode'] and
+            regular(MONITOR_DROPIN).read_bytes() == new_dropin and
+            stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == 0o644,
+            'A joint monitor/Qt binding changed')
+    require(digest(Path('/etc/systemd/system/ky-ems.service')) == A_QT_UNIT_SHA256 and
+            systemctl('show', '--property=FragmentPath', '--value', A_QT_UNIT) ==
+            '/etc/systemd/system/ky-ems.service' and
+            digest(home / 'bin/gateway-qt-run.sh') == A_QT_WRAPPER_SHA256,
+            'A Qt startup binding changed')
+    expected = str(home / 'config/runtime/qt-display.env') + ' (ignore_errors=yes)'
+    require(systemctl('show', '--property=EnvironmentFiles', '--value', A_QT_UNIT) == expected and
+            A_QT_ENV_KEY.decode() not in systemctl('show', '--property=Environment', '--value', A_QT_UNIT) and
+            systemctl('show', '--property=UnsetEnvironment', '--value', A_QT_UNIT) == '' and
+            systemctl('show', '--property=PassEnvironment', '--value', A_QT_UNIT) == '',
+            'A Qt effective environment precedence changed')
+    inhibit = Path('/etc/systemd/system/ky-ems.service.d') / ('90-offline-' + approval['transactionId'] + '.conf')
+    require(systemctl('show', '--property=DropInPaths', '--value', A_QT_UNIT).split() == [str(inhibit)],
+            'A Qt effective drop-ins changed')
+    bridge = 'qt-display-bridge.service'
+    bridge_inhibit = Path('/etc/systemd/system') / (bridge + '.d') / ('90-offline-' + approval['transactionId'] + '.conf')
+    marker = home / 'data/runtime-upgrade-stop'
+    body = ('[Unit]\nConditionPathExists=!' + str(marker) + '\n').encode()
+    require(digest(Path('/etc/systemd/system') / bridge) == A_BRIDGE_UNIT_SHA256 and
+            systemctl('show', '--property=FragmentPath', '--value', bridge) ==
+            '/etc/systemd/system/qt-display-bridge.service' and
+            systemctl('show', '--property=DropInPaths', '--value', bridge).split() == [str(bridge_inhibit)] and
+            regular(bridge_inhibit).read_bytes() == body and
+            systemctl('show', '--property=ActiveState', '--value', bridge) == 'inactive' and
+            systemctl('show', '--property=MainPID', '--value', bridge) == '0',
+            'A Qt bridge must remain pinned, fenced and stopped')
+    monitor_default_unit_binding(approval, inhibited)
+    require(monitor_effective_target(record['target']), 'A monitor effective environment changed')
 
 
 def no_processes(home, component_names):
@@ -497,6 +643,13 @@ def apply(args):
                 'systemMonitorShmDropinSha256' not in approval,
                 'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
     binding = monitor_binding(approval, names)
+    a_binding = a_joint_binding(home, approval, names, documents)
+    if a_binding:
+        require(any(c.get('kind') == 'product' and c.get('target') == 'LocalDisplayQtEms' and
+                    c.get('sha256') == A_QT_BINARY_SHA256 for c in manifest['components']) and
+                any(c.get('kind') == 'product' and c.get('target') == 'SystemMonitor' and
+                    c.get('sha256') == B_MONITOR_BINARY_SHA256 for c in manifest['components']),
+                'A monitor/Qt ABI11 candidate mismatch')
     for doc in documents.values():
         no_old_references(switch_names(doc, names), names)
     # An existing default segment may be an implicit reader not covered by this recipe.
@@ -516,7 +669,7 @@ def apply(args):
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
     state = {'phase': 'PREPARED', 'stopConfirmed': False, 'approvalSha256': args.approval_sha256, 'files': [], 'segments': [],
              'unreferencedDefaultShm': unreferenced_default,
-             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names,
+             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names and a_binding is None,
              'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
                                {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
@@ -539,6 +692,24 @@ def apply(args):
                 'newSha256': hashlib.sha256(binding['new']).hexdigest(),
                 'source': binding['source'], 'target': binding['target'], 'mode': binding['mode']}
             save(args.state / 'state.json', state)
+        if a_binding:
+            require(regular(home / 'config/runtime/qt-display.env').read_bytes() == a_binding['old'] and
+                    stat.S_IMODE((home / 'config/runtime/qt-display.env').stat().st_mode) == a_binding['mode'],
+                    'A Qt monitor environment changed during stop')
+            a_scada_empty_map(home, configured(configs))
+            require(digest(Path('/etc/systemd/system/ky-ems.service')) == A_QT_UNIT_SHA256 and
+                    digest(home / 'bin/gateway-qt-run.sh') == A_QT_WRAPPER_SHA256 and
+                    digest(Path('/etc/systemd/system/system-monitor@.service')) == B_MONITOR_UNIT_SHA256,
+                    'A Qt or monitor startup binding changed during stop')
+            write_new(args.state / 'qt-env-old', a_binding['old'])
+            write_new(args.state / 'qt-env-new', a_binding['new'])
+            write_new(args.state / 'a-monitor-dropin-new', a_binding['monitorNew'])
+            state['aJointMonitorQt'] = {
+                'oldSha256': hashlib.sha256(a_binding['old']).hexdigest(),
+                'newSha256': hashlib.sha256(a_binding['new']).hexdigest(),
+                'monitorSha256': hashlib.sha256(a_binding['monitorNew']).hexdigest(),
+                'target': a_binding['target'], 'mode': a_binding['mode']}
+            save(args.state / 'state.json', state)
         paths = install_paths(components, approval)
         installed_inventory(home, paths, approval)
         changed = []
@@ -552,6 +723,8 @@ def apply(args):
             if updated != doc:
                 require(relative != 'device_identity.json', 'identity cannot contain migrated references')
                 changed.append((configs / relative, (json.dumps(updated, indent=2) + '\n').encode(), stat.S_IMODE((configs / relative).stat().st_mode)))
+        if a_binding:
+            changed.append((configs / 'qt-display.env', a_binding['new'], a_binding['mode']))
         for index, (destination, data, mode) in enumerate(changed):
             backup = args.state / 'files' / str(index)
             prior = digest(destination) if destination.exists() else None
@@ -588,11 +761,17 @@ def apply(args):
             require(digest(args.state / 'monitor-dropin-new') == state['systemMonitorShmDropin']['newSha256'],
                     'monitor SHM staged drop-in changed')
             replace(MONITOR_DROPIN, regular(args.state / 'monitor-dropin-new').read_bytes(), binding['mode'])
+        if a_binding:
+            require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(),
+                    'A monitor drop-in appeared before switch')
+            require(regular(configs / 'qt-display.env').read_bytes() == a_binding['old'],
+                    'A Qt monitor environment changed before switch')
+            write_new(MONITOR_DROPIN, regular(args.state / 'a-monitor-dropin-new').read_bytes(), 0o644)
         for index, item in enumerate(state['files']):
             stage = args.state / 'new' / str(index)
             require(digest(stage) == item['newSha256'], 'staged file changed')
             replace(home / item['path'], stage.read_bytes(), item['mode'])
-        if binding:
+        if binding or a_binding:
             systemctl('daemon-reload')
         state['phase'] = 'UPGRADED_STOPPED'
         state['configSha256'] = tree_hashes(configs)
@@ -621,6 +800,13 @@ def recover(args):
         record, _, _ = monitor
         require(digest(MONITOR_DROPIN) in (record['oldSha256'], record['newSha256']),
                 'monitor SHM drop-in changed since transaction')
+    a_joint = checked_a_joint_record(args.state, state, approval)
+    if a_joint:
+        record, _, _, _ = a_joint
+        require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink() or
+                (digest(MONITOR_DROPIN) == record['monitorSha256'] and
+                 stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == 0o644),
+                'A monitor drop-in changed since transaction')
     # Validate every backup before restoring anything. Durable data and SHM are never restored.
     for index, item in enumerate(state['files']):
         relative = Path(item['path'])
@@ -653,6 +839,11 @@ def recover(args):
         record, old, _ = monitor
         replace(MONITOR_DROPIN, old, record['mode'])
         systemctl('daemon-reload')
+    if a_joint:
+        if MONITOR_DROPIN.exists():
+            MONITOR_DROPIN.unlink()
+            sync_dir(MONITOR_DROPIN.parent)
+        systemctl('daemon-reload')
     state['phase'] = 'RECOVERED_STOPPED'
     save(args.state / 'state.json', state)
     print('RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart')
@@ -669,6 +860,7 @@ def observe(args):
     require(state.get('implicitMonitorShmUnqualified') is not True,
             'implicit SystemMonitor SHM readers are not jointly bound for observe')
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
+    a_joint = checked_a_joint_record(args.state, state, approval)
     require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
             ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')
     home = Path(approval['gatewayHome'])
@@ -715,16 +907,20 @@ def observe(args):
     if any(unit.startswith('system-monitor@') for unit in selected):
         require({unit for unit in selected if unit.startswith('system-monitor@')} == {MONITOR_UNIT},
                 'only the pinned monitor SHM instance may observe')
-        monitor = checked_monitor_record(args.state, state, approval)
-        require(monitor is not None, 'monitor SHM binding evidence required before observe')
-        record, _, new = monitor
-        require(regular(MONITOR_DROPIN).read_bytes() == new and digest(MONITOR_DROPIN) == record['newSha256'] and
-                stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == record['mode'],
-                'monitor SHM drop-in changed before observe')
-        require(monitor_effective_target(record['target']),
-                'monitor SHM effective environment is not the approved target')
+        if a_joint is None:
+            monitor = checked_monitor_record(args.state, state, approval)
+            require(monitor is not None, 'monitor SHM binding evidence required before observe')
+            record, _, new = monitor
+            require(regular(MONITOR_DROPIN).read_bytes() == new and digest(MONITOR_DROPIN) == record['newSha256'] and
+                    stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == record['mode'],
+                    'monitor SHM drop-in changed before observe')
+            require(monitor_effective_target(record['target']),
+                    'monitor SHM effective environment is not the approved target')
+    if a_joint:
+        a_joint_monitor_observe_safe(home, approval, state, selected, a_joint, documents, True)
     if state.get('unreferencedDefaultShm') is True:
-        b_monitor_default_safe(home, approval, manifest, state, selected, monitor, documents)
+        if a_joint is None:
+            b_monitor_default_safe(home, approval, manifest, state, selected, monitor, documents)
     for unit in selected:
         before = state['unitStates'][unit]['enabled']
         require(before not in ('masked', 'masked-runtime') and
@@ -753,11 +949,15 @@ def observe(args):
         systemctl('daemon-reload')
         if state.get('unreferencedDefaultShm') is True:
             monitor_default_unit_binding(approval, False)
-            require(regular(MONITOR_DROPIN).read_bytes() == new and
-                    stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == record['mode'],
-                    'monitor SHM drop-in changed before start')
+            if a_joint:
+                a_joint_monitor_observe_safe(home, approval, state, selected, a_joint, documents, False)
+            else:
+                require(regular(MONITOR_DROPIN).read_bytes() == new and
+                        stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == record['mode'],
+                        'monitor SHM drop-in changed before start')
         if any(unit.startswith('system-monitor@') for unit in selected):
-            require(monitor_effective_target(state['systemMonitorShmDropin']['target']),
+            target = a_joint[0]['target'] if a_joint else state['systemMonitorShmDropin']['target']
+            require(monitor_effective_target(target),
                     'monitor SHM effective environment changed before start')
         if state.get('unreferencedDefaultShm') is True:
             require(tree_hashes(home / 'config/runtime') == state['configSha256'],

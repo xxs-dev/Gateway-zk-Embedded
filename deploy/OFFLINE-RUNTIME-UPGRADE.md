@@ -103,10 +103,19 @@ approval/state to schema2. Required fields:
   LocalDisplayQtEms in the approved product set, the real `ky-ems/KY-EMS`
   destination, and no existing `998-shm.conf`/monitor binding pin. The old
   segment stays intact and is backed up/copied by the same migration loop.
-  `observe` always refuses this unqualified implicit-monitor transaction:
-  no SystemMonitor/KY-EMS environment or SCADA project mapping is changed by
-  this stop-only admission. Recovery retains the original absence of a monitor
-  drop-in. Other extra segment names remain forbidden.
+  Without `qtDisplayEnvSha256`, `observe` still refuses this stop-only
+  transaction. Recovery retains the original absence of a monitor drop-in.
+  Other extra segment names remain forbidden.
+- Optional A-only `qtDisplayEnvSha256` pins the original
+  `config/runtime/qt-display.env` bytes, with the monitor SHM key absent.
+  Admission also requires the pinned Qt unit, wrapper, monitor template and
+  ABI11 Qt/SystemMonitor candidates, plus an empty `scada/current` runtime map.
+  While all units are stopped, the transaction appends only
+  `GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=<approved monitor target>` to that
+  env file and creates the fixed monitor `998-shm.conf` with the same target.
+  Both changes are staged and backed up in the existing state; stopped recovery
+  restores the original env bytes/mode and removes the newly created drop-in.
+  This does not alter the SCADA project, old SHM, dedup, or unit policy.
 - Optional `systemMonitorShmDropinSha256`: original-byte SHA256 for only
   `/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf`
   when that exact instance is in `units`. The file must consist solely of
@@ -230,6 +239,18 @@ approval flag. Other observers, unknown apps, changed unit bindings, and
 other default-store cases still refuse. Local fake-systemctl tests cannot
 establish real process target mappings or production service safety; those
 remain separate on-device observation requirements.
+The A joint-binding profile admits only a standalone, monitor-only observation
+with the approved default and implicit monitor segments. It rechecks the actual
+three-app/one-device loader shape including disabled sibling camera, the empty
+SCADA map, both switched bindings,
+the pinned Qt/monitor/bridge units, and the bridge's retained inhibition and
+inactive PID 0 state. The monitor app must explicitly have `mqtt.enabled:false`
+and `systemMonitor.directMaintenance.enabled:false`; the general
+`controlEnabled:false` approval does not disable either inbound maintenance
+path. After start, every old source (including default) remains hashed and
+unmapped. `ky-ems.service` is not an allowed observer yet; its `Requires=` bridge
+dependency and actual V11 process mapping still need a separate bounded startup
+qualification. No Qt or bridge is started by this profile.
 Previously masked units are refused, never unmasked. `is-active` must succeed.
 The entrypoint temporarily removes only selected observer/observer-template
 drop-ins, starts them, then restores inhibition and reloads systemd before success.

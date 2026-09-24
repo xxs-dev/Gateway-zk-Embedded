@@ -1,0 +1,14 @@
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... ok
+test_offline_a_joint_rejects_changed_env_before_apply (__main__.InstallIsolationTest.test_offline_a_joint_rejects_changed_env_before_apply) ... ok
+test_offline_a_joint_monitor_only_observe (__main__.InstallIsolationTest.test_offline_a_joint_monitor_only_observe) ... ok
+test_offline_a_joint_qt_start_and_nonempty_map_refused (__main__.InstallIsolationTest.test_offline_a_joint_qt_start_and_nonempty_map_refused) ... ok
+test_offline_a_joint_mqtt_inbound_refused (__main__.InstallIsolationTest.test_offline_a_joint_mqtt_inbound_refused) ... ok
+test_offline_a_joint_direct_maintenance_refused (__main__.InstallIsolationTest.test_offline_a_joint_direct_maintenance_refused) ... ok
+test_offline_a_implicit_monitor_stopped_only (__main__.InstallIsolationTest.test_offline_a_implicit_monitor_stopped_only) ... ok
+test_offline_b_default_monitor_observe_roundtrip (__main__.InstallIsolationTest.test_offline_b_default_monitor_observe_roundtrip) ... ok
+test_offline_monitor_binding_roundtrip (__main__.InstallIsolationTest.test_offline_monitor_binding_roundtrip) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 12.185s
+
+OK

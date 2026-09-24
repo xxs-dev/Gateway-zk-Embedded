@@ -1,0 +1,7 @@
+[Unit]
+Description=Disposable A Qt dependency skip probe
+ConditionPathExists=/run/gw-edge-a-probe-20260925-01-never-exists
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sleep 3

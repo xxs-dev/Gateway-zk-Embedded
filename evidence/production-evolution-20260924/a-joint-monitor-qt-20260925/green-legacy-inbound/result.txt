@@ -1,0 +1,6 @@
+test_offline_a_joint_legacy_direct_maintenance_ambiguity_refused (__main__.InstallIsolationTest.test_offline_a_joint_legacy_direct_maintenance_ambiguity_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 2.201s
+
+OK

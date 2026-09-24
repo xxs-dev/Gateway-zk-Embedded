@@ -1,0 +1,25 @@
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... FAIL
+test_offline_a_joint_rejects_changed_env_before_apply (__main__.InstallIsolationTest.test_offline_a_joint_rejects_changed_env_before_apply) ... FAIL
+
+======================================================================
+FAIL: test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 804, in test_offline_a_joint_binding_apply_recover
+    self.assertIn(('GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + target).encode(), envfile.read_bytes())
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=offline_target_1' not found in b'DISPLAY=:0\nXDG_RUNTIME_DIR=/run/ky-ems\n'
+
+======================================================================
+FAIL: test_offline_a_joint_rejects_changed_env_before_apply (__main__.InstallIsolationTest.test_offline_a_joint_rejects_changed_env_before_apply)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 817, in test_offline_a_joint_rejects_changed_env_before_apply
+    self.assertNotEqual(0, result.returncode)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 == 0
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.922s
+
+FAILED (failures=2)

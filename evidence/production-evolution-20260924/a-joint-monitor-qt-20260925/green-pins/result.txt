@@ -1,0 +1,7 @@
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... ok
+test_offline_a_joint_monitor_only_observe (__main__.InstallIsolationTest.test_offline_a_joint_monitor_only_observe) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 3.804s
+
+OK

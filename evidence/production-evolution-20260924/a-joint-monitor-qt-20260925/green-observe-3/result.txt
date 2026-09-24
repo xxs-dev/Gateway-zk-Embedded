@@ -1,0 +1,9 @@
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... ok
+test_offline_a_joint_rejects_changed_env_before_apply (__main__.InstallIsolationTest.test_offline_a_joint_rejects_changed_env_before_apply) ... ok
+test_offline_a_joint_monitor_only_observe (__main__.InstallIsolationTest.test_offline_a_joint_monitor_only_observe) ... ok
+test_offline_a_joint_qt_start_and_nonempty_map_refused (__main__.InstallIsolationTest.test_offline_a_joint_qt_start_and_nonempty_map_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 3.639s
+
+OK

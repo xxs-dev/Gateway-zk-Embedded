@@ -1,0 +1,8 @@
+[Unit]
+Description=Disposable A Qt Requires probe
+Requires=gw-edge-a-dep-20260925-01.service
+After=gw-edge-a-dep-20260925-01.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true

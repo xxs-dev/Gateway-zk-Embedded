@@ -1,0 +1,37 @@
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... ERROR
+test_offline_a_joint_rejects_changed_env_before_apply (__main__.InstallIsolationTest.test_offline_a_joint_rejects_changed_env_before_apply) ... ERROR
+
+======================================================================
+ERROR: test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 798, in test_offline_a_joint_binding_apply_recover
+    home, approval, envfile = self.a_joint_monitor_fixture()
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 784, in a_joint_monitor_fixture
+    shutil.copyfile(REPO / 'deploy/ky-ems.service', Path('/etc/systemd/system/ky-ems.service'))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 315, in copyfile
+    with open(dst, 'wb') as fdst:
+         ~~~~^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/etc/systemd/system/ky-ems.service'
+
+======================================================================
+ERROR: test_offline_a_joint_rejects_changed_env_before_apply (__main__.InstallIsolationTest.test_offline_a_joint_rejects_changed_env_before_apply)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 811, in test_offline_a_joint_rejects_changed_env_before_apply
+    home, approval, envfile = self.a_joint_monitor_fixture()
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 784, in a_joint_monitor_fixture
+    shutil.copyfile(REPO / 'deploy/ky-ems.service', Path('/etc/systemd/system/ky-ems.service'))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 315, in copyfile
+    with open(dst, 'wb') as fdst:
+         ~~~~^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/etc/systemd/system/ky-ems.service'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.684s
+
+FAILED (errors=2)

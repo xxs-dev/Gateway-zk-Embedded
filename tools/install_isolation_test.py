@@ -68,6 +68,8 @@ case "$1" in
           *--property=LoadState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_LOAD_STATE:-loaded}" ;;
           *--property=ActiveState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_ACTIVE_STATE:-inactive}" ;;
           *--property=FragmentPath*system-monitor@monitor-service.service*) echo /etc/systemd/system/system-monitor@.service ;;
+          *--property=FragmentPath*ky-ems.service*) echo /etc/systemd/system/ky-ems.service ;;
+          *--property=FragmentPath*qt-display-bridge.service*) echo /etc/systemd/system/qt-display-bridge.service ;;
           *--property=DropInPaths*system-monitor@monitor-service.service*)
             for path in /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-*.conf /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf; do
               [ ! -f "$path" ] || printf '%s ' "$path"
@@ -77,13 +79,28 @@ case "$1" in
               printf '%s ' "$MONITOR_EXTRA_DROPIN_AFTER_RELOAD"
             fi
             echo ;;
+          *--property=DropInPaths*ky-ems.service*)
+            for path in /etc/systemd/system/ky-ems.service.d/90-offline-*.conf; do
+              [ ! -f "$path" ] || printf '%s ' "$path"
+            done
+            echo ;;
+          *--property=DropInPaths*qt-display-bridge.service*)
+            for path in /etc/systemd/system/qt-display-bridge.service.d/90-offline-*.conf; do
+              [ ! -f "$path" ] || printf '%s ' "$path"
+            done
+            echo ;;
+          *--property=MainPID*qt-display-bridge.service*) echo 0 ;;
+          *--property=EnvironmentFiles*ky-ems.service*)
+            echo '/opt/modbus-gateway/config/runtime/qt-display.env (ignore_errors=yes)' ;;
+          *--property=Environment\\ --value\\ ky-ems.service*)
+            echo 'DISPLAY=:0 QT_QPA_PLATFORM=xcb XDG_RUNTIME_DIR=/run/ky-ems' ;;
           *--property=Environment\\ --value\\ system-monitor@monitor-service.service*)
             if [ -n "${MONITOR_ENV_SHOW_OVERRIDE:-}" ]; then
               echo "$MONITOR_ENV_SHOW_OVERRIDE"
             else
               sed -n '2s/^Environment=//p' /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf
             fi ;;
-          *--property=EnvironmentFiles*|*--property=UnsetEnvironment*) : ;;
+          *--property=EnvironmentFiles*|*--property=UnsetEnvironment*|*--property=PassEnvironment*) : ;;
           *) echo inactive ;;
         esac
       else echo 4242; fi
@@ -773,6 +790,187 @@ exec /bin/cp "$@"
         (home / 'data/cluster-membership.json').unlink()
         self.assertFalse(Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf').exists())
         return home, approval
+
+    def a_joint_monitor_fixture(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        approval['units'].append('qt-display-bridge.service')
+        archive = REPO.parent.parent / 'acceptance-evidence-20260924/evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz'
+        manifest = json.loads((self.root / 'program-manifest.json').read_text())
+        with tarfile.open(archive) as bundle:
+            for target, member, path in (
+                    ('LocalDisplayQtEms', 'programs/qt/KY-SCADA', self.root / 'payload/programs/ky-ems/KY-EMS'),
+                    ('SystemMonitor', 'programs/bin/SystemMonitor', self.root / 'payload/programs/bin/SystemMonitor')):
+                raw = bundle.extractfile(member).read()
+                path.write_bytes(raw)
+                path.chmod(0o755)
+                component = next(c for c in manifest['components'] if c['target'] == target)
+                component['bytes'] = len(raw)
+                component['sha256'] = hashlib.sha256(raw).hexdigest()
+        self.assertEqual('27dcffc5dfa538640ac4d249f2fea934495fe49a87910d0693c4cbeb0994d4b6',
+                         next(c['sha256'] for c in manifest['components'] if c['target'] == 'LocalDisplayQtEms'))
+        write(self.root / 'program-manifest.json', json.dumps(manifest))
+        approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
+        envfile = home / 'config/runtime/qt-display.env'
+        write(envfile, 'DISPLAY=:0\nXDG_RUNTIME_DIR=/run/ky-ems\n')
+        approval['qtDisplayEnvSha256'] = hashlib.sha256(envfile.read_bytes()).hexdigest()
+        approval['configSha256']['qt-display.env'] = approval['qtDisplayEnvSha256']
+        write(home / 'bin/gateway-qt-run.sh', (REPO / 'deploy/gateway-qt-run.sh').read_text())
+        Path('/etc/systemd/system').mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO / 'deploy/ky-ems.service', Path('/etc/systemd/system/ky-ems.service'))
+        shutil.copyfile(REPO / 'deploy/qt-display-bridge.service', Path('/etc/systemd/system/qt-display-bridge.service'))
+        shutil.copyfile(REPO / 'deploy/system-monitor@.service', Path('/etc/systemd/system/system-monitor@.service'))
+        scada = home / 'scada'
+        release = scada / 'releases/fixture-release'
+        write(release / 'runtime-map.json', '[]\n')
+        (scada / 'current').symlink_to('releases/fixture-release')
+        apps = home / 'config/runtime/apps'
+        (apps / 'compute.json').unlink()
+        device = home / 'config/runtime/devices/device_modbusRTU_2_readonly.json'
+        write(device, json.dumps({'memoryStore': {'sharedMemoryName': 'offline_source_0'}}))
+        app = apps / 'monitor-service.json'
+        write(app, json.dumps({'deviceConfigFiles': [str(device)], 'mqtt': {'enabled': False},
+            'systemMonitor': {'enabled': True, 'directMaintenance': {'enabled': False}},
+            'cameraService': {'enabled': False, 'sharedMemoryName': ''},
+            'mqttDriver': {'sharedMemoryName': 'offline_source_0', 'sharedMemoryNames': ['offline_source_0']},
+            'localDisplay': {'sharedMemoryNames': ['offline_source_0'], 'scada': {
+                'enabled': True, 'projectDirectory': str(scada / 'current'), 'autoReload': True}},
+            'emsCluster': {'enabled': False, 'controlEnabled': False}}))
+        write(apps / 'mqtt-service.json', json.dumps({'deviceConfigFiles': [str(device)],
+            'emsCluster': {'enabled': False, 'controlEnabled': False}}))
+        write(apps / 'camera-service.json', json.dumps({'deviceConfigFiles': [],
+            'cameraService': {'enabled': False, 'sharedMemoryName': ''}}))
+        config = home / 'config/runtime'
+        approval['configSha256'] = {str(p.relative_to(config)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                    for p in config.rglob('*') if p.is_file()}
+        return home, approval, envfile
+
+    def test_offline_a_joint_binding_apply_recover(self):
+        home, approval, envfile = self.a_joint_monitor_fixture()
+        before = envfile.read_bytes()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        target = next(s['target'] for s in approval['segments'] if s['source'] == 'gateway_point_store_system_monitor')
+        self.assertIn(('GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + target).encode(), envfile.read_bytes())
+        dropin = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
+        self.assertEqual(('[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + target + '\n').encode(), dropin.read_bytes())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(before, envfile.read_bytes())
+        self.assertFalse(dropin.exists())
+
+    def test_offline_a_joint_partial_switch_recover(self):
+        home, approval, envfile = self.a_joint_monitor_fixture()
+        before = envfile.read_bytes()
+        binary = home / 'bin/MqttDriver'
+        subprocess.run(['mount', '--bind', str(binary), str(binary)], check=True)
+        try:
+            result = self.offline_run(approval=approval)
+            self.assertNotEqual(0, result.returncode, result.stdout)
+            dropin = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
+            self.assertTrue(dropin.exists())
+        finally:
+            subprocess.run(['umount', str(binary)], check=True)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(before, envfile.read_bytes())
+        self.assertFalse(dropin.exists())
+
+    def test_offline_a_joint_rejects_changed_env_before_apply(self):
+        home, approval, envfile = self.a_joint_monitor_fixture()
+        envfile.write_bytes(envfile.read_bytes() + b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=foreign\n')
+        approval['qtDisplayEnvSha256'] = hashlib.sha256(envfile.read_bytes()).hexdigest()
+        approval['configSha256']['qt-display.env'] = approval['qtDisplayEnvSha256']
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('Qt monitor environment', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_joint_monitor_only_observe(self):
+        home, approval, envfile = self.a_joint_monitor_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertIn('start system-monitor@monitor-service.service', self.log.read_text())
+        self.assertNotIn('start ky-ems.service', self.log.read_text())
+        self.assertNotIn('start qt-display-bridge.service', self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertNotIn(b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME', envfile.read_bytes())
+
+    def test_offline_a_joint_qt_start_and_nonempty_map_refused(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['ky-ems.service', 'system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        self.assertNotEqual(0, self.offline_run('observe').returncode)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        mapping = home / 'scada/releases/fixture-release/runtime-map.json'
+        write(mapping, '[{"sharedMemoryName":"offline_target_1"}]\n')
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('SCADA runtime map is not empty', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def a_joint_inbound_gate_case(self, section, key, value):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        doc = json.loads(app.read_text())
+        if section == 'mqtt':
+            doc['mqtt'][key] = value
+        else:
+            doc['systemMonitor']['directMaintenance'][key] = value
+        write(app, json.dumps(doc))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('A monitor inbound maintenance must be disabled', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_a_joint_mqtt_inbound_refused(self):
+        self.a_joint_inbound_gate_case('mqtt', 'enabled', True)
+
+    def test_offline_a_joint_direct_maintenance_refused(self):
+        self.a_joint_inbound_gate_case('directMaintenance', 'enabled', True)
+
+    def test_offline_a_joint_legacy_direct_maintenance_ambiguity_refused(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        doc = json.loads(app.read_text())
+        del doc['systemMonitor']['directMaintenance']
+        doc['systemMonitor']['listenPort'] = 9443
+        write(app, json.dumps(doc))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('A monitor inbound maintenance must be disabled', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_a_joint_sibling_camera_enabled_refused(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/mqtt-service.json'
+        doc = json.loads(app.read_text())
+        doc['cameraService'] = {'enabled': True, 'sharedMemoryName': 'offline_source_0'}
+        write(app, json.dumps(doc))
+        approval['configSha256']['apps/mqtt-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('A joint monitor loader or disabled camera shape changed', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_real_qt_path_roundtrip(self):
         home, approval = self.qt_offline_fixture()
