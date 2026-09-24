@@ -3,6 +3,10 @@
 #include "edge_gateway/modbus_tcp_client.hpp"
 #include "edge_gateway/writeback_service.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/modbus_rtu_client.hpp"
+#include "edge_gateway/posix_serial_port.hpp"
+#include <fcntl.h>
+#include <cstdlib>
 #include <arpa/inet.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -22,6 +26,30 @@ thread_local std::function<void()> afterSend;
 thread_local std::size_t sendLimit = 0;
 thread_local std::size_t sentBytes = 0;
 thread_local bool interruptSend = false;
+thread_local bool serialWrites = false;
+thread_local std::function<void()> afterSleep;
+extern "C" ssize_t __real_write(int, const void*, size_t);
+extern "C" ssize_t __wrap_write(int fd, const void* data, size_t size) {
+    if (!serialWrites) return __real_write(fd, data, size);
+    if (interruptSend) {
+        interruptSend = false;
+        if (afterSend) { auto action = std::move(afterSend); action(); }
+        errno = EINTR;
+        return -1;
+    }
+    const auto n = __real_write(fd, data, sendLimit ? std::min(size, sendLimit) : size);
+    if (n > 0) {
+        sentBytes += n;
+        if (afterSend) { auto action = std::move(afterSend); action(); }
+    }
+    return n;
+}
+extern "C" int __real_nanosleep(const timespec*, timespec*);
+extern "C" int __wrap_nanosleep(const timespec* t, timespec* remaining) {
+    const auto rc = __real_nanosleep(t, remaining);
+    if (afterSleep) { auto action = std::move(afterSleep); action(); }
+    return rc;
+}
 extern "C" ssize_t __real_send(int, const void*, size_t, int);
 extern "C" ssize_t __wrap_send(int fd, const void* data, size_t size, int flags) {
     if (interruptSend) {
@@ -187,12 +215,78 @@ void queueCase(const std::string& mode) {
     // The same client must recover without leaking the previous command's guard.
     client->writeSingleRegister(1, 0, 1);
 }
+
+void serialCase(const std::string& mode) {
+    Fixture f;
+    f.config.protocol.type = "modbus_rtu";
+    const int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
+    require(master >= 0 && grantpt(master) == 0 && unlockpt(master) == 0, "pty");
+    struct Cleanup { int fd; ~Cleanup() { close(fd); } } cleanup{master};
+    SerialPortOptions options;
+    options.device = ptsname(master);
+    options.timeoutMs = 200;
+    options.frameIntervalMs = 50;
+    auto port = std::make_shared<PosixSerialPort>(options);
+    auto client = std::make_shared<ModbusRtuClient>(port, options);
+    port->open();
+    std::atomic<bool> stop{false};
+    std::thread peer([&] {
+        std::vector<std::uint8_t> frame;
+        while (!stop) {
+            pollfd p{master, POLLIN, 0};
+            if (poll(&p, 1, 10) <= 0) continue;
+            std::uint8_t buffer[256];
+            const auto n = read(master, buffer, sizeof(buffer));
+            if (n <= 0) continue;
+            frame.insert(frame.end(), buffer, buffer + n);
+            if (frame.size() == 8) {
+                (void)write(master, frame.data(), frame.size());
+                frame.clear();
+            }
+        }
+    });
+    struct Join { std::atomic<bool>& stop; std::thread& t; ~Join() { stop = true; t.join(); } } join{stop, peer};
+    const auto revoke = [&] { f.snapshot.valid = false; f.store.publishClusterAuthority(f.snapshot); };
+    if (mode == "rtu-expired") f.command.clusterAuthorization->notAfterMonotonicMs = clusterMonotonicNowMs() - 1;
+    if (mode == "rtu-revoked") revoke();
+    if (mode == "rtu-epoch") {
+        f.snapshot.authorization->authorityEpoch.fill(3);
+        f.store.publishClusterAuthority(f.snapshot);
+    }
+    if (mode == "rtu-ordinary") { f.command.clusterAuthorization = NullOpt; f.command.source = "mqtt-forwarder"; }
+    if (mode == "rtu-after-wait") {
+        client->writeSingleRegister(1, 0, 1);
+        afterSleep = revoke;
+    }
+    if (mode == "rtu-partial") { sendLimit = 3; afterSend = revoke; }
+    if (mode == "rtu-eintr") { interruptSend = true; afterSend = revoke; }
+    CommandExecutor executor(f.config, f.store, client);
+    WritebackService service(f.store, executor);
+    f.store.submitWriteCommand(f.command);
+    serialWrites = true;
+    sentBytes = 0;
+    const auto result = service.processPendingWrites(1);
+    serialWrites = false;
+    const bool allowed = mode == "rtu-valid" || mode == "rtu-ordinary";
+    std::cout << mode << " success=" << result.at(0).success << " sentBytes=" << sentBytes << '\n';
+    require(sentBytes == (allowed ? 8U : mode == "rtu-partial" ? 3U : 0U), "unexpected physical serial bytes");
+    require(result[0].success == allowed, "incorrect RTU result");
+    require(!afterSleep, "RTU inter-frame wait was not exercised");
+    if (mode == "rtu-partial" || mode == "rtu-eintr") require(!port->isOpen(), "rejected serial ADU left port open");
+    afterSend = nullptr;
+    sendLimit = 0;
+    interruptSend = false;
+}
 }
 int main(int argc, char** argv) {
     try {
-        if (argc > 1) queueCase(argv[1]);
+        const auto run = [](const std::string& mode) {
+            if (mode.find("rtu-") == 0) serialCase(mode); else queueCase(mode);
+        };
+        if (argc > 1) run(argv[1]);
         else for (const auto& mode : {"expired", "revoked", "epoch", "missing", "valid", "ordinary",
-                                     "after-wait", "partial", "eintr", "daemon"}) queueCase(mode);
+                                     "after-wait", "partial", "eintr", "daemon", "rtu-valid", "rtu-expired",
+                                     "rtu-revoked", "rtu-epoch", "rtu-ordinary", "rtu-after-wait", "rtu-partial", "rtu-eintr"}) run(mode);
         std::cout << "cluster_driver_send_guard_test passed\n";
     }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
