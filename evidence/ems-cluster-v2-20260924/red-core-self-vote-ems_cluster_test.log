@@ -1,0 +1,1 @@
+ems cluster test failed: leader self vote must prevent new-term control while old follower targets remain live

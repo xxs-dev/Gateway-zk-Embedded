@@ -16,6 +16,7 @@
 #include <utility>
 
 #ifndef _WIN32
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #else
@@ -27,11 +28,13 @@ namespace edge_gateway {
 
 namespace {
 
-constexpr std::uint32_t kProtocolMagic = 0x4b454331U;
+constexpr std::uint32_t kProtocolMagic = 0x4b454332U;
 constexpr std::uint8_t kProtocolVersion = 2;
 constexpr std::size_t kHeaderSize = 16;
 constexpr std::size_t kAuthTagSize = 32;
 constexpr std::size_t kMaxFrameSize = 64 * 1024;
+constexpr std::size_t kMaxChallenges = 32;
+constexpr std::size_t kMaxRetiredIncarnations = 16;
 
 std::uint64_t fnv1a64(const std::string& text) {
     std::uint64_t hash = 1469598103934665603ULL;
@@ -209,7 +212,7 @@ void appendDouble(std::vector<std::uint8_t>& out, double value) {
 }
 
 void appendString(std::vector<std::uint8_t>& out, const std::string& value) {
-    if (value.size() > 1024) throw std::invalid_argument("KECP/1 string exceeds 1024 bytes");
+    if (value.size() > 1024) throw std::invalid_argument("KECP/2 string exceeds 1024 bytes");
     appendU16(out, static_cast<std::uint16_t>(value.size()));
     out.insert(out.end(), value.begin(), value.end());
 }
@@ -252,7 +255,7 @@ public:
     bool done() const { return offset_ == size_; }
 private:
     void require(std::size_t count) {
-        if (count > size_ - offset_) throw std::invalid_argument("truncated KECP/1 frame");
+        if (count > size_ - offset_) throw std::invalid_argument("truncated KECP/2 frame");
     }
     const std::uint8_t* data_;
     std::size_t size_;
@@ -325,10 +328,24 @@ void writeAtomic(const std::string& path, const std::string& text) {
     if (!output) throw std::runtime_error("failed to write cluster state: " + temporary);
     output << text;
     output.close();
-    if (!output || std::rename(temporary.c_str(), path.c_str()) != 0) {
+    if (!output) throw std::runtime_error("failed to flush cluster state: " + path);
+#ifndef _WIN32
+    const auto stateFd = open(temporary.c_str(), O_RDONLY | O_CLOEXEC);
+    const bool synced = stateFd >= 0 && fsync(stateFd) == 0;
+    if (stateFd >= 0) close(stateFd);
+    if (!synced) throw std::runtime_error("failed to sync cluster state: " + path);
+#endif
+    if (std::rename(temporary.c_str(), path.c_str()) != 0) {
         std::remove(temporary.c_str());
         throw std::runtime_error("failed to install cluster state: " + path);
     }
+#ifndef _WIN32
+    const auto parent = directoryOf(path).empty() ? std::string(".") : directoryOf(path);
+    const auto directoryFd = open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    const bool directorySynced = directoryFd >= 0 && fsync(directoryFd) == 0;
+    if (directoryFd >= 0) close(directoryFd);
+    if (!directorySynced) throw std::runtime_error("failed to sync cluster state directory: " + path);
+#endif
 }
 
 std::string escapeJson(const std::string& value) {
@@ -750,6 +767,19 @@ std::vector<std::uint8_t> EmsClusterProtocol::encode(
     appendString(payload, message.senderNodeId);
     appendString(payload, message.senderBootId);
     appendString(payload, message.leaderNodeId);
+    appendString(payload, message.senderIncarnation);
+    appendString(payload, message.recipientIncarnation);
+    appendU64(payload, message.discoveryChallenge);
+    appendU64(payload, message.discoveryReplyTo);
+    appendU64(payload, message.heartbeatId);
+    appendU64(payload, message.heartbeatAckId);
+    appendString(payload, message.heartbeatIncarnation);
+    appendU64(payload, message.electionId);
+    appendU64(payload, message.voteReplyTo);
+    appendString(payload, message.voteCandidateIncarnation);
+    appendU64(payload, message.dispatchRequestId);
+    appendString(payload, message.dispatchRequestIncarnation);
+    appendU32(payload, message.authorityTtlMs);
     appendDouble(payload, message.loadScore);
     appendU32(payload, static_cast<std::uint32_t>(message.electionPriority));
     appendU16(payload, static_cast<std::uint16_t>(message.tcpPort));
@@ -770,7 +800,7 @@ std::vector<std::uint8_t> EmsClusterProtocol::encode(
         appendU16(payload, static_cast<std::uint16_t>(assignment.cabinetNo));
     }
     if (payload.size() + kHeaderSize + kAuthTagSize > kMaxFrameSize) {
-        throw std::invalid_argument("KECP/1 frame exceeds 64 KiB");
+        throw std::invalid_argument("KECP/2 frame exceeds 64 KiB");
     }
 
     const bool authenticated = config.securityMode == "psk";
@@ -795,36 +825,37 @@ EmsClusterMessage EmsClusterProtocol::decode(
     const EmsClusterConfig& config
 ) {
     if (data == nullptr || size < kHeaderSize || size > kMaxFrameSize) {
-        throw std::invalid_argument("invalid KECP/1 frame size");
+        throw std::invalid_argument("invalid KECP/2 frame size");
     }
     ByteReader header(data, kHeaderSize);
-    if (header.u32() != kProtocolMagic) throw std::invalid_argument("invalid KECP/1 magic");
-    if (header.u8() != kProtocolVersion) throw std::invalid_argument("unsupported KECP/1 version");
+    if (header.u32() != kProtocolMagic) throw std::invalid_argument("invalid KECP/2 magic");
+    if (header.u8() != kProtocolVersion) throw std::invalid_argument("unsupported KECP/2 version");
     const auto type = static_cast<EmsClusterMessageType>(header.u8());
     if (static_cast<int>(type) < static_cast<int>(EmsClusterMessageType::Discover) ||
         static_cast<int>(type) > static_cast<int>(EmsClusterMessageType::Feedback)) {
-        throw std::invalid_argument("unsupported KECP/1 message type");
+        throw std::invalid_argument("unsupported KECP/2 message type");
     }
     const auto flags = header.u16();
+    if ((flags & ~1U) != 0) throw std::invalid_argument("unsupported KECP/2 flags");
     const auto payloadSize = header.u32();
     const auto expectedCrc = header.u32();
     const bool authenticated = (flags & 1U) != 0;
     const auto expectedSize = kHeaderSize + payloadSize + (authenticated ? kAuthTagSize : 0U);
-    if (expectedSize != size) throw std::invalid_argument("KECP/1 frame length mismatch");
+    if (expectedSize != size) throw std::invalid_argument("KECP/2 frame length mismatch");
     if (config.securityMode == "psk" && !authenticated) {
-        throw std::invalid_argument("unauthenticated KECP/1 frame rejected in PSK mode");
+        throw std::invalid_argument("unauthenticated KECP/2 frame rejected in PSK mode");
     }
     if (config.securityMode == "none" && authenticated) {
-        throw std::invalid_argument("authenticated KECP/1 frame rejected in none mode");
+        throw std::invalid_argument("authenticated KECP/2 frame rejected in none mode");
     }
     if (authenticated) {
         const auto tag = hmacSha256(config.psk, data, kHeaderSize + payloadSize);
         if (!constantTimeEqual(tag.data(), data + kHeaderSize + payloadSize, tag.size())) {
-            throw std::invalid_argument("KECP/1 authentication failed");
+            throw std::invalid_argument("KECP/2 authentication failed");
         }
     }
     const auto* payload = data + kHeaderSize;
-    if (crc32(payload, payloadSize) != expectedCrc) throw std::invalid_argument("KECP/1 CRC mismatch");
+    if (crc32(payload, payloadSize) != expectedCrc) throw std::invalid_argument("KECP/2 CRC mismatch");
     ByteReader reader(payload, payloadSize);
     EmsClusterMessage message;
     message.type = type;
@@ -837,6 +868,19 @@ EmsClusterMessage EmsClusterProtocol::decode(
     message.senderNodeId = reader.string();
     message.senderBootId = reader.string();
     message.leaderNodeId = reader.string();
+    message.senderIncarnation = reader.string();
+    message.recipientIncarnation = reader.string();
+    message.discoveryChallenge = reader.u64();
+    message.discoveryReplyTo = reader.u64();
+    message.heartbeatId = reader.u64();
+    message.heartbeatAckId = reader.u64();
+    message.heartbeatIncarnation = reader.string();
+    message.electionId = reader.u64();
+    message.voteReplyTo = reader.u64();
+    message.voteCandidateIncarnation = reader.string();
+    message.dispatchRequestId = reader.u64();
+    message.dispatchRequestIncarnation = reader.string();
+    message.authorityTtlMs = reader.u32();
     message.loadScore = reader.f64();
     message.electionPriority = static_cast<int>(reader.u32());
     message.tcpPort = reader.u16();
@@ -849,7 +893,7 @@ EmsClusterMessage EmsClusterProtocol::decode(
     message.dispatchTtlMs = reader.u32();
     const auto dispatchCode = reader.u16();
     if (!validDispatchCode(dispatchCode)) {
-        throw std::invalid_argument("KECP/1 frame contains an invalid dispatch code");
+        throw std::invalid_argument("KECP/2 frame contains an invalid dispatch code");
     }
     message.dispatchCode = static_cast<EmsClusterDispatchCode>(dispatchCode);
     message.capability = readCapability(reader);
@@ -857,27 +901,27 @@ EmsClusterMessage EmsClusterProtocol::decode(
     message.acceptedPower = readPhasePower(reader);
     if (!std::isfinite(message.loadScore) || !finiteCapability(message.capability) ||
         !finitePhasePower(message.requestedPower) || !finitePhasePower(message.acceptedPower)) {
-        throw std::invalid_argument("KECP/1 frame contains non-finite control data");
+        throw std::invalid_argument("KECP/2 frame contains non-finite control data");
     }
     const auto assignmentCount = reader.u16();
-    if (assignmentCount > 32) throw std::invalid_argument("KECP/1 assignment count exceeds limit");
+    if (assignmentCount > 32) throw std::invalid_argument("KECP/2 assignment count exceeds limit");
     for (std::uint16_t i = 0; i < assignmentCount; ++i) {
         EmsClusterCabinetAssignment assignment;
         assignment.nodeId = reader.string();
         assignment.cabinetNo = reader.u16();
         message.assignments.push_back(std::move(assignment));
     }
-    if (!reader.done()) throw std::invalid_argument("KECP/1 payload contains trailing bytes");
+    if (!reader.done()) throw std::invalid_argument("KECP/2 payload contains trailing bytes");
     return message;
 }
 
 std::uint64_t EmsClusterProtocol::clusterIdHash(const std::string& clusterId) {
-    return fnv1a64("KECP/1:cluster:" + clusterId);
+    return fnv1a64("KECP/2:cluster:" + clusterId);
 }
 
 std::uint64_t EmsClusterProtocol::configHash(const EmsClusterConfig& config) {
     std::ostringstream normalized;
-    normalized << "KECP/1|" << config.clusterId << '|' << config.transport << '|'
+    normalized << "KECP/2|" << config.clusterId << '|' << config.transport << '|'
                << config.securityMode << '|' << config.expectedMembers << '|'
                << config.maxMembers << '|' << config.minimumQuorum << '|'
                << config.heartbeatMs << '|' << config.leaderLeaseMs << '|'
@@ -938,6 +982,9 @@ void EmsClusterNode::validateConfig(const EmsClusterConfig& config) {
     }
     if (config.heartbeatMs < 100 || config.leaderLeaseMs < config.heartbeatMs * 3) {
         throw std::invalid_argument("emsCluster.leaderLeaseMs must cover at least three heartbeats");
+    }
+    if (config.leaderLeaseMs > 60000 || config.heartbeatMs > 20000) {
+        throw std::invalid_argument("KECP/2 lease/heartbeat exceeds bounded timer window");
     }
     if (config.electionTimeoutMinMs <= config.leaderLeaseMs ||
         config.electionTimeoutMaxMs < config.electionTimeoutMinMs) {
@@ -1046,6 +1093,7 @@ void EmsClusterNode::loadPersistentState() {
         }
         currentTerm_ = persistedTerm;
         votedFor_ = persistedVotedFor;
+        if (root.find("votedForIncarnation")) votedForIncarnation_ = stateString(root, "votedForIncarnation");
     } catch (const std::exception& ex) {
         throw std::runtime_error(
             "invalid EMS cluster consensus state '" + config_.consensusStateFile + "': " + ex.what()
@@ -1053,12 +1101,14 @@ void EmsClusterNode::loadPersistentState() {
     }
 }
 
-void EmsClusterNode::persistConsensusState() const {
+void EmsClusterNode::persistConsensusState() {
     std::ostringstream out;
     out << "{\n  \"schemaVersion\": \"1.0\",\n  \"clusterId\": \"" << escapeJson(config_.clusterId)
         << "\",\n  \"term\": " << currentTerm_
-        << ",\n  \"votedFor\": \"" << escapeJson(votedFor_) << "\"\n}\n";
-    writeAtomic(config_.consensusStateFile, out.str());
+        << ",\n  \"votedFor\": \"" << escapeJson(votedFor_)
+        << "\",\n  \"votedForIncarnation\": \"" << escapeJson(votedForIncarnation_) << "\"\n}\n";
+    try { writeAtomic(config_.consensusStateFile, out.str()); }
+    catch (...) { failClosed("consensus persistence failed"); throw; }
 }
 
 void EmsClusterNode::loadMembership() {
@@ -1097,7 +1147,7 @@ void EmsClusterNode::loadMembership() {
     }
 }
 
-void EmsClusterNode::persistMembership() const {
+void EmsClusterNode::persistMembership() {
     std::ostringstream out;
     out << "{\n  \"schemaVersion\": \"1.0\",\n  \"clusterId\": \"" << escapeJson(config_.clusterId)
         << "\",\n  \"membershipEpoch\": " << membershipEpoch_ << ",\n  \"assignments\": [";
@@ -1107,7 +1157,76 @@ void EmsClusterNode::persistMembership() const {
     }
     if (!assignments_.empty()) out << '\n';
     out << "  ]\n}\n";
-    writeAtomic(config_.membershipFile, out.str());
+    try { writeAtomic(config_.membershipFile, out.str()); }
+    catch (...) { failClosed("membership persistence failed"); throw; }
+}
+
+std::string EmsClusterNode::newProcessIncarnation() {
+#ifndef _WIN32
+    std::array<unsigned char, 32> bytes{};
+    const int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) throw std::runtime_error("cannot obtain process incarnation entropy");
+    std::size_t offset = 0;
+    while (offset < bytes.size()) {
+        const auto count = read(fd, bytes.data() + offset, bytes.size() - offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) { close(fd); throw std::runtime_error("process incarnation entropy failed"); }
+        offset += static_cast<std::size_t>(count);
+    }
+    close(fd);
+    std::ostringstream out;
+    for (const auto byte : bytes) out << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+    return out.str();
+#else
+    throw std::runtime_error("EMS process incarnation requires Linux entropy");
+#endif
+}
+
+void EmsClusterNode::failClosed(const std::string& reason) {
+    role_ = EmsClusterRole::Fault;
+    lastQuorumMs_ = 0;
+    leadershipDeadlineMs_ = 0;
+    outgoing_.clear();
+    invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
+    reason_ = reason;
+}
+
+void EmsClusterNode::observeTime(std::int64_t nowMs) {
+    if (nowMs <= 0 || nowMs > std::numeric_limits<std::int64_t>::max() - 600000 ||
+        (lastObservedMs_ > 0 && nowMs < lastObservedMs_)) {
+        failClosed("monotonic clock moved backwards");
+        return;
+    }
+    if (lastObservedMs_ == 0) {
+        startupUntilMs_ = nowMs + config_.leaderLeaseMs + config_.heartbeatMs;
+        voteHoldUntilMs_ = startupUntilMs_;
+    }
+    lastObservedMs_ = nowMs;
+    if (outgoing_.size() >= 256) { failClosed("outgoing message budget exhausted"); return; }
+    if (challengeId_ == std::numeric_limits<std::uint64_t>::max() ||
+        sequence_ > std::numeric_limits<std::uint64_t>::max() - 512) {
+        failClosed("protocol sequence exhausted");
+        return;
+    }
+    for (auto it = discoveryRounds_.begin(); it != discoveryRounds_.end();) {
+        if (nowMs - it->second >= config_.leaderLeaseMs) it = discoveryRounds_.erase(it); else ++it;
+    }
+    for (auto it = heartbeatRounds_.begin(); it != heartbeatRounds_.end();) {
+        if (nowMs - it->second.sentAtMs >= config_.leaderLeaseMs) it = heartbeatRounds_.erase(it); else ++it;
+    }
+    for (auto it = dispatchRequests_.begin(); it != dispatchRequests_.end();) {
+        if (nowMs - it->second >= config_.leaderLeaseMs) it = dispatchRequests_.erase(it); else ++it;
+    }
+}
+
+void EmsClusterNode::sendHeartbeat(std::int64_t nowMs) {
+    if (heartbeatRounds_.size() >= kMaxChallenges) heartbeatRounds_.erase(heartbeatRounds_.begin());
+    auto heartbeat = baseMessage(EmsClusterMessageType::Heartbeat);
+    heartbeat.heartbeatId = ++challengeId_;
+    heartbeat.heartbeatIncarnation = bootId_;
+    heartbeatRounds_[heartbeat.heartbeatId] = {nowMs, currentTerm_, membershipEpoch_};
+    outgoing_.push_back({std::move(heartbeat), {}, false});
+    lastHeartbeatMs_ = nowMs;
 }
 
 void EmsClusterNode::resetElectionDeadline(std::int64_t nowMs) {
@@ -1120,13 +1239,18 @@ void EmsClusterNode::resetElectionDeadline(std::int64_t nowMs) {
 }
 
 void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) {
+    observeTime(nowMs);
     if (!config_.enabled || role_ == EmsClusterRole::Disabled || role_ == EmsClusterRole::Quarantined || role_ == EmsClusterRole::Fault) return;
     load_ = load;
     loadScore_ = calculateLoadScore(load);
     if (electionDeadlineMs_ == 0) resetElectionDeadline(nowMs);
 
     if (lastDiscoveryMs_ == 0 || nowMs - lastDiscoveryMs_ >= config_.discoveryIntervalMs) {
-        queue(EmsClusterMessageType::Discover, {}, true);
+        if (discoveryRounds_.size() >= kMaxChallenges) discoveryRounds_.erase(discoveryRounds_.begin());
+        auto discover = baseMessage(EmsClusterMessageType::Discover);
+        discover.discoveryChallenge = ++challengeId_;
+        discoveryRounds_[discover.discoveryChallenge] = nowMs;
+        outgoing_.push_back({std::move(discover), {}, true});
         lastDiscoveryMs_ = nowMs;
     }
 
@@ -1137,18 +1261,19 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
             becomeFollower(currentTerm_, {}, nowMs, "local ComputeEngine is unhealthy");
             return;
         }
-        if (!leaderLeaseValid(nowMs)) {
+        if (nowMs >= leadershipDeadlineMs_) {
             queue(EmsClusterMessageType::StepDown);
             invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
             becomeFollower(currentTerm_, {}, nowMs, "leader lost majority lease");
             return;
         }
         if (lastHeartbeatMs_ == 0 || nowMs - lastHeartbeatMs_ >= config_.heartbeatMs) {
-            queue(EmsClusterMessageType::Heartbeat);
-            lastHeartbeatMs_ = nowMs;
+            sendHeartbeat(nowMs);
         }
-        maybeProposeMembership(nowMs);
-        maybeCommitMembership(nowMs);
+        if (leaderLeaseValid(nowMs)) {
+            maybeProposeMembership(nowMs);
+            maybeCommitMembership(nowMs);
+        }
         tickDispatch(nowMs);
         return;
     }
@@ -1158,7 +1283,7 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
         role_ = EmsClusterRole::Discovering;
         reason_ = "leader lease expired";
     }
-    if (leaderNodeId_.empty() && nowMs >= electionDeadlineMs_) {
+    if (leaderNodeId_.empty() && nowMs >= electionDeadlineMs_ && nowMs >= voteHoldUntilMs_) {
         if (!isVotingMember(nodeId_)) {
             role_ = EmsClusterRole::Discovering;
             reason_ = "waiting for committed membership";
@@ -1203,38 +1328,105 @@ void EmsClusterNode::refreshMember(const EmsClusterInbound& inbound, std::int64_
 }
 
 void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowMs) {
-    if (!config_.enabled || role_ == EmsClusterRole::Disabled || role_ == EmsClusterRole::Fault) return;
+    observeTime(nowMs);
+    if (!config_.enabled || role_ == EmsClusterRole::Disabled || role_ == EmsClusterRole::Fault ||
+        role_ == EmsClusterRole::Quarantined) return;
     const auto& message = inbound.message;
-    if (message.clusterIdHash != clusterIdHash_) return;
+    if (message.clusterIdHash != clusterIdHash_ || message.configHash != configHash_ ||
+        message.senderNodeId.empty() || message.senderNodeId.size() > 128 ||
+        message.senderIncarnation.empty() || message.senderIncarnation.size() > 128 || message.sequence == 0) return;
     if (message.senderNodeId == nodeId_) {
-        if (!message.senderBootId.empty() && message.senderBootId != bootId_) {
+        if (message.senderIncarnation != bootId_) {
             role_ = EmsClusterRole::Quarantined;
-            reason_ = "duplicate machineCode detected with a different bootId";
+            invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
+            reason_ = "duplicate machineCode detected with a different process incarnation";
         }
         return;
     }
-    const auto previous = members_.find(message.senderNodeId);
-    if (previous != members_.end() && !previous->second.status.bootId.empty() &&
-        previous->second.status.bootId != message.senderBootId &&
-        nowMs - previous->second.status.lastSeenMs <= config_.memberTimeoutMs) {
-        previous->second.status.duplicateIdentity = true;
-        previous->second.status.compatible = false;
-        reason_ = "duplicate remote machineCode detected: " + message.senderNodeId;
+    if (outgoing_.size() >= 256) { failClosed("outgoing message budget exhausted"); return; }
+    auto previous = members_.find(message.senderNodeId);
+    if (previous != members_.end() &&
+        previous->second.retiredIncarnations.count(message.senderIncarnation)) return;
+    if (message.type == EmsClusterMessageType::Discover) {
+        if (message.discoveryChallenge == 0) return;
+        if (previous != members_.end() && previous->second.incarnation == message.senderIncarnation &&
+            message.sequence <= previous->second.lastSequence) return;
+        auto hello = baseMessage(EmsClusterMessageType::Hello);
+        hello.discoveryReplyTo = message.discoveryChallenge;
+        hello.recipientIncarnation = message.senderIncarnation;
+        outgoing_.push_back({std::move(hello), message.senderNodeId, false});
         return;
     }
+    if (message.type == EmsClusterMessageType::Hello) {
+        const auto challenge = discoveryRounds_.find(message.discoveryReplyTo);
+        if (message.recipientIncarnation != bootId_ || challenge == discoveryRounds_.end()) return;
+        if (previous == members_.end()) {
+            if (members_.size() >= static_cast<std::size_t>(config_.maxMembers - 1)) return;
+            previous = members_.emplace(message.senderNodeId, Member{}).first;
+        }
+        auto& peer = previous->second;
+        if (peer.incarnation != message.senderIncarnation) {
+            if (!peer.incarnation.empty()) {
+                if (peer.retiredIncarnations.size() >= kMaxRetiredIncarnations) {
+                    failClosed("retired incarnation budget exhausted");
+                    return;
+                }
+                peer.retiredIncarnations.insert(peer.incarnation);
+            }
+            peer.incarnation = message.senderIncarnation;
+            peer.lastSequence = 0;
+            peer.lastAckMs = 0;
+            peer.lastAckId = 0;
+            peer.lastCapabilityMs = 0;
+            peer.dispatchRequestId = 0;
+        }
+        if (message.sequence <= peer.lastSequence) return;
+        peer.lastSequence = message.sequence;
+        refreshMember(inbound, nowMs);
+        return;
+    }
+    if (previous == members_.end() || previous->second.incarnation != message.senderIncarnation ||
+        message.sequence <= previous->second.lastSequence) return;
+    auto& member = previous->second;
+    if (message.type == EmsClusterMessageType::DispatchTarget) {
+        const auto previousSequence = localDispatch_.sequence;
+        handleDispatchTarget(message, nowMs);
+        if (localDispatch_.sequence != previousSequence && localDispatch_.valid) {
+            member.lastSequence = message.sequence;
+            refreshMember(inbound, nowMs);
+        }
+        return;
+    }
+    if (message.term < currentTerm_) return;
+    if (message.type == EmsClusterMessageType::CapabilityReport &&
+        (role_ != EmsClusterRole::Leader || message.term != currentTerm_ ||
+         message.membershipEpoch != membershipEpoch_ || message.dispatchRequestId == 0 ||
+         message.dispatchRequestIncarnation != message.senderIncarnation)) return;
+    if (message.type == EmsClusterMessageType::HeartbeatAck) {
+        const auto round = heartbeatRounds_.find(message.heartbeatAckId);
+        if (role_ != EmsClusterRole::Leader || nowMs >= leadershipDeadlineMs_ ||
+            message.term != currentTerm_ || message.leaderNodeId != nodeId_ ||
+            message.membershipEpoch != membershipEpoch_ || message.heartbeatIncarnation != bootId_ ||
+            !isVotingMember(message.senderNodeId) || round == heartbeatRounds_.end() ||
+            round->second.term != currentTerm_ || round->second.epoch != membershipEpoch_ ||
+            message.heartbeatAckId <= member.lastAckId) return;
+    }
+    if (message.type == EmsClusterMessageType::VoteReply &&
+        (role_ != EmsClusterRole::Candidate || message.term != currentTerm_ ||
+         message.voteReplyTo != electionId_ || message.voteCandidateIncarnation != bootId_ ||
+         nowMs - electionStartedMs_ >= config_.leaderLeaseMs)) return;
+    if (message.type == EmsClusterMessageType::VoteRequest &&
+        (message.electionId == 0 || nowMs < voteHoldUntilMs_ || nowMs < startupUntilMs_)) return;
+    if (message.type == EmsClusterMessageType::Heartbeat || message.type == EmsClusterMessageType::LeaderCommit) {
+        if (message.heartbeatId == 0 || message.heartbeatIncarnation != message.senderIncarnation ||
+            message.leaderNodeId != message.senderNodeId || nowMs < startupUntilMs_ ||
+            message.membershipEpoch < membershipEpoch_ ||
+            (nowMs < voteHoldUntilMs_ && (promisedLeader_ != message.senderNodeId ||
+             promisedIncarnation_ != message.senderIncarnation))) return;
+    }
+    // Only admitted incarnations with fresh, context-valid messages update liveness/replay state.
+    member.lastSequence = message.sequence;
     refreshMember(inbound, nowMs);
-    auto memberIt = members_.find(message.senderNodeId);
-    if (memberIt == members_.end()) return;
-    auto& member = memberIt->second;
-    if (!member.status.compatible) return;
-    if (message.type == EmsClusterMessageType::Discover &&
-        message.senderBootId == member.status.bootId && message.sequence < member.lastSequence) {
-        member.lastSequence = 0;
-    }
-    if (message.type != EmsClusterMessageType::Discover && message.type != EmsClusterMessageType::Hello) {
-        if (message.sequence <= member.lastSequence) return;
-        member.lastSequence = message.sequence;
-    }
     if (message.term > currentTerm_) becomeFollower(message.term, {}, nowMs, "observed a higher term");
 
     switch (message.type) {
@@ -1250,13 +1442,22 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
             if (message.membershipEpoch > membershipEpoch_ && !message.assignments.empty()) {
                 handleMembershipCommit(message, nowMs);
             }
-            queue(EmsClusterMessageType::HeartbeatAck, message.senderNodeId);
+            promisedLeader_ = message.senderNodeId;
+            promisedIncarnation_ = message.senderIncarnation;
+            voteHoldUntilMs_ = nowMs + config_.leaderLeaseMs + config_.heartbeatMs;
+            {
+                auto ack = baseMessage(EmsClusterMessageType::HeartbeatAck);
+                ack.heartbeatAckId = message.heartbeatId;
+                ack.heartbeatIncarnation = message.senderIncarnation;
+                outgoing_.push_back({std::move(ack), message.senderNodeId, false});
+            }
             break;
         case EmsClusterMessageType::HeartbeatAck:
             if (role_ == EmsClusterRole::Leader && message.term == currentTerm_ &&
                 message.leaderNodeId == nodeId_ && message.membershipEpoch == membershipEpoch_ &&
-                isVotingMember(message.senderNodeId) && leaderLeaseValid(nowMs)) {
-                member.lastAckMs = nowMs;
+                isVotingMember(message.senderNodeId) && nowMs < leadershipDeadlineMs_) {
+                member.lastAckMs = heartbeatRounds_.at(message.heartbeatAckId).sentAtMs;
+                member.lastAckId = message.heartbeatAckId;
                 std::vector<std::int64_t> acknowledgements;
                 for (const auto& entry : members_) {
                     if (isVotingMember(entry.first) && entry.second.status.compatible &&
@@ -1269,6 +1470,11 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
                     std::sort(acknowledgements.rbegin(), acknowledgements.rend());
                     // Self votes continuously; the oldest ACK in the newest quorum anchors its lease.
                     lastQuorumMs_ = std::max(lastQuorumMs_, acknowledgements[requiredPeers - 1]);
+                    leadershipDeadlineMs_ = lastQuorumMs_ + config_.leaderLeaseMs;
+                    // Our self vote remains a promise even after stepping down or seeing a higher term.
+                    voteHoldUntilMs_ = std::max(voteHoldUntilMs_, leadershipDeadlineMs_ + config_.heartbeatMs);
+                    promisedLeader_ = nodeId_;
+                    promisedIncarnation_ = bootId_;
                 }
             }
             break;
@@ -1328,6 +1534,7 @@ void EmsClusterNode::becomeFollower(
     if (termChanged) {
         currentTerm_ = term;
         votedFor_.clear();
+        votedForIncarnation_.clear();
         persistConsensusState();
     }
     role_ = leader.empty() ? EmsClusterRole::Discovering : EmsClusterRole::Follower;
@@ -1350,8 +1557,10 @@ void EmsClusterNode::becomeFollower(
 }
 
 void EmsClusterNode::startElection(std::int64_t nowMs) {
+    if (currentTerm_ == std::numeric_limits<std::uint64_t>::max()) { failClosed("term exhausted"); return; }
     ++currentTerm_;
     votedFor_ = nodeId_;
+    votedForIncarnation_ = bootId_;
     persistConsensusState();
     role_ = EmsClusterRole::Candidate;
     leaderNodeId_.clear();
@@ -1360,29 +1569,38 @@ void EmsClusterNode::startElection(std::int64_t nowMs) {
     reason_ = "requesting majority vote";
     invalidateDispatch(EmsClusterDispatchCode::NotLeader);
     resetElectionDeadline(nowMs);
-    queue(EmsClusterMessageType::VoteRequest);
+    electionStartedMs_ = nowMs;
+    electionId_ = ++challengeId_;
+    auto request = baseMessage(EmsClusterMessageType::VoteRequest);
+    request.electionId = electionId_;
+    outgoing_.push_back({std::move(request), {}, false});
 }
 
 void EmsClusterNode::becomeLeader(std::int64_t nowMs) {
     role_ = EmsClusterRole::Leader;
     leaderNodeId_ = nodeId_;
-    lastQuorumMs_ = nowMs;
-    for (auto& entry : members_) entry.second.lastAckMs = 0;
+    lastQuorumMs_ = 0;
+    leadershipDeadlineMs_ = electionStartedMs_ + config_.leaderLeaseMs;
+    heartbeatRounds_.clear();
+    for (auto& entry : members_) { entry.second.lastAckMs = 0; entry.second.lastAckId = 0; }
     lastHeartbeatMs_ = 0;
     dispatchSequence_ = 0;
     invalidateDispatch(EmsClusterDispatchCode::Expired);
     reason_ = "majority vote committed leader";
-    queue(EmsClusterMessageType::LeaderCommit);
+    sendHeartbeat(nowMs);
 }
 
 void EmsClusterNode::handleVoteRequest(const EmsClusterMessage& message, std::int64_t nowMs) {
     bool grant = false;
     if (message.term == currentTerm_ &&
-        (votedFor_.empty() || votedFor_ == message.senderNodeId) &&
+        nowMs >= voteHoldUntilMs_ &&
+        (votedFor_.empty() || (votedFor_ == message.senderNodeId &&
+         votedForIncarnation_ == message.senderIncarnation)) &&
         message.configHash == configHash_ && message.computeHealthy &&
         message.membershipEpoch >= membershipEpoch_ && isVotingMember(message.senderNodeId) &&
         isVotingMember(nodeId_)) {
         votedFor_ = message.senderNodeId;
+        votedForIncarnation_ = message.senderIncarnation;
         persistConsensusState();
         grant = true;
         leaderNodeId_.clear();
@@ -1392,6 +1610,8 @@ void EmsClusterNode::handleVoteRequest(const EmsClusterMessage& message, std::in
     }
     auto reply = baseMessage(EmsClusterMessageType::VoteReply);
     reply.voteGranted = grant;
+    reply.voteReplyTo = message.electionId;
+    reply.voteCandidateIncarnation = message.senderIncarnation;
     outgoing_.push_back({std::move(reply), message.senderNodeId, false});
 }
 
@@ -1409,7 +1629,6 @@ void EmsClusterNode::handleMembershipProposal(const EmsClusterMessage& message, 
     ack.proposalId = pendingProposalId_;
     ack.membershipEpoch = pendingMembershipEpoch_;
     outgoing_.push_back({std::move(ack), message.senderNodeId, false});
-    lastLeaderSeenMs_ = nowMs;
 }
 
 void EmsClusterNode::handleMembershipCommit(const EmsClusterMessage& message, std::int64_t nowMs) {
@@ -1424,7 +1643,6 @@ void EmsClusterNode::handleMembershipCommit(const EmsClusterMessage& message, st
     pendingAssignments_.clear();
     pendingProposalLastSentMs_ = 0;
     reason_ = "membership committed";
-    lastLeaderSeenMs_ = nowMs;
 }
 
 void EmsClusterNode::maybeProposeMembership(std::int64_t nowMs) {
@@ -1532,7 +1750,11 @@ void EmsClusterNode::maybeCommitMembership(std::int64_t) {
     if (pendingProposalId_ == 0 || static_cast<int>(membershipAcks_.size()) < requiredAcks) return;
     assignments_ = pendingAssignments_;
     membershipEpoch_ = pendingMembershipEpoch_;
-    for (auto& entry : members_) entry.second.lastAckMs = 0;
+    for (auto& entry : members_) { entry.second.lastAckMs = 0; entry.second.lastAckId = 0; }
+    heartbeatRounds_.clear();
+    lastQuorumMs_ = 0;
+    lastHeartbeatMs_ = 0;
+    invalidateDispatch(EmsClusterDispatchCode::MembershipMismatch);
     persistMembership();
     auto commit = baseMessage(EmsClusterMessageType::MembershipCommit);
     commit.proposalId = pendingProposalId_;
@@ -1560,6 +1782,7 @@ EmsClusterMessage EmsClusterNode::baseMessage(EmsClusterMessageType type) const 
     message.sequence = ++sequence_;
     message.senderNodeId = nodeId_;
     message.senderBootId = bootId_;
+    message.senderIncarnation = bootId_;
     message.leaderNodeId = leaderNodeId_;
     message.loadScore = loadScore_;
     message.electionPriority = config_.electionPriority;
@@ -1603,11 +1826,18 @@ bool EmsClusterNode::isVotingMember(const std::string& nodeId) const {
 }
 
 bool EmsClusterNode::leaderLeaseValid(std::int64_t nowMs) const {
+    if (nowMs < lastObservedMs_) return false;
     if (role_ == EmsClusterRole::Leader) {
         return lastQuorumMs_ > 0 && nowMs - lastQuorumMs_ < config_.leaderLeaseMs;
     }
     return role_ == EmsClusterRole::Follower && !leaderNodeId_.empty() &&
         lastLeaderSeenMs_ > 0 && nowMs - lastLeaderSeenMs_ < config_.leaderLeaseMs;
+}
+
+std::int64_t EmsClusterNode::authorityDeadline() const {
+    if (role_ == EmsClusterRole::Leader) return lastQuorumMs_ > 0 ? lastQuorumMs_ + config_.leaderLeaseMs : 0;
+    if (role_ == EmsClusterRole::Follower && !leaderNodeId_.empty()) return lastLeaderSeenMs_ + config_.leaderLeaseMs;
+    return 0;
 }
 
 bool EmsClusterNode::sameAssignments(
@@ -1654,6 +1884,7 @@ EmsClusterStatus EmsClusterNode::status(std::int64_t nowMs) const {
     result.onlineMembers = onlineCompatibleCount(nowMs);
     result.quorum = effectiveQuorum();
     result.quorumValid = leaderLeaseValid(nowMs);
+    result.authorityExpireAtMs = authorityDeadline();
     result.metricsComplete = load_.computeMetricsAvailable;
     result.computeHealthy = load_.computeHealthy;
     result.loadScore = loadScore_;
