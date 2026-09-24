@@ -1,0 +1,6 @@
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-7q3se3hz/artifact.tar.gz'), 'candidate', 'tls-failure', PosixPath('/var/tmp/gateway-install-test-7q3se3hz/backup'), PosixPath('/var/tmp/gateway-install-test-7q3se3hz/staging')] exit=42
+[2026-09-24 20:39:28] [ota-rollback] start jobId=tls-failure version=candidate artifact=/var/tmp/gateway-install-test-7q3se3hz/artifact.tar.gz
+[2026-09-24 20:39:28] [ota-rollback] restarting compute-engine@test.service
+[2026-09-24 20:39:28] [ota-rollback] restarting gateway-services.service for tls restoration
+[2026-09-24 20:39:28] [ota-rollback] failed; keep runtime stopped jobId=tls-failure
+

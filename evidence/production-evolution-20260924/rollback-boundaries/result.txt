@@ -1,0 +1,12 @@
+test_ota_rollback_service_failure_is_not_success (__main__.InstallIsolationTest.test_ota_rollback_service_failure_is_not_success) ... ok
+test_ota_rollback_service_boundaries (__main__.InstallIsolationTest.test_ota_rollback_service_boundaries) ... ok
+test_ota_rollback_preserves_identity_and_durable_data (__main__.InstallIsolationTest.test_ota_rollback_preserves_identity_and_durable_data) ... ok
+test_scada_rollback_failure_does_not_stop_gateway (__main__.InstallIsolationTest.test_scada_rollback_failure_does_not_stop_gateway) ... ok
+test_ota_rollback_marker_failure_still_cleans_up (__main__.InstallIsolationTest.test_ota_rollback_marker_failure_still_cleans_up) ... ok
+test_ota_rollback_tls_implicit_unit_is_stopped_on_failure (__main__.InstallIsolationTest.test_ota_rollback_tls_implicit_unit_is_stopped_on_failure) ... ok
+test_existing_shell_regressions (__main__.InstallIsolationTest.test_existing_shell_regressions) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 2.357s
+
+OK

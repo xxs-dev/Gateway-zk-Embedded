@@ -114,6 +114,26 @@ REQUEST_WORK_DIR="$WORK_DIR"
 
 mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
 
+finish_rollback() {
+  result=$?
+  trap - EXIT HUP INT TERM
+  set +e
+  if [ "$result" -ne 0 ]; then
+    printf 'reason=ota-rollback-failed\njobId=%s\n' "$JOB_ID" > "$WATCHDOG_RUN_DIR/manual-stop"
+    printf 'status=failed\njobId=%s\n' "$JOB_ID" >> "$ROLLBACK_MARK"
+    echo "[$TIMESTAMP] [ota-rollback] failed; keep runtime stopped jobId=$JOB_ID" | tee -a "$LOG_FILE" >&2
+    if command -v systemctl >/dev/null 2>&1 && [ -f "$RECOVERY_UNITS" ]; then
+      while IFS= read -r service; do
+        [ -n "$service" ] || continue
+        safe_service_name "$service" || continue
+        systemctl stop "$service" || echo "[ota-rollback] stop failed $service; operator recovery required" >&2
+      done < "$RECOVERY_UNITS"
+    fi
+  fi
+  cleanup_applying_marker
+  exit "$result"
+}
+
 echo "[$TIMESTAMP] [ota-rollback] start jobId=$JOB_ID version=$VERSION artifact=$ARTIFACT_PATH" | tee -a "$LOG_FILE"
 
 state_value() {
@@ -219,6 +239,13 @@ if [ -f "$REQUEST_WORK_DIR/package-type.txt" ] && grep -qx 'packageType=scada' "
   exit 0
 fi
 
+RECOVERY_UNITS="$STAGING_DIR/rollback_${JOB_ID}_attempted_services.txt"
+: > "$RECOVERY_UNITS"
+trap finish_rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 if [ -f "$STATE_FILE" ]; then
   STATE_JOB_ID="$(awk -F= '/^jobId=/{print $2}' "$STATE_FILE" | tail -n 1)"
   if [ "${STATE_JOB_ID:-}" = "$JOB_ID" ]; then
@@ -244,10 +271,6 @@ fi
 
 if [ "$RESTORE_BACKUP_DIR" = "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR/$JOB_ID" ]; then
   RESTORE_BACKUP_DIR="$BACKUP_DIR/$JOB_ID"
-fi
-
-if [ -f "$RESTORE_BACKUP_DIR/previous_version.txt" ]; then
-  cp "$RESTORE_BACKUP_DIR/previous_version.txt" "$STAGING_DIR/applied_version.txt"
 fi
 
 if [ -d "$RESTORE_BACKUP_DIR/opt" ] || [ -d "$RESTORE_BACKUP_DIR/etc" ]; then
@@ -285,6 +308,9 @@ for top in ("opt", "etc"):
             src = os.path.join(current_root, name)
             rel = os.path.relpath(src, backup_dir)
             dst = os.path.join("/", rel)
+            if dst.startswith("/opt/modbus-gateway/data/") or dst == "/opt/modbus-gateway/config/runtime/device_identity.json":
+                print("[ota-rollback] preserve current identity or durable state: " + dst)
+                continue
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             atomic_copy2(src, dst)
             restored.append(f"{src} -> {dst}")
@@ -294,37 +320,48 @@ with open(restore_list, "w", encoding="utf-8") as fh:
 PY
 fi
 
-if command -v systemctl >/dev/null 2>&1 && [ -f "$RESTART_FILE" ]; then
+if [ -s "$RESTART_FILE" ]; then
+  command -v systemctl >/dev/null 2>&1 || { echo "[ota-rollback] systemctl required for requested service recovery" >&2; exit 1; }
   need_gateway_services_restart=0
   if [ -f "$RESTORE_LIST" ] && grep -qE -e '-> /opt/modbus-gateway/config/runtime/tls/|-> /etc/systemd/system/mqtt-tls-tunnel@\.service$' "$RESTORE_LIST"; then
     need_gateway_services_restart=1
   fi
-  systemctl daemon-reload || echo "[$TIMESTAMP] [ota-rollback] daemon-reload failed" | tee -a "$LOG_FILE" >&2
+  systemctl daemon-reload
   while IFS= read -r service; do
     [ -z "$service" ] && continue
     if ! safe_service_name "$service"; then
-      echo "[$TIMESTAMP] [ota-rollback] skip unsafe restart service $service" | tee -a "$LOG_FILE" >&2
-      continue
+      echo "[$TIMESTAMP] [ota-rollback] unsafe restart service $service" | tee -a "$LOG_FILE" >&2
+      exit 1
     fi
+    printf '%s\n' "$service" >> "$RECOVERY_UNITS"
     if [ "$service" = "gateway-services.service" ]; then
-      systemctl enable "$service" || echo "[$TIMESTAMP] [ota-rollback] enable failed $service" | tee -a "$LOG_FILE" >&2
+      systemctl enable "$service"
       echo "[$TIMESTAMP] [ota-rollback] reloading or starting $service" | tee -a "$LOG_FILE"
-      systemctl reload-or-restart "$service" || echo "[$TIMESTAMP] [ota-rollback] reload-or-restart failed $service" | tee -a "$LOG_FILE" >&2
+      systemctl reload-or-restart "$service"
+      systemctl is-active --quiet "$service"
       continue
     fi
     echo "[$TIMESTAMP] [ota-rollback] restarting $service" | tee -a "$LOG_FILE"
-    systemctl restart "$service" || echo "[$TIMESTAMP] [ota-rollback] restart failed $service" | tee -a "$LOG_FILE" >&2
+    systemctl restart "$service"
+    systemctl is-active --quiet "$service"
   done < "$RESTART_FILE"
   if [ "$need_gateway_services_restart" -eq 1 ]; then
     if ! grep -qx 'gateway-services.service' "$RESTART_FILE"; then
       echo "[$TIMESTAMP] [ota-rollback] restarting gateway-services.service for tls restoration" | tee -a "$LOG_FILE"
-      systemctl enable gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] enable failed gateway-services.service" | tee -a "$LOG_FILE" >&2
-      systemctl reload-or-restart gateway-services.service || echo "[$TIMESTAMP] [ota-rollback] reload-or-restart failed gateway-services.service" | tee -a "$LOG_FILE" >&2
+      printf '%s\n' gateway-services.service >> "$RECOVERY_UNITS"
+      systemctl enable gateway-services.service
+      systemctl reload-or-restart gateway-services.service
+      systemctl is-active --quiet gateway-services.service
     fi
   fi
 fi
 
+if [ -f "$RESTORE_BACKUP_DIR/previous_version.txt" ]; then
+  cp "$RESTORE_BACKUP_DIR/previous_version.txt" "$STAGING_DIR/applied_version.txt"
+fi
+
 {
+  echo "status=succeeded"
   echo "jobId=$JOB_ID"
   echo "rollbackFromVersion=$VERSION"
   echo "artifact=$ARTIFACT_PATH"

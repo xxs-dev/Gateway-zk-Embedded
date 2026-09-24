@@ -1,0 +1,18 @@
+test_ota_rollback_preserves_identity_and_durable_data (__main__.InstallIsolationTest.test_ota_rollback_preserves_identity_and_durable_data) ... FAIL
+
+======================================================================
+FAIL: test_ota_rollback_preserves_identity_and_durable_data (__main__.InstallIsolationTest.test_ota_rollback_preserves_identity_and_durable_data)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 160, in test_ota_rollback_preserves_identity_and_durable_data
+    self.assertEqual(value, (live / name).read_text(), name)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'new durable dedup state\n' != 'old snapshot must not replace live state\n'
+- new durable dedup state
++ old snapshot must not replace live state
+ : data/control-dedup.sqlite
+
+----------------------------------------------------------------------
+Ran 1 test in 0.054s
+
+FAILED (failures=1)

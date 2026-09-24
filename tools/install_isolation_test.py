@@ -121,6 +121,85 @@ exec /bin/cp "$@"
         self.assertEqual("candidate-version\n", (staging / "applied_version.txt").read_text())
         self.assertTrue(Path("/run/gateway-health-watchdog/manual-stop").is_file())
 
+    def test_ota_rollback_service_boundaries(self):
+        for action in ("daemon-reload", "enable", "reload-or-restart", "is-active"):
+            with self.subTest(action=action):
+                job = "rollback-" + action
+                backup = self.root / "backup"
+                staging = self.root / "staging"
+                write(backup / job / "previous_version.txt", "old\n")
+                write(staging / "applied_version.txt", "candidate\n")
+                write(staging / job / "restart_services.txt", "gateway-services.service\n")
+                result = self.run_script("ota-rollback.sh",
+                                         [self.root / "artifact.tar.gz", "candidate", job, backup, staging],
+                                         {"FAIL_SYSTEMCTL_ACTION": action})
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertNotIn("success jobId=", result.stdout)
+                self.assertIn("status=failed", (staging / ("rollback_" + job + ".txt")).read_text())
+                self.assertEqual("candidate\n", (staging / "applied_version.txt").read_text())
+
+    def test_ota_rollback_preserves_identity_and_durable_data(self):
+        job = "rollback-preserve"
+        backup = self.root / "backup"
+        staging = self.root / "staging"
+        live = Path("/opt/modbus-gateway")
+        preserved = {"data/control-dedup.sqlite": "new durable dedup state\n",
+                     "data/cluster-membership.json": '{"membershipEpoch":2}\n',
+                     "data/ems-cluster-consensus.json": '{"term":17}\n',
+                     "config/runtime/device_identity.json": '{"machineCode":"LOCAL"}\n'}
+        for name, value in preserved.items():
+            write(live / name, value)
+            write(backup / job / "opt/modbus-gateway" / name, "old snapshot must not replace live state\n")
+        write(backup / job / "opt/modbus-gateway/config/runtime/apps/monitor.json", '{"old":true}\n')
+        write(backup / job / "previous_version.txt", "old-version\n")
+        write(staging / job / "restart_services.txt", "compute-engine@test.service\n")
+        result = self.run_script("ota-rollback.sh",
+                                 [self.root / "artifact.tar.gz", "candidate", job, backup, staging])
+        self.assertEqual(0, result.returncode, result.stdout)
+        for name, value in preserved.items():
+            self.assertEqual(value, (live / name).read_text(), name)
+        self.assertEqual('{"old":true}\n', (live / "config/runtime/apps/monitor.json").read_text())
+        self.assertEqual("old-version\n", (staging / "applied_version.txt").read_text())
+
+    def test_scada_rollback_failure_does_not_stop_gateway(self):
+        staging = self.root / "staging"
+        job = "scada-failure"
+        write(staging / job / "package-type.txt", "packageType=scada\n")
+        write(staging / job / "scada-install-state.txt", "scadaRoot=/invalid\n")
+        before = Path("/run/gateway-health-watchdog/manual-stop").read_bytes()
+        result = self.run_script("ota-rollback.sh",
+                                 [self.root / "artifact.kyscada", "candidate", job, self.root / "backup", staging])
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(before, Path("/run/gateway-health-watchdog/manual-stop").read_bytes())
+        self.assertEqual("", self.log.read_text())
+
+    def test_ota_rollback_marker_failure_still_cleans_up(self):
+        staging = self.root / "staging"
+        job = "marker-failure"
+        write(staging / job / "restart_services.txt", "compute-engine@test.service\n")
+        manual = Path("/run/gateway-health-watchdog/manual-stop")
+        manual.unlink()
+        manual.mkdir()
+        result = self.run_script("ota-rollback.sh",
+                                 [self.root / "artifact.tar.gz", "candidate", job, self.root / "backup", staging],
+                                 {"FAIL_SYSTEMCTL_ACTION": "restart"})
+        self.assertEqual(42, result.returncode, result.stdout)
+        self.assertFalse(self.marker.exists())
+        self.assertIn("stop compute-engine@test.service", self.log.read_text())
+
+    def test_ota_rollback_tls_implicit_unit_is_stopped_on_failure(self):
+        job = "tls-failure"
+        backup = self.root / "backup"
+        staging = self.root / "staging"
+        write(backup / job / "opt/modbus-gateway/config/runtime/tls/fixture", "test-only\n")
+        write(staging / job / "restart_services.txt", "compute-engine@test.service\n")
+        result = self.run_script("ota-rollback.sh",
+                                 [self.root / "artifact.tar.gz", "candidate", job, backup, staging],
+                                 {"FAIL_SYSTEMCTL_ACTION": "reload-or-restart"})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("stop gateway-services.service", self.log.read_text())
+        self.assertNotIn("stop unrelated", self.log.read_text())
+
     def test_factory_isolated_preflight_failure(self):
         env = self.factory()
         (self.root / "source/build-aarch64/SystemMonitor").unlink()
