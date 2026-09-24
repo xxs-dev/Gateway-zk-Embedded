@@ -1,0 +1,1 @@
+/usr/include/c++/15/optional:1172: constexpr _Tp* std::optional<_Tp>::operator->() [with _Tp = edge_gateway::ClusterAuthoritySnapshot]: Assertion 'this->_M_is_engaged()' failed.
