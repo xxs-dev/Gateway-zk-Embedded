@@ -44,6 +44,8 @@ public:
     void registerDevicePoints(const std::vector<DeviceConfig>& configs);
 
     void putLatest(const PointValue& value);
+    void publishClusterAuthority(const ClusterAuthoritySnapshot& snapshot);
+    Optional<ClusterAuthoritySnapshot> clusterAuthority() const;
 
     Optional<StoredPointValue> getLatest(
         const std::string& machineCode,
