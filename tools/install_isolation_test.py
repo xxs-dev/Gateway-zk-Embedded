@@ -51,6 +51,7 @@ printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
 case "$1" in
   list-unit-files)
     echo 'ky-ems.service enabled'
+    [ "${OFFLINE_WATCHDOG_DISCOVERED:-0}" != 1 ] || echo 'gateway-health-watchdog.service disabled'
     [ "${OFFLINE_TEST:-0}" != 1 ] || echo 'compute-engine@.service disabled' ;;
   stop|show)
     if [ "$1" = stop ] && [ "${MUTATE_MONITOR_DROPIN_ON_STOP:-0}" = 1 ]; then
@@ -61,6 +62,8 @@ case "$1" in
       if [ "${OFFLINE_TEST:-0}" = 1 ]; then
         case "$*" in
           *UnitFileState*) echo "${OFFLINE_UNIT_STATE:-disabled}" ;;
+          *--property=LoadState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_LOAD_STATE:-loaded}" ;;
+          *--property=ActiveState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_ACTIVE_STATE:-inactive}" ;;
           *--property=Environment\\ --value\\ system-monitor@monitor-service.service*)
             if [ -n "${MONITOR_ENV_SHOW_OVERRIDE:-}" ]; then
               echo "$MONITOR_ENV_SHOW_OVERRIDE"
@@ -469,6 +472,44 @@ exec /bin/cp "$@"
         self.assertEqual(0, self.offline_run('recover').returncode)
         self.assertEqual(original, dropin.read_bytes())
         self.assertEqual(0o644, stat.S_IMODE(dropin.stat().st_mode))
+
+    def test_offline_absent_watchdog_not_found_roundtrip(self):
+        home, approval = self.offline_fixture()
+        approval['units'].remove('gateway-health-watchdog.service')
+        env = {'OFFLINE_WATCHDOG_LOAD_STATE': 'not-found'}
+        result = self.offline_run(approval=approval, env=env)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertNotIn('stop gateway-health-watchdog.service', self.log.read_text())
+        self.assertFalse(Path('/etc/systemd/system/gateway-health-watchdog.service.d').exists())
+        self.assertEqual(0, self.offline_run('recover', env=env).returncode)
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_absent_watchdog_requires_not_found(self):
+        home, approval = self.offline_fixture()
+        approval['units'].remove('gateway-health-watchdog.service')
+        for state in ('loaded', 'unknown'):
+            with self.subTest(load_state=state):
+                result = self.offline_run(approval=approval, env={'OFFLINE_WATCHDOG_LOAD_STATE': state})
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+        result = self.offline_run(approval=approval, env={'OFFLINE_WATCHDOG_LOAD_STATE': 'not-found',
+                                                          'OFFLINE_WATCHDOG_DISCOVERED': '1'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_existing_watchdog_failures_still_refuse(self):
+        home, approval = self.offline_fixture()
+        result = self.offline_run(approval=approval, env={'FAIL_SYSTEMCTL_ACTION': 'stop'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('systemctl failed: stop', result.stdout)
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_existing_watchdog_unknown_active_refused(self):
+        home, approval = self.offline_fixture()
+        result = self.offline_run(approval=approval, env={'OFFLINE_WATCHDOG_ACTIVE_STATE': 'unknown'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('unit not stopped: gateway-health-watchdog.service=unknown', result.stdout)
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
 
     def offline_run(self, action='apply', approval=None, env=None):
         if approval is not None:
