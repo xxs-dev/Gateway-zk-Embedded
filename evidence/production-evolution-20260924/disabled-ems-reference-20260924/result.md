@@ -42,3 +42,28 @@ full fixed-voter config so it reaches its intended configuration-drift gate.
 `runtime-upgrade-guard.py` changed. The sealed R5 program manifest is unchanged.
 P1/P2 Coordinator-only ARM work is separate; no new installer pairing,
 deployment, device migration or release approval is claimed here.
+
+## Evidence close-out after 6943b97
+
+The two self-built 57,928-byte native fixture ELF files originally tracked in
+`red/` and `green/` were moved without changing `6943b97` to the separate
+ordinary evidence directory named in `fixture-archive.json`. Both copied/moved
+files were checked before and after the move against the provenance SHA256
+`f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0`.
+Their original paths are removed from the current tracked tree; historical Git
+objects in `6943b97` are not rewritten. Existing evidence elsewhere is untouched.
+
+The earlier preliminary 9-test run had 8 passes and 1 failure in
+`test_offline_observe_rejects_physical_and_changed_inputs`: its assertion expected
+`configuration changed`, but the test had replaced the full fixed-voter EMS
+object with only `controlEnabled:true`, so `local_identity` refused first with
+`enabled fixed-voter cluster configuration required`. During consolidation, the
+preliminary `disabled-ems-reference-20260924-green/result.txt` directory was
+removed; that exact result file is **not retained or hash-verifiable**. This is
+a supplemental account of the observed run, not a recreated raw log. The test
+was adjusted to preserve the full cluster object and change only
+`controlEnabled`, then the final retained `green/result.txt` recorded 14/14.
+The original expected-failure `red-final/result.txt` *is* retained at
+`red/result.txt` with its original SHA256 above. The still-earlier preliminary
+`red/` directory with a test-placement error was also not retained. No tests
+were rerun for this evidence close-out.

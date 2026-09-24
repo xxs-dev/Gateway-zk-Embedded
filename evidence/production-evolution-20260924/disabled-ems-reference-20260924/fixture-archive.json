@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "6943b97a17ff184113cf52b30fe3411c4e24ee1b",
+  "archiveDirectory": "C:/Users/12193/AppData/Local/GatewaySuiteEdge/offline-fixture-evidence-20260924/disabled-ems-reference-20260924",
+  "scope": "local native test fixtures only; not ARM product binaries",
+  "files": [
+    {
+      "originalTrackedPath": "evidence/production-evolution-20260924/disabled-ems-reference-20260924/red/offline-upgrade-fixture",
+      "archiveName": "red-fixture",
+      "bytes": 57928,
+      "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+    },
+    {
+      "originalTrackedPath": "evidence/production-evolution-20260924/disabled-ems-reference-20260924/green/offline-upgrade-fixture",
+      "archiveName": "green-fixture",
+      "bytes": 57928,
+      "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+    }
+  ]
+}
