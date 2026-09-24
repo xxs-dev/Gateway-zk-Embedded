@@ -2,6 +2,7 @@
 #include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -47,6 +48,14 @@ void startup() {
         auto local = config;
         local.consensusStateFile = name + std::to_string(i) + "-consensus.json";
         local.membershipFile = name + std::to_string(i) + "-members.json";
+        {
+            std::ofstream roster(local.membershipFile);
+            roster << "{\"schemaVersion\":\"1.0\",\"clusterId\":\"" << name
+                   << "\",\"membershipEpoch\":1,\"assignments\":["
+                      "{\"nodeId\":\"NODE_0\",\"cabinetNo\":1},"
+                      "{\"nodeId\":\"NODE_1\",\"cabinetNo\":2}]}";
+            require(static_cast<bool>(roster), "fixed voter fixture must be writable");
+        }
         local.electionPriority = i == 0 ? 100 : 0;
         nodes.emplace_back(new EmsClusterNode(local, "NODE_" + std::to_string(i), "BOOT_" + std::to_string(i)));
     }
