@@ -1,0 +1,3 @@
+* -text whitespace=cr-at-eol
+*.sh text eol=lf
+*.py text eol=lf
