@@ -76,7 +76,8 @@ public:
         int count,
         std::vector<int> lockedCabinetNumbers = {},
         int expectedMembers = 0,
-        bool controlEnabled = false
+        bool controlEnabled = false,
+        std::function<void(edge_gateway::EmsClusterConfig&)> configure = {}
     )
         : name_(std::move(name)) {
         for (int i = 0; i < count; ++i) {
@@ -87,6 +88,7 @@ public:
             item.config.dispatchCycleMs = 100;
             item.config.dispatchTtlMs = 400;
             item.config.capabilityTtlMs = 400;
+            if (configure) configure(item.config);
             item.config.consensusStateFile = tempPath(item.id + "-consensus.json");
             item.config.membershipFile = tempPath(item.id + "-membership.json");
             item.config.electionPriority = i == 0 ? 100 : 0;
@@ -148,6 +150,12 @@ public:
 
     void rejoin() {
         for (auto& row : links_) std::fill(row.begin(), row.end(), true);
+    }
+
+    void alignLeaderHeartbeat() {
+        for (int step = 0; step < 5 && at(0).lastHeartbeatAckMs != now(); ++step) run(25);
+        require(leaderIndex() == 0 && at(0).lastHeartbeatAckMs == now(),
+                "fixture must observe a fresh leader heartbeat ACK");
     }
 
     int leaderCount() const {
@@ -215,6 +223,7 @@ private:
 void testDelayedFirstAckCannotMoveSendDeadline() {
     Simulation simulation("delayed-first-ack", 3);
     simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
     require(simulation.leaderIndex() == 0, "delayed ACK test needs leader zero");
     edge_gateway::EmsClusterMessage delayed;
     std::int64_t sentAt = 0;
@@ -231,6 +240,8 @@ void testDelayedFirstAckCannotMoveSendDeadline() {
     simulation.partition({0}, {1, 2});
     simulation.run(250);
     simulation.at(0).node->receive({delayed, "169.254.1.3"}, simulation.now());
+    require(simulation.at(0).node->status(simulation.now()).authorityExpireAtMs == sentAt + 400,
+            "valid delayed ACK must anchor to send time, not merely be dropped");
     require(!simulation.at(0).node->status(sentAt + 400).quorumValid,
             "delayed first ACK must not extend authority beyond originating heartbeat send+L");
 }
@@ -238,6 +249,7 @@ void testDelayedFirstAckCannotMoveSendDeadline() {
 void testDiscoverCannotResetAckReplayWindow() {
     Simulation simulation("discover-ack-replay", 3);
     simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
     const auto ack = simulation.at(0).lastHeartbeatAck;
     const auto expiry = simulation.now() + 400;
     simulation.partition({0}, {1, 2});
@@ -251,6 +263,226 @@ void testDiscoverCannotResetAckReplayWindow() {
             "Discover must not reset replay state and admit an already-used ACK");
 }
 
+void testDelayedVotesAndHeartbeatActivation() {
+    Simulation delayed("delayed-votes", 3);
+    edge_gateway::EmsClusterMessage vote;
+    std::int64_t electionSentAt = 0;
+    delayed.deliverMessage = [&](int source, int target, const edge_gateway::EmsClusterMessage& message) {
+        if (source == 0 && message.type == edge_gateway::EmsClusterMessageType::VoteRequest) electionSentAt = delayed.now();
+        if (target == 0 && message.type == edge_gateway::EmsClusterMessageType::VoteReply && message.voteGranted) {
+            vote = message;
+            return false;
+        }
+        return true;
+    };
+    for (int i = 0; i < 100 && vote.sequence == 0; ++i) delayed.run(25);
+    require(vote.sequence != 0 && electionSentAt > 0, "must capture a granted vote reply");
+    delayed.partition({0}, {1, 2});
+    delayed.run(static_cast<int>(electionSentAt + 400 - delayed.now()));
+    delayed.at(0).node->receive({vote, "169.254.1.3"}, delayed.now());
+    require(delayed.at(0).node->role() != edge_gateway::EmsClusterRole::Leader &&
+            !delayed.at(0).node->status(delayed.now()).quorumValid,
+            "expired election evidence must not activate a leader");
+
+    Simulation activation("heartbeat-activation", 3, {}, 3, true);
+    activation.deliverMessage = [](int, int target, const edge_gateway::EmsClusterMessage& message) {
+        return target != 0 || message.type != edge_gateway::EmsClusterMessageType::HeartbeatAck;
+    };
+    for (int i = 0; i < 100 && activation.leaderIndex() != 0; ++i) activation.run(25);
+    require(activation.leaderIndex() == 0, "fresh votes may establish a provisional leader");
+    require(!activation.at(0).node->status(activation.now()).quorumValid &&
+            !activation.at(0).node->activeDispatch(activation.now()).valid,
+            "votes alone must never confer effective control");
+    activation.run(400);
+    require(activation.at(0).node->role() != edge_gateway::EmsClusterRole::Leader,
+            "provisional leader must time out without heartbeat quorum");
+}
+
+void testVoteHoldSurvivesHigherTermAndRestart() {
+    Simulation simulation("vote-hold", 3);
+    simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
+    auto& follower = simulation.at(1);
+    auto request = simulation.at(0).heartbeatAcks.at(simulation.at(2).id);
+    request.type = edge_gateway::EmsClusterMessageType::VoteRequest;
+    request.electionId = 700;
+    request.term = follower.node->currentTerm() + 1;
+    request.sequence += 10000;
+    request.computeHealthy = true;
+    const auto originalTerm = follower.node->currentTerm();
+    follower.node->drainOutgoing();
+    follower.node->receive({request, "169.254.1.3"}, simulation.now() + 499);
+    require(follower.node->currentTerm() == originalTerm && follower.node->drainOutgoing().empty(),
+            "higher-term request must not break a live leader promise");
+    follower.node->receive({request, "169.254.1.3"}, simulation.now() + 500);
+    auto replies = follower.node->drainOutgoing();
+    require(std::any_of(replies.begin(), replies.end(), [](const auto& item) {
+        return item.message.type == edge_gateway::EmsClusterMessageType::VoteReply && item.message.voteGranted;
+    }), "vote must become eligible after the full hold");
+
+    follower.node.reset(new edge_gateway::EmsClusterNode(follower.config, follower.id, "PROCESS_RESTART_VOTE"));
+    const auto restartedAt = simulation.now() + 500;
+    follower.node->tick(restartedAt, follower.load);
+    std::uint64_t challenge = 0;
+    for (const auto& item : follower.node->drainOutgoing()) challenge = item.message.discoveryChallenge;
+    auto hello = request;
+    hello.type = edge_gateway::EmsClusterMessageType::Hello;
+    hello.discoveryReplyTo = challenge;
+    hello.recipientIncarnation = follower.node->bootId();
+    follower.node->receive({hello, "169.254.1.3"}, restartedAt);
+    request.term += 1;
+    request.sequence += 1;
+    follower.node->receive({request, "169.254.1.3"}, restartedAt + 499);
+    require(follower.node->drainOutgoing().empty(), "restart must wait out unrecoverable lease promises");
+    follower.node->receive({request, "169.254.1.3"}, restartedAt + 500);
+    replies = follower.node->drainOutgoing();
+    require(std::any_of(replies.begin(), replies.end(), [](const auto& item) { return item.message.voteGranted; }),
+            "restarted process may vote only after startup hold and session validation");
+}
+
+void testRestartRejectsPreviousIncarnation() {
+    Simulation simulation("restart-incarnation", 3);
+    simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
+    const auto oldAck = simulation.at(0).heartbeatAcks.at(simulation.at(1).id);
+    auto& restarted = simulation.at(1);
+    const auto previousTerm = restarted.node->currentTerm();
+    restarted.node.reset(new edge_gateway::EmsClusterNode(restarted.config, restarted.id, "PROCESS_NEW_1"));
+    restarted.node->receive({oldAck, "169.254.1.2"}, simulation.now());
+    require(!restarted.node->status(simulation.now()).quorumValid && restarted.node->currentTerm() == previousTerm,
+            "restart cannot recover authority from an old reply");
+    simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
+    const auto deadline = simulation.at(0).node->status(simulation.now()).authorityExpireAtMs;
+    simulation.partition({0}, {1, 2});
+    simulation.run(375);
+    auto replay = oldAck;
+    replay.sequence += 100000;
+    simulation.at(0).node->receive({replay, "169.254.1.2"}, simulation.now());
+    require(simulation.at(0).node->status(simulation.now()).authorityExpireAtMs == deadline,
+            "retired sender incarnation cannot renew the current lease");
+}
+
+void testDelayedDispatchCannotAcquireFreshTtl() {
+    Simulation simulation("delayed-dispatch", 3, {}, 3, true);
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
+    edge_gateway::EmsClusterMessage target;
+    simulation.deliverMessage = [&](int, int receiver, const edge_gateway::EmsClusterMessage& message) {
+        if (receiver != 1) return true;
+        if (target.sequence == 0 && message.type == edge_gateway::EmsClusterMessageType::DispatchTarget) target = message;
+        return false;
+    };
+    simulation.run(375);
+    auto& follower = *simulation.at(1).node;
+    require(target.sequence != 0 && follower.status(simulation.now()).quorumValid,
+            "delayed dispatch test requires a target while follower heartbeat lease still lives");
+    const auto before = follower.activeDispatch(simulation.now()).sequence;
+    follower.receive({target, "169.254.1.1"}, simulation.now());
+    require(!follower.activeDispatch(simulation.now()).valid && follower.activeDispatch(simulation.now()).sequence == before,
+            "delayed target cannot restart its TTL at receipt");
+    const auto replies = follower.drainOutgoing();
+    require(std::any_of(replies.begin(), replies.end(), [](const auto& item) {
+        return item.message.type == edge_gateway::EmsClusterMessageType::DispatchAck &&
+            item.message.dispatchCode == edge_gateway::EmsClusterDispatchCode::Expired;
+    }), "expired local request correlation must reject delayed control explicitly");
+}
+
+void testBoundedIncarnationAndChallengeState() {
+    Simulation simulation("session-budget", 2);
+    auto& node = *simulation.at(0).node;
+    node.tick(simulation.now(), simulation.at(0).load);
+    std::uint64_t challenge = 0;
+    for (const auto& item : node.drainOutgoing()) challenge = item.message.discoveryChallenge;
+    edge_gateway::EmsClusterMessage hello;
+    hello.type = edge_gateway::EmsClusterMessageType::Hello;
+    hello.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(node.config().clusterId);
+    hello.configHash = edge_gateway::EmsClusterProtocol::configHash(node.config());
+    hello.senderNodeId = "SESSION_PEER";
+    hello.recipientIncarnation = node.bootId();
+    hello.discoveryReplyTo = challenge;
+    hello.sequence = 1;
+    for (int incarnation = 0; incarnation < 18; ++incarnation) {
+        hello.senderIncarnation = "INCARNATION_" + std::to_string(incarnation);
+        node.receive({hello, "169.254.1.2"}, simulation.now());
+    }
+    require(node.role() == edge_gateway::EmsClusterRole::Fault && node.status(simulation.now()).members.size() == 1,
+            "retired incarnation storage must have a fail-closed hard limit");
+    require(node.drainOutgoing().empty(), "state exhaustion must clear pending traffic");
+}
+
+void testLongLeaseBoundedWindows() {
+    const auto configure = [](edge_gateway::EmsClusterConfig& config) {
+        config.leaderLeaseMs = 60000;
+        config.electionTimeoutMinMs = 60001;
+        config.electionTimeoutMaxMs = 60800;
+        config.memberTimeoutMs = 62000;
+        config.discoveryIntervalMs = 100;
+    };
+    Simulation simulation("long-lease-window", 3, {}, 3, true, configure);
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(70000);
+    for (int i = 0; i < 3; ++i) {
+        require(simulation.at(i).node->role() != edge_gateway::EmsClusterRole::Fault &&
+                simulation.at(i).node->status(simulation.now()).controlActive,
+                "healthy 60s lease / 100ms traffic must not fault at the 32-challenge limit");
+    }
+    Simulation eviction("evicted-discovery", 2, {}, 2, false, configure);
+    auto& node = *eviction.at(0).node;
+    node.tick(1000, eviction.at(0).load);
+    std::uint64_t firstChallenge = 0;
+    for (const auto& item : node.drainOutgoing()) firstChallenge = item.message.discoveryChallenge;
+    for (int i = 1; i <= 32; ++i) { node.tick(1000 + i * 100, eviction.at(0).load); node.drainOutgoing(); }
+    edge_gateway::EmsClusterMessage stale;
+    stale.type = edge_gateway::EmsClusterMessageType::Hello;
+    stale.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(node.config().clusterId);
+    stale.configHash = edge_gateway::EmsClusterProtocol::configHash(node.config());
+    stale.senderNodeId = "EVICTED_PEER";
+    stale.senderIncarnation = "EVICTED_PROCESS";
+    stale.recipientIncarnation = node.bootId();
+    stale.discoveryReplyTo = firstChallenge;
+    stale.sequence = 1;
+    node.receive({stale, "169.254.1.2"}, 4200);
+    require(node.status(4200).members.empty(), "evicted discovery challenge must not admit a peer");
+}
+
+void testLeaderSelfVoteProtectsOldFollowerTargets() {
+    Simulation simulation("self-vote-promise", 3, {}, 3, true);
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
+    bool shifted = false;
+    simulation.deliverMessage = [&](int source, int target, const edge_gateway::EmsClusterMessage& message) {
+        if (!shifted && source == 2 && target == 0 &&
+            message.type == edge_gateway::EmsClusterMessageType::VoteRequest) shifted = true;
+        // Initially A+B renew while C cannot hear them. C's delayed election then
+        // reaches A as B is isolated: A's self vote must still protect B's target.
+        return shifted ? source != 1 && target != 1 : source != 2 && target != 2;
+    };
+    for (int elapsed = 25; elapsed <= 6000; elapsed += 25) {
+        simulation.run(25);
+        std::set<std::uint64_t> activeTerms;
+        for (int i = 0; i < 3; ++i) {
+            const auto dispatch = simulation.at(i).node->activeDispatch(simulation.now());
+            if (dispatch.valid) activeTerms.insert(dispatch.term);
+        }
+        require(activeTerms.size() <= 1,
+                "leader self vote must prevent new-term control while old follower targets remain live");
+    }
+    require(shifted && simulation.leaderCount() == 1,
+            "self-vote scenario must reconnect a majority and eventually elect one leader");
+}
+
 void testProtocolAuthentication() {
     auto config = configFor("protocol", 2);
     edge_gateway::EmsClusterMessage message;
@@ -261,6 +493,19 @@ void testProtocolAuthentication() {
     message.sequence = 12;
     message.senderNodeId = "COMM_A";
     message.senderBootId = "BOOT_A";
+    message.senderIncarnation = "PROCESS_A";
+    message.heartbeatId = 101;
+    message.heartbeatAckId = 100;
+    message.heartbeatIncarnation = "PROCESS_B";
+    message.discoveryChallenge = 17;
+    message.discoveryReplyTo = 16;
+    message.recipientIncarnation = "PROCESS_C";
+    message.electionId = 21;
+    message.voteReplyTo = 20;
+    message.voteCandidateIncarnation = "PROCESS_D";
+    message.dispatchRequestId = 25;
+    message.dispatchRequestIncarnation = "PROCESS_E";
+    message.authorityTtlMs = 200;
     message.loadScore = 12.5;
     message.lockedCabinetNo = 2;
     message.dispatchSequence = 99;
@@ -273,6 +518,22 @@ void testProtocolAuthentication() {
     message.assignments = {{"COMM_A", 1}, {"COMM_B", 2}};
     const auto frame = edge_gateway::EmsClusterProtocol::encode(message, config);
     const auto decoded = edge_gateway::EmsClusterProtocol::decode(frame.data(), frame.size(), config);
+    require(frame[3] == '2' && frame[4] == 2 && decoded.senderIncarnation == "PROCESS_A" &&
+            decoded.heartbeatId == 101 && decoded.heartbeatAckId == 100 &&
+            decoded.heartbeatIncarnation == "PROCESS_B" && decoded.discoveryChallenge == 17 &&
+            decoded.discoveryReplyTo == 16 && decoded.recipientIncarnation == "PROCESS_C" &&
+            decoded.electionId == 21 && decoded.voteReplyTo == 20 &&
+            decoded.voteCandidateIncarnation == "PROCESS_D" && decoded.dispatchRequestId == 25 &&
+            decoded.dispatchRequestIncarnation == "PROCESS_E" && decoded.authorityTtlMs == 200,
+            "KECP/2 must round-trip explicit correlation fields");
+    for (const auto oldMagic : {true, false}) {
+        auto incompatible = frame;
+        incompatible[oldMagic ? 3 : 4] = oldMagic ? '1' : 1;
+        bool versionRejected = false;
+        try { edge_gateway::EmsClusterProtocol::decode(incompatible.data(), incompatible.size(), config); }
+        catch (const std::invalid_argument&) { versionRejected = true; }
+        require(versionRejected, "old KECP magic/version must fail closed");
+    }
     require(decoded.term == 7 && decoded.lockedCabinetNo == 2 && decoded.assignments.size() == 2 &&
             decoded.dispatchSequence == 99 &&
             decoded.dispatchCode == edge_gateway::EmsClusterDispatchCode::Clamped &&
@@ -364,6 +625,7 @@ void testLeaseExpiresAtLastAckBoundary() {
         simulation.at(i).stationTargetValid = true;
     }
     simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
     auto& leader = simulation.at(0);
     require(simulation.leaderIndex() == 0 && leader.lastHeartbeatAckMs == simulation.now(),
             "boundary fixture must observe a freshly delivered heartbeat ACK");
@@ -457,13 +719,14 @@ void testControlPartitionAndRejoin(int count) {
 }
 
 void testHeartbeatAckContextDoesNotRenewLease() {
-    for (const auto kind : {"term", "leader", "epoch", "duplicate", "expired"}) {
+    for (const auto kind : {"term", "leader", "epoch", "duplicate", "expired", "unknown", "incarnation"}) {
         Simulation simulation(std::string("ack-context-") + kind, 3, {}, 3, true);
         for (int i = 0; i < 3; ++i) {
             simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
             simulation.at(i).stationTargetValid = true;
         }
         simulation.run(5000);
+        simulation.alignLeaderHeartbeat();
         auto& leader = simulation.at(0);
         require(simulation.leaderIndex() == 0 && leader.lastHeartbeatAckMs == simulation.now(),
                 "ACK context test needs an observed heartbeat ACK");
@@ -476,6 +739,8 @@ void testHeartbeatAckContextDoesNotRenewLease() {
         if (scenario == "term") --ack.term;
         if (scenario == "leader") ack.leaderNodeId = "OTHER_LEADER";
         if (scenario == "epoch") ++ack.membershipEpoch;
+        if (scenario == "unknown") ack.heartbeatAckId += 10000;
+        if (scenario == "incarnation") ack.heartbeatIncarnation = "OLD_PROCESS";
         leader.node->receive({ack, "169.254.1.3"}, scenario == "expired" ? expiry : simulation.now());
         require(!leader.node->status(expiry).quorumValid && !leader.node->activeDispatch(expiry).valid,
                 scenario + " ACK must not renew authority past its original lease");
@@ -490,19 +755,23 @@ void testFiveNodeLeaseRequiresTwoPeerAcks() {
             simulation.at(i).stationTargetValid = true;
         }
         simulation.run(5000);
+        simulation.alignLeaderHeartbeat();
         auto& leader = simulation.at(0);
         require(simulation.leaderIndex() == 0 && leader.heartbeatAcks.size() == 4 &&
                 leader.lastHeartbeatAckMs == simulation.now(), "five-node ACK fixture must be settled");
         const auto initialAck = simulation.now();
-        simulation.partition({0}, {1, 2, 3, 4});
+        std::map<std::string, edge_gateway::EmsClusterMessage> delayedAcks;
+        simulation.deliverMessage = [&](int, int target, const edge_gateway::EmsClusterMessage& message) {
+            if (target != 0) return true;
+            if (message.type == edge_gateway::EmsClusterMessageType::HeartbeatAck) delayedAcks[message.senderNodeId] = message;
+            return false;
+        };
         for (int peer = 1; peer <= peerCount; ++peer) {
             simulation.run(100);
-            auto ack = leader.heartbeatAcks.at(simulation.at(peer).id);
-            ack.sequence += 10000;
+            auto ack = delayedAcks.at(simulation.at(peer).id);
             leader.node->receive({ack, "169.254.1." + std::to_string(peer + 1)}, simulation.now());
         }
-        // Self + two peers form quorum: one fresh peer alone cannot move the anchor;
-        // two staggered ACKs move it to the earlier receipt, not the most recent one.
+        // Two distinct peers must acknowledge heartbeat sends, not merely arrive recently.
         const auto expiry = initialAck + leader.config.leaderLeaseMs + (peerCount == 2 ? 100 : 0);
         leader.node->updateControlInputs(leader.capability, leader.stationTarget, true, expiry - 1);
         leader.node->tick(expiry - 1, leader.load);
@@ -707,6 +976,7 @@ void testDuplicateMachineCodeQuarantinesNode() {
     inbound.message.configHash = edge_gateway::EmsClusterProtocol::configHash(config);
     inbound.message.senderNodeId = "COMM_DUP";
     inbound.message.senderBootId = "BOOT_OTHER_DEVICE";
+    inbound.message.senderIncarnation = "PROCESS_OTHER_DEVICE";
     inbound.message.sequence = 1;
     node.receive(inbound, 1000);
     require(node.role() == edge_gateway::EmsClusterRole::Quarantined,
@@ -943,6 +1213,7 @@ void testDispatchRejectsSameTermReplayAndOldTermMessage() {
     replay.sequence = std::numeric_limits<std::uint64_t>::max() - 1;
     replay.senderNodeId = simulation.at(leader).node->nodeId();
     replay.senderBootId = simulation.at(leader).node->bootId();
+    replay.senderIncarnation = simulation.at(leader).node->bootId();
     replay.leaderNodeId = replay.senderNodeId;
     replay.dispatchSequence = active.sequence;
     replay.dispatchTtlMs = static_cast<std::uint32_t>(followerNode.config().dispatchTtlMs);
@@ -1177,12 +1448,21 @@ int main(int argc, char** argv) {
             const std::string scenario(argv[1]);
             if (scenario == "delayed-ack") testDelayedFirstAckCannotMoveSendDeadline();
             else if (scenario == "discover-replay") testDiscoverCannotResetAckReplayWindow();
+            else if (scenario == "window-capacity") testLongLeaseBoundedWindows();
+            else if (scenario == "self-vote") testLeaderSelfVoteProtectsOldFollowerTargets();
             else throw std::runtime_error("unknown regression case");
             std::cout << scenario << " passed" << std::endl;
             return 0;
         }
         testDelayedFirstAckCannotMoveSendDeadline();
         testDiscoverCannotResetAckReplayWindow();
+        testDelayedVotesAndHeartbeatActivation();
+        testVoteHoldSurvivesHigherTermAndRestart();
+        testRestartRejectsPreviousIncarnation();
+        testDelayedDispatchCannotAcquireFreshTtl();
+        testBoundedIncarnationAndChallengeState();
+        testLongLeaseBoundedWindows();
+        testLeaderSelfVoteProtectsOldFollowerTargets();
         testProtocolAuthentication();
         testLeaseExpiresAtLastAckBoundary();
         testControlPartitionAndRejoin(2);

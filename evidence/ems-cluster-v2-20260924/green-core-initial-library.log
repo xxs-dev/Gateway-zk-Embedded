@@ -1,0 +1,56 @@
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_controller.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_command_mailbox.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_service.cpp.o
+[  8%] Building CXX object CMakeFiles/edge_gateway.dir/src/am5se_iec103_client.cpp.o
+[  8%] Building CXX object CMakeFiles/edge_gateway.dir/src/alarm_service.cpp.o
+[  8%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.o
+[ 12%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_signal_codec.cpp.o
+[ 12%] Building CXX object CMakeFiles/edge_gateway.dir/src/collector.cpp.o
+[ 12%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/collector_base.cpp.o
+[ 12%] Building CXX object CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o
+[ 16%] Building CXX object CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o
+[ 16%] Building CXX object CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o
+[ 16%] Building CXX object CMakeFiles/edge_gateway.dir/src/control_dedup_store.cpp.o
+[ 20%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.o
+[ 20%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_collector.cpp.o
+[ 20%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o
+[ 25%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_command_executor.cpp.o
+[ 25%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_collector.cpp.o
+[ 25%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o
+[ 29%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o
+[ 29%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o
+[ 29%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_commit_status.cpp.o
+[ 29%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_store_stats.cpp.o
+[ 33%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster.cpp.o
+[ 33%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_dispatch.cpp.o
+[ 33%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_network.cpp.o
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp: In function ‘std::string edge_gateway::emsClusterStatusJson(const EmsClusterStatus&, int64_t)’:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1929:43: error: ‘membe’ was not declared in this scope; did you mean ‘member’?
+ 1929 |             << ",\"lockedCabinetNo\":" << membe
+      |                                           ^~~~~
+      |                                           member
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1929:48: error: expected ‘}’ at end of input
+ 1929 |             << ",\"lockedCabinetNo\":" << membe
+      |                                                ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1923:61: note: to match this ‘{’
+ 1923 |     for (std::size_t i = 0; i < status.members.size(); ++i) {
+      |                                                             ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1929:48: error: expected ‘}’ at end of input
+ 1929 |             << ",\"lockedCabinetNo\":" << membe
+      |                                                ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1893:90: note: to match this ‘{’
+ 1893 | std::string emsClusterStatusJson(const EmsClusterStatus& status, std::int64_t wallNowMs) {
+      |                                                                                          ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1929:48: warning: no return statement in function returning non-void [-Wreturn-type]
+ 1929 |             << ",\"lockedCabinetNo\":" << membe
+      |                                                ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp: At global scope:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:1929:48: error: expected ‘}’ at end of input
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/src/ems_cluster.cpp:27:24: note: to match this ‘{’
+   27 | namespace edge_gateway {
+      |                        ^
+gmake[3]: *** [CMakeFiles/edge_gateway.dir/build.make:401: CMakeFiles/edge_gateway.dir/src/ems_cluster.cpp.o] Error 1
+gmake[3]: *** Waiting for unfinished jobs....
+gmake[2]: *** [CMakeFiles/Makefile2:1351: CMakeFiles/edge_gateway.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:1358: CMakeFiles/edge_gateway.dir/rule] Error 2
+gmake: *** [Makefile:498: edge_gateway] Error 2

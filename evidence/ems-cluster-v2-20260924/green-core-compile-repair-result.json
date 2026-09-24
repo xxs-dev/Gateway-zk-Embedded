@@ -1,0 +1,114 @@
+{
+  "label": "green-core-compile-repair",
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924",
+        "-B",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "seconds": 2.873
+    },
+    "library": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924",
+        "--target",
+        "edge_gateway",
+        "--parallel",
+        "4"
+      ],
+      "exitCode": 0,
+      "seconds": 13.9
+    },
+    "compile-ems_cluster_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/tools/ems_cluster_test.cpp",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924/ems_cluster_test-green-core-compile-repair"
+      ],
+      "exitCode": 0,
+      "seconds": 1.62
+    },
+    "ems_cluster_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924/ems_cluster_test-green-core-compile-repair",
+        "/tmp/cluster-fix-bnhawf8i"
+      ],
+      "exitCode": 1,
+      "seconds": 0.034,
+      "binarySha256": "14cbecbcdbe143c841e3d0c01d8aacf0bdd30e2b926dfa48e0159ac5cef9cfd6"
+    },
+    "compile-graph_ems_cluster_dispatch_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/tools/graph_ems_cluster_dispatch_test.cpp",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924/graph_ems_cluster_dispatch_test-green-core-compile-repair"
+      ],
+      "exitCode": 0,
+      "seconds": 1.419
+    },
+    "graph_ems_cluster_dispatch_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-cluster-v2-worker-20260924/graph_ems_cluster_dispatch_test-green-core-compile-repair",
+        "/tmp/cluster-fix-3ne_fq0x"
+      ],
+      "exitCode": 0,
+      "seconds": 0.116,
+      "binarySha256": "312c58b9194825dd668d683f99faf48777f1fac2c00c9d036b554e863f73260b"
+    }
+  },
+  "sourceSha256": {
+    "src/ems_cluster.cpp": "13b04eed9761bcd2c89e011d435687913234ddd0e47ff2e38516528da1ab5e5e",
+    "src/ems_cluster_dispatch.cpp": "28deed5967a5e348073de42fa1bd2ce8a25e27de7d6a058d46b486266b8e002e",
+    "include/edge_gateway/ems_cluster.hpp": "6cee4cac9bc871deb5a4cc71996e693242193dc72aa0e2242a6bf6e03f4ec283",
+    "tools/ems_cluster_test.cpp": "cfcb1c7c8991c4f4de7b2cd07c5a7544a88bbfb477fed787757e00b6d3ddd68a",
+    "src/ems_cluster_transport.cpp": "dc0afab29551547c2f6cebfa18f38f97200aef7d63c3ef55a2da85f8269be8b4",
+    "src/ems_cluster_points.cpp": "939fbc73014dace974e352019d6b8cfe64b718897c19fbb626d81c4ec2f94696",
+    "src/graph_ems_engine.cpp": "2f30dfff3b2131a9e1b0245b74267f9e948b3e20e12ca6a9d17bee93e50e62fb",
+    "ems_cluster_main.cpp": "b16161d586424bcc54f2a6b69210aa0cc184a5828e3dfc0c2b7e76565bea7a73",
+    "tools/graph_ems_cluster_dispatch_test.cpp": "c8aed6df92e5bc0ff20e00ad469bd80b034db19b19b5d0016a5bd6f0a2afb872"
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "librarySha256": "f853dad8715d098383b41dabe017d459b62a6ee50b57bfc0eb2417a251f72207"
+}
