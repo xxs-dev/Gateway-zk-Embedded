@@ -6,10 +6,74 @@
 #include <sys/mman.h>
 using namespace edge_gateway;
 void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
+void reelectionRecovery() {
+    const auto name = "cluster_recovery_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/"+name).c_str()); } } cleanup{name};
+    EmsClusterConfig config;
+    config.enabled = config.controlEnabled = true;
+    config.virtualSharedMemoryName = name;
+    config.controlTargetIndexes = {1234};
+    EmsClusterPointBridge bridge(config, "test");
+    MemoryPointStore observer(name, MemoryStoreOpenMode::OpenExisting);
+    EmsClusterStatus status;
+    status.role = EmsClusterRole::Leader;
+    status.leaderNodeId = "A";
+    status.quorumValid = status.controlConfigured = status.capability.controlEnabled = true;
+    status.term = 2;
+    status.membershipEpoch = 1;
+    status.authorityExpireAtMs = 20000;
+    EmsClusterDispatchState dispatch;
+    dispatch.valid = true;
+    dispatch.term = status.term;
+    dispatch.membershipEpoch = status.membershipEpoch;
+    dispatch.sequence = 157;
+    dispatch.expireAtMs = 19000;
+    dispatch.code = EmsClusterDispatchCode::Accepted;
+    dispatch.accepted.paKw = 9;
+    bridge.publish(status, dispatch, 1000000, 10000);
+    auto snapshot = observer.clusterAuthority();
+    require(snapshot && snapshot->valid && snapshot->authorization, "recovery fixture must start authorized");
+    PendingWriteCommand oldCommand;
+    oldCommand.index = 1234;
+    oldCommand.value = 9;
+    oldCommand.clusterAuthorization = snapshot->authorization;
+    require(clusterAuthorizationValid(config, oldCommand, *snapshot, localKernelBootId(), 10000),
+            "pre-election command must initially be authorized");
+    status.quorumValid = false;
+    status.authorityExpireAtMs = 0;
+    dispatch.valid = false;
+    dispatch.code = EmsClusterDispatchCode::Expired;
+    bridge.publish(status, dispatch, 1000001, 10001);
+    require(!observer.clusterAuthority()->valid, "quorum loss must revoke old dispatch");
+    status.role = EmsClusterRole::Candidate;
+    status.leaderNodeId.clear();
+    status.term = 3;
+    bridge.publish(status, dispatch, 1000002, 10002);
+    require(!observer.clusterAuthority()->valid, "candidate with old dispatch must remain unauthorized");
+    status.role = EmsClusterRole::Leader;
+    status.leaderNodeId = "A";
+    status.term = 4;
+    status.quorumValid = true;
+    status.authorityExpireAtMs = 20000;
+    bridge.publish(status, dispatch, 1000003, 10003);
+    require(!observer.clusterAuthority()->valid && observer.clusterAuthority()->stationStrategyActive,
+            "re-elected leader must calculate targets but cannot authorize old-term dispatch");
+    dispatch.valid = true;
+    dispatch.term = status.term;
+    dispatch.sequence = 1;
+    dispatch.code = EmsClusterDispatchCode::Accepted;
+    bridge.publish(status, dispatch, 1000004, 10004);
+    snapshot = observer.clusterAuthority();
+    require(snapshot && snapshot->valid && snapshot->authorization && snapshot->targets[0] == 9,
+            "new term sequence 1 must recover in the same bridge after old term sequence 157");
+    require(!clusterAuthorizationValid(config, oldCommand, *snapshot, localKernelBootId(), 10004),
+            "re-election must never revive the old command");
+}
 int main() {
     const auto name = "cluster_output_authority_" + std::to_string(getpid());
     struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/"+name).c_str()); } } cleanup{name};
     try {
+        reelectionRecovery();
         EmsClusterConfig config;
         config.enabled = config.controlEnabled = true;
         config.virtualSharedMemoryName = name;
