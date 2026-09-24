@@ -1551,6 +1551,93 @@ void testClusterPointBridge() {
 }
 
 #if !defined(_WIN32) && !defined(EMS_CLUSTER_CORE_ONLY)
+void testSameIdentityEthernetDiscoveryLoopback() {
+    const auto basePort = 47000 + static_cast<int>(getpid() % 1000) * 4;
+    auto firstConfig = configFor("transport-self", 2);
+    firstConfig.leaderLeaseMs = 4000;
+    firstConfig.electionTimeoutMinMs = 4500;
+    firstConfig.electionTimeoutMaxMs = 5000;
+    firstConfig.memberTimeoutMs = 12000;
+    auto secondConfig = firstConfig;
+    firstConfig.discoveryPort = basePort;
+    firstConfig.tcpPort = basePort + 1;
+    firstConfig.seedPeers = {"127.0.0.1:" + std::to_string(basePort + 2)};
+    secondConfig.discoveryPort = basePort + 2;
+    secondConfig.tcpPort = basePort + 3;
+    secondConfig.seedPeers = {"127.0.0.1:" + std::to_string(basePort)};
+    firstConfig.consensusStateFile = "ems-cluster-test-transport-self-a-consensus.json";
+    firstConfig.membershipFile = "ems-cluster-test-transport-self-a-membership.json";
+    secondConfig.consensusStateFile = "ems-cluster-test-transport-self-b-consensus.json";
+    secondConfig.membershipFile = "ems-cluster-test-transport-self-b-membership.json";
+    presetMembership(firstConfig, {{"COMM_DUP", 1}, {"COMM_OTHER", 2}});
+    presetMembership(secondConfig, {{"COMM_OTHER", 2}, {"COMM_DUP", 1}});
+    edge_gateway::EmsClusterNode first(firstConfig, "COMM_DUP", "PROCESS_NET_A");
+    edge_gateway::EmsClusterNode second(secondConfig, "COMM_DUP", "PROCESS_NET_B");
+    require(first.configurationHash() == second.configurationHash() &&
+            first.configurationHash() != edge_gateway::EmsClusterProtocol::configHash(firstConfig),
+            "same-ID transports must use the canonical full voter hash");
+    auto firstTransport = edge_gateway::makeEthernetClusterTransport(firstConfig, "COMM_DUP", first.configurationHash());
+    auto secondTransport = edge_gateway::makeEthernetClusterTransport(secondConfig, "COMM_DUP", second.configurationHash());
+    firstTransport->start();
+    secondTransport->start();
+    const auto nowMs = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    };
+    const auto started = nowMs();
+    first.tick(started, {});
+    second.tick(started, {});
+    for (const auto& packet : first.drainOutgoing()) firstTransport->send(packet);
+    for (const auto& packet : second.drainOutgoing()) secondTransport->send(packet);
+    bool firstSawDiscover = false;
+    bool secondSawDiscover = false;
+    const auto pollDiscovery = [&](edge_gateway::IClusterTransport& transport,
+                                   edge_gateway::EmsClusterNode& node, bool& sawDiscover) {
+        for (const auto& inbound : transport.poll(5)) {
+            if (inbound.message.senderIncarnation != node.bootId() &&
+                inbound.message.type == edge_gateway::EmsClusterMessageType::Discover) sawDiscover = true;
+            node.receive(inbound, nowMs());
+        }
+    };
+    while ((!firstSawDiscover || !secondSawDiscover) && nowMs() - started < 1000) {
+        pollDiscovery(*firstTransport, first, firstSawDiscover);
+        pollDiscovery(*secondTransport, second, secondSawDiscover);
+    }
+    require(firstSawDiscover && secondSawDiscover, "both real UDP sockets must receive competing same-ID Discover");
+    require(first.role() != edge_gateway::EmsClusterRole::Quarantined &&
+            second.role() != edge_gateway::EmsClusterRole::Quarantined,
+            "real same-ID Discover alone must not quarantine");
+    const auto sendHello = [&](edge_gateway::EmsClusterNode& node,
+                               edge_gateway::IClusterTransport& transport, const std::string& recipient) {
+        const auto replies = node.drainOutgoing();
+        require(replies.size() == 1 && replies.front().discovery && replies.front().targetNodeId.empty() &&
+                replies.front().message.type == edge_gateway::EmsClusterMessageType::Hello &&
+                replies.front().message.recipientIncarnation == recipient &&
+                replies.front().message.discoveryReplyTo != 0,
+                "same-ID challenge response must use incarnation-bound UDP Hello, not a self TCP endpoint");
+        transport.send(replies.front());
+    };
+    sendHello(first, *firstTransport, second.bootId());
+    sendHello(second, *secondTransport, first.bootId());
+    while ((first.role() != edge_gateway::EmsClusterRole::Quarantined ||
+            second.role() != edge_gateway::EmsClusterRole::Quarantined) && nowMs() - started < 2000) {
+        for (const auto& inbound : firstTransport->poll(5)) first.receive(inbound, nowMs());
+        for (const auto& inbound : secondTransport->poll(5)) second.receive(inbound, nowMs());
+    }
+    firstTransport->stop();
+    secondTransport->stop();
+    require(first.role() == edge_gateway::EmsClusterRole::Quarantined &&
+            second.role() == edge_gateway::EmsClusterRole::Quarantined,
+            "both real same-ID transports must quarantine after UDP challenge confirmation");
+    require(!first.status(nowMs()).controlActive && !second.status(nowMs()).controlActive,
+            "confirmed duplicate processes must have no effective control");
+    std::remove(firstConfig.consensusStateFile.c_str());
+    std::remove(firstConfig.membershipFile.c_str());
+    std::remove(secondConfig.consensusStateFile.c_str());
+    std::remove(secondConfig.membershipFile.c_str());
+    std::cout << "same-ID real UDP challenge loopback passed" << std::endl;
+}
+
 void testEthernetTransportLoopback() {
     const auto basePort = 42000 + static_cast<int>(getpid() % 1000) * 4;
     auto firstConfig = configFor("transport", 2);
@@ -1668,6 +1755,7 @@ int main(int argc, char** argv) {
         testCapabilityIsObservableBeforeControlEnable();
         testClusterPointBridge();
 #if !defined(_WIN32) && !defined(EMS_CLUSTER_CORE_ONLY)
+        testSameIdentityEthernetDiscoveryLoopback();
         testEthernetTransportLoopback();
 #endif
         std::cout << "ems cluster tests passed" << std::endl;
