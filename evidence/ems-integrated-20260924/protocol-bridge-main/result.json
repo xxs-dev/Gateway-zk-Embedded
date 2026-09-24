@@ -1,0 +1,98 @@
+{
+  "sourceCommit": "9df2ddf41633caaeab544a123f9057aed86420df",
+  "targets": [
+    "EmsClusterCoordinator",
+    "ComputeEngine",
+    "ems_cluster_test",
+    "ems_cluster_transport_bounds_test",
+    "cluster_write_authorization_test",
+    "ems_cluster_output_authority_test",
+    "memory_point_store_shm11_test",
+    "memory_point_store_v11_migration_test"
+  ],
+  "nativeOnly": true,
+  "deviceAccess": false,
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924",
+        "-B",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 3.073
+    },
+    "build": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--target",
+        "EmsClusterCoordinator",
+        "ComputeEngine",
+        "ems_cluster_test",
+        "ems_cluster_transport_bounds_test",
+        "cluster_write_authorization_test",
+        "ems_cluster_output_authority_test",
+        "memory_point_store_shm11_test",
+        "memory_point_store_v11_migration_test",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 44.171
+    },
+    "ctest": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924/evidence/ems-integrated-20260924/isolated.sh",
+        "ctest",
+        "--test-dir",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "60",
+        "-j1",
+        "-R",
+        "^(ems_cluster|ems_cluster_transport_bounds|cluster_write_authorization|ems_cluster_output_authority|memory_point_store_shm11|memory_point_store_v11_migration)$"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 8.788
+    }
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runnerSha256": "1063ed1c945207535944e5190e8eaab7f6f061782a1275a4b0583fe893c7b91c",
+  "isolationSha256": "61002b72d2b02b51be33efd26fb8223ac03a8a10d29596dd7061b5686b22b4a3",
+  "binaries": {
+    "EmsClusterCoordinator": "e9f5cbb596ab4b58d3e8cbe733544c007c3f1b41cc51cc1aaa032e8c6fd8f0b3",
+    "ComputeEngine": "9bae6ac76ca4045b0de00ba1b72e044e8a88f374a703153cbeb87aca9f404f6f",
+    "ems_cluster_test": "e7c69970a619b86977245cad1e4a18ab8ef12b49d64487c15e73504794979f8a",
+    "ems_cluster_transport_bounds_test": "240ed30cbbc0e43dd70833b9f80f0475abe98924c28d443165839ca3db8ebcba",
+    "cluster_write_authorization_test": "5a54c5371a4ac114dcbd3ee890adf41fecb96f61e460a23e2f0bf4cf1840005c",
+    "ems_cluster_output_authority_test": "4653668459f021a83cacf7e7162811fe6001c961f33fc11bf634c07e76f1af98",
+    "memory_point_store_shm11_test": "6c69527a17e67ff45a2acd44332b42099b8f53cde979f669fb34656acb70be7f",
+    "memory_point_store_v11_migration_test": "1cef868a88723b25b111c3ff0f44906832292fd447bbb18d224995c2b34750ba"
+  },
+  "sourceUnchanged": true,
+  "status": "PASS_NATIVE_INTEGRATION_ONLY",
+  "logs": {
+    "build.log": "d7e51bb52d44eca0464b433044732ca63d07dacfe88486d102cabc02adbeed61",
+    "configure.log": "edd12b6c2e53fbca654fff12c01ca061e367f66b075baaf7cbfdbb9f32c90876",
+    "ctest.log": "866e88273ad0b712ae4239e463cf8096be7302b1929946453faf5db55bc8bbae"
+  }
+}
