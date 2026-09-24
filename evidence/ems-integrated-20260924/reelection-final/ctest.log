@@ -1,0 +1,13 @@
+Test project /var/tmp/ems-production-candidate-20260924-build
+    Start 38: ems_cluster
+1/4 Test #38: ems_cluster ......................   Passed    6.31 sec
+    Start 40: ems_cluster_output_authority
+2/4 Test #40: ems_cluster_output_authority .....   Passed    0.02 sec
+    Start 41: ems_cluster_strategy_startup
+3/4 Test #41: ems_cluster_strategy_startup .....   Passed    0.44 sec
+    Start 96: graph_ems_cluster_dispatch
+4/4 Test #96: graph_ems_cluster_dispatch .......   Passed    0.11 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =   6.89 sec

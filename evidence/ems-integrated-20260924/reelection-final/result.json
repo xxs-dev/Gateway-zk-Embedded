@@ -1,0 +1,86 @@
+{
+  "sourceCommit": "9ccfce8822a2504524c29d9505179ab9e94aa775",
+  "targets": [
+    "ems_cluster_test",
+    "ems_cluster_output_authority_test",
+    "ems_cluster_strategy_startup_test",
+    "graph_ems_cluster_dispatch_test"
+  ],
+  "nativeOnly": true,
+  "deviceAccess": false,
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924",
+        "-B",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 2.972
+    },
+    "build": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--target",
+        "ems_cluster_test",
+        "ems_cluster_output_authority_test",
+        "ems_cluster_strategy_startup_test",
+        "graph_ems_cluster_dispatch_test",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 4.075
+    },
+    "ctest": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924/evidence/ems-integrated-20260924/isolated.sh",
+        "ctest",
+        "--test-dir",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "60",
+        "-j1",
+        "-R",
+        "^(ems_cluster|ems_cluster_output_authority|ems_cluster_strategy_startup|graph_ems_cluster_dispatch)$"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 6.933
+    }
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runnerSha256": "1063ed1c945207535944e5190e8eaab7f6f061782a1275a4b0583fe893c7b91c",
+  "isolationSha256": "61002b72d2b02b51be33efd26fb8223ac03a8a10d29596dd7061b5686b22b4a3",
+  "binaries": {
+    "ems_cluster_test": "7f330f2d9d055c3bb40d8615bc4f094bc1dfc0f0f294d67fdd34474cc3e269ea",
+    "ems_cluster_output_authority_test": "bc378f6f5d376aa5bfecbe2aa2db7472c95e8441a7b8e3a44e98aa0967d500bf",
+    "ems_cluster_strategy_startup_test": "6d1656a5bf99c8f03c73ec8adc8ce7e29ca92f3648c865e2f850ca881c89d7b6",
+    "graph_ems_cluster_dispatch_test": "ecdd12d01cf57eabfed6d282783bd27188993668e70404704a5047e3a6469841"
+  },
+  "sourceUnchanged": true,
+  "status": "PASS_NATIVE_INTEGRATION_ONLY",
+  "logs": {
+    "build.log": "879542abe7f2de75c2990e478038f34b1ab2213ff1f79a1075c864ac1d26524f",
+    "configure.log": "729c77d97885db6f24a1d90c5e1ddced5a7612d88724d092fd8d9ac8d1313694",
+    "ctest.log": "b7868269717188fd04fcc973cdff4f9577569ce13d74cf21e893f54e40ef1cd9"
+  }
+}

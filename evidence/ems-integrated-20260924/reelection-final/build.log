@@ -1,0 +1,14 @@
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable ems_cluster_test
+[100%] Built target ems_cluster_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/ems_cluster_output_authority_test.dir/tools/ems_cluster_output_authority_test.cpp.o
+[100%] Linking CXX executable ems_cluster_output_authority_test
+[100%] Built target ems_cluster_output_authority_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_cluster_strategy_startup_test.dir/tools/ems_cluster_strategy_startup_test.cpp.o
+[100%] Linking CXX executable ems_cluster_strategy_startup_test
+[100%] Built target ems_cluster_strategy_startup_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable graph_ems_cluster_dispatch_test
+[100%] Built target graph_ems_cluster_dispatch_test
