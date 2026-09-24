@@ -1,0 +1,5 @@
+In file included from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/evidence/core-readonly-af1b739/provisioned_startup_probe.cpp:3:
+/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools/ems_cluster_strategy_startup_test.cpp: In function ‘int candidate_startup_test_main()’:
+/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools/ems_cluster_strategy_startup_test.cpp:173:1: warning: control reaches end of non-void function [-Wreturn-type]
+  173 | }
+      | ^

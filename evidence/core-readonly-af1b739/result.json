@@ -1,0 +1,199 @@
+{
+  "commit": "af1b739153603cb2eb80e179ba6e4adb3ad6e70e",
+  "steps": {
+    "archive": {
+      "argv": [
+        "git",
+        "--git-dir=/mnt/d/workspace/Embedded/Gateway-zk/.git",
+        "archive",
+        "-o",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source.tar",
+        "af1b739153603cb2eb80e179ba6e4adb3ad6e70e"
+      ],
+      "exitCode": 0,
+      "seconds": 7.632
+    },
+    "extract": {
+      "argv": [
+        "tar",
+        "-xf",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source.tar",
+        "-C",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source"
+      ],
+      "exitCode": 0,
+      "seconds": 0.067
+    },
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source",
+        "-B",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build",
+        "-DCMAKE_BUILD_TYPE=Debug"
+      ],
+      "exitCode": 0,
+      "seconds": 3.524
+    },
+    "library": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build",
+        "--target",
+        "edge_gateway",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "seconds": 30.89
+    },
+    "compile-cluster_write_authorization_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/include",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools/cluster_write_authorization_test.cpp",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/cluster_write_authorization_test"
+      ],
+      "exitCode": 0,
+      "seconds": 0.617
+    },
+    "cluster_write_authorization_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/cluster_write_authorization_test",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/core-review-1lkgggfz"
+      ],
+      "exitCode": 0,
+      "seconds": 0.009,
+      "binarySha256": "20d36a4a8aff68cfa7597ba51072d187b2380db3519f369f25884d730d668ee5"
+    },
+    "compile-ems_cluster_output_authority_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/include",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools/ems_cluster_output_authority_test.cpp",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/ems_cluster_output_authority_test"
+      ],
+      "exitCode": 0,
+      "seconds": 0.918
+    },
+    "ems_cluster_output_authority_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/ems_cluster_output_authority_test",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/core-review-xjxyv13r"
+      ],
+      "exitCode": 0,
+      "seconds": 0.033,
+      "binarySha256": "0bdce6e85027195895b48e7dcddff4735437ed6eefcb91af2780f0b1b0bceabe"
+    },
+    "compile-ems_cluster_strategy_startup_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/include",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools/ems_cluster_strategy_startup_test.cpp",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/ems_cluster_strategy_startup_test"
+      ],
+      "exitCode": 0,
+      "seconds": 1.52
+    },
+    "ems_cluster_strategy_startup_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/ems_cluster_strategy_startup_test",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/core-review-l_uihs8u"
+      ],
+      "exitCode": 1,
+      "seconds": 0.009,
+      "binarySha256": "11a83fba24af1313924b7c02218068e3128ba9be99c1a0fc39964a334f925007"
+    },
+    "compile-provisioned_startup_probe": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/include",
+        "-I/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/tools",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/evidence/core-readonly-af1b739/provisioned_startup_probe.cpp",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/provisioned_startup_probe"
+      ],
+      "exitCode": 0,
+      "seconds": 1.569
+    },
+    "provisioned_startup_probe": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/source/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/build/provisioned_startup_probe",
+        "/home/wmzdxs/.cache/edge-core-readonly-af1b739/core-review-gyqqd6p1"
+      ],
+      "exitCode": 0,
+      "seconds": 0.066,
+      "binarySha256": "8f266d2e0094b5d100034231d120915c3c756c60090df4e75f25babf4a0a0e78"
+    }
+  },
+  "sourceMode": "git archive pinned commit; candidate read-only",
+  "librarySha256": "cf3161c548ef8d6af30be2eb72a49622e5b98f4bc5ec25080b93a1d9d1fb38a4"
+}
