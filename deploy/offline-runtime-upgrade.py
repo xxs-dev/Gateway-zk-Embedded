@@ -201,9 +201,9 @@ def monitor_default_unit_binding(approval, inhibited):
             'monitor default template binding changed')
     expected = {str(MONITOR_DROPIN)}
     if inhibited:
-        for unit in (MONITOR_UNIT, 'system-monitor@.service'):
-            expected.add(str(Path('/etc/systemd/system') / (unit + '.d') /
-                             ('90-offline-' + approval['transactionId'] + '.conf')))
+        # The instance's same-named drop-in overrides the template's in systemd.
+        expected.add(str(Path('/etc/systemd/system') / (MONITOR_UNIT + '.d') /
+                         ('90-offline-' + approval['transactionId'] + '.conf')))
     actual = systemctl('show', '--property=DropInPaths', '--value', MONITOR_UNIT).split()
     require(len(actual) == len(expected) and set(actual) == expected,
             'monitor default effective drop-ins changed')

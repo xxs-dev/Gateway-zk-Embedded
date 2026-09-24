@@ -206,9 +206,11 @@ pinned R3 SystemMonitor binary and unit template, and exactly the three
 camera/monitor/mqtt app files with empty `deviceConfigFiles`, one nonempty
 approved target store, and disabled sibling SHM consumers/producers. The
 approved monitor source-to-target drop-in must switch the primary store.
-The effective instance/template `DropInPaths` may contain only the pinned
-`998-shm.conf` and this transaction's byte-checked `90-offline` inhibition
-files; template, drop-in bytes/mode, effective environment, and configuration
+The effective instance `DropInPaths` may contain only the pinned
+`998-shm.conf` and this transaction's instance `90-offline` inhibition file.
+Systemd overrides the template's same-named `90-offline` in the effective
+path list; both physical inhibition files are nevertheless byte-checked.
+Template, drop-in bytes/mode, effective environment, and configuration
 are checked again before start. Every source, including the old default, must
 be unmapped before and after start, and source hashes must remain unchanged.
 This is a config-shape/version qualification, not a node whitelist or an

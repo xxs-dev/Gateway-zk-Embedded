@@ -1,0 +1,182 @@
+Found container virtualization wsl.
+Starting manager...
+Loaded shared library 'libselinux.so.1' via dlopen().
+Serializing environment-generators to memfd.
+Successfully forked off '(environment-generators)' as PID 763.
+Serializing snapd-env-generator to memfd.
+About to execute /usr/lib/systemd/system-environment-generators/snapd-env-generator
+Successfully forked off '(exec-inner)' as PID 764.
+/usr/lib/systemd/system-environment-generators/snapd-env-generator succeeded.
+(environment-generators) succeeded.
+Looking for unit files in (higher priority first):
+	/var/tmp/gateway-install-test-z60vtx80/systemd-units
+Invoking unit coldplug() handlers...
+Invoking unit catchup() handlers...
+Loading remaining units from the command line...
+Handling edge-dropin-probe@check.service...
+Modification times have changed, need to update cache.
+unit_file_build_name_map: normal unit file: /var/tmp/gateway-install-test-z60vtx80/systemd-units/edge-dropin-probe@.service
+Unit edge-dropin-probe@check.service has alias edge-dropin-probe@.service.
+Skipping overridden file '/var/tmp/gateway-install-test-z60vtx80/systemd-units/edge-dropin-probe@.service.d/90-offline-probe.conf'.
+shutdown.target: Failed to load configuration: No such file or directory
+systemd-journald.socket: Failed to load configuration: No such file or directory
+Skipping overridden file '/var/tmp/gateway-install-test-z60vtx80/systemd-units/edge-dropin-probe@.service.d/90-offline-probe.conf'.
+	-> Unit edge-dropin-probe@check.service:
+		Description: instance
+		Instance: check
+		Unit Load State: loaded
+		Unit Active State: inactive
+		State Change Timestamp: n/a
+		Inactive Exit Timestamp: n/a
+		Active Enter Timestamp: n/a
+		Active Exit Timestamp: n/a
+		Inactive Enter Timestamp: n/a
+		May GC: yes
+		Need Daemon Reload: no
+		Transient: no
+		Perpetual: no
+		Garbage Collection Mode: inactive
+		Slice: system-edge\x2ddropin\x2dprobe.slice
+		CGroup: n/a
+		CGroup own mask: memory pids
+		Fragment Path: /var/tmp/gateway-install-test-z60vtx80/systemd-units/edge-dropin-probe@.service
+		DropIn Path: /var/tmp/gateway-install-test-z60vtx80/systemd-units/edge-dropin-probe@check.service.d/90-offline-probe.conf
+		DropIn Path: /var/tmp/gateway-install-test-z60vtx80/systemd-units/edge-dropin-probe@check.service.d/998-shm.conf
+		Requires: system-edge\x2ddropin\x2dprobe.slice (origin-file)
+		After: systemd-journald.socket (origin-file)
+		After: system-edge\x2ddropin\x2dprobe.slice (origin-file)
+		References: systemd-journald.socket (origin-file)
+		References: system-edge\x2ddropin\x2dprobe.slice (origin-file origin-slice-property)
+		InSlice: system-edge\x2ddropin\x2dprobe.slice (origin-slice-property)
+		StopWhenUnneeded: no
+		RefuseManualStart: no
+		RefuseManualStop: no
+		DefaultDependencies: no
+		SurviveFinalKillSignal: no
+		OnSuccessJobMode: fail
+		OnFailureJobMode: replace
+		IgnoreOnIsolate: no
+		Service State: dead
+		Result: success
+		Reload Result: success
+		Clean Result: success
+		LiveMount Result: success
+		PermissionsStartOnly: no
+		RootDirectoryStartOnly: no
+		RemainAfterExit: no
+		GuessMainPID: yes
+		Type: oneshot
+		Restart: no
+		NotifyAccess: none
+		NotifyState: (null)
+		OOMPolicy: stop
+		ReloadSignal: HUP
+		RestartSec: 100ms
+		RestartSteps: 0
+		RestartMaxDelaySec: infinity
+		TimeoutStartSec: infinity
+		TimeoutStopSec: 1min 30s
+		TimeoutStartFailureMode: terminate
+		TimeoutStopFailureMode: terminate
+		RuntimeMaxSec: infinity
+		RuntimeRandomizedExtraSec: 0
+		WatchdogSec: 0
+		KillMode: control-group
+		KillSignal: SIGTERM
+		RestartKillSignal: SIGTERM
+		FinalKillSignal: SIGKILL
+		SendSIGKILL: yes
+		SendSIGHUP: no
+		UMask: 0022
+		WorkingDirectory: /
+		RootDirectory: /
+		RootEphemeral: no
+		NonBlocking: no
+		PrivateTmp: no
+		PrivateDevices: no
+		ProtectKernelTunables: no
+		ProtectKernelModules: no
+		ProtectKernelLogs: no
+		ProtectClock: no
+		ProtectControlGroups: no
+		PrivateNetwork: no
+		PrivateUsers: no
+		PrivatePIDs: no
+		ProtectHome: no
+		ProtectSystem: no
+		MountAPIVFS: no
+		BindLogSockets: no
+		IgnoreSIGPIPE: yes
+		MemoryDenyWriteExecute: no
+		RestrictRealtime: no
+		RestrictSUIDSGID: no
+		KeyringMode: private
+		ProtectHostname: no
+		ProtectProc: default
+		ProcSubset: all
+		PrivateBPF: no
+		Environment: PROBE_SHM=target
+		RuntimeDirectoryPreserve: no
+		RuntimeDirectoryMode: 0755
+		StateDirectoryMode: 0755
+		CacheDirectoryMode: 0755
+		LogsDirectoryMode: 0755
+		ConfigurationDirectoryMode: 0755
+		TimeoutCleanSec: infinity
+		StandardInput: null
+		StandardOutput: journal
+		StandardError: inherit
+		SyslogFacility: daemon
+		SyslogLevel: info
+		CapabilityBoundingSet: cap_chown cap_dac_override cap_dac_read_search cap_fowner cap_fsetid cap_kill cap_setgid cap_setuid cap_setpcap cap_linux_immutable cap_net_bind_service cap_net_broadcast cap_net_admin cap_net_raw cap_ipc_lock cap_ipc_owner cap_sys_module cap_sys_rawio cap_sys_chroot cap_sys_ptrace cap_sys_pacct cap_sys_admin cap_sys_boot cap_sys_nice cap_sys_resource cap_sys_time cap_sys_tty_config cap_mknod cap_lease cap_audit_write cap_audit_control cap_setfcap cap_mac_override cap_mac_admin cap_syslog cap_wake_alarm cap_block_suspend cap_audit_read cap_perfmon cap_bpf cap_checkpoint_restore
+		DynamicUser: no
+		LockPersonality: no
+		SystemCallErrorNumber: kill
+		-> ExecStart:
+			Command Line: /usr/bin/true
+		IOAccounting: no
+		MemoryAccounting: yes
+		TasksAccounting: yes
+		IPAccounting: no
+		CPUWeight: 18446744073709551615
+		StartupCPUWeight: 18446744073709551615
+		CPUQuotaPerSecSec: infinity
+		CPUQuotaPeriodSec: infinity
+		AllowedCPUs: 
+		StartupAllowedCPUs: 
+		AllowedMemoryNodes: 
+edge-dropin-probe@check.service: Creating edge-dropin-probe@check.service/start job
+edge-dropin-probe@check.service: Trying to enqueue job edge-dropin-probe@check.service/start/replace
+system.slice: Installed new job system.slice/start as 3
+-.slice: Installed new job -.slice/start as 4
+edge-dropin-probe@check.service: Installed new job edge-dropin-probe@check.service/start as 1
+system-edge\x2ddropin\x2dprobe.slice: Installed new job system-edge\x2ddropin\x2dprobe.slice/start as 2
+edge-dropin-probe@check.service: Enqueued job edge-dropin-probe@check.service/start as 1
+		StartupAllowedMemoryNodes: 
+		IOWeight: 18446744073709551615
+		StartupIOWeight: 18446744073709551615
+		DefaultMemoryMin: 0
+		DefaultMemoryLow: 0
+		MemoryMin: 0
+		MemoryLow: 0
+		StartupMemoryLow: 0
+		MemoryHigh: 18446744073709551615
+		StartupMemoryHigh: 18446744073709551615
+		MemoryMax: 18446744073709551615
+		StartupMemoryMax: 18446744073709551615
+		MemorySwapMax: 18446744073709551615
+		StartupMemorySwapMax: 18446744073709551615
+		MemoryZSwapMax: 18446744073709551615
+		StartupMemoryZSwapMax: 18446744073709551615
+		MemoryZSwapWriteback: yes
+		TasksMax: 19022
+		DevicePolicy: auto
+		DisableControllers: 
+		Delegate: no
+		ManagedOOMSwap: auto
+		ManagedOOMMemoryPressure: auto
+		ManagedOOMMemoryPressureLimit: 0.00%
+		ManagedOOMPreference: none
+		MemoryPressureWatch: auto
+		CoredumpReceive: no
+		MemoryPressureThresholdSec: 200ms

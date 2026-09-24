@@ -66,7 +66,7 @@ case "$1" in
           *--property=ActiveState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_ACTIVE_STATE:-inactive}" ;;
           *--property=FragmentPath*system-monitor@monitor-service.service*) echo /etc/systemd/system/system-monitor@.service ;;
           *--property=DropInPaths*system-monitor@monitor-service.service*)
-            for path in /etc/systemd/system/system-monitor@.service.d/90-offline-*.conf /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-*.conf /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf; do
+            for path in /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-*.conf /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf; do
               [ ! -f "$path" ] || printf '%s ' "$path"
             done
             [ -z "${MONITOR_EXTRA_DROPIN:-}" ] || printf '%s ' "$MONITOR_EXTRA_DROPIN"
@@ -459,6 +459,28 @@ exec /bin/cp "$@"
                          hashlib.sha256(Path('/dev/shm/gateway_point_store').read_bytes()).hexdigest())
         self.assertEqual(0, self.offline_run('recover').returncode)
         self.assertEqual(original, dropin.read_bytes())
+
+    def test_offline_monitor_dropin_precedence_systemd_loader(self):
+        if not shutil.which('systemd-analyze', path=self.env['PATH']):
+            self.skipTest('systemd-analyze unavailable')
+        units = self.root / 'systemd-units'
+        template = 'edge-dropin-probe@.service'
+        instance = 'edge-dropin-probe@check.service'
+        write(units / template, '[Unit]\nDescription=drop-in precedence probe\nDefaultDependencies=no\n'
+              '[Service]\nType=oneshot\nExecStart=/usr/bin/true\n')
+        write(units / (template + '.d/90-offline-probe.conf'), '[Unit]\nDescription=template\n')
+        write(units / (instance + '.d/90-offline-probe.conf'), '[Unit]\nDescription=instance\n')
+        write(units / (instance + '.d/998-shm.conf'), '[Service]\nEnvironment=PROBE_SHM=target\n')
+        result = subprocess.run(['systemd-analyze', 'verify', instance],
+                                env={**self.env, 'SYSTEMD_UNIT_PATH': str(units),
+                                     'SYSTEMD_LOG_LEVEL': 'debug', 'SYSTEMD_LOG_TARGET': 'console'},
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, timeout=30)
+        write(EVIDENCE / 'systemd-dropin-precedence.log', result.stdout)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertIn('DropIn Path: ' + str(units / (instance + '.d/90-offline-probe.conf')), result.stdout)
+        self.assertIn('DropIn Path: ' + str(units / (instance + '.d/998-shm.conf')), result.stdout)
+        self.assertNotIn('DropIn Path: ' + str(units / (template + '.d/90-offline-probe.conf')), result.stdout)
 
     def test_offline_b_default_monitor_unknown_app_rejected(self):
         home, approval, dropin = self.b_implicit_default_fixture()

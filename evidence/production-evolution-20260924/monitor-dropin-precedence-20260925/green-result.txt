@@ -1,0 +1,11 @@
+test_offline_monitor_dropin_precedence_systemd_loader (__main__.InstallIsolationTest.test_offline_monitor_dropin_precedence_systemd_loader) ... ok
+test_offline_b_default_monitor_observe_roundtrip (__main__.InstallIsolationTest.test_offline_b_default_monitor_observe_roundtrip) ... ok
+test_offline_b_default_monitor_extra_dropin_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_extra_dropin_rejected) ... ok
+test_offline_b_default_monitor_dropin_change_before_start_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_dropin_change_before_start_rejected) ... ok
+test_offline_b_default_monitor_binding_change_before_start_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_binding_change_before_start_rejected) ... ok
+test_offline_unreferenced_default_stopped_only (__main__.InstallIsolationTest.test_offline_unreferenced_default_stopped_only) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 5.463s
+
+OK
