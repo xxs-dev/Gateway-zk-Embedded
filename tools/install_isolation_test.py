@@ -2,6 +2,7 @@
 """Offline installer regression: root + private Linux mount/IPC namespaces only."""
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -44,14 +45,19 @@ class InstallIsolationTest(unittest.TestCase):
 printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
 [ "$1" != "${FAIL_SYSTEMCTL_ACTION:-none}" ] || exit 42
 case "$1" in
-  list-unit-files) echo 'ky-ems.service enabled' ;;
-  show)
-    if [ "${OFFLINE_TEST:-0}" = 1 ]; then
-      case "$*" in
-        *UnitFileState*) echo disabled ;;
-        *) echo inactive ;;
-      esac
-    else echo 4242; fi ;;
+  list-unit-files)
+    echo 'ky-ems.service enabled'
+    [ "${OFFLINE_TEST:-0}" != 1 ] || echo 'compute-engine@.service disabled' ;;
+  stop|show)
+    case "$*" in *@.service*) echo 'cannot operate on uninstantiated template' >&2; exit 45 ;; esac
+    if [ "$1" = show ]; then
+      if [ "${OFFLINE_TEST:-0}" = 1 ]; then
+        case "$*" in
+          *UnitFileState*) echo "${OFFLINE_UNIT_STATE:-disabled}" ;;
+          *) echo inactive ;;
+        esac
+      else echo 4242; fi
+    fi ;;
   restart) [ "${FAIL_RESTART:-0}" != 1 ] || exit 42 ;;
 esac
 exit 0
@@ -300,6 +306,12 @@ exec /bin/cp "$@"
             dest.chmod(0o755)
             components.append({'kind': 'product', 'target': name, 'archivePath': 'programs/bin/' + name,
                                'bytes': dest.stat().st_size, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest()})
+        write(EVIDENCE / 'native-fixture-provenance.json', json.dumps({
+            'runtimeExecution': 'native CLI only, not AArch64 qualification',
+            'migrationCli': components[-1],
+            'fixtureSourceSha256': hashlib.sha256((REPO / 'tools/offline_upgrade_fixture.cpp').read_bytes()).hexdigest(),
+            'fixtureBinarySha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
+            'runtimeRebuilds': 0}, indent=2) + '\n')
         manifest = self.root / 'program-manifest.json'
         write(manifest, json.dumps({'sourceCommit': 'native-fixture-not-ARM-release', 'components': components}))
         config = home / 'config/runtime'
@@ -311,7 +323,7 @@ exec /bin/cp "$@"
                     'identitySha256': sha(config / 'device_identity.json'), 'membershipSha256': sha(home / 'data/cluster-membership.json'),
                     'installedRuntimeSha256': {n: sha(home / 'bin' / n) for n in ('ComputeEngine', 'MqttDriver')},
                     'configSha256': {str(p.relative_to(config)): sha(p) for p in config.rglob('*') if p.is_file()},
-                    'units': ['gateway-services.service', 'gateway-health-watchdog.service', 'ky-ems.service', 'compute-engine@fixture.service'],
+                    'units': ['gateway-services.service', 'gateway-health-watchdog.service', 'ky-ems.service', 'compute-engine@.service', 'compute-engine@fixture.service'],
                     'offlineVoters': {n: {'controlDisabled': True, 'participantsStopped': True, 'restartInhibited': True, 'evidenceSha256': 'a' * 64} for n in ('A', 'B')},
                     'segments': segments}
         write(self.root / 'approval.json', json.dumps(approval))
@@ -325,6 +337,8 @@ exec /bin/cp "$@"
                    '--approval-sha256', pin, '--state', str(self.root / 'transaction')]
         if action == 'apply':
             command += ['--approval', str(self.root / 'approval.json'), '--manifest', str(self.root / 'program-manifest.json'), '--payload', str(self.root / 'payload')]
+        if action == 'observe':
+            command += ['--ready', str(self.root / 'ready.json'), '--ready-sha256', hashlib.sha256((self.root / 'ready.json').read_bytes()).hexdigest()]
         result = subprocess.run(command, env={**self.env, 'OFFLINE_TEST': '1', **(env or {})},
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         with (EVIDENCE / (self.id().split('.')[-1] + '.log')).open('a') as stream:
@@ -342,6 +356,7 @@ exec /bin/cp "$@"
         target_sha = hashlib.sha256(target.read_bytes()).hexdigest()
         subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'verify', 'offline_target_0'], check=True)
         state = json.loads((self.root / 'transaction/state.json').read_text())
+        write(EVIDENCE / 'fixture-upgraded-state.json', json.dumps(state, indent=2) + '\n')
         self.assertEqual(target_sha, state['segments'][0]['targetSha256'])
         self.assertEqual(approval['segments'][0]['sha256'], hashlib.sha256(Path('/dev/shm/offline_source_0').read_bytes()).hexdigest())
         self.assertIn('offline_target_0', (home / 'config/runtime/apps/compute.json').read_text())
@@ -363,6 +378,7 @@ exec /bin/cp "$@"
             self.assertEqual(value, Path(name).read_bytes(), name)
         self.assertEqual(target_sha, hashlib.sha256(target.read_bytes()).hexdigest())
         self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+        write(EVIDENCE / 'fixture-recovered-state.json', (self.root / 'transaction/state.json').read_text())
 
     def test_offline_upgrade_pending_owner_and_partial_migration_refused(self):
         home, approval = self.offline_fixture(('create', 'pending'))
@@ -435,6 +451,177 @@ exec /bin/cp "$@"
         self.assertEqual('old compute\n', (home / 'bin/ComputeEngine').read_text())
         self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
         self.assertFalse(Path('/dev/shm/offline_target_0').exists())
+
+    def offline_ready(self, approval):
+        state_pin = hashlib.sha256((self.root / 'transaction/state.json').read_bytes()).hexdigest()
+        ready = {'schemaVersion': 'offline-shm11-observe-1', 'controlEnabled': False,
+                 'transactionId': approval['transactionId'], 'expiresAtUnix': int(time.time()) + 300,
+                 'approvalSha256': hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest(),
+                 'programManifestSha256': approval['programManifestSha256'], 'stateSha256': state_pin,
+                 'startUnits': ['compute-engine@fixture.service'],
+                 'voters': {n: {'phase': 'UPGRADED_STOPPED', 'controlEnabled': False,
+                                'programManifestSha256': approval['programManifestSha256'], 'stateSha256': state_pin} for n in ('A', 'B')}}
+        write(self.root / 'ready.json', json.dumps(ready))
+        return ready
+
+    def test_offline_observe_starts_only_observers_and_recovers(self):
+        home, approval = self.offline_fixture()
+        result = self.offline_run()
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.offline_ready(approval)
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertIn('OBSERVING_CONTROL_DISABLED', result.stdout)
+        self.assertIn('start compute-engine@fixture.service', self.log.read_text())
+        self.assertNotIn('start gateway-services.service', self.log.read_text())
+        for unit in approval['units']:
+            self.assertTrue((Path('/etc/systemd/system') / (unit + '.d/90-offline-fixture-offline.conf')).exists())
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+        self.assertNotEqual(0, self.offline_run('observe').returncode, 'ready receipt must not be replayed')
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_offline_observe_start_failure_refences(self):
+        home, approval = self.offline_fixture()
+        self.assertEqual(0, self.offline_run().returncode)
+        self.offline_ready(approval)
+        result = self.offline_run('observe', env={'FAIL_SYSTEMCTL_ACTION': 'start'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('stop compute-engine@fixture.service', self.log.read_text())
+        self.assertTrue(Path('/etc/systemd/system/compute-engine@.service.d/90-offline-fixture-offline.conf').is_file())
+        self.assertTrue((home / 'data/runtime-upgrade-stop').is_file())
+
+    def test_offline_observe_rejects_masked_units_and_foreign_voters(self):
+        _, approval = self.offline_fixture()
+        result = self.offline_run(env={'OFFLINE_UNIT_STATE': 'masked'})
+        self.assertEqual(0, result.returncode, result.stdout)
+        ready = self.offline_ready(approval)
+        result = self.offline_run('observe', env={'OFFLINE_UNIT_STATE': 'masked'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('was masked', result.stdout)
+        del ready['voters']['B']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('all fixed voters', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_output_only_reference_and_qt_alias(self):
+        home, approval = self.offline_fixture()
+        config = home / 'config/runtime/apps/compute.json'
+        write(config, '{"computeEngine":{"outputSharedMemoryName":"offline_source_0"}}')
+        approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+        write(home / 'bin/KY-EMS', 'old qt\n')
+        approval['installedRuntimeSha256']['KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
+        qt = self.root / 'payload/programs/qt/KY-SCADA'
+        qt.parent.mkdir(parents=True)
+        shutil.copyfile('/usr/bin/true', qt)
+        manifest = json.loads((self.root / 'program-manifest.json').read_text())
+        manifest['components'].append({'kind': 'product', 'target': 'LocalDisplayQtEms', 'archivePath': 'programs/qt/KY-SCADA',
+                                       'bytes': qt.stat().st_size, 'sha256': hashlib.sha256(qt.read_bytes()).hexdigest()})
+        write(self.root / 'program-manifest.json', json.dumps(manifest))
+        approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('installed runtime absent', result.stdout)
+        approval['installNames'] = {'LocalDisplayQtEms': 'KY-EMS'}
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(qt.read_bytes(), (home / 'bin/KY-EMS').read_bytes())
+        self.assertFalse((home / 'bin/LocalDisplayQtEms').exists())
+        self.assertIn('offline_target_0', config.read_text())
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual('old qt\n', (home / 'bin/KY-EMS').read_text())
+
+    def test_offline_observe_rejects_physical_and_changed_inputs(self):
+        home, approval = self.offline_fixture()
+        approval['units'].append('modbus-rtu@fixture.service')
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['modbus-rtu@fixture.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('physical participants remain inhibited', result.stdout)
+        self.offline_ready(approval)
+        write(home / 'config/runtime/apps/compute.json', '{"emsCluster":{"controlEnabled":true}}')
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('configuration changed', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_full_factory_contains_migration_cli_and_offline_scripts(self):
+        env = self.factory()
+        source = self.root / 'source'
+        for name in ('ModbusRtu', 'Dlt645Driver', 'DioDriver', 'CanDriver', 'IecDriver', 'EventEngine',
+                     'ComputeEngine', 'EmsParityCheck', 'EmsClusterCoordinator', 'memory_point_store_migrate'):
+            write(source / 'build-aarch64' / name, 'fixture-not-executable\n')
+        archive_path = self.root / 'full-factory.tar.gz'
+        result = self.run_script(str(source / 'deploy/build-factory-package.sh'), ['--profile', 'full', '--out', archive_path],
+                                 {'TMPDIR': str(self.root), 'EDGE_PACKAGE_BUILD_DIR': str(source / 'build-aarch64')})
+        self.assertEqual(0, result.returncode, result.stdout)
+        with tarfile.open(archive_path) as archive:
+            names = set(archive.getnames())
+            for name in ('build-aarch64/memory_point_store_migrate', 'deploy/offline-runtime-upgrade.py', 'deploy/runtime-upgrade-guard.py'):
+                self.assertIn('gateway-factory-defaults/' + name, names)
+            manifest = json.load(archive.extractfile('gateway-factory-defaults/edge-package-manifest.json'))
+            self.assertIn('memory_point_store_migrate', {c['binary'] for c in manifest['components']})
+        result = self.run_script('install-factory-config.sh', env={**env, 'PACKAGE_PROFILE': 'full'})
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertTrue((self.root / 'gateway/bin/memory_point_store_migrate').is_file())
+
+    def test_offline_pairing_provenance(self):
+        scripts = ['build-factory-package.sh', 'gateway-services.sh', 'install-factory-config.sh',
+                   'ota-apply.sh', 'ota-rollback.sh', 'upgrade-legacy-runtime-v9.sh',
+                   'runtime-upgrade-guard.py', 'offline-runtime-upgrade.py']
+        rows = []
+        for name in scripts:
+            raw = (REPO / 'deploy' / name).read_bytes()
+            self.assertNotIn(b'\r', raw, name + ' must use LF')
+            rows.append({'path': 'deploy/' + name, 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()})
+        write(EVIDENCE / 'paired-deploy-delta.json', json.dumps({
+            'qualifiedRuntimeSource': '9ccfce8822a2504524c29d9505179ab9e94aa775',
+            'approvedProgramManifestSha256': '75c7018d4d78d93e67f8239c041b5f1003d460f0266f549e0c25053cc9795ca6',
+            'runtimeElfRebuildRequired': False, 'deviceMigrationExecuted': False,
+            'files': rows}, indent=2) + '\n')
+
+    def test_offline_r5_actual_twenty_component_preflight(self):
+        home, approval = self.offline_fixture()
+        coordinator = Path('/mnt/d/workspace/GatewaySuite-workspaces/realese1.0/coordinator/evidence/GW-20260809-002/ems-cluster-20260924/stage16-recovery-arm/program-manifest.json')
+        manifest_pin = '75c7018d4d78d93e67f8239c041b5f1003d460f0266f549e0c25053cc9795ca6'
+        self.assertEqual(manifest_pin, hashlib.sha256(coordinator.read_bytes()).hexdigest())
+        manifest = json.loads(coordinator.read_text())
+        raw = REPO.parent.parent / 'acceptance-evidence-20260924/evidence/raw/GW-20260809-002'
+        archives = [(raw / 'helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz', '0232f029a66b9df5a502ee8d10e3e24eac807edea82ee7346ae1042c8901a2d9'),
+                    (raw / 'arm-r5-20260924/r5-reelection-9ccfce8-delta.tar.gz', '2dc8582535ea8358c839eec95ba509df2001915b91989132793164866ca3a652')]
+        products = [c for c in manifest['components'] if c['kind'] == 'product']
+        self.assertEqual(20, len(products))
+        payload = self.root / 'r5-payload'
+        for archive_path, pin in archives:
+            self.assertEqual(pin, hashlib.sha256(archive_path.read_bytes()).hexdigest())
+            with tarfile.open(archive_path) as archive:
+                members = {m.name: m for m in archive.getmembers()}
+                for component in products:
+                    member = members.get(component['archivePath'])
+                    if member is not None:
+                        self.assertTrue(member.isfile())
+                        data = archive.extractfile(member).read()
+                        if hashlib.sha256(data).hexdigest() == component['sha256']:
+                            dest = payload / component['archivePath']
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest.write_bytes(data)
+        write(home / 'bin/KY-EMS', 'old qt\n')
+        approval['installNames'] = {'LocalDisplayQtEms': 'KY-EMS'}
+        approval['installedRuntimeSha256']['KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
+        approval['programManifestSha256'] = manifest_pin
+        write(self.root / 'approval.json', json.dumps(approval))
+        approval_pin = hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest()
+        command = ['python3', '-B', '-c', 'import importlib.util,types,pathlib,sys; s=importlib.util.spec_from_file_location("offline",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); a=types.SimpleNamespace(approval=pathlib.Path(sys.argv[2]),approval_sha256=sys.argv[3],manifest=pathlib.Path(sys.argv[4]),payload=pathlib.Path(sys.argv[5])); p,doc,components,home=m.read_inputs(a); print("R5 20-product preflight PASS; Qt="+m.install_name(next(c for c in components if c["target"]=="LocalDisplayQtEms"),p));', str(REPO / 'deploy/offline-runtime-upgrade.py'), str(self.root / 'approval.json'), approval_pin, str(coordinator), str(payload)]
+        result = subprocess.run(command, env={**self.env, 'OFFLINE_TEST': '1'}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        write(EVIDENCE / 'r5-twenty-component-preflight.log', result.stdout)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
 
     def test_factory_refuses_existing_runtime_and_shm_reset(self):
         env = self.factory()
@@ -692,7 +879,7 @@ exec /bin/cp "$@"
         self.factory()
         source = self.root / "source"
         for binary in ("ModbusRtu", "Dlt645Driver", "DioDriver", "CanDriver", "IecDriver", "EventEngine",
-                       "ComputeEngine", "EmsParityCheck", "EmsClusterCoordinator"):
+                       "ComputeEngine", "EmsParityCheck", "EmsClusterCoordinator", "memory_point_store_migrate"):
             write(source / "build-aarch64" / binary, "fixture-not-executable\n")
         package = self.root / "factory.tar.gz"
         with tarfile.open(package, "w:gz") as archive:
@@ -735,9 +922,16 @@ if __name__ == "__main__":
     for directory in PROTECTED:
         subprocess.run(["mount", "-t", "tmpfs", "-o", "mode=755", "tmpfs", directory], check=True)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    with (EVIDENCE / "result.txt").open("w") as output:
-        suite = (unittest.TestSuite(InstallIsolationTest(name) for name in options.test) if options.test else
-                 unittest.defaultTestLoader.loadTestsFromTestCase(InstallIsolationTest))
-        result = unittest.TextTestRunner(stream=output, verbosity=2).run(suite)
-    print((EVIDENCE / "result.txt").read_text())
+    output = io.StringIO()
+    suite = (unittest.TestSuite(InstallIsolationTest(name) for name in options.test) if options.test else
+             unittest.defaultTestLoader.loadTestsFromTestCase(InstallIsolationTest))
+    result = unittest.TextTestRunner(stream=output, verbosity=2).run(suite)
+    report = output.getvalue()
+    with (EVIDENCE / "result.txt").open("w") as stream:
+        stream.write(report)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if (EVIDENCE / "result.txt").read_text() != report or '\0' in report:
+        raise RuntimeError('result receipt readback mismatch')
+    print(report)
     sys.exit(0 if result.wasSuccessful() else 1)

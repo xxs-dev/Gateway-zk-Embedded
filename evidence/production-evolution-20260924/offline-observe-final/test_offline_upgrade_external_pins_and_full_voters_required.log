@@ -1,0 +1,8 @@
+action=apply exit=2
+offline upgrade refused/failed: all fixed voters require offline evidence
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: component hash/size mismatch: ComputeEngine
+Keep all participants stopped; no automatic ABI rollback.
+

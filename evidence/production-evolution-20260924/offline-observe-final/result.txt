@@ -1,0 +1,20 @@
+test_offline_upgrade_actual_cli_and_stopped_recovery (__main__.InstallIsolationTest.test_offline_upgrade_actual_cli_and_stopped_recovery) ... ok
+test_offline_upgrade_pending_owner_and_partial_migration_refused (__main__.InstallIsolationTest.test_offline_upgrade_pending_owner_and_partial_migration_refused) ... ok
+test_offline_upgrade_owner_refused (__main__.InstallIsolationTest.test_offline_upgrade_owner_refused) ... ok
+test_offline_upgrade_live_mapping_refused (__main__.InstallIsolationTest.test_offline_upgrade_live_mapping_refused) ... ok
+test_offline_upgrade_external_pins_and_full_voters_required (__main__.InstallIsolationTest.test_offline_upgrade_external_pins_and_full_voters_required) ... ok
+test_offline_upgrade_partial_file_switch_recovers_stopped (__main__.InstallIsolationTest.test_offline_upgrade_partial_file_switch_recovers_stopped) ... ok
+test_offline_upgrade_stop_failure_changes_no_runtime (__main__.InstallIsolationTest.test_offline_upgrade_stop_failure_changes_no_runtime) ... ok
+test_offline_observe_starts_only_observers_and_recovers (__main__.InstallIsolationTest.test_offline_observe_starts_only_observers_and_recovers) ... ok
+test_offline_observe_start_failure_refences (__main__.InstallIsolationTest.test_offline_observe_start_failure_refences) ... ok
+test_offline_observe_rejects_masked_units_and_foreign_voters (__main__.InstallIsolationTest.test_offline_observe_rejects_masked_units_and_foreign_voters) ... ok
+test_offline_observe_rejects_physical_and_changed_inputs (__main__.InstallIsolationTest.test_offline_observe_rejects_physical_and_changed_inputs) ... ok
+test_offline_output_only_reference_and_qt_alias (__main__.InstallIsolationTest.test_offline_output_only_reference_and_qt_alias) ... ok
+test_offline_r5_actual_twenty_component_preflight (__main__.InstallIsolationTest.test_offline_r5_actual_twenty_component_preflight) ... ok
+test_full_factory_contains_migration_cli_and_offline_scripts (__main__.InstallIsolationTest.test_full_factory_contains_migration_cli_and_offline_scripts) ... ok
+test_runtime_mode_packages_with_fixture (__main__.InstallIsolationTest.test_runtime_mode_packages_with_fixture) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 8.352s
+
+OK

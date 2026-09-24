@@ -1,0 +1,9 @@
+action=apply exit=2
+offline upgrade refused/failed: migration refused/failed for offline_source_1: Migration refused/failed: occupied pending write: migration refused; never replay automatically
+Keep all participants stopped. No segment has been unlinked.
+
+Keep all participants stopped; no automatic ABI rollback.
+
+action=recover exit=0
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+

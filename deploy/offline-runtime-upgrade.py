@@ -13,11 +13,13 @@ import subprocess
 import sys
 import time
 
+sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('upgrade_guard', str(Path(__file__).with_name('runtime-upgrade-guard.py')))
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 UNIT = re.compile(r'(?:(?:modbus-rtu|dlt645-driver|dio-driver|can-driver|iec-driver|compute-engine|agc-avc|ems-cluster|event-engine|local-display|local-display-qt|local-kiosk|system-monitor|camera-service|mqtt-tls-tunnel|mqtt-driver|mqtt-forwarder)@[A-Za-z0-9_.:-]*|gateway-services|gateway-health-watchdog|qt-display-bridge|ky-ems)\.service\Z')
 NAME = re.compile(r'[A-Za-z0-9_-]{1,63}\Z')
+OBSERVER_UNIT = re.compile(r'(?:compute-engine|ems-cluster|system-monitor)@[A-Za-z0-9_.:-]+\.service\Z')
 
 
 def require(condition, message):
@@ -137,8 +139,36 @@ def no_processes(home, component_names):
 
 def units_stopped(units):
     for unit in units:
+        if unit.endswith('@.service'):
+            continue
         state = systemctl('show', '--property=ActiveState', '--value', unit)
         require(state in ('inactive', 'failed'), 'unit not stopped: ' + unit + '=' + state)
+
+
+def install_name(component, approval):
+    aliases = approval.get('installNames', {})
+    require(isinstance(aliases, dict) and all(k == 'LocalDisplayQtEms' and v == 'KY-EMS' for k, v in aliases.items()),
+            'only explicitly approved LocalDisplayQtEms -> KY-EMS alias is supported')
+    return aliases.get(component['target'], component['target'])
+
+
+def no_mappings(names):
+    identities = set()
+    for name in names:
+        value = regular(Path('/dev/shm') / name).stat()
+        identities.add((os.major(value.st_dev), os.minor(value.st_dev), value.st_ino))
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            with (entry / 'maps').open() as stream:
+                for line in stream:
+                    fields = line.split()
+                    device = fields[3].split(':')
+                    require((int(device[0], 16), int(device[1], 16), int(fields[4])) not in identities,
+                            'SHM still mapped by pid ' + entry.name)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
 
 
 def read_inputs(args):
@@ -152,7 +182,7 @@ def read_inputs(args):
             str(home) not in ('/', '/opt'), 'unsafe gateway home')
     manifest = checked_json(args.manifest, approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
-    names = [c['target'] for c in components]
+    names = [install_name(c, approval) for c in components]
     require(names and len(names) == len(set(names)) and 'memory_point_store_migrate' in names,
             'complete unique product component set with migration CLI required')
     for component in components:
@@ -205,7 +235,7 @@ def fence(home, approval, state_dir, state):
     state['phase'] = 'FENCED'
     save(state_dir / 'state.json', state)
     systemctl('daemon-reload')
-    systemctl('stop', *approval['units'])
+    systemctl('stop', *(u for u in approval['units'] if not u.endswith('@.service')))
     units_stopped(approval['units'])
 
 
@@ -246,8 +276,9 @@ def apply(args):
     write_new(args.state / 'approval.json', regular(args.approval).read_bytes())
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
     state = {'phase': 'PREPARED', 'stopConfirmed': False, 'approvalSha256': args.approval_sha256, 'files': [], 'segments': [],
-             'unitStates': {u: {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
-                                'active': systemctl('show', '--property=ActiveState', '--value', u)} for u in approval['units']}}
+             'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
+                               {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
+                                'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
     save(args.state / 'state.json', state)
     try:
         fence(home, approval, args.state, state)
@@ -259,7 +290,7 @@ def apply(args):
             path = args.payload / component['archivePath']
             payload = regular(path).read_bytes()
             require(hashlib.sha256(payload).hexdigest() == component['sha256'], 'staged component changed')
-            changed.append((home / 'bin' / component['target'], payload, 0o755))
+            changed.append((home / 'bin' / install_name(component, approval), payload, 0o755))
         for relative, doc in documents.items():
             updated = switch_names(doc, names)
             if updated != doc:
@@ -318,7 +349,7 @@ def recover(args):
     fence(home, approval, args.state, state)
     no_processes(home, [])
     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
-    products = {c['target']: c for c in manifest['components'] if c.get('kind') == 'product'}
+    products = {install_name(c, approval): c for c in manifest['components'] if c.get('kind') == 'product'}
     # Validate every backup before restoring anything. Durable data and SHM are never restored.
     for index, item in enumerate(state['files']):
         relative = Path(item['path'])
@@ -353,14 +384,109 @@ def recover(args):
     print('RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart')
 
 
+def observe(args):
+    require(args.ready and args.ready_sha256, 'observe requires separate externally approved ready receipt')
+    ready = checked_json(args.ready, args.ready_sha256)
+    require(ready.get('schemaVersion') == 'offline-shm11-observe-1' and ready.get('controlEnabled') is False and
+            type(ready.get('expiresAtUnix')) is int and time.time() < ready['expiresAtUnix'], 'invalid/expired observe approval')
+    state = checked_json(args.state / 'state.json', ready['stateSha256'])
+    require(state['phase'] == 'UPGRADED_STOPPED' and state['approvalSha256'] == args.approval_sha256,
+            'observe requires unchanged successful stopped upgrade')
+    approval = checked_json(args.state / 'approval.json', args.approval_sha256)
+    require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
+            ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')
+    home = Path(approval['gatewayHome'])
+    voters = local_identity(home, approval)
+    require(set(ready['voters']) == voters, 'all fixed voters must confirm upgraded/stopped')
+    for node, receipt in ready['voters'].items():
+        require(receipt.get('phase') == 'UPGRADED_STOPPED' and receipt.get('controlEnabled') is False and
+                receipt.get('programManifestSha256') == approval['programManifestSha256'] and
+                re.fullmatch('[0-9a-f]{64}', receipt.get('stateSha256', '')), 'voter not ready: ' + node)
+    require(ready['voters'][approval['nodeId']]['stateSha256'] == ready['stateSha256'], 'local voter receipt mismatch')
+    require((home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'], 'persistent fence missing')
+    manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
+    components = [c for c in manifest['components'] if c.get('kind') == 'product']
+    for component in components:
+        require(digest(home / 'bin' / install_name(component, approval)) == component['sha256'], 'installed component no longer approved')
+    require(tree_hashes(home / 'config/runtime') == state['configSha256'], 'upgraded configuration changed')
+    for doc in configured(home / 'config/runtime').values():
+        controls_disabled(doc)
+    for segment in state['segments']:
+        for side in ('source', 'target'):
+            require(digest(Path('/dev/shm') / segment[side]) == segment[side + 'Sha256'], 'SHM changed before observe')
+    no_processes(home, [c['target'] for c in components])
+    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')])
+    units_stopped(approval['units'])
+    selected = ready['startUnits']
+    require(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and
+            set(selected) <= set(approval['units']) and all(OBSERVER_UNIT.fullmatch(u) for u in selected),
+            'only explicitly approved compute/cluster/monitor observers may start; physical participants remain inhibited')
+    for unit in selected:
+        before = state['unitStates'][unit]['enabled']
+        require(before not in ('masked', 'masked-runtime') and
+                systemctl('show', '--property=UnitFileState', '--value', unit) == before, 'unit policy changed or was masked')
+    dropins = []
+    marker = home / 'data/runtime-upgrade-stop'
+    inhibit_units = set(selected)
+    for unit in selected:
+        template = unit.split('@', 1)[0] + '@.service'
+        if template in approval['units']:
+            inhibit_units.add(template)
+    for unit in sorted(inhibit_units):
+        path = Path('/etc/systemd/system') / (unit + '.d') / ('90-offline-' + approval['transactionId'] + '.conf')
+        body = ('[Unit]\nConditionPathExists=!' + str(marker) + '\n').encode()
+        require(regular(path).read_bytes() == body, 'unit inhibition changed')
+        dropins.append((path, body))
+    state['phase'] = 'STARTING_OBSERVERS'
+    state['observeApprovalSha256'] = args.ready_sha256
+    save(args.state / 'state.json', state)
+    try:
+        for path, _ in dropins:
+            path.unlink()
+            sync_dir(path.parent)
+        systemctl('daemon-reload')
+        for unit in selected:
+            systemctl('start', unit)
+            systemctl('is-active', '--quiet', unit)
+        for path, body in dropins:
+            write_new(path, body, 0o644)
+        systemctl('daemon-reload')
+        state['phase'] = 'OBSERVING_CONTROL_DISABLED'
+        state['startedUnits'] = selected
+        save(args.state / 'state.json', state)
+    except BaseException:
+        state['phase'] = 'FAILED_OBSERVER_START'
+        # Best effort restoration must not skip stopping already-started observers.
+        for path, body in dropins:
+            try:
+                if not path.exists():
+                    write_new(path, body, 0o644)
+            except OSError:
+                state['phase'] = 'FAILED_INHIBITION_RESTORE'
+        try:
+            systemctl('daemon-reload')
+        except (OSError, ValueError, subprocess.SubprocessError):
+            state['phase'] = 'FAILED_INHIBITION_RESTORE'
+        try:
+            systemctl('stop', *selected)
+            units_stopped(selected)
+        except BaseException:
+            state['phase'] = 'FAILED_STOP_UNCONFIRMED'
+        save(args.state / 'state.json', state)
+        raise
+    print('OBSERVING_CONTROL_DISABLED: selected observers active; drivers/launcher remain fenced; no physical approval')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('apply', 'recover'))
+    parser.add_argument('action', choices=('apply', 'recover', 'observe'))
     parser.add_argument('--approval', type=Path)
     parser.add_argument('--approval-sha256', required=True)
     parser.add_argument('--manifest', type=Path)
     parser.add_argument('--payload', type=Path)
     parser.add_argument('--state', type=Path, required=True)
+    parser.add_argument('--ready', type=Path)
+    parser.add_argument('--ready-sha256')
     args = parser.parse_args()
     require(os.geteuid() == 0, 'root in host PID/mount namespace required')
     if args.action == 'apply':

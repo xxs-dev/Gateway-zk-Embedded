@@ -876,7 +876,7 @@ PY
 mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
 
 BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
-ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
+ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl memory_point_store_migrate"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
 EXISTING_RUNTIME_MODE=$(json_string_value "$GATEWAY_HOME/config/runtime/apps/mqtt-service.json" "runtimeMode" || true)
 DEFAULT_INSTALL_RUNTIME_MODE=$(first_nonempty "${INIT_RUNTIME_MODE:-}" "$EXISTING_RUNTIME_MODE" "gateway")

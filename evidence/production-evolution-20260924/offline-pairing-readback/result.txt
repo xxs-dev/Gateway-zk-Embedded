@@ -1,0 +1,10 @@
+test_offline_observe_starts_only_observers_and_recovers (__main__.InstallIsolationTest.test_offline_observe_starts_only_observers_and_recovers) ... ok
+test_offline_observe_start_failure_refences (__main__.InstallIsolationTest.test_offline_observe_start_failure_refences) ... ok
+test_offline_pairing_provenance (__main__.InstallIsolationTest.test_offline_pairing_provenance) ... ok
+test_service_stop_failure_does_not_start_or_touch_shm (__main__.InstallIsolationTest.test_service_stop_failure_does_not_start_or_touch_shm) ... ok
+test_ota_plain_config_is_not_blocked (__main__.InstallIsolationTest.test_ota_plain_config_is_not_blocked) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.849s
+
+OK

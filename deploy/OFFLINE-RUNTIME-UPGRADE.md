@@ -15,6 +15,10 @@ Compose an exclusive payload directory using each product's `archivePath`,
 `bytes` and `sha256`. Only `kind=product` entries are installed (20 products,
 including the inherited migration CLI); 12 probes and the helper are excluded.
 This approval does not authorize an actual device migration.
+The full factory builder/installer now require `memory_point_store_migrate`.
+Base/project payloads keep their narrower profiles; an offline operator must
+provide the complete approved external payload, not assume a base package has
+the migration tool. No new ARM compilation is needed for that existing CLI.
 
 ## Approval document
 
@@ -30,12 +34,18 @@ This approval does not authorize an actual device migration.
 - `programManifestSha256`: externally reviewed full component manifest pin.
 - `installedRuntimeSha256`: exact map of every installed runtime ELF/name to its
   current SHA256. An installed runtime absent from the target manifest is refused.
+- Optional `installNames:{"LocalDisplayQtEms":"KY-EMS"}` selects the existing Qt
+  installed name while keeping the SAME approved component SHA256 and archive
+  path. No arbitrary alias or symlink is accepted. Without this mapping, an old
+  `KY-EMS` installation is refused rather than leaving its launch path unchanged.
 - `configSha256`: exact map of ALL files relative to `config/runtime`, including
   identity, templates/configuration and credentials (hashes only).
 - `units`: exact Gateway-only templates/instances and software launcher/watchdog
   units to inhibit and stop, covering discovered units. No SSH/network service,
   kernel watchdog or arbitrary unit is accepted. Existing enabled/masked policy
   is recorded, never changed by apply/recover.
+  Template files such as `compute-engine@.service` receive inhibition drop-ins
+  but are never passed to `stop`/instance `show`; only concrete instances stop.
 - `offlineVoters`: exactly every fixed voter, each with `controlDisabled:true`,
   `participantsStopped:true`, `restartInhibited:true`, and `evidenceSha256` of the
   implementation operator's reviewed stop/process/SHM inventory receipt. These
@@ -94,6 +104,43 @@ or authority in old SHM are not reauthorized. No automatic ABI downgrade is
 implemented or claimed. Failed backup validation keeps the installation fenced.
 If stopping fails, `FAILED_STOP_UNCONFIRMED` explicitly requires operator action;
 it is not proof that the old running process has ceased physical control.
+
+## Observe without physical outputs
+
+After ALL fixed voters have completed their matching upgrade, the implementation
+operator may separately approve an `offline-shm11-observe-1` receipt. It contains
+`transactionId`, original `approvalSha256`, `programManifestSha256`, the exact
+local completed `stateSha256`, `controlEnabled:false`, integer `expiresAtUnix`,
+`startUnits`, and `voters` keyed by the full fixed voter set. Each voter receipt
+contains `phase:"UPGRADED_STOPPED"`, `controlEnabled:false`, the same program
+manifest hash and its reviewed completed state hash (which binds its own config
+and source/target SHM hashes). The local voter hash must match `stateSha256`.
+
+```sh
+python3 offline-runtime-upgrade.py observe \
+  --approval-sha256 ORIGINAL_APPROVED_SHA256 \
+  --state /persistent/offline/unique-transaction \
+  --ready /persistent/offline/all-voters-ready.json \
+  --ready-sha256 SEPARATELY_APPROVED_SHA256
+```
+
+Only explicitly selected `compute-engine@`, `ems-cluster@`, `system-monitor@`
+instances may start. Rechecks cover all installed product hashes, config bytes,
+source/target bytes, absent live mappings/processes and unchanged unit policy.
+Previously masked units are refused, never unmasked. `is-active` must succeed.
+The entrypoint temporarily removes only selected observer/observer-template
+drop-ins, starts them, then restores inhibition and reloads systemd before success.
+It never enables a unit or lifts the persistent global fence. Physical drivers,
+Gateway launcher and other participants remain inhibited. A completed observation
+start does not permit an automatic subsequent restart. Interrupted startup requires
+operator inspection/recovery; SIGKILL/power-loss mid-operation is not qualified.
+
+Success is `OBSERVING_CONTROL_DISABLED`; it is not normal production control.
+Any start/check/reinhibition failure triggers best-effort observer stop and retains
+failure state. Replay of an already-consumed state receipt is refused. `recover`
+can subsequently stop those observers and restore files while remaining fenced.
+Starting physical participants or enabling control remains a separate release
+decision and is intentionally not an option on this entrypoint.
 
 Evidence tests use actual entrypoint and native migration CLI in private
 mount/net/IPC namespaces, with a fake systemctl. They are not ARM/systemd device

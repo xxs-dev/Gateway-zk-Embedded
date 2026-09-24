@@ -323,7 +323,7 @@ fi
 if [ -d "$COMPONENT_BUILD_DIR" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
   BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
-  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl"
+  ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl memory_point_store_migrate"
   OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
   REQUIRED_BINS="$ALL_BINS"
   if [ "$PACKAGE_PROFILE" = "base" ]; then

@@ -96,3 +96,49 @@ both SHM generations. General startup stays fenced. No ARM execution claimed.
 
 Only a disposable fixture generator was compiled; the native migration CLI and
 all R5 product binaries were reused. The existing runtime source is unchanged.
+
+## Observer start, real package mapping and pairing
+
+`observe` is separately externally approved after every fixed voter confirms the
+same component manifest and its own completed state hash. Only approved compute,
+cluster and monitor instances may start; physical drivers and launcher remain
+persistently fenced. All product/config/source/target hashes and absent live maps
+are rechecked. Original enabled/masked policy is unchanged; masked observers and
+replayed receipts are refused. Start/is-active/reinhibition failures stop attempted
+observers best-effort and cannot report success. This is observation, not physical
+control or an automatically running old-ABI rollback.
+
+Coordinator findings corrected: templates receive condition drop-ins but no
+instance stop/show operation; explicit LocalDisplayQtEms -> KY-EMS mapping uses
+the approved identical payload hash; outputSharedMemoryName is included in both
+reference extraction and rewriting, with an output-only configuration fixture.
+The full factory builder and installer require the existing migration CLI; paired
+deploy scripts include both new Python entrypoints. Base/project scopes remain
+unchanged and require the external complete approved payload for offline upgrade.
+
+`offline-observe-final/result.txt`: 15 targeted tests PASS, including real R5
+20-product manifest preflight against the hash-pinned recovered baseline archive
+and R5 delta, with the approved Qt alias. Twelve probes are not installed.
+No R5 ELF is rebuilt/executed here. Real native migration CLI was exercised in
+the separate apply/recover fixtures. Runtime `src`, `include`, `apps`, migration
+CLI source have zero diff from qualified9ccfce8; deploy changes need script pairing,
+not a runtime rebuild. Python3.6 AST checks passed for both new scripts.
+
+The first observer trial had two incorrect expected drop-in filenames in the test;
+the actual entrypoint succeeded/reinhibited correctly. Fixed assertions, retained
+failed result. A later 12-test output reported OK but its incremental receipt
+contained113 NUL bytes; it is retained as evidence of an unqualified receipt, not
+counted as a clean named-test result. The existing runner now buffers its report,
+fsyncs it and verifies exact readback. `offline-pairing-readback/result.txt`: five
+focused observer/pairing and affected service/config tests PASS with clean readback.
+
+Final script bytes/hashes: `offline-pairing-readback/paired-deploy-delta.json`.
+Native test artifact/source hashes: `native-fixture-provenance.json` in the same
+directory. Disposable fixture executables are preserved outside Git under
+`C:/Users/12193/AppData/Local/GatewaySuiteEdge/offline-fixture-evidence-20260924`.
+
+Remaining: no real ARM device migration/systemd start, SIGKILL/power-loss recovery,
+or physical PCS qualification. Real-systemd dependency effects require device
+implementation review. Approval receipts are operator attestations, not an online
+signature/vote protocol. Existing stopped V10 authority/pending bytes are never
+automatically reauthorized; original-control rollback is intentionally unsupported.

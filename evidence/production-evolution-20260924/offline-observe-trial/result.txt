@@ -1,0 +1,31 @@
+test_offline_upgrade_actual_cli_and_stopped_recovery (__main__.InstallIsolationTest.test_offline_upgrade_actual_cli_and_stopped_recovery) ... ok
+test_offline_observe_starts_only_observers_and_recovers (__main__.InstallIsolationTest.test_offline_observe_starts_only_observers_and_recovers) ... FAIL
+test_offline_observe_start_failure_refences (__main__.InstallIsolationTest.test_offline_observe_start_failure_refences) ... FAIL
+test_offline_observe_rejects_masked_units_and_foreign_voters (__main__.InstallIsolationTest.test_offline_observe_rejects_masked_units_and_foreign_voters) ... ok
+test_offline_output_only_reference_and_qt_alias (__main__.InstallIsolationTest.test_offline_output_only_reference_and_qt_alias) ... ok
+test_offline_r5_actual_twenty_component_preflight (__main__.InstallIsolationTest.test_offline_r5_actual_twenty_component_preflight) ... ok
+test_runtime_mode_packages_with_fixture (__main__.InstallIsolationTest.test_runtime_mode_packages_with_fixture) ... ok
+test_existing_shell_regressions (__main__.InstallIsolationTest.test_existing_shell_regressions) ... ok
+
+======================================================================
+FAIL: test_offline_observe_starts_only_observers_and_recovers (__main__.InstallIsolationTest.test_offline_observe_starts_only_observers_and_recovers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 469, in test_offline_observe_starts_only_observers_and_recovers
+    self.assertTrue((Path('/etc/systemd/system') / (unit + '.d/90-fixture-offline.conf')).exists())
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_offline_observe_start_failure_refences (__main__.InstallIsolationTest.test_offline_observe_start_failure_refences)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 482, in test_offline_observe_start_failure_refences
+    self.assertTrue(Path('/etc/systemd/system/compute-engine@.service.d/90-fixture-offline.conf').is_file())
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 8 tests in 7.390s
+
+FAILED (failures=2)
