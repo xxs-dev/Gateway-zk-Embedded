@@ -1,0 +1,67 @@
+Test project /var/tmp/ems-production-candidate-20260924-build
+      Start 18: memory_point_store_migration
+ 1/31 Test #18: memory_point_store_migration .......   Passed    1.72 sec
+      Start 19: memory_point_store_shm11
+ 2/31 Test #19: memory_point_store_shm11 ...........   Passed    0.02 sec
+      Start 20: memory_point_store_v11_migration
+ 3/31 Test #20: memory_point_store_v11_migration ...   Passed    0.12 sec
+      Start 23: control_dedup_integration
+ 4/31 Test #23: control_dedup_integration ..........   Passed    0.56 sec
+      Start 24: control_dedup_protocol
+ 5/31 Test #24: control_dedup_protocol .............   Passed    0.13 sec
+      Start 29: cluster_driver_send_guard
+ 6/31 Test #29: cluster_driver_send_guard ..........   Passed    0.20 sec
+      Start 30: cluster_driver_rejection
+ 7/31 Test #30: cluster_driver_rejection ...........   Passed    0.07 sec
+      Start 31: ems_cluster_transport_bounds
+ 8/31 Test #31: ems_cluster_transport_bounds .......   Passed    2.25 sec
+      Start 33: mqtt_forwarder_service
+ 9/31 Test #33: mqtt_forwarder_service .............   Passed    1.44 sec
+      Start 34: point_store_router_retention
+10/31 Test #34: point_store_router_retention .......   Passed    0.08 sec
+      Start 37: ems_cluster
+11/31 Test #37: ems_cluster ........................   Passed    6.37 sec
+      Start 38: cluster_write_authorization
+12/31 Test #38: cluster_write_authorization ........   Passed    0.00 sec
+      Start 39: ems_cluster_output_authority
+13/31 Test #39: ems_cluster_output_authority .......   Passed    0.01 sec
+      Start 40: ems_cluster_strategy_startup
+14/31 Test #40: ems_cluster_strategy_startup .......   Passed    0.35 sec
+      Start 41: cluster_router_authority
+15/31 Test #41: cluster_router_authority ...........   Passed    0.02 sec
+      Start 42: cluster_config_authority
+16/31 Test #42: cluster_config_authority ...........   Passed    0.00 sec
+      Start 54: compute_engine_service
+17/31 Test #54: compute_engine_service .............   Passed    0.04 sec
+      Start 55: config_loader
+18/31 Test #55: config_loader ......................   Passed    0.05 sec
+      Start 58: dlt645_command_executor
+19/31 Test #58: dlt645_command_executor ............   Passed    0.01 sec
+      Start 60: gateway_daemon_realtime_priority
+20/31 Test #60: gateway_daemon_realtime_priority ...   Passed    0.03 sec
+      Start 62: memory_point_store_lifecycle
+21/31 Test #62: memory_point_store_lifecycle .......   Passed    0.33 sec
+      Start 63: memory_point_store_reader_cache
+22/31 Test #63: memory_point_store_reader_cache ....   Passed    0.18 sec
+      Start 71: posix_serial_port_recovery
+23/31 Test #71: posix_serial_port_recovery .........   Passed    0.00 sec
+      Start 74: modbus_rtu_client_resync
+24/31 Test #74: modbus_rtu_client_resync ...........   Passed    0.34 sec
+      Start 75: modbus_tcp_client_limit
+25/31 Test #75: modbus_tcp_client_limit ............   Passed    0.14 sec
+      Start 76: mqtt_driver_service
+26/31 Test #76: mqtt_driver_service ................   Passed    3.35 sec
+      Start 81: point_store_router_normalize
+27/31 Test #81: point_store_router_normalize .......   Passed    0.01 sec
+      Start 82: priority_control_lease
+28/31 Test #82: priority_control_lease .............   Passed    0.00 sec
+      Start 92: graph_ems_v2_loader
+29/31 Test #92: graph_ems_v2_loader ................   Passed    0.37 sec
+      Start 94: graph_ems_voltage_quality
+30/31 Test #94: graph_ems_voltage_quality ..........   Passed    1.42 sec
+      Start 95: graph_ems_cluster_dispatch
+31/31 Test #95: graph_ems_cluster_dispatch .........   Passed    0.10 sec
+
+100% tests passed, 0 tests failed out of 31
+
+Total Test time (real) =  19.77 sec

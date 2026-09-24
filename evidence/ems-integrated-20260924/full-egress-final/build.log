@@ -1,0 +1,170 @@
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.o
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.o
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_command_executor.cpp.o
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_command_executor.cpp.o
+[  4%] Linking CXX static library libedge_gateway.a
+[100%] Built target edge_gateway
+[100%] Linking CXX executable ModbusRtu
+[100%] Built target ModbusRtu
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o
+[100%] Linking CXX executable Dlt645Driver
+[100%] Built target Dlt645Driver
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/DioDriver.dir/dio_driver_main.cpp.o
+[100%] Linking CXX executable DioDriver
+[100%] Built target DioDriver
+[100%] Built target edge_gateway
+[100%] Linking CXX executable CanDriver
+[100%] Built target CanDriver
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/IecDriver.dir/iec_driver_main.cpp.o
+[100%] Linking CXX executable IecDriver
+[100%] Built target IecDriver
+[ 84%] Built target edge_gateway
+[ 88%] Built target event_store_runtime
+[ 88%] Built target event_store_client
+[ 88%] Built target event_stats_reader
+[ 92%] Built target event_store_producer
+[ 96%] Built target event_store_sender
+[ 96%] Linking CXX executable MqttDriver
+[100%] Built target MqttDriver
+[ 91%] Built target edge_gateway
+[ 95%] Built target event_store_runtime
+[ 95%] Built target event_store_client
+[ 95%] Built target event_stats_reader
+[100%] Built target event_store_sender
+[100%] Linking CXX executable MqttForwarder
+[100%] Built target MqttForwarder
+[ 88%] Built target edge_gateway
+[ 92%] Built target event_store_runtime
+[ 92%] Built target event_store_client
+[ 92%] Built target event_stats_reader
+[ 96%] Built target event_store_producer
+[100%] Linking CXX executable EventEngine
+[100%] Built target EventEngine
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable ComputeEngine
+[100%] Built target ComputeEngine
+[100%] Built target edge_gateway
+[100%] Linking CXX executable AgcAvcController
+[100%] Built target AgcAvcController
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable EmsClusterCoordinator
+[100%] Built target EmsClusterCoordinator
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable SystemMonitor
+[100%] Built target SystemMonitor
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable LocalDisplay
+[100%] Built target LocalDisplay
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable QtDisplayBridge
+[100%] Built target QtDisplayBridge
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable CameraService
+[100%] Built target CameraService
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable pointctl
+[100%] Built target pointctl
+[100%] Built target edge_gateway
+[100%] Linking CXX executable EmsParityCheck
+[100%] Built target EmsParityCheck
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable stress_runner
+[100%] Built target stress_runner
+[100%] Built target memory_point_store_migrate
+[100%] Built target edge_gateway
+[100%] Linking CXX executable ems_cluster_test
+[100%] Built target ems_cluster_test
+[100%] Built target ems_cluster_transport_bounds_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable cluster_write_authorization_test
+[100%] Built target cluster_write_authorization_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable ems_cluster_output_authority_test
+[100%] Built target ems_cluster_output_authority_test
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable ems_cluster_strategy_startup_test
+[100%] Built target ems_cluster_strategy_startup_test
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable cluster_router_authority_test
+[100%] Built target cluster_router_authority_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable cluster_config_authority_test
+[100%] Built target cluster_config_authority_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable cluster_driver_send_guard_test
+[100%] Built target cluster_driver_send_guard_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable memory_point_store_shm11_test
+[100%] Built target memory_point_store_shm11_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable memory_point_store_v11_migration_test
+[100%] Built target memory_point_store_v11_migration_test
+[  4%] Built target memory_point_store_migrate
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable memory_point_store_migration_test
+[100%] Built target memory_point_store_migration_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable memory_point_store_lifecycle_test
+[100%] Built target memory_point_store_lifecycle_test
+[100%] Built target memory_point_store_reader_cache_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable config_loader_test
+[100%] Built target config_loader_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable graph_ems_cluster_dispatch_test
+[100%] Built target graph_ems_cluster_dispatch_test
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable graph_ems_v2_loader_test
+[100%] Built target graph_ems_v2_loader_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable graph_ems_voltage_quality_test
+[100%] Built target graph_ems_voltage_quality_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable compute_engine_service_test
+[100%] Built target compute_engine_service_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable point_store_router_retention_test
+[100%] Built target point_store_router_retention_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable point_store_router_normalize_test
+[100%] Built target point_store_router_normalize_test
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable priority_control_lease_test
+[100%] Built target priority_control_lease_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable gateway_daemon_realtime_priority_test
+[100%] Built target gateway_daemon_realtime_priority_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable modbus_rtu_client_resync_test
+[100%] Built target modbus_rtu_client_resync_test
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable modbus_tcp_client_limit_test
+[100%] Built target modbus_tcp_client_limit_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable posix_serial_port_recovery_test
+[100%] Built target posix_serial_port_recovery_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/dlt645_command_executor_test.dir/tools/dlt645_command_executor_test.cpp.o
+[100%] Linking CXX executable dlt645_command_executor_test
+[100%] Built target dlt645_command_executor_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/control_dedup_integration_test.dir/tools/control_dedup_integration_test.cpp.o
+[100%] Linking CXX executable control_dedup_integration_test
+[100%] Built target control_dedup_integration_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/control_dedup_protocol_test.dir/tools/control_dedup_protocol_test.cpp.o
+[100%] Linking CXX executable control_dedup_protocol_test
+[100%] Built target control_dedup_protocol_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable mqtt_driver_service_test
+[100%] Built target mqtt_driver_service_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable mqtt_forwarder_service_test
+[100%] Built target mqtt_forwarder_service_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/cluster_driver_rejection_test.dir/tools/cluster_driver_rejection_test.cpp.o
+[100%] Linking CXX executable cluster_driver_rejection_test
+[100%] Built target cluster_driver_rejection_test
