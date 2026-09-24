@@ -1,0 +1,1 @@
+ems cluster test failed: missing complete voting membership must fail startup, not auto-bootstrap
