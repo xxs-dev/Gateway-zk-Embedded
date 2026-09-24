@@ -10,6 +10,7 @@ import importlib.util
 import re
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import struct
 import sys
@@ -52,6 +53,9 @@ case "$1" in
     echo 'ky-ems.service enabled'
     [ "${OFFLINE_TEST:-0}" != 1 ] || echo 'compute-engine@.service disabled' ;;
   stop|show)
+    if [ "$1" = stop ] && [ "${MUTATE_MONITOR_DROPIN_ON_STOP:-0}" = 1 ]; then
+      printf '# changed after preflight\n' >> /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf
+    fi
     case "$*" in *@.service*) echo 'cannot operate on uninstantiated template' >&2; exit 45 ;; esac
     if [ "$1" = show ]; then
       if [ "${OFFLINE_TEST:-0}" = 1 ]; then
@@ -332,6 +336,95 @@ exec /bin/cp "$@"
                     'segments': segments}
         write(self.root / 'approval.json', json.dumps(approval))
         return home, approval
+
+    def monitor_binding_fixture(self):
+        home, approval = self.offline_fixture()
+        source = 'gateway_point_store_COMM202600998_monitor'
+        Path('/dev/shm/offline_source_0').rename(Path('/dev/shm') / source)
+        approval['segments'][0]['source'] = source
+        config = home / 'config/runtime/apps/compute.json'
+        document = json.loads(config.read_text())
+        document['computeEngine']['sharedMemoryNames'] = [source]
+        document['computeEngine']['outputDefaultSharedMemoryName'] = source
+        document['emsCluster']['virtualSharedMemoryName'] = source
+        write(config, json.dumps(document))
+        approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+        approval['units'].append('system-monitor@monitor-service.service')
+        dropin = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
+        body = ('[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + source + '\n').encode()
+        self.assertEqual(106, len(body))
+        self.assertEqual('5bb12c8ae5ddd2844b01a0c50ebc33cc6594b7a8c30b96e6c7d3f89544dc74fe',
+                         hashlib.sha256(body).hexdigest())
+        dropin.parent.mkdir(parents=True)
+        dropin.write_bytes(body)
+        dropin.chmod(0o644)
+        approval['systemMonitorShmDropinSha256'] = hashlib.sha256(body).hexdigest()
+        return home, approval, dropin, body
+
+    def test_offline_monitor_binding_roundtrip(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        source = (REPO / 'src/system_monitor_points.cpp').read_text()
+        self.assertIn('std::getenv("GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME")', source)
+        self.assertIn('std::string(kSharedMemoryName)', source)
+        self.assertIn('system_monitor_points::sharedMemoryName()', (REPO / 'system_monitor_main.cpp').read_text())
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        target = approval['segments'][0]['target']
+        self.assertEqual(original.replace(approval['segments'][0]['source'].encode(), target.encode()), dropin.read_bytes())
+        self.assertEqual(0o644, stat.S_IMODE(dropin.stat().st_mode))
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        self.assertEqual(0, self.offline_run('observe').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, dropin.read_bytes())
+        self.assertEqual(0o644, stat.S_IMODE(dropin.stat().st_mode))
+
+    def test_offline_monitor_binding_missing_or_unsupported_rejected(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        approval.pop('systemMonitorShmDropinSha256')
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('monitor SHM binding', result.stdout)
+        self.assertEqual(original, dropin.read_bytes())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_monitor_binding_changed_or_unsupported_file_rejected(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        dropin.write_bytes(original + b'# extra\n')
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+        approval['systemMonitorShmDropinSha256'] = hashlib.sha256(dropin.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('unsupported monitor SHM drop-in', result.stdout)
+
+    def test_offline_monitor_binding_post_stop_change_rejected(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        result = self.offline_run(approval=approval, env={'MUTATE_MONITOR_DROPIN_ON_STOP': '1'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('monitor SHM drop-in changed during stop', result.stdout)
+        self.assertNotEqual(original, dropin.read_bytes())
+        self.assertFalse(Path('/dev/shm/offline_target_0').exists())
+
+    def test_offline_monitor_binding_partial_recover(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        binary = home / 'bin/MqttDriver'
+        subprocess.run(['mount', '--bind', str(binary), str(binary)], check=True)
+        try:
+            result = self.offline_run(approval=approval)
+            self.assertNotEqual(0, result.returncode, result.stdout)
+            self.assertNotEqual(original, dropin.read_bytes())
+        finally:
+            subprocess.run(['umount', str(binary)], check=True)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, dropin.read_bytes())
 
     def offline_run(self, action='apply', approval=None, env=None):
         if approval is not None:
