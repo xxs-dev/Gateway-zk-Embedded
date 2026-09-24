@@ -1,0 +1,10 @@
+{
+  "scope": "s2",
+  "rosterSha256": "090b5faf3cd1542d65f417f8ce0c2b34ca33d283c8f05cb0d5fb4096b391cc64",
+  "sourceAppSha256": "f26c5b074ff1302802ee159d7f1b9455c25452c93d3292d7418c825f63bee31e",
+  "adaptations": [
+    "controlEnabled=false",
+    "canonical private identity and membership paths",
+    "native fixture SHM bytes"
+  ]
+}

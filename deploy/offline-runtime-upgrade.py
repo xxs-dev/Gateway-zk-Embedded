@@ -348,7 +348,11 @@ def apply(args):
     require(len(names) == len(segments) and len(set(names.values())) == len(names) and names and
             all(NAME.fullmatch(n) for n in list(names) + list(names.values())) and not set(names) & set(names.values()),
             'distinct unique source and target SHM names required')
-    require(references == set(names), 'all SHM references must be explicit and covered exactly')
+    # The fixed default may exist without a JSON reference; retain and migrate it
+    # under the same explicit segment, digest, quiescence and backup gates.
+    unreferenced_default = 'gateway_point_store' in names and 'gateway_point_store' not in references
+    require(references <= set(names) and set(names) - references <= {'gateway_point_store'},
+            'all SHM references must be explicit and covered exactly')
     for doc in documents.values():
         no_old_references(switch_names(doc, names), names)
     # An existing default segment may be an implicit reader not covered by this recipe.
@@ -367,6 +371,7 @@ def apply(args):
     write_new(args.state / 'approval.json', regular(args.approval).read_bytes())
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
     state = {'phase': 'PREPARED', 'stopConfirmed': False, 'approvalSha256': args.approval_sha256, 'files': [], 'segments': [],
+             'unreferencedDefaultShm': unreferenced_default,
              'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
                                {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
@@ -486,6 +491,8 @@ def observe(args):
     state = checked_json(args.state / 'state.json', ready['stateSha256'])
     require(state['phase'] == 'UPGRADED_STOPPED' and state['approvalSha256'] == args.approval_sha256,
             'observe requires unchanged successful stopped upgrade')
+    require(state.get('unreferencedDefaultShm') is not True,
+            'unreferenced default SHM may have implicit readers; observer start is not qualified')
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
     require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
             ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')

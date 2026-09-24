@@ -1,0 +1,10 @@
+{
+  "scope": "r4",
+  "rosterSha256": "da8b016f579bdb6436d9569bf8234a26f4ac1c90d298840bb4080b554537361c",
+  "sourceAppSha256": "f26c5b074ff1302802ee159d7f1b9455c25452c93d3292d7418c825f63bee31e",
+  "adaptations": [
+    "controlEnabled=false",
+    "canonical private identity and membership paths",
+    "native fixture SHM bytes"
+  ]
+}

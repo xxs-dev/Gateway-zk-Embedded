@@ -572,13 +572,25 @@ exec /bin/cp "$@"
         self.assertEqual('UPGRADED_STOPPED', state['phase'])
         self.assertEqual(approval['segments'][0]['sha256'],
                          hashlib.sha256(Path('/dev/shm/gateway_point_store').read_bytes()).hexdigest())
+        self.assertEqual(10, struct.unpack('<II', Path('/dev/shm/gateway_point_store').read_bytes()[:8])[1])
+        self.assertTrue((self.root / 'transaction/gateway_point_store.v10.bak').is_file())
         self.assertTrue(Path('/dev/shm/offline_target_0').is_file())
+        subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'verify', 'offline_target_0'], check=True)
         self.offline_ready(approval)
         result = self.offline_run('observe')
         self.assertNotEqual(0, result.returncode, result.stdout)
         self.assertIn('unreferenced default SHM', result.stdout)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
         self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_arbitrary_extra_segment_rejected(self):
+        home, approval = self.offline_fixture()
+        approval['segments'].append({'source': 'offline_unreferenced_extra',
+                                     'target': 'offline_extra_target', 'sha256': 'a' * 64})
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('all SHM references must be explicit and covered exactly', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
 
     def test_offline_standalone_ems_reference_boundaries(self):
         home, approval = self.standalone_fixture()
