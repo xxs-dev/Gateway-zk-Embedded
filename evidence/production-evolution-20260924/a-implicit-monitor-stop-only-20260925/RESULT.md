@@ -6,7 +6,7 @@ No device, ARM build, Windows package, or historical sealed artifact was changed
 The A-only read probe at `C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/a-monitor-binding-20260925-01/stdout` has SHA256 `64282fb1a693a156c4b13e2838d70107e01b79ea5013fb0904b60d8a0cb40965`.
 It reports `gateway_point_store_system_monitor` V10 mapped by both SystemMonitor
 and KY-EMS, with SystemMonitor's environment key and drop-ins absent. The probe
-is `INCOMPLETE` because an unrelated initial-stat PID disappearance remains
+is `INCOMPLETE` because an initial-stat PID disappearance remains
 unclassified; it is not stop readiness and must not be upgraded to PASS.
 
 - `red-coverage.txt` SHA256 `a50898e4129bee2281d801bb166e6fd064eaac2ca03203ef71509f6f6c022d90`: including the real implicit segment was rejected as an extra; omitting it incorrectly reached `UPGRADED_STOPPED`.
