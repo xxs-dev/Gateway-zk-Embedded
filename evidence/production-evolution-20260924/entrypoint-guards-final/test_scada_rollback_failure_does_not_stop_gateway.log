@@ -1,0 +1,4 @@
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-y96yywss/artifact.kyscada'), 'candidate', 'scada-failure', PosixPath('/var/tmp/gateway-install-test-y96yywss/backup'), PosixPath('/var/tmp/gateway-install-test-y96yywss/staging')] exit=2
+[2026-09-24 20:57:17] [ota-rollback] start jobId=scada-failure version=candidate artifact=/var/tmp/gateway-install-test-y96yywss/artifact.kyscada
+[ota-rollback] scadaPreviousTarget must be an absolute path: 
+

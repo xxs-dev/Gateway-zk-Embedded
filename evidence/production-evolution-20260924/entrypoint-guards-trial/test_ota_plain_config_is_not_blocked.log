@@ -1,0 +1,4 @@
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-s8xi0tq4/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-s8xi0tq4/backup'), PosixPath('/var/tmp/gateway-install-test-s8xi0tq4/staging')] exit=0
+[2026-09-24 20:50:12] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-s8xi0tq4/fixture.tar.gz
+[2026-09-24 20:50:12] [ota-apply] success jobId=fixture-job version=fixture workDir=/var/tmp/gateway-install-test-s8xi0tq4/staging/fixture-job
+

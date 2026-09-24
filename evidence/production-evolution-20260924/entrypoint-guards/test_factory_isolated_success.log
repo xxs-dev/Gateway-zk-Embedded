@@ -1,0 +1,10 @@
+script=install-factory-config.sh args=() exit=0
+install package profile: base
+initialized runtimeMode: gateway
+initialized machineCode: GW_FACTORY_001
+initialized mqtt broker: tcp://127.0.0.1:1883
+initialized mqtt username: 
+initialized mqtt tls: false
+initialized direct maintenance: enabled=false listen=192.168.1.250 allowed=
+factory config installed
+

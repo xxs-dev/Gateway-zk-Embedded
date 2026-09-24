@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import tarfile
 import tempfile
@@ -199,6 +200,106 @@ exec /bin/cp "$@"
         self.assertNotEqual(0, result.returncode)
         self.assertIn("stop gateway-services.service", self.log.read_text())
         self.assertNotIn("stop unrelated", self.log.read_text())
+
+    def ota_package(self, target, contents, compatibility=None):
+        package = self.root / "ota-package"
+        write(package / "payload", contents)
+        manifest = {"version": "fixture", "files": [{"path": "payload", "target": target,
+                    "sha256": hashlib.sha256(contents.encode()).hexdigest()}], "restart": {"services": []}}
+        if compatibility is not None:
+            manifest["runtimeCompatibility"] = compatibility
+        write(package / "manifest.json", json.dumps(manifest))
+        artifact = self.root / "fixture.tar.gz"
+        with tarfile.open(artifact, "w:gz") as archive:
+            archive.add(package / "manifest.json", arcname="manifest.json")
+            archive.add(package / "payload", arcname="payload")
+        return [artifact, "fixture", "fixture-job", self.root / "backup", self.root / "staging"]
+
+    def test_ota_runtime_rejected_before_any_live_change(self):
+        target = Path("/opt/modbus-gateway/bin/ModbusRtu")
+        write(target, "old runtime\n")
+        args = self.ota_package(str(target), "candidate runtime\n",
+                                {"pointStoreAbi": 11, "clusterProtocol": 2, "upgradeMode": "offline-all-participants"})
+        result = self.run_script("ota-apply.sh", args)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("offline all-participant", result.stdout)
+        self.assertEqual("old runtime\n", target.read_text())
+        self.assertEqual("", self.log.read_text())
+
+    def test_ota_plain_config_is_not_blocked(self):
+        target = Path("/opt/modbus-gateway/config/runtime/logic/fixture.json")
+        result = self.run_script("ota-apply.sh", self.ota_package(str(target), '{"value":1}\n'))
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual('{"value":1}\n', target.read_text())
+
+    def test_ota_compatibility_type_missing_and_conflict_rejected(self):
+        valid = {"pointStoreAbi": 11, "clusterProtocol": 2, "upgradeMode": "offline-all-participants"}
+        for bad in ({}, {**valid, "pointStoreAbi": "11"}, {**valid, "clusterProtocol": True},
+                    {**valid, "pointStoreAbi": 10}, {**valid, "upgradeMode": "rolling"},
+                    {**valid, "unknown": 1}):
+            with self.subTest(compatibility=bad):
+                target = Path("/opt/modbus-gateway/config/runtime/logic/fixture.json")
+                result = self.run_script("ota-apply.sh", self.ota_package(str(target), '{}\n', bad))
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("runtimeCompatibility", result.stdout)
+                self.assertFalse(target.exists())
+
+    def test_runtime_rollback_refuses_unknown_abi_backup(self):
+        target = Path("/opt/modbus-gateway/bin/ComputeEngine")
+        write(target, "current runtime\n")
+        backup = self.root / "backup"
+        write(backup / "job/opt/modbus-gateway/bin/ComputeEngine", "old runtime\n")
+        result = self.run_script("ota-rollback.sh",
+                                 [self.root / "artifact.tar.gz", "candidate", "job", backup, self.root / "staging"])
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("offline all-participant recovery", result.stdout)
+        self.assertEqual("current runtime\n", target.read_text())
+        self.assertTrue(Path("/run/gateway-health-watchdog/manual-stop").is_file())
+
+    def test_legacy_v9_entrypoint_retired_without_side_effects(self):
+        result = self.run_script("upgrade-legacy-runtime-v9.sh")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("retired", result.stdout)
+        self.assert_isolated()
+
+    def test_factory_refuses_existing_runtime_and_shm_reset(self):
+        env = self.factory()
+        home = Path(env["GATEWAY_HOME"])
+        write(home / "config/runtime/device_identity.json", '{"machineCode":"KEEP"}\n')
+        result = self.run_script("install-factory-config.sh", env=env)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("not an in-place runtime upgrade", result.stdout)
+        self.assertEqual('{"machineCode":"KEEP"}\n', (home / "config/runtime/device_identity.json").read_text())
+        self.assert_isolated()
+        result = self.run_script("install-factory-config.sh", env={**env, "INSTALL_SYSTEMD": "1", "RESET_SHM": "1"})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("RESET_SHM is unsupported", result.stdout)
+        self.assert_isolated()
+
+    def test_service_apply_preserves_v11_and_refuses_v10(self):
+        home = self.root / "gateway"
+        segment = Path("/dev/shm/gateway_point_store")
+        for version in (10, 11):
+            with self.subTest(version=version):
+                before = struct.pack('<II', 0x4d505354, version) + b'preserve-all-bytes'
+                segment.write_bytes(before)
+                write(self.log, "")
+                result = self.run_script("gateway-services.sh", ["apply"], {"GATEWAY_HOME": str(home)})
+                self.assertEqual(before, segment.read_bytes())
+                if version == 10:
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("ABI mismatch", result.stdout)
+                    self.assertNotIn("start ", self.log.read_text())
+                    self.assertTrue(Path("/run/gateway-health-watchdog/manual-stop").is_file())
+                else:
+                    self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_service_stop_failure_does_not_start_or_touch_shm(self):
+        result = self.run_script("gateway-services.sh", ["apply"],
+                                 {"GATEWAY_HOME": str(self.root / "gateway"), "FAIL_SYSTEMCTL_ACTION": "stop"})
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("start ", self.log.read_text())
+        self.assertEqual(b"keep-shm\n", Path("/dev/shm/gateway_point_store_fixture").read_bytes())
 
     def test_factory_isolated_preflight_failure(self):
         env = self.factory()

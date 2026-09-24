@@ -1,0 +1,5 @@
+script=install-factory-config.sh args=() exit=2
+install package profile: base
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/deploy/install-factory-config.sh: 922: find_deploy_file: not found
+runtime-upgrade-guard.py missing
+

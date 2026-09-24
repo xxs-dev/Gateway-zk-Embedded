@@ -1,0 +1,5 @@
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-h3six9rz/artifact.tar.gz'), 'candidate', 'job', PosixPath('/var/tmp/gateway-install-test-h3six9rz/backup'), PosixPath('/var/tmp/gateway-install-test-h3six9rz/staging')] exit=2
+[2026-09-24 20:50:13] [ota-rollback] start jobId=job version=candidate artifact=/var/tmp/gateway-install-test-h3six9rz/artifact.tar.gz
+runtime upgrade refused: runtime ELF rollback requires offline all-participant recovery; keep control stopped
+[2026-09-24 20:50:13] [ota-rollback] failed; keep runtime stopped jobId=job
+

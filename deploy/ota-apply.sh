@@ -266,6 +266,8 @@ if [ ! -f "$MANIFEST_PATH" ]; then
   echo "[ota-apply] root manifest.json is required for non-SCADA packages" >&2
   exit 4
 fi
+
+python3 "$(dirname -- "$0")/runtime-upgrade-guard.py" ota "$MANIFEST_PATH"
 RESTART_FILE=""
 SYSTEMD_RELOAD_FILE=""
 CHMOD_FILE=""
@@ -334,6 +336,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/production-smoke-test.sh",
     "/opt/modbus-gateway/bin/ota-apply.sh",
     "/opt/modbus-gateway/bin/ota-rollback.sh",
+    "/opt/modbus-gateway/bin/runtime-upgrade-guard.py",
     "/opt/modbus-gateway/bin/install-scada-project.sh",
 }
 

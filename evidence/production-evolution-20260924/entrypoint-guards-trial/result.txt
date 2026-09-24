@@ -1,0 +1,26 @@
+test_ota_runtime_rejected_before_any_live_change (__main__.InstallIsolationTest.test_ota_runtime_rejected_before_any_live_change) ... ok
+test_ota_plain_config_is_not_blocked (__main__.InstallIsolationTest.test_ota_plain_config_is_not_blocked) ... ok
+test_ota_compatibility_type_missing_and_conflict_rejected (__main__.InstallIsolationTest.test_ota_compatibility_type_missing_and_conflict_rejected) ... ok
+test_runtime_rollback_refuses_unknown_abi_backup (__main__.InstallIsolationTest.test_runtime_rollback_refuses_unknown_abi_backup) ... ok
+test_legacy_v9_entrypoint_retired_without_side_effects (__main__.InstallIsolationTest.test_legacy_v9_entrypoint_retired_without_side_effects) ... ok
+test_factory_refuses_existing_runtime_and_shm_reset (__main__.InstallIsolationTest.test_factory_refuses_existing_runtime_and_shm_reset) ... ok
+test_service_apply_preserves_v11_and_refuses_v10 (__main__.InstallIsolationTest.test_service_apply_preserves_v11_and_refuses_v10) ... ok
+test_service_stop_failure_does_not_start_or_touch_shm (__main__.InstallIsolationTest.test_service_stop_failure_does_not_start_or_touch_shm) ... ok
+test_factory_isolated_success (__main__.InstallIsolationTest.test_factory_isolated_success) ... FAIL
+
+======================================================================
+FAIL: test_factory_isolated_success (__main__.InstallIsolationTest.test_factory_isolated_success)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 106, in test_factory_isolated_success
+    self.assertEqual(0, result.returncode, result.stdout)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : install package profile: base
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/deploy/install-factory-config.sh: 922: find_deploy_file: not found
+runtime-upgrade-guard.py missing
+
+
+----------------------------------------------------------------------
+Ran 9 tests in 1.213s
+
+FAILED (failures=1)

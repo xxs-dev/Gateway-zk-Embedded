@@ -1,0 +1,3 @@
+script=upgrade-legacy-runtime-v9.sh args=() exit=2
+legacy V9 rolling upgrade is retired: SHM11/KECP2 requires offline all-participant migration; no files changed
+

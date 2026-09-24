@@ -1,0 +1,18 @@
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz'), 'candidate', 'rollback-daemon-reload', PosixPath('/var/tmp/gateway-install-test-umjy3lmi/backup'), PosixPath('/var/tmp/gateway-install-test-umjy3lmi/staging')] exit=42
+[2026-09-24 20:57:16] [ota-rollback] start jobId=rollback-daemon-reload version=candidate artifact=/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz
+[2026-09-24 20:57:16] [ota-rollback] failed; keep runtime stopped jobId=rollback-daemon-reload
+
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz'), 'candidate', 'rollback-enable', PosixPath('/var/tmp/gateway-install-test-umjy3lmi/backup'), PosixPath('/var/tmp/gateway-install-test-umjy3lmi/staging')] exit=42
+[2026-09-24 20:57:16] [ota-rollback] start jobId=rollback-enable version=candidate artifact=/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz
+[2026-09-24 20:57:16] [ota-rollback] failed; keep runtime stopped jobId=rollback-enable
+
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz'), 'candidate', 'rollback-reload-or-restart', PosixPath('/var/tmp/gateway-install-test-umjy3lmi/backup'), PosixPath('/var/tmp/gateway-install-test-umjy3lmi/staging')] exit=42
+[2026-09-24 20:57:16] [ota-rollback] start jobId=rollback-reload-or-restart version=candidate artifact=/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz
+[2026-09-24 20:57:16] [ota-rollback] reloading or starting gateway-services.service
+[2026-09-24 20:57:16] [ota-rollback] failed; keep runtime stopped jobId=rollback-reload-or-restart
+
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz'), 'candidate', 'rollback-is-active', PosixPath('/var/tmp/gateway-install-test-umjy3lmi/backup'), PosixPath('/var/tmp/gateway-install-test-umjy3lmi/staging')] exit=42
+[2026-09-24 20:57:16] [ota-rollback] start jobId=rollback-is-active version=candidate artifact=/var/tmp/gateway-install-test-umjy3lmi/artifact.tar.gz
+[2026-09-24 20:57:16] [ota-rollback] reloading or starting gateway-services.service
+[2026-09-24 20:57:16] [ota-rollback] failed; keep runtime stopped jobId=rollback-is-active
+

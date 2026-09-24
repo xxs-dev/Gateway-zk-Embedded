@@ -1,0 +1,2 @@
+script=gateway-services.sh args=['apply'] exit=42
+

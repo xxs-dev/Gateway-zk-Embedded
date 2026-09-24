@@ -273,6 +273,8 @@ if [ "$RESTORE_BACKUP_DIR" = "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR/$JOB_ID" ]; th
   RESTORE_BACKUP_DIR="$BACKUP_DIR/$JOB_ID"
 fi
 
+python3 "$(dirname -- "$0")/runtime-upgrade-guard.py" rollback "$RESTORE_BACKUP_DIR"
+
 if [ -d "$RESTORE_BACKUP_DIR/opt" ] || [ -d "$RESTORE_BACKUP_DIR/etc" ]; then
   python3 - "$RESTORE_BACKUP_DIR" "$RESTORE_LIST" <<'PY'
 import os

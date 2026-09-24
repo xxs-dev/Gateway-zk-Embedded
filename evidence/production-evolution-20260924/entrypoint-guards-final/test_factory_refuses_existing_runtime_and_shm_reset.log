@@ -1,0 +1,6 @@
+script=install-factory-config.sh args=() exit=2
+runtime upgrade refused: factory initialization is not an in-place runtime upgrade: /var/tmp/gateway-install-test-da3x8the/gateway/config/runtime
+
+script=install-factory-config.sh args=() exit=2
+RESET_SHM is unsupported; preserve segments and use offline migration
+

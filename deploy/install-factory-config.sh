@@ -125,6 +125,9 @@ if [ "$INSTALL_SYSTEMD" = "0" ]; then
   [ "$RESET_SHM" = "0" ] || { echo "INSTALL_SYSTEMD=0 requires RESET_SHM=0" >&2; exit 2; }
 fi
 
+[ "$RESET_SHM" = "0" ] || { echo "RESET_SHM is unsupported; preserve segments and use offline migration" >&2; exit 2; }
+python3 "$SCRIPT_DIR/runtime-upgrade-guard.py" factory "$GATEWAY_HOME"
+
 cleanup_factory_extract() {
   if [ "$WATCHDOG_APPLYING_OWNED" = "1" ] && grep -qx "pid=$$" "$WATCHDOG_APPLYING_FILE" 2>/dev/null; then
     rm -f "$WATCHDOG_APPLYING_FILE" 2>/dev/null || true
@@ -916,6 +919,7 @@ if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
 fi
 
 # Validate the complete mandatory payload before stopping any running service.
+deploy_file "runtime-upgrade-guard.py" >/dev/null || { echo "runtime-upgrade-guard.py missing" >&2; exit 2; }
 # This keeps a malformed or stale package from turning a validation failure into
 # an avoidable field outage.
 for bin in $REQUIRED_BINS; do
@@ -967,6 +971,7 @@ install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/inst
 install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_required_deploy_file "runtime-upgrade-guard.py" "$GATEWAY_HOME/bin/runtime-upgrade-guard.py"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"
@@ -1125,17 +1130,6 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   fi
   systemctl enable gateway-services.service >/dev/null 2>&1 || true
   systemctl enable gateway-health-watchdog.service >/dev/null 2>&1 || true
-fi
-
-if [ "$RESET_SHM" = "1" ]; then
-  if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
-    if [ -x "$GATEWAY_HOME/bin/gateway-services.sh" ]; then
-      "$GATEWAY_HOME/bin/gateway-services.sh" stop || true
-    else
-      systemctl stop gateway-services.service 2>/dev/null || true
-    fi
-  fi
-  rm -f /dev/shm/gateway_point_store* 2>/dev/null || true
 fi
 
 if [ "$START_SERVICES" = "1" ] && [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then

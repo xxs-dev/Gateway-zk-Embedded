@@ -117,7 +117,7 @@ stop_units() {
   [ -z "$units" ] && return 0
   # Stop all instances together so OTA/config switching is bounded by the slowest
   # driver, not by the sum of every serial port timeout.
-  systemctl stop $units || true
+  systemctl stop $units
   for unit in $units; do
     [ -z "$unit" ] && continue
     systemctl disable "$unit" >/dev/null 2>&1 || true
@@ -126,21 +126,8 @@ stop_units() {
 }
 
 reset_point_store_segments() {
-  # All shared-memory users are stopped before this runs. Recreate the volatile
-  # segments so mutex/layout upgrades never attach to an older process ABI.
-  if command -v fuser >/dev/null 2>&1; then
-    for segment in /dev/shm/gateway_point_store*; do
-      [ -e "$segment" ] || continue
-      if fuser "$segment" >/dev/null 2>&1; then
-        echo "[gateway-services] shared memory is still in use: $segment" >&2
-        return 1
-      fi
-    done
-  fi
-  if ! rm -f /dev/shm/gateway_point_store* 2>/dev/null; then
-    echo "[gateway-services] failed to rebuild shared memory segments" >&2
-    return 1
-  fi
+  # Never turn a service restart into an implicit ABI migration or data reset.
+  python3 "$(dirname -- "$0")/runtime-upgrade-guard.py" startup "$BASE_DIR"
 }
 
 desired_units() {
@@ -575,7 +562,7 @@ start_units() {
 
 run_with_apply_marker() {
   action="$1"
-  clear_manual_stop
+  mark_manual_stop
   begin_configuration_apply
   trap 'finish_configuration_apply' EXIT HUP INT TERM
   case "$action" in
@@ -585,10 +572,12 @@ run_with_apply_marker() {
       start_units
       ;;
     start)
+      reset_point_store_segments
       start_units
       ;;
   esac
   result=$?
+  [ "$result" -ne 0 ] || clear_manual_stop
   finish_configuration_apply
   trap - EXIT HUP INT TERM
   return "$result"

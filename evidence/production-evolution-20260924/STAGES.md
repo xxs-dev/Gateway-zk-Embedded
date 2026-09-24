@@ -54,3 +54,21 @@ For ARM, only `ems_shadow_live_helper` needs a new binary for endurance. The
 helper test is an optional verification target. Do not rebuild R5 product ELF
 files or mutate sealed packages. Implementation-test alone may build/run later
 under Coordinator's pinned authorization; this stage authorizes no remote action.
+
+## Interim entrypoint restrictions
+
+Online OTA/rollback cannot replace runtime ELF based only on self-declared ABI.
+Legacy V9 rolling upgrade is retired. Factory initialization rejects existing
+runtime/config/data and explicit SHM reset. Service start/apply checks configured
+SHM headers, preserves segments and propagates stop failure with manual-stop kept.
+The unreachable factory SHM wildcard deletion has been removed.
+
+`entrypoint-guards-final/result.txt`: 16 selected actual-entrypoint regressions
+PASS, including cold factory positives, plain config OTA, SCADA separation and
+rollback error handling. Guard Python 3.6 syntax PASS. Earlier trial failure and
+12-test result remain retained. No runtime ELF was rebuilt or deployed.
+
+This is a temporary safety restriction, not a completed offline upgrade path.
+Header checks alone do not establish executable ABI compatibility. The next
+stage must use externally pinned component approval and actual migration CLI,
+with stopped-control recovery instead of unsafe automatic ABI downgrade.

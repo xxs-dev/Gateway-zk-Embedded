@@ -1,0 +1,24 @@
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-lkz4us6t/backup'), PosixPath('/var/tmp/gateway-install-test-lkz4us6t/staging')] exit=2
+[2026-09-24 20:50:12] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz
+runtime upgrade refused: runtimeCompatibility requires exactly pointStoreAbi, clusterProtocol, upgradeMode
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-lkz4us6t/backup'), PosixPath('/var/tmp/gateway-install-test-lkz4us6t/staging')] exit=2
+[2026-09-24 20:50:13] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.pointStoreAbi
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-lkz4us6t/backup'), PosixPath('/var/tmp/gateway-install-test-lkz4us6t/staging')] exit=2
+[2026-09-24 20:50:13] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.clusterProtocol
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-lkz4us6t/backup'), PosixPath('/var/tmp/gateway-install-test-lkz4us6t/staging')] exit=2
+[2026-09-24 20:50:13] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.pointStoreAbi
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-lkz4us6t/backup'), PosixPath('/var/tmp/gateway-install-test-lkz4us6t/staging')] exit=2
+[2026-09-24 20:50:13] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.upgradeMode
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-lkz4us6t/backup'), PosixPath('/var/tmp/gateway-install-test-lkz4us6t/staging')] exit=2
+[2026-09-24 20:50:13] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-lkz4us6t/fixture.tar.gz
+runtime upgrade refused: runtimeCompatibility requires exactly pointStoreAbi, clusterProtocol, upgradeMode
+

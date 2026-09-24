@@ -1,0 +1,5 @@
+script=gateway-services.sh args=['apply'] exit=2
+runtime upgrade refused: point-store ABI mismatch; preserve it and use offline migration: gateway_point_store
+
+script=gateway-services.sh args=['apply'] exit=0
+

@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+echo "legacy V9 rolling upgrade is retired: SHM11/KECP2 requires offline all-participant migration; no files changed" >&2
+exit 2
+
 GATEWAY_HOME=${GATEWAY_HOME:-/opt/modbus-gateway}
 STAGE_DIR=${STAGE_DIR:-/tmp/gateway-runtime-v9}
 HEALTH_TIMEOUT_SEC=${HEALTH_TIMEOUT_SEC:-45}

@@ -1,0 +1,21 @@
+script=../tools/runtime_mode_package_test.sh args=[PosixPath('/var/tmp/gateway-install-test-1606kzvm/factory.tar.gz'), PosixPath('/var/tmp/gateway-install-test-1606kzvm/agc.tar.gz')] exit=0
+install package profile: full
+initialized runtimeMode: gateway
+initialized machineCode: TEST_GATEWAY
+initialized mqtt broker: tcp://127.0.0.1:1883
+initialized mqtt username: 
+initialized mqtt tls: false
+initialized direct maintenance: enabled=false listen=192.168.1.250 allowed=
+factory config installed
+production init completed
+install package profile: full
+initialized runtimeMode: agc_avc
+initialized machineCode: TEST_AGC
+initialized mqtt broker: tcp://127.0.0.1:1883
+initialized mqtt username: 
+initialized mqtt tls: false
+initialized direct maintenance: enabled=false listen=192.168.1.250 allowed=
+factory config installed
+production init completed
+runtime_mode_package_test passed
+

@@ -1,0 +1,35 @@
+script=../tools/scada_install_test.sh args=() exit=0
+SCADA validation passed: project=site-a version=1.0.0 node=edge-a localScada=true
+SCADA validation passed: project=site-a version=1.0.0 node=edge-a localScada=true
+SCADA release activated: /var/tmp/gateway-install-test-eilw9c47/gateway-scada-install-test-2117/runtime/releases/site-a-1.0.0-20260924205137
+scada_install_test passed
+
+script=../tools/scada_rollback_test.sh args=() exit=0
+SCADA validation passed: project=rollback-site version=1.0.0 node=edge-a localScada=true
+SCADA release activated: /var/tmp/gateway-install-test-eilw9c47/gateway-scada-rollback-test-2158/scada/releases/rollback-site-1.0.0-20260924205137
+SCADA validation passed: project=rollback-site version=2.0.0 node=edge-a localScada=true
+SCADA release activated: /var/tmp/gateway-install-test-eilw9c47/gateway-scada-rollback-test-2158/scada/releases/rollback-site-2.0.0-20260924205137
+[2026-09-24 20:51:37] [ota-rollback] start jobId=SCADA_ROLLBACK_TEST version=2.0.0 artifact=/var/tmp/gateway-install-test-eilw9c47/gateway-scada-rollback-test-2158/v2.kyscada
+[2026-09-24 20:51:37] [ota-rollback] SCADA success jobId=SCADA_ROLLBACK_TEST activeVersion=1.0.0
+[2026-09-24 20:51:37] [ota-rollback] start jobId=SCADA_FAILED_INSTALL version=3.0.0 artifact=/var/tmp/gateway-install-test-eilw9c47/gateway-scada-rollback-test-2158/v2.kyscada
+[2026-09-24 20:51:37] [ota-rollback] SCADA installer already restored the previous release
+scada_rollback_test passed
+
+script=../tools/factory_package_component_version_test.sh args=() exit=0
+factory package created: /var/tmp/gateway-install-test-eilw9c47/factory-package-version-test.2273/package.tar.gz
+factory package profile: project
+factory package component version test passed
+verified package component hashes: 6
+install package profile: project
+install package manifest: /var/tmp/gateway-install-test-eilw9c47/factory-package-version-test.2273/init-work/gateway-factory-defaults/edge-package-manifest.json
+initialized runtimeMode: gateway
+initialized machineCode: TEST_FACTORY_PACKAGE
+initialized mqtt broker: tcp://127.0.0.1:1883
+initialized mqtt username: 
+initialized mqtt tls: false
+initialized direct maintenance: enabled=false listen=192.168.1.250 allowed=
+factory config installed
+production init completed
+[PASS] KY-EMS executable: /var/tmp/gateway-install-test-eilw9c47/factory-package-version-test.2273/gateway/ky-ems/KY-EMS
+factory package external production init test passed
+

@@ -1,0 +1,6 @@
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-ja304gs_/artifact.tar.gz'), 'candidate', 'marker-failure', PosixPath('/var/tmp/gateway-install-test-ja304gs_/backup'), PosixPath('/var/tmp/gateway-install-test-ja304gs_/staging')] exit=42
+[2026-09-24 20:57:17] [ota-rollback] start jobId=marker-failure version=candidate artifact=/var/tmp/gateway-install-test-ja304gs_/artifact.tar.gz
+[2026-09-24 20:57:17] [ota-rollback] restarting compute-engine@test.service
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/deploy/ota-rollback.sh: 122: cannot create /run/gateway-health-watchdog/manual-stop: Is a directory
+[2026-09-24 20:57:17] [ota-rollback] failed; keep runtime stopped jobId=marker-failure
+
