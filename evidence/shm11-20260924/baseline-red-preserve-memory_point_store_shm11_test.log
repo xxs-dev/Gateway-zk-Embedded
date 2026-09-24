@@ -1,0 +1,1 @@
+memory_point_store_shm11_test failed: CreateOrOpen must preserve every byte and length of incompatible existing SHM

@@ -747,6 +747,8 @@ MemoryPointStore::MemoryPointStore(
             static_cast<DWORD>(sizeof(SharedStoreLayout)),
             segmentName_.c_str()
         );
+    const bool createdMapping = openMode != MemoryStoreOpenMode::OpenExisting &&
+        GetLastError() != ERROR_ALREADY_EXISTS;
     if (mappingHandle_ == nullptr) {
         throw std::runtime_error("shared memory open failed: " + segmentName_);
     }
@@ -773,13 +775,12 @@ MemoryPointStore::MemoryPointStore(
     try {
         SharedLockGuard lock(mutexHandle_);
         auto* layout = layoutFrom(sharedView_);
-        if (openMode == MemoryStoreOpenMode::OpenExisting &&
+        if (!createdMapping &&
             (layout->header.magic != kSharedStoreMagic ||
              !isCompatibleSharedStoreVersion(layout->header.version))) {
             throw std::runtime_error("shared memory version mismatch: " + segmentName_);
         }
-        if (layout->header.magic != kSharedStoreMagic ||
-            !isCompatibleSharedStoreVersion(layout->header.version)) {
+        if (createdMapping) {
             std::memset(layout, 0, sizeof(SharedStoreLayout));
             layout->header.magic = kSharedStoreMagic;
             layout->header.version = createVersion;
@@ -818,7 +819,7 @@ MemoryPointStore::MemoryPointStore(
     }
 
     const bool needsInitialization = shmStat.st_size == 0;
-    if (openMode == MemoryStoreOpenMode::OpenExisting &&
+    if ((openMode == MemoryStoreOpenMode::OpenExisting || !needsInitialization) &&
         shmStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
         close(fd);
         mappingHandle_ = nullptr;
@@ -829,12 +830,6 @@ MemoryPointStore::MemoryPointStore(
             close(fd);
             mappingHandle_ = nullptr;
             throw std::runtime_error("ftruncate failed");
-        }
-    } else if (shmStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
-        if (ftruncate(fd, static_cast<off_t>(sizeof(SharedStoreLayout))) != 0) {
-            close(fd);
-            mappingHandle_ = nullptr;
-            throw std::runtime_error("ftruncate resize failed");
         }
     }
 
@@ -847,10 +842,7 @@ MemoryPointStore::MemoryPointStore(
     }
 
     auto* layout = layoutFrom(sharedView_);
-    if (needsInitialization ||
-        shmStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout)) ||
-        (openMode_ == MemoryStoreOpenMode::CreateOrOpen &&
-         layout->header.magic == 0 && layout->header.version == 0)) {
+    if (needsInitialization) {
         std::memset(layout, 0, sizeof(SharedStoreLayout));
         try {
             initializePosixMutex(layout->header.mutex);
