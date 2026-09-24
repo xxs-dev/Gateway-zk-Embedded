@@ -1374,7 +1374,7 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.sharedMemoryCreateVersion = boundedInt(
         requireInt(object, "sharedMemoryCreateVersion", config.sharedMemoryCreateVersion),
         8,
-        10
+        11
     );
     config.maxLatestPoints = requireSize(object, "maxLatestPoints", config.maxLatestPoints);
     config.maxPendingWrites = requireSize(object, "maxPendingWrites", config.maxPendingWrites);

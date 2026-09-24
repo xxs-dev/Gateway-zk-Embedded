@@ -1,0 +1,18 @@
+single reader-before-writer passed
+single missing/duplicates passed
+single deleted/reused/relocated passed
+single remap passed
+single value/quality/stale passed
+single cache capacity passed
+batch reader-before-writer passed
+batch missing/duplicates passed
+batch deleted/reused/relocated passed
+batch remap passed
+batch value/quality/stale passed
+batch cache capacity passed
+concurrent readers passed
+writers shared insert v11 passed
+writer stale vacant slot passed
+writer stale reused slot passed
+writer stale relocated index passed
+writer miss at configured limit passed

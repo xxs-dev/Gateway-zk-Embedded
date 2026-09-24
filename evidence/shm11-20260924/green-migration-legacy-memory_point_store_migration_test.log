@@ -1,0 +1,6 @@
+PASS v8 preservation, runtime reopen, no unlink and repeated migration refusal
+PASS v9 preservation, runtime reopen, no unlink and repeated migration refusal
+PASS fail-closed cases, exact original bytes retained
+PASS v8 dedup preflight, original slots and exact allowed bytes
+PASS v9 dedup preflight, original slots and exact allowed bytes
+FAIL: CLI all-segment preflight result

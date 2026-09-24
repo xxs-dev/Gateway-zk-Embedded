@@ -24,6 +24,7 @@ void report(const std::string& segment, const edge_gateway::OfflineMigrationResu
 int main(int argc, char** argv) {
     try {
         std::string backup;
+        std::string target;
         std::vector<std::string> segments;
         edge_gateway::OfflineMigrationOptions options;
         bool offline = false;
@@ -40,6 +41,7 @@ int main(int argc, char** argv) {
                 segments.push_back(segment);
             }
             else if (arg == "--backup" && backup.empty() && i + 1 < argc) backup = argv[++i];
+            else if (arg == "--copy-to-v11" && target.empty() && i + 1 < argc) target = argv[++i];
             else throw std::runtime_error("unknown, repeated or incomplete argument: " + arg);
         }
         if (segments.empty() || !offline ||
@@ -47,6 +49,14 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Usage: memory_point_store_migrate --shm NAME --offline-confirmed "
                 "[--deduplicate-latest] (--backup /persistent/unique.bak | --check [--shm NAME ...])");
         bool failed = false;
+        if (!target.empty()) {
+            if (segments.size() != 1 || options.checkOnly || options.deduplicateLatest)
+                throw std::runtime_error("--copy-to-v11 requires one source, a backup and no in-place options");
+            const auto copied = edge_gateway::copyOfflinePointStoreV10ToV11(segments.front(), target, backup, offline);
+            std::cout << "COPIED source=" << segments.front() << " version=" << copied.oldVersion
+                      << " target=" << target << " target_version=11 source_unchanged=true\n";
+            return 0;
+        }
         for (const auto& segment : segments) {
             try {
                 report(segment, edge_gateway::migrateOfflinePointStore(segment, backup, offline, options), options.checkOnly);

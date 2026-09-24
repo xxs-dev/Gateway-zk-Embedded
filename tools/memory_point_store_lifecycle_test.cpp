@@ -300,7 +300,7 @@ struct SharedStoreHeaderProbe {
     pthread_mutex_t mutex;
 };
 
-void verifyConfiguredLegacyVersionIsUsedForNewSegment() {
+void verifyConfiguredCurrentVersionIsUsedForNewSegment() {
     const std::string storeName = "gateway_memory_legacy_create_version_test";
     const std::string posixName = "/" + storeName;
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -308,7 +308,7 @@ void verifyConfiguredLegacyVersionIsUsedForNewSegment() {
     {
         edge_gateway::MemoryStoreConfig config;
         config.sharedMemoryName = storeName;
-        config.sharedMemoryCreateVersion = 8;
+        config.sharedMemoryCreateVersion = 11;
         edge_gateway::MemoryPointStore store(config);
 
         const int fd = shm_open(posixName.c_str(), O_RDONLY, 0600);
@@ -323,7 +323,7 @@ void verifyConfiguredLegacyVersionIsUsedForNewSegment() {
         );
         require(view != MAP_FAILED, "failed to map configured legacy shared memory header");
         const auto* header = static_cast<const SharedStoreHeaderProbe*>(view);
-        require(header->version == 8, "new segment must use the configured compatibility version");
+        require(header->version == 11, "new segment must use the configured current version");
         munmap(view, sizeof(SharedStoreHeaderProbe));
         close(fd);
     }
@@ -331,7 +331,7 @@ void verifyConfiguredLegacyVersionIsUsedForNewSegment() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
-void verifyPreviousVersionOpensWithoutReinitializing() {
+void verifyPreviousVersionIsRejectedWithoutReinitializing() {
     const std::string storeName = "gateway_memory_version_mismatch_test";
     const std::string posixName = "/" + storeName;
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
@@ -339,7 +339,7 @@ void verifyPreviousVersionOpensWithoutReinitializing() {
     {
         edge_gateway::MemoryStoreConfig config;
         config.sharedMemoryName = storeName;
-        config.sharedMemoryCreateVersion = 9;
+        config.sharedMemoryCreateVersion = 11;
         edge_gateway::MemoryPointStore store(config);
         const int fd = shm_open(posixName.c_str(), O_RDWR, 0600);
         require(fd >= 0, "failed to open shared memory for version mismatch test");
@@ -353,7 +353,7 @@ void verifyPreviousVersionOpensWithoutReinitializing() {
         );
         require(view != MAP_FAILED, "failed to map shared memory header for version mismatch test");
         auto* header = static_cast<SharedStoreHeaderProbe*>(view);
-        require(header->version == 9, "version mismatch test must start from shared memory v9");
+        require(header->version == 11, "version mismatch test must start from shared memory v11");
         header->version = 8;
         msync(view, sizeof(SharedStoreHeaderProbe), MS_SYNC);
 
@@ -369,11 +369,12 @@ void verifyPreviousVersionOpensWithoutReinitializing() {
         } catch (const std::runtime_error&) {
         }
 
-        header->version = 9;
+        require(header->version == 8, "rejected open must preserve old version");
+        header->version = 11;
         msync(view, sizeof(SharedStoreHeaderProbe), MS_SYNC);
         munmap(view, sizeof(SharedStoreHeaderProbe));
         close(fd);
-        require(opened, "current process must open the layout-compatible v8 shared memory segment");
+        require(!opened, "current process must reject legacy shared memory");
     }
 
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
@@ -459,8 +460,8 @@ int main(int argc, char** argv) {
         verifyChangedPersistentValuesBypassPeriodicInterval();
 #ifndef _WIN32
         verifyReaderRemapsRecreatedNamedSegment();
-        verifyConfiguredLegacyVersionIsUsedForNewSegment();
-        verifyPreviousVersionOpensWithoutReinitializing();
+        verifyConfiguredCurrentVersionIsUsedForNewSegment();
+        verifyPreviousVersionIsRejectedWithoutReinitializing();
         verifyRobustMutexRecoversAfterOwnerDeath();
 #endif
         std::cout << "memory_point_store_lifecycle_test passed" << std::endl;

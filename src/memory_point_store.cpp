@@ -341,11 +341,52 @@ SharedLatestSlot* allocateLatestSlot(
     throw std::runtime_error("shared latest store is full");
 }
 
+SharedClusterWriteAuthorization encodeAuthorization(const Optional<ClusterWriteAuthorization>& input) {
+    SharedClusterWriteAuthorization result{};
+    if (!input) return result;
+    const auto& auth = *input;
+    if (auth.version != 1 || auth.flags != 0 || auth.notAfterMonotonicMs <= 0 ||
+        auth.dispatchSequence == 0 || auth.authorityStoreName.empty() || auth.authorityStoreName.size() >= 64 ||
+        auth.authorityStoreName.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos ||
+        std::all_of(auth.kernelBootId.begin(), auth.kernelBootId.end(), [](std::uint8_t b) { return b == 0; }) ||
+        std::all_of(auth.authorityEpoch.begin(), auth.authorityEpoch.end(), [](std::uint8_t b) { return b == 0; })) {
+        throw std::invalid_argument("invalid cluster write authorization");
+    }
+    result.version = auth.version;
+    result.flags = auth.flags;
+    std::copy(auth.kernelBootId.begin(), auth.kernelBootId.end(), result.kernelBootId);
+    std::copy(auth.authorityEpoch.begin(), auth.authorityEpoch.end(), result.authorityEpoch);
+    result.notAfterMonotonicMs = auth.notAfterMonotonicMs;
+    result.dispatchSequence = auth.dispatchSequence;
+    copyString(result.authorityStoreName, sizeof(result.authorityStoreName), auth.authorityStoreName);
+    return result;
+}
+
+Optional<ClusterWriteAuthorization> decodeAuthorization(const SharedClusterWriteAuthorization& input) {
+    if (input.version == 0) {
+        const SharedClusterWriteAuthorization empty{};
+        if (std::memcmp(&input, &empty, sizeof(input)) != 0)
+            throw std::runtime_error("malformed absent cluster authorization");
+        return NullOpt;
+    }
+    ClusterWriteAuthorization result;
+    result.version = input.version;
+    result.flags = input.flags;
+    std::copy(std::begin(input.kernelBootId), std::end(input.kernelBootId), result.kernelBootId.begin());
+    std::copy(std::begin(input.authorityEpoch), std::end(input.authorityEpoch), result.authorityEpoch.begin());
+    result.notAfterMonotonicMs = input.notAfterMonotonicMs;
+    result.dispatchSequence = input.dispatchSequence;
+    result.authorityStoreName = readString(input.authorityStoreName, sizeof(input.authorityStoreName));
+    (void)encodeAuthorization(result);
+    return result;
+}
+
 void pushPendingWrite(
     SharedStoreLayout* layout,
     const PendingWriteCommand& command,
     std::size_t maxPendingWrites
 ) {
+    const auto authorization = encodeAuthorization(command.clusterAuthorization);
     const auto pendingCount = ringCount(
         layout->header.pendingWriteHead,
         layout->header.pendingWriteTail,
@@ -368,6 +409,7 @@ void pushPendingWrite(
     slot.highPriority = command.highPriority ? 1 : 0;
     slot.controlGeneration = command.controlGeneration;
     slot.reserved[0] = command.durableControl ? 1 : 0;
+    slot.clusterAuthorization = authorization;
 
     layout->header.pendingWriteTail =
         (layout->header.pendingWriteTail + 1) % kMaxPendingWriteSlots;
@@ -404,7 +446,8 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     slot.acceptedAt,
                     slot.highPriority != 0,
                     slot.controlGeneration,
-                    layout->header.version >= 10 && slot.reserved[0] == 1
+                    layout->header.version >= 10 && slot.reserved[0] == 1,
+                    decodeAuthorization(slot.clusterAuthorization)
                 });
             } else {
                 retained.push_back(slot);
@@ -445,7 +488,8 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 slot.acceptedAt,
                 slot.highPriority != 0,
                 slot.controlGeneration,
-                layout->header.version >= 10 && slot.reserved[0] == 1
+                layout->header.version >= 10 && slot.reserved[0] == 1,
+                decodeAuthorization(slot.clusterAuthorization)
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;
@@ -734,7 +778,7 @@ MemoryPointStore::MemoryPointStore(
 #endif
       ) {
     if (!isCompatibleSharedStoreVersion(createVersion)) {
-        throw std::invalid_argument("shared memory create version must be between 8 and 9");
+        throw std::invalid_argument("shared memory runtime requires ABI 11; offline migration to a new segment is required");
     }
 #ifdef _WIN32
     mappingHandle_ = openMode == MemoryStoreOpenMode::OpenExisting
@@ -889,6 +933,11 @@ bool MemoryPointStore::cleanupOrphanedSegment(const std::string& segmentName, bo
     }
 
     bool removed = false;
+    struct stat info{};
+    if (fstat(fd, &info) != 0 || info.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
+        close(fd);
+        return false;
+    }
     void* view = mmap(nullptr, sizeof(SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (view != MAP_FAILED) {
         auto* layout = layoutFrom(view);
@@ -1640,6 +1689,7 @@ void MemoryPointStore::submitWriteCommands(const std::vector<PendingWriteCommand
         throw std::invalid_argument("pending write group cmdId must not be empty");
     }
     for (const auto& command : commands) {
+        (void)encodeAuthorization(command.clusterAuthorization);
         if (command.durableControl) {
             throw std::invalid_argument("durable controls require individual operation IDs, not internal atomic groups");
         }

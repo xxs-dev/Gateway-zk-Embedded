@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -260,6 +261,16 @@ struct PointUpdateRecord {
     std::int64_t expireAt = 0;
 };
 
+struct ClusterWriteAuthorization {
+    std::uint32_t version = 1;
+    std::uint32_t flags = 0;
+    std::array<std::uint8_t, 16> kernelBootId{};
+    std::array<std::uint8_t, 16> authorityEpoch{};
+    std::int64_t notAfterMonotonicMs = 0;
+    std::uint64_t dispatchSequence = 0;
+    std::string authorityStoreName;
+};
+
 struct PendingWriteCommand {
     std::string cmdId;
     std::uint32_t index = 0;
@@ -270,6 +281,7 @@ struct PendingWriteCommand {
     bool highPriority = false;
     std::uint32_t controlGeneration = 0;
     bool durableControl = false; // Set by trusted external ingress, never parsed from user JSON.
+    Optional<ClusterWriteAuthorization> clusterAuthorization;
 };
 
 struct WritebackResultRecord {
@@ -583,7 +595,7 @@ struct MemoryStoreConfig {
     std::int64_t defaultTtlMs = 600000;
     std::vector<std::string> indexBy = {"machineCode", "meterCode", "pointCode"};
     std::string sharedMemoryName = "gateway_point_store";
-    int sharedMemoryCreateVersion = 10;
+    int sharedMemoryCreateVersion = 11;
     std::size_t maxLatestPoints = 100000;
     std::size_t maxPendingWrites = 4096;
     std::size_t maxPersistentSamples = 20000;
