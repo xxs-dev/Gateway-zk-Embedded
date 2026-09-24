@@ -1,0 +1,51 @@
+{
+  "remoteConnections": 0,
+  "builds": 0,
+  "sourceScope": "P1 sampleCapability and P2 LoadSampler only; routing methods unchanged",
+  "files": {
+    "MqttDriver": {
+      "sha256": "4ed3cb21ee7760af33bd74c3247b5f1207f4d70d88a023418f016d8bf76ede18",
+      "aarch64": true,
+      "hasSymtab": true,
+      "relevantSymbols": [
+        "4104: 000000000046b5f0   860 FUNC    GLOBAL DEFAULT   13 edge_gateway::addEmsClusterPointRoutes(edge_gateway::PointStoreRouter&, edge_gateway::EmsClusterConfig const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+        "4715: 000000000046a0c0  5368 FUNC    GLOBAL DEFAULT   13 edge_gateway::emsClusterPointRoutes(edge_gateway::EmsClusterConfig const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)"
+      ]
+    },
+    "MqttForwarder": {
+      "sha256": "5bf6082333fcca9506628fd26eeae1d274c4888ccb12dcd7fd166d4c091efdac",
+      "aarch64": true,
+      "hasSymtab": true,
+      "relevantSymbols": [
+        "3622: 00000000004680f0   860 FUNC    GLOBAL DEFAULT   13 edge_gateway::addEmsClusterPointRoutes(edge_gateway::PointStoreRouter&, edge_gateway::EmsClusterConfig const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+        "4158: 0000000000466bc0  5368 FUNC    GLOBAL DEFAULT   13 edge_gateway::emsClusterPointRoutes(edge_gateway::EmsClusterConfig const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)"
+      ]
+    },
+    "ComputeEngine": {
+      "sha256": "2fa3e8b953bfe3f1c49ceabbe9ca10feeb95cf327bed733e4d981cafd83a71c3",
+      "aarch64": true,
+      "hasSymtab": true,
+      "relevantSymbols": [
+        "2477: 0000000000468010   860 FUNC    GLOBAL DEFAULT   13 edge_gateway::addEmsClusterPointRoutes(edge_gateway::PointStoreRouter&, edge_gateway::EmsClusterConfig const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+        "2819: 0000000000466ae0  5368 FUNC    GLOBAL DEFAULT   13 edge_gateway::emsClusterPointRoutes(edge_gateway::EmsClusterConfig const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)"
+      ]
+    },
+    "EmsClusterCoordinator": {
+      "sha256": "7af235c12d6a1487259446a2f3f6bde4ff21276adb99f195c50423e683382c96",
+      "aarch64": true,
+      "hasSymtab": true,
+      "relevantSymbols": [
+        "1394: 000000000040b8d8    80 FUNC    WEAK   DEFAULT   13 edge_gateway::EmsClusterPointBridge::~EmsClusterPointBridge()",
+        "1570: 0000000000471338   236 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::read(unsigned int, long, double&, long) const",
+        "1640: 00000000004725c0  3464 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::publish(edge_gateway::EmsClusterStatus const&, edge_gateway::EmsClusterDispatchState const&, long, long)",
+        "1851: 00000000004718c0   440 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::sampleStationTarget(long, bool&) const",
+        "1895: 000000000040b8d8    80 FUNC    WEAK   DEFAULT   13 edge_gateway::EmsClusterPointBridge::~EmsClusterPointBridge()",
+        "1947: 0000000000470c48  1776 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::EmsClusterPointBridge(edge_gateway::EmsClusterConfig, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)",
+        "1968: 0000000000470c48  1776 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::EmsClusterPointBridge(edge_gateway::EmsClusterConfig, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)",
+        "2145: 0000000000471430  1148 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::sampleCapability(long) const",
+        "2262: 0000000000471f60  1632 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::publishDiagnostics(edge_gateway::EmsClusterStatus const&, edge_gateway::EmsClusterDispatchState const&, long)",
+        "2263: 0000000000471b60  1024 FUNC    GLOBAL DEFAULT   13 edge_gateway::EmsClusterPointBridge::write(unsigned int, double, int, long)"
+      ]
+    }
+  }
+}
