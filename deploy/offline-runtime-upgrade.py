@@ -294,8 +294,11 @@ def read_inputs(args):
     installed_inventory(home, paths, approval)
     units = approval['units']
     require(isinstance(units, list) and len(units) == len(set(units)) and
-            {'gateway-services.service', 'gateway-health-watchdog.service'} <= set(units) and
+            'gateway-services.service' in units and
             all(isinstance(u, str) and UNIT.fullmatch(u) for u in units), 'invalid Gateway-only unit set')
+    if 'gateway-health-watchdog.service' not in units:
+        require(systemctl('show', '--property=LoadState', '--value', 'gateway-health-watchdog.service') == 'not-found',
+                'omitted watchdog must have LoadState=not-found')
     discovered = set()
     for action in ('list-units', 'list-unit-files'):
         for line in systemctl(action, '--all', '--plain', '--no-legend').splitlines():

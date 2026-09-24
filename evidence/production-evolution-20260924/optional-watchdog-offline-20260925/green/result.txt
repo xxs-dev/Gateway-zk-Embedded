@@ -1,0 +1,12 @@
+test_offline_absent_watchdog_not_found_roundtrip (__main__.InstallIsolationTest.test_offline_absent_watchdog_not_found_roundtrip) ... ok
+test_offline_absent_watchdog_requires_not_found (__main__.InstallIsolationTest.test_offline_absent_watchdog_requires_not_found) ... ok
+test_offline_existing_watchdog_failures_still_refuse (__main__.InstallIsolationTest.test_offline_existing_watchdog_failures_still_refuse) ... ok
+test_offline_existing_watchdog_unknown_active_refused (__main__.InstallIsolationTest.test_offline_existing_watchdog_unknown_active_refused) ... ok
+test_offline_monitor_binding_roundtrip (__main__.InstallIsolationTest.test_offline_monitor_binding_roundtrip) ... ok
+test_offline_standalone_disabled_absent_ems_roundtrip (__main__.InstallIsolationTest.test_offline_standalone_disabled_absent_ems_roundtrip) ... ok
+test_offline_r5_actual_twenty_component_preflight (__main__.InstallIsolationTest.test_offline_r5_actual_twenty_component_preflight) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 3.620s
+
+OK

@@ -1,0 +1,4 @@
+action=apply exit=2
+offline upgrade refused/failed: unit not stopped: gateway-health-watchdog.service=unknown
+Keep all participants stopped; no automatic ABI rollback.
+

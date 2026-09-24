@@ -1,0 +1,12 @@
+action=apply exit=2
+offline upgrade refused/failed: omitted watchdog must have LoadState=not-found
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: omitted watchdog must have LoadState=not-found
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: Gateway unit missing from offline scope: gateway-health-watchdog.service
+Keep all participants stopped; no automatic ABI rollback.
+

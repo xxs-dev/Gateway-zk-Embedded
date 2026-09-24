@@ -66,6 +66,10 @@ approval/state to schema2. Required fields:
   units to inhibit and stop, covering discovered units. No SSH/network service,
   kernel watchdog or arbitrary unit is accepted. Existing enabled/masked policy
   is recorded, never changed by apply/recover.
+  `gateway-services.service` remains mandatory. The software
+  `gateway-health-watchdog.service` may be omitted only when systemd reports
+  exactly `LoadState=not-found`; a discovered, loaded or unknown watchdog must
+  be in scope and its stop/active-state failures still refuse the transaction.
   Template files such as `compute-engine@.service` receive inhibition drop-ins
   but are never passed to `stop`/instance `show`; only concrete instances stop.
 - Fixed-voter only: `offlineVoters`: exactly every fixed voter, each with `controlDisabled:true`,

@@ -1,0 +1,12 @@
+action=apply exit=2
+offline upgrade refused/failed: invalid Gateway-only unit set
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid Gateway-only unit set
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid Gateway-only unit set
+Keep all participants stopped; no automatic ABI rollback.
+
