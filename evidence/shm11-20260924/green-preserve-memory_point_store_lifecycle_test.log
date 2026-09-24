@@ -1,0 +1,5 @@
+persistent ring limit=1 passed
+persistent ring limit=4 passed
+persistent ring limit=19999 passed
+persistent ring limit=20000 passed
+memory_point_store_lifecycle_test passed
