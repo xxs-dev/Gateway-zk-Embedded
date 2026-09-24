@@ -1499,11 +1499,13 @@ void testEthernetTransportLoopback() {
     secondConfig.consensusStateFile = "ems-cluster-test-transport-b-consensus.json";
     secondConfig.membershipFile = "ems-cluster-test-transport-b-membership.json";
     presetMembership(firstConfig, {{"COMM_NET_A", 1}, {"COMM_NET_B", 2}});
-    presetMembership(secondConfig, {{"COMM_NET_A", 1}, {"COMM_NET_B", 2}});
+    presetMembership(secondConfig, {{"COMM_NET_B", 2}, {"COMM_NET_A", 1}});
     edge_gateway::EmsClusterNode first(firstConfig, "COMM_NET_A", "BOOT_NET_A");
     edge_gateway::EmsClusterNode second(secondConfig, "COMM_NET_B", "BOOT_NET_B");
-    auto firstTransport = edge_gateway::makeEthernetClusterTransport(firstConfig, "COMM_NET_A");
-    auto secondTransport = edge_gateway::makeEthernetClusterTransport(secondConfig, "COMM_NET_B");
+    require(first.configurationHash() == second.configurationHash(),
+            "fixed membership digest must not depend on provisioning JSON order");
+    auto firstTransport = edge_gateway::makeEthernetClusterTransport(firstConfig, "COMM_NET_A", first.configurationHash());
+    auto secondTransport = edge_gateway::makeEthernetClusterTransport(secondConfig, "COMM_NET_B", second.configurationHash());
     firstTransport->start();
     secondTransport->start();
     edge_gateway::EmsClusterLoadSample firstLoad;
