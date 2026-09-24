@@ -554,6 +554,32 @@ exec /bin/cp "$@"
         self.assertEqual(0, self.offline_run('recover').returncode)
         self.assertFalse(Path('/dev/shm/ems_cluster_store').exists())
 
+    def test_offline_unreferenced_default_stopped_only(self):
+        home, approval = self.offline_fixture(('create', 'create'))
+        Path('/dev/shm/offline_source_0').rename('/dev/shm/gateway_point_store')
+        approval['segments'][0]['source'] = 'gateway_point_store'
+        config = home / 'config/runtime/apps/compute.json'
+        document = json.loads(config.read_text())
+        only_referenced = approval['segments'][1]['source']
+        document['computeEngine']['sharedMemoryNames'] = [only_referenced]
+        document['computeEngine']['outputDefaultSharedMemoryName'] = only_referenced
+        document['emsCluster']['virtualSharedMemoryName'] = only_referenced
+        write(config, json.dumps(document))
+        approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertEqual('UPGRADED_STOPPED', state['phase'])
+        self.assertEqual(approval['segments'][0]['sha256'],
+                         hashlib.sha256(Path('/dev/shm/gateway_point_store').read_bytes()).hexdigest())
+        self.assertTrue(Path('/dev/shm/offline_target_0').is_file())
+        self.offline_ready(approval)
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('unreferenced default SHM', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
     def test_offline_standalone_ems_reference_boundaries(self):
         home, approval = self.standalone_fixture()
         config = home / 'config/runtime/apps/mqtt-service.json'
