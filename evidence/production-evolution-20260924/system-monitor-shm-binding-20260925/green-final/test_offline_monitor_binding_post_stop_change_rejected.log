@@ -1,0 +1,8 @@
+action=apply exit=2
+offline upgrade refused/failed: monitor SHM drop-in changed during stop
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: monitor SHM drop-in changed during stop
+Keep all participants stopped; no automatic ABI rollback.
+

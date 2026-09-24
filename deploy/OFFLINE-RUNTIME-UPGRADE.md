@@ -87,7 +87,19 @@ approval/state to schema2. Required fields:
   when absent. Its name is still validated. Enabled, missing or mistyped
   `enabled` never gains this exception; another reference to the same name
   still requires a segment. No missing-segment migration or synthetic roster
-  is supported. Custom readers/implicit defaults require separate review.
+  is supported. The only extra approved source may be an existing fixed
+  `gateway_point_store` with no JSON reference; it receives the same stopped
+  digest/quiescence/backup/copy checks, but its implicit readers are unproven,
+  so `observe` refuses this transaction. All other extra stores refuse.
+- Optional `systemMonitorShmDropinSha256`: original-byte SHA256 for only
+  `/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf`
+  when that exact instance is in `units`. The file must consist solely of
+  `[Service]` and one `Environment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=<source>`
+  line, with `<source>` in approved `segments`. No other environment or drop-in
+  format is accepted. The script rechecks original bytes/mode after stop,
+  durably backs them up, switches that one value to the approved target after
+  SHM copy, and restores original bytes/mode on stopped recovery. Omit this pin
+  only when no SystemMonitor observer will start.
 
 The entrypoint handles `sharedMemoryName`, `sharedMemoryNames`,
 `virtualSharedMemoryName`, `outputSharedMemoryName`, and
@@ -140,7 +152,8 @@ and OTA are blocked by the persistent fence. Ordinary config/SCADA operations
 outside an offline transaction retain their existing paths.
 
 Recover validates all old file hashes, stops participants and restores only
-program/config bytes. Newly introduced files are retained outside live `bin`.
+program/config bytes and the explicitly pinned SystemMonitor SHM drop-in, if
+present. Newly introduced files are retained outside live `bin`.
 It never restores data, identity, dedup, membership, consensus or ANY SHM image.
 It returns `RECOVERED_STOPPED`; old ABI control MUST NOT restart. Pending writes
 or authority in old SHM are not reauthorized. No automatic ABI downgrade is
@@ -177,6 +190,13 @@ Standalone further excludes `ems-cluster@`: only Compute/Monitor instances may
 start, even if a disabled cluster unit exists in the stopped unit inventory.
 Rechecks cover all installed product hashes, config bytes,
 source/target bytes, absent live mappings/processes and unchanged unit policy.
+The only supported SystemMonitor observer is `system-monitor@monitor-service.service`:
+it requires the pinned drop-in state, unchanged switched file and exact effective
+systemd `Environment` target, with no `EnvironmentFiles` or `UnsetEnvironment`.
+After start, the approved old monitor SHM must still be unmapped; a failure
+stops the observer through the existing failed-start path.
+Without that binding it refuses before start; this does not waive the separate
+unreferenced-default refusal or qualify real device mappings.
 Previously masked units are refused, never unmasked. `is-active` must succeed.
 The entrypoint temporarily removes only selected observer/observer-template
 drop-ins, starts them, then restores inhibition and reloads systemd before success.

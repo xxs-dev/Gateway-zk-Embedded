@@ -1,0 +1,13 @@
+test_offline_monitor_binding_roundtrip (__main__.InstallIsolationTest.test_offline_monitor_binding_roundtrip) ... ok
+test_offline_monitor_binding_missing_or_unsupported_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_missing_or_unsupported_rejected) ... ok
+test_offline_monitor_effective_env_mismatch_rejected (__main__.InstallIsolationTest.test_offline_monitor_effective_env_mismatch_rejected) ... ok
+test_offline_monitor_binding_observe_changed_file_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_observe_changed_file_rejected) ... ok
+test_offline_monitor_binding_changed_or_unsupported_file_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_changed_or_unsupported_file_rejected) ... ok
+test_offline_monitor_binding_post_stop_change_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_post_stop_change_rejected) ... ok
+test_offline_monitor_binding_partial_recover (__main__.InstallIsolationTest.test_offline_monitor_binding_partial_recover) ... ok
+test_offline_unreferenced_default_stopped_only (__main__.InstallIsolationTest.test_offline_unreferenced_default_stopped_only) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 4.366s
+
+OK

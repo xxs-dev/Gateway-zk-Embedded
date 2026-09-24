@@ -20,6 +20,9 @@ spec.loader.exec_module(guard)
 UNIT = re.compile(r'(?:(?:modbus-rtu|dlt645-driver|dio-driver|can-driver|iec-driver|compute-engine|agc-avc|ems-cluster|event-engine|local-display|local-display-qt|local-kiosk|system-monitor|camera-service|mqtt-tls-tunnel|mqtt-driver|mqtt-forwarder)@[A-Za-z0-9_.:-]*|gateway-services|gateway-health-watchdog|qt-display-bridge|ky-ems)\.service\Z')
 NAME = re.compile(r'[A-Za-z0-9_-]{1,63}\Z')
 OBSERVER_UNIT = re.compile(r'(?:compute-engine|ems-cluster|system-monitor)@[A-Za-z0-9_.:-]+\.service\Z')
+MONITOR_UNIT = 'system-monitor@monitor-service.service'
+MONITOR_DROPIN = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
+MONITOR_ENV = b'[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME='
 
 
 def require(condition, message):
@@ -131,6 +134,61 @@ def controls_disabled(value):
     elif isinstance(value, list):
         for item in value:
             controls_disabled(item)
+
+
+def monitor_dropin_name(raw):
+    require(raw.startswith(MONITOR_ENV) and raw.endswith(b'\n') and raw.count(b'\n') == 2,
+            'unsupported monitor SHM drop-in')
+    value = raw[len(MONITOR_ENV):-1]
+    try:
+        name = value.decode('ascii')
+    except UnicodeDecodeError:
+        raise ValueError('unsupported monitor SHM drop-in')
+    require(NAME.fullmatch(name) is not None, 'unsupported monitor SHM drop-in')
+    return name
+
+
+def monitor_binding(approval, names):
+    pin = approval.get('systemMonitorShmDropinSha256')
+    if pin is None:
+        return None
+    require(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) and
+            MONITOR_UNIT in approval['units'], 'monitor SHM binding pin and unit required')
+    path = regular(MONITOR_DROPIN)
+    old = path.read_bytes()
+    require(hashlib.sha256(old).hexdigest() == pin, 'monitor SHM drop-in SHA256 mismatch')
+    source = monitor_dropin_name(old)
+    require(source in names, 'monitor SHM binding source must be an approved segment')
+    return {'old': old, 'new': MONITOR_ENV + names[source].encode() + b'\n',
+            'mode': stat.S_IMODE(path.stat().st_mode), 'source': source, 'target': names[source]}
+
+
+def checked_monitor_record(state_dir, state, approval):
+    record = state.get('systemMonitorShmDropin')
+    if record is None:
+        return None
+    require(MONITOR_UNIT in approval['units'] and isinstance(record, dict) and
+            set(record) == {'oldSha256', 'newSha256', 'source', 'target', 'mode'} and
+            type(record['mode']) is int and 0 <= record['mode'] <= 0o777,
+            'invalid monitor SHM binding state')
+    old = regular(state_dir / 'monitor-dropin-old').read_bytes()
+    source = monitor_dropin_name(old)
+    names = {item['source']: item['target'] for item in approval['segments']}
+    require(source in names, 'monitor SHM binding source no longer approved')
+    new = MONITOR_ENV + names[source].encode() + b'\n'
+    require(record['source'] == source and record['target'] == names[source] and
+            record['oldSha256'] == approval.get('systemMonitorShmDropinSha256') == hashlib.sha256(old).hexdigest() and
+            record['newSha256'] == hashlib.sha256(new).hexdigest() and
+            regular(state_dir / 'monitor-dropin-new').read_bytes() == new,
+            'monitor SHM binding state/backup mismatch')
+    return record, old, new
+
+
+def monitor_effective_target(target):
+    expected = 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + target
+    return (systemctl('show', '--property=Environment', '--value', MONITOR_UNIT) == expected and
+            systemctl('show', '--property=EnvironmentFiles', '--value', MONITOR_UNIT) == '' and
+            systemctl('show', '--property=UnsetEnvironment', '--value', MONITOR_UNIT) == '')
 
 
 def no_processes(home, component_names):
@@ -353,6 +411,7 @@ def apply(args):
     unreferenced_default = 'gateway_point_store' in names and 'gateway_point_store' not in references
     require(references <= set(names) and set(names) - references <= {'gateway_point_store'},
             'all SHM references must be explicit and covered exactly')
+    binding = monitor_binding(approval, names)
     for doc in documents.values():
         no_old_references(switch_names(doc, names), names)
     # An existing default segment may be an implicit reader not covered by this recipe.
@@ -381,6 +440,17 @@ def apply(args):
         no_processes(home, [c['target'] for c in components])
         state['stopConfirmed'] = True
         require(tree_hashes(configs) == approval['configSha256'], 'config changed during stop')
+        if binding:
+            path = regular(MONITOR_DROPIN)
+            require(path.read_bytes() == binding['old'] and stat.S_IMODE(path.stat().st_mode) == binding['mode'],
+                    'monitor SHM drop-in changed during stop')
+            write_new(args.state / 'monitor-dropin-old', binding['old'])
+            write_new(args.state / 'monitor-dropin-new', binding['new'])
+            state['systemMonitorShmDropin'] = {
+                'oldSha256': hashlib.sha256(binding['old']).hexdigest(),
+                'newSha256': hashlib.sha256(binding['new']).hexdigest(),
+                'source': binding['source'], 'target': binding['target'], 'mode': binding['mode']}
+            save(args.state / 'state.json', state)
         paths = install_paths(components, approval)
         installed_inventory(home, paths, approval)
         changed = []
@@ -424,10 +494,18 @@ def apply(args):
         state['phase'] = 'SWITCHING'
         save(args.state / 'state.json', state)
         no_processes(home, [c['target'] for c in components])
+        if binding:
+            require(regular(MONITOR_DROPIN).read_bytes() == binding['old'],
+                    'monitor SHM drop-in changed before switch')
+            require(digest(args.state / 'monitor-dropin-new') == state['systemMonitorShmDropin']['newSha256'],
+                    'monitor SHM staged drop-in changed')
+            replace(MONITOR_DROPIN, regular(args.state / 'monitor-dropin-new').read_bytes(), binding['mode'])
         for index, item in enumerate(state['files']):
             stage = args.state / 'new' / str(index)
             require(digest(stage) == item['newSha256'], 'staged file changed')
             replace(home / item['path'], stage.read_bytes(), item['mode'])
+        if binding:
+            systemctl('daemon-reload')
         state['phase'] = 'UPGRADED_STOPPED'
         state['configSha256'] = tree_hashes(configs)
         save(args.state / 'state.json', state)
@@ -450,6 +528,11 @@ def recover(args):
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
     paths = install_paths(components, approval)
     products = {paths[c['target']]: c for c in components}
+    monitor = checked_monitor_record(args.state, state, approval)
+    if monitor:
+        record, _, _ = monitor
+        require(digest(MONITOR_DROPIN) in (record['oldSha256'], record['newSha256']),
+                'monitor SHM drop-in changed since transaction')
     # Validate every backup before restoring anything. Durable data and SHM are never restored.
     for index, item in enumerate(state['files']):
         relative = Path(item['path'])
@@ -478,6 +561,10 @@ def recover(args):
             require(digest(retained) == item['newSha256'], 'retained new file verification failed')
             live.unlink()
             sync_dir(live.parent)
+    if monitor:
+        record, old, _ = monitor
+        replace(MONITOR_DROPIN, old, record['mode'])
+        systemctl('daemon-reload')
     state['phase'] = 'RECOVERED_STOPPED'
     save(args.state / 'state.json', state)
     print('RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart')
@@ -535,6 +622,18 @@ def observe(args):
             set(selected) <= set(approval['units']) and all(OBSERVER_UNIT.fullmatch(u) for u in selected) and
             (mode != 'standalone' or not any(u.startswith('ems-cluster@') for u in selected)),
             'only explicitly approved compute/cluster/monitor observers may start; physical participants remain inhibited')
+    monitor = None
+    if any(unit.startswith('system-monitor@') for unit in selected):
+        require({unit for unit in selected if unit.startswith('system-monitor@')} == {MONITOR_UNIT},
+                'only the pinned monitor SHM instance may observe')
+        monitor = checked_monitor_record(args.state, state, approval)
+        require(monitor is not None, 'monitor SHM binding evidence required before observe')
+        record, _, new = monitor
+        require(regular(MONITOR_DROPIN).read_bytes() == new and digest(MONITOR_DROPIN) == record['newSha256'] and
+                stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == record['mode'],
+                'monitor SHM drop-in changed before observe')
+        require(monitor_effective_target(record['target']),
+                'monitor SHM effective environment is not the approved target')
     for unit in selected:
         before = state['unitStates'][unit]['enabled']
         require(before not in ('masked', 'masked-runtime') and
@@ -559,9 +658,14 @@ def observe(args):
             path.unlink()
             sync_dir(path.parent)
         systemctl('daemon-reload')
+        if any(unit.startswith('system-monitor@') for unit in selected):
+            require(monitor_effective_target(state['systemMonitorShmDropin']['target']),
+                    'monitor SHM effective environment changed before start')
         for unit in selected:
             systemctl('start', unit)
             systemctl('is-active', '--quiet', unit)
+        if monitor:
+            no_mappings([monitor[0]['source']])
         for path, body in dropins:
             write_new(path, body, 0o644)
         systemctl('daemon-reload')

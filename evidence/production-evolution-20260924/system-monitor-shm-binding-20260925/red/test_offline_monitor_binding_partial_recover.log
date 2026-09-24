@@ -1,0 +1,4 @@
+action=apply exit=2
+offline upgrade refused/failed: [Errno 16] Device or resource busy: '/opt/modbus-gateway/bin/MqttDriver.offline-879' -> '/opt/modbus-gateway/bin/MqttDriver'
+Keep all participants stopped; no automatic ABI rollback.
+

@@ -1,0 +1,7 @@
+action=apply exit=2
+offline upgrade refused/failed: [Errno 16] Device or resource busy: '/opt/modbus-gateway/bin/MqttDriver.offline-989' -> '/opt/modbus-gateway/bin/MqttDriver'
+Keep all participants stopped; no automatic ABI rollback.
+
+action=recover exit=0
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+

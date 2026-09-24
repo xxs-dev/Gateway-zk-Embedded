@@ -1,0 +1,20 @@
+test_offline_monitor_binding_roundtrip (__main__.InstallIsolationTest.test_offline_monitor_binding_roundtrip) ... ok
+test_offline_monitor_binding_missing_or_unsupported_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_missing_or_unsupported_rejected) ... ok
+test_offline_monitor_effective_env_mismatch_rejected (__main__.InstallIsolationTest.test_offline_monitor_effective_env_mismatch_rejected) ... ok
+test_offline_monitor_binding_observe_changed_file_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_observe_changed_file_rejected) ... ok
+test_offline_monitor_binding_changed_or_unsupported_file_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_changed_or_unsupported_file_rejected) ... ok
+test_offline_monitor_binding_post_stop_change_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_post_stop_change_rejected) ... ok
+test_offline_monitor_binding_partial_recover (__main__.InstallIsolationTest.test_offline_monitor_binding_partial_recover) ... ok
+test_offline_unreferenced_default_stopped_only (__main__.InstallIsolationTest.test_offline_unreferenced_default_stopped_only) ... ok
+test_offline_standalone_disabled_absent_ems_roundtrip (__main__.InstallIsolationTest.test_offline_standalone_disabled_absent_ems_roundtrip) ... ok
+test_offline_standalone_ems_reference_boundaries (__main__.InstallIsolationTest.test_offline_standalone_ems_reference_boundaries) ... ok
+test_offline_real_r4_roster_and_app (__main__.InstallIsolationTest.test_offline_real_r4_roster_and_app) ... ok
+test_offline_real_s2_roster_and_app (__main__.InstallIsolationTest.test_offline_real_s2_roster_and_app) ... ok
+test_offline_upgrade_partial_file_switch_recovers_stopped (__main__.InstallIsolationTest.test_offline_upgrade_partial_file_switch_recovers_stopped) ... ok
+test_offline_observe_rejects_physical_and_changed_inputs (__main__.InstallIsolationTest.test_offline_observe_rejects_physical_and_changed_inputs) ... ok
+test_offline_r5_actual_twenty_component_preflight (__main__.InstallIsolationTest.test_offline_r5_actual_twenty_component_preflight) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 8.527s
+
+OK

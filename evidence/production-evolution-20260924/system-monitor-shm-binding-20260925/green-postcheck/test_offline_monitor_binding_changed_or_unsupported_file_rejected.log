@@ -1,0 +1,12 @@
+action=apply exit=2
+offline upgrade refused/failed: monitor SHM drop-in SHA256 mismatch
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported monitor SHM drop-in
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported monitor SHM drop-in
+Keep all participants stopped; no automatic ABI rollback.
+

@@ -61,6 +61,13 @@ case "$1" in
       if [ "${OFFLINE_TEST:-0}" = 1 ]; then
         case "$*" in
           *UnitFileState*) echo "${OFFLINE_UNIT_STATE:-disabled}" ;;
+          *--property=Environment\\ --value\\ system-monitor@monitor-service.service*)
+            if [ -n "${MONITOR_ENV_SHOW_OVERRIDE:-}" ]; then
+              echo "$MONITOR_ENV_SHOW_OVERRIDE"
+            else
+              sed -n '2s/^Environment=//p' /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf
+            fi ;;
+          *--property=EnvironmentFiles*|*--property=UnsetEnvironment*) : ;;
           *) echo inactive ;;
         esac
       else echo 4242; fi
@@ -394,12 +401,48 @@ exec /bin/cp "$@"
         self.assertEqual(original, dropin.read_bytes())
         self.assertEqual(0, self.offline_run('recover').returncode)
 
+    def test_offline_monitor_effective_env_mismatch_rejected(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'MONITOR_ENV_SHOW_OVERRIDE':
+                                  'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + approval['segments'][0]['source']})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('monitor SHM effective environment', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, dropin.read_bytes())
+
+    def test_offline_monitor_binding_observe_changed_file_rejected(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        installed = dropin.read_bytes()
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        dropin.write_bytes(installed + b'# foreign change\n')
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('monitor SHM drop-in changed before observe', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertIn('monitor SHM drop-in changed since transaction', self.offline_run('recover').stdout)
+        dropin.write_bytes(installed)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, dropin.read_bytes())
+
     def test_offline_monitor_binding_changed_or_unsupported_file_rejected(self):
         home, approval, dropin, original = self.monitor_binding_fixture()
         dropin.write_bytes(original + b'# extra\n')
         result = self.offline_run(approval=approval)
         self.assertNotEqual(0, result.returncode, result.stdout)
         self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+        approval['systemMonitorShmDropinSha256'] = hashlib.sha256(dropin.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('unsupported monitor SHM drop-in', result.stdout)
+        dropin.write_bytes(original.replace(approval['segments'][0]['source'].encode(), b'\xff'))
         approval['systemMonitorShmDropinSha256'] = hashlib.sha256(dropin.read_bytes()).hexdigest()
         result = self.offline_run(approval=approval)
         self.assertNotEqual(0, result.returncode, result.stdout)
@@ -425,6 +468,7 @@ exec /bin/cp "$@"
             subprocess.run(['umount', str(binary)], check=True)
         self.assertEqual(0, self.offline_run('recover').returncode)
         self.assertEqual(original, dropin.read_bytes())
+        self.assertEqual(0o644, stat.S_IMODE(dropin.stat().st_mode))
 
     def offline_run(self, action='apply', approval=None, env=None):
         if approval is not None:
