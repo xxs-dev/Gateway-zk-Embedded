@@ -68,6 +68,81 @@ void reelectionRecovery() {
             "new term sequence 1 must recover in the same bridge after old term sequence 157");
     require(!clusterAuthorizationValid(config, oldCommand, *snapshot, localKernelBootId(), 10004),
             "re-election must never revive the old command");
+    const auto recoveredEpoch = snapshot->authorization->authorityEpoch;
+    require(recoveredEpoch != oldCommand.clusterAuthorization->authorityEpoch,
+            "re-election must rotate the authority epoch");
+    PendingWriteCommand currentCommand = oldCommand;
+    currentCommand.clusterAuthorization = snapshot->authorization;
+    auto staleEpochCommand = currentCommand;
+    staleEpochCommand.clusterAuthorization->authorityEpoch = oldCommand.clusterAuthorization->authorityEpoch;
+    require(!clusterAuthorizationValid(config, staleEpochCommand, *snapshot, localKernelBootId(), 10004),
+            "old epoch command must fail even when its sequence matches the new term");
+    status.authorityExpireAtMs = dispatch.expireAtMs = 22000;
+    bridge.publish(status, dispatch, 1000005, 10005);
+    require(observer.clusterAuthority()->authorization->notAfterMonotonicMs == 19000,
+            "recovered sequence must preserve its earliest deadline");
+    auto mismatched = dispatch;
+    mismatched.term = 2;
+    mismatched.sequence = 9999;
+    bridge.publish(status, mismatched, 1000006, 10006);
+    require(!observer.clusterAuthority()->valid, "valid-flagged old term must revoke current authority");
+    bridge.publish(status, dispatch, 1000007, 10007);
+    require(!observer.clusterAuthority()->valid, "mismatched publication must not allow revoked sequence resurrection");
+    dispatch.sequence = 2;
+    bridge.publish(status, dispatch, 1000008, 10008);
+    require(observer.clusterAuthority()->valid,
+            "old term high sequence must not poison the current scope after a valid publication");
+    require(!clusterAuthorizationValid(config, currentCommand, *observer.clusterAuthority(), localKernelBootId(), 10008),
+            "previous sequence command must not authorize a newer dispatch");
+    mismatched = dispatch;
+    mismatched.sequence = 1;
+    bridge.publish(status, mismatched, 1000009, 10009);
+    require(!observer.clusterAuthority()->valid, "older sequence in the same scope must be rejected");
+    bridge.publish(status, dispatch, 1000010, 10010);
+    require(!observer.clusterAuthority()->valid, "older sequence rejection must keep current sequence revoked");
+    dispatch.sequence = 3;
+    bridge.publish(status, dispatch, 1000011, 10011);
+    require(observer.clusterAuthority()->valid, "strictly newer same-scope sequence must recover");
+
+    status.membershipEpoch = 2;
+    dispatch.valid = false;
+    dispatch.sequence = 9999;
+    bridge.publish(status, dispatch, 1000012, 10012);
+    require(!observer.clusterAuthority()->valid, "old membership dispatch must not grant authority in new membership");
+    dispatch.valid = true;
+    dispatch.membershipEpoch = status.membershipEpoch;
+    dispatch.sequence = 1;
+    bridge.publish(status, dispatch, 1000013, 10013);
+    snapshot = observer.clusterAuthority();
+    require(snapshot && snapshot->valid && snapshot->authorization &&
+            snapshot->authorization->authorityEpoch != recoveredEpoch,
+            "membership transition must recover low sequence with a new authority epoch");
+    require(!clusterAuthorizationValid(config, currentCommand, *snapshot, localKernelBootId(), 10013),
+            "old membership command with the same sequence must remain rejected");
+    mismatched = dispatch;
+    mismatched.membershipEpoch = 1;
+    mismatched.sequence = 9999;
+    bridge.publish(status, mismatched, 1000014, 10014);
+    require(!observer.clusterAuthority()->valid, "valid-flagged old membership must be rejected");
+    dispatch.sequence = 2;
+    bridge.publish(status, dispatch, 1000015, 10015);
+    require(observer.clusterAuthority()->valid, "old membership high sequence must not poison current membership");
+    const auto previousLeaderEpoch = observer.clusterAuthority()->authorization->authorityEpoch;
+    status.leaderNodeId = "B";
+    dispatch.sequence = 1;
+    bridge.publish(status, dispatch, 1000016, 10016);
+    require(observer.clusterAuthority()->valid &&
+            observer.clusterAuthority()->authorization->authorityEpoch != previousLeaderEpoch,
+            "leader identity change must begin a separate authority scope");
+    bridge.publish(status, dispatch, 1000017);
+    bridge.publish(status, dispatch, 1000018, 10018);
+    require(!observer.clusterAuthority()->valid, "diagnostic-only publication must tombstone current sequence");
+    dispatch.sequence = 2;
+    dispatch.expireAtMs = 10100;
+    bridge.publish(status, dispatch, 1000019, 10019);
+    require(observer.clusterAuthority()->valid, "new sequence must recover after diagnostic-only revocation");
+    bridge.publish(status, dispatch, 1000100, 10100);
+    require(!observer.clusterAuthority()->valid, "recovered authority must expire exactly at its deadline");
 }
 int main() {
     const auto name = "cluster_output_authority_" + std::to_string(getpid());
