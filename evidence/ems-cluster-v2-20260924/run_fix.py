@@ -34,7 +34,7 @@ for relative in ('src/ems_cluster.cpp', 'src/ems_cluster_dispatch.cpp',
                  'src/ems_cluster_points.cpp', 'src/graph_ems_engine.cpp',
                  'ems_cluster_main.cpp', 'tools/graph_ems_cluster_dispatch_test.cpp'):
     results['sourceSha256'][relative] = hashlib.sha256((SOURCE / relative).read_bytes()).hexdigest()
-library = BASELINE
+library = BUILD / 'libedge_gateway.a' if label.startswith('red-core-') else BASELINE
 if not label.startswith('red-'):
     for name, args in (
         ('configure', ['cmake', '-S', str(SOURCE), '-B', str(BUILD), '-DCMAKE_BUILD_TYPE=Debug', '-DBUILD_TESTING=ON']),

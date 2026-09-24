@@ -265,6 +265,7 @@ void EmsClusterNode::invalidateDispatch(EmsClusterDispatchCode code) {
 
 EmsClusterDispatchState EmsClusterNode::activeDispatch(std::int64_t nowMs) const {
     auto result = localDispatch_;
+    if (result.valid) result.expireAtMs = std::min(result.expireAtMs, authorityDeadline());
     if (result.valid && !leaderLeaseValid(nowMs)) {
         result.valid = false;
         result.code = EmsClusterDispatchCode::NoQuorum;
@@ -284,8 +285,12 @@ void EmsClusterNode::tickDispatch(std::int64_t nowMs) {
 
     if (role_ == EmsClusterRole::Follower && !leaderNodeId_.empty() && leaderLeaseValid(nowMs)) {
         if (lastCapabilityReportMs_ == 0 || nowMs - lastCapabilityReportMs_ >= config_.dispatchCycleMs) {
+            if (dispatchRequests_.size() >= 32) dispatchRequests_.erase(dispatchRequests_.begin());
             auto report = baseMessage(EmsClusterMessageType::CapabilityReport);
             report.capability = localCapability_;
+            report.dispatchRequestId = ++challengeId_;
+            report.dispatchRequestIncarnation = bootId_;
+            dispatchRequests_[report.dispatchRequestId] = nowMs;
             outgoing_.push_back({std::move(report), leaderNodeId_, false});
             lastCapabilityReportMs_ = nowMs;
         }
@@ -361,6 +366,14 @@ void EmsClusterNode::tickDispatch(std::int64_t nowMs) {
             continue;
         }
         auto target = baseMessage(EmsClusterMessageType::DispatchTarget);
+        const auto peer = members_.find(allocation.first);
+        if (peer == members_.end() || peer->second.dispatchRequestId == 0) continue;
+        target.dispatchRequestId = peer->second.dispatchRequestId;
+        target.dispatchRequestIncarnation = peer->second.incarnation;
+        // Leave a heartbeat of margin for bounded clock-rate skew; never transmit a remote clock.
+        const auto remaining = authorityDeadline() - nowMs - config_.heartbeatMs;
+        if (remaining <= 0) continue;
+        target.authorityTtlMs = static_cast<std::uint32_t>(std::min<std::int64_t>(remaining, config_.dispatchTtlMs));
         target.dispatchSequence = sequence;
         target.dispatchTtlMs = static_cast<std::uint32_t>(config_.dispatchTtlMs);
         target.requestedPower = allocation.second;
@@ -384,12 +397,14 @@ void EmsClusterNode::tickDispatch(std::int64_t nowMs) {
 
 void EmsClusterNode::handleCapabilityReport(const EmsClusterMessage& message, std::int64_t nowMs) {
     if (role_ != EmsClusterRole::Leader || message.term != currentTerm_ ||
-        message.membershipEpoch != membershipEpoch_ || !isVotingMember(message.senderNodeId)) return;
+        message.membershipEpoch != membershipEpoch_ || !isVotingMember(message.senderNodeId) ||
+        message.dispatchRequestId == 0 || message.dispatchRequestIncarnation != message.senderIncarnation) return;
     auto found = members_.find(message.senderNodeId);
     if (found == members_.end()) return;
     found->second.status.capability = message.capability;
     found->second.status.capabilityFresh = true;
     found->second.lastCapabilityMs = nowMs;
+    found->second.dispatchRequestId = message.dispatchRequestId;
 }
 
 void EmsClusterNode::handleDispatchTarget(const EmsClusterMessage& message, std::int64_t nowMs) {
@@ -400,6 +415,7 @@ void EmsClusterNode::handleDispatchTarget(const EmsClusterMessage& message, std:
     accepted.requested = message.requestedPower;
     accepted.receivedAtMs = nowMs;
     accepted.expireAtMs = nowMs + std::max<std::uint32_t>(1, message.dispatchTtlMs);
+    const auto request = dispatchRequests_.find(message.dispatchRequestId);
 
     if (role_ != EmsClusterRole::Follower || message.senderNodeId != leaderNodeId_) {
         accepted.code = EmsClusterDispatchCode::NotLeader;
@@ -415,6 +431,10 @@ void EmsClusterNode::handleDispatchTarget(const EmsClusterMessage& message, std:
     } else if (message.dispatchTtlMs < static_cast<std::uint32_t>(config_.dispatchCycleMs) ||
         message.dispatchTtlMs > static_cast<std::uint32_t>(config_.dispatchTtlMs * 2)) {
         accepted.code = EmsClusterDispatchCode::Expired;
+    } else if (message.dispatchRequestIncarnation != bootId_ || request == dispatchRequests_.end() ||
+        message.authorityTtlMs == 0 || message.authorityTtlMs > static_cast<std::uint32_t>(config_.leaderLeaseMs) ||
+        nowMs >= request->second + message.authorityTtlMs) {
+        accepted.code = EmsClusterDispatchCode::Expired;
     } else {
         accepted = acceptDispatch(
             message.requestedPower,
@@ -422,6 +442,8 @@ void EmsClusterNode::handleDispatchTarget(const EmsClusterMessage& message, std:
             static_cast<int>(message.dispatchTtlMs),
             nowMs
         );
+        accepted.expireAtMs = std::min(accepted.expireAtMs, request->second + message.authorityTtlMs);
+        dispatchRequests_.erase(request);
         localDispatch_ = accepted;
     }
 
