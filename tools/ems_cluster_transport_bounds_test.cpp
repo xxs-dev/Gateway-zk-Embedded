@@ -22,6 +22,17 @@ enum class WriteMode { Real, Trickle, ConnectTimeout };
 WriteMode writeMode = WriteMode::Real;
 void resetCounters() { accepts = reads = datagrams = writeCalls = maxWait = wouldBlock = 0; readBytes = 0; }
 void require(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
+bool injectWritablePoll(pollfd* fds, nfds_t count, int timeout, int& result) {
+    if (count != 1 || fds[0].events != POLLOUT) return false;
+    if (measure || writeMode != WriteMode::Real) maxWait = std::max(maxWait, timeout);
+    if (writeMode == WriteMode::Real) return false;
+    result = 0;
+    if (writeMode == WriteMode::Trickle) {
+        fds[0].revents = POLLOUT;
+        result = 1;
+    }
+    return true;
+}
 }
 
 // Wrappers observe real sockets except for two bounded, deterministic fault sequences.
@@ -71,15 +82,20 @@ ssize_t __wrap_send(int fd, const void* buffer, size_t size, int flags) {
     return result;
 }
 int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
-    if (measure && count == 1 && fds[0].events == POLLOUT) maxWait = std::max(maxWait, timeout);
-    if (writeMode != WriteMode::Real && count == 1 && fds[0].events == POLLOUT) {
-        maxWait = std::max(maxWait, timeout);
-        if (writeMode == WriteMode::ConnectTimeout) return 0;
-        fds[0].revents = POLLOUT;
-        return 1;
-    }
+    int result = 0;
+    if (injectWritablePoll(fds, count, timeout, result)) return result;
     return __real_poll(fds, count, timeout);
 }
+#ifdef __GLIBC__
+int __real___poll_chk(pollfd*, nfds_t, int, size_t);
+int __wrap___poll_chk(pollfd* fds, nfds_t count, int timeout, size_t capacity) {
+    // Preserve glibc's bounds failure even when the fixture injects writability.
+    if (count > capacity / sizeof(*fds)) return __real___poll_chk(fds, count, timeout, capacity);
+    int result = 0;
+    if (injectWritablePoll(fds, count, timeout, result)) return result;
+    return __real___poll_chk(fds, count, timeout, capacity);
+}
+#endif
 }
 
 namespace {
