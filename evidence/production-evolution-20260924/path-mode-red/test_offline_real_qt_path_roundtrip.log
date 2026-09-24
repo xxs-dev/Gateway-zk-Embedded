@@ -1,0 +1,4 @@
+action=apply exit=2
+offline upgrade refused/failed: installed runtime inventory changed
+Keep all participants stopped; no automatic ABI rollback.
+

@@ -155,11 +155,44 @@ def units_stopped(units):
         require(state in ('inactive', 'failed'), 'unit not stopped: ' + unit + '=' + state)
 
 
-def install_name(component, approval):
-    aliases = approval.get('installNames', {})
-    require(isinstance(aliases, dict) and all(k == 'LocalDisplayQtEms' and v == 'KY-EMS' for k, v in aliases.items()),
-            'only explicitly approved LocalDisplayQtEms -> KY-EMS alias is supported')
-    return aliases.get(component['target'], component['target'])
+def approval_mode(approval):
+    require(approval.get('schemaVersion') == 'offline-shm11-2', 'schema2 offline approval required')
+    mode = approval.get('mode')
+    require(mode in ('fixed-voter', 'standalone'), 'explicit fixed-voter or standalone mode required')
+    return mode
+
+
+def install_paths(components, approval):
+    paths = approval.get('installPaths')
+    targets = [c['target'] for c in components]
+    require(isinstance(paths, dict) and targets and len(targets) == len(set(targets)) and
+            set(paths) == set(targets) and 'installNames' not in approval, 'exact installPaths product mapping required')
+    for target, relative in paths.items():
+        require(isinstance(target, str) and NAME.fullmatch(target), 'unsafe component target')
+        allowed = {'bin/' + target}
+        if target in ('LocalDisplayQtEms', 'KY-EMS'):
+            allowed.update(('bin/KY-EMS', 'ky-ems/KY-EMS'))
+        require(isinstance(relative, str) and relative in allowed, 'unsupported program relative path')
+    require(len(set(paths.values())) == len(paths), 'duplicate program destination')
+    return paths
+
+
+def installed_inventory(home, paths, approval):
+    installed = {}
+    for directory in (home / 'bin', home / 'ky-ems'):
+        require(not directory.is_symlink(), 'symlink runtime directory refused')
+        if not directory.exists():
+            continue
+        for path in directory.rglob('*'):
+            require(not path.is_symlink(), 'symlink in runtime tree refused: ' + str(path))
+            if path.is_file() and guard.runtime_file(path, path):
+                installed[str(path.relative_to(home))] = digest(path)
+    require(set(installed) <= set(paths.values()), 'installed runtime absent from approved paths')
+    require(installed == approval.get('installedRuntimeSha256'), 'installed runtime inventory changed')
+    for relative in paths.values():
+        destination = home / relative
+        require(not destination.is_symlink() and not destination.parent.is_symlink(), 'symlink destination refused')
+        require(not destination.exists() or relative in installed, 'unapproved existing destination')
 
 
 def no_mappings(names):
@@ -183,7 +216,7 @@ def no_mappings(names):
 
 def read_inputs(args):
     approval = checked_json(args.approval, args.approval_sha256)
-    require(approval.get('schemaVersion') == 'offline-shm11-1', 'unsupported offline approval')
+    approval_mode(approval)
     require(guard.compatibility(approval) is not None, 'runtimeCompatibility required')
     require(approval.get('controlEnabled') is False, 'control must remain disabled')
     require(NAME.fullmatch(approval.get('transactionId', '')) is not None, 'unsafe transaction id')
@@ -192,18 +225,15 @@ def read_inputs(args):
             str(home) not in ('/', '/opt'), 'unsafe gateway home')
     manifest = checked_json(args.manifest, approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
-    names = [install_name(c, approval) for c in components]
-    require(names and len(names) == len(set(names)) and 'memory_point_store_migrate' in names,
-            'complete unique product component set with migration CLI required')
+    paths = install_paths(components, approval)
+    require('memory_point_store_migrate' in paths, 'complete product set with migration CLI required')
     for component in components:
         require(NAME.fullmatch(component['target']) is not None, 'unsafe component target')
         path = args.payload / component['archivePath']
         require(args.payload in path.resolve().parents, 'component escapes payload')
         require(digest(path) == component['sha256'] and path.stat().st_size == component['bytes'],
                 'component hash/size mismatch: ' + component['target'])
-    installed = {p.name for p in (home / 'bin').iterdir() if guard.runtime_file(p, p)}
-    require(installed <= set(names), 'installed runtime absent from approved product set: ' + ','.join(sorted(installed - set(names))))
-    require({n: digest(home / 'bin' / n) for n in installed} == approval['installedRuntimeSha256'], 'installed runtime inventory changed')
+    installed_inventory(home, paths, approval)
     units = approval['units']
     require(isinstance(units, list) and len(units) == len(set(units)) and
             {'gateway-services.service', 'gateway-health-watchdog.service'} <= set(units) and
@@ -218,10 +248,32 @@ def read_inputs(args):
 
 
 def local_identity(home, approval):
+    mode = approval_mode(approval)
     config = home / 'config/runtime'
     require(digest(config / 'device_identity.json') == approval['identitySha256'], 'identity changed')
     identity = json.loads((config / 'device_identity.json').read_text())
     require(identity.get('machineCode') == approval['nodeId'], 'foreign node approval')
+    clusters = []
+    def find_clusters(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == 'emsCluster':
+                    require(isinstance(item, dict) and type(item.get('enabled', False)) is bool,
+                            'ambiguous EMS cluster configuration')
+                    if item.get('enabled', False):
+                        clusters.append(item)
+                find_clusters(item)
+        elif isinstance(value, list):
+            for item in value:
+                find_clusters(item)
+    for document in configured(config).values():
+        find_clusters(document)
+    if mode == 'standalone':
+        require(not clusters, 'standalone cannot bypass an enabled EMS cluster')
+        require('membershipSha256' not in approval and 'offlineVoters' not in approval,
+                'standalone must use local evidence, not a fabricated roster/voter set')
+        return set()
+    require('offlineLocal' not in approval, 'fixed-voter mode requires full voter evidence')
     roster = checked_json(home / 'data/cluster-membership.json', approval['membershipSha256'])
     require(isinstance(roster, dict) and roster.get('schemaVersion') == '1.0' and 'members' not in roster and
             isinstance(roster.get('clusterId'), str) and bool(roster['clusterId']) and
@@ -236,8 +288,6 @@ def local_identity(home, approval):
     cabinets = {item['cabinetNo'] for item in assignments}
     require(len(voters) == len(assignments) == len(cabinets) and approval['nodeId'] in voters,
             'duplicate or missing local fixed voter')
-    clusters = [doc['emsCluster'] for doc in configured(config).values() if isinstance(doc, dict) and
-                isinstance(doc.get('emsCluster'), dict) and doc['emsCluster'].get('enabled') is True]
     require(clusters, 'enabled fixed-voter cluster configuration required')
     own = next(item['cabinetNo'] for item in assignments if item['nodeId'] == approval['nodeId'])
     for cluster in clusters:
@@ -276,8 +326,14 @@ def apply(args):
     approval, manifest, components, home = read_inputs(args)
     require(type(approval.get('expiresAtUnix')) is int and time.time() < approval['expiresAtUnix'], 'offline approval expired')
     voters = local_identity(home, approval)
-    require(set(approval['offlineVoters']) == voters, 'all fixed voters require offline evidence')
-    for node, record in approval['offlineVoters'].items():
+    if approval_mode(approval) == 'fixed-voter':
+        require(set(approval['offlineVoters']) == voters, 'all fixed voters require offline evidence')
+        records = approval['offlineVoters']
+    else:
+        record = approval.get('offlineLocal', {})
+        require(isinstance(record, dict) and record.get('nodeId') == approval['nodeId'], 'local offline evidence required')
+        records = {approval['nodeId']: record}
+    for node, record in records.items():
         require(record.get('controlDisabled') is True and record.get('participantsStopped') is True and
                 record.get('restartInhibited') is True and re.fullmatch('[0-9a-f]{64}', record.get('evidenceSha256', '')),
                 'incomplete offline evidence: ' + node)
@@ -320,12 +376,14 @@ def apply(args):
         no_processes(home, [c['target'] for c in components])
         state['stopConfirmed'] = True
         require(tree_hashes(configs) == approval['configSha256'], 'config changed during stop')
+        paths = install_paths(components, approval)
+        installed_inventory(home, paths, approval)
         changed = []
         for component in components:
             path = args.payload / component['archivePath']
             payload = regular(path).read_bytes()
             require(hashlib.sha256(payload).hexdigest() == component['sha256'], 'staged component changed')
-            changed.append((home / 'bin' / install_name(component, approval), payload, 0o755))
+            changed.append((home / paths[component['target']], payload, 0o755))
         for relative, doc in documents.items():
             updated = switch_names(doc, names)
             if updated != doc:
@@ -384,17 +442,18 @@ def recover(args):
     fence(home, approval, args.state, state)
     no_processes(home, [])
     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
-    products = {install_name(c, approval): c for c in manifest['components'] if c.get('kind') == 'product'}
+    components = [c for c in manifest['components'] if c.get('kind') == 'product']
+    paths = install_paths(components, approval)
+    products = {paths[c['target']]: c for c in components}
     # Validate every backup before restoring anything. Durable data and SHM are never restored.
     for index, item in enumerate(state['files']):
         relative = Path(item['path'])
         require(not relative.is_absolute() and '..' not in relative.parts and
-                (relative.parts[0] == 'bin' or relative.parts[:2] == ('config', 'runtime')) and
+                (str(relative) in products or relative.parts[:2] == ('config', 'runtime')) and
                 relative != Path('config/runtime/device_identity.json'), 'unsafe recovery path')
-        if relative.parts[0] == 'bin':
-            require(len(relative.parts) == 2 and relative.name in products and
-                    item['newSha256'] == products[relative.name]['sha256'] and
-                    item['oldSha256'] == approval['installedRuntimeSha256'].get(relative.name), 'unapproved binary recovery')
+        if str(relative) in products:
+            require(item['newSha256'] == products[str(relative)]['sha256'] and
+                    item['oldSha256'] == approval['installedRuntimeSha256'].get(str(relative)), 'unapproved binary recovery')
         else:
             require(item['oldSha256'] == approval['configSha256'].get(str(relative.relative_to('config/runtime'))),
                     'unapproved config recovery')
@@ -422,7 +481,7 @@ def recover(args):
 def observe(args):
     require(args.ready and args.ready_sha256, 'observe requires separate externally approved ready receipt')
     ready = checked_json(args.ready, args.ready_sha256)
-    require(ready.get('schemaVersion') == 'offline-shm11-observe-1' and ready.get('controlEnabled') is False and
+    require(ready.get('schemaVersion') == 'offline-shm11-observe-2' and ready.get('controlEnabled') is False and
             type(ready.get('expiresAtUnix')) is int and time.time() < ready['expiresAtUnix'], 'invalid/expired observe approval')
     state = checked_json(args.state / 'state.json', ready['stateSha256'])
     require(state['phase'] == 'UPGRADED_STOPPED' and state['approvalSha256'] == args.approval_sha256,
@@ -431,18 +490,30 @@ def observe(args):
     require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
             ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')
     home = Path(approval['gatewayHome'])
+    mode = approval_mode(approval)
+    require(ready.get('mode') == mode, 'observe mode must match original approval')
     voters = local_identity(home, approval)
-    require(set(ready['voters']) == voters, 'all fixed voters must confirm upgraded/stopped')
-    for node, receipt in ready['voters'].items():
+    if mode == 'fixed-voter':
+        require('local' not in ready and set(ready['voters']) == voters, 'all fixed voters must confirm upgraded/stopped')
+        receipts = ready['voters']
+    else:
+        receipt = ready.get('local', {})
+        require('voters' not in ready and isinstance(receipt, dict) and receipt.get('nodeId') == approval['nodeId'],
+                'standalone local ready receipt required')
+        receipts = {approval['nodeId']: receipt}
+    for node, receipt in receipts.items():
         require(receipt.get('phase') == 'UPGRADED_STOPPED' and receipt.get('controlEnabled') is False and
                 receipt.get('programManifestSha256') == approval['programManifestSha256'] and
                 re.fullmatch('[0-9a-f]{64}', receipt.get('stateSha256', '')), 'voter not ready: ' + node)
-    require(ready['voters'][approval['nodeId']]['stateSha256'] == ready['stateSha256'], 'local voter receipt mismatch')
+    require(receipts[approval['nodeId']]['stateSha256'] == ready['stateSha256'], 'local ready receipt mismatch')
     require((home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'], 'persistent fence missing')
     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
+    paths = install_paths(components, approval)
     for component in components:
-        require(digest(home / 'bin' / install_name(component, approval)) == component['sha256'], 'installed component no longer approved')
+        require(digest(home / paths[component['target']]) == component['sha256'], 'installed component no longer approved')
+    installed_inventory(home, paths, {'installedRuntimeSha256': {
+        paths[c['target']]: c['sha256'] for c in components}})
     require(tree_hashes(home / 'config/runtime') == state['configSha256'], 'upgraded configuration changed')
     for doc in configured(home / 'config/runtime').values():
         controls_disabled(doc)
@@ -454,7 +525,8 @@ def observe(args):
     units_stopped(approval['units'])
     selected = ready['startUnits']
     require(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and
-            set(selected) <= set(approval['units']) and all(OBSERVER_UNIT.fullmatch(u) for u in selected),
+            set(selected) <= set(approval['units']) and all(OBSERVER_UNIT.fullmatch(u) for u in selected) and
+            (mode != 'standalone' or not any(u.startswith('ems-cluster@') for u in selected)),
             'only explicitly approved compute/cluster/monitor observers may start; physical participants remain inhibited')
     for unit in selected:
         before = state['unitStates'][unit]['enabled']

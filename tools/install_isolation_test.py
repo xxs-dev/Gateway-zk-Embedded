@@ -319,12 +319,13 @@ exec /bin/cp "$@"
         write(manifest, json.dumps({'sourceCommit': 'native-fixture-not-ARM-release', 'components': components}))
         config = home / 'config/runtime'
         sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-        approval = {'schemaVersion': 'offline-shm11-1', 'transactionId': 'fixture-offline',
+        approval = {'schemaVersion': 'offline-shm11-2', 'mode': 'fixed-voter', 'transactionId': 'fixture-offline',
                     'runtimeCompatibility': {'pointStoreAbi': 11, 'clusterProtocol': 2, 'upgradeMode': 'offline-all-participants'},
                     'controlEnabled': False, 'expiresAtUnix': int(time.time()) + 300,
                     'gatewayHome': str(home), 'nodeId': 'A', 'programManifestSha256': sha(manifest),
                     'identitySha256': sha(config / 'device_identity.json'), 'membershipSha256': sha(home / 'data/cluster-membership.json'),
-                    'installedRuntimeSha256': {n: sha(home / 'bin' / n) for n in ('ComputeEngine', 'MqttDriver')},
+                    'installPaths': {c['target']: 'bin/' + c['target'] for c in components},
+                    'installedRuntimeSha256': {'bin/' + n: sha(home / 'bin' / n) for n in ('ComputeEngine', 'MqttDriver')},
                     'configSha256': {str(p.relative_to(config)): sha(p) for p in config.rglob('*') if p.is_file()},
                     'units': ['gateway-services.service', 'gateway-health-watchdog.service', 'ky-ems.service', 'compute-engine@.service', 'compute-engine@fixture.service'],
                     'offlineVoters': {n: {'controlDisabled': True, 'participantsStopped': True, 'restartInhibited': True, 'evidenceSha256': 'a' * 64} for n in ('A', 'B')},
@@ -347,6 +348,190 @@ exec /bin/cp "$@"
         with (EVIDENCE / (self.id().split('.')[-1] + '.log')).open('a') as stream:
             stream.write('action=' + action + ' exit=' + str(result.returncode) + '\n' + result.stdout + '\n')
         return result
+
+    def qt_offline_fixture(self):
+        home, approval = self.offline_fixture()
+        write(home / 'ky-ems/KY-EMS', 'old real-path qt\n')
+        write(home / 'ky-ems/resources/keep.txt', 'keep resources\n')
+        manifest = json.loads((self.root / 'program-manifest.json').read_text())
+        qt = self.root / 'payload/programs/ky-ems/KY-EMS'
+        qt.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile('/usr/bin/true', qt)
+        manifest['components'].append({'kind': 'product', 'target': 'LocalDisplayQtEms',
+            'archivePath': 'programs/ky-ems/KY-EMS', 'bytes': qt.stat().st_size,
+            'sha256': hashlib.sha256(qt.read_bytes()).hexdigest()})
+        write(self.root / 'program-manifest.json', json.dumps(manifest))
+        approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
+        approval['installPaths'] = {c['target']: ('ky-ems/KY-EMS' if c['target'] == 'LocalDisplayQtEms' else
+                                    'bin/' + c['target']) for c in manifest['components']}
+        approval['installedRuntimeSha256']['ky-ems/KY-EMS'] = hashlib.sha256((home / 'ky-ems/KY-EMS').read_bytes()).hexdigest()
+        return home, approval
+
+    def test_offline_real_qt_path_roundtrip(self):
+        home, approval = self.qt_offline_fixture()
+        original = (home / 'ky-ems/KY-EMS').read_bytes()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(Path('/usr/bin/true').read_bytes(), (home / 'ky-ems/KY-EMS').read_bytes())
+        self.assertFalse((home / 'bin/KY-EMS').exists())
+        self.assertFalse((home / 'bin/LocalDisplayQtEms').exists())
+        self.offline_ready(approval)
+        self.assertEqual(0, self.offline_run('observe').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, (home / 'ky-ems/KY-EMS').read_bytes())
+        self.assertEqual('keep resources\n', (home / 'ky-ems/resources/keep.txt').read_text())
+
+    def standalone_fixture(self):
+        home, approval = self.offline_fixture(('create', 'create'))
+        (home / 'config/runtime/apps/compute.json').unlink()
+        provenance = {}
+        for source in sorted((REPO / 'config/runtime/apps').glob('*.json')):
+            raw = source.read_bytes()
+            write(home / 'config/runtime/apps' / source.name, raw.decode('utf-8'))
+            provenance[str(source.relative_to(REPO))] = hashlib.sha256(raw).hexdigest()
+        # Complete repository non-cluster apps are representative, not live A/B config.
+        Path('/dev/shm/offline_source_0').rename('/dev/shm/gateway_point_store')
+        approval['segments'][0]['source'] = 'gateway_point_store'
+        Path('/dev/shm/offline_source_1').rename('/dev/shm/gateway_point_store_agc_avc')
+        approval['segments'][1]['source'] = 'gateway_point_store_agc_avc'
+        approval['mode'] = 'standalone'
+        approval['offlineLocal'] = dict(approval.pop('offlineVoters')['A'], nodeId=approval['nodeId'])
+        approval.pop('membershipSha256')
+        (home / 'data/cluster-membership.json').unlink()
+        config = home / 'config/runtime'
+        approval['configSha256'] = {str(p.relative_to(config)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                   for p in config.rglob('*') if p.is_file()}
+        write(EVIDENCE / 'standalone-fixture-provenance.json', json.dumps({
+            'scope': 'complete repository noncluster app examples; not full live A/B configuration',
+            'sources': provenance, 'rosterFabricated': False}, indent=2) + '\n')
+        return home, approval
+
+    def test_offline_standalone_full_app_roundtrip(self):
+        home, approval = self.standalone_fixture()
+        before = {str(p.relative_to(home)): p.read_bytes() for p in (home / 'config/runtime').rglob('*') if p.is_file()}
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertFalse((home / 'data/cluster-membership.json').exists())
+        self.offline_ready(approval)
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(before, {str(p.relative_to(home)): p.read_bytes() for p in (home / 'config/runtime').rglob('*') if p.is_file()})
+        self.assertFalse((home / 'data/cluster-membership.json').exists())
+        self.assertNotIn('start ems-cluster@', self.log.read_text())
+
+    def test_offline_program_paths_reject_unsafe_or_uncovered(self):
+        home, approval = self.qt_offline_fixture()
+        for path in ('/tmp/KY-EMS', '../KY-EMS', 'ky-ems/../bin/KY-EMS', 'ky-ems//KY-EMS',
+                     'bin/MqttDriver', 'data/KY-EMS'):
+            broken = copy.deepcopy(approval)
+            broken['installPaths']['LocalDisplayQtEms'] = path
+            with self.subTest(path=path):
+                result = self.offline_run(approval=broken)
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+        broken = copy.deepcopy(approval)
+        broken['installedRuntimeSha256']['ky-ems/KY-EMS'] = '0' * 64
+        self.assertNotEqual(0, self.offline_run(approval=broken).returncode)
+        broken = copy.deepcopy(approval)
+        del broken['installedRuntimeSha256']['ky-ems/KY-EMS']
+        self.assertNotEqual(0, self.offline_run(approval=broken).returncode)
+        hidden = home / 'ky-ems/resources/unapproved-runtime'
+        shutil.copyfile('/usr/bin/true', hidden)
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('installed runtime absent', result.stdout)
+        hidden.unlink()
+        link = home / 'ky-ems/resources/link'
+        link.symlink_to(home / 'ky-ems/KY-EMS')
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('symlink', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_program_duplicate_destinations_refused(self):
+        home, approval = self.qt_offline_fixture()
+        manifest = json.loads((self.root / 'program-manifest.json').read_text())
+        duplicate = copy.deepcopy(manifest['components'][-1])
+        duplicate['target'] = 'KY-EMS'
+        manifest['components'].append(duplicate)
+        write(self.root / 'program-manifest.json', json.dumps(manifest))
+        approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
+        approval['installPaths']['KY-EMS'] = 'ky-ems/KY-EMS'
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('duplicate program destination', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_observe_rejects_added_runtime_path(self):
+        home, approval = self.qt_offline_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.offline_ready(approval)
+        extra = home / 'ky-ems/resources/extra-elf'
+        shutil.copyfile('/usr/bin/true', extra)
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('installed runtime absent', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_standalone_requires_explicit_mode_and_local_evidence(self):
+        home, approval = self.standalone_fixture()
+        cases = []
+        for field, value in (('mode', None), ('mode', 'fixed-voter'), ('mode', 'other'),
+                             ('schemaVersion', 'offline-shm11-1'), ('offlineLocal', {}),
+                             ('offlineVoters', {}), ('membershipSha256', 'a' * 64)):
+            broken = copy.deepcopy(approval)
+            if value is None:
+                broken.pop(field)
+            else:
+                broken[field] = value
+            cases.append(broken)
+        for field in ('controlDisabled', 'participantsStopped', 'restartInhibited'):
+            broken = copy.deepcopy(approval)
+            broken['offlineLocal'][field] = False
+            cases.append(broken)
+        broken = copy.deepcopy(approval)
+        broken['offlineLocal']['nodeId'] = 'FOREIGN'
+        cases.append(broken)
+        for broken in cases:
+            with self.subTest(approval=broken):
+                self.assertNotEqual(0, self.offline_run(approval=broken).returncode)
+                self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+        config = home / 'config/runtime/apps/monitor-service.json'
+        original = json.loads(config.read_text())
+        for enabled in (True, 'true', 1):
+            changed = copy.deepcopy(original)
+            changed['emsCluster'] = {'enabled': enabled, 'controlEnabled': False}
+            write(config, json.dumps(changed))
+            approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+            self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+            self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_standalone_observe_rejects_cluster_and_physical(self):
+        home, approval = self.standalone_fixture()
+        approval['units'].extend(['ems-cluster@fixture.service', 'modbus-rtu@fixture.service'])
+        write(home / 'data/cluster-membership.json', 'preserved disabled historical roster\n')
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        for unit in ('ems-cluster@fixture.service', 'modbus-rtu@fixture.service'):
+            ready = self.offline_ready(approval)
+            ready['startUnits'] = [unit]
+            write(self.root / 'ready.json', json.dumps(ready))
+            result = self.offline_run('observe')
+            self.assertNotEqual(0, result.returncode, result.stdout)
+            self.assertIn('physical participants remain inhibited', result.stdout)
+        ready = self.offline_ready(approval)
+        ready['mode'] = 'fixed-voter'
+        write(self.root / 'ready.json', json.dumps(ready))
+        self.assertNotEqual(0, self.offline_run('observe').returncode)
+        ready = self.offline_ready(approval)
+        ready['local']['stateSha256'] = 'a' * 64
+        write(self.root / 'ready.json', json.dumps(ready))
+        self.assertNotEqual(0, self.offline_run('observe').returncode)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual('preserved disabled historical roster\n', (home / 'data/cluster-membership.json').read_text())
 
     def test_offline_upgrade_actual_cli_and_stopped_recovery(self):
         home, approval = self.offline_fixture()
@@ -457,13 +642,15 @@ exec /bin/cp "$@"
 
     def offline_ready(self, approval):
         state_pin = hashlib.sha256((self.root / 'transaction/state.json').read_bytes()).hexdigest()
-        ready = {'schemaVersion': 'offline-shm11-observe-1', 'controlEnabled': False,
+        ready = {'schemaVersion': 'offline-shm11-observe-2', 'mode': approval['mode'], 'controlEnabled': False,
                  'transactionId': approval['transactionId'], 'expiresAtUnix': int(time.time()) + 300,
                  'approvalSha256': hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest(),
                  'programManifestSha256': approval['programManifestSha256'], 'stateSha256': state_pin,
                  'startUnits': ['compute-engine@fixture.service'],
                  'voters': {n: {'phase': 'UPGRADED_STOPPED', 'controlEnabled': False,
                                 'programManifestSha256': approval['programManifestSha256'], 'stateSha256': state_pin} for n in ('A', 'B')}}
+        if approval['mode'] == 'standalone':
+            ready['local'] = dict(ready.pop('voters')['A'], nodeId=approval['nodeId'])
         write(self.root / 'ready.json', json.dumps(ready))
         return ready
 
@@ -648,7 +835,7 @@ exec /bin/cp "$@"
         write(config, json.dumps(app))
         approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
         write(home / 'bin/KY-EMS', 'old qt\n')
-        approval['installedRuntimeSha256']['KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
+        approval['installedRuntimeSha256']['bin/KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
         qt = self.root / 'payload/programs/qt/KY-SCADA'
         qt.parent.mkdir(parents=True)
         shutil.copyfile('/usr/bin/true', qt)
@@ -659,8 +846,8 @@ exec /bin/cp "$@"
         approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
         result = self.offline_run(approval=approval)
         self.assertNotEqual(0, result.returncode)
-        self.assertIn('installed runtime absent', result.stdout)
-        approval['installNames'] = {'LocalDisplayQtEms': 'KY-EMS'}
+        self.assertIn('exact installPaths product mapping', result.stdout)
+        approval['installPaths']['LocalDisplayQtEms'] = 'bin/KY-EMS'
         result = self.offline_run(approval=approval)
         self.assertEqual(0, result.returncode, result.stdout)
         self.assertEqual(qt.read_bytes(), (home / 'bin/KY-EMS').read_bytes())
@@ -773,12 +960,13 @@ exec /bin/cp "$@"
                             dest.parent.mkdir(parents=True, exist_ok=True)
                             dest.write_bytes(data)
         write(home / 'bin/KY-EMS', 'old qt\n')
-        approval['installNames'] = {'LocalDisplayQtEms': 'KY-EMS'}
-        approval['installedRuntimeSha256']['KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
+        approval['installPaths'] = {c['target']: ('bin/KY-EMS' if c['target'] == 'LocalDisplayQtEms' else
+                                    'bin/' + c['target']) for c in products}
+        approval['installedRuntimeSha256']['bin/KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
         approval['programManifestSha256'] = manifest_pin
         write(self.root / 'approval.json', json.dumps(approval))
         approval_pin = hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest()
-        command = ['python3', '-B', '-c', 'import importlib.util,types,pathlib,sys; s=importlib.util.spec_from_file_location("offline",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); a=types.SimpleNamespace(approval=pathlib.Path(sys.argv[2]),approval_sha256=sys.argv[3],manifest=pathlib.Path(sys.argv[4]),payload=pathlib.Path(sys.argv[5])); p,doc,components,home=m.read_inputs(a); print("R5 20-product preflight PASS; Qt="+m.install_name(next(c for c in components if c["target"]=="LocalDisplayQtEms"),p));', str(REPO / 'deploy/offline-runtime-upgrade.py'), str(self.root / 'approval.json'), approval_pin, str(coordinator), str(payload)]
+        command = ['python3', '-B', '-c', 'import importlib.util,types,pathlib,sys; s=importlib.util.spec_from_file_location("offline",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); a=types.SimpleNamespace(approval=pathlib.Path(sys.argv[2]),approval_sha256=sys.argv[3],manifest=pathlib.Path(sys.argv[4]),payload=pathlib.Path(sys.argv[5])); p,doc,components,home=m.read_inputs(a); print("R5 20-product preflight PASS; Qt="+m.install_paths(components,p)["LocalDisplayQtEms"]);', str(REPO / 'deploy/offline-runtime-upgrade.py'), str(self.root / 'approval.json'), approval_pin, str(coordinator), str(payload)]
         result = subprocess.run(command, env={**self.env, 'OFFLINE_TEST': '1'}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
         write(EVIDENCE / 'r5-twenty-component-preflight.log', result.stdout)
         self.assertEqual(0, result.returncode, result.stdout)

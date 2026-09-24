@@ -1,0 +1,48 @@
+action=apply exit=2
+offline upgrade refused/failed: duplicate or missing local fixed voter
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: duplicate or missing local fixed voter
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster assignments
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster assignments
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: fixed voter set does not match local cluster configuration
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: duplicate or missing local fixed voter
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster assignments
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster schema/epoch
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster schema/epoch
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster schema/epoch
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: fixed voter set does not match local cluster configuration
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: invalid fixed roster schema/epoch
+Keep all participants stopped; no automatic ABI rollback.
+

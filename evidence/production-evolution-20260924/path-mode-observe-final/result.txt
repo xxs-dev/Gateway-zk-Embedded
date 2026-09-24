@@ -1,0 +1,10 @@
+test_offline_observe_rejects_added_runtime_path (__main__.InstallIsolationTest.test_offline_observe_rejects_added_runtime_path) ... ok
+test_offline_real_qt_path_roundtrip (__main__.InstallIsolationTest.test_offline_real_qt_path_roundtrip) ... ok
+test_offline_standalone_full_app_roundtrip (__main__.InstallIsolationTest.test_offline_standalone_full_app_roundtrip) ... ok
+test_offline_observe_rejects_masked_units_and_foreign_voters (__main__.InstallIsolationTest.test_offline_observe_rejects_masked_units_and_foreign_voters) ... ok
+test_offline_pairing_provenance (__main__.InstallIsolationTest.test_offline_pairing_provenance) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 2.933s
+
+OK

@@ -1,0 +1,48 @@
+{
+  "qualifiedRuntimeSource": "9ccfce8822a2504524c29d9505179ab9e94aa775",
+  "approvedProgramManifestSha256": "75c7018d4d78d93e67f8239c041b5f1003d460f0266f549e0c25053cc9795ca6",
+  "runtimeElfRebuildRequired": false,
+  "deviceMigrationExecuted": false,
+  "files": [
+    {
+      "path": "deploy/build-factory-package.sh",
+      "bytes": 13650,
+      "sha256": "7fae1233c57b80018b0f6fc831d339fb7c8bf7cd66f7cf6ebad925dd0177bae4"
+    },
+    {
+      "path": "deploy/gateway-services.sh",
+      "bytes": 20671,
+      "sha256": "43f7915d0254b73aee3b437e6792b638b930c9e0ce4027f043232619d92d129d"
+    },
+    {
+      "path": "deploy/install-factory-config.sh",
+      "bytes": 42413,
+      "sha256": "e30d3ff8a747d731ea5a8773e7989e532a2d09008ab1e59e3036c3a5eab80e15"
+    },
+    {
+      "path": "deploy/ota-apply.sh",
+      "bytes": 21489,
+      "sha256": "caecb891fa1750eaa597abee118d9dff28f9f6afa5fcc04c44506101cdfbf3f1"
+    },
+    {
+      "path": "deploy/ota-rollback.sh",
+      "bytes": 13861,
+      "sha256": "1b91459193655494082a3ca1f3f61b53b44b43d745238139814c8eb05cc9d038"
+    },
+    {
+      "path": "deploy/upgrade-legacy-runtime-v9.sh",
+      "bytes": 17640,
+      "sha256": "6a0a3beaafb7a37ba1f56650cecdfb02f1c0b7ccce17287e90d11c1bd3a48e3a"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "bytes": 7387,
+      "sha256": "e1932f9e0a86da9a48ad84a3b51ab18641fe5f844b6b3d979a1735f5d5252a55"
+    },
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "bytes": 33448,
+      "sha256": "e5d9f8263c037c7988e835cd794126585b64873b29a44985ba5d7c916e1279e5"
+    }
+  ]
+}

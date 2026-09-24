@@ -1,0 +1,15 @@
+test_offline_standalone_full_app_roundtrip (__main__.InstallIsolationTest.test_offline_standalone_full_app_roundtrip) ... ok
+test_offline_output_only_reference_and_qt_alias (__main__.InstallIsolationTest.test_offline_output_only_reference_and_qt_alias) ... ok
+test_offline_program_paths_reject_unsafe_or_uncovered (__main__.InstallIsolationTest.test_offline_program_paths_reject_unsafe_or_uncovered) ... ok
+test_offline_program_duplicate_destinations_refused (__main__.InstallIsolationTest.test_offline_program_duplicate_destinations_refused) ... ok
+test_offline_standalone_requires_explicit_mode_and_local_evidence (__main__.InstallIsolationTest.test_offline_standalone_requires_explicit_mode_and_local_evidence) ... ok
+test_offline_standalone_observe_rejects_cluster_and_physical (__main__.InstallIsolationTest.test_offline_standalone_observe_rejects_cluster_and_physical) ... ok
+test_offline_upgrade_external_pins_and_full_voters_required (__main__.InstallIsolationTest.test_offline_upgrade_external_pins_and_full_voters_required) ... ok
+test_offline_real_roster_invalid_assignments_refused (__main__.InstallIsolationTest.test_offline_real_roster_invalid_assignments_refused) ... ok
+test_offline_r5_actual_twenty_component_preflight (__main__.InstallIsolationTest.test_offline_r5_actual_twenty_component_preflight) ... ok
+test_offline_pairing_provenance (__main__.InstallIsolationTest.test_offline_pairing_provenance) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 7.673s
+
+OK

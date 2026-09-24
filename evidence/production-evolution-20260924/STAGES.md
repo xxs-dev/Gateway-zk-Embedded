@@ -237,3 +237,61 @@ reads) show median native Debug CPU115.856->21.900us with absent health and
 149.082->33.869us with fresh health. Regex construction moves into startup;
 startup and ARM utilization are not qualified. Only EmsClusterCoordinator owns
 LoadSampler, via its sole ems_cluster_main.cpp entrypoint. R5 files remain sealed.
+
+## Offline explicit paths and modes
+
+The original bin-only inventory/write/recovery path missed the real factory
+`ky-ems/KY-EMS` location. Schema2 now requires one complete installPaths mapping
+through inventory/apply/observe/recover and relative-path-keyed old hashes.
+Only approved bin names and the explicit Qt location are accepted. Qt resources
+are retained, not moved. Managed bin/ky-ems trees reject symlinks and unapproved
+runtime/ELF paths, including nested extras. Inventory is rebound after stop and
+before observer startup; an added-ELF observer red test caught that last gap.
+
+Required mode distinguishes fixed-voter (unchanged roster/quorum/full-voter
+requirements) from standalone (no enabled/ambiguously typed EMS cluster in any
+config, local identity+stop evidence, no fabricated roster/voters). Standalone
+observation permits only Compute/Monitor, not cluster or physical participants.
+All data/identity/consensus/SHM preservation and stopped-recovery boundaries stay.
+Schema1 input is explicitly incompatible; retain the old pinned script pair for
+any existing schema1 transaction instead of rewriting saved approvals.
+
+Evidence sequence, not a single all-tests run:
+
+- `path-mode-red`: real Qt mapping rejects against old bin inventory. The first
+  standalone case was also masked by that same inventory refusal; retained.
+- `path-mode-roster-red`: standalone fixture separated from Qt, now independently
+  fails on the old required membershipSha256. No fake roster supplies the test.
+- `path-mode-green`:4/6 pass (real Qt, R4, S2, partial-file stopped recovery).
+  Two test setup expectations failed: the full repository AGC app also references
+  a second SHM segment; the obsolete alias negative now rejects missing installPaths
+  earlier. Fixed fixture coverage/assertion, not product behavior.
+- `path-mode-supplement`:10/10 pass, including those two corrected cases, path/hash/
+  symlink/extra ELF/duplicate refusals, mode/local evidence/EMS bypass refusals,
+  standalone observer restrictions, fixed full-voter/roster negatives, actual
+  pinned R5 twenty-product preflight and deploy pairing.
+- `path-mode-observe-red`: added runtime ELF after apply was not checked before
+  observation. Reused the exact inventory validator to close it.
+- `path-mode-observe-final`:5/5 pass, including added-ELF refusal and both affected
+  Qt/fixed and standalone positive observer paths, masked/foreign-voter negatives
+  and final pairing. An initial selection typo ran no tests before correction.
+
+Across these final outcomes16 distinct selected methods pass. Source files and
+raw failed/positive receipts are retained; disposable native fixture executables
+are held outside Git. These are namespace/fake-systemctl/native CLI tests, not
+real systemd or ARM qualification. No business runtime was rebuilt in this stage.
+Final eight deploy script pins: `path-mode-observe-final/paired-deploy-delta.json`.
+Its runtime pin still describes sealed R5; the separate P1/P2 Coordinator change
+needs its own future approved manifest, not silent replacement of that pin.
+
+M1 boundary: implementation commit128c8a7's `execution-m1/receipt-23.json` SHA256
+`0c1ca32a26c71ec268b4302a9cda0959ef54d5187cb68b2e496c017ecd6eeb1a`
+contains only actual A camera/monitor projections before collection refusal.
+It confirms Qt at ky-ems/KY-EMS (SHA256
+`c920ec9ea83ada5f344810fea4cc484586367992893670bf13c5d5bc2cd3b08f`),
+but not complete actual app bytes, units/ExecStart or SHM headers; B was not read.
+The standalone positive uses full checked-in noncluster app examples with source
+hashes in standalone-fixture-provenance.json, NOT this partial projection as a
+replacement for the real app. Unknown active implicit readers, especially empty
+camera SHM references, remain an actual-device qualification gap. Full acquisition
+restart/physical output is still a separate unapproved operation.

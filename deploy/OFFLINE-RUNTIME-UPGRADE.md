@@ -1,8 +1,9 @@
 # Offline SHM10 -> SHM11 installation
 
 This is a root-operated maintenance entrypoint, not online OTA or a new cluster
-protocol. All fixed voters must have control disabled, their Gateway participants
-stopped and restart inhibited before the operator approves a transaction. The
+protocol. Explicit fixed-voter mode requires all fixed voters to have control
+disabled, Gateway participants stopped and restart inhibited. Explicit standalone
+mode requires equivalent local evidence and no enabled EMS cluster in any app. The
 external SHA256 argument is an out-of-band approval pin, not publisher signing.
 Never derive that approval from an untrusted package's own claim.
 
@@ -22,11 +23,16 @@ the migration tool. No new ARM compilation is needed for that existing CLI.
 
 ## Approval document
 
-`schemaVersion` is `offline-shm11-1`. Required fields:
+`schemaVersion` is `offline-shm11-2`. Schema1 approvals/ready receipts are refused;
+there is no implicit mode downgrade. Keep the pinned original script pair with
+any existing schema1 transaction for its recovery; do not rewrite its saved
+approval/state to schema2. Required fields:
 
+- `mode`: exactly `fixed-voter` or `standalone`; it is never inferred or defaulted.
 - `transactionId`: unique 1..63 letters/digits/underscore/hyphen.
 - `gatewayHome`: absolute non-symlink existing Gateway directory.
-- `nodeId`, `identitySha256`, `membershipSha256`: exact current local identity and
+- `nodeId`, `identitySha256`: exact current local identity in both modes.
+- Fixed-voter only: `membershipSha256` pins the
   fixed roster (`data/cluster-membership.json`, `assignments[].nodeId/cabinetNo`).
   The runtime schema is `schemaVersion:"1.0"`, nonempty `clusterId`, positive
   uint64 `membershipEpoch`, and 2..5 unique node/cabinet assignments. The complete
@@ -38,12 +44,22 @@ the migration tool. No new ARM compilation is needed for that existing CLI.
   `upgradeMode:"offline-all-participants"`; `controlEnabled:false`.
 - `expiresAtUnix`: bounded operator authorization expiry, integer UTC seconds.
 - `programManifestSha256`: externally reviewed full component manifest pin.
-- `installedRuntimeSha256`: exact map of every installed runtime ELF/name to its
-  current SHA256. An installed runtime absent from the target manifest is refused.
-- Optional `installNames:{"LocalDisplayQtEms":"KY-EMS"}` selects the existing Qt
-  installed name while keeping the SAME approved component SHA256 and archive
-  path. No arbitrary alias or symlink is accepted. Without this mapping, an old
-  `KY-EMS` installation is refused rather than leaving its launch path unchanged.
+- `installPaths`: exact target-to-relative-path map for EVERY product in the
+  approved manifest. Normal targets permit only `bin/<target>`. The explicit
+  `LocalDisplayQtEms` or `KY-EMS` target also permits `bin/KY-EMS` or
+  `ky-ems/KY-EMS`. Use `"LocalDisplayQtEms":"ky-ems/KY-EMS"` for the existing
+  factory/real Qt layout, retaining the SAME approved component hash and payload
+  archive path. No directory relocation or Qt resource replacement occurs.
+  Absolute/traversal/noncanonical paths, aliases outside this list, duplicate
+  destinations, missing mappings and the obsolete `installNames` field refuse.
+- `installedRuntimeSha256`: exact relative-path-to-current-SHA256 map of installed
+  runtime files under `bin` and `ky-ems`, including nested ELF files. For example
+  `"ky-ems/KY-EMS":"<old SHA256>"`, NOT a basename key. All existing runtime
+  paths must be covered by installPaths; missing/extra/hash-mismatched files refuse.
+  Symlinks anywhere in these managed trees refuse. Additional ELF resources or
+  executable layouts outside the supported mappings require separate review,
+  not automatic relocation/deletion. Non-ELF Qt resources remain untouched.
+  Inventory is checked before and after stopping, and again before observation.
 - `configSha256`: exact map of ALL files relative to `config/runtime`, including
   identity, templates/configuration and credentials (hashes only).
 - `units`: exact Gateway-only templates/instances and software launcher/watchdog
@@ -52,10 +68,16 @@ the migration tool. No new ARM compilation is needed for that existing CLI.
   is recorded, never changed by apply/recover.
   Template files such as `compute-engine@.service` receive inhibition drop-ins
   but are never passed to `stop`/instance `show`; only concrete instances stop.
-- `offlineVoters`: exactly every fixed voter, each with `controlDisabled:true`,
+- Fixed-voter only: `offlineVoters`: exactly every fixed voter, each with `controlDisabled:true`,
   `participantsStopped:true`, `restartInhibited:true`, and `evidenceSha256` of the
   implementation operator's reviewed stop/process/SHM inventory receipt. These
   are externally approved attestations, not remotely verified votes or signatures.
+- Standalone only: `offlineLocal` contains the same three true stop/control/fence
+  flags and evidence hash, plus `nodeId` matching the bound local identity.
+  `membershipSha256` and `offlineVoters` must be absent. Every configuration file
+  is inspected: any enabled EMS cluster or ambiguous enabled type refuses this
+  mode. Do not substitute a shadow app or synthesize a one-member roster. Existing
+  disabled historical roster/consensus files are neither written nor removed.
 - `segments`: unique `{source,target,sha256}` records for ALL configured SHM
   names. The hash describes the stopped source, the target must not exist and
   must differ from every source. All SHM references must be explicit; custom
@@ -118,14 +140,18 @@ it is not proof that the old running process has ceased physical control.
 
 ## Observe without physical outputs
 
-After ALL fixed voters have completed their matching upgrade, the implementation
-operator may separately approve an `offline-shm11-observe-1` receipt. It contains
+After ALL fixed voters (or the standalone local participant) have completed their
+matching upgrade, the operator may separately approve an `offline-shm11-observe-2`
+receipt. Its required `mode` must equal the original approval. It contains
 `transactionId`, original `approvalSha256`, `programManifestSha256`, the exact
 local completed `stateSha256`, `controlEnabled:false`, integer `expiresAtUnix`,
-`startUnits`, and `voters` keyed by the full fixed voter set. Each voter receipt
+`startUnits`, and, in fixed-voter mode, `voters` keyed by the full fixed voter set. Each voter receipt
 contains `phase:"UPGRADED_STOPPED"`, `controlEnabled:false`, the same program
 manifest hash and its reviewed completed state hash (which binds its own config
 and source/target SHM hashes). The local voter hash must match `stateSha256`.
+Standalone instead requires `local` with the same phase/control/manifest/state
+fields plus matching `nodeId`, and forbids `voters`. Its local state hash must
+match `stateSha256`. Fixed-voter receipts must not contain `local`.
 
 ```sh
 python3 offline-runtime-upgrade.py observe \
@@ -136,7 +162,10 @@ python3 offline-runtime-upgrade.py observe \
 ```
 
 Only explicitly selected `compute-engine@`, `ems-cluster@`, `system-monitor@`
-instances may start. Rechecks cover all installed product hashes, config bytes,
+instances may start in fixed-voter mode.
+Standalone further excludes `ems-cluster@`: only Compute/Monitor instances may
+start, even if a disabled cluster unit exists in the stopped unit inventory.
+Rechecks cover all installed product hashes, config bytes,
 source/target bytes, absent live mappings/processes and unchanged unit policy.
 Previously masked units are refused, never unmasked. `is-active` must succeed.
 The entrypoint temporarily removes only selected observer/observer-template
@@ -152,6 +181,18 @@ failure state. Replay of an already-consumed state receipt is refused. `recover`
 can subsequently stop those observers and restore files while remaining fenced.
 Starting physical participants or enabling control remains a separate release
 decision and is intentionally not an option on this entrypoint.
+
+## Current qualification boundary
+
+Local tests cover actual fixed-voter R4/S2 full app/roster inputs, the real
+factory Qt relative path, and complete repository noncluster app examples.
+The latter are representative configs, NOT the live A/B apps. M1 retrieved only
+partial camera/monitor projections on A before refusing; B, real unit ExecStart
+and SHM headers are not qualified by that partial receipt. Its empty camera SHM
+reference does not establish whether an implicit reader is active. The operator
+must obtain complete actual config/runtime/unit/SHM scope before device approval.
+No device migration, normal acquisition restart, physical output, ARM systemd
+qualification or power-loss recovery has been authorized by these local tests.
 
 Evidence tests use actual entrypoint and native migration CLI in private
 mount/net/IPC namespaces, with a fake systemctl. They are not ARM/systemd device

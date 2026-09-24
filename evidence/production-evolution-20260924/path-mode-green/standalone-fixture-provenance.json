@@ -1,0 +1,10 @@
+{
+  "scope": "complete repository noncluster app examples; not full live A/B configuration",
+  "sources": {
+    "config/runtime/apps/agc-avc-service.json": "003c93a5801fc81d72b858d3678ed642b308a045ce963af565c2d6054a30f935",
+    "config/runtime/apps/camera-service.json": "15b398e313eaf35f015995385e248dc39112b7f4ac247af134c2bdcc05e0d0c0",
+    "config/runtime/apps/monitor-service.json": "198bfbba697c5f3e21ad49cecb0f346e08d13d44fcbb2850808263ab2d45ce89",
+    "config/runtime/apps/mqtt-service.json": "bd8efe9a980eb4b9a86edb1789f0465d53fe646834961540495577845ba51a08"
+  },
+  "rosterFabricated": false
+}

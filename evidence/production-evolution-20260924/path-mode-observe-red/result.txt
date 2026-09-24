@@ -1,0 +1,16 @@
+test_offline_observe_rejects_added_runtime_path (__main__.InstallIsolationTest.test_offline_observe_rejects_added_runtime_path) ... FAIL
+
+======================================================================
+FAIL: test_offline_observe_rejects_added_runtime_path (__main__.InstallIsolationTest.test_offline_observe_rejects_added_runtime_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 474, in test_offline_observe_rejects_added_runtime_path
+    self.assertNotEqual(0, result.returncode, result.stdout)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 == 0 : OBSERVING_CONTROL_DISABLED: selected observers active; drivers/launcher remain fenced; no physical approval
+
+
+----------------------------------------------------------------------
+Ran 1 test in 1.043s
+
+FAILED (failures=1)

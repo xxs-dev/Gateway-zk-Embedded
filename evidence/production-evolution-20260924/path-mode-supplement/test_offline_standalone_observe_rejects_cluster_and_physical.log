@@ -1,0 +1,22 @@
+action=apply exit=0
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+
+action=observe exit=2
+offline upgrade refused/failed: only explicitly approved compute/cluster/monitor observers may start; physical participants remain inhibited
+Keep all participants stopped; no automatic ABI rollback.
+
+action=observe exit=2
+offline upgrade refused/failed: only explicitly approved compute/cluster/monitor observers may start; physical participants remain inhibited
+Keep all participants stopped; no automatic ABI rollback.
+
+action=observe exit=2
+offline upgrade refused/failed: observe mode must match original approval
+Keep all participants stopped; no automatic ABI rollback.
+
+action=observe exit=2
+offline upgrade refused/failed: local ready receipt mismatch
+Keep all participants stopped; no automatic ABI rollback.
+
+action=recover exit=0
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+

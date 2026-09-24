@@ -1,0 +1,40 @@
+action=apply exit=2
+offline upgrade refused/failed: unsupported program relative path
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported program relative path
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported program relative path
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported program relative path
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported program relative path
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: unsupported program relative path
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: installed runtime inventory changed
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: installed runtime inventory changed
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: installed runtime absent from approved paths
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: symlink in runtime tree refused: /opt/modbus-gateway/ky-ems/resources/link
+Keep all participants stopped; no automatic ABI rollback.
+

@@ -1,0 +1,4 @@
+action=apply exit=2
+offline upgrade refused/failed: duplicate program destination
+Keep all participants stopped; no automatic ABI rollback.
+
