@@ -40,6 +40,7 @@ class InstallIsolationTest(unittest.TestCase):
         mock = self.root / "mock"
         write(mock / "systemctl", """#!/bin/sh
 printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
+[ "$1" != "${FAIL_SYSTEMCTL_ACTION:-none}" ] || exit 42
 case "$1" in
   list-unit-files) echo 'ky-ems.service enabled' ;;
   show) echo 4242 ;;
@@ -104,6 +105,21 @@ exec /bin/cp "$@"
         self.assertEqual(0, result.returncode, result.stdout)
         self.assertTrue((self.root / "gateway/bin/SystemMonitor").is_file())
         self.assert_isolated()
+
+    def test_ota_rollback_service_failure_is_not_success(self):
+        job = "rollback-failure"
+        backup = self.root / "backup"
+        staging = self.root / "staging"
+        write(backup / job / "previous_version.txt", "old-version\n")
+        write(staging / "applied_version.txt", "candidate-version\n")
+        write(staging / job / "restart_services.txt", "compute-engine@test.service\n")
+        result = self.run_script("ota-rollback.sh",
+                                 [self.root / "artifact.tar.gz", "candidate", job, backup, staging],
+                                 {"FAIL_SYSTEMCTL_ACTION": "restart"})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertNotIn("success jobId=", result.stdout)
+        self.assertEqual("candidate-version\n", (staging / "applied_version.txt").read_text())
+        self.assertTrue(Path("/run/gateway-health-watchdog/manual-stop").is_file())
 
     def test_factory_isolated_preflight_failure(self):
         env = self.factory()
@@ -341,21 +357,24 @@ exec /bin/cp "$@"
         self.assert_isolated()
 
 
-PROTECTED = ("/etc/default", "/etc/systemd", "/run", "/tmp", "/dev/shm")
+PROTECTED = ("/etc/default", "/etc/systemd", "/run", "/tmp", "/dev/shm", "/opt")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--parent-mount-ns")
+    parser.add_argument("--test", action="append", help="run only named regression methods")
     options = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("requires root for private mounts; never run installers outside the namespace")
     EVIDENCE = options.evidence.resolve()
     REPO = Path(__file__).resolve().parent.parent
     if not options.parent_mount_ns:
-        sys.exit(subprocess.call(["unshare", "--mount", "--ipc", "--fork", sys.executable, str(Path(__file__).resolve()),
-                                  "--evidence", str(EVIDENCE), "--parent-mount-ns", os.readlink("/proc/self/ns/mnt")]))
+        selection = [item for name in options.test or [] for item in ("--test", name)]
+        sys.exit(subprocess.call(["unshare", "--mount", "--net", "--ipc", "--fork", sys.executable, str(Path(__file__).resolve()),
+                                  "--evidence", str(EVIDENCE), "--parent-mount-ns", os.readlink("/proc/self/ns/mnt"),
+                                  *selection]))
     if options.parent_mount_ns == os.readlink("/proc/self/ns/mnt"):
         parser.error("private mount namespace was not created")
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
@@ -363,7 +382,8 @@ if __name__ == "__main__":
         subprocess.run(["mount", "-t", "tmpfs", "-o", "mode=755", "tmpfs", directory], check=True)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     with (EVIDENCE / "result.txt").open("w") as output:
-        result = unittest.TextTestRunner(stream=output, verbosity=2).run(
-            unittest.defaultTestLoader.loadTestsFromTestCase(InstallIsolationTest))
+        suite = (unittest.TestSuite(InstallIsolationTest(name) for name in options.test) if options.test else
+                 unittest.defaultTestLoader.loadTestsFromTestCase(InstallIsolationTest))
+        result = unittest.TextTestRunner(stream=output, verbosity=2).run(suite)
     print((EVIDENCE / "result.txt").read_text())
     sys.exit(0 if result.wasSuccessful() else 1)

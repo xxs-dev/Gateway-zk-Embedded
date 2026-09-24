@@ -1,0 +1,19 @@
+test_ota_rollback_service_failure_is_not_success (__main__.InstallIsolationTest.test_ota_rollback_service_failure_is_not_success) ... FAIL
+
+======================================================================
+FAIL: test_ota_rollback_service_failure_is_not_success (__main__.InstallIsolationTest.test_ota_rollback_service_failure_is_not_success)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 119, in test_ota_rollback_service_failure_is_not_success
+    self.assertNotEqual(0, result.returncode, result.stdout)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 == 0 : [2026-09-24 20:34:16] [ota-rollback] start jobId=rollback-failure version=candidate artifact=/var/tmp/gateway-install-test-uvxawh53/artifact.tar.gz
+[2026-09-24 20:34:16] [ota-rollback] restarting compute-engine@test.service
+[2026-09-24 20:34:16] [ota-rollback] restart failed compute-engine@test.service
+[2026-09-24 20:34:16] [ota-rollback] success jobId=rollback-failure
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.026s
+
+FAILED (failures=1)

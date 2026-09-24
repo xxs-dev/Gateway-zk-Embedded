@@ -1,0 +1,6 @@
+script=ota-rollback.sh args=[PosixPath('/var/tmp/gateway-install-test-uvxawh53/artifact.tar.gz'), 'candidate', 'rollback-failure', PosixPath('/var/tmp/gateway-install-test-uvxawh53/backup'), PosixPath('/var/tmp/gateway-install-test-uvxawh53/staging')] exit=0
+[2026-09-24 20:34:16] [ota-rollback] start jobId=rollback-failure version=candidate artifact=/var/tmp/gateway-install-test-uvxawh53/artifact.tar.gz
+[2026-09-24 20:34:16] [ota-rollback] restarting compute-engine@test.service
+[2026-09-24 20:34:16] [ota-rollback] restart failed compute-engine@test.service
+[2026-09-24 20:34:16] [ota-rollback] success jobId=rollback-failure
+
