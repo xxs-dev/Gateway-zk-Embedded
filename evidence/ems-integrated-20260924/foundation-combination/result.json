@@ -1,0 +1,104 @@
+{
+  "sourceCommit": "788b13e4e77bbf020861d9a1816f148bb7eee4a7",
+  "targets": [
+    "ems_cluster_test",
+    "graph_ems_cluster_dispatch_test",
+    "memory_point_store_shm11_test",
+    "memory_point_store_v11_migration_test",
+    "memory_point_store_migration_test",
+    "memory_point_store_lifecycle_test",
+    "memory_point_store_reader_cache_test",
+    "config_loader_test",
+    "priority_control_lease_test",
+    "point_store_router_normalize_test"
+  ],
+  "nativeOnly": true,
+  "deviceAccess": false,
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924",
+        "-B",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 5.63
+    },
+    "build": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--target",
+        "ems_cluster_test",
+        "graph_ems_cluster_dispatch_test",
+        "memory_point_store_shm11_test",
+        "memory_point_store_v11_migration_test",
+        "memory_point_store_migration_test",
+        "memory_point_store_lifecycle_test",
+        "memory_point_store_reader_cache_test",
+        "config_loader_test",
+        "priority_control_lease_test",
+        "point_store_router_normalize_test",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 49.782
+    },
+    "ctest": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924/evidence/ems-integrated-20260924/isolated.sh",
+        "ctest",
+        "--test-dir",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "60",
+        "-j1",
+        "-R",
+        "^(ems_cluster|graph_ems_cluster_dispatch|memory_point_store_shm11|memory_point_store_v11_migration|memory_point_store_migration|memory_point_store_lifecycle|memory_point_store_reader_cache|config_loader|priority_control_lease|point_store_router_normalize)$"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 9.891
+    }
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runnerSha256": "1063ed1c945207535944e5190e8eaab7f6f061782a1275a4b0583fe893c7b91c",
+  "isolationSha256": "61002b72d2b02b51be33efd26fb8223ac03a8a10d29596dd7061b5686b22b4a3",
+  "binaries": {
+    "ems_cluster_test": "225472fcb27bdf4731c865ba8943410e5a6768d92e3bbd94d11e97f69589f374",
+    "graph_ems_cluster_dispatch_test": "7d3c111812280af74c29e92067a2430cf6a5c79d9c79d6c9b46cabfdc6d3ddb8",
+    "memory_point_store_shm11_test": "e983b24de6b576d3b4076a269a21f92a27d5f9034811dee462020f713dee6c61",
+    "memory_point_store_v11_migration_test": "67a8a2b2f15499a86744c3749ea8ecb49c043bf0b3b3286b139d5c60c3a0522a",
+    "memory_point_store_migration_test": "ef0582a0d7c8a573365527afed7f7cc0f5148715e5df5659a9fee82258170fc3",
+    "memory_point_store_lifecycle_test": "d23fb221b7d945d4071ad42977fbbbb59dd12f100722c98a4a857999c138cc43",
+    "memory_point_store_reader_cache_test": "e14ece601c9303bd406453ac0781fa9ee9d8220ec1044cfad269cd74c5c31652",
+    "config_loader_test": "88af0d9930af9d63ae6b21dafa55c9cea7552a6f9a5314e384c0efcc14fea6ce",
+    "priority_control_lease_test": "6240e810adbbe296c7c3c8a53ac8782d0e0858e69b93cef96c948e95f411296c",
+    "point_store_router_normalize_test": "78b4d5fe4b5fcc567166cc8c7f7a6fa1b81c4cd518a8b1b30d6833fb59dc927f"
+  },
+  "sourceUnchanged": true,
+  "status": "PASS_NATIVE_INTEGRATION_ONLY",
+  "logs": {
+    "build.log": "ff9ecda0959e6d2e1b6ea05548ae54dc65ebbb7485af01d0c72f235e8c885026",
+    "configure.log": "61895e1fc5fb55b6f7c372ae3141aa67e2d5295a69fb3437bc53b80a51ab4191",
+    "ctest.log": "766644d76e2f7b2e10eff8b0aeb22b4c3074508e91ff2abc948ca409e1a5637b"
+  }
+}

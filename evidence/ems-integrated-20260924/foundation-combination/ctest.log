@@ -1,0 +1,25 @@
+Test project /var/tmp/ems-production-candidate-20260924-build
+      Start 18: memory_point_store_migration
+ 1/10 Test #18: memory_point_store_migration .......   Passed    1.64 sec
+      Start 19: memory_point_store_shm11
+ 2/10 Test #19: memory_point_store_shm11 ...........   Passed    0.03 sec
+      Start 20: memory_point_store_v11_migration
+ 3/10 Test #20: memory_point_store_v11_migration ...   Passed    0.13 sec
+      Start 35: ems_cluster
+ 4/10 Test #35: ems_cluster ........................   Passed    7.30 sec
+      Start 48: config_loader
+ 5/10 Test #48: config_loader ......................   Passed    0.08 sec
+      Start 55: memory_point_store_lifecycle
+ 6/10 Test #55: memory_point_store_lifecycle .......   Passed    0.34 sec
+      Start 56: memory_point_store_reader_cache
+ 7/10 Test #56: memory_point_store_reader_cache ....   Passed    0.20 sec
+      Start 74: point_store_router_normalize
+ 8/10 Test #74: point_store_router_normalize .......   Passed    0.02 sec
+      Start 75: priority_control_lease
+ 9/10 Test #75: priority_control_lease .............   Passed    0.00 sec
+      Start 88: graph_ems_cluster_dispatch
+10/10 Test #88: graph_ems_cluster_dispatch .........   Passed    0.11 sec
+
+100% tests passed, 0 tests failed out of 10
+
+Total Test time (real) =   9.85 sec

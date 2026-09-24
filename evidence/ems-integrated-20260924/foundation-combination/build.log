@@ -1,0 +1,123 @@
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_controller.cpp.o
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_command_mailbox.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_service.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/am5se_iec103_client.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/alarm_service.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.o
+[  8%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_signal_codec.cpp.o
+[  8%] Building CXX object CMakeFiles/edge_gateway.dir/src/collector.cpp.o
+[  8%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/collector_base.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o
+[ 17%] Building CXX object CMakeFiles/edge_gateway.dir/src/control_dedup_store.cpp.o
+[ 17%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.o
+[ 17%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_collector.cpp.o
+[ 17%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o
+[ 21%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_command_executor.cpp.o
+[ 21%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_collector.cpp.o
+[ 21%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_codec.cpp.o
+[ 26%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_standard_points_loader.cpp.o
+[ 26%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o
+[ 26%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_commit_status.cpp.o
+[ 30%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_store_stats.cpp.o
+[ 30%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster.cpp.o
+[ 30%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_dispatch.cpp.o
+[ 30%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_network.cpp.o
+[ 34%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_points.cpp.o
+[ 34%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_transport.cpp.o
+[ 34%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/gateway_daemon.cpp.o
+[ 39%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/gateway_daemon_modbus.cpp.o
+[ 39%] Building CXX object CMakeFiles/edge_gateway.dir/src/flexible_phase_balance.cpp.o
+[ 39%] Building CXX object CMakeFiles/edge_gateway.dir/src/graph_ems_engine.cpp.o
+[ 43%] Building CXX object CMakeFiles/edge_gateway.dir/src/grid_friendly_dispatch.cpp.o
+[ 43%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_client.cpp.o
+[ 43%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_codec.cpp.o
+[ 43%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec103_recording_command.cpp.o
+[ 47%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec103_recording_transfer_service.cpp.o
+[ 47%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_command_executor.cpp.o
+[ 47%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_collector.cpp.o
+[ 52%] Building CXX object CMakeFiles/edge_gateway.dir/src/legacy_telemetry_payload.cpp.o
+[ 52%] Building CXX object CMakeFiles/edge_gateway.dir/src/legacy_ems_engine.cpp.o
+[ 52%] Building CXX object CMakeFiles/edge_gateway.dir/src/legacy_ems_point_catalog.cpp.o
+[ 56%] Building CXX object CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o
+[ 56%] Building CXX object CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o
+[ 56%] Building CXX object CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o
+[ 56%] Building CXX object CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o
+[ 60%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_event_outbox.cpp.o
+[ 60%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_event_stats.cpp.o
+[ 60%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_control_result_store.cpp.o
+[ 65%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o
+[ 65%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_forwarder_service.cpp.o
+[ 65%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_realtime_ring_buffer.cpp.o
+[ 69%] Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_northbound_server.cpp.o
+[ 69%] Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o
+[ 69%] Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o
+[ 69%] Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_codec.cpp.o
+[ 73%] Building CXX object CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o
+[ 73%] Building CXX object CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o
+[ 73%] Building CXX object CMakeFiles/edge_gateway.dir/src/process_file_lock.cpp.o
+[ 78%] Building CXX object CMakeFiles/edge_gateway.dir/src/power_control_ownership.cpp.o
+[ 78%] Building CXX object CMakeFiles/edge_gateway.dir/src/priority_control_lease.cpp.o
+[ 78%] Building CXX object CMakeFiles/edge_gateway.dir/src/read_task_planner.cpp.o
+[ 82%] Building CXX object CMakeFiles/edge_gateway.dir/src/scada_project_loader.cpp.o
+[ 82%] Building CXX object CMakeFiles/edge_gateway.dir/src/scada_runtime_map.cpp.o
+[ 82%] Building CXX object CMakeFiles/edge_gateway.dir/src/scada_control_lease.cpp.o
+[ 82%] Building CXX object CMakeFiles/edge_gateway.dir/src/scada_upper_computer_safety.cpp.o
+[ 86%] Building CXX object CMakeFiles/edge_gateway.dir/src/sqlite_sample_writer.cpp.o
+[ 86%] Building CXX object CMakeFiles/edge_gateway.dir/src/sqlite_alarm_writer.cpp.o
+[ 86%] Building CXX object CMakeFiles/edge_gateway.dir/src/storage_budget.cpp.o
+[ 91%] Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_runtime_discovery.cpp.o
+[ 91%] Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_points.cpp.o
+[ 91%] Building CXX object CMakeFiles/edge_gateway.dir/src/sysfs_gpio_port.cpp.o
+[ 91%] Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o
+[ 95%] Building CXX object CMakeFiles/edge_gateway.dir/src/timing_policy.cpp.o
+[ 95%] Building CXX object CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o
+[ 95%] Linking CXX static library libedge_gateway.a
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_cluster_test.dir/tools/ems_cluster_test.cpp.o
+[100%] Linking CXX executable ems_cluster_test
+[100%] Built target ems_cluster_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/graph_ems_cluster_dispatch_test.dir/tools/graph_ems_cluster_dispatch_test.cpp.o
+[100%] Linking CXX executable graph_ems_cluster_dispatch_test
+[100%] Built target graph_ems_cluster_dispatch_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/memory_point_store_shm11_test.dir/tools/memory_point_store_shm11_test.cpp.o
+[100%] Linking CXX executable memory_point_store_shm11_test
+[100%] Built target memory_point_store_shm11_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/memory_point_store_v11_migration_test.dir/tools/memory_point_store_v11_migration_test.cpp.o
+[ 95%] Building CXX object CMakeFiles/memory_point_store_v11_migration_test.dir/src/memory_point_store_migration.cpp.o
+[100%] Linking CXX executable memory_point_store_v11_migration_test
+[100%] Built target memory_point_store_v11_migration_test
+[  0%] Building CXX object CMakeFiles/memory_point_store_migrate.dir/tools/memory_point_store_migrate.cpp.o
+[ 91%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/memory_point_store_migrate.dir/src/memory_point_store_migration.cpp.o
+[ 95%] Linking CXX executable memory_point_store_migrate
+[ 95%] Built target memory_point_store_migrate
+[ 95%] Building CXX object CMakeFiles/memory_point_store_migration_test.dir/tools/memory_point_store_migration_test.cpp.o
+[100%] Building CXX object CMakeFiles/memory_point_store_migration_test.dir/src/memory_point_store_migration.cpp.o
+[100%] Building CXX object CMakeFiles/memory_point_store_migration_test.dir/src/memory_point_store.cpp.o
+[100%] Linking CXX executable memory_point_store_migration_test
+[100%] Built target memory_point_store_migration_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/memory_point_store_lifecycle_test.dir/tools/memory_point_store_lifecycle_test.cpp.o
+[100%] Linking CXX executable memory_point_store_lifecycle_test
+[100%] Built target memory_point_store_lifecycle_test
+[100%] Building CXX object CMakeFiles/memory_point_store_reader_cache_test.dir/tools/memory_point_store_reader_cache_test.cpp.o
+[100%] Building CXX object CMakeFiles/memory_point_store_reader_cache_test.dir/src/memory_point_store.cpp.o
+[100%] Linking CXX executable memory_point_store_reader_cache_test
+[100%] Built target memory_point_store_reader_cache_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/config_loader_test.dir/tools/config_loader_test.cpp.o
+[100%] Linking CXX executable config_loader_test
+[100%] Built target config_loader_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/priority_control_lease_test.dir/tools/priority_control_lease_test.cpp.o
+[100%] Linking CXX executable priority_control_lease_test
+[100%] Built target priority_control_lease_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/point_store_router_normalize_test.dir/tools/point_store_router_normalize_test.cpp.o
+[100%] Linking CXX executable point_store_router_normalize_test
+[100%] Built target point_store_router_normalize_test
