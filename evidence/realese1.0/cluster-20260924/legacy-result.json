@@ -1,0 +1,46 @@
+{
+  "savedAtUtc": "2026-09-24T07:34:26.507031+00:00",
+  "mode": "legacy",
+  "source": "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924",
+  "runs": [
+    {
+      "label": "legacy-ems_cluster_test",
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/gateway-zk-review-build/ems_cluster_test",
+        "/tmp/cluster-suite-61eh_puw"
+      ],
+      "exitCode": 0,
+      "seconds": 4.126,
+      "binarySha256": "4653a8d05c3e4d9d9f904b650e2d855950adc612dce9e51a9634d9748809b083"
+    },
+    {
+      "label": "legacy-graph_ems_cluster_dispatch_test",
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/gateway-zk-review-build/graph_ems_cluster_dispatch_test",
+        "/tmp/cluster-suite-sksp02_1"
+      ],
+      "exitCode": 0,
+      "seconds": 0.117,
+      "binarySha256": "86ec358e8fb2bc84ad6756a60d00f869f5a19085c863bc80297cec873acc14a0"
+    }
+  ],
+  "provenance": "2026-09-06 build; NOT proof of fixed 7e392cec source"
+}
