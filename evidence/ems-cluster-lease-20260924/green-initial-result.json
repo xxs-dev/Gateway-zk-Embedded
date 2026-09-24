@@ -1,0 +1,109 @@
+{
+  "label": "green-initial",
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924",
+        "-B",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "seconds": 3.975
+    },
+    "library": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924",
+        "--target",
+        "edge_gateway",
+        "--parallel",
+        "4"
+      ],
+      "exitCode": 0,
+      "seconds": 19.212
+    },
+    "compile-ems_cluster_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/tools/ems_cluster_test.cpp",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/ems_cluster_test-green-initial"
+      ],
+      "exitCode": 0,
+      "seconds": 1.369
+    },
+    "ems_cluster_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/ems_cluster_test-green-initial",
+        "/tmp/cluster-fix-kcrmq7nn"
+      ],
+      "exitCode": 0,
+      "seconds": 4.126,
+      "binarySha256": "64fbeda20f52c294a4d790d7dbc02755105ed055003c6c3c8f0c645633367b73"
+    },
+    "compile-graph_ems_cluster_dispatch_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/tools/graph_ems_cluster_dispatch_test.cpp",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/graph_ems_cluster_dispatch_test-green-initial"
+      ],
+      "exitCode": 0,
+      "seconds": 1.419
+    },
+    "graph_ems_cluster_dispatch_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-cluster-lease-worker-20260924/graph_ems_cluster_dispatch_test-green-initial",
+        "/tmp/cluster-fix-2hp5qqmx"
+      ],
+      "exitCode": 0,
+      "seconds": 0.116,
+      "binarySha256": "cee24e65b3cb6b0def8a83286382fa64205b1f73d6741ad10e4d2e2412251b7a"
+    }
+  },
+  "sourceSha256": {
+    "src/ems_cluster.cpp": "ca4a811bf3a398569b080606e8dad6557d2cf932ebbd88a534e1bb4f46715186",
+    "src/ems_cluster_dispatch.cpp": "649945bd75b1ea8457613f0143328c73c81d538dcb8a488504d12f8ce82bd3c9",
+    "include/edge_gateway/ems_cluster.hpp": "97039d198f3725ae4af00ca9f9b61a516d4979a86cf8eb93c266aa43398a2b03",
+    "tools/ems_cluster_test.cpp": "cfb96dfdf5dd5f5dd0f00d8178da7d538b9c54666ea63d5073c7083fed069d6c"
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "librarySha256": "b94474a6f766a3084eec588f0d6dfd93ce8d85bae979791aa8b8e1c72789ff7b"
+}

@@ -61,6 +61,10 @@ struct SimNode {
     bool stationTargetValid = false;
     bool refreshControlInputs = true;
     bool active = true;
+    std::int64_t lastHeartbeatAckMs = 0;
+    edge_gateway::EmsClusterMessage lastHeartbeatAck;
+    std::map<std::string, edge_gateway::EmsClusterMessage> heartbeatAcks;
+    std::uint64_t lastSentDispatchSequence = 0;
 };
 
 class Simulation {
@@ -140,6 +144,10 @@ public:
         for (const auto lhs : first) for (const auto rhs : second) links_[lhs][rhs] = links_[rhs][lhs] = false;
     }
 
+    void rejoin() {
+        for (auto& row : links_) std::fill(row.begin(), row.end(), true);
+    }
+
     int leaderCount() const {
         return static_cast<int>(std::count_if(nodes_.begin(), nodes_.end(), [](const auto& item) {
             return item.active && item.node->role() == edge_gateway::EmsClusterRole::Leader;
@@ -170,6 +178,9 @@ private:
         for (std::size_t i = 0; i < nodes_.size(); ++i) {
             if (!nodes_[i].active) continue;
             for (auto& outbound : nodes_[i].node->drainOutgoing()) {
+                if (outbound.message.type == edge_gateway::EmsClusterMessageType::DispatchTarget) {
+                    nodes_[i].lastSentDispatchSequence = outbound.message.dispatchSequence;
+                }
                 messages.push_back({static_cast<int>(i), std::move(outbound)});
             }
         }
@@ -183,6 +194,11 @@ private:
                 inbound.message = envelope.outbound.message;
                 inbound.sourceAddress = "169.254.1." + std::to_string(envelope.source + 1);
                 nodes_[target].node->receive(inbound, nowMs_);
+                if (inbound.message.type == edge_gateway::EmsClusterMessageType::HeartbeatAck) {
+                    nodes_[target].lastHeartbeatAckMs = nowMs_;
+                    nodes_[target].lastHeartbeatAck = inbound.message;
+                    nodes_[target].heartbeatAcks[inbound.message.senderNodeId] = inbound.message;
+                }
             }
         }
     }
@@ -296,6 +312,162 @@ void testPartitionNeverOverlapsControlLeaders() {
         }
         require(activeLeaders <= 1,
                 "partition must not overlap effective control leaders at " + std::to_string(elapsed) + "ms");
+    }
+}
+
+void testLeaseExpiresAtLastAckBoundary() {
+    Simulation simulation("ack-boundary", 3, {}, 3, true);
+    for (int i = 0; i < 3; ++i) {
+        simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    auto& leader = simulation.at(0);
+    require(simulation.leaderIndex() == 0 && leader.lastHeartbeatAckMs == simulation.now(),
+            "boundary fixture must observe a freshly delivered heartbeat ACK");
+    const auto expiry = leader.lastHeartbeatAckMs + leader.config.leaderLeaseMs;
+    simulation.partition({0}, {1, 2});
+    simulation.run(375);
+    require(leader.node->status(expiry - 1).controlActive && leader.node->activeDispatch(expiry - 1).valid,
+            "leader must retain control immediately before lastACK+L");
+    const auto sequence = leader.node->activeDispatch(expiry - 1).sequence;
+    const auto sentSequence = leader.lastSentDispatchSequence;
+    for (const auto time : {expiry, expiry + 1}) {
+        const auto status = leader.node->status(time);
+        const auto dispatch = leader.node->activeDispatch(time);
+        require(!status.quorumValid && !status.controlActive && !status.dispatch.valid && !dispatch.valid,
+                "public authority must expire exactly at lastACK+L, even before tick");
+        require(dispatch.accepted.paKw == 0 && dispatch.accepted.pbKw == 0 && dispatch.accepted.pcKw == 0,
+                "expired authority must expose zero accepted power");
+    }
+    for (int elapsed = 400; elapsed <= 900; elapsed += 25) {
+        simulation.run(25);
+        require(leader.node->role() != edge_gateway::EmsClusterRole::Leader,
+                "old leader must step down at lastACK+L");
+        require(!leader.node->activeDispatch(simulation.now()).valid &&
+                leader.node->activeDispatch(simulation.now()).sequence == sequence &&
+                leader.lastSentDispatchSequence == sentSequence,
+                "expired leader must not advance local or outbound dispatch sequence");
+    }
+}
+
+void testControlPartitionAndRejoin(int count) {
+    Simulation simulation("control-rejoin-" + std::to_string(count), count, {}, count, true);
+    for (int i = 0; i < count; ++i) {
+        simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+        simulation.at(i).stationTargetValid = true;
+    }
+    simulation.run(5000);
+    require(simulation.leaderIndex() == 0, "partition fixture requires node zero as leader");
+    const auto oldTerm = simulation.at(0).node->status(simulation.now()).term;
+    std::vector<int> minority, majority;
+    for (int i = 0; i < count; ++i) (i < count / 2 ? minority : majority).push_back(i);
+    simulation.partition(minority, majority);
+    const auto checkAuthority = [&]() {
+        int activeLeaders = 0;
+        for (int i = 0; i < count; ++i) {
+            const auto status = simulation.at(i).node->status(simulation.now());
+            const auto dispatch = simulation.at(i).node->activeDispatch(simulation.now());
+            require(status.controlActive == dispatch.valid && status.dispatch.valid == dispatch.valid,
+                    "status and activeDispatch authority must agree");
+            require(!dispatch.valid || status.quorumValid, "dispatch requires a live lease");
+            if (status.role == edge_gateway::EmsClusterRole::Leader && status.quorumValid) ++activeLeaders;
+        }
+        require(activeLeaders <= 1, "partition/rejoin must never overlap quorum leaders");
+    };
+    for (int elapsed = 25; elapsed <= 2500; elapsed += 25) {
+        simulation.run(25);
+        checkAuthority();
+        if (elapsed >= 400) {
+            require(!simulation.at(0).node->status(simulation.now()).quorumValid &&
+                    !simulation.at(0).node->activeDispatch(simulation.now()).valid,
+                    "a minority's continuing ACKs cannot extend the majority lease");
+            if (count == 2) {
+                for (int i = 0; i < count; ++i) {
+                    require(!simulation.at(i).node->status(simulation.now()).controlActive &&
+                            !simulation.at(i).node->activeDispatch(simulation.now()).valid,
+                            "both nodes must stop control after a two-node split");
+                }
+            }
+        }
+    }
+    require(simulation.leaderCount() == (count == 2 ? 0 : 1), "only a majority can take over");
+    if (count > 2) {
+        const auto replacement = simulation.leaderIndex();
+        require(replacement >= count / 2 &&
+                simulation.at(replacement).node->status(simulation.now()).term > oldTerm &&
+                simulation.at(replacement).node->activeDispatch(simulation.now()).valid,
+                "majority replacement must acquire a new term and active dispatch");
+    }
+    simulation.rejoin();
+    for (int elapsed = 25; elapsed <= 3000; elapsed += 25) {
+        simulation.run(25);
+        checkAuthority();
+    }
+    require(simulation.leaderCount() == 1, "rejoined cluster must converge to one leader");
+    const auto status = simulation.at(simulation.leaderIndex()).node->status(simulation.now());
+    require(status.controlActive && status.term >= oldTerm, "rejoined leader must restore valid control");
+    for (int i = 0; i < count; ++i) {
+        require(simulation.at(i).node->status(simulation.now()).leaderNodeId == status.nodeId &&
+                simulation.at(i).node->activeDispatch(simulation.now()).term == status.term,
+                "rejoined nodes must follow the current term, not reactivate old targets");
+    }
+}
+
+void testHeartbeatAckContextDoesNotRenewLease() {
+    for (const auto kind : {"term", "leader", "epoch", "duplicate", "expired"}) {
+        Simulation simulation(std::string("ack-context-") + kind, 3, {}, 3, true);
+        for (int i = 0; i < 3; ++i) {
+            simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+            simulation.at(i).stationTargetValid = true;
+        }
+        simulation.run(5000);
+        auto& leader = simulation.at(0);
+        require(simulation.leaderIndex() == 0 && leader.lastHeartbeatAckMs == simulation.now(),
+                "ACK context test needs an observed heartbeat ACK");
+        auto ack = leader.lastHeartbeatAck;
+        const auto expiry = leader.lastHeartbeatAckMs + leader.config.leaderLeaseMs;
+        simulation.partition({0}, {1, 2});
+        simulation.run(375);
+        const std::string scenario(kind);
+        if (scenario != "duplicate") ack.sequence += 10000;
+        if (scenario == "term") --ack.term;
+        if (scenario == "leader") ack.leaderNodeId = "OTHER_LEADER";
+        if (scenario == "epoch") ++ack.membershipEpoch;
+        leader.node->receive({ack, "169.254.1.3"}, scenario == "expired" ? expiry : simulation.now());
+        require(!leader.node->status(expiry).quorumValid && !leader.node->activeDispatch(expiry).valid,
+                scenario + " ACK must not renew authority past its original lease");
+    }
+}
+
+void testFiveNodeLeaseRequiresTwoPeerAcks() {
+    for (const auto peerCount : {1, 2}) {
+        Simulation simulation("five-ack-order-" + std::to_string(peerCount), 5, {}, 5, true);
+        for (int i = 0; i < 5; ++i) {
+            simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+            simulation.at(i).stationTargetValid = true;
+        }
+        simulation.run(5000);
+        auto& leader = simulation.at(0);
+        require(simulation.leaderIndex() == 0 && leader.heartbeatAcks.size() == 4 &&
+                leader.lastHeartbeatAckMs == simulation.now(), "five-node ACK fixture must be settled");
+        const auto initialAck = simulation.now();
+        simulation.partition({0}, {1, 2, 3, 4});
+        for (int peer = 1; peer <= peerCount; ++peer) {
+            simulation.run(100);
+            auto ack = leader.heartbeatAcks.at(simulation.at(peer).id);
+            ack.sequence += 10000;
+            leader.node->receive({ack, "169.254.1." + std::to_string(peer + 1)}, simulation.now());
+        }
+        // Self + two peers form quorum: one fresh peer alone cannot move the anchor;
+        // two staggered ACKs move it to the earlier receipt, not the most recent one.
+        const auto expiry = initialAck + leader.config.leaderLeaseMs + (peerCount == 2 ? 100 : 0);
+        leader.node->updateControlInputs(leader.capability, leader.stationTarget, true, expiry - 1);
+        leader.node->tick(expiry - 1, leader.load);
+        require(leader.node->status(expiry - 1).controlActive,
+                "five-node authority must last until the quorum ACK boundary");
+        require(!leader.node->status(expiry).quorumValid && !leader.node->activeDispatch(expiry).valid,
+                "five-node lease must use the second-newest peer ACK, never the newest alone");
     }
 }
 
@@ -960,6 +1132,12 @@ void testEthernetTransportLoopback() {
 int main() {
     try {
         testProtocolAuthentication();
+        testLeaseExpiresAtLastAckBoundary();
+        testControlPartitionAndRejoin(2);
+        testControlPartitionAndRejoin(3);
+        testControlPartitionAndRejoin(5);
+        testHeartbeatAckContextDoesNotRenewLease();
+        testFiveNodeLeaseRequiresTwoPeerAcks();
         testPartitionNeverOverlapsControlLeaders();
         testThreeNodeElectionAndMembership();
         testLeaderPartitionFencesMinority();

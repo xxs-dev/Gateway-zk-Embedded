@@ -265,7 +265,11 @@ void EmsClusterNode::invalidateDispatch(EmsClusterDispatchCode code) {
 
 EmsClusterDispatchState EmsClusterNode::activeDispatch(std::int64_t nowMs) const {
     auto result = localDispatch_;
-    if (result.valid && result.expireAtMs > 0 && nowMs >= result.expireAtMs) {
+    if (result.valid && !leaderLeaseValid(nowMs)) {
+        result.valid = false;
+        result.code = EmsClusterDispatchCode::NoQuorum;
+        result.accepted = {};
+    } else if (result.valid && result.expireAtMs > 0 && nowMs >= result.expireAtMs) {
         result.valid = false;
         result.code = EmsClusterDispatchCode::Expired;
         result.accepted = {};
@@ -311,8 +315,7 @@ void EmsClusterNode::tickDispatch(std::int64_t nowMs) {
         invalidateDispatch(EmsClusterDispatchCode::NotLeader);
         return;
     }
-    const bool quorumValid = lastQuorumMs_ > 0 && nowMs - lastQuorumMs_ <= config_.leaderLeaseMs;
-    if (!quorumValid) {
+    if (!leaderLeaseValid(nowMs)) {
         invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
         return;
     }

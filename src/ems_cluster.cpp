@@ -1137,23 +1137,15 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
             becomeFollower(currentTerm_, {}, nowMs, "local ComputeEngine is unhealthy");
             return;
         }
-        if (lastHeartbeatMs_ == 0 || nowMs - lastHeartbeatMs_ >= config_.heartbeatMs) {
-            queue(EmsClusterMessageType::Heartbeat);
-            lastHeartbeatMs_ = nowMs;
-        }
-        int acknowledgements = 1;
-        for (const auto& entry : members_) {
-            if (isVotingMember(entry.first) && entry.second.status.compatible &&
-                nowMs - entry.second.lastAckMs <= config_.leaderLeaseMs) {
-                ++acknowledgements;
-            }
-        }
-        if (acknowledgements >= effectiveQuorum()) lastQuorumMs_ = nowMs;
-        if (lastQuorumMs_ > 0 && nowMs - lastQuorumMs_ > config_.leaderLeaseMs) {
+        if (!leaderLeaseValid(nowMs)) {
             queue(EmsClusterMessageType::StepDown);
             invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
             becomeFollower(currentTerm_, {}, nowMs, "leader lost majority lease");
             return;
+        }
+        if (lastHeartbeatMs_ == 0 || nowMs - lastHeartbeatMs_ >= config_.heartbeatMs) {
+            queue(EmsClusterMessageType::Heartbeat);
+            lastHeartbeatMs_ = nowMs;
         }
         maybeProposeMembership(nowMs);
         maybeCommitMembership(nowMs);
@@ -1261,7 +1253,24 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
             queue(EmsClusterMessageType::HeartbeatAck, message.senderNodeId);
             break;
         case EmsClusterMessageType::HeartbeatAck:
-            if (role_ == EmsClusterRole::Leader && message.term == currentTerm_) member.lastAckMs = nowMs;
+            if (role_ == EmsClusterRole::Leader && message.term == currentTerm_ &&
+                message.leaderNodeId == nodeId_ && message.membershipEpoch == membershipEpoch_ &&
+                isVotingMember(message.senderNodeId) && leaderLeaseValid(nowMs)) {
+                member.lastAckMs = nowMs;
+                std::vector<std::int64_t> acknowledgements;
+                for (const auto& entry : members_) {
+                    if (isVotingMember(entry.first) && entry.second.status.compatible &&
+                        entry.second.lastAckMs > 0) {
+                        acknowledgements.push_back(entry.second.lastAckMs);
+                    }
+                }
+                const auto requiredPeers = static_cast<std::size_t>(effectiveQuorum() - 1);
+                if (acknowledgements.size() >= requiredPeers) {
+                    std::sort(acknowledgements.rbegin(), acknowledgements.rend());
+                    // Self votes continuously; the oldest ACK in the newest quorum anchors its lease.
+                    lastQuorumMs_ = std::max(lastQuorumMs_, acknowledgements[requiredPeers - 1]);
+                }
+            }
             break;
         case EmsClusterMessageType::VoteRequest:
             handleVoteRequest(message, nowMs);
@@ -1358,6 +1367,7 @@ void EmsClusterNode::becomeLeader(std::int64_t nowMs) {
     role_ = EmsClusterRole::Leader;
     leaderNodeId_ = nodeId_;
     lastQuorumMs_ = nowMs;
+    for (auto& entry : members_) entry.second.lastAckMs = 0;
     lastHeartbeatMs_ = 0;
     dispatchSequence_ = 0;
     invalidateDispatch(EmsClusterDispatchCode::Expired);
@@ -1522,6 +1532,7 @@ void EmsClusterNode::maybeCommitMembership(std::int64_t) {
     if (pendingProposalId_ == 0 || static_cast<int>(membershipAcks_.size()) < requiredAcks) return;
     assignments_ = pendingAssignments_;
     membershipEpoch_ = pendingMembershipEpoch_;
+    for (auto& entry : members_) entry.second.lastAckMs = 0;
     persistMembership();
     auto commit = baseMessage(EmsClusterMessageType::MembershipCommit);
     commit.proposalId = pendingProposalId_;
@@ -1592,7 +1603,11 @@ bool EmsClusterNode::isVotingMember(const std::string& nodeId) const {
 }
 
 bool EmsClusterNode::leaderLeaseValid(std::int64_t nowMs) const {
-    return !leaderNodeId_.empty() && lastLeaderSeenMs_ > 0 && nowMs - lastLeaderSeenMs_ <= config_.leaderLeaseMs;
+    if (role_ == EmsClusterRole::Leader) {
+        return lastQuorumMs_ > 0 && nowMs - lastQuorumMs_ < config_.leaderLeaseMs;
+    }
+    return role_ == EmsClusterRole::Follower && !leaderNodeId_.empty() &&
+        lastLeaderSeenMs_ > 0 && nowMs - lastLeaderSeenMs_ < config_.leaderLeaseMs;
 }
 
 bool EmsClusterNode::sameAssignments(
@@ -1638,9 +1653,7 @@ EmsClusterStatus EmsClusterNode::status(std::int64_t nowMs) const {
     result.cabinetNo = cabinetNoFor(nodeId_);
     result.onlineMembers = onlineCompatibleCount(nowMs);
     result.quorum = effectiveQuorum();
-    result.quorumValid = role_ == EmsClusterRole::Leader
-        ? lastQuorumMs_ > 0 && nowMs - lastQuorumMs_ <= config_.leaderLeaseMs
-        : leaderLeaseValid(nowMs);
+    result.quorumValid = leaderLeaseValid(nowMs);
     result.metricsComplete = load_.computeMetricsAvailable;
     result.computeHealthy = load_.computeHealthy;
     result.loadScore = loadScore_;
