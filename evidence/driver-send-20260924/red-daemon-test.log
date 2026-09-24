@@ -1,0 +1,12 @@
+expired success=0 sentBytes=0
+revoked success=0 sentBytes=0
+epoch success=0 sentBytes=0
+missing success=0 sentBytes=0
+valid success=1 sentBytes=12
+ordinary success=1 sentBytes=12
+after-wait success=0 sentBytes=0
+partial success=0 sentBytes=4
+eintr success=0 sentBytes=0
+daemon success=1 sentBytes=12
+unexpected physical TCP bytes after authorization change
+exit=1
