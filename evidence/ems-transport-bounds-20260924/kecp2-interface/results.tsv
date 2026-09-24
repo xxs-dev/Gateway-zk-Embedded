@@ -1,0 +1,9 @@
+stage	exit
+configure	0
+native-build	0
+transport-test	0
+core-loopback-test	0
+cxx14-build	0
+cxx14-test	0
+asan-ubsan-build	0
+asan-ubsan-test	1

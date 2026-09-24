@@ -19,7 +19,8 @@ public:
 
 std::unique_ptr<IClusterTransport> makeEthernetClusterTransport(
     EmsClusterConfig config,
-    std::string nodeId
+    std::string nodeId,
+    std::uint64_t configurationHash = 0
 );
 
 }  // namespace edge_gateway
