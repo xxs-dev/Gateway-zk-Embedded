@@ -1,0 +1,171 @@
+{
+  "architecture": "x86_64",
+  "productRebuilds": 0,
+  "remoteConnections": 0,
+  "librarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "libraryOptimization": "existing Debug -g (no -O)",
+  "armQualification": false,
+  "steps": {
+    "compile": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/production-evolution-20260924/s2-cpu-benchmark.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore16getLatestByIndexEjl",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/s2-cpu-probe-qvj914lo/s2-cpu-probe"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "measure": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/s2-cpu-probe-qvj914lo/s2-cpu-probe"
+      ],
+      "exitCode": 0,
+      "logSha256": "b463fab93cfaa0cf2dabac0df96a55af6bdfe41481c9e07f75c4977731650b2b"
+    }
+  },
+  "sources": {
+    "ems_cluster_main.cpp": "a8ca045bc254bb307ad967a2f5510972f1631be4754d105bb2aa40a30ef105c1",
+    "src/memory_point_store.cpp": "8968b4c2bd3a460ed2a0016cbe5b270b482e9fa7c4c2b77d15a8c2912bcef2b7",
+    "src/ems_cluster_points.cpp": "320716fbd1748d47a0245c067df8e21d18a2b5f5e7e5d197b6177d2b53645e04",
+    "include/edge_gateway/ems_cluster_points.hpp": "8060c6b0577f866a66ad84580d74fdd09871904066cf269533080f33df644495",
+    "evidence/production-evolution-20260924/s2-cpu-benchmark.cpp": "58904e324f46e71fd4c75a8a6c3fe8211798e3a71be4d182916ec818bae95d73",
+    "evidence/production-evolution-20260924/run_s2_cpu_benchmark.py": "0cdb0f2b1ba4f586fa1f6d51a607f1b2343697cfb2d87ee12142f93291480e97"
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "binarySha256": "bc308c538f9136d0692e81129a497ac45ffa5dec82e85dfe0ebdc72bf9881ee1",
+  "callCounts": [
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "count_actual_capability",
+      "reads": 16,
+      "misses": 16
+    },
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "count_actual_target",
+      "reads": 1,
+      "misses": 1
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "count_actual_capability",
+      "reads": 16,
+      "misses": 6
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "count_actual_target",
+      "reads": 6,
+      "misses": 0
+    }
+  ],
+  "medians": [
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "actual_bridge_capability_plus_target",
+      "cpuUsPerCall": 1274.83736,
+      "wallUsPerCall": 1275.788015
+    },
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "single_16_capability",
+      "cpuUsPerCall": 1180.995295,
+      "wallUsPerCall": 1181.90909
+    },
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "batch_16_capability",
+      "cpuUsPerCall": 285.87576,
+      "wallUsPerCall": 285.917425
+    },
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "batch_22_primitives_only",
+      "cpuUsPerCall": 280.412715,
+      "wallUsPerCall": 280.418875
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "actual_bridge_capability_plus_target",
+      "cpuUsPerCall": 477.12484,
+      "wallUsPerCall": 479.07174
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "single_16_capability",
+      "cpuUsPerCall": 478.317025,
+      "wallUsPerCall": 479.7794
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "batch_16_capability",
+      "cpuUsPerCall": 286.73469,
+      "wallUsPerCall": 286.74199
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "batch_22_primitives_only",
+      "cpuUsPerCall": 299.580275,
+      "wallUsPerCall": 299.59013
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "single_6_present_targets",
+      "cpuUsPerCall": 14.048239,
+      "wallUsPerCall": 14.329292
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "batch_6_present_targets",
+      "cpuUsPerCall": 7.886088,
+      "wallUsPerCall": 7.886812
+    },
+    {
+      "scenario": "health_absent_3_regexes",
+      "operation": "original_construct_and_search",
+      "cpuUsPerCall": 98.22063,
+      "wallUsPerCall": 98.22463
+    },
+    {
+      "scenario": "health_absent_3_regexes",
+      "operation": "reused_same_patterns_search",
+      "cpuUsPerCall": 0.950732,
+      "wallUsPerCall": 0.951254
+    },
+    {
+      "scenario": "health_fresh_4_regexes",
+      "operation": "original_construct_and_search",
+      "cpuUsPerCall": 131.641758,
+      "wallUsPerCall": 131.643266
+    },
+    {
+      "scenario": "health_fresh_4_regexes",
+      "operation": "reused_same_patterns_search",
+      "cpuUsPerCall": 11.052704,
+      "wallUsPerCall": 11.054448
+    }
+  ],
+  "checksPassed": true
+}
