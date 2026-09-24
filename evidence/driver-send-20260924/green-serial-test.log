@@ -1,0 +1,21 @@
+expired success=0 sentBytes=0
+revoked success=0 sentBytes=0
+epoch success=0 sentBytes=0
+missing success=0 sentBytes=0
+valid success=1 sentBytes=12
+ordinary success=1 sentBytes=12
+after-wait success=0 sentBytes=0
+partial success=0 sentBytes=4
+eintr success=0 sentBytes=0
+writeback failed device=meter slave=1 index=1234 error=cluster authority expired, revoked or changed
+daemon success=0 sentBytes=0
+rtu-valid success=1 sentBytes=8
+rtu-expired success=0 sentBytes=0
+rtu-revoked success=0 sentBytes=0
+rtu-epoch success=0 sentBytes=0
+rtu-ordinary success=1 sentBytes=8
+rtu-after-wait success=0 sentBytes=0
+rtu-partial success=0 sentBytes=3
+rtu-eintr success=0 sentBytes=0
+cluster_driver_send_guard_test passed
+exit=0

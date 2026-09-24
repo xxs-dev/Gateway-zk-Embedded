@@ -85,12 +85,27 @@ bool PosixSerialPort::isOpen() const {
 }
 
 void PosixSerialPort::write(const std::vector<std::uint8_t>& bytes) {
+    write(bytes, BeforePhysicalWrite());
+}
+
+void PosixSerialPort::write(const std::vector<std::uint8_t>& bytes, const BeforePhysicalWrite& beforeWrite) {
     if (fd_ < 0) {
         throw std::runtime_error("serial port is not open");
     }
 
     std::size_t written = 0;
+    const auto check = [&] {
+        try {
+            if (beforeWrite) beforeWrite();
+        } catch (...) {
+            // Discard queued output; bytes already on the wire cannot be recalled.
+            (void)tcflush(fd_, TCOFLUSH);
+            close();
+            throw;
+        }
+    };
     while (written < bytes.size()) {
+        check();
         const auto rc = ::write(fd_, bytes.data() + written, bytes.size() - written);
         if (rc < 0) {
             if (errno == EINTR) {
@@ -106,6 +121,7 @@ void PosixSerialPort::write(const std::vector<std::uint8_t>& bytes) {
         }
         written += static_cast<std::size_t>(rc);
     }
+    check();
     if (tcdrain(fd_) != 0) {
         const auto error = errno;
         close();

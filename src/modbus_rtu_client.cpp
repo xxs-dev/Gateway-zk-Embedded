@@ -325,6 +325,10 @@ std::vector<std::uint16_t> ModbusRtuClient::readInputRegisters(int slave, int st
 }
 
 void ModbusRtuClient::writeSingleCoil(int slave, int address, bool value) {
+    writeSingleCoil(slave, address, value, BeforePhysicalWrite());
+}
+
+void ModbusRtuClient::writeSingleCoil(int slave, int address, bool value, const BeforePhysicalWrite& beforeWrite) {
     PriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
@@ -332,11 +336,15 @@ void ModbusRtuClient::writeSingleCoil(int slave, int address, bool value) {
     pdu.insert(pdu.end(), addr.begin(), addr.end());
     pdu.insert(pdu.end(), coilValue.begin(), coilValue.end());
 
-    const auto response = transact(slave, 0x05, pdu, 8);
+    const auto response = transact(slave, 0x05, pdu, 8, beforeWrite);
     validateWriteEcho(response, 0x05, address, value ? 0xFF00 : 0x0000);
 }
 
 void ModbusRtuClient::writeSingleRegister(int slave, int address, std::uint16_t value) {
+    writeSingleRegister(slave, address, value, BeforePhysicalWrite());
+}
+
+void ModbusRtuClient::writeSingleRegister(int slave, int address, std::uint16_t value, const BeforePhysicalWrite& beforeWrite) {
     PriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
@@ -344,7 +352,7 @@ void ModbusRtuClient::writeSingleRegister(int slave, int address, std::uint16_t 
     pdu.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
     pdu.push_back(static_cast<std::uint8_t>(value & 0xFF));
 
-    const auto response = transact(slave, 0x06, pdu, 8);
+    const auto response = transact(slave, 0x06, pdu, 8, beforeWrite);
     validateWriteEcho(response, 0x06, address, value);
 }
 
@@ -352,6 +360,13 @@ void ModbusRtuClient::writeMultipleRegisters(
     int slave,
     int address,
     const std::vector<std::uint16_t>& values
+) {
+    writeMultipleRegisters(slave, address, values, BeforePhysicalWrite());
+}
+
+void ModbusRtuClient::writeMultipleRegisters(
+    int slave, int address, const std::vector<std::uint16_t>& values,
+    const BeforePhysicalWrite& beforeWrite
 ) {
     PriorityWriteScope priority(*this);
     if (values.empty()) {
@@ -380,7 +395,7 @@ void ModbusRtuClient::writeMultipleRegisters(
         pdu.push_back(static_cast<std::uint8_t>(value & 0xFF));
     }
 
-    const auto response = transact(slave, 0x10, pdu, 8);
+    const auto response = transact(slave, 0x10, pdu, 8, beforeWrite);
     validateWriteEcho(response, 0x10, address, static_cast<int>(values.size()));
 }
 
@@ -388,7 +403,8 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
     int slave,
     std::uint8_t function,
     const std::vector<std::uint8_t>& pdu,
-    std::size_t minResponseSize
+    std::size_t minResponseSize,
+    const BeforePhysicalWrite& beforeWrite
 ) {
     ModbusTransactionScope transaction(*this);
     if (slave <= 0 || slave > 247) {
@@ -423,7 +439,7 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
             waitForFrameInterval(slave);
         }
         const auto writeStartedAt = std::chrono::steady_clock::now();
-        serialPort_->write(frame);
+        serialPort_->write(frame, beforeWrite);
         lastRequestWriteAtBySlave_[slave] = writeStartedAt;
         noteBusActivity();
         std::vector<std::uint8_t> buffer;

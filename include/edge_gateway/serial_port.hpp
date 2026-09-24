@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <stdexcept>
+#include "edge_gateway/cluster_write_authorization.hpp"
 
 namespace edge_gateway {
 
@@ -14,6 +16,10 @@ public:
     virtual void close() = 0;
     virtual bool isOpen() const = 0;
     virtual void write(const std::vector<std::uint8_t>& bytes) = 0;
+    virtual void write(const std::vector<std::uint8_t>& bytes, const BeforePhysicalWrite& beforeWrite) {
+        if (beforeWrite) throw std::runtime_error("guarded serial write is unsupported");
+        write(bytes);
+    }
     virtual std::vector<std::uint8_t> read(std::size_t maxBytes, int timeoutMs) = 0;
 };
 
