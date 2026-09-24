@@ -1,0 +1,4 @@
+[  0%] Building CXX object CMakeFiles/ems_cluster_transport_bounds_test.dir/src/ems_cluster_transport.cpp.o
+[  0%] Building CXX object CMakeFiles/ems_cluster_transport_bounds_test.dir/tools/ems_cluster_transport_bounds_test.cpp.o
+[  0%] Linking CXX executable ems_cluster_transport_bounds_test
+[100%] Built target ems_cluster_transport_bounds_test
