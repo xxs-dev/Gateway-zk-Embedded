@@ -64,6 +64,7 @@ case "$1" in
           *UnitFileState*) echo "${OFFLINE_UNIT_STATE:-disabled}" ;;
           *--property=LoadState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_LOAD_STATE:-loaded}" ;;
           *--property=ActiveState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_ACTIVE_STATE:-inactive}" ;;
+          *--property=FragmentPath*system-monitor@monitor-service.service*) echo /etc/systemd/system/system-monitor@.service ;;
           *--property=Environment\\ --value\\ system-monitor@monitor-service.service*)
             if [ -n "${MONITOR_ENV_SHOW_OVERRIDE:-}" ]; then
               echo "$MONITOR_ENV_SHOW_OVERRIDE"
@@ -370,6 +371,95 @@ exec /bin/cp "$@"
         dropin.chmod(0o644)
         approval['systemMonitorShmDropinSha256'] = hashlib.sha256(body).hexdigest()
         return home, approval, dropin, body
+
+    def b_implicit_default_fixture(self):
+        home, approval, dropin, original = self.monitor_binding_fixture()
+        default = Path('/dev/shm/gateway_point_store')
+        source = Path('/dev/shm/offline_source_1')
+        subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'create', source.name], check=True,
+                       stdout=subprocess.PIPE)
+        source.rename(default)
+        approval['segments'].append({'source': default.name, 'target': 'offline_target_1',
+                                    'sha256': hashlib.sha256(default.read_bytes()).hexdigest()})
+        apps = home / 'config/runtime/apps'
+        (apps / 'compute.json').unlink()
+        old_name = approval['segments'][0]['source']
+        for name in ('camera-service.json', 'monitor-service.json', 'mqtt-service.json'):
+            document = {'deviceConfigFiles': [],
+                        'mqttDriver': {'sharedMemoryName': old_name, 'sharedMemoryNames': [old_name]},
+                        'cameraService': {'enabled': False, 'sharedMemoryName': old_name},
+                        'emsCluster': {'enabled': False, 'controlEnabled': False}}
+            if name != 'camera-service.json':
+                document['mqttDriver']['enabled'] = False
+                document['computeEngine'] = {'enabled': False, 'sharedMemoryNames': [old_name],
+                                             'outputDefaultSharedMemoryName': old_name}
+                document['localDisplay'] = {'enabled': False, 'sharedMemoryNames': [old_name]}
+            if name == 'monitor-service.json':
+                document['systemMonitor'] = {'enabled': True}
+            write(apps / name, json.dumps(document))
+        identity = home / 'config/runtime/device_identity.json'
+        write(identity, '{"machineCode":"COMM202600998"}\n')
+        approval['nodeId'] = 'COMM202600998'
+        approval['identitySha256'] = hashlib.sha256(identity.read_bytes()).hexdigest()
+        approval['mode'] = 'standalone'
+        approval['offlineLocal'] = dict(approval.pop('offlineVoters')['A'], nodeId=approval['nodeId'])
+        approval.pop('membershipSha256')
+        (home / 'data/cluster-membership.json').unlink()
+        template = Path('/etc/systemd/system/system-monitor@.service')
+        shutil.copyfile(REPO / 'deploy/system-monitor@.service', template)
+        approval['units'].append('system-monitor@.service')
+        archive = REPO.parent.parent / 'acceptance-evidence-20260924/evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz'
+        with tarfile.open(archive) as bundle:
+            binary = bundle.extractfile('programs/bin/SystemMonitor').read()
+        self.assertEqual('91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928',
+                         hashlib.sha256(binary).hexdigest())
+        product = self.root / 'payload/programs/bin/SystemMonitor'
+        product.write_bytes(binary)
+        product.chmod(0o755)
+        write(home / 'bin/SystemMonitor', 'old system monitor\n')
+        manifest = json.loads((self.root / 'program-manifest.json').read_text())
+        manifest['components'].append({'kind': 'product', 'target': 'SystemMonitor',
+                                       'archivePath': 'programs/bin/SystemMonitor', 'bytes': len(binary),
+                                       'sha256': hashlib.sha256(binary).hexdigest()})
+        write(self.root / 'program-manifest.json', json.dumps(manifest))
+        approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
+        approval['installPaths']['SystemMonitor'] = 'bin/SystemMonitor'
+        approval['installedRuntimeSha256']['bin/SystemMonitor'] = hashlib.sha256((home / 'bin/SystemMonitor').read_bytes()).hexdigest()
+        config = home / 'config/runtime'
+        approval['configSha256'] = {str(p.relative_to(config)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                   for p in config.rglob('*') if p.is_file()}
+        return home, approval, dropin
+
+    def test_offline_b_default_monitor_observe_roundtrip(self):
+        home, approval, dropin = self.b_implicit_default_fixture()
+        original = dropin.read_bytes()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertIs(True, state['unreferencedDefaultShm'])
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(approval['segments'][1]['sha256'],
+                         hashlib.sha256(Path('/dev/shm/gateway_point_store').read_bytes()).hexdigest())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, dropin.read_bytes())
+
+    def test_offline_b_default_monitor_unknown_app_rejected(self):
+        home, approval, dropin = self.b_implicit_default_fixture()
+        config = home / 'config/runtime'
+        write(config / 'apps/extra.json', '{}\n')
+        approval['configSha256']['apps/extra.json'] = hashlib.sha256((config / 'apps/extra.json').read_bytes()).hexdigest()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('B monitor default', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_monitor_binding_roundtrip(self):
         home, approval, dropin, original = self.monitor_binding_fixture()
