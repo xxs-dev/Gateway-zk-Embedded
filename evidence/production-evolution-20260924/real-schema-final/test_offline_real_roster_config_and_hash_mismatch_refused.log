@@ -1,0 +1,20 @@
+action=apply exit=2
+offline upgrade refused/failed: SHA256 mismatch: /opt/modbus-gateway/data/cluster-membership.json
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: fixed voter set does not match local cluster configuration
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: fixed voter set does not match local cluster configuration
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: fixed voter set does not match local cluster configuration
+Keep all participants stopped; no automatic ABI rollback.
+
+action=apply exit=2
+offline upgrade refused/failed: non-default membershipFile is not supported by this offline entrypoint
+Keep all participants stopped; no automatic ABI rollback.
+

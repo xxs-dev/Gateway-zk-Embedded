@@ -27,7 +27,13 @@ the migration tool. No new ARM compilation is needed for that existing CLI.
 - `transactionId`: unique 1..63 letters/digits/underscore/hyphen.
 - `gatewayHome`: absolute non-symlink existing Gateway directory.
 - `nodeId`, `identitySha256`, `membershipSha256`: exact current local identity and
-  fixed roster (`data/cluster-membership.json`, `members[].nodeId`).
+  fixed roster (`data/cluster-membership.json`, `assignments[].nodeId/cabinetNo`).
+  The runtime schema is `schemaVersion:"1.0"`, nonempty `clusterId`, positive
+  uint64 `membershipEpoch`, and 2..5 unique node/cabinet assignments. The complete
+  set must match every enabled local emsCluster's clusterId, expectedMembers,
+  maxMembers and lockedCabinetNo. The erroneous `members` shape is refused.
+  A non-default membershipFile is explicitly unsupported by this narrow entrypoint;
+  do not validate one roster while starting against a different file.
 - `runtimeCompatibility`: exactly `pointStoreAbi:11`, `clusterProtocol:2`,
   `upgradeMode:"offline-all-participants"`; `controlEnabled:false`.
 - `expiresAtUnix`: bounded operator authorization expiry, integer UTC seconds.
@@ -56,7 +62,12 @@ the migration tool. No new ARM compilation is needed for that existing CLI.
   readers/implicit defaults must be removed or provisioned explicitly first.
 
 The entrypoint handles `sharedMemoryName`, `sharedMemoryNames`,
-`virtualSharedMemoryName`, and `outputSharedMemoryName`. Existing emsCluster
+`virtualSharedMemoryName`, `outputSharedMemoryName`, and
+`outputDefaultSharedMemoryName`. Guard extraction and rewriting share one key
+set, regression-checked against the runtime config and SCADA loader literals.
+Wrong reference types, unknown SHM-name keys and remaining exact old-name values
+in unsupported fields are refused, never rewritten as arbitrary JSON strings.
+Existing emsCluster
 configuration must explicitly have `controlEnabled:false`; this tool does not
 silently edit authority or identity settings to make validation pass.
 

@@ -1,0 +1,16 @@
+{
+  "runtimeParserKeys": [
+    "outputDefaultSharedMemoryName",
+    "outputSharedMemoryName",
+    "sharedMemoryName",
+    "sharedMemoryNames",
+    "virtualSharedMemoryName"
+  ],
+  "guardKeys": [
+    "outputDefaultSharedMemoryName",
+    "outputSharedMemoryName",
+    "sharedMemoryName",
+    "sharedMemoryNames",
+    "virtualSharedMemoryName"
+  ]
+}

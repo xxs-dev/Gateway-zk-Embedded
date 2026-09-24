@@ -2,12 +2,16 @@
 """Read-only deployment gates. No ABI migration or control approval is implicit."""
 import json
 import os
+import re
 from pathlib import Path
 import struct
 import sys
 
 COMPATIBILITY = {"pointStoreAbi": 11, "clusterProtocol": 2,
                  "upgradeMode": "offline-all-participants"}
+SINGLE_SHM_KEYS = frozenset(('sharedMemoryName', 'virtualSharedMemoryName',
+                           'outputSharedMemoryName', 'outputDefaultSharedMemoryName'))
+MULTI_SHM_KEYS = frozenset(('sharedMemoryNames',))
 RUNTIME_BINARIES = frozenset((
     "ModbusRtu", "Dlt645Driver", "DioDriver", "CanDriver", "IecDriver", "MqttDriver",
     "MqttForwarder", "EventEngine", "EventStore", "ComputeEngine", "AgcAvcController",
@@ -97,14 +101,31 @@ def factory(home):
             raise ValueError("old runtime participant is still running: " + entry.name)
 
 
+def shm_name(value):
+    if not isinstance(value, str):
+        raise ValueError('SHM reference must be a string')
+    if not value:
+        return ''
+    name = value[1:] if value.startswith('/') else value
+    if re.fullmatch('[A-Za-z0-9_-]{1,63}', name) is None:
+        raise ValueError('unsupported SHM reference: ' + value)
+    return name
+
+
 def configured_names(value):
     names = set()
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ('sharedMemoryName', 'virtualSharedMemoryName', 'outputSharedMemoryName') and isinstance(item, str) and item:
-                names.add(item.lstrip('/'))
-            elif key == 'sharedMemoryNames' and isinstance(item, list):
-                names.update(str(name).lstrip('/') for name in item)
+            if key in SINGLE_SHM_KEYS:
+                name = shm_name(item)
+                if name:
+                    names.add(name)
+            elif key in MULTI_SHM_KEYS:
+                if not isinstance(item, list):
+                    raise ValueError('SHM reference list required')
+                names.update(shm_name(name) for name in item if shm_name(name))
+            elif key.lower().endswith(('sharedmemoryname', 'sharedmemorynames')):
+                raise ValueError('unsupported SHM reference key: ' + key)
             else:
                 names.update(configured_names(item))
     elif isinstance(value, list):

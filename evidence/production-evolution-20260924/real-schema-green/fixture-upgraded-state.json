@@ -1,0 +1,69 @@
+{
+  "approvalSha256": "ee528a49e68486d04f791e621f018f0305309ccf002eaeda14fcbee336976d60",
+  "configSha256": {
+    "apps/compute.json": "e1353e0f95500aaab8175ca661aa045ecdb3842cfa016b58ba8b1315a11d54f6",
+    "device_identity.json": "877942796a0b6ba46e1484b2aeace6bd294c525a241cd4f338f029a22658e34e"
+  },
+  "files": [
+    {
+      "mode": 493,
+      "newSha256": "7d659da07aad1d5d1ed79e9f2822d24d2dea47ceec4c7e2e71718a177dc20b4b",
+      "oldMode": 420,
+      "oldSha256": "9ac780a58c643efdce1aefef68f910f4ab23b38d18623053ef39205f349609f2",
+      "path": "bin/ComputeEngine"
+    },
+    {
+      "mode": 493,
+      "newSha256": "48893b0fb21436b54619db80486e83ef39dfccaf1aefe83dfa00c02d6146e8c0",
+      "oldMode": 420,
+      "oldSha256": "74e23a01b1155f1aa45c85a0eede9fab07d706609a0079de4c5894bb65030017",
+      "path": "bin/MqttDriver"
+    },
+    {
+      "mode": 493,
+      "newSha256": "e7043d6dc3363f746a171eb0082f855f151ae6f6604bc5aa70ce9cd882dd1832",
+      "oldMode": null,
+      "oldSha256": null,
+      "path": "bin/memory_point_store_migrate"
+    },
+    {
+      "mode": 420,
+      "newSha256": "e1353e0f95500aaab8175ca661aa045ecdb3842cfa016b58ba8b1315a11d54f6",
+      "oldMode": 420,
+      "oldSha256": "0d50652bae7afb32470fa20e8682544fa92fe08abe5f554618713c7f16e5f951",
+      "path": "config/runtime/apps/compute.json"
+    }
+  ],
+  "phase": "UPGRADED_STOPPED",
+  "segments": [
+    {
+      "source": "offline_source_0",
+      "sourceSha256": "1ab8a9fc4bcf8cae5e32607ddbe8b520bc1039d77a123a81d366816af5920dfd",
+      "target": "offline_target_0",
+      "targetSha256": "b48cd14aa561903e9a8d4ee1d633acac73e35ef7ecd46c956587750a1c57cf8c"
+    }
+  ],
+  "stopConfirmed": true,
+  "unitStates": {
+    "compute-engine@.service": {
+      "active": "not-instance",
+      "enabled": "template-file"
+    },
+    "compute-engine@fixture.service": {
+      "active": "inactive",
+      "enabled": "disabled"
+    },
+    "gateway-health-watchdog.service": {
+      "active": "inactive",
+      "enabled": "disabled"
+    },
+    "gateway-services.service": {
+      "active": "inactive",
+      "enabled": "disabled"
+    },
+    "ky-ems.service": {
+      "active": "inactive",
+      "enabled": "disabled"
+    }
+  }
+}

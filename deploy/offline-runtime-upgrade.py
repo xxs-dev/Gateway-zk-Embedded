@@ -102,13 +102,23 @@ def configured(root):
 
 def switch_names(value, names):
     if isinstance(value, dict):
-        return {key: (names.get(item.lstrip('/'), item) if key in ('sharedMemoryName', 'virtualSharedMemoryName', 'outputSharedMemoryName')
-                      and isinstance(item, str) else
-                      [names.get(v.lstrip('/'), v) for v in item] if key == 'sharedMemoryNames' and isinstance(item, list)
+        return {key: (names.get(guard.shm_name(item), item) if key in guard.SINGLE_SHM_KEYS else
+                      [names.get(guard.shm_name(v), v) for v in item] if key in guard.MULTI_SHM_KEYS
                       else switch_names(item, names)) for key, item in value.items()}
     if isinstance(value, list):
         return [switch_names(item, names) for item in value]
     return value
+
+
+def no_old_references(value, names):
+    if isinstance(value, str):
+        require(value.lstrip('/') not in names, 'unmapped SHM reference in unsupported field')
+    elif isinstance(value, dict):
+        for item in value.values():
+            no_old_references(item, names)
+    elif isinstance(value, list):
+        for item in value:
+            no_old_references(item, names)
 
 
 def controls_disabled(value):
@@ -213,8 +223,31 @@ def local_identity(home, approval):
     identity = json.loads((config / 'device_identity.json').read_text())
     require(identity.get('machineCode') == approval['nodeId'], 'foreign node approval')
     roster = checked_json(home / 'data/cluster-membership.json', approval['membershipSha256'])
-    voters = {m['nodeId'] for m in roster['members']}
-    require(approval['nodeId'] in voters and len(voters) == len(roster['members']), 'invalid fixed roster')
+    require(isinstance(roster, dict) and roster.get('schemaVersion') == '1.0' and 'members' not in roster and
+            isinstance(roster.get('clusterId'), str) and bool(roster['clusterId']) and
+            type(roster.get('membershipEpoch')) is int and 0 < roster['membershipEpoch'] <= 0xffffffffffffffff,
+            'invalid fixed roster schema/epoch')
+    assignments = roster.get('assignments')
+    require(isinstance(assignments, list) and 2 <= len(assignments) <= 5 and all(
+            isinstance(item, dict) and isinstance(item.get('nodeId'), str) and bool(item['nodeId']) and
+            type(item.get('cabinetNo')) is int and 1 <= item['cabinetNo'] <= 5 for item in assignments),
+            'invalid fixed roster assignments')
+    voters = {item['nodeId'] for item in assignments}
+    cabinets = {item['cabinetNo'] for item in assignments}
+    require(len(voters) == len(assignments) == len(cabinets) and approval['nodeId'] in voters,
+            'duplicate or missing local fixed voter')
+    clusters = [doc['emsCluster'] for doc in configured(config).values() if isinstance(doc, dict) and
+                isinstance(doc.get('emsCluster'), dict) and doc['emsCluster'].get('enabled') is True]
+    require(clusters, 'enabled fixed-voter cluster configuration required')
+    own = next(item['cabinetNo'] for item in assignments if item['nodeId'] == approval['nodeId'])
+    for cluster in clusters:
+        expected, maximum = cluster.get('expectedMembers'), cluster.get('maxMembers')
+        locked = cluster.get('lockedCabinetNo', 0)
+        require(cluster.get('clusterId') == roster['clusterId'] and type(expected) is int and type(maximum) is int and
+                2 <= expected <= maximum <= 5 and len(assignments) == expected and max(cabinets) <= maximum and
+                type(locked) is int and locked in (0, own), 'fixed voter set does not match local cluster configuration')
+        require(cluster.get('membershipFile', str(home / 'data/cluster-membership.json')) == str(home / 'data/cluster-membership.json'),
+                'non-default membershipFile is not supported by this offline entrypoint')
     return voters
 
 
@@ -260,6 +293,8 @@ def apply(args):
             all(NAME.fullmatch(n) for n in list(names) + list(names.values())) and not set(names) & set(names.values()),
             'distinct unique source and target SHM names required')
     require(references == set(names), 'all SHM references must be explicit and covered exactly')
+    for doc in documents.values():
+        no_old_references(switch_names(doc, names), names)
     # An existing default segment may be an implicit reader not covered by this recipe.
     require(not Path('/dev/shm/gateway_point_store').exists() or 'gateway_point_store' in names,
             'uncovered default SHM segment')

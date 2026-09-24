@@ -5,6 +5,9 @@ import hashlib
 import io
 import json
 import os
+import copy
+import importlib.util
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -286,7 +289,7 @@ exec /bin/cp "$@"
         write(home / 'bin/ComputeEngine', 'old compute\n')
         write(home / 'bin/MqttDriver', 'old mqtt\n')
         write(home / 'config/runtime/device_identity.json', '{"machineCode":"A"}\n')
-        write(home / 'data/cluster-membership.json', '{"members":[{"nodeId":"A","cabinetNo":1},{"nodeId":"B","cabinetNo":2}]}\n')
+        write(home / 'data/cluster-membership.json', '{"schemaVersion":"1.0","clusterId":"OFFLINE_FIXTURE","membershipEpoch":1,"assignments":[{"nodeId":"A","cabinetNo":1},{"nodeId":"B","cabinetNo":2}]}\n')
         write(home / 'data/control-dedup.sqlite', 'current durable dedup\n')
         write(home / 'data/ems-cluster-consensus.json', '{"term":19}\n')
         segments = []
@@ -294,7 +297,7 @@ exec /bin/cp "$@"
             source, target = 'offline_source_' + str(i), 'offline_target_' + str(i)
             subprocess.run([str(fixture), mode, source], check=True, stdout=subprocess.PIPE)
             segments.append({'source': source, 'target': target, 'sha256': hashlib.sha256((Path('/dev/shm') / source).read_bytes()).hexdigest()})
-        write(home / 'config/runtime/apps/compute.json', json.dumps({'computeEngine': {'sharedMemoryNames': [s['source'] for s in segments], 'outputSharedMemoryName': segments[0]['source']}, 'emsCluster': {'enabled': True, 'controlEnabled': False, 'virtualSharedMemoryName': segments[0]['source']}}))
+        write(home / 'config/runtime/apps/compute.json', json.dumps({'computeEngine': {'sharedMemoryNames': [s['source'] for s in segments], 'outputDefaultSharedMemoryName': segments[0]['source']}, 'emsCluster': {'enabled': True, 'clusterId': 'OFFLINE_FIXTURE', 'expectedMembers': 2, 'maxMembers': 2, 'lockedCabinetNo': 1, 'controlEnabled': False, 'virtualSharedMemoryName': segments[0]['source']}}))
         payload = self.root / 'payload'
         products = [('ComputeEngine', Path('/usr/bin/true')), ('MqttDriver', Path('/usr/bin/false')),
                     ('memory_point_store_migrate', Path('/var/tmp/ems-production-candidate-20260924-build/memory_point_store_migrate'))]
@@ -464,6 +467,137 @@ exec /bin/cp "$@"
         write(self.root / 'ready.json', json.dumps(ready))
         return ready
 
+    def real_offline_fixture(self, scope='r4'):
+        home, approval = self.offline_fixture()
+        actual = REPO.parent.parent / 'acceptance-evidence-20260924/tests/e2e/GW-20260809-002/ems-shadow-20260924/pair-recovery-r4/actual-inputs'
+        roster_raw = (actual / 'membership.json').read_bytes()
+        self.assertEqual('da8b016f579bdb6436d9569bf8234a26f4ac1c90d298840bb4080b554537361c', hashlib.sha256(roster_raw).hexdigest())
+        roster = json.loads(roster_raw)
+        app = json.loads((actual / 'A/app.public.json').read_text())
+        pinned = json.loads((actual / 'manifest.json').read_text())['files']
+        self.assertEqual(pinned['A/app.public.json']['sha256'], hashlib.sha256((actual / 'A/app.public.json').read_bytes()).hexdigest())
+        self.assertEqual('EMS_SHADOW_20260924_RECOVERY_R4', app['emsCluster']['clusterId'])
+        if scope == 's2':
+            def relocate(value):
+                if isinstance(value, dict):
+                    return {k: relocate(v) for k, v in value.items()}
+                if isinstance(value, list):
+                    return [relocate(v) for v in value]
+                if isinstance(value, str):
+                    for directory in ('data', 'run'):
+                        old = '/opt/modbus-gateway/' + directory + '/ems-shadow-20260924-r4'
+                        if value.startswith(old + '/'):
+                            return '/opt/modbus-gateway/' + directory + '/ems-sustained-20260924-s2' + value[len(old):]
+                    if value == 'EMS_SHADOW_20260924_RECOVERY_R4':
+                        return 'EMS_SUSTAINED_20260924_S2'
+                return value
+            app, roster = relocate(app), relocate(roster)
+            roster_raw = (json.dumps(roster, separators=(',', ':'), allow_nan=False) + '\n').encode()
+            app_raw = (json.dumps(app, separators=(',', ':'), allow_nan=False) + '\n').encode()
+            reviewed = json.loads((actual.parent.parent / 'sustained-20260924/sustained-review-s2.json').read_text())['payloadHashes']['A']
+            self.assertEqual(reviewed['app.public.json'], hashlib.sha256(app_raw).hexdigest())
+            self.assertEqual(reviewed['membership.json'], hashlib.sha256(roster_raw).hexdigest())
+        write(EVIDENCE / ('real-fixture-provenance-' + scope + '.json'), json.dumps({'scope': scope,
+              'rosterSha256': hashlib.sha256(roster_raw).hexdigest(),
+              'sourceAppSha256': hashlib.sha256((actual / 'A/app.public.json').read_bytes()).hexdigest(),
+              'adaptations': ['controlEnabled=false', 'canonical private identity and membership paths', 'native fixture SHM bytes']}, indent=2) + '\n')
+        app['emsCluster']['controlEnabled'] = False
+        app['emsCluster']['membershipFile'] = str(home / 'data/cluster-membership.json')
+        app['identityConfigFile'] = str(home / 'config/runtime/device_identity.json')
+        write(home / 'config/runtime/apps/compute.json', json.dumps(app))
+        identity_raw = (actual / 'A/identity.json').read_bytes()
+        (home / 'config/runtime/device_identity.json').write_bytes(identity_raw)
+        (home / 'data/cluster-membership.json').write_bytes(roster_raw)
+        node = json.loads(identity_raw)['machineCode']
+        approval['nodeId'] = node
+        approval['identitySha256'] = hashlib.sha256(identity_raw).hexdigest()
+        approval['membershipSha256'] = hashlib.sha256(roster_raw).hexdigest()
+        approval['offlineVoters'] = {v['nodeId']: copy.deepcopy(approval['offlineVoters']['A']) for v in roster['assignments']}
+        config = home / 'config/runtime'
+        approval['configSha256'] = {str(p.relative_to(config)): hashlib.sha256(p.read_bytes()).hexdigest() for p in config.rglob('*') if p.is_file()}
+        old = approval['segments'][0]
+        source = Path('/dev/shm/ems_shadow_20260924_pair')
+        Path('/dev/shm/offline_source_0').rename(source)
+        old['source'] = source.name
+        return home, approval, roster, app
+
+    def test_offline_real_r4_roster_and_app(self):
+        self.real_offline_roundtrip('r4')
+
+    def test_offline_real_s2_roster_and_app(self):
+        self.real_offline_roundtrip('s2')
+
+    def real_offline_roundtrip(self, scope):
+        home, approval, roster, app = self.real_offline_fixture(scope)
+        before_identity = (home / 'config/runtime/device_identity.json').read_bytes()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        installed = json.loads((home / 'config/runtime/apps/compute.json').read_text())
+        self.assertEqual('offline_target_0', installed['computeEngine']['outputDefaultSharedMemoryName'])
+        self.assertEqual('offline_target_0', installed['emsCluster']['virtualSharedMemoryName'])
+        self.assertEqual('offline_target_0', installed['mqttDriver']['sharedMemoryName'])
+        self.assertEqual(['offline_target_0'], installed['computeEngine']['sharedMemoryNames'])
+        self.assertTrue(all(p['sharedMemoryName'] == 'offline_target_0' for p in installed['computeEngine']['rules'][0]['outputs']))
+        self.assertNotIn('ems_shadow_20260924_pair', json.dumps(installed))
+        self.offline_ready(approval)
+        ready = json.loads((self.root / 'ready.json').read_text())
+        receipt = ready['voters']['A']
+        ready['voters'] = {v['nodeId']: copy.deepcopy(receipt) for v in roster['assignments']}
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(app, json.loads((home / 'config/runtime/apps/compute.json').read_text()))
+        self.assertEqual(before_identity, (home / 'config/runtime/device_identity.json').read_bytes())
+
+    def test_offline_real_roster_invalid_assignments_refused(self):
+        home, approval, roster, app = self.real_offline_fixture()
+        cases = []
+        for field, value in (('nodeId', roster['assignments'][0]['nodeId']), ('cabinetNo', 1), ('cabinetNo', True), ('cabinetNo', 0), ('cabinetNo', 3)):
+            broken = copy.deepcopy(roster)
+            broken['assignments'][1][field] = value
+            cases.append(broken)
+        broken = copy.deepcopy(roster)
+        broken['assignments'][0]['nodeId'] = 'FOREIGN'
+        cases.append(broken)
+        broken = copy.deepcopy(roster)
+        broken['assignments'].pop()
+        cases.append(broken)
+        for field, value in (('schemaVersion', '2.0'), ('membershipEpoch', 0), ('membershipEpoch', True), ('clusterId', 'FOREIGN')):
+            broken = copy.deepcopy(roster)
+            broken[field] = value
+            cases.append(broken)
+        broken = copy.deepcopy(roster)
+        broken['members'] = broken.pop('assignments')
+        cases.append(broken)
+        for broken in cases:
+            with self.subTest(roster=broken):
+                write(home / 'data/cluster-membership.json', json.dumps(broken))
+                approval['membershipSha256'] = hashlib.sha256((home / 'data/cluster-membership.json').read_bytes()).hexdigest()
+                result = self.offline_run(approval=approval)
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+                self.assertFalse(Path('/dev/shm/offline_target_0').exists())
+
+    def test_offline_real_roster_config_and_hash_mismatch_refused(self):
+        home, approval, roster, app = self.real_offline_fixture()
+        write(home / 'data/cluster-membership.json', json.dumps(roster))
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('SHA256 mismatch', result.stdout)
+        approval['membershipSha256'] = hashlib.sha256((home / 'data/cluster-membership.json').read_bytes()).hexdigest()
+        for changes in ({'expectedMembers': 3, 'maxMembers': 3}, {'lockedCabinetNo': 2},
+                        {'expectedMembers': True}, {'membershipFile': '/unsupported/membership.json'}):
+            changed = copy.deepcopy(app)
+            changed['emsCluster'].update(changes)
+            config = home / 'config/runtime/apps/compute.json'
+            write(config, json.dumps(changed))
+            approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+            result = self.offline_run(approval=approval)
+            self.assertNotEqual(0, result.returncode, result.stdout)
+            self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
     def test_offline_observe_starts_only_observers_and_recovers(self):
         home, approval = self.offline_fixture()
         result = self.offline_run()
@@ -507,9 +641,11 @@ exec /bin/cp "$@"
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_output_only_reference_and_qt_alias(self):
-        home, approval = self.offline_fixture()
+        home, approval = self.offline_fixture(('create', 'create'))
         config = home / 'config/runtime/apps/compute.json'
-        write(config, '{"computeEngine":{"outputSharedMemoryName":"offline_source_0"}}')
+        app = json.loads(config.read_text())
+        app['computeEngine'] = {'outputDefaultSharedMemoryName': 'offline_source_1'}
+        write(config, json.dumps(app))
         approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
         write(home / 'bin/KY-EMS', 'old qt\n')
         approval['installedRuntimeSha256']['KY-EMS'] = hashlib.sha256((home / 'bin/KY-EMS').read_bytes()).hexdigest()
@@ -530,9 +666,34 @@ exec /bin/cp "$@"
         self.assertEqual(qt.read_bytes(), (home / 'bin/KY-EMS').read_bytes())
         self.assertFalse((home / 'bin/LocalDisplayQtEms').exists())
         self.assertIn('offline_target_0', config.read_text())
+        self.assertIn('offline_target_1', config.read_text())
         result = self.offline_run('recover')
         self.assertEqual(0, result.returncode, result.stdout)
         self.assertEqual('old qt\n', (home / 'bin/KY-EMS').read_text())
+
+    def test_offline_shm_keys_match_runtime_parsers(self):
+        sys.dont_write_bytecode = True
+        spec = importlib.util.spec_from_file_location('offline_test', str(REPO / 'deploy/offline-runtime-upgrade.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        keys = set()
+        for source in ('src/config_loader.cpp', 'src/scada_project_loader.cpp'):
+            keys.update(re.findall(r'"([A-Za-z]*[sS]haredMemoryNames?)"', (REPO / source).read_text()))
+        self.assertEqual(keys, module.guard.SINGLE_SHM_KEYS | module.guard.MULTI_SHM_KEYS)
+        for key in keys:
+            original = {key: ['old'] if key in module.guard.MULTI_SHM_KEYS else 'old'}
+            self.assertEqual({'old'}, module.guard.configured_names(original))
+            updated = module.switch_names(original, {'old': 'new'})
+            self.assertEqual({'new'}, module.guard.configured_names(updated))
+            module.no_old_references(updated, {'old': 'new'})
+        for invalid in ({'sharedMemoryNames': ['old', 1]}, {'sharedMemoryName': 1},
+                        {'outputDefaultSharedMemoryName': '//old'}, {'unknownSharedMemoryName': 'old'}):
+            with self.assertRaises(ValueError):
+                module.guard.configured_names(invalid)
+        with self.assertRaises(ValueError):
+            module.no_old_references({'unrecognizedStore': 'old'}, {'old': 'new'})
+        write(EVIDENCE / 'runtime-shm-key-coverage.json', json.dumps({'runtimeParserKeys': sorted(keys),
+              'guardKeys': sorted(module.guard.SINGLE_SHM_KEYS | module.guard.MULTI_SHM_KEYS)}, indent=2) + '\n')
 
     def test_offline_observe_rejects_physical_and_changed_inputs(self):
         home, approval = self.offline_fixture()

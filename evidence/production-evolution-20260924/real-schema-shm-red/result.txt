@@ -1,0 +1,18 @@
+test_offline_real_r4_roster_and_app (__main__.InstallIsolationTest.test_offline_real_r4_roster_and_app) ... FAIL
+
+======================================================================
+FAIL: test_offline_real_r4_roster_and_app (__main__.InstallIsolationTest.test_offline_real_r4_roster_and_app)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 502, in test_offline_real_r4_roster_and_app
+    self.assertEqual('offline_target_0', installed['computeEngine']['outputDefaultSharedMemoryName'])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'offline_target_0' != 'ems_shadow_20260924_pair'
+- offline_target_0
++ ems_shadow_20260924_pair
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.879s
+
+FAILED (failures=1)

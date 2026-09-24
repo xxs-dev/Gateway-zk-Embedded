@@ -142,3 +142,38 @@ or physical PCS qualification. Real-systemd dependency effects require device
 implementation review. Approval receipts are operator attestations, not an online
 signature/vote protocol. Existing stopped V10 authority/pending bytes are never
 automatically reauthorized; original-control rollback is intentionally unsupported.
+
+## Real runtime schema correction
+
+While reading fixed9ccfce for S2 diagnostics, Edge found two actual delivery
+blockers missed by reduced installer fixtures: runtime membership uses
+`assignments`, not `members`; Compute also uses `outputDefaultSharedMemoryName`.
+Coordinator withdrew the8926a5f offline pairing candidate and authorized this
+separate deploy-only repair. No performance/product/ABI/protocol change is mixed in.
+
+`real-schema-red` fails with missing `members` against the real R4 roster and full
+public app. After the roster correction, `real-schema-shm-red` reaches installation
+but detects the real Compute default output still naming old SHM. Both retained.
+`real-schema-final`:10/10 selected tests PASS; includes12 malformed-roster cases,
+hash/config mismatch, expected-voter count/locked cabinet checks, actual R4 and
+S2 app+roster apply/observe/recover, full parser key coverage, approved Qt alias,
+full-voter enforcement and stop/service guards. Seven earlier green cases retained.
+
+R4 inputs are checked against their existing immutable manifest. S2 public app
+and roster are reproduced by the reviewed structured relocation and checked
+against the exact S2 payload pins, never live credentials. For disposable execution
+only controlEnabled is set false and identity/membership paths are moved to the
+canonical private namespace locations; native V10 fixture bytes supply the SHM.
+The whole app is used, not a hand-written reduced replacement. Test systemctl is
+still simulated; this is not device/runtime-network qualification.
+
+Roster validation binds schema/epoch, unique nodeId/cabinetNo, local node and all
+enabled configurations' clusterId, expectedMembers/maxMembers/lockedCabinetNo.
+The wrong members shape has no compatibility fallback. Non-default roster paths
+are refused explicitly. Both script operations share all five runtime SHM keys;
+unknown/wrongly typed references or exact old names left in unsupported fields
+refuse migration before switching. Original hashes and all-participant fences stay.
+
+New eight-script pins: `real-schema-final/paired-deploy-delta.json`. Product ELF,
+SHM ABI and KECP protocol unchanged; no remote connection or product rebuild.
+Windows must re-pair changed scripts; prior8926a5f artifacts remain preserved.
