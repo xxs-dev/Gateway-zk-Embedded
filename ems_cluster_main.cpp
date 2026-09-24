@@ -52,15 +52,13 @@ std::string readText(const std::string& path) {
     return value;
 }
 
-double jsonNumber(const std::string& text, const std::string& name, double fallback) {
+double jsonNumber(const std::string& text, const std::regex& pattern, double fallback) {
     std::smatch match;
-    const std::regex pattern("\\\"" + name + "\\\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)");
     return std::regex_search(text, match, pattern) ? std::stod(match[1].str()) : fallback;
 }
 
-bool jsonBool(const std::string& text, const std::string& name, bool fallback) {
+bool jsonBool(const std::string& text, const std::regex& pattern, bool fallback) {
     std::smatch match;
-    const std::regex pattern("\\\"" + name + "\\\"\\s*:\\s*(true|false)");
     return std::regex_search(text, match, pattern) ? match[1].str() == "true" : fallback;
 }
 
@@ -170,20 +168,24 @@ public:
         if (totalKb > 0) result.memoryPercent = 100.0 * static_cast<double>(totalKb - availableKb) / totalKb;
 #endif
         const auto health = readText(computeHealthFile_);
-        const auto healthTimestampMs = static_cast<std::int64_t>(jsonNumber(health, "ts", 0.0));
+        const auto healthTimestampMs = static_cast<std::int64_t>(jsonNumber(health, timestampPattern_, 0.0));
         const auto healthAgeMs = wallNowMs() - healthTimestampMs;
         const bool healthFresh = !health.empty() && healthTimestampMs > 0 &&
             healthAgeMs >= -60000 && healthAgeMs <= 5000;
         result.computeMetricsAvailable = healthFresh;
-        result.computeHealthy = healthFresh && jsonBool(health, "healthy", false);
-        result.computeTimeoutPercent = jsonNumber(health, "timeoutPercent", 100.0);
-        result.controlQueueP95Ms = jsonNumber(health, "controlQueueP95Ms", 1000.0);
+        result.computeHealthy = healthFresh && jsonBool(health, healthyPattern_, false);
+        result.computeTimeoutPercent = jsonNumber(health, timeoutPattern_, 100.0);
+        result.controlQueueP95Ms = jsonNumber(health, queuePattern_, 1000.0);
         result.packetLossPercent = 0.0;
         return result;
     }
 
 private:
     std::string computeHealthFile_;
+    const std::regex timestampPattern_{"\\\"ts\\\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)"};
+    const std::regex healthyPattern_{"\\\"healthy\\\"\\s*:\\s*(true|false)"};
+    const std::regex timeoutPattern_{"\\\"timeoutPercent\\\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)"};
+    const std::regex queuePattern_{"\\\"controlQueueP95Ms\\\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)"};
     std::uint64_t lastTotal_ = 0;
     std::uint64_t lastIdle_ = 0;
 };

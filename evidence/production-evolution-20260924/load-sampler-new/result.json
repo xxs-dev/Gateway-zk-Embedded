@@ -1,0 +1,61 @@
+{
+  "mode": "new",
+  "steps": {
+    "compile": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_load_sampler_test.cpp",
+        "-Wl,--gc-sections",
+        "-Wl,--wrap=_ZNSt6chrono3_V212system_clock3nowEv",
+        "-pthread",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/load-sampler-new-erfvx649/load-sampler-test"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/load-sampler-new-erfvx649/load-sampler-test"
+      ],
+      "exitCode": 0,
+      "logSha256": "e8e4dbdc38b5b988af58cdb590636d1cf099354f03e013f4830a23eb545dd82f"
+    },
+    "cxx14": {
+      "argv": [
+        "c++",
+        "-std=c++14",
+        "-fsyntax-only",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/ems_cluster_main.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_load_sampler_test.cpp"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "armQualification": false,
+  "mainSourceSha256": "c92015d31102f36fa9adf6e4b1ed90e9b6c94f1931ec8441b7333a80270f48d3",
+  "testSourceSha256": "a7db49bec48014f46c4b2485980299a7a89eb9f50d5e7cc54af67d6e5386f8f4",
+  "medians": {
+    "0": 21.90028,
+    "1": 33.86861
+  },
+  "oldNewIdenticalCases": 23,
+  "checksPassed": true
+}

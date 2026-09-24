@@ -161,8 +161,12 @@ void regexes() {
     for (int fresh = 0; fresh < 2; ++fresh) {
         const std::string text = fresh ? health : "";
         auto original = [&] {
-            return jsonNumber(text, "ts", 0) + jsonNumber(text, "timeoutPercent", 100) +
-                jsonNumber(text, "controlQueueP95Ms", 1000) + (fresh && jsonBool(text, "healthy", false));
+            const auto number = [&](const std::string& name, double fallback) {
+                const std::regex pattern("\\\"" + name + "\\\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)");
+                return jsonNumber(text, pattern, fallback);
+            };
+            return number("ts", 0) + number("timeoutPercent", 100) + number("controlQueueP95Ms", 1000) +
+                (fresh && jsonBool(text, std::regex("\\\"healthy\\\"\\s*:\\s*(true|false)"), false));
         };
         auto reused = [&] {
             std::smatch match;

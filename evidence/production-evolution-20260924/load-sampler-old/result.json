@@ -1,0 +1,48 @@
+{
+  "mode": "old",
+  "steps": {
+    "compile": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_load_sampler_test.cpp",
+        "-Wl,--gc-sections",
+        "-Wl,--wrap=_ZNSt6chrono3_V212system_clock3nowEv",
+        "-pthread",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/load-sampler-old-p3vx8ny5/load-sampler-test"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/load-sampler-old-p3vx8ny5/load-sampler-test"
+      ],
+      "exitCode": 0,
+      "logSha256": "3932608e1d4f53470913590a57994a9332c243d49999895ceb2c95aef1209363"
+    }
+  },
+  "armQualification": false,
+  "mainSourceSha256": "a8ca045bc254bb307ad967a2f5510972f1631be4754d105bb2aa40a30ef105c1",
+  "testSourceSha256": "a7db49bec48014f46c4b2485980299a7a89eb9f50d5e7cc54af67d6e5386f8f4",
+  "medians": {
+    "0": 115.85591,
+    "1": 149.08152
+  },
+  "checksPassed": true
+}

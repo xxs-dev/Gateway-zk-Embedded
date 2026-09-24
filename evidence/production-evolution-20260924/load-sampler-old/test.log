@@ -1,0 +1,30 @@
+CASE 0 0 0 100 1000 0
+CASE 1 0 0 100 1000 0
+CASE 2 0 0 100 1000 0
+CASE 3 1 1 0 2 0
+CASE 4 1 1 0 2 0
+CASE 5 0 0 0 2 0
+CASE 6 1 1 0 2 0
+CASE 7 0 0 0 2 0
+CASE 8 0 0 0 2 0
+CASE 9 0 0 0 2 0
+CASE 10 1 0 -2.5 -0.25 0
+CASE 11 1 0 100 1000 0
+CASE 12 1 0 100 1000 0
+CASE 13 1 1 1 1000 0
+CASE 14 1 1 100 2 0
+CASE 15 1 0 3 1000 0
+CASE 16 1 1 -1.2 1000 0
+CASE 17 1 1 2.75 3.5 0
+CASE 18 1 1 0 2 0
+CASE 19 out_of_range
+CASE 20 out_of_range
+CASE 21 out_of_range
+CASE missing_file 0 0 100 1000
+BENCH {"fresh":0,"repeat":0,"iterations":200,"cpuUsPerCall":115.85591}
+BENCH {"fresh":0,"repeat":1,"iterations":200,"cpuUsPerCall":119.484665}
+BENCH {"fresh":0,"repeat":2,"iterations":200,"cpuUsPerCall":115.66191}
+BENCH {"fresh":1,"repeat":0,"iterations":200,"cpuUsPerCall":148.8228}
+BENCH {"fresh":1,"repeat":1,"iterations":200,"cpuUsPerCall":149.84555}
+BENCH {"fresh":1,"repeat":2,"iterations":200,"cpuUsPerCall":149.08152}
+PASS load sampler

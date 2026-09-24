@@ -214,3 +214,26 @@ bridge methods. Without that option, these executables may retain changed dead
 bridge code. A future minimal ARM build must verify the sealed flags and symbols;
 functional need is EmsClusterCoordinator, not all20 runtime executables. No ARM
 build is authorized by this source-dependency analysis.
+
+## CPU P2: fixed health expressions
+
+LoadSampler now owns four const regexes, constructed once per sampler instead of
+three/four times per sample. The original patterns, conversion/fallback logic,
+health age bounds, conditional healthy evaluation and exceptions are unchanged.
+No JSON parser replacement or timing/CPU threshold adjustment is included.
+
+`load-sampler-old` and `load-sampler-new` run the actual LoadSampler with only its
+wall clock frozen by a Linux linker wrapper. All23 emitted cases match exactly:
+missing/empty files, inclusive5000ms old and60000ms future boundaries and their
+outside neighbors, false/string/uppercase healthy, negative/decimal/exponent-like
+tokens, duplicate/nested fields, whitespace, and stod out_of_range exceptions in
+each numeric field. These preserve existing permissive regex parsing, not claim
+that it is a complete JSON validator. Local C++14 syntax passes; GCC6.3 remains
+unexecuted. The standalone test is registered only for Linux, where its wrapper
+applies. No cluster suite from P1 is rerun, since bridge code is unchanged.
+
+Three retained repetitions of the actual sampler (including /proc and health file
+reads) show median native Debug CPU115.856->21.900us with absent health and
+149.082->33.869us with fresh health. Regex construction moves into startup;
+startup and ARM utilization are not qualified. Only EmsClusterCoordinator owns
+LoadSampler, via its sole ems_cluster_main.cpp entrypoint. R5 files remain sealed.
