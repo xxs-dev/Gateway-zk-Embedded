@@ -577,6 +577,12 @@ target_link_libraries(ems_cluster_test PRIVATE edge_gateway)
 target_compile_options(ems_cluster_test PRIVATE -fdiagnostics-color=never)
 
 if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(cluster_driver_send_guard_test tools/cluster_driver_send_guard_test.cpp)
+    target_link_libraries(cluster_driver_send_guard_test PRIVATE edge_gateway)
+    target_link_options(cluster_driver_send_guard_test PRIVATE
+        -Wl,--wrap=send -Wl,--wrap=select -Wl,--wrap=write -Wl,--wrap=nanosleep)
+    add_test(NAME cluster_driver_send_guard COMMAND cluster_driver_send_guard_test)
+    set_tests_properties(cluster_driver_send_guard PROPERTIES TIMEOUT 30)
     add_executable(ems_cluster_transport_bounds_test
         tools/ems_cluster_transport_bounds_test.cpp
         src/ems_cluster.cpp src/ems_cluster_dispatch.cpp src/ems_cluster_transport.cpp)
