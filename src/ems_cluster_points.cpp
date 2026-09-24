@@ -254,15 +254,26 @@ void EmsClusterPointBridge::publish(const EmsClusterStatus& status, const EmsClu
     auto deadline = std::min(status.authorityExpireAtMs, dispatch.expireAtMs);
     const bool authorityChanged = lastTerm_ != status.term || lastMembershipEpoch_ != status.membershipEpoch ||
         lastLeader_ != status.leaderNodeId;
-    if (authorityChanged) authorityEpoch_ = newClusterAuthorityEpoch();
-    const bool olderSequence = authorityPublished_ && !authorityChanged && dispatch.sequence < lastDispatchSequence_;
-    if (authorityPublished_ && !authorityChanged && lastDispatchSequence_ == dispatch.sequence)
+    if (authorityChanged) {
+        authorityEpoch_ = newClusterAuthorityEpoch();
+        lastDispatchSequence_ = 0;
+        lastAuthorityDeadline_ = 0;
+        authorityPublished_ = false;
+    }
+    const bool dispatchMatchesAuthority = dispatch.term == status.term &&
+        dispatch.membershipEpoch == status.membershipEpoch;
+    const bool olderSequence = authorityPublished_ && dispatchMatchesAuthority &&
+        dispatch.sequence < lastDispatchSequence_;
+    if (authorityPublished_ && dispatchMatchesAuthority && lastDispatchSequence_ == dispatch.sequence)
         deadline = std::min(deadline, lastAuthorityDeadline_);
     lastTerm_ = status.term;
     lastMembershipEpoch_ = status.membershipEpoch;
     lastLeader_ = status.leaderNodeId;
-    if (!olderSequence) lastDispatchSequence_ = dispatch.sequence;
-    authorityPublished_ = true;
+    // Self-election can retain the previous term's invalid dispatch until the first new target.
+    if (dispatchMatchesAuthority && !olderSequence) {
+        lastDispatchSequence_ = dispatch.sequence;
+        authorityPublished_ = true;
+    }
     ClusterAuthoritySnapshot snapshot;
     snapshot.role = static_cast<int>(status.role);
     snapshot.dispatchCode = static_cast<int>(dispatch.code);
@@ -271,7 +282,7 @@ void EmsClusterPointBridge::publish(const EmsClusterStatus& status, const EmsClu
         status.controlConfigured && status.capability.controlEnabled && monotonicNowMs > 0 &&
         status.authorityExpireAtMs > monotonicNowMs;
     snapshot.valid = leaseValid && dispatch.valid &&
-        dispatch.term == status.term && dispatch.membershipEpoch == status.membershipEpoch && dispatch.sequence > 0 &&
+        dispatchMatchesAuthority && dispatch.sequence > 0 &&
         (status.role == EmsClusterRole::Leader || status.role == EmsClusterRole::Follower) &&
         !olderSequence && monotonicNowMs > 0 && deadline > monotonicNowMs;
     lastAuthorityDeadline_ = snapshot.valid ? deadline : 0;
