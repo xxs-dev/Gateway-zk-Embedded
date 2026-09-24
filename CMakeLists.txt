@@ -614,6 +614,11 @@ if(UNIX)
     target_link_libraries(cluster_write_authorization_test PRIVATE edge_gateway)
     add_executable(ems_cluster_output_authority_test tools/ems_cluster_output_authority_test.cpp)
     target_link_libraries(ems_cluster_output_authority_test PRIVATE edge_gateway)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(ems_cluster_output_authority_test PRIVATE
+            -Wl,--wrap=_ZN12edge_gateway16MemoryPointStore23publishClusterAuthorityERKNS_24ClusterAuthoritySnapshotE
+            -Wl,--wrap=_ZN12edge_gateway16MemoryPointStore9putLatestERKNS_10PointValueE)
+    endif()
     add_executable(ems_cluster_strategy_startup_test tools/ems_cluster_strategy_startup_test.cpp)
     target_link_libraries(ems_cluster_strategy_startup_test PRIVATE edge_gateway)
     add_executable(ems_cluster_capability_snapshot_test tools/ems_cluster_capability_snapshot_test.cpp)
