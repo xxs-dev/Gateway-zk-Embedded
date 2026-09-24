@@ -1,0 +1,26 @@
+{
+  "before": "b35a306",
+  "steps": {
+    "cxx14-syntax": {
+      "argv": [
+        "c++",
+        "-std=c++14",
+        "-fsyntax-only",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/src/ems_cluster_points.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_output_authority_test.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_strategy_startup_test.cpp"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true
+    }
+  },
+  "sourcesSha256": {
+    "src/ems_cluster_points.cpp": "932470fa44b4cfe6fef05f3599f1c569c55d45a53db3501c138189917cfdc1ce",
+    "tools/ems_cluster_output_authority_test.cpp": "49c99346cb9333537736ee098f6c46853a50a1dac8a47bfa073cb128c3ba64f1",
+    "tools/ems_cluster_strategy_startup_test.cpp": "7955d1d748a6f8be0bc2d0da204647130d2623b506436d30d33a70901cc701c7"
+  },
+  "librarySha256": "7015ebad85d60600ddd4c6b8c76d8b008b959ac83ba5ff2b0288d6de2f8cd399"
+}

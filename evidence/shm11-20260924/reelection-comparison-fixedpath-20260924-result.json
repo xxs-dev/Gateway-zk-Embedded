@@ -1,0 +1,246 @@
+{
+  "before": "b35a306",
+  "steps": {
+    "cxx14-syntax": {
+      "argv": [
+        "c++",
+        "-std=c++14",
+        "-fsyntax-only",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/src/ems_cluster_points.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_output_authority_test.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_strategy_startup_test.cpp"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true
+    },
+    "compile-old-bridge": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include",
+        "-x",
+        "c++",
+        "-",
+        "-c",
+        "-o",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/old-bridge.o"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true
+    },
+    "link-old-ems_cluster_output_authority_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_output_authority_test.cpp",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/old-bridge.o",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/ems_cluster_output_authority_test-old"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true
+    },
+    "red-ems_cluster_output_authority_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/ems_cluster_output_authority_test-old",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 1,
+      "expectedExitCode": 1,
+      "expectedMessage": "new term sequence 1 must recover in the same bridge after old term sequence 157",
+      "pass": true,
+      "binarySha256": "2f0d1881eaa13ee0a8da885651d77a851e8dce208a29d5a518eb0b3e90bc0388"
+    },
+    "green-ems_cluster_output_authority_test-1": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/ems_cluster_output_authority_test-reelection-boundaries-20260924",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true,
+      "binarySha256": "aa64730d5e34b0ca743d19e2427ee3cc907cdcebdeddd1282b48a47fd25b98e0"
+    },
+    "green-ems_cluster_output_authority_test-2": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/ems_cluster_output_authority_test-reelection-boundaries-20260924",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true,
+      "binarySha256": "aa64730d5e34b0ca743d19e2427ee3cc907cdcebdeddd1282b48a47fd25b98e0"
+    },
+    "green-ems_cluster_output_authority_test-3": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/ems_cluster_output_authority_test-reelection-boundaries-20260924",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true,
+      "binarySha256": "aa64730d5e34b0ca743d19e2427ee3cc907cdcebdeddd1282b48a47fd25b98e0"
+    },
+    "link-old-ems_cluster_strategy_startup_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_strategy_startup_test.cpp",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/old-bridge.o",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/ems_cluster_strategy_startup_test-old"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true
+    },
+    "red-ems_cluster_strategy_startup_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa/ems_cluster_strategy_startup_test-old",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 1,
+      "expectedExitCode": 1,
+      "expectedMessage": "same bridge must authorize the first low-sequence dispatch after real re-election",
+      "pass": true,
+      "binarySha256": "7b57c951df114c90c32e020f074e76c9970f3bd1f047b596b232dafe7a148197"
+    },
+    "green-ems_cluster_strategy_startup_test-1": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/ems_cluster_strategy_startup_test-reelection-boundaries-20260924",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true,
+      "binarySha256": "f155cb4dac4a5264819b978f4abf749e2cefb88a0a8efed670a8640323bd5af8"
+    },
+    "green-ems_cluster_strategy_startup_test-2": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/ems_cluster_strategy_startup_test-reelection-boundaries-20260924",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true,
+      "binarySha256": "f155cb4dac4a5264819b978f4abf749e2cefb88a0a8efed670a8640323bd5af8"
+    },
+    "green-ems_cluster_strategy_startup_test-3": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/ems_cluster_strategy_startup_test-reelection-boundaries-20260924",
+        "/home/wmzdxs/.cache/edge-shm11-egress-20260924/reelection-71nvttwa"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "expectedMessage": null,
+      "pass": true,
+      "binarySha256": "f155cb4dac4a5264819b978f4abf749e2cefb88a0a8efed670a8640323bd5af8"
+    }
+  },
+  "sourcesSha256": {
+    "src/ems_cluster_points.cpp": "932470fa44b4cfe6fef05f3599f1c569c55d45a53db3501c138189917cfdc1ce",
+    "tools/ems_cluster_output_authority_test.cpp": "49c99346cb9333537736ee098f6c46853a50a1dac8a47bfa073cb128c3ba64f1",
+    "tools/ems_cluster_strategy_startup_test.cpp": "7955d1d748a6f8be0bc2d0da204647130d2623b506436d30d33a70901cc701c7"
+  },
+  "librarySha256": "7015ebad85d60600ddd4c6b8c76d8b008b959ac83ba5ff2b0288d6de2f8cd399",
+  "oldBridgeSha256": "68fb686d10f7f532e844de890a83e9fad95163ba6938fb71de2aab9106dd5c0a"
+}

@@ -18,8 +18,8 @@ void indexes(GraphEmsNodeConfig& node, const std::string& key, std::uint32_t fir
     node.params[key + ".count"] = "3";
     for (int i = 0; i < 3; ++i) node.params[key + "." + std::to_string(i)] = std::to_string(first + i);
 }
-void startup() {
-    const auto name = "cluster_startup_" + std::to_string(getpid());
+void startup(bool testRecovery = false) {
+    const auto name = std::string(testRecovery ? "cluster_recovery_" : "cluster_startup_") + std::to_string(getpid());
     struct Cleanup {
         std::string name;
         ~Cleanup() {
@@ -46,6 +46,7 @@ void startup() {
     config.virtualSharedMemoryName = name;
     config.controlTargetIndexes = {1234};
     std::vector<std::unique_ptr<EmsClusterNode>> nodes;
+    std::vector<EmsClusterConfig> nodeConfigs;
     for (int i = 0; i < 2; ++i) {
         auto local = config;
         local.consensusStateFile = name + std::to_string(i) + "-consensus.json";
@@ -59,6 +60,7 @@ void startup() {
             require(static_cast<bool>(roster), "fixed voter fixture must be writable");
         }
         local.electionPriority = i == 0 ? 100 : 0;
+        nodeConfigs.push_back(local);
         nodes.emplace_back(new EmsClusterNode(local, "NODE_" + std::to_string(i), "BOOT_" + std::to_string(i)));
     }
     EmsClusterLoadSample load;
@@ -71,12 +73,7 @@ void startup() {
     capability.ratedApparentPowerKva = 100;
     capability.availableReactivePowerKvar = 60;
     auto now = clusterMonotonicNowMs() - 5000;
-    for (int tick = 0; tick < 200; ++tick) {
-        now += 25;
-        for (auto& node : nodes) {
-            node->updateControlInputs(capability, {}, false, now);
-            node->tick(now, load);
-        }
+    const auto deliver = [&] {
         for (int delivery = 0; delivery < 3; ++delivery) {
             for (int i = 0; i < 2; ++i) {
                 for (const auto& outbound : nodes[i]->drainOutgoing()) {
@@ -88,6 +85,14 @@ void startup() {
                 }
             }
         }
+    };
+    for (int tick = 0; tick < 200; ++tick) {
+        now += 25;
+        for (auto& node : nodes) {
+            node->updateControlInputs(capability, {}, false, now);
+            node->tick(now, load);
+        }
+        deliver();
     }
     EmsClusterNode* leader = nullptr;
     for (auto& node : nodes) if (node->role() == EmsClusterRole::Leader) leader = node.get();
@@ -158,6 +163,107 @@ void startup() {
     require(store.getLatestByIndex(base + 106, wall + 26)->value == 1,
             "closed loop must expose dispatch validity");
     require(router.peekPendingWrites().empty(), "strategy calculation must not enqueue physical writes");
+    if (testRecovery) {
+        // Keep the elected node, bridge and Graph alive; restart only the other Coordinator.
+        const int followerIndex = nodes[0].get() == leader ? 1 : 0;
+        std::int64_t recoveryWall = wall + 25;
+        for (int tick = 0; tick < 80; ++tick) {
+            now += 25;
+            recoveryWall += 25;
+            for (auto& node : nodes) {
+                node->updateControlInputs(capability, target, true, now);
+                node->tick(now, load);
+            }
+            deliver();
+            bridge.publish(leader->status(now), leader->activeDispatch(now), recoveryWall, now);
+        }
+        const auto beforeLoss = leader->activeDispatch(now);
+        require(beforeLoss.valid && beforeLoss.sequence > 10 && store.clusterAuthority()->valid,
+                "recovery fixture requires a live high-sequence dispatch");
+        PendingWriteCommand oldCommand;
+        oldCommand.index = 1234;
+        oldCommand.value = beforeLoss.accepted.paKw;
+        oldCommand.clusterAuthorization = store.clusterAuthority()->authorization;
+        nodes[followerIndex].reset();
+        bool lostQuorum = false;
+        for (int tick = 0; tick < 160; ++tick) {
+            now += 25;
+            recoveryWall += 25;
+            leader->updateControlInputs(capability, {}, false, now);
+            leader->tick(now, load);
+            leader->drainOutgoing();
+            const auto status = leader->status(now);
+            bridge.publish(status, leader->activeDispatch(now), recoveryWall, now);
+            if (!status.quorumValid) {
+                lostQuorum = true;
+                require(!store.clusterAuthority()->valid, "quorum loss must revoke the bridge snapshot");
+                require(engine.runOnce(recoveryWall).errors.empty() &&
+                        store.getLatestByIndex(base + 106, recoveryWall)->value == 0 &&
+                        store.getLatestByIndex(base + 107, recoveryWall)->value == 0,
+                        "Graph must clear dispatch and strategy gates during quorum loss");
+            }
+            if (status.role == EmsClusterRole::Candidate && status.term > beforeLoss.term) break;
+        }
+        require(lostQuorum && leader->role() == EmsClusterRole::Candidate &&
+                leader->activeDispatch(now).term == beforeLoss.term &&
+                leader->activeDispatch(now).sequence == beforeLoss.sequence,
+                "same node self-election must retain the old term high-sequence dispatch");
+        nodes[followerIndex].reset(new EmsClusterNode(nodeConfigs[followerIndex],
+            "NODE_" + std::to_string(followerIndex), "RESTARTED_" + std::to_string(followerIndex)));
+        bool recoveredLeader = false;
+        for (int tick = 0; tick < 200; ++tick) {
+            now += 25;
+            recoveryWall += 25;
+            for (auto& node : nodes) {
+                node->updateControlInputs(capability, {}, false, now);
+                node->tick(now, load);
+            }
+            deliver();
+            const auto status = leader->status(now);
+            const auto transition = leader->activeDispatch(now);
+            bridge.publish(status, transition, recoveryWall, now);
+            if (status.role == EmsClusterRole::Leader && status.quorumValid) {
+                require(status.term > beforeLoss.term && !transition.valid &&
+                        transition.term == beforeLoss.term && transition.sequence == beforeLoss.sequence,
+                        "new leader status must precede replacement of the old dispatch");
+                require(!store.clusterAuthority()->valid && store.clusterAuthority()->stationStrategyActive,
+                        "re-elected leader may compute but must not execute old dispatch");
+                recoveredLeader = true;
+                break;
+            }
+        }
+        require(recoveredLeader, "surviving Coordinator must regain two-voter quorum without restart");
+        enable.ts = recoveryWall;
+        enable.expireAt = recoveryWall + 1000;
+        store.putLatest(enable);
+        require(engine.runOnce(recoveryWall).errors.empty(), "same Graph must resume station strategy");
+        const auto recoveredTarget = bridge.sampleStationTarget(recoveryWall, targetValid);
+        require(targetValid && recoveredTarget.paKw == 12 && recoveredTarget.qcKvar == 12,
+                "same Graph must generate the first new-term target");
+        now += 25;
+        recoveryWall += 25;
+        leader->updateControlInputs(capability, recoveredTarget, true, now);
+        leader->tick(now, load);
+        const auto recoveredDispatch = leader->activeDispatch(now);
+        require(recoveredDispatch.valid && recoveredDispatch.term > beforeLoss.term && recoveredDispatch.sequence == 1,
+                "core must accept the first new-term dispatch at sequence 1");
+        bridge.publish(leader->status(now), recoveredDispatch, recoveryWall, now);
+        const auto recoveredSnapshot = store.clusterAuthority();
+        require(recoveredSnapshot && recoveredSnapshot->valid && recoveredSnapshot->authorization,
+                "same bridge must authorize the first low-sequence dispatch after real re-election");
+        require(!clusterAuthorizationValid(config, oldCommand, *recoveredSnapshot, localKernelBootId(), now),
+                "real re-election must reject queued old-term authorization");
+        require(engine.runOnce(recoveryWall).errors.empty() &&
+                store.getLatestByIndex(base + 106, recoveryWall)->value == 1 &&
+                store.getLatestByIndex(base + 107, recoveryWall)->value == 1 &&
+                store.getLatestByIndex(base + 100, recoveryWall)->value == recoveredDispatch.accepted.paKw &&
+                store.getLatestByIndex(base + 103, recoveryWall)->value == recoveredDispatch.accepted.qaKvar,
+                "same Graph must recover valid P/Q sinks on the first dispatch, not after sequence catch-up");
+        require(router.peekPendingWrites().empty(), "recovery Graph must remain virtual-only");
+        std::cout << "same-process recovery term " << beforeLoss.term << " seq " << beforeLoss.sequence
+                  << " -> term " << recoveredDispatch.term << " seq " << recoveredDispatch.sequence << '\n';
+        return;
+    }
     PointStoreRoute physical;
     physical.index = 1234;
     physical.sharedMemoryName = name;
@@ -268,6 +374,6 @@ void startup() {
 }
 }
 int main() {
-    try { startup(); std::cout << "ems_cluster_strategy_startup_test passed\n"; }
+    try { startup(); startup(true); std::cout << "ems_cluster_strategy_startup_test passed\n"; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

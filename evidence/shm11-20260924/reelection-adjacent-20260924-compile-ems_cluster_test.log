@@ -1,0 +1,14 @@
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_test.cpp: In function ‘void {anonymous}::testEthernetTransportLoopback()’:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_test.cpp:1574:69: error: too many arguments to function ‘std::unique_ptr<edge_gateway::IClusterTransport> edge_gateway::makeEthernetClusterTransport(EmsClusterConfig, std::string)’
+ 1574 |     auto firstTransport = edge_gateway::makeEthernetClusterTransport(firstConfig, "COMM_NET_A", first.configurationHash());
+      |                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_test.cpp:4:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include/edge_gateway/ems_cluster_transport.hpp:20:36: note: declared here
+   20 | std::unique_ptr<IClusterTransport> makeEthernetClusterTransport(
+      |                                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/tools/ems_cluster_test.cpp:1575:70: error: too many arguments to function ‘std::unique_ptr<edge_gateway::IClusterTransport> edge_gateway::makeEthernetClusterTransport(EmsClusterConfig, std::string)’
+ 1575 |     auto secondTransport = edge_gateway::makeEthernetClusterTransport(secondConfig, "COMM_NET_B", second.configurationHash());
+      |                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-shm11-egress-20260924/include/edge_gateway/ems_cluster_transport.hpp:20:36: note: declared here
+   20 | std::unique_ptr<IClusterTransport> makeEthernetClusterTransport(
+      |                                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
