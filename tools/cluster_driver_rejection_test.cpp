@@ -4,6 +4,7 @@
 #include "edge_gateway/dio_command_executor.hpp"
 #include "edge_gateway/iec_command_executor.hpp"
 #include "edge_gateway/dlt645_command_executor.hpp"
+#include "edge_gateway/control_dedup_store.hpp"
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
@@ -126,9 +127,17 @@ void canCase() {
     f.config.protocol.can.udpPeerAddress = "127.0.0.1"; f.config.protocol.can.udpPeerPort = ntohs(addr.sin_port);
     f.config.points[0].write.dataType = "uint16";
     CanDriverService driver(f.config, *f.store);
-    for (int durable = 0; durable < 2; ++durable) {
-        f.command.durableControl = durable != 0;
-        f.command.cmdId = durable ? "durable" : "plain";
+    for (int variant = 0; variant < 4; ++variant) {
+        f.command.durableControl = (variant & 1) != 0;
+        f.command.cmdId = "cluster-" + std::to_string(variant);
+        if (variant >= 2) {
+            ClusterWriteAuthorization auth;
+            auth.kernelBootId = localKernelBootId(); auth.authorityEpoch.fill(2);
+            auth.dispatchSequence = 1;
+            auth.authorityStoreName = f.config.emsCluster.virtualSharedMemoryName;
+            auth.notAfterMonotonicMs = clusterMonotonicNowMs() + 60000;
+            f.command.clusterAuthorization = auth;
+        }
         f.store->submitWriteCommand(f.command);
         driver.processWritebackOnce(1);
         char bytes[100];
@@ -136,9 +145,25 @@ void canCase() {
         const auto receipt = f.store->getWritebackResult(f.command.cmdId);
         require(receipt && !receipt->success, "CAN cluster receipt");
     }
-    f.command.source = "mqtt-forwarder"; f.command.cmdId = "ordinary";
+    f.command.clusterAuthorization = NullOpt;
+    f.command.source = "mqtt-forwarder"; f.command.cmdId = "stale-generation";
+    PowerControlOwnership ownership(f.config.mqttDriver.powerControlOwnershipFile, "mqtt-forwarder");
+    const auto lease = ownership.acquireOrRenew("power", "test", {1234}, "takeover", 1, 60000);
+    require(lease.accepted && lease.generation != 0, "CAN ownership acquisition");
+    f.store->submitWriteCommand(f.command); driver.processWritebackOnce(1);
+    char stale[100];
+    require(recv(receiver, stale, sizeof(stale), MSG_DONTWAIT) < 0, "stale MQTT generation emitted CAN");
+    const auto rejected = f.store->getWritebackResult(f.command.cmdId);
+    require(rejected && !rejected->success && rejected->stage == "control-rejected", "ownership rejection receipt");
+    f.command.controlGeneration = lease.generation;
+    f.command.cmdId = "ordinary";
+    require(!filesystem::exists(f.config.memoryStore.controlDedupPath), "cluster rejection touched dedup ledger");
+    ControlDedupStore ledger(f.config.memoryStore.controlDedupPath);
+    require(!ledger.bind(f.config.machineCode, f.config.meterCode, f.command), "ordinary ingress bind");
     f.store->submitWriteCommand(f.command); driver.processWritebackOnce(1);
     char bytes[100];
+    const auto ordinary = f.store->getWritebackResult(f.command.cmdId);
+    require(ordinary && ordinary->success, "ordinary CAN receipt: " + (ordinary ? ordinary->message : "missing"));
     require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) > 0, "ordinary CAN datagram missing");
     std::cout << "CAN cluster=0 ordinary=1 passed\n";
 }

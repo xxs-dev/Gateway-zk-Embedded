@@ -17,6 +17,13 @@ public:
         std::shared_ptr<IGpioPort> gpioPort
     );
 
+    CommandResult executePending(const PendingWriteCommand& command, std::int64_t nowMs,
+        const BeforePhysicalWrite& beforeWrite = BeforePhysicalWrite()) const override {
+        if (clusterAuthorizationRequired(config_.emsCluster, command))
+            throw std::runtime_error("cluster physical write is unsupported by this executor");
+        return ICommandExecutor::executePending(command, nowMs, beforeWrite);
+    }
+
     CommandResult executeByIndex(
         const std::string& cmdId,
         std::uint32_t index,
