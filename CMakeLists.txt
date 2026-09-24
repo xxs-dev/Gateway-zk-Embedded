@@ -219,9 +219,19 @@ target_link_libraries(pointctl PRIVATE edge_gateway)
 target_compile_options(pointctl PRIVATE -fdiagnostics-color=never)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Explicit opt-in target for the isolated shadow acceptance, never a product install.
+    add_executable(ems_shadow_live_helper EXCLUDE_FROM_ALL tools/ems_shadow_live_helper.cpp)
+    target_link_libraries(ems_shadow_live_helper PRIVATE edge_gateway pthread rt)
     add_executable(memory_point_store_migrate
         tools/memory_point_store_migrate.cpp src/memory_point_store_migration.cpp)
     target_link_libraries(memory_point_store_migrate PRIVATE pthread rt)
+    option(GATEWAY_BUILD_EMS_SHADOW_HELPER_TESTS "Build isolated shadow helper regression" OFF)
+    if(BUILD_TESTING AND GATEWAY_BUILD_EMS_SHADOW_HELPER_TESTS)
+        add_executable(ems_shadow_live_helper_test tools/ems_shadow_live_helper_test.cpp)
+        target_link_libraries(ems_shadow_live_helper_test PRIVATE edge_gateway pthread rt)
+        add_test(NAME ems_shadow_live_helper COMMAND ems_shadow_live_helper_test)
+        set_tests_properties(ems_shadow_live_helper PROPERTIES TIMEOUT 15 SKIP_RETURN_CODE 77)
+    endif()
     if(BUILD_TESTING)
         add_executable(memory_point_store_migration_test
             tools/memory_point_store_migration_test.cpp
