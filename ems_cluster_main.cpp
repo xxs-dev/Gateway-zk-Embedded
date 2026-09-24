@@ -247,7 +247,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
-        auto transport = makeEthernetClusterTransport(appConfig.emsCluster, identity.machineCode);
+        auto transport = makeEthernetClusterTransport(appConfig.emsCluster, identity.machineCode, node.configurationHash());
         transport->start();
         EmsClusterPointBridge pointBridge(appConfig.emsCluster, identity.machineCode);
         InvalidatePublishedAuthority invalidateOnExit{pointBridge};
