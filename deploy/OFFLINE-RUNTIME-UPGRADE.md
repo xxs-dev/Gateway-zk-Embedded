@@ -199,8 +199,23 @@ it requires the pinned drop-in state, unchanged switched file and exact effectiv
 systemd `Environment` target, with no `EnvironmentFiles` or `UnsetEnvironment`.
 After start, the approved old monitor SHM must still be unmapped; a failure
 stops the observer through the existing failed-start path.
-Without that binding it refuses before start; this does not waive the separate
-unreferenced-default refusal or qualify real device mappings.
+Without that binding it refuses before start. An unreferenced existing default
+`gateway_point_store` still refuses observe except for the narrow standalone
+SystemMonitor profile: exactly the approved `monitor-service` instance, the
+pinned R3 SystemMonitor binary and unit template, and exactly the three
+camera/monitor/mqtt app files with empty `deviceConfigFiles`, one nonempty
+approved target store, and disabled sibling SHM consumers/producers. The
+approved monitor source-to-target drop-in must switch the primary store.
+The effective instance/template `DropInPaths` may contain only the pinned
+`998-shm.conf` and this transaction's byte-checked `90-offline` inhibition
+files; template, drop-in bytes/mode, effective environment, and configuration
+are checked again before start. Every source, including the old default, must
+be unmapped before and after start, and source hashes must remain unchanged.
+This is a config-shape/version qualification, not a node whitelist or an
+approval flag. Other observers, unknown apps, changed unit bindings, and
+other default-store cases still refuse. Local fake-systemctl tests cannot
+establish real process target mappings or production service safety; those
+remain separate on-device observation requirements.
 Previously masked units are refused, never unmasked. `is-active` must succeed.
 The entrypoint temporarily removes only selected observer/observer-template
 drop-ins, starts them, then restores inhibition and reloads systemd before success.

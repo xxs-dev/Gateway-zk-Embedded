@@ -65,6 +65,15 @@ case "$1" in
           *--property=LoadState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_LOAD_STATE:-loaded}" ;;
           *--property=ActiveState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_ACTIVE_STATE:-inactive}" ;;
           *--property=FragmentPath*system-monitor@monitor-service.service*) echo /etc/systemd/system/system-monitor@.service ;;
+          *--property=DropInPaths*system-monitor@monitor-service.service*)
+            for path in /etc/systemd/system/system-monitor@.service.d/90-offline-*.conf /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-*.conf /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf; do
+              [ ! -f "$path" ] || printf '%s ' "$path"
+            done
+            [ -z "${MONITOR_EXTRA_DROPIN:-}" ] || printf '%s ' "$MONITOR_EXTRA_DROPIN"
+            if [ -n "${MONITOR_EXTRA_DROPIN_AFTER_RELOAD:-}" ] && [ ! -e /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-fixture-offline.conf ]; then
+              printf '%s ' "$MONITOR_EXTRA_DROPIN_AFTER_RELOAD"
+            fi
+            echo ;;
           *--property=Environment\\ --value\\ system-monitor@monitor-service.service*)
             if [ -n "${MONITOR_ENV_SHOW_OVERRIDE:-}" ]; then
               echo "$MONITOR_ENV_SHOW_OVERRIDE"
@@ -75,6 +84,10 @@ case "$1" in
           *) echo inactive ;;
         esac
       else echo 4242; fi
+    fi ;;
+  daemon-reload)
+    if [ "${MUTATE_MONITOR_DROPIN_BEFORE_START:-0}" = 1 ] && [ ! -e /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-fixture-offline.conf ]; then
+      printf '# changed before start\n' >> /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf
     fi ;;
   restart) [ "${FAIL_RESTART:-0}" != 1 ] || exit 42 ;;
 esac
@@ -459,6 +472,69 @@ exec /bin/cp "$@"
         result = self.offline_run('observe')
         self.assertNotEqual(0, result.returncode, result.stdout)
         self.assertIn('B monitor default', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_b_default_monitor_primary_camera_rejected(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        path = home / 'config/runtime/apps/monitor-service.json'
+        doc = json.loads(path.read_text())
+        doc['cameraService']['enabled'] = True
+        write(path, json.dumps(doc))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('B monitor default', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_b_default_monitor_enabled_cluster_rejected(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        path = home / 'config/runtime/apps/monitor-service.json'
+        doc = json.loads(path.read_text())
+        doc['emsCluster']['enabled'] = True
+        write(path, json.dumps(doc))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('standalone cannot bypass an enabled EMS cluster', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_b_default_monitor_extra_dropin_rejected(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'MONITOR_EXTRA_DROPIN':
+                                  '/etc/systemd/system/system-monitor@monitor-service.service.d/override.conf'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('effective drop-ins changed', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_b_default_monitor_dropin_change_before_start_rejected(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'MONITOR_EXTRA_DROPIN_AFTER_RELOAD':
+                                  '/etc/systemd/system/system-monitor@monitor-service.service.d/override.conf'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('effective drop-ins changed', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_b_default_monitor_binding_change_before_start_rejected(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'MUTATE_MONITOR_DROPIN_BEFORE_START': '1'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('monitor SHM drop-in changed before start', result.stdout)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_monitor_binding_roundtrip(self):

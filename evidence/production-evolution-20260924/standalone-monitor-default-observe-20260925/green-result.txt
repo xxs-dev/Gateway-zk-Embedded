@@ -1,0 +1,16 @@
+test_offline_b_default_monitor_observe_roundtrip (__main__.InstallIsolationTest.test_offline_b_default_monitor_observe_roundtrip) ... ok
+test_offline_b_default_monitor_unknown_app_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_unknown_app_rejected) ... ok
+test_offline_b_default_monitor_primary_camera_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_primary_camera_rejected) ... ok
+test_offline_b_default_monitor_enabled_cluster_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_enabled_cluster_rejected) ... ok
+test_offline_b_default_monitor_extra_dropin_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_extra_dropin_rejected) ... ok
+test_offline_b_default_monitor_dropin_change_before_start_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_dropin_change_before_start_rejected) ... ok
+test_offline_b_default_monitor_binding_change_before_start_rejected (__main__.InstallIsolationTest.test_offline_b_default_monitor_binding_change_before_start_rejected) ... ok
+test_offline_unreferenced_default_stopped_only (__main__.InstallIsolationTest.test_offline_unreferenced_default_stopped_only) ... ok
+test_offline_monitor_binding_roundtrip (__main__.InstallIsolationTest.test_offline_monitor_binding_roundtrip) ... ok
+test_offline_monitor_effective_env_mismatch_rejected (__main__.InstallIsolationTest.test_offline_monitor_effective_env_mismatch_rejected) ... ok
+test_offline_monitor_binding_post_stop_change_rejected (__main__.InstallIsolationTest.test_offline_monitor_binding_post_stop_change_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 9.529s
+
+OK

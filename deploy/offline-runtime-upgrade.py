@@ -23,6 +23,9 @@ OBSERVER_UNIT = re.compile(r'(?:compute-engine|ems-cluster|system-monitor)@[A-Za
 MONITOR_UNIT = 'system-monitor@monitor-service.service'
 MONITOR_DROPIN = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
 MONITOR_ENV = b'[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME='
+B_MONITOR_BINARY_SHA256 = '91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928'
+B_MONITOR_UNIT_SHA256 = '946e192e53d54482d0758aac4260575a617f2495b43ad87b4dd1a2f3257465a2'
+B_MONITOR_APPS = {'camera-service.json', 'monitor-service.json', 'mqtt-service.json'}
 
 
 def require(condition, message):
@@ -189,6 +192,72 @@ def monitor_effective_target(target):
     return (systemctl('show', '--property=Environment', '--value', MONITOR_UNIT) == expected and
             systemctl('show', '--property=EnvironmentFiles', '--value', MONITOR_UNIT) == '' and
             systemctl('show', '--property=UnsetEnvironment', '--value', MONITOR_UNIT) == '')
+
+
+def monitor_default_unit_binding(approval, inhibited):
+    template = Path('/etc/systemd/system/system-monitor@.service')
+    require(digest(template) == B_MONITOR_UNIT_SHA256 and
+            systemctl('show', '--property=FragmentPath', '--value', MONITOR_UNIT) == str(template),
+            'monitor default template binding changed')
+    expected = {str(MONITOR_DROPIN)}
+    if inhibited:
+        for unit in (MONITOR_UNIT, 'system-monitor@.service'):
+            expected.add(str(Path('/etc/systemd/system') / (unit + '.d') /
+                             ('90-offline-' + approval['transactionId'] + '.conf')))
+    actual = systemctl('show', '--property=DropInPaths', '--value', MONITOR_UNIT).split()
+    require(len(actual) == len(expected) and set(actual) == expected,
+            'monitor default effective drop-ins changed')
+
+
+def b_monitor_default_safe(home, approval, manifest, state, selected, monitor, documents):
+    require(approval_mode(approval) == 'standalone' and
+            selected == [MONITOR_UNIT] and monitor is not None and
+            monitor[0]['source'] != 'gateway_point_store' and
+            any(item['source'] == 'gateway_point_store' for item in state['segments']),
+            'unreferenced default SHM: B monitor default scope not proven')
+    require(any(c.get('kind') == 'product' and c.get('target') == 'SystemMonitor' and
+                c.get('sha256') == B_MONITOR_BINARY_SHA256 for c in manifest['components']),
+            'B monitor default candidate mismatch')
+    apps = home / 'config/runtime/apps'
+    require(apps.is_dir() and not apps.is_symlink() and
+            {p.name for p in apps.iterdir()} == B_MONITOR_APPS and
+            all(regular(apps / name) for name in B_MONITOR_APPS),
+            'B monitor default requires exact three effective apps')
+    target = monitor[0]['target']
+    for name in B_MONITOR_APPS:
+        doc = documents.get('apps/' + name)
+        require(isinstance(doc, dict) and doc.get('deviceConfigFiles') == [] and
+                guard.configured_names(doc) == {target},
+                'B monitor default app references or device list changed: ' + name)
+        mqtt = doc.get('mqttDriver')
+        camera = doc.get('cameraService')
+        cluster = doc.get('emsCluster')
+        require(isinstance(mqtt, dict) and mqtt.get('sharedMemoryName') == target and
+                mqtt.get('sharedMemoryNames') == [target] and
+                isinstance(camera, dict) and camera.get('enabled') is False and
+                camera.get('sharedMemoryName') == target and 'agcAvc' not in doc and
+                ('emsCluster' not in doc or
+                 isinstance(cluster, dict) and cluster.get('enabled') is False),
+                'B monitor default primary/camera store binding changed: ' + name)
+        if name == 'camera-service.json':
+            require('enabled' not in mqtt and 'computeEngine' not in doc and 'localDisplay' not in doc,
+                    'B monitor default camera loader shape changed')
+        else:
+            compute, display = doc.get('computeEngine'), doc.get('localDisplay')
+            require(mqtt.get('enabled') is False and isinstance(compute, dict) and
+                    compute.get('enabled') is False and compute.get('sharedMemoryNames') == [target] and
+                    compute.get('outputDefaultSharedMemoryName') == target and
+                    isinstance(display, dict) and display.get('enabled') is False and
+                    display.get('sharedMemoryNames') == [target],
+                    'B monitor default sibling producer gate changed: ' + name)
+        if name == 'monitor-service.json':
+            require(isinstance(doc.get('systemMonitor'), dict) and
+                    doc['systemMonitor'].get('enabled') is True,
+                    'B monitor default primary service gate changed')
+        elif 'systemMonitor' in doc:
+            require(isinstance(doc['systemMonitor'], dict) and
+                    doc['systemMonitor'].get('enabled') is False,
+                    'B monitor default sibling service gate changed')
 
 
 def no_processes(home, component_names):
@@ -581,8 +650,6 @@ def observe(args):
     state = checked_json(args.state / 'state.json', ready['stateSha256'])
     require(state['phase'] == 'UPGRADED_STOPPED' and state['approvalSha256'] == args.approval_sha256,
             'observe requires unchanged successful stopped upgrade')
-    require(state.get('unreferencedDefaultShm') is not True,
-            'unreferenced default SHM may have implicit readers; observer start is not qualified')
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
     require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
             ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')
@@ -612,7 +679,8 @@ def observe(args):
     installed_inventory(home, paths, {'installedRuntimeSha256': {
         paths[c['target']]: c['sha256'] for c in components}})
     require(tree_hashes(home / 'config/runtime') == state['configSha256'], 'upgraded configuration changed')
-    for doc in configured(home / 'config/runtime').values():
+    documents = configured(home / 'config/runtime')
+    for doc in documents.values():
         controls_disabled(doc)
     for segment in state['segments']:
         for side in ('source', 'target'):
@@ -637,6 +705,8 @@ def observe(args):
                 'monitor SHM drop-in changed before observe')
         require(monitor_effective_target(record['target']),
                 'monitor SHM effective environment is not the approved target')
+    if state.get('unreferencedDefaultShm') is True:
+        b_monitor_default_safe(home, approval, manifest, state, selected, monitor, documents)
     for unit in selected:
         before = state['unitStates'][unit]['enabled']
         require(before not in ('masked', 'masked-runtime') and
@@ -653,6 +723,8 @@ def observe(args):
         body = ('[Unit]\nConditionPathExists=!' + str(marker) + '\n').encode()
         require(regular(path).read_bytes() == body, 'unit inhibition changed')
         dropins.append((path, body))
+    if state.get('unreferencedDefaultShm') is True:
+        monitor_default_unit_binding(approval, True)
     state['phase'] = 'STARTING_OBSERVERS'
     state['observeApprovalSha256'] = args.ready_sha256
     save(args.state / 'state.json', state)
@@ -661,13 +733,26 @@ def observe(args):
             path.unlink()
             sync_dir(path.parent)
         systemctl('daemon-reload')
+        if state.get('unreferencedDefaultShm') is True:
+            monitor_default_unit_binding(approval, False)
+            require(regular(MONITOR_DROPIN).read_bytes() == new and
+                    stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == record['mode'],
+                    'monitor SHM drop-in changed before start')
         if any(unit.startswith('system-monitor@') for unit in selected):
             require(monitor_effective_target(state['systemMonitorShmDropin']['target']),
                     'monitor SHM effective environment changed before start')
+        if state.get('unreferencedDefaultShm') is True:
+            require(tree_hashes(home / 'config/runtime') == state['configSha256'],
+                    'B monitor default config changed before start')
         for unit in selected:
             systemctl('start', unit)
             systemctl('is-active', '--quiet', unit)
-        if monitor:
+        if state.get('unreferencedDefaultShm') is True:
+            for segment in state['segments']:
+                require(digest(Path('/dev/shm') / segment['source']) == segment['sourceSha256'],
+                        'B monitor default source SHM changed after start')
+            no_mappings([segment['source'] for segment in state['segments']])
+        elif monitor:
             no_mappings([monitor[0]['source']])
         for path, body in dropins:
             write_new(path, body, 0o644)
