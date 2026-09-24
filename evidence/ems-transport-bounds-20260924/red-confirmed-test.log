@@ -1,0 +1,7 @@
+FAIL udp-budget: UDP per-poll datagram budget exceeded
+FAIL accept-pending-budget-expiry: TCP per-poll accept budget exceeded
+FAIL tcp-budget-partial: TCP frame budget exceeded
+PASS malformed-version-auth
+FAIL incompatible-identity: incompatible UDP identity accepted
+FAIL writer-deadlines: repeated writable progress renewed send deadline
+PASS two-peer-recovery
