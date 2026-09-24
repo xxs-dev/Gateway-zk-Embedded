@@ -106,6 +106,19 @@ struct EmsClusterMessage {
     std::string senderNodeId;
     std::string senderBootId;
     std::string leaderNodeId;
+    std::string senderIncarnation;
+    std::string recipientIncarnation;
+    std::uint64_t discoveryChallenge = 0;
+    std::uint64_t discoveryReplyTo = 0;
+    std::uint64_t heartbeatId = 0;
+    std::uint64_t heartbeatAckId = 0;
+    std::string heartbeatIncarnation;
+    std::uint64_t electionId = 0;
+    std::uint64_t voteReplyTo = 0;
+    std::string voteCandidateIncarnation;
+    std::uint64_t dispatchRequestId = 0;
+    std::string dispatchRequestIncarnation;
+    std::uint32_t authorityTtlMs = 0;
     double loadScore = 100.0;
     int electionPriority = 100;
     int tcpPort = 0;
@@ -176,6 +189,7 @@ struct EmsClusterStatus {
     int onlineMembers = 0;
     int quorum = 0;
     bool quorumValid = false;
+    std::int64_t authorityExpireAtMs = 0;
     bool metricsComplete = false;
     bool computeHealthy = false;
     double loadScore = 100.0;
@@ -232,6 +246,7 @@ public:
     );
     static const char* roleName(EmsClusterRole role);
     static const char* dispatchCodeName(EmsClusterDispatchCode code);
+    static std::string newProcessIncarnation();
 
 private:
     struct Member {
@@ -239,12 +254,26 @@ private:
         std::uint64_t lastSequence = 0;
         std::int64_t lastAckMs = 0;
         std::int64_t lastCapabilityMs = 0;
+        std::string incarnation;
+        std::set<std::string> retiredIncarnations;
+        std::uint64_t lastAckId = 0;
+        std::uint64_t dispatchRequestId = 0;
     };
 
+    struct HeartbeatRound {
+        std::int64_t sentAtMs = 0;
+        std::uint64_t term = 0;
+        std::uint64_t epoch = 0;
+    };
+    void observeTime(std::int64_t nowMs);
+    void sendHeartbeat(std::int64_t nowMs);
+    void failClosed(const std::string& reason);
+    std::int64_t authorityDeadline() const;
+
     void loadPersistentState();
-    void persistConsensusState() const;
+    void persistConsensusState();
     void loadMembership();
-    void persistMembership() const;
+    void persistMembership();
     void resetElectionDeadline(std::int64_t nowMs);
     void becomeFollower(std::uint64_t term, const std::string& leader, std::int64_t nowMs, const std::string& reason);
     void startElection(std::int64_t nowMs);
@@ -289,6 +318,7 @@ private:
     std::string reason_;
     std::uint64_t currentTerm_ = 0;
     std::string votedFor_;
+    std::string votedForIncarnation_;
     std::string leaderNodeId_;
     mutable std::uint64_t sequence_ = 0;
     std::int64_t electionDeadlineMs_ = 0;
@@ -296,6 +326,18 @@ private:
     std::int64_t lastHeartbeatMs_ = 0;
     std::int64_t lastLeaderSeenMs_ = 0;
     std::int64_t lastQuorumMs_ = 0;
+    std::int64_t lastObservedMs_ = 0;
+    std::int64_t startupUntilMs_ = 0;
+    std::int64_t voteHoldUntilMs_ = 0;
+    std::string promisedLeader_;
+    std::string promisedIncarnation_;
+    std::int64_t leadershipDeadlineMs_ = 0;
+    std::int64_t electionStartedMs_ = 0;
+    std::uint64_t electionId_ = 0;
+    std::uint64_t challengeId_ = 0;
+    std::map<std::uint64_t, std::int64_t> discoveryRounds_;
+    std::map<std::uint64_t, HeartbeatRound> heartbeatRounds_;
+    std::map<std::uint64_t, std::int64_t> dispatchRequests_;
     EmsClusterLoadSample load_;
     double loadScore_ = 100.0;
     std::map<std::string, Member> members_;

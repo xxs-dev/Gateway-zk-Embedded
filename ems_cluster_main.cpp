@@ -11,6 +11,8 @@
 #include <thread>
 
 #ifndef _WIN32
+#include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -98,6 +100,40 @@ void writeStatus(const std::string& path, const std::string& payload) {
         throw std::runtime_error("failed to install EMS cluster status");
     }
 }
+
+class ConsensusLock {
+public:
+    explicit ConsensusLock(const std::string& statePath) {
+#ifndef _WIN32
+        ensureDirectory(directoryOf(statePath));
+        fd_ = open((statePath + ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        if (fd_ < 0 || flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+            if (fd_ >= 0) close(fd_);
+            fd_ = -1;
+            throw std::runtime_error("EMS consensus state is already owned or cannot be locked");
+        }
+#else
+        throw std::runtime_error("EMS consensus locking requires Linux");
+#endif
+    }
+    ~ConsensusLock() {
+#ifndef _WIN32
+        if (fd_ >= 0) close(fd_);
+#endif
+    }
+private:
+    int fd_ = -1;
+};
+
+struct InvalidatePublishedAuthority {
+    edge_gateway::EmsClusterPointBridge& bridge;
+    ~InvalidatePublishedAuthority() {
+        try { bridge.publish({}, {}, wallNowMs(), monotonicNowMs()); }
+        catch (const std::exception& error) {
+            std::cerr << "EMS exit invalidation failed: " << error.what() << std::endl;
+        }
+    }
+};
 
 class LoadSampler {
 public:
@@ -203,8 +239,8 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
-        const auto bootId = readText("/proc/sys/kernel/random/boot_id");
-        EmsClusterNode node(appConfig.emsCluster, identity.machineCode, bootId.empty() ? "unknown-boot" : bootId);
+        ConsensusLock consensusLock(appConfig.emsCluster.consensusStateFile);
+        EmsClusterNode node(appConfig.emsCluster, identity.machineCode, EmsClusterNode::newProcessIncarnation());
         if (validateOnly) {
             std::cout << "EMS cluster configuration valid node=" << identity.machineCode
                       << " address=" << network.selectedAddress << std::endl;
@@ -214,6 +250,8 @@ int main(int argc, char* argv[]) {
         auto transport = makeEthernetClusterTransport(appConfig.emsCluster, identity.machineCode);
         transport->start();
         EmsClusterPointBridge pointBridge(appConfig.emsCluster, identity.machineCode);
+        InvalidatePublishedAuthority invalidateOnExit{pointBridge};
+        pointBridge.publish({}, {}, wallNowMs(), monotonicNowMs());
         LoadSampler loadSampler(appConfig.emsCluster.computeHealthFile);
         std::signal(SIGINT, handleSignal);
         std::signal(SIGTERM, handleSignal);
@@ -225,15 +263,21 @@ int main(int argc, char* argv[]) {
         EmsClusterDispatchCode lastDispatchCode = EmsClusterDispatchCode::ControlDisabled;
         std::uint64_t lastDispatchSequence = 0;
         do {
+            for (const auto& inbound : transport->poll(50)) node.receive(inbound, monotonicNowMs());
+            const auto inputWallNow = wallNowMs();
+            bool stationTargetValid = false;
+            const auto capability = pointBridge.sampleCapability(inputWallNow);
+            const auto stationTarget = pointBridge.sampleStationTarget(inputWallNow, stationTargetValid);
+            node.updateControlInputs(capability, stationTarget, stationTargetValid, monotonicNowMs());
+            const auto load = loadSampler.sample();
+            node.tick(monotonicNowMs(), load);
+            for (const auto& outbound : node.drainOutgoing()) {
+                if (outbound.message.type == EmsClusterMessageType::DispatchTarget &&
+                    !node.status(monotonicNowMs()).quorumValid) continue;
+                transport->send(outbound);
+            }
             const auto now = monotonicNowMs();
             const auto wallNow = wallNowMs();
-            for (const auto& inbound : transport->poll(50)) node.receive(inbound, now);
-            bool stationTargetValid = false;
-            const auto capability = pointBridge.sampleCapability(wallNow);
-            const auto stationTarget = pointBridge.sampleStationTarget(wallNow, stationTargetValid);
-            node.updateControlInputs(capability, stationTarget, stationTargetValid, now);
-            node.tick(now, loadSampler.sample());
-            for (const auto& outbound : node.drainOutgoing()) transport->send(outbound);
             const auto status = node.status(now);
             const auto dispatch = node.activeDispatch(now);
             const bool pointStateChanged = !pointStatePublished ||
@@ -245,7 +289,7 @@ int main(int argc, char* argv[]) {
             const bool statusDue = lastStatusAt == 0 ||
                 now - lastStatusAt >= appConfig.emsCluster.statusIntervalMs;
             if (pointStateChanged || statusDue) {
-                pointBridge.publish(status, dispatch, wallNow);
+                pointBridge.publish(status, dispatch, wallNow, now);
                 pointStatePublished = true;
                 lastDispatchValid = dispatch.valid;
                 lastDispatchCode = dispatch.code;
