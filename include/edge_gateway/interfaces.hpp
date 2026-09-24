@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/cluster_write_authorization.hpp"
+#include <stdexcept>
 
 namespace edge_gateway {
 
@@ -29,6 +31,19 @@ public:
     virtual std::vector<std::uint16_t> readInputRegisters(int slave, int start, int count) = 0;
 
     virtual void writeSingleCoil(int slave, int address, bool value) = 0;
+    virtual void writeSingleCoil(int slave, int address, bool value, const BeforePhysicalWrite& beforeWrite) {
+        if (beforeWrite) throw std::runtime_error("guarded coil write is unsupported");
+        writeSingleCoil(slave, address, value);
+    }
+    virtual void writeSingleRegister(int slave, int address, std::uint16_t value, const BeforePhysicalWrite& beforeWrite) {
+        if (beforeWrite) throw std::runtime_error("guarded register write is unsupported");
+        writeSingleRegister(slave, address, value);
+    }
+    virtual void writeMultipleRegisters(int slave, int address, const std::vector<std::uint16_t>& values,
+                                        const BeforePhysicalWrite& beforeWrite) {
+        if (beforeWrite) throw std::runtime_error("guarded register write is unsupported");
+        writeMultipleRegisters(slave, address, values);
+    }
     virtual void writeSingleRegister(int slave, int address, std::uint16_t value) = 0;
     virtual void writeMultipleRegisters(
         int slave,

@@ -3,14 +3,25 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <stdexcept>
 
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/cluster_write_authorization.hpp"
 
 namespace edge_gateway {
 
 class ICommandExecutor {
 public:
     virtual ~ICommandExecutor() = default;
+
+    virtual CommandResult executePending(
+        const PendingWriteCommand& command, std::int64_t nowMs,
+        const BeforePhysicalWrite& beforeWrite = BeforePhysicalWrite()
+    ) const {
+        if (command.clusterAuthorization || beforeWrite)
+            throw std::runtime_error("cluster physical write is unsupported by this executor");
+        return executeByIndex(command.cmdId, command.index, command.value, nowMs);
+    }
 
     virtual CommandResult executeByIndex(
         const std::string& cmdId,

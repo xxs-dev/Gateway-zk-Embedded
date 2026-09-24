@@ -67,6 +67,26 @@ CommandExecutor::CommandExecutor(
 }
 
 CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64_t nowMs) const {
+    return execute(request, nowMs, BeforePhysicalWrite());
+}
+
+CommandResult CommandExecutor::executePending(const PendingWriteCommand& command, std::int64_t nowMs,
+                                            const BeforePhysicalWrite& beforeWrite) const {
+    BeforePhysicalWrite check = beforeWrite;
+    if (clusterAuthorizationRequired(config_.emsCluster, command)) {
+        auto guard = std::make_shared<ClusterWriteGuard>(config_.emsCluster);
+        check = [guard, command, beforeWrite] {
+            guard->check(command);
+            if (beforeWrite) beforeWrite();
+        };
+    }
+    const auto& point = findPointByIndex(command.index);
+    return execute(CommandRequest{command.cmdId, config_.machineCode, config_.meterCode,
+                                  point.pointCode, command.value}, nowMs, check);
+}
+
+CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64_t nowMs,
+                                       const BeforePhysicalWrite& beforeWrite) const {
     CommandResult result;
     result.cmdId = request.cmdId;
     result.machineCode = request.machineCode;
@@ -76,6 +96,8 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
     result.requestedValue = request.value;
 
     try {
+        if (beforeWrite && config_.protocol.type != "modbus_tcp" && config_.protocol.type != "modbus_rtu")
+            throw std::runtime_error("cluster physical write requires supported Modbus transport");
         if (config_.protocol.type == "local_dio") {
             const auto& point = findPoint(request.pointCode);
             result.index = point.index;
@@ -113,7 +135,7 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
 
         const auto encoded = ModbusCodec::encodeWriteValue(request.value, point);
         ModbusPriorityWriteGuard priority(modbusClient_);
-        dispatchWrite(point, encoded);
+        dispatchWrite(point, encoded, beforeWrite);
 
         if (point.write.verifyAfterWrite && point.write.verifyByRead) {
             result.verifyAttempted = true;
@@ -179,14 +201,15 @@ const PointDefinition& CommandExecutor::findPointByIndex(std::uint32_t index) co
 
 void CommandExecutor::dispatchWrite(
     const PointDefinition& point,
-    const std::vector<std::uint16_t>& encoded
+    const std::vector<std::uint16_t>& encoded,
+    const BeforePhysicalWrite& beforeWrite
 ) const {
     switch (point.write.function) {
         case 5:
             if (encoded.size() != 1) {
                 throw std::invalid_argument("function 5 requires one coil value");
             }
-            modbusClient_->writeSingleCoil(config_.protocol.slave, writeAddressOf(point), encoded.front() != 0);
+            modbusClient_->writeSingleCoil(config_.protocol.slave, writeAddressOf(point), encoded.front() != 0, beforeWrite);
             return;
         case 6:
             if (encoded.size() != 1) {
@@ -196,14 +219,14 @@ void CommandExecutor::dispatchWrite(
                 modbusClient_->writeSingleRegister(
                     config_.protocol.slave,
                     writeAddressOf(point),
-                    mergeBitWrite(point, encoded.front() != 0)
+                    mergeBitWrite(point, encoded.front() != 0), beforeWrite
                 );
                 return;
             }
-            modbusClient_->writeSingleRegister(config_.protocol.slave, writeAddressOf(point), encoded.front());
+            modbusClient_->writeSingleRegister(config_.protocol.slave, writeAddressOf(point), encoded.front(), beforeWrite);
             return;
         case 16:
-            modbusClient_->writeMultipleRegisters(config_.protocol.slave, writeAddressOf(point), encoded);
+            modbusClient_->writeMultipleRegisters(config_.protocol.slave, writeAddressOf(point), encoded, beforeWrite);
             return;
         default:
             throw std::invalid_argument("unsupported write function: " + std::to_string(point.write.function));
