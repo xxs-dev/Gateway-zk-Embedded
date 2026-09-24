@@ -39,6 +39,8 @@ def runtime_file(source, destination):
 
 
 def ota(manifest_path):
+    if Path('/opt/modbus-gateway/data/runtime-upgrade-stop').exists():
+        raise ValueError('offline upgrade fence active; ordinary OTA cannot change this runtime')
     manifest = json.loads(manifest_path.read_text())
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be an object")
@@ -56,6 +58,8 @@ def ota(manifest_path):
 
 
 def rollback(backup):
+    if Path('/opt/modbus-gateway/data/runtime-upgrade-stop').exists():
+        raise ValueError('offline upgrade fence active; use offline recovery')
     # Ordinary OTA cannot prove the old/new participant ABI from a backup filename.
     for top in ('opt', 'etc'):
         root = backup / top
@@ -97,7 +101,7 @@ def configured_names(value):
     names = set()
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ('sharedMemoryName', 'virtualSharedMemoryName') and isinstance(item, str) and item:
+            if key in ('sharedMemoryName', 'virtualSharedMemoryName', 'outputSharedMemoryName') and isinstance(item, str) and item:
                 names.add(item.lstrip('/'))
             elif key == 'sharedMemoryNames' and isinstance(item, list):
                 names.update(str(name).lstrip('/') for name in item)
@@ -110,6 +114,8 @@ def configured_names(value):
 
 
 def startup(home):
+    if (home / 'data/runtime-upgrade-stop').exists():
+        raise ValueError('persistent offline upgrade fence active; no ordinary service start')
     names = {'gateway_point_store'}
     for config in (home / 'config/runtime').rglob('*.json'):
         names.update(configured_names(json.loads(config.read_text())))

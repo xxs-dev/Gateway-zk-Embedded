@@ -920,6 +920,7 @@ fi
 
 # Validate the complete mandatory payload before stopping any running service.
 deploy_file "runtime-upgrade-guard.py" >/dev/null || { echo "runtime-upgrade-guard.py missing" >&2; exit 2; }
+deploy_file "offline-runtime-upgrade.py" >/dev/null || { echo "offline-runtime-upgrade.py missing" >&2; exit 2; }
 # This keeps a malformed or stale package from turning a validation failure into
 # an avoidable field outage.
 for bin in $REQUIRED_BINS; do
@@ -972,6 +973,7 @@ install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/produ
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
 install_required_deploy_file "runtime-upgrade-guard.py" "$GATEWAY_HOME/bin/runtime-upgrade-guard.py"
+install_required_deploy_file "offline-runtime-upgrade.py" "$GATEWAY_HOME/bin/offline-runtime-upgrade.py"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"

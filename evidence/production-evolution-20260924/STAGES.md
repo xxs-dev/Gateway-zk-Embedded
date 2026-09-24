@@ -72,3 +72,27 @@ This is a temporary safety restriction, not a completed offline upgrade path.
 Header checks alone do not establish executable ABI compatibility. The next
 stage must use externally pinned component approval and actual migration CLI,
 with stopped-control recovery instead of unsafe automatic ABI downgrade.
+
+## Offline apply/recover entrypoint
+
+The new small Python entrypoint uses the existing migration CLI and externally
+approved manifest/component hashes, not a rebuilt ELF marker or package ABI claim.
+The reviewed R5 manifest pin and operator approval schema are documented in
+`deploy/OFFLINE-RUNTIME-UPGRADE.md`. All installed runtime products, exact config
+bytes, identity/roster, full offline voter attestations and SHM names are checked.
+Exact-unit persistent systemd conditions preserve enabled/masked state. There
+is no network/kernel-watchdog management, runtime start or implicit authorization.
+
+`offline-entrypoint-trial`: 6/7 passed. The positive recovery caught EXDEV while
+retaining a newly introduced executable across filesystems. Fixed to exclusive
+copy/fsync/hash verification before unlinking the transaction-created live file.
+`offline-apply-recover`: 9/9 passed, including cold factory positives. Real native
+CLI validates source byte preservation, V11 latest/history/receipt retention and
+cleared owners/claims/pending/authority. Negatives cover pending commands, owners,
+live mmap, partial multi-segment migration, pinned-byte/voter omission, stop failure
+and a genuine bind-mount EBUSY after the first executable has been replaced.
+Recovery restores old program/config bytes but preserves newer durable dedup and
+both SHM generations. General startup stays fenced. No ARM execution claimed.
+
+Only a disposable fixture generator was compiled; the native migration CLI and
+all R5 product binaries were reused. The existing runtime source is unchanged.

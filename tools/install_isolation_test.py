@@ -11,6 +11,7 @@ import struct
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -44,7 +45,13 @@ printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
 [ "$1" != "${FAIL_SYSTEMCTL_ACTION:-none}" ] || exit 42
 case "$1" in
   list-unit-files) echo 'ky-ems.service enabled' ;;
-  show) echo 4242 ;;
+  show)
+    if [ "${OFFLINE_TEST:-0}" = 1 ]; then
+      case "$*" in
+        *UnitFileState*) echo disabled ;;
+        *) echo inactive ;;
+      esac
+    else echo 4242; fi ;;
   restart) [ "${FAIL_RESTART:-0}" != 1 ] || exit 42 ;;
 esac
 exit 0
@@ -261,6 +268,173 @@ exec /bin/cp "$@"
         self.assertNotEqual(0, result.returncode)
         self.assertIn("retired", result.stdout)
         self.assert_isolated()
+
+    def offline_fixture(self, modes=("create",)):
+        fixture = EVIDENCE / "offline-upgrade-fixture"
+        if not fixture.exists():
+            command = ["g++", "-std=c++14", "-O0", "-pthread", str(REPO / "tools/offline_upgrade_fixture.cpp"), "-lrt", "-o", str(fixture)]
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
+            write(EVIDENCE / "fixture-compile.log", result.stdout)
+            self.assertEqual(0, result.returncode, result.stdout)
+        home = Path('/opt/modbus-gateway')
+        write(home / 'bin/ComputeEngine', 'old compute\n')
+        write(home / 'bin/MqttDriver', 'old mqtt\n')
+        write(home / 'config/runtime/device_identity.json', '{"machineCode":"A"}\n')
+        write(home / 'data/cluster-membership.json', '{"members":[{"nodeId":"A","cabinetNo":1},{"nodeId":"B","cabinetNo":2}]}\n')
+        write(home / 'data/control-dedup.sqlite', 'current durable dedup\n')
+        write(home / 'data/ems-cluster-consensus.json', '{"term":19}\n')
+        segments = []
+        for i, mode in enumerate(modes):
+            source, target = 'offline_source_' + str(i), 'offline_target_' + str(i)
+            subprocess.run([str(fixture), mode, source], check=True, stdout=subprocess.PIPE)
+            segments.append({'source': source, 'target': target, 'sha256': hashlib.sha256((Path('/dev/shm') / source).read_bytes()).hexdigest()})
+        write(home / 'config/runtime/apps/compute.json', json.dumps({'computeEngine': {'sharedMemoryNames': [s['source'] for s in segments], 'outputSharedMemoryName': segments[0]['source']}, 'emsCluster': {'enabled': True, 'controlEnabled': False, 'virtualSharedMemoryName': segments[0]['source']}}))
+        payload = self.root / 'payload'
+        products = [('ComputeEngine', Path('/usr/bin/true')), ('MqttDriver', Path('/usr/bin/false')),
+                    ('memory_point_store_migrate', Path('/var/tmp/ems-production-candidate-20260924-build/memory_point_store_migrate'))]
+        components = []
+        for name, source in products:
+            dest = payload / 'programs/bin' / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, dest)
+            dest.chmod(0o755)
+            components.append({'kind': 'product', 'target': name, 'archivePath': 'programs/bin/' + name,
+                               'bytes': dest.stat().st_size, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest()})
+        manifest = self.root / 'program-manifest.json'
+        write(manifest, json.dumps({'sourceCommit': 'native-fixture-not-ARM-release', 'components': components}))
+        config = home / 'config/runtime'
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        approval = {'schemaVersion': 'offline-shm11-1', 'transactionId': 'fixture-offline',
+                    'runtimeCompatibility': {'pointStoreAbi': 11, 'clusterProtocol': 2, 'upgradeMode': 'offline-all-participants'},
+                    'controlEnabled': False, 'expiresAtUnix': int(time.time()) + 300,
+                    'gatewayHome': str(home), 'nodeId': 'A', 'programManifestSha256': sha(manifest),
+                    'identitySha256': sha(config / 'device_identity.json'), 'membershipSha256': sha(home / 'data/cluster-membership.json'),
+                    'installedRuntimeSha256': {n: sha(home / 'bin' / n) for n in ('ComputeEngine', 'MqttDriver')},
+                    'configSha256': {str(p.relative_to(config)): sha(p) for p in config.rglob('*') if p.is_file()},
+                    'units': ['gateway-services.service', 'gateway-health-watchdog.service', 'ky-ems.service', 'compute-engine@fixture.service'],
+                    'offlineVoters': {n: {'controlDisabled': True, 'participantsStopped': True, 'restartInhibited': True, 'evidenceSha256': 'a' * 64} for n in ('A', 'B')},
+                    'segments': segments}
+        write(self.root / 'approval.json', json.dumps(approval))
+        return home, approval
+
+    def offline_run(self, action='apply', approval=None, env=None):
+        if approval is not None:
+            write(self.root / 'approval.json', json.dumps(approval))
+        pin = hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest()
+        command = ['python3', str(REPO / 'deploy/offline-runtime-upgrade.py'), action,
+                   '--approval-sha256', pin, '--state', str(self.root / 'transaction')]
+        if action == 'apply':
+            command += ['--approval', str(self.root / 'approval.json'), '--manifest', str(self.root / 'program-manifest.json'), '--payload', str(self.root / 'payload')]
+        result = subprocess.run(command, env={**self.env, 'OFFLINE_TEST': '1', **(env or {})},
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
+        with (EVIDENCE / (self.id().split('.')[-1] + '.log')).open('a') as stream:
+            stream.write('action=' + action + ' exit=' + str(result.returncode) + '\n' + result.stdout + '\n')
+        return result
+
+    def test_offline_upgrade_actual_cli_and_stopped_recovery(self):
+        home, approval = self.offline_fixture()
+        originals = {str(p): p.read_bytes() for p in (home / 'config').rglob('*') if p.is_file()}
+        data = {str(p): p.read_bytes() for p in (home / 'data').iterdir()}
+        result = self.offline_run()
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertIn('UPGRADED_STOPPED', result.stdout)
+        target = Path('/dev/shm/offline_target_0')
+        target_sha = hashlib.sha256(target.read_bytes()).hexdigest()
+        subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'verify', 'offline_target_0'], check=True)
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertEqual(target_sha, state['segments'][0]['targetSha256'])
+        self.assertEqual(approval['segments'][0]['sha256'], hashlib.sha256(Path('/dev/shm/offline_source_0').read_bytes()).hexdigest())
+        self.assertIn('offline_target_0', (home / 'config/runtime/apps/compute.json').read_text())
+        self.assertNotIn('offline_source_0', (home / 'config/runtime/apps/compute.json').read_text())
+        self.assertNotEqual(b'old compute\n', (home / 'bin/ComputeEngine').read_bytes())
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertNotIn('unmask', self.log.read_text())
+        self.assertNotIn('disable ', self.log.read_text())
+        blocked = self.run_script('gateway-services.sh', ['start'])
+        self.assertNotEqual(0, blocked.returncode)
+        self.assertIn('persistent offline upgrade fence', blocked.stdout)
+        write(home / 'data/control-dedup.sqlite', 'newer durable state after upgrade\n')
+        data[str(home / 'data/control-dedup.sqlite')] = b'newer durable state after upgrade\n'
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertIn('RECOVERED_STOPPED', result.stdout)
+        self.assertEqual(b'old compute\n', (home / 'bin/ComputeEngine').read_bytes())
+        for name, value in {**originals, **data}.items():
+            self.assertEqual(value, Path(name).read_bytes(), name)
+        self.assertEqual(target_sha, hashlib.sha256(target.read_bytes()).hexdigest())
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_upgrade_pending_owner_and_partial_migration_refused(self):
+        home, approval = self.offline_fixture(('create', 'pending'))
+        result = self.offline_run()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('migration refused/failed', result.stdout)
+        self.assertTrue(Path('/dev/shm/offline_target_0').exists())
+        self.assertFalse(Path('/dev/shm/offline_target_1').exists())
+        self.assertEqual('old compute\n', (home / 'bin/ComputeEngine').read_text())
+        self.assertIn('offline_source_0', (home / 'config/runtime/apps/compute.json').read_text())
+        for segment in approval['segments']:
+            self.assertEqual(segment['sha256'], hashlib.sha256((Path('/dev/shm') / segment['source']).read_bytes()).hexdigest())
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_offline_upgrade_owner_refused(self):
+        home, _ = self.offline_fixture(('owner',))
+        result = self.offline_run()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('migration refused/failed', result.stdout)
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+        self.assertFalse(Path('/dev/shm/offline_target_0').exists())
+
+    def test_offline_upgrade_live_mapping_refused(self):
+        home, _ = self.offline_fixture()
+        child = subprocess.Popen(['python3', '-c', "import mmap,sys,time; f=open('/dev/shm/offline_source_0','r+b'); m=mmap.mmap(f.fileno(),0); print('mapped',flush=True); sys.stdin.read()"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual('mapped\n', child.stdout.readline())
+            result = self.offline_run()
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn('migration refused/failed', result.stdout)
+            self.assertFalse(Path('/dev/shm/offline_target_0').exists())
+        finally:
+            child.communicate('', timeout=5)
+        self.assertEqual('old compute\n', (home / 'bin/ComputeEngine').read_text())
+
+    def test_offline_upgrade_external_pins_and_full_voters_required(self):
+        home, approval = self.offline_fixture()
+        del approval['offlineVoters']['B']
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('all fixed voters', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+        write(self.root / 'payload/programs/bin/ComputeEngine', 'tampered\n')
+        result = self.offline_run()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('component hash/size mismatch', result.stdout)
+        self.assertNotIn('\nstop ', '\n' + self.log.read_text())
+
+    def test_offline_upgrade_partial_file_switch_recovers_stopped(self):
+        home, _ = self.offline_fixture()
+        target = home / 'bin/MqttDriver'
+        subprocess.run(['mount', '--bind', str(target), str(target)], check=True)
+        try:
+            result = self.offline_run()
+            self.assertNotEqual(0, result.returncode)
+            self.assertNotEqual('old compute\n'.encode(), (home / 'bin/ComputeEngine').read_bytes())
+            self.assertEqual('old mqtt\n', target.read_text())
+        finally:
+            subprocess.run(['umount', str(target)], check=True)
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual('old compute\n', (home / 'bin/ComputeEngine').read_text())
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_upgrade_stop_failure_changes_no_runtime(self):
+        home, _ = self.offline_fixture()
+        result = self.offline_run(env={'FAIL_SYSTEMCTL_ACTION': 'stop'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual('old compute\n', (home / 'bin/ComputeEngine').read_text())
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+        self.assertFalse(Path('/dev/shm/offline_target_0').exists())
 
     def test_factory_refuses_existing_runtime_and_shm_reset(self):
         env = self.factory()

@@ -1,0 +1,6 @@
+action=apply exit=2
+offline upgrade refused/failed: migration refused/failed for offline_source_0: Migration refused/failed: active or future owner lease: wait for expiry with all services stopped
+Keep all participants stopped. No segment has been unlinked.
+
+Keep all participants stopped; no automatic ABI rollback.
+

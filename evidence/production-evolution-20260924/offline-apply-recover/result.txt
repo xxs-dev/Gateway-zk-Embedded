@@ -1,0 +1,14 @@
+test_offline_upgrade_actual_cli_and_stopped_recovery (__main__.InstallIsolationTest.test_offline_upgrade_actual_cli_and_stopped_recovery) ... ok
+test_offline_upgrade_pending_owner_and_partial_migration_refused (__main__.InstallIsolationTest.test_offline_upgrade_pending_owner_and_partial_migration_refused) ... ok
+test_offline_upgrade_owner_refused (__main__.InstallIsolationTest.test_offline_upgrade_owner_refused) ... ok
+test_offline_upgrade_live_mapping_refused (__main__.InstallIsolationTest.test_offline_upgrade_live_mapping_refused) ... ok
+test_offline_upgrade_external_pins_and_full_voters_required (__main__.InstallIsolationTest.test_offline_upgrade_external_pins_and_full_voters_required) ... ok
+test_offline_upgrade_partial_file_switch_recovers_stopped (__main__.InstallIsolationTest.test_offline_upgrade_partial_file_switch_recovers_stopped) ... ok
+test_offline_upgrade_stop_failure_changes_no_runtime (__main__.InstallIsolationTest.test_offline_upgrade_stop_failure_changes_no_runtime) ... ok
+test_factory_isolated_success (__main__.InstallIsolationTest.test_factory_isolated_success) ... ok
+test_factory_normal_success (__main__.InstallIsolationTest.test_factory_normal_success) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 4.036s
+
+OK

@@ -1,0 +1,6 @@
+action=apply exit=2
+offline upgrade refused/failed: migration refused/failed for offline_source_0: Migration refused/failed: segment still mapped by PID 860
+Keep all participants stopped. No segment has been unlinked.
+
+Keep all participants stopped; no automatic ABI rollback.
+

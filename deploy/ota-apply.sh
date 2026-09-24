@@ -337,6 +337,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/ota-apply.sh",
     "/opt/modbus-gateway/bin/ota-rollback.sh",
     "/opt/modbus-gateway/bin/runtime-upgrade-guard.py",
+    "/opt/modbus-gateway/bin/offline-runtime-upgrade.py",
     "/opt/modbus-gateway/bin/install-scada-project.sh",
 }
 
