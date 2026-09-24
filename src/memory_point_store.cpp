@@ -1299,6 +1299,8 @@ void MemoryPointStore::publishClusterAuthority(const ClusterAuthoritySnapshot& s
     encoded.role = snapshot.role;
     encoded.dispatchCode = snapshot.dispatchCode;
     encoded.stationStrategyActive = snapshot.stationStrategyActive ? 1 : 0;
+    std::copy(snapshot.strategyKernelBootId.begin(), snapshot.strategyKernelBootId.end(), encoded.strategyKernelBootId);
+    encoded.strategyNotAfterMonotonicMs = snapshot.strategyNotAfterMonotonicMs;
     encoded.targetCount = static_cast<std::uint32_t>(snapshot.targetIndexes.size());
     std::copy(snapshot.targets.begin(), snapshot.targets.end(), encoded.targets);
     std::copy(snapshot.targetIndexes.begin(), snapshot.targetIndexes.end(), encoded.targetIndexes);
@@ -1331,6 +1333,8 @@ Optional<ClusterAuthoritySnapshot> MemoryPointStore::clusterAuthority() const {
     result.role = stored.role;
     result.dispatchCode = stored.dispatchCode;
     result.stationStrategyActive = stored.stationStrategyActive == 1;
+    std::copy(std::begin(stored.strategyKernelBootId), std::end(stored.strategyKernelBootId), result.strategyKernelBootId.begin());
+    result.strategyNotAfterMonotonicMs = stored.strategyNotAfterMonotonicMs;
     std::copy(std::begin(stored.targets), std::end(stored.targets), result.targets.begin());
     result.targetIndexes.assign(stored.targetIndexes, stored.targetIndexes + stored.targetCount);
     return result;

@@ -20,6 +20,7 @@ add_library(edge_gateway
     src/collector.cpp
     src/common/collector_base.cpp
     src/command_executor.cpp
+    src/cluster_write_authorization.cpp
     src/compute_engine_service.cpp
     src/config_loader.cpp
     src/control_dedup_store.cpp
@@ -575,6 +576,13 @@ add_executable(ems_cluster_test tools/ems_cluster_test.cpp)
 target_link_libraries(ems_cluster_test PRIVATE edge_gateway)
 target_compile_options(ems_cluster_test PRIVATE -fdiagnostics-color=never)
 
+if(UNIX)
+    add_executable(cluster_write_authorization_test tools/cluster_write_authorization_test.cpp)
+    target_link_libraries(cluster_write_authorization_test PRIVATE edge_gateway)
+    add_executable(ems_cluster_output_authority_test tools/ems_cluster_output_authority_test.cpp)
+    target_link_libraries(ems_cluster_output_authority_test PRIVATE edge_gateway)
+endif()
+
 add_executable(legacy_ems_test tools/legacy_ems_test.cpp)
 target_link_libraries(legacy_ems_test PRIVATE edge_gateway)
 target_compile_options(legacy_ems_test PRIVATE -fdiagnostics-color=never)
@@ -634,6 +642,10 @@ if(BUILD_TESTING)
         add_test(NAME local_display_qt_access COMMAND local_display_qt_access_test)
     endif()
     add_test(NAME ems_cluster COMMAND ems_cluster_test)
+    if(UNIX)
+        add_test(NAME cluster_write_authorization COMMAND cluster_write_authorization_test)
+        add_test(NAME ems_cluster_output_authority COMMAND ems_cluster_output_authority_test)
+    endif()
     add_test(NAME gateway_test_lab_modbus COMMAND gateway_test_lab_modbus_test)
     add_test(NAME gateway_test_lab_serial COMMAND gateway_test_lab_serial_test)
     add_test(NAME gateway_test_lab_iec104 COMMAND gateway_test_lab_iec104_test)

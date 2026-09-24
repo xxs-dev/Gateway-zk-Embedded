@@ -277,6 +277,8 @@ struct ClusterAuthoritySnapshot {
     int role = 0;
     int dispatchCode = 0;
     bool stationStrategyActive = false;
+    std::array<std::uint8_t, 16> strategyKernelBootId{};
+    std::int64_t strategyNotAfterMonotonicMs = 0;
     std::array<double, 6> targets{};
     std::vector<std::uint32_t> targetIndexes;
 };
@@ -1184,6 +1186,7 @@ struct EmsClusterConfig {
     int statusIntervalMs = 1000;
     bool controlEnabled = false;
     int dispatchCycleMs = 1000;
+    std::vector<std::uint32_t> controlTargetIndexes;
     int dispatchTtlMs = 3000;
     int capabilityTtlMs = 3000;
     int stationTargetTtlMs = 3000;
@@ -1569,6 +1572,7 @@ struct DeviceConfig {
     MemoryStoreConfig memoryStore;
     NorthboundServerConfig northboundServer;
     MqttDriverConfig mqttDriver;
+    EmsClusterConfig emsCluster;
     std::vector<PointDefinition> points;
     std::vector<LogicalDeviceConfig> meters;
     std::vector<StartupWriteConfig> startupWrites;

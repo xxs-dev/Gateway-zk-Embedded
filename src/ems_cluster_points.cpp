@@ -1,8 +1,10 @@
 #include "edge_gateway/ems_cluster_points.hpp"
+#include "edge_gateway/cluster_write_authorization.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -117,6 +119,8 @@ EmsClusterPointBridge::EmsClusterPointBridge(EmsClusterConfig config, std::strin
     if (config_.virtualSharedMemoryName.empty()) {
         throw std::invalid_argument("emsCluster.virtualSharedMemoryName is required");
     }
+    authorityEpoch_ = newClusterAuthorityEpoch();
+    store_.publishClusterAuthority(ClusterAuthoritySnapshot{});
 }
 
 bool EmsClusterPointBridge::read(
@@ -235,11 +239,89 @@ void EmsClusterPointBridge::write(
     point.quality = quality;
     point.qualityMsg = quality == 1 ? "ok" : "cluster target unavailable";
     point.ts = nowMs;
-    point.expireAt = nowMs + std::max(config_.dispatchTtlMs, config_.statusIntervalMs * 3);
+    point.expireAt = publicationDeadline_ > 0 ? publicationDeadline_ :
+        nowMs + std::max(config_.dispatchTtlMs, config_.statusIntervalMs * 3);
+    if (publicationLeaseDeadline_ > 0 &&
+        (offset == ems_cluster_point::kStationStrategyActive || offset == ems_cluster_point::kQuorumValid))
+        point.expireAt = publicationLeaseDeadline_;
     store_.putLatest(point);
 }
 
+void EmsClusterPointBridge::publish(const EmsClusterStatus& status, const EmsClusterDispatchState& dispatch,
+                                   std::int64_t wallNowMs, std::int64_t monotonicNowMs) {
+    store_.publishClusterAuthority(ClusterAuthoritySnapshot{});
+    auto deadline = std::min(status.authorityExpireAtMs, dispatch.expireAtMs);
+    const bool authorityChanged = lastTerm_ != status.term || lastMembershipEpoch_ != status.membershipEpoch ||
+        lastLeader_ != status.leaderNodeId;
+    if (authorityChanged) authorityEpoch_ = newClusterAuthorityEpoch();
+    const bool olderSequence = authorityPublished_ && !authorityChanged && dispatch.sequence < lastDispatchSequence_;
+    if (authorityPublished_ && !authorityChanged && lastDispatchSequence_ == dispatch.sequence)
+        deadline = std::min(deadline, lastAuthorityDeadline_);
+    lastTerm_ = status.term;
+    lastMembershipEpoch_ = status.membershipEpoch;
+    lastLeader_ = status.leaderNodeId;
+    if (!olderSequence) lastDispatchSequence_ = dispatch.sequence;
+    authorityPublished_ = true;
+    ClusterAuthoritySnapshot snapshot;
+    snapshot.role = static_cast<int>(status.role);
+    snapshot.dispatchCode = static_cast<int>(dispatch.code);
+    snapshot.targetIndexes = config_.controlTargetIndexes;
+    const bool leaseValid = config_.enabled && config_.controlEnabled && status.quorumValid &&
+        status.controlConfigured && status.capability.controlEnabled && monotonicNowMs > 0 &&
+        status.authorityExpireAtMs > monotonicNowMs;
+    snapshot.valid = leaseValid && dispatch.valid &&
+        dispatch.term == status.term && dispatch.membershipEpoch == status.membershipEpoch && dispatch.sequence > 0 &&
+        (status.role == EmsClusterRole::Leader || status.role == EmsClusterRole::Follower) &&
+        !olderSequence && monotonicNowMs > 0 && deadline > monotonicNowMs;
+    lastAuthorityDeadline_ = snapshot.valid ? deadline : 0;
+    // A leader must calculate its first station target before any dispatch can exist.
+    snapshot.stationStrategyActive = leaseValid && status.role == EmsClusterRole::Leader;
+    if (snapshot.stationStrategyActive) {
+        snapshot.strategyKernelBootId = localKernelBootId();
+        snapshot.strategyNotAfterMonotonicMs = status.authorityExpireAtMs;
+    }
+    if (snapshot.valid) {
+        ClusterWriteAuthorization auth;
+        auth.kernelBootId = localKernelBootId();
+        auth.authorityEpoch = authorityEpoch_;
+        auth.authorityStoreName = config_.virtualSharedMemoryName;
+        auth.notAfterMonotonicMs = deadline;
+        auth.dispatchSequence = dispatch.sequence;
+        snapshot.authorization = auth;
+        snapshot.targets = {{dispatch.accepted.paKw, dispatch.accepted.pbKw, dispatch.accepted.pcKw,
+                             dispatch.accepted.qaKvar, dispatch.accepted.qbKvar, dispatch.accepted.qcKvar}};
+    }
+    auto diagnosticStatus = status;
+    auto diagnosticDispatch = dispatch;
+    diagnosticStatus.quorumValid = leaseValid;
+    if (!snapshot.valid) {
+        diagnosticDispatch.valid = false;
+        diagnosticDispatch.code = EmsClusterDispatchCode::Expired;
+        snapshot.dispatchCode = static_cast<int>(diagnosticDispatch.code);
+    }
+    const auto remaining = snapshot.valid ? deadline - monotonicNowMs : 0;
+    publicationDeadline_ = wallNowMs > std::numeric_limits<std::int64_t>::max() - remaining
+        ? std::numeric_limits<std::int64_t>::max() : wallNowMs + remaining;
+    const auto leaseRemaining = leaseValid ? status.authorityExpireAtMs - monotonicNowMs : 0;
+    publicationLeaseDeadline_ = wallNowMs > std::numeric_limits<std::int64_t>::max() - leaseRemaining
+        ? std::numeric_limits<std::int64_t>::max() : wallNowMs + leaseRemaining;
+    publishDiagnostics(diagnosticStatus, diagnosticDispatch, wallNowMs);
+    publicationDeadline_ = 0;
+    publicationLeaseDeadline_ = 0;
+    store_.publishClusterAuthority(snapshot);
+}
+
 void EmsClusterPointBridge::publish(
+    const EmsClusterStatus& status, const EmsClusterDispatchState& dispatch, std::int64_t nowMs
+) {
+    // Compatibility/diagnostics only: without a monotonic clock no authority is issued.
+    store_.publishClusterAuthority(ClusterAuthoritySnapshot{});
+    lastAuthorityDeadline_ = 0;
+    publicationDeadline_ = 0;
+    publishDiagnostics(status, dispatch, nowMs);
+}
+
+void EmsClusterPointBridge::publishDiagnostics(
     const EmsClusterStatus& status,
     const EmsClusterDispatchState& dispatch,
     std::int64_t nowMs
