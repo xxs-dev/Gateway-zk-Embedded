@@ -1,0 +1,4 @@
+[  0%] Building CXX object CMakeFiles/memory_point_store_migrate.dir/tools/memory_point_store_migrate.cpp.o
+[  0%] Building CXX object CMakeFiles/memory_point_store_migrate.dir/src/memory_point_store_migration.cpp.o
+[100%] Linking CXX executable memory_point_store_migrate
+[100%] Built target memory_point_store_migrate

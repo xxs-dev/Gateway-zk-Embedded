@@ -1,4 +1,5 @@
 #include "../src/memory_point_store_layout.hpp"
+#include "../src/memory_point_store_layout_v10.hpp"
 #include "../src/memory_point_store_migration.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 
@@ -19,7 +20,7 @@
 
 namespace {
 using namespace edge_gateway;
-using namespace edge_gateway::memory_layout;
+using namespace edge_gateway::memory_layout_v10;
 
 void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
@@ -35,24 +36,28 @@ struct Fixture {
         const char* directory = std::getenv("GATEWAY_MIGRATION_TEST_BACKUP_DIR");
         require(directory && *directory, "set GATEWAY_MIGRATION_TEST_BACKUP_DIR to an isolated persistent directory");
         backup = std::string(directory) + "/" + name + ".bak";
-        // Create through the real v8/v9 runtime constructor, then release its mmap.
-        MemoryStoreConfig config;
-        config.sharedMemoryName = name;
-        config.sharedMemoryCreateVersion = version;
-        {
-            MemoryPointStore store(config);
-            PointValue value;
-            value.index = 1001;
-            value.value = 42.25;
-            value.ts = 1000;
-            value.expireAt = 9999999999999;
-            value.isStore = true;
-            value.persistIntervalSec = 1;
-            store.putLatest(value);
-        }
-        fd = shm_open(("/" + name).c_str(), O_RDWR, 0);
+        // Frozen legacy fixture; the v11 runtime must never create or attach v8/v9/v10.
+        fd = shm_open(("/" + name).c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
         require(fd >= 0, "open test segment");
-        auto layout = read();
+        require(ftruncate(fd, sizeof(SharedStoreLayout)) == 0, "legacy fixture size");
+        auto layout = std::make_unique<SharedStoreLayout>();
+        layout->header.magic = kSharedStoreMagic;
+        layout->header.version = version;
+        pthread_mutexattr_t attr{};
+        require(pthread_mutexattr_init(&attr) == 0, "mutex attr");
+        require(pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) == 0, "mutex shared");
+        require(pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST) == 0, "mutex robust");
+        require(pthread_mutex_init(&layout->header.mutex, &attr) == 0, "mutex init");
+        pthread_mutexattr_destroy(&attr);
+        layout->latest[0].index = 1001;
+        layout->latest[0].value = 42.25;
+        layout->latest[0].ts = 1000;
+        layout->latest[0].expireAt = 9999999999999;
+        layout->latest[0].occupied = 1;
+        layout->persistent[0].index = 1001;
+        layout->persistent[0].value = 42.25;
+        layout->persistent[0].ts = 1000;
+        layout->persistent[0].occupied = 1;
         // A real offline placeholder and expired ownership survive byte-for-byte.
         layout->latest[1].index = 1002;
         layout->latest[1].occupied = 1;
@@ -89,6 +94,8 @@ struct Fixture {
         if (fd >= 0) close(fd);
         shm_unlink(("/" + name).c_str());
         unlink(backup.c_str());
+        shm_unlink(("/" + name + "_v11").c_str());
+        unlink((backup + ".v11").c_str());
     }
     std::unique_ptr<SharedStoreLayout> read() const {
         auto layout = std::make_unique<SharedStoreLayout>();
@@ -98,6 +105,18 @@ struct Fixture {
     void save(const SharedStoreLayout& layout) {
         require(pwrite(fd, &layout, sizeof(layout), 0) == sizeof(layout), "write real layout fixture");
     }
+    std::string copyToCurrent() {
+        copyOfflinePointStoreV10ToV11(name, name + "_v11", backup + ".v11", true);
+        return name + "_v11";
+    }
+};
+
+struct LegacyMapping {
+    void* view;
+    explicit LegacyMapping(int fd) : view(mmap(nullptr, sizeof(SharedStoreLayout), PROT_READ, MAP_SHARED, fd, 0)) {
+        require(view != MAP_FAILED, "map frozen legacy fixture");
+    }
+    ~LegacyMapping() { munmap(view, sizeof(SharedStoreLayout)); }
 };
 
 void refusal(Fixture& fixture, const std::string& expected, const std::function<void()>& action) {
@@ -144,7 +163,7 @@ void success(std::uint32_t version) {
     refusal(f, "requires SHM v8 or v9", [&] { migrateOfflinePointStore(f.name, f.backup, true); });
     {
         MemoryStoreConfig restarted;
-        restarted.sharedMemoryName = f.name;
+        restarted.sharedMemoryName = f.copyToCurrent();
         MemoryPointStore reader(restarted);
         const auto latest = reader.getLatestByIndex(1001, 2000);
         require(latest && latest->value == 42.25, "latest value lost");
@@ -167,7 +186,7 @@ void rejectionCases() {
     refusal(f, "locked by", migrate);
     require(flock(f.fd, LOCK_UN) == 0, "unlock fixture");
     {
-        MemoryPointStore reader(f.name, MemoryStoreOpenMode::OpenExisting);
+        LegacyMapping reader(f.fd);
         refusal(f, "still mapped", migrate);
     }
     const auto valid = f.read();
@@ -290,10 +309,10 @@ void deduplication(std::uint32_t version) {
     refusal(f, "v8 or v9", [&] { migrateOfflinePointStore(f.name, f.backup, true, options); });
     {
         MemoryStoreConfig config;
-        config.sharedMemoryName = f.name;
+        config.sharedMemoryName = f.copyToCurrent();
         MemoryPointStore writer(config);
         MemoryPointStore second(config);
-        MemoryPointStore reader(f.name, MemoryStoreOpenMode::OpenExisting);
+        MemoryPointStore reader(config.sharedMemoryName, MemoryStoreOpenMode::OpenExisting);
         auto value = reader.getLatestByIndex(1001, 2000);
         require(value && value->ts == 1001 && value->value == 42.25, "dedup runtime winner lost");
         PointValue update;
@@ -304,7 +323,11 @@ void deduplication(std::uint32_t version) {
         update.ts = 2001;
         second.putLatest(update);
         require(reader.getLatestByIndex(1001, 2001)->ts == 2001, "reader cache after dedup write");
-        auto state = f.read();
+        int currentFd = shm_open(("/" + config.sharedMemoryName).c_str(), O_RDONLY, 0);
+        require(currentFd >= 0, "open copied current layout");
+        auto state = std::make_unique<edge_gateway::memory_layout::SharedStoreLayout>();
+        require(pread(currentFd, state.get(), sizeof(*state), 0) == sizeof(*state), "read copied current layout");
+        close(currentFd);
         std::uint32_t count = 0;
         for (const auto& slot : state->latest) if (slot.occupied && slot.index == 1001) ++count;
         require(count == 1 && state->header.latestCount == 2 && state->latest[5].ts == 2001,
@@ -400,7 +423,7 @@ void dedupSafety() {
     rejectBoth("locked by");
     require(flock(f.fd, LOCK_UN) == 0, "unlock dedup fixture");
     {
-        MemoryPointStore reader(f.name, MemoryStoreOpenMode::OpenExisting);
+        LegacyMapping reader(f.fd);
         rejectBoth("still mapped");
     }
     // Runtime open/close can change mutex bookkeeping; restore the offline fixture.

@@ -12,8 +12,8 @@ namespace edge_gateway {
 namespace memory_layout {
 
 constexpr std::uint32_t kSharedStoreMagic = 0x4D505354;  // MPST
-constexpr std::uint32_t kSharedStoreVersion = 10;
-constexpr std::uint32_t kMinimumCompatibleSharedStoreVersion = 8;
+constexpr std::uint32_t kSharedStoreVersion = 11;
+constexpr std::uint32_t kMinimumCompatibleSharedStoreVersion = 11;
 constexpr std::size_t kMaxLatestSlots = 100000;
 constexpr std::size_t kMaxPendingWriteSlots = 4096;
 constexpr std::size_t kMaxWritebackResultSlots = 4096;
@@ -53,6 +53,17 @@ struct SharedLatestSlot {
     std::uint8_t reserved[6] = {};
 };
 
+struct SharedClusterWriteAuthorization {
+    std::uint32_t version = 0;
+    std::uint32_t flags = 0;
+    std::uint8_t kernelBootId[16] = {};
+    std::uint8_t authorityEpoch[16] = {};
+    std::int64_t notAfterMonotonicMs = 0;
+    std::uint64_t dispatchSequence = 0;
+    char authorityStoreName[64] = {};
+};
+static_assert(sizeof(SharedClusterWriteAuthorization) == 120, "cluster authorization ABI changed");
+
 struct SharedPendingWriteSlot {
     std::uint64_t sequence = 0;
     std::uint32_t index = 0;
@@ -65,9 +76,10 @@ struct SharedPendingWriteSlot {
     std::uint8_t highPriority = 0;
     std::uint8_t reserved[2] = {};
     std::uint32_t controlGeneration = 0;
+    SharedClusterWriteAuthorization clusterAuthorization{};
 };
 
-static_assert(sizeof(SharedPendingWriteSlot) == 144, "pending write ABI changed unexpectedly");
+static_assert(sizeof(SharedPendingWriteSlot) == 264, "pending write ABI changed unexpectedly");
 static_assert(
     offsetof(SharedPendingWriteSlot, controlGeneration) == 140,
     "control generation must occupy the previous reserved bytes"

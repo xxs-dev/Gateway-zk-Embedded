@@ -1,4 +1,5 @@
 #include "memory_point_store_migration.hpp"
+#include "memory_point_store_layout_v10.hpp"
 #include "memory_point_store_layout.hpp"
 
 #include <algorithm>
@@ -22,7 +23,7 @@
 
 namespace edge_gateway {
 namespace {
-using namespace memory_layout;
+using namespace memory_layout_v10;
 
 struct Fd {
     int value;
@@ -96,11 +97,12 @@ void assertNoMappings(const struct stat& segment) {
     }
 }
 
-OfflineMigrationResult validateOfflineLayout(const SharedStoreLayout& layout, bool deduplicate) {
+OfflineMigrationResult validateOfflineLayout(const SharedStoreLayout& layout, bool deduplicate, bool v10 = false) {
     OfflineMigrationResult plan;
     const auto& h = layout.header;
     require(h.magic == kSharedStoreMagic, "invalid SHM magic");
-    require(h.version == 8 || h.version == 9, "migration requires SHM v8 or v9");
+    require(v10 ? h.version == 10 : (h.version == 8 || h.version == 9),
+            v10 ? "copy requires SHM v10" : "migration requires SHM v8 or v9");
     require(h.latestCount <= kMaxLatestSlots &&
         h.pendingWriteHead < kMaxPendingWriteSlots && h.pendingWriteTail < kMaxPendingWriteSlots &&
         h.writebackResultHead < kMaxWritebackResultSlots && h.writebackResultTail < kMaxWritebackResultSlots &&
@@ -181,6 +183,100 @@ OfflineMigrationResult validateOfflineLayout(const SharedStoreLayout& layout, bo
 }
 
 }  // namespace
+
+OfflineMigrationResult copyOfflinePointStoreV10ToV11(
+    const std::string& sourceName, const std::string& targetName,
+    const std::string& backupPath, bool offlineConfirmed) {
+    require(offlineConfirmed, "explicit --offline-confirmed required; stop all participants and disable restarts first");
+    require(geteuid() == 0, "run as root in host PID/mount namespaces");
+    const auto validName = [](const std::string& name) {
+        return !name.empty() && name.size() < 64 &&
+            name.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") == std::string::npos;
+    };
+    require(validName(sourceName) && validName(targetName) && sourceName != targetName,
+            "copy requires distinct restricted source and target names");
+    require(!backupPath.empty() && backupPath.front() == '/' && backupPath.back() != '/' &&
+            backupPath.find('\0') == std::string::npos, "backup requires an absolute regular file path");
+    Fd source(shm_open(("/" + sourceName).c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW, 0));
+    require(flock(source.value, LOCK_EX | LOCK_NB) == 0, "source is locked by another opener/migration");
+    struct stat original{};
+    require(fstat(source.value, &original) == 0 && S_ISREG(original.st_mode) &&
+            original.st_size == static_cast<off_t>(sizeof(SharedStoreLayout)), "invalid v10 native ABI type/size");
+    assertNoMappings(original);
+    auto before = std::make_unique<SharedStoreLayout>();
+    readExact(source.value, before.get(), sizeof(*before));
+    const auto plan = validateOfflineLayout(*before, false, true);
+
+    const auto separator = backupPath.find_last_of('/');
+    Fd parent(open((separator == 0 ? "/" : backupPath.substr(0, separator)).c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    struct statfs filesystem{};
+    require(fstatfs(parent.value, &filesystem) == 0, "cannot inspect backup filesystem");
+    require(filesystem.f_type == 0xef53 || filesystem.f_type == 0x58465342 || filesystem.f_type == 0x9123683e,
+            "backup requires local persistent storage");
+    Fd backup(openat(parent.value, backupPath.substr(separator + 1).c_str(),
+                     O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600));
+    writeExact(backup.value, before.get(), sizeof(*before));
+    require(fsync(backup.value) == 0 && fsync(parent.value) == 0, "backup durability failed; source unchanged");
+    auto checked = std::make_unique<SharedStoreLayout>();
+    readExact(backup.value, checked.get(), sizeof(*checked));
+    require(std::memcmp(before.get(), checked.get(), sizeof(*checked)) == 0, "backup verification failed");
+
+    auto output = std::make_unique<memory_layout::SharedStoreLayout>();
+    auto& h = output->header;
+    const auto& old = before->header;
+    h.version = memory_layout::kSharedStoreVersion;
+    h.writeSequence = old.writeSequence;
+    h.writebackResultSequence = old.writebackResultSequence;
+    h.persistentSequence = old.persistentSequence;
+    h.pointUpdateSequence = old.pointUpdateSequence;
+    h.latestCount = old.latestCount;
+    h.writebackResultHead = old.writebackResultHead;
+    h.writebackResultTail = old.writebackResultTail;
+    h.persistentHead = old.persistentHead;
+    h.persistentTail = old.persistentTail;
+    h.pointUpdateHead = old.pointUpdateHead;
+    h.pointUpdateTail = old.pointUpdateTail;
+    static_assert(sizeof(output->latest) == sizeof(before->latest), "latest ABI conversion needed");
+    static_assert(sizeof(output->persistent) == sizeof(before->persistent), "persistent ABI conversion needed");
+    static_assert(sizeof(output->writebackResults) == sizeof(before->writebackResults), "receipt ABI conversion needed");
+    static_assert(sizeof(output->pointUpdates) == sizeof(before->pointUpdates), "update ABI conversion needed");
+    std::memcpy(output->latest, before->latest, sizeof(output->latest));
+    std::memcpy(output->persistent, before->persistent, sizeof(output->persistent));
+    std::memcpy(output->writebackResults, before->writebackResults, sizeof(output->writebackResults));
+    std::memcpy(output->pointUpdates, before->pointUpdates, sizeof(output->pointUpdates));
+    // Never revive process ownership, pending commands or control authority.
+    pthread_mutexattr_t attr{};
+    require(pthread_mutexattr_init(&attr) == 0, "cannot initialize target mutex attributes");
+    const int shared = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    const int robust = pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
+    const int initialized = shared == 0 && robust == 0 ? pthread_mutex_init(&h.mutex, &attr) : -1;
+    pthread_mutexattr_destroy(&attr);
+    require(initialized == 0, "cannot initialize target mutex");
+
+    Fd target(shm_open(("/" + targetName).c_str(), O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600));
+    require(flock(target.value, LOCK_EX | LOCK_NB) == 0, "cannot lock new target");
+    require(ftruncate(target.value, sizeof(*output)) == 0, "cannot allocate new target; source unchanged");
+    writeExact(target.value, output.get(), sizeof(*output));
+    require(fsync(target.value) == 0, "cannot sync new target; source unchanged");
+    auto copied = std::make_unique<memory_layout::SharedStoreLayout>();
+    readExact(target.value, copied.get(), sizeof(*copied));
+    require(std::memcmp(output.get(), copied.get(), sizeof(*copied)) == 0, "target verification failed");
+    Fd named(shm_open(("/" + sourceName).c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW, 0));
+    struct stat current{};
+    require(fstat(named.value, &current) == 0 && current.st_dev == original.st_dev &&
+            current.st_ino == original.st_ino && current.st_size == original.st_size,
+            "source replaced during copy; do not switch configuration");
+    assertNoMappings(original);
+    readExact(source.value, checked.get(), sizeof(*checked));
+    require(std::memcmp(before.get(), checked.get(), sizeof(*checked)) == 0, "source changed during copy");
+    // A partial target remains invalid, and is never silently initialized by the runtime.
+    h.magic = memory_layout::kSharedStoreMagic;
+    writeExact(target.value, &h.magic, sizeof(h.magic), offsetof(memory_layout::SharedStoreHeader, magic));
+    require(fsync(target.value) == 0, "target final sync failed; do not switch configuration");
+    readExact(target.value, copied.get(), sizeof(*copied));
+    require(std::memcmp(output.get(), copied.get(), sizeof(*copied)) == 0, "final target verification failed");
+    return plan;
+}
 
 std::uint32_t migrateOfflinePointStore(
     const std::string& segmentName, const std::string& backupPath, bool offlineConfirmed) {

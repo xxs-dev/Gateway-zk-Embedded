@@ -1,0 +1,3 @@
+pointHistory defaults/custom/clamp passed
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  failed to open app config file: config/examples/mqtt-forward-disabled.json

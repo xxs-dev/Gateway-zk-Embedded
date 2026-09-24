@@ -1,6 +1,7 @@
 """Local native regressions in private IPC/net/mount namespaces, no device access."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -38,13 +39,19 @@ try:
         if run('build', ['cmake', '--build', str(BUILD), '--target', 'edge_gateway', '--parallel', '4']):
             raise SystemExit(2)
         library = BUILD / 'libedge_gateway.a'
+        if 'memory_point_store_migration_test' in tests:
+            if run('migration-cli', ['cmake', '--build', str(BUILD), '--target', 'memory_point_store_migrate']):
+                raise SystemExit(2)
     result['librarySha256'] = hashlib.sha256(library.read_bytes()).hexdigest()
     for test in tests:
         binary = BUILD / (test + '-' + label)
+        extra = [str(SOURCE/'src/memory_point_store_migration.cpp')] if 'migration' in test else []
         if run('compile-' + test, ['c++', '-std=c++17', '-O0', '-g', '-I'+str(SOURCE/'include'),
-                str(SOURCE/'tools'/(test+'.cpp')), str(library), '-pthread', '-ldl', '-o', str(binary)]):
+                str(SOURCE/'tools'/(test+'.cpp')), *extra, str(library), '-pthread', '-ldl', '-o', str(binary)]):
             break
-        with tempfile.TemporaryDirectory(prefix='shm11-') as work:
+        with tempfile.TemporaryDirectory(prefix='shm11-', dir=BUILD) as work:
+            (Path(work) / 'config').symlink_to(SOURCE / 'config', target_is_directory=True)
+            os.environ['GATEWAY_MIGRATION_TEST_BACKUP_DIR'] = work
             run(test, ['unshare', '--mount', '--net', '--ipc', '--pid', '--fork', '--mount-proc',
                       'sh', str(ISOLATE), str(binary), work], 120)
         result['steps'][test]['binarySha256'] = hashlib.sha256(binary.read_bytes()).hexdigest()

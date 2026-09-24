@@ -31,6 +31,11 @@ struct OfflineMigrationResult {
     std::vector<LatestDuplicateGroup> duplicateGroups;
 };
 
+// Copies v10 into an exclusively created v11 segment. Never modifies the source.
+OfflineMigrationResult copyOfflinePointStoreV10ToV11(
+    const std::string& sourceName, const std::string& targetName,
+    const std::string& backupPath, bool offlineConfirmed);
+
 OfflineMigrationResult migrateOfflinePointStore(
     const std::string& segmentName, const std::string& backupPath, bool offlineConfirmed,
     const OfflineMigrationOptions& options);

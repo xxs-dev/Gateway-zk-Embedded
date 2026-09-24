@@ -380,7 +380,8 @@ int main() {
         check(prefix + "cache capacity", [&] { cacheCapacity(batch); });
     }
     check("concurrent readers", concurrentReaders);
-    for (const std::uint32_t version : {8, 9, 10}) {
+    // Legacy formats are exercised by the frozen-layout offline migration suite.
+    for (const std::uint32_t version : {11}) {
         check("writers shared insert v" + std::to_string(version), [&] { writersAfterSharedInsert(version); });
     }
     check("writer stale vacant slot", [] { writerAfterSlotReuse(false, false); });
