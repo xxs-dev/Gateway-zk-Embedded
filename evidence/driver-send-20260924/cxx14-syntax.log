@@ -1,0 +1,19 @@
+g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+C++14 syntax src/command_executor.cpp passed
+C++14 syntax src/common/gateway_daemon.cpp passed
+C++14 syntax src/modbus_tcp_client.cpp passed
+C++14 syntax src/modbus_rtu_client.cpp passed
+C++14 syntax src/posix_serial_port.cpp passed
+C++14 syntax src/writeback_service.cpp passed
+C++14 syntax src/can_driver_service.cpp passed
+C++14 syntax src/iec_command_executor.cpp passed
+C++14 syntax src/dio_command_executor.cpp passed
+C++14 syntax src/dlt645_command_executor.cpp passed
+C++14 syntax main.cpp passed
+C++14 syntax can_driver_main.cpp passed
+C++14 syntax dio_driver_main.cpp passed
+C++14 syntax dlt645_main.cpp passed
+C++14 syntax iec_driver_main.cpp passed
+aa93dd8a3614d13efb976578844c026373aa2f0cf6b63a779f9ad2e6b8afd154  tools/cluster_driver_send_guard_test.cpp
+8e8a4b9ae5e969fdc3ca71286a62288abf70ce2d63fa92d776c310930719f9e6  tools/cluster_driver_rejection_test.cpp
+7ec5f6d7704589763df2770e67daa389f452917ebb392555c5711cb11ec68aba  src/can_driver_service.cpp
