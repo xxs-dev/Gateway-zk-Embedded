@@ -1,0 +1,6 @@
+Gateway actual Modbus writes: 6; duplicate/crash/busy/finalize/internal/ABI passed
+mqtt command accepted cmdId=mqtt-id index=1001 device=METER highPriority=0
+mqtt command rejected cmdId=mqtt-id index=1001 error=cmdId conflicts with retained control semantics
+MQTT real ingress receipts/replay/spoof/conflict passed
+CAN real UDP send count=2; replay/restart/finalize failure passed
+control_dedup_integration_test: failed to parse config file: /home/wmzdxs/.cache/edge-shm11-egress-20260924/shm11-z01y2a1y/control-fixture-1-4/device.json: device config machineCode mismatch identity file: config=GW identity=GW0001

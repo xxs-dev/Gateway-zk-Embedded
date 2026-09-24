@@ -1,0 +1,6 @@
+Gateway actual Modbus writes: 6; duplicate/crash/busy/finalize/internal/ABI passed
+mqtt command accepted cmdId=mqtt-id index=1001 device=METER highPriority=0
+mqtt command rejected cmdId=mqtt-id index=1001 error=cmdId conflicts with retained control semantics
+MQTT real ingress receipts/replay/spoof/conflict passed
+CAN real UDP send count=2; replay/restart/finalize failure passed
+HTTP Direct actual batch/source-spoof/replay/conflict/ID compatibility passed
