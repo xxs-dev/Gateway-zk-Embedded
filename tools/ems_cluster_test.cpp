@@ -1060,23 +1060,90 @@ void testCorruptPersistedClusterStateFailsSafe() {
     }
 }
 
+void testOldSelfFramesCannotQuarantineNode() {
+    auto config = configFor("old-self", 2);
+    config.consensusStateFile = "ems-cluster-test-old-self-consensus.json";
+    config.membershipFile = "ems-cluster-test-old-self-membership.json";
+    presetMembership(config, {{"COMM_DUP", 1}, {"COMM_OTHER", 2}});
+    edge_gateway::EmsClusterNode old(config, "COMM_DUP", "OLD_PROCESS");
+    old.tick(1000, {});
+    const auto archived = old.drainOutgoing();
+    require(!archived.empty(), "old process must have emitted discovery");
+    const auto discover = archived.front().message;
+    edge_gateway::EmsClusterNode node(config, "COMM_DUP", "NEW_PROCESS");
+    node.tick(1000, {});
+    const auto current = node.drainOutgoing();
+    require(!current.empty(), "new process must have a live discovery challenge");
+    const auto before = node.status(1000);
+    for (const auto type : {edge_gateway::EmsClusterMessageType::Discover,
+                            edge_gateway::EmsClusterMessageType::Heartbeat,
+                            edge_gateway::EmsClusterMessageType::Hello}) {
+        auto message = discover;
+        message.type = type;
+        message.discoveryReplyTo = current.front().message.discoveryChallenge;
+        message.recipientIncarnation = "OLD_PROCESS";
+        node.receive({message, "127.0.0.1"}, 1001);
+        require(node.role() == before.role,
+                "delayed old self frame must not quarantine the restarted process");
+    }
+    auto hello = discover;
+    hello.type = edge_gateway::EmsClusterMessageType::Hello;
+    hello.recipientIncarnation = node.bootId();
+    hello.discoveryReplyTo = current.front().message.discoveryChallenge + 100;
+    node.receive({hello, "127.0.0.1"}, 1001);
+    require(node.role() == before.role, "unknown self Hello challenge must not quarantine");
+    // A replay burst cannot exhaust the outgoing queue or refresh authority/liveness.
+    for (int i = 0; i < 1000; ++i) node.receive({discover, "127.0.0.1"}, 1001);
+    const auto replies = node.drainOutgoing();
+    require(replies.size() <= 1, "old self discovery replies must be rate bounded");
+    require(replies.size() == 1 && replies.front().discovery &&
+            replies.front().message.type == edge_gateway::EmsClusterMessageType::Hello &&
+            replies.front().message.recipientIncarnation == "OLD_PROCESS" &&
+            replies.front().message.discoveryReplyTo == discover.discoveryChallenge,
+            "self discovery must only solicit an incarnation-bound UDP Hello");
+    const auto after = node.status(1001);
+    require(after.role == before.role && after.term == before.term && after.members.empty() &&
+            after.authorityExpireAtMs == before.authorityExpireAtMs,
+            "unvalidated self traffic must not change control, term or member liveness");
+    hello.discoveryReplyTo = current.front().message.discoveryChallenge;
+    node.receive({hello, "127.0.0.1"}, 1000 + config.leaderLeaseMs);
+    require(node.role() != edge_gateway::EmsClusterRole::Quarantined,
+            "self Hello at the exact challenge expiry must be rejected");
+    node.tick(1000 + config.leaderLeaseMs + 1, {});
+    require(!node.drainOutgoing().empty(), "restarted process must continue discovery after stale traffic");
+    std::remove(config.consensusStateFile.c_str());
+    std::remove(config.membershipFile.c_str());
+}
+
 void testDuplicateMachineCodeQuarantinesNode() {
     auto config = configFor("duplicate", 2);
     config.consensusStateFile = "ems-cluster-test-duplicate-consensus.json";
     config.membershipFile = "ems-cluster-test-duplicate-membership.json";
     presetMembership(config, {{"COMM_DUP", 1}, {"COMM_OTHER", 2}});
     edge_gateway::EmsClusterNode node(config, "COMM_DUP", "BOOT_LOCAL");
-    edge_gateway::EmsClusterInbound inbound;
-    inbound.message.type = edge_gateway::EmsClusterMessageType::Discover;
-    inbound.message.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(config.clusterId);
-    inbound.message.configHash = node.configurationHash();
-    inbound.message.senderNodeId = "COMM_DUP";
-    inbound.message.senderBootId = "BOOT_OTHER_DEVICE";
-    inbound.message.senderIncarnation = "PROCESS_OTHER_DEVICE";
-    inbound.message.sequence = 1;
-    node.receive(inbound, 1000);
-    require(node.role() == edge_gateway::EmsClusterRole::Quarantined,
-            "same machineCode from another boot identity must quarantine the node");
+    auto otherConfig = config;
+    otherConfig.consensusStateFile = "ems-cluster-test-duplicate-other-consensus.json";
+    edge_gateway::EmsClusterNode other(otherConfig, "COMM_DUP", "PROCESS_OTHER_DEVICE");
+    node.tick(1000, {});
+    other.tick(1000, {});
+    const auto firstDiscovery = node.drainOutgoing();
+    const auto secondDiscovery = other.drainOutgoing();
+    for (const auto& packet : firstDiscovery) other.receive({packet.message, "127.0.0.1"}, 1001);
+    for (const auto& packet : secondDiscovery) node.receive({packet.message, "127.0.0.1"}, 1001);
+    require(node.role() != edge_gateway::EmsClusterRole::Quarantined &&
+            other.role() != edge_gateway::EmsClusterRole::Quarantined,
+            "unconfirmed same-ID discovery must not quarantine either process");
+    const auto firstReplies = node.drainOutgoing();
+    const auto secondReplies = other.drainOutgoing();
+    require(firstReplies.size() == 1 && secondReplies.size() == 1 &&
+            firstReplies.front().discovery && secondReplies.front().discovery,
+            "same-ID Hello replies must use UDP discovery without a self TCP endpoint");
+    for (const auto& packet : firstReplies) other.receive({packet.message, "127.0.0.1"}, 1002);
+    for (const auto& packet : secondReplies) node.receive({packet.message, "127.0.0.1"}, 1002);
+    require(node.role() == edge_gateway::EmsClusterRole::Quarantined &&
+            other.role() == edge_gateway::EmsClusterRole::Quarantined,
+            "live same-ID processes echoing current challenges must both quarantine");
+    std::remove(otherConfig.consensusStateFile.c_str());
     std::remove(config.consensusStateFile.c_str());
     std::remove(config.membershipFile.c_str());
 }
@@ -1483,7 +1550,7 @@ void testClusterPointBridge() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(config.virtualSharedMemoryName);
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(EMS_CLUSTER_CORE_ONLY)
 void testEthernetTransportLoopback() {
     const auto basePort = 42000 + static_cast<int>(getpid() % 1000) * 4;
     auto firstConfig = configFor("transport", 2);
@@ -1551,6 +1618,8 @@ int main(int argc, char** argv) {
             else if (scenario == "window-capacity") testLongLeaseBoundedWindows();
             else if (scenario == "self-vote") testLeaderSelfVoteProtectsOldFollowerTargets();
             else if (scenario == "membership") testMissingMembershipCannotBootstrap();
+            else if (scenario == "old-self") testOldSelfFramesCannotQuarantineNode();
+            else if (scenario == "live-self") testDuplicateMachineCodeQuarantinesNode();
             else throw std::runtime_error("unknown regression case");
             std::cout << scenario << " passed" << std::endl;
             return 0;
@@ -1587,6 +1656,7 @@ int main(int argc, char** argv) {
         testRestartKeepsTermAndCabinetNumber();
         testStateFromAnotherClusterIsIgnored();
         testCorruptPersistedClusterStateFailsSafe();
+        testOldSelfFramesCannotQuarantineNode();
         testDuplicateMachineCodeQuarantinesNode();
         testConfigAndAddressValidation();
         testMissingComputeMetricsArePenalized();
@@ -1597,7 +1667,7 @@ int main(int argc, char** argv) {
         testStationTargetUsesIndependentTtl();
         testCapabilityIsObservableBeforeControlEnable();
         testClusterPointBridge();
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(EMS_CLUSTER_CORE_ONLY)
         testEthernetTransportLoopback();
 #endif
         std::cout << "ems cluster tests passed" << std::endl;
