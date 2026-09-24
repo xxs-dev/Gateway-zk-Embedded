@@ -119,12 +119,15 @@ EmsClusterConfig configFor(int members = 2) {
     config.tcpPort = freePort(SOCK_STREAM);
     return config;
 }
-EmsClusterMessage messageFor(const EmsClusterConfig& config, const std::string& peer = "peer") {
+EmsClusterMessage messageFor(const EmsClusterConfig& config, const std::string& peer = "peer",
+                             std::uint64_t configurationHash = 0) {
     EmsClusterMessage message;
     message.clusterIdHash = EmsClusterProtocol::clusterIdHash(config.clusterId);
-    message.configHash = EmsClusterProtocol::configHash(config);
+    message.configHash = configurationHash != 0 ? configurationHash : EmsClusterProtocol::configHash(config);
     message.senderNodeId = peer;
-    message.senderBootId = "transport-test-process";
+    message.senderBootId = "transport-test-os-boot";
+    message.senderIncarnation = "transport-test-process-" + peer;
+    message.discoveryChallenge = 1;
     message.sequence = 1;
     message.tcpPort = config.tcpPort;
     return message;
@@ -260,12 +263,13 @@ void duplicateLocalIdentitySignal() {
     transport->start();
     Socket udp(SOCK_DGRAM);
     auto duplicate = messageFor(config, "local");
-    duplicate.senderBootId = "different-process-incarnation";
+    duplicate.senderIncarnation = "different-process-incarnation";
     const auto frame = EmsClusterProtocol::encode(duplicate, config);
     for (int i = 0; i < 12; ++i) udpWrite(udp, config.discoveryPort, frame);
     const auto received = measuredPoll(*transport);
     require(received.size() == 4 && datagrams == 4, "duplicate-local UDP signal missing or unbounded");
-    require(received.front().message.senderBootId == duplicate.senderBootId, "duplicate incarnation changed");
+    require(received.front().message.senderIncarnation == duplicate.senderIncarnation &&
+            received.front().message.senderBootId == duplicate.senderBootId, "duplicate incarnation changed");
     for (int i = 0; i < 4; ++i) transport->poll(0);
     Socket client(SOCK_STREAM);
     tcpConnect(client, config.tcpPort);
@@ -439,6 +443,44 @@ void twoPeerRecovery() {
         b->stop(); a->poll(0); b->start();
     }
 }
+void suppliedConfigurationHash() {
+    auto aConfig = configFor();
+    const auto baseHash = EmsClusterProtocol::configHash(aConfig);
+    auto suppliedHash = baseHash + 1;
+    if (suppliedHash == 0) suppliedHash = 1;
+    auto a = makeEthernetClusterTransport(aConfig, "a", suppliedHash);
+    a->start();
+    auto bConfig = aConfig;
+    bConfig.tcpPort = freePort(SOCK_STREAM);
+    bConfig.discoveryPort = freePort(SOCK_DGRAM);
+    auto b = makeEthernetClusterTransport(bConfig, "b", suppliedHash);
+    b->start();
+    Socket udp(SOCK_DGRAM);
+    udpWrite(udp, aConfig.discoveryPort, EmsClusterProtocol::encode(messageFor(bConfig, "b"), bConfig));
+    require(a->poll(20).empty(), "base configuration hash admitted by supplied-hash transport");
+    EmsClusterOutbound outbound;
+    outbound.message = messageFor(aConfig, "a", suppliedHash);
+    outbound.targetNodeId = "b";
+    require(!a->send(outbound), "mismatched discovery learned an endpoint");
+    udpWrite(udp, aConfig.discoveryPort, EmsClusterProtocol::encode(messageFor(bConfig, "b", suppliedHash), bConfig));
+    require(a->poll(20).size() == 1, "supplied-hash discovery rejected");
+    require(a->send(outbound), "supplied-hash forward send");
+    b->poll(20);
+    const auto forward = b->poll(20);
+    require(forward.size() == 1 && forward.front().message.configHash == suppliedHash,
+            "supplied-hash forward receive");
+    outbound.message = messageFor(bConfig, "b", suppliedHash);
+    outbound.targetNodeId = "a";
+    require(b->send(outbound), "supplied-hash reverse send");
+    const auto reverse = a->poll(20);
+    require(reverse.size() == 1 && reverse.front().message.configHash == suppliedHash,
+            "supplied-hash reverse receive");
+    outbound.message.configHash = baseHash;
+    const int before = fdCount();
+    require(b->send(outbound), "mismatched TCP frame fixture send");
+    require(a->poll(50).empty(), "mismatched TCP configuration hash admitted");
+    require(fdCount() == before - 1, "mismatched TCP configuration retained its stream");
+}
 }
 
 int main(int argc, char** argv) {
@@ -452,7 +494,7 @@ int main(int argc, char** argv) {
         {"endpoint-bound-stream-identity", endpointBoundAndStreamIdentity},
         {"duplicate-local-identity-signal", duplicateLocalIdentitySignal},
         {"large-frame-slow-partial", largeFrameAndSlowPartial}, {"real-stalled-writer", realStalledWriter},
-        {"two-peer-recovery", twoPeerRecovery}
+        {"two-peer-recovery", twoPeerRecovery}, {"supplied-configuration-hash", suppliedConfigurationHash}
     };
     for (const auto& test : tests) {
         if (argc > 1 && std::string(argv[1]) != test.first) continue;

@@ -186,11 +186,11 @@ std::size_t frameLength(const std::vector<std::uint8_t>& data) {
 
 class EthernetClusterTransport final : public IClusterTransport {
 public:
-    EthernetClusterTransport(EmsClusterConfig config, std::string nodeId)
+    EthernetClusterTransport(EmsClusterConfig config, std::string nodeId, std::uint64_t configurationHash)
         : config_(std::move(config)), nodeId_(std::move(nodeId)),
           memberLimit_(static_cast<std::size_t>(std::max(2, std::min(5, config_.maxMembers)))),
           clusterHash_(EmsClusterProtocol::clusterIdHash(config_.clusterId)),
-          configHash_(EmsClusterProtocol::configHash(config_)) {}
+          configHash_(configurationHash != 0 ? configurationHash : EmsClusterProtocol::configHash(config_)) {}
 
     ~EthernetClusterTransport() override { stop(); }
 
@@ -626,7 +626,7 @@ private:
 
 class EthernetClusterTransport final : public IClusterTransport {
 public:
-    EthernetClusterTransport(EmsClusterConfig, std::string) {}
+    EthernetClusterTransport(EmsClusterConfig, std::string, std::uint64_t) {}
     void start() override { throw std::runtime_error("Ethernet cluster transport is only supported on Linux"); }
     void stop() override {}
     std::vector<EmsClusterInbound> poll(int) override { return {}; }
@@ -639,9 +639,11 @@ public:
 
 std::unique_ptr<IClusterTransport> makeEthernetClusterTransport(
     EmsClusterConfig config,
-    std::string nodeId
+    std::string nodeId,
+    std::uint64_t configurationHash
 ) {
-    return std::unique_ptr<IClusterTransport>(new EthernetClusterTransport(std::move(config), std::move(nodeId)));
+    return std::unique_ptr<IClusterTransport>(
+        new EthernetClusterTransport(std::move(config), std::move(nodeId), configurationHash));
 }
 
 }  // namespace edge_gateway

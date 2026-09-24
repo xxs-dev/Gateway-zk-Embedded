@@ -1,0 +1,14 @@
+  4945f9:	0f b6 80 00 80 ff 7f 	movzbl 0x7fff8000(%rax),%eax
+  494600:	84 c0                	test   %al,%al
+  494602:	74 08                	je     49460c <edge_gateway::(anonymous namespace)::waitWritable(int, std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > >)+0x6cc>
+  494604:	3c 03                	cmp    $0x3,%al
+  494606:	0f 8e c0 02 00 00    	jle    4948cc <edge_gateway::(anonymous namespace)::waitWritable(int, std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > >)+0x98c>
+  49460c:	8b 85 84 fc ff ff    	mov    -0x37c(%rbp),%eax
+  494612:	89 83 80 fd ff ff    	mov    %eax,-0x280(%rbx)
+  494618:	48 8d bb 80 fd ff ff 	lea    -0x280(%rbx),%rdi
+  49461f:	b9 08 00 00 00       	mov    $0x8,%ecx
+  494624:	be 01 00 00 00       	mov    $0x1,%esi
+  494629:	e8 62 8e e9 ff       	call   32d490 <__poll_chk@plt>
+  49462e:	41 89 c5             	mov    %eax,%r13d
+  494631:	48 8d 83 a0 fd ff ff 	lea    -0x260(%rbx),%rax
+  494638:	48 c1 e8 03          	shr    $0x3,%rax
