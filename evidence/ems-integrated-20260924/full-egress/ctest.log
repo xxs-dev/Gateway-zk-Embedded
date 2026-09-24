@@ -1,0 +1,71 @@
+Test project /var/tmp/ems-production-candidate-20260924-build
+      Start 18: memory_point_store_migration
+ 1/30 Test #18: memory_point_store_migration .......   Passed    1.75 sec
+      Start 19: memory_point_store_shm11
+ 2/30 Test #19: memory_point_store_shm11 ...........   Passed    0.03 sec
+      Start 20: memory_point_store_v11_migration
+ 3/30 Test #20: memory_point_store_v11_migration ...   Passed    0.14 sec
+      Start 23: control_dedup_integration
+ 4/30 Test #23: control_dedup_integration ..........***Failed    0.26 sec
+control_dedup_integration_test: shared memory runtime requires ABI 11; offline migration to a new segment is required
+
+      Start 24: control_dedup_protocol
+ 5/30 Test #24: control_dedup_protocol .............   Passed    0.13 sec
+      Start 29: cluster_driver_send_guard
+ 6/30 Test #29: cluster_driver_send_guard ..........   Passed    0.23 sec
+      Start 30: ems_cluster_transport_bounds
+ 7/30 Test #30: ems_cluster_transport_bounds .......   Passed    2.25 sec
+      Start 32: mqtt_forwarder_service
+ 8/30 Test #32: mqtt_forwarder_service .............   Passed    1.45 sec
+      Start 33: point_store_router_retention
+ 9/30 Test #33: point_store_router_retention .......   Passed    0.09 sec
+      Start 36: ems_cluster
+10/30 Test #36: ems_cluster ........................   Passed    6.41 sec
+      Start 37: cluster_write_authorization
+11/30 Test #37: cluster_write_authorization ........   Passed    0.00 sec
+      Start 38: ems_cluster_output_authority
+12/30 Test #38: ems_cluster_output_authority .......   Passed    0.01 sec
+      Start 39: ems_cluster_strategy_startup
+13/30 Test #39: ems_cluster_strategy_startup .......   Passed    0.36 sec
+      Start 40: cluster_router_authority
+14/30 Test #40: cluster_router_authority ...........   Passed    0.02 sec
+      Start 41: cluster_config_authority
+15/30 Test #41: cluster_config_authority ...........   Passed    0.00 sec
+      Start 53: compute_engine_service
+16/30 Test #53: compute_engine_service .............   Passed    0.04 sec
+      Start 54: config_loader
+17/30 Test #54: config_loader ......................   Passed    0.07 sec
+      Start 57: dlt645_command_executor
+18/30 Test #57: dlt645_command_executor ............   Passed    0.01 sec
+      Start 59: gateway_daemon_realtime_priority
+19/30 Test #59: gateway_daemon_realtime_priority ...   Passed    0.04 sec
+      Start 61: memory_point_store_lifecycle
+20/30 Test #61: memory_point_store_lifecycle .......   Passed    0.33 sec
+      Start 62: memory_point_store_reader_cache
+21/30 Test #62: memory_point_store_reader_cache ....   Passed    0.19 sec
+      Start 70: posix_serial_port_recovery
+22/30 Test #70: posix_serial_port_recovery .........   Passed    0.00 sec
+      Start 73: modbus_rtu_client_resync
+23/30 Test #73: modbus_rtu_client_resync ...........   Passed    0.34 sec
+      Start 74: modbus_tcp_client_limit
+24/30 Test #74: modbus_tcp_client_limit ............   Passed    0.14 sec
+      Start 75: mqtt_driver_service
+25/30 Test #75: mqtt_driver_service ................   Passed    3.35 sec
+      Start 80: point_store_router_normalize
+26/30 Test #80: point_store_router_normalize .......   Passed    0.01 sec
+      Start 81: priority_control_lease
+27/30 Test #81: priority_control_lease .............   Passed    0.00 sec
+      Start 91: graph_ems_v2_loader
+28/30 Test #91: graph_ems_v2_loader ................   Passed    0.43 sec
+      Start 93: graph_ems_voltage_quality
+29/30 Test #93: graph_ems_voltage_quality ..........   Passed    1.44 sec
+      Start 94: graph_ems_cluster_dispatch
+30/30 Test #94: graph_ems_cluster_dispatch .........   Passed    0.10 sec
+
+97% tests passed, 1 tests failed out of 30
+
+Total Test time (real) =  19.65 sec
+
+The following tests FAILED:
+	 23 - control_dedup_integration (Failed)
+Errors while running CTest

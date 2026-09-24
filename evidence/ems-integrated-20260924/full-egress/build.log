@@ -1,0 +1,261 @@
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/agc_avc_service.cpp.o
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/am5se_iec103_client.cpp.o
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/collector.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/collector_base.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/command_executor.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/cluster_write_authorization.cpp.o
+[  9%] Building CXX object CMakeFiles/edge_gateway.dir/src/compute_engine_service.cpp.o
+[  9%] Building CXX object CMakeFiles/edge_gateway.dir/src/config_loader.cpp.o
+[  9%] Building CXX object CMakeFiles/edge_gateway.dir/src/control_dedup_store.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_command_executor.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/dio_collector.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_client.cpp.o
+[ 13%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_command_executor.cpp.o
+[ 18%] Building CXX object CMakeFiles/edge_gateway.dir/src/dlt645_collector.cpp.o
+[ 22%] Building CXX object CMakeFiles/edge_gateway.dir/src/event_engine_service.cpp.o
+[ 22%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_points.cpp.o
+[ 22%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/gateway_daemon.cpp.o
+[ 22%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/gateway_daemon_modbus.cpp.o
+[ 27%] Building CXX object CMakeFiles/edge_gateway.dir/src/graph_ems_engine.cpp.o
+[ 27%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_client.cpp.o
+[ 27%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec103_recording_command.cpp.o
+[ 27%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec103_recording_transfer_service.cpp.o
+[ 27%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_command_executor.cpp.o
+[ 31%] Building CXX object CMakeFiles/edge_gateway.dir/src/iec_collector.cpp.o
+[ 31%] Building CXX object CMakeFiles/edge_gateway.dir/src/legacy_ems_engine.cpp.o
+[ 31%] Building CXX object CMakeFiles/edge_gateway.dir/src/mock_serial_port.cpp.o
+[ 36%] Building CXX object CMakeFiles/edge_gateway.dir/src/builtin_mqtt_driver_publisher.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_control_result_store.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_forwarder_service.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_rtu_client.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/modbus_tcp_client.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/posix_serial_port.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/point_store_router.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/scada_runtime_map.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/scada_upper_computer_safety.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_points.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/sysfs_gpio_port.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/system_monitor_service.cpp.o
+[ 40%] Building CXX object CMakeFiles/edge_gateway.dir/src/writeback_service.cpp.o
+[ 40%] Linking CXX static library libedge_gateway.a
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ModbusRtu.dir/main.cpp.o
+[100%] Linking CXX executable ModbusRtu
+[100%] Built target ModbusRtu
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/Dlt645Driver.dir/dlt645_main.cpp.o
+[100%] Linking CXX executable Dlt645Driver
+[100%] Built target Dlt645Driver
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/DioDriver.dir/dio_driver_main.cpp.o
+[100%] Linking CXX executable DioDriver
+[100%] Built target DioDriver
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/CanDriver.dir/can_driver_main.cpp.o
+[100%] Linking CXX executable CanDriver
+[100%] Built target CanDriver
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/IecDriver.dir/iec_driver_main.cpp.o
+[100%] Linking CXX executable IecDriver
+[100%] Built target IecDriver
+[ 81%] Built target edge_gateway
+[ 81%] Building CXX object CMakeFiles/event_store_runtime.dir/src/event_store_runtime.cpp.o
+[ 81%] Linking CXX static library libevent_store_runtime.a
+[ 81%] Built target event_store_runtime
+[ 88%] Building CXX object CMakeFiles/event_store_client.dir/src/event_store_client.cpp.o
+[ 88%] Building CXX object CMakeFiles/event_stats_reader.dir/src/event_stats_reader.cpp.o
+[ 88%] Building CXX object CMakeFiles/event_stats_reader.dir/src/mqtt_event_stats_factory.cpp.o
+[ 88%] Linking CXX static library libevent_store_client.a
+[ 88%] Built target event_store_client
+[ 92%] Building CXX object CMakeFiles/event_store_producer.dir/src/event_store_producer.cpp.o
+[ 92%] Linking CXX static library libevent_stats_reader.a
+[ 92%] Built target event_stats_reader
+[ 96%] Building CXX object CMakeFiles/event_store_sender.dir/src/event_store_sender.cpp.o
+[ 96%] Building CXX object CMakeFiles/event_store_producer.dir/src/event_store_management.cpp.o
+[ 96%] Building CXX object CMakeFiles/event_store_sender.dir/src/event_store_replay_factory.cpp.o
+[ 96%] Linking CXX static library libevent_store_producer.a
+[ 96%] Built target event_store_producer
+[ 96%] Linking CXX static library libevent_store_sender.a
+[ 96%] Built target event_store_sender
+[100%] Building CXX object CMakeFiles/MqttDriver.dir/mqtt_driver_main.cpp.o
+[100%] Linking CXX executable MqttDriver
+[100%] Built target MqttDriver
+[ 88%] Built target edge_gateway
+[ 88%] Built target event_store_runtime
+[ 92%] Built target event_store_client
+[ 96%] Built target event_stats_reader
+[100%] Built target event_store_sender
+[100%] Building CXX object CMakeFiles/MqttForwarder.dir/mqtt_forwarder_main.cpp.o
+[100%] Linking CXX executable MqttForwarder
+[100%] Built target MqttForwarder
+[ 84%] Built target edge_gateway
+[ 84%] Built target event_store_runtime
+[ 88%] Built target event_store_client
+[ 92%] Built target event_stats_reader
+[ 96%] Built target event_store_producer
+[ 96%] Building CXX object CMakeFiles/EventEngine.dir/event_engine_main.cpp.o
+[100%] Linking CXX executable EventEngine
+[100%] Built target EventEngine
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ComputeEngine.dir/compute_engine_main.cpp.o
+[100%] Linking CXX executable ComputeEngine
+[100%] Built target ComputeEngine
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/AgcAvcController.dir/agc_avc_main.cpp.o
+[100%] Linking CXX executable AgcAvcController
+[100%] Built target AgcAvcController
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/EmsClusterCoordinator.dir/ems_cluster_main.cpp.o
+[100%] Linking CXX executable EmsClusterCoordinator
+[100%] Built target EmsClusterCoordinator
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/SystemMonitor.dir/system_monitor_main.cpp.o
+[100%] Building CXX object CMakeFiles/SystemMonitor.dir/system_monitor_direct_maintenance.cpp.o
+[100%] Linking CXX executable SystemMonitor
+[100%] Built target SystemMonitor
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/LocalDisplay.dir/local_display_main.cpp.o
+[100%] Linking CXX executable LocalDisplay
+[100%] Built target LocalDisplay
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/QtDisplayBridge.dir/qt_display_bridge_main.cpp.o
+[100%] Linking CXX executable QtDisplayBridge
+[100%] Built target QtDisplayBridge
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/CameraService.dir/camera_service_main.cpp.o
+[100%] Linking CXX executable CameraService
+[100%] Built target CameraService
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/pointctl.dir/tools/pointctl.cpp.o
+[100%] Linking CXX executable pointctl
+[100%] Built target pointctl
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/EmsParityCheck.dir/tools/ems_parity_check.cpp.o
+[100%] Linking CXX executable EmsParityCheck
+[100%] Built target EmsParityCheck
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/stress_runner.dir/tools/stress_runner.cpp.o
+[100%] Linking CXX executable stress_runner
+[100%] Built target stress_runner
+[100%] Building CXX object CMakeFiles/memory_point_store_migrate.dir/src/memory_point_store_migration.cpp.o
+[100%] Linking CXX executable memory_point_store_migrate
+[100%] Built target memory_point_store_migrate
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_cluster_test.dir/tools/ems_cluster_test.cpp.o
+[100%] Linking CXX executable ems_cluster_test
+[100%] Built target ems_cluster_test
+[100%] Built target ems_cluster_transport_bounds_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/cluster_write_authorization_test.dir/tools/cluster_write_authorization_test.cpp.o
+[100%] Linking CXX executable cluster_write_authorization_test
+[100%] Built target cluster_write_authorization_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_cluster_output_authority_test.dir/tools/ems_cluster_output_authority_test.cpp.o
+[100%] Linking CXX executable ems_cluster_output_authority_test
+[100%] Built target ems_cluster_output_authority_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_cluster_strategy_startup_test.dir/tools/ems_cluster_strategy_startup_test.cpp.o
+[100%] Linking CXX executable ems_cluster_strategy_startup_test
+[100%] Built target ems_cluster_strategy_startup_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/cluster_router_authority_test.dir/tools/cluster_router_authority_test.cpp.o
+[100%] Linking CXX executable cluster_router_authority_test
+[100%] Built target cluster_router_authority_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/cluster_config_authority_test.dir/tools/cluster_config_authority_test.cpp.o
+[100%] Linking CXX executable cluster_config_authority_test
+[100%] Built target cluster_config_authority_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/cluster_driver_send_guard_test.dir/tools/cluster_driver_send_guard_test.cpp.o
+[100%] Linking CXX executable cluster_driver_send_guard_test
+[100%] Built target cluster_driver_send_guard_test
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable memory_point_store_shm11_test
+[100%] Built target memory_point_store_shm11_test
+[100%] Built target edge_gateway
+[100%] Linking CXX executable memory_point_store_v11_migration_test
+[100%] Built target memory_point_store_v11_migration_test
+[  4%] Built target memory_point_store_migrate
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/memory_point_store_migration_test.dir/src/memory_point_store.cpp.o
+[100%] Building CXX object CMakeFiles/memory_point_store_migration_test.dir/src/memory_point_store_migration.cpp.o
+[100%] Building CXX object CMakeFiles/memory_point_store_migration_test.dir/tools/memory_point_store_migration_test.cpp.o
+[100%] Linking CXX executable memory_point_store_migration_test
+[100%] Built target memory_point_store_migration_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/memory_point_store_lifecycle_test.dir/tools/memory_point_store_lifecycle_test.cpp.o
+[100%] Linking CXX executable memory_point_store_lifecycle_test
+[100%] Built target memory_point_store_lifecycle_test
+[100%] Building CXX object CMakeFiles/memory_point_store_reader_cache_test.dir/src/memory_point_store.cpp.o
+[100%] Building CXX object CMakeFiles/memory_point_store_reader_cache_test.dir/tools/memory_point_store_reader_cache_test.cpp.o
+[100%] Linking CXX executable memory_point_store_reader_cache_test
+[100%] Built target memory_point_store_reader_cache_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/config_loader_test.dir/tools/config_loader_test.cpp.o
+[100%] Linking CXX executable config_loader_test
+[100%] Built target config_loader_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/graph_ems_cluster_dispatch_test.dir/tools/graph_ems_cluster_dispatch_test.cpp.o
+[100%] Linking CXX executable graph_ems_cluster_dispatch_test
+[100%] Built target graph_ems_cluster_dispatch_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/graph_ems_v2_loader_test.dir/tools/graph_ems_v2_loader_test.cpp.o
+[100%] Linking CXX executable graph_ems_v2_loader_test
+[100%] Built target graph_ems_v2_loader_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/graph_ems_voltage_quality_test.dir/tools/graph_ems_voltage_quality_test.cpp.o
+[100%] Linking CXX executable graph_ems_voltage_quality_test
+[100%] Built target graph_ems_voltage_quality_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/compute_engine_service_test.dir/tools/compute_engine_service_test.cpp.o
+[100%] Linking CXX executable compute_engine_service_test
+[100%] Built target compute_engine_service_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/point_store_router_retention_test.dir/tools/point_store_router_retention_test.cpp.o
+[100%] Linking CXX executable point_store_router_retention_test
+[100%] Built target point_store_router_retention_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/point_store_router_normalize_test.dir/tools/point_store_router_normalize_test.cpp.o
+[100%] Linking CXX executable point_store_router_normalize_test
+[100%] Built target point_store_router_normalize_test
+[ 95%] Built target edge_gateway
+[ 95%] Linking CXX executable priority_control_lease_test
+[100%] Built target priority_control_lease_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/gateway_daemon_realtime_priority_test.dir/tools/gateway_daemon_realtime_priority_test.cpp.o
+[100%] Linking CXX executable gateway_daemon_realtime_priority_test
+[100%] Built target gateway_daemon_realtime_priority_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/modbus_rtu_client_resync_test.dir/tools/modbus_rtu_client_resync_test.cpp.o
+[100%] Linking CXX executable modbus_rtu_client_resync_test
+[100%] Built target modbus_rtu_client_resync_test
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/modbus_tcp_client_limit_test.dir/tools/modbus_tcp_client_limit_test.cpp.o
+[100%] Linking CXX executable modbus_tcp_client_limit_test
+[100%] Built target modbus_tcp_client_limit_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/posix_serial_port_recovery_test.dir/tools/posix_serial_port_recovery_test.cpp.o
+[100%] Linking CXX executable posix_serial_port_recovery_test
+[100%] Built target posix_serial_port_recovery_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/dlt645_command_executor_test.dir/tools/dlt645_command_executor_test.cpp.o
+[100%] Linking CXX executable dlt645_command_executor_test
+[100%] Built target dlt645_command_executor_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/control_dedup_integration_test.dir/tools/control_dedup_integration_test.cpp.o
+[100%] Linking CXX executable control_dedup_integration_test
+[100%] Built target control_dedup_integration_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/control_dedup_protocol_test.dir/tools/control_dedup_protocol_test.cpp.o
+[100%] Linking CXX executable control_dedup_protocol_test
+[100%] Built target control_dedup_protocol_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/mqtt_driver_service_test.dir/tools/mqtt_driver_service_test.cpp.o
+[100%] Linking CXX executable mqtt_driver_service_test
+[100%] Built target mqtt_driver_service_test
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/mqtt_forwarder_service_test.dir/tools/mqtt_forwarder_service_test.cpp.o
+[100%] Linking CXX executable mqtt_forwarder_service_test
+[100%] Built target mqtt_forwarder_service_test
