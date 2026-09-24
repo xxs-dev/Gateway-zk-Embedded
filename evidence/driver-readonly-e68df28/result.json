@@ -1,0 +1,92 @@
+{
+  "commit": "e68df2870e335e35b10c8ae886fabf9b4e2f73fe",
+  "steps": {
+    "archive": {
+      "argv": [
+        "git",
+        "--git-dir=/mnt/d/workspace/Embedded/Gateway-zk/.git",
+        "archive",
+        "-o",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source.tar",
+        "e68df2870e335e35b10c8ae886fabf9b4e2f73fe"
+      ],
+      "exitCode": 0,
+      "seconds": 6.279
+    },
+    "extract": {
+      "argv": [
+        "tar",
+        "-xf",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source.tar",
+        "-C",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source"
+      ],
+      "exitCode": 0,
+      "seconds": 0.066
+    },
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source",
+        "-B",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/build",
+        "-DCMAKE_BUILD_TYPE=Debug"
+      ],
+      "exitCode": 0,
+      "seconds": 3.925
+    },
+    "library": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/build",
+        "--target",
+        "edge_gateway",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "seconds": 31.54
+    },
+    "compile": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source/include",
+        "-I/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source/tools",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/evidence/driver-readonly-e68df28/probe.cpp",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-lrt",
+        "-Wl,--wrap=send,--wrap=select",
+        "-o",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/build/probe"
+      ],
+      "exitCode": 0,
+      "seconds": 1.219
+    },
+    "probe": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source/evidence/ems-cluster-v2-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/build/probe",
+        "/home/wmzdxs/.cache/edge-driver-readonly-e68df28/driver-review-3ifbw1o6"
+      ],
+      "exitCode": 0,
+      "seconds": 0.166
+    }
+  },
+  "librarySha256": "068c84211d7b32d5797eca7f0c4509bc81cac9e1f922332fad3ed0504e0bbf43",
+  "binarySha256": "f9e38591b6b6c4704ca9b6f1615de2eabbe7e62d5a5f3fa3ca496f19c1ffca7a"
+}

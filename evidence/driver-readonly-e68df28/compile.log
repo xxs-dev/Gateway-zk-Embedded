@@ -1,0 +1,5 @@
+In file included from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-lease-repair-worker-20260924/evidence/driver-readonly-e68df28/probe.cpp:2:
+/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source/tools/cluster_driver_send_guard_test.cpp: In function ‘int upstream_driver_test_main(int, char**)’:
+/home/wmzdxs/.cache/edge-driver-readonly-e68df28/source/tools/cluster_driver_send_guard_test.cpp:199:1: warning: control reaches end of non-void function [-Wreturn-type]
+  199 | }
+      | ^

@@ -1,0 +1,12 @@
+service expired rejected-first/accepted-second bytes=12
+service missing rejected-first/accepted-second bytes=12
+service epoch rejected-first/accepted-second bytes=12
+writeback failed device=meter slave=1 index=1234 error=cluster authority expired, revoked or changed
+daemon expired rejected-first/accepted-second bytes=12
+writeback failed device=meter slave=1 index=1234 error=cluster authority missing or outside configured target/store scope
+daemon missing rejected-first/accepted-second bytes=12
+writeback failed device=meter slave=1 index=1234 error=cluster authority expired, revoked or changed
+daemon epoch rejected-first/accepted-second bytes=12
+service missing-store rejected-first/accepted-second bytes=12
+MQTT ownership current/stale/manual/released passed bytes=12
+driver scoped review probe passed
