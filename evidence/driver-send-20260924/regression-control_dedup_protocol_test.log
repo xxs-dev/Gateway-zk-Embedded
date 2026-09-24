@@ -1,0 +1,3 @@
+local_dio: real Gateway + real executor + fake hardware count=1 passed
+dlt645_2007: real Gateway + real executor + fake hardware count=1 passed
+iec104: real Gateway + real executor + fake hardware count=1 passed
