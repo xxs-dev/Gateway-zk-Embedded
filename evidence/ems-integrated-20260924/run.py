@@ -17,7 +17,12 @@ BUILD = Path('/var/tmp/ems-production-candidate-20260924-build')
 
 
 def git(*args):
-    return subprocess.check_output(['git', '-C', str(SOURCE), *args], text=True).strip()
+    executable, worktree = 'git', str(SOURCE)
+    pointer = SOURCE / '.git'
+    if pointer.is_file() and re.match(r'gitdir: [A-Za-z]:', pointer.read_text()):
+        executable = '/mnt/c/Program Files/Git/cmd/git.exe'
+        worktree = subprocess.check_output(['wslpath', '-w', str(SOURCE)], text=True).strip()
+    return subprocess.check_output([executable, '-C', worktree, *args], text=True).strip()
 
 
 def digest(path):
