@@ -10,6 +10,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/power_control_ownership.hpp"
+#include "edge_gateway/cluster_write_authorization.hpp"
 
 namespace edge_gateway {
 
@@ -70,6 +71,9 @@ public:
     void addRoute(const PointStoreRoute& route);
     void setPowerControlOwnershipFile(const std::string& path, const std::string& owner);
     void setEmsVirtualParameterDirectory(const std::string& directory);
+    void setEmsClusterConfig(const EmsClusterConfig& config);
+    const EmsClusterConfig& emsClusterConfig() const { return emsClusterConfig_; }
+    Optional<ClusterAuthoritySnapshot> clusterAuthority() const;
 
     Optional<PointStoreRoute> routeByIndex(std::uint32_t index) const;
     Optional<PointStoreRoute> routeByLocation(
@@ -164,6 +168,8 @@ private:
     std::unordered_map<std::string, PointStoreRoute> routesByLocation_;
     std::uint32_t nextDerivedIndex_ = 900000000U;
     std::unique_ptr<PowerControlOwnership> powerControlOwnership_;
+    EmsClusterConfig emsClusterConfig_;
+    std::unique_ptr<ClusterWriteGuard> clusterWriteGuard_;
     std::string emsVirtualParameterDirectory_;
     std::unordered_map<std::string, double> emsVirtualPersistedValues_;
 };

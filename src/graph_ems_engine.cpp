@@ -5417,6 +5417,32 @@ bool GraphEmsEngine::runClusterDispatch(
     };
 
     const auto enable = freshPoint(paramIndex(node, "enableIndex"));
+    const auto& clusterConfig = router_.emsClusterConfig();
+    if (clusterConfig.enabled) {
+        // Read the atomic record before sampling time: a blocked store read must not extend a lease.
+        const auto authority = router_.clusterAuthority();
+        const auto boot = localKernelBootId();
+        const auto monotonicNow = clusterMonotonicNowMs();
+        const bool enabled = clusterConfig.controlEnabled && enable && enable->value >= 0.5;
+        const bool stationLeader = enabled && authority &&
+            clusterStationStrategyAllowed(*authority, boot, monotonicNow);
+        PendingWriteCommand probe;
+        probe.index = clusterConfig.controlTargetIndexes.empty() ? 0 : clusterConfig.controlTargetIndexes.front();
+        if (authority) probe.clusterAuthorization = authority->authorization;
+        const bool valid = enabled && authority &&
+            clusterAuthorizationValid(clusterConfig, probe, *authority, boot, monotonicNow);
+        const auto activeOutputs = paramIndexes(node, "activeOutputIndexes");
+        const auto reactiveOutputs = paramIndexes(node, "reactiveOutputIndexes");
+        for (std::size_t i = 0; i < 3; ++i) {
+            write(activeOutputs[i], valid ? authority->targets[i] : 0.0);
+            write(reactiveOutputs[i], valid ? authority->targets[i + 3] : 0.0);
+        }
+        write(paramIndex(node, "validOutputIndex"), valid ? 1.0 : 0.0);
+        write(paramIndex(node, "stationLeaderOutputIndex"), stationLeader ? 1.0 : 0.0);
+        write(paramIndex(node, "reasonOutputIndex"), valid ? authority->dispatchCode :
+              static_cast<int>(enabled ? EmsClusterDispatchCode::Expired : EmsClusterDispatchCode::ControlDisabled));
+        return true;
+    }
     const auto role = freshPoint(paramIndex(node, "roleIndex"));
     const auto quorum = freshPoint(paramIndex(node, "quorumIndex"));
     const auto dispatchValid = freshPoint(paramIndex(node, "dispatchValidIndex"));

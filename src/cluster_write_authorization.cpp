@@ -84,6 +84,14 @@ bool clusterAuthorizationValid(const EmsClusterConfig& config, const PendingWrit
 
 ClusterWriteGuard::ClusterWriteGuard(EmsClusterConfig config) : config_(std::move(config)) {}
 
+Optional<ClusterAuthoritySnapshot> ClusterWriteGuard::snapshot() const {
+    if (!config_.enabled || !validStoreName(config_.virtualSharedMemoryName)) return NullOpt;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!authorityStore_)
+        authorityStore_.reset(new MemoryPointStore(config_.virtualSharedMemoryName, MemoryStoreOpenMode::OpenExisting));
+    return authorityStore_->clusterAuthority();
+}
+
 void ClusterWriteGuard::check(const PendingWriteCommand& command) const {
     if (!clusterAuthorizationRequired(config_, command)) return;
     if (!command.clusterAuthorization || !config_.enabled || !config_.controlEnabled ||
@@ -91,11 +99,8 @@ void ClusterWriteGuard::check(const PendingWriteCommand& command) const {
         command.clusterAuthorization->authorityStoreName != config_.virtualSharedMemoryName ||
         !contains(config_.controlTargetIndexes, command.index))
         throw std::runtime_error("cluster authority missing or outside configured target/store scope");
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!authorityStore_)
-        authorityStore_.reset(new MemoryPointStore(config_.virtualSharedMemoryName, MemoryStoreOpenMode::OpenExisting));
-    const auto snapshot = authorityStore_->clusterAuthority();
-    if (!snapshot || !clusterAuthorizationValid(config_, command, *snapshot, localKernelBootId(), clusterMonotonicNowMs()))
+    const auto current = snapshot();
+    if (!current || !clusterAuthorizationValid(config_, command, *current, localKernelBootId(), clusterMonotonicNowMs()))
         throw std::runtime_error("cluster authority expired, revoked or changed");
 }
 }

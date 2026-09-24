@@ -20,6 +20,7 @@ bool clusterAuthorizationValid(const EmsClusterConfig&, const PendingWriteComman
 class ClusterWriteGuard {
 public:
     explicit ClusterWriteGuard(EmsClusterConfig config);
+    Optional<ClusterAuthoritySnapshot> snapshot() const;
     void check(const PendingWriteCommand& command) const;
 private:
     EmsClusterConfig config_;
