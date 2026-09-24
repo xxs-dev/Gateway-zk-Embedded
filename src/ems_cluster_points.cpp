@@ -107,6 +107,7 @@ void addEmsClusterPointRoutes(
     const EmsClusterConfig& config,
     const std::string& machineCode
 ) {
+    router.setEmsClusterConfig(config);
     for (const auto& route : emsClusterPointRoutes(config, machineCode)) {
         router.addRoute(route);
     }

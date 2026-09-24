@@ -1174,6 +1174,15 @@ void PointStoreRouter::setPowerControlOwnershipFile(const std::string& path, con
     powerControlOwnership_.reset(path.empty() ? nullptr : new PowerControlOwnership(path, owner));
 }
 
+void PointStoreRouter::setEmsClusterConfig(const EmsClusterConfig& config) {
+    emsClusterConfig_ = config;
+    clusterWriteGuard_.reset(new ClusterWriteGuard(config));
+}
+
+Optional<ClusterAuthoritySnapshot> PointStoreRouter::clusterAuthority() const {
+    return clusterWriteGuard_ ? clusterWriteGuard_->snapshot() : Optional<ClusterAuthoritySnapshot>{};
+}
+
 void PointStoreRouter::setEmsVirtualParameterDirectory(const std::string& directory) {
     emsVirtualParameterDirectory_ = directory.empty()
         ? std::string(kDefaultEmsVirtualParameterDirectory)
