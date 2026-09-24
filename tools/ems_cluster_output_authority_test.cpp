@@ -14,6 +14,7 @@ MemoryPointStore* probeReader = nullptr;
 EmsClusterConfig* probeConfig = nullptr;
 std::int64_t probeNow = 0;
 std::int64_t probeDeadline = 0;
+double probeTarget = 9;
 int publicationCalls = 0;
 bool failDiagnosticWrite = false;
 }
@@ -26,12 +27,12 @@ extern "C" void wrapPublishAuthority(MemoryPointStore* store, const ClusterAutho
     if (publicationProbe == PublicationProbe::Off) return;
     ++publicationCalls;
     const auto current = probeReader->clusterAuthority();
-    require(current.has_value(), "publication probe must read an occupied authority record");
+    require(static_cast<bool>(current), "publication probe must read an occupied authority record");
     if (publicationProbe == PublicationProbe::Invalid) {
         require(!current->valid, "invalid scope must revoke authority at the first publication");
         return;
     }
-    require(current->valid && current->authorization && current->targets[0] == 9,
+    require(current->valid && current->authorization && current->targets[0] == probeTarget,
             "transient invalid authority during legal refresh would yield reason16");
     require(current->authorization->notAfterMonotonicMs == probeDeadline,
             "legal refresh must preserve the original deadline");
@@ -83,6 +84,20 @@ void publicationAtomicity() {
     publicationProbe = PublicationProbe::Valid;
     bridge.publish(status, dispatch, 1000010, probeNow);
     require(publicationCalls == 1, "legal refresh must replace authority exactly once");
+    PendingWriteCommand oldCommand;
+    oldCommand.index = 1234;
+    oldCommand.clusterAuthorization = first->authorization;
+    dispatch.sequence = 2;
+    dispatch.expireAtMs = 19500;
+    dispatch.accepted.paKw = 12;
+    probeNow = 10015;
+    probeDeadline = 19500;
+    probeTarget = 12;
+    publicationCalls = 0;
+    bridge.publish(status, dispatch, 1000015, probeNow);
+    require(publicationCalls == 1, "new dispatch must atomically replace the old authority");
+    require(!clusterAuthorizationValid(config, oldCommand, *observer.clusterAuthority(), localKernelBootId(), probeNow),
+            "old dispatch sequence must not authorize a newer target");
     publicationProbe = PublicationProbe::Invalid;
     publicationCalls = 0;
     status.quorumValid = false;
@@ -94,9 +109,10 @@ void publicationAtomicity() {
     require(publicationCalls == 2, "term change with old dispatch must publish one invalid record");
     dispatch.term = status.term;
     dispatch.sequence = 1;
-    dispatch.expireAtMs = 19500;
+    dispatch.accepted.paKw = 9;
     probeNow = 10040;
     probeDeadline = 19500;
+    probeTarget = 9;
     publicationProbe = PublicationProbe::Valid;
     publicationCalls = 0;
     bridge.publish(status, dispatch, 1000040, probeNow);

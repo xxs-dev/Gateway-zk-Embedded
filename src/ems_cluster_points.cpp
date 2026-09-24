@@ -275,8 +275,7 @@ void EmsClusterPointBridge::write(
 }
 
 void EmsClusterPointBridge::publish(const EmsClusterStatus& status, const EmsClusterDispatchState& dispatch,
-                                   std::int64_t wallNowMs, std::int64_t monotonicNowMs) {
-    store_.publishClusterAuthority(ClusterAuthoritySnapshot{});
+                                   std::int64_t wallNowMs, std::int64_t monotonicNowMs) try {
     auto deadline = std::min(status.authorityExpireAtMs, dispatch.expireAtMs);
     const bool authorityChanged = lastTerm_ != status.term || lastMembershipEpoch_ != status.membershipEpoch ||
         lastLeader_ != status.leaderNodeId;
@@ -343,10 +342,15 @@ void EmsClusterPointBridge::publish(const EmsClusterStatus& status, const EmsClu
     const auto leaseRemaining = leaseValid ? status.authorityExpireAtMs - monotonicNowMs : 0;
     publicationLeaseDeadline_ = wallNowMs > std::numeric_limits<std::int64_t>::max() - leaseRemaining
         ? std::numeric_limits<std::int64_t>::max() : wallNowMs + leaseRemaining;
+    store_.publishClusterAuthority(snapshot);
     publishDiagnostics(diagnosticStatus, diagnosticDispatch, wallNowMs);
     publicationDeadline_ = 0;
     publicationLeaseDeadline_ = 0;
-    store_.publishClusterAuthority(snapshot);
+} catch (...) {
+    publicationDeadline_ = 0;
+    publicationLeaseDeadline_ = 0;
+    store_.publishClusterAuthority(ClusterAuthoritySnapshot{});
+    throw;
 }
 
 void EmsClusterPointBridge::publish(
