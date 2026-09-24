@@ -1,0 +1,5 @@
+local_dio cluster context reached unsupported hardware
+iec104 cluster context reached unsupported hardware
+dlt645_2007 cluster context reached unsupported hardware
+ordinary CAN datagram missing
+exit=1
