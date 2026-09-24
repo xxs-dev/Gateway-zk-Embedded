@@ -732,6 +732,12 @@ bool PointStoreRouter::isOrdinaryPhysicalWrite(std::uint32_t index) const {
     return route && !route->commandMailbox && !isDirectEmsVirtualParameter(*route);
 }
 
+void PointStoreRouter::checkClusterCommand(const PendingWriteCommand& command) const {
+    if (clusterWriteGuard_) clusterWriteGuard_->check(command);
+    else if (command.clusterAuthorization)
+        throw std::runtime_error("tagged command requires configured cluster authority");
+}
+
 CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteCommand& command) {
     const auto route = routeByIndex(command.index);
     if (!route) {
@@ -776,6 +782,9 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
         return result;
     }
     try {
+        checkClusterCommand(routedCommand);
+        if (command.clusterAuthorization && (isDirectEmsVirtualParameter(route) || route.commandMailbox))
+            throw std::runtime_error("cluster authorization cannot be converted into a scalar parameter or mailbox");
         if (command.durableControl) validateControlCommandId(command.cmdId);
         if (isDirectEmsVirtualParameter(route)) {
             const auto validationError = validateEmsVirtualParameter(route, command.value);
@@ -830,6 +839,7 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
                 return result;
             }
         }
+        checkClusterCommand(routedCommand);
         store->submitWriteCommand(routedCommand);
     } catch (const std::exception& ex) {
         result.message = ex.what();
@@ -927,6 +937,11 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
     }
 
     try {
+        for (const auto& command : routedCommands) {
+            checkClusterCommand(command);
+            if (command.clusterAuthorization && routeByIndex(command.index)->commandMailbox)
+                throw std::runtime_error("cluster authorization cannot be converted into a mailbox");
+        }
         targetStore->submitWriteCommands(routedCommands);
     } catch (const std::exception& ex) {
         result.message = ex.what();
@@ -939,6 +954,10 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
 
 CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCommand& command) {
     CommandSubmitResult result;
+    if (clusterAuthorizationRequired(emsClusterConfig_, command)) {
+        result.message = "cluster command cannot be converted into a scalar mailbox";
+        return result;
+    }
     const auto route = routeByIndex(command.index);
     if (!route) {
         result.message = "command mailbox index not found";

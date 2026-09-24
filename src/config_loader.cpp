@@ -2986,6 +2986,11 @@ EmsClusterConfig parseEmsClusterConfig(const JsonValue* value) {
     );
     config.statusIntervalMs = requireInt(object, "statusIntervalMs", config.statusIntervalMs);
     config.controlEnabled = requireBool(object, "controlEnabled", config.controlEnabled);
+    config.controlTargetIndexes = parseMqttForwardPointIndexes(
+        value->find("controlTargetIndexes"), "emsCluster.controlTargetIndexes");
+    if (config.controlTargetIndexes.size() > 256 ||
+        std::find(config.controlTargetIndexes.begin(), config.controlTargetIndexes.end(), 0) != config.controlTargetIndexes.end())
+        throw std::invalid_argument("emsCluster.controlTargetIndexes requires at most 256 positive unique indexes");
     config.dispatchCycleMs = requireInt(object, "dispatchCycleMs", config.dispatchCycleMs);
     config.dispatchTtlMs = requireInt(object, "dispatchTtlMs", config.dispatchTtlMs);
     config.capabilityTtlMs = requireInt(object, "capabilityTtlMs", config.capabilityTtlMs);
@@ -3006,6 +3011,9 @@ EmsClusterConfig parseEmsClusterConfig(const JsonValue* value) {
         config.virtualPointBaseIndex
     ));
     config.factoryAddress = requireString(object, "factoryAddress", config.factoryAddress);
+    if (config.enabled && (config.virtualSharedMemoryName.empty() || config.virtualSharedMemoryName.size() >= 64 ||
+        config.virtualSharedMemoryName.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos))
+        throw std::invalid_argument("emsCluster.virtualSharedMemoryName must be 1..63 letters, digits, underscores or hyphens");
     config.consensusStateFile = requireString(
         object,
         "consensusStateFile",

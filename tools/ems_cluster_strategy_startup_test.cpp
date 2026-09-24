@@ -2,10 +2,12 @@
 #include "edge_gateway/ems_cluster_points.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
 #include <cstdio>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -97,7 +99,7 @@ void startup() {
     router.addStore(name, store);
     addEmsClusterPointRoutes(router, config, "test");
     const auto base = config.virtualPointBaseIndex;
-    for (std::uint32_t i = 100; i < 109; ++i) {
+    for (std::uint32_t i = 100; i < 111; ++i) {
         PointStoreRoute route;
         route.index = base + i;
         route.sharedMemoryName = name;
@@ -156,7 +158,77 @@ void startup() {
     require(store.getLatestByIndex(base + 106, wall + 26)->value == 1,
             "closed loop must expose dispatch validity");
     require(router.peekPendingWrites().empty(), "strategy calculation must not enqueue physical writes");
+    PointStoreRoute physical;
+    physical.index = 1234;
+    physical.sharedMemoryName = name;
+    physical.writable = true;
+    router.addRoute(physical);
+    GraphEmsNodeConfig multiply;
+    multiply.id = "multiply";
+    multiply.type = "formula";
+    multiply.params = {{"operation", "multiply"}, {"inputs.count", "2"},
+        {"inputs.0.index", std::to_string(base + 100)}, {"inputs.1.value", "2"},
+        {"outputIndex", std::to_string(base + 109)}};
+    GraphEmsNodeConfig limit;
+    limit.id = "limit";
+    limit.type = "formula";
+    limit.params = {{"operation", "clamp"}, {"inputs.count", "1"},
+        {"inputs.0.index", std::to_string(base + 109)}, {"lower", "-5"}, {"upper", "5"},
+        {"outputIndex", std::to_string(base + 110)}};
+    GraphEmsNodeConfig writer;
+    writer.id = "writer";
+    writer.type = "controlWrite";
+    writer.params = {{"submitWrites", "true"}, {"inputIndex", std::to_string(base + 110)},
+        {"targetIndex", "1234"}, {"minValue", "-100"}, {"maxValue", "100"}};
+    GraphEmsConfig control;
+    control.graphCode = "lineage";
+    control.nodes = {gate, multiply, limit, writer};
+    control.edges = {{gate.id, multiply.id}, {multiply.id, limit.id}, {limit.id, writer.id}};
+    GraphEmsEngine controlEngine(control, router, 1000);
+    const auto controlRun = controlEngine.runOnce(wall + 26);
+    require(controlRun.errors.empty() && controlRun.deviceWrites == 1,
+            "authorized phase through arithmetic and clamp must enqueue one command");
+    auto queued = store.drainPendingWriteCommands();
+    require(queued.size() == 1 && queued[0].value == 5 && queued[0].clusterAuthorization &&
+            queued[0].clusterAuthorization->notAfterMonotonicMs == store.clusterAuthority()->authorization->notAfterMonotonicMs,
+            "Graph must preserve immutable input authorization through intermediate nodes and queue");
     const auto live = *store.clusterAuthority();
+    auto staleWriter = writer;
+    staleWriter.params["permitIndex"] = std::to_string(base + 106);
+    GraphEmsConfig stale;
+    stale.graphCode = "stale-lineage";
+    stale.nodes = {gate, staleWriter};
+    stale.edges = {{gate.id, staleWriter.id}};
+    GraphEmsEngine staleEngine(stale, router, 1000);
+    require(!staleEngine.runOnce(wall + 27).errors.empty() && store.peekPendingWriteCommands().empty(),
+            "fresh permit must not authorize a previous scan's scalar target");
+    auto mixedFormula = multiply;
+    mixedFormula.params.erase("inputs.1.value");
+    mixedFormula.params["inputs.1.index"] = std::to_string(base + 110);
+    auto mixedWriter = writer;
+    mixedWriter.params["inputIndex"] = std::to_string(base + 109);
+    GraphEmsConfig mixed;
+    mixed.graphCode = "mixed-lineage";
+    mixed.nodes = {gate, mixedFormula, mixedWriter};
+    mixed.edges = {{gate.id, mixedFormula.id}, {mixedFormula.id, mixedWriter.id}};
+    GraphEmsEngine mixedEngine(mixed, router, 1000);
+    require(!mixedEngine.runOnce(wall + 27).errors.empty() && store.peekPendingWriteCommands().empty(),
+            "arithmetic mixing a fresh dispatch with a scalar of unknown lineage must fail closed");
+    ClusterWriteGuard sendGuard(config);
+    std::vector<double> actuator;
+    const auto send = [&](const PendingWriteCommand& command) {
+        sendGuard.check(command);
+        actuator.push_back(command.value);
+    };
+    send(queued[0]);
+    require(actuator.size() == 1, "live queued command must reach fake actuator");
+    auto revoked = live;
+    revoked.valid = false;
+    store.publishClusterAuthority(revoked);
+    bool rejected = false;
+    try { send(queued[0]); } catch (const std::exception&) { rejected = true; }
+    require(rejected && actuator.size() == 1, "revocation between batch sends must block the next actuator call");
+    store.publishClusterAuthority(live);
     auto changed = live;
     changed.strategyKernelBootId[0] ^= 1;
     store.publishClusterAuthority(changed);
@@ -169,11 +241,30 @@ void startup() {
     require(engine.runOnce(wall + 28).errors.empty(), "expired strategy must fail closed without crashing Graph");
     require(store.getLatestByIndex(base + 107, wall + 28)->value == 0,
             "Graph must check monotonic strategy deadline even with fresh wall-clock diagnostics");
+    store.publishClusterAuthority(live);
+    require(engine.runOnce(wall + 29).errors.empty() && store.getLatestByIndex(base + 107, wall + 29)->value == 1,
+            "fixture must have an active strategy gate before authority-store failure");
+    auto missingStore = config;
+    missingStore.virtualSharedMemoryName = name + "_missing";
+    router.setEmsClusterConfig(missingStore);
+    require(!engine.runOnce(wall + 29).errors.empty(), "missing authority store must be reported");
+    require(store.getLatestByIndex(base + 107, wall + 29)->value == 0,
+            "authority read failure must clear a previous strategy gate, not retain its scalar value");
+    router.setEmsClusterConfig(config);
     EmsClusterPointBridge restarted(config, "test");
     require(engine.runOnce(wall + 29).errors.empty(), "restart-cleared authority must fail closed");
     require(store.getLatestByIndex(base + 107, wall + 29)->value == 0 &&
             store.getLatestByIndex(base + 106, wall + 29)->value == 0,
             "fresh scalar diagnostics must not revive either gate after publisher restart");
+    store.publishClusterAuthority(live);
+    const auto deadline = queued[0].clusterAuthorization->notAfterMonotonicMs;
+    const auto remaining = deadline - clusterMonotonicNowMs();
+    if (remaining > 0) std::this_thread::sleep_for(std::chrono::milliseconds(remaining));
+    rejected = false;
+    try { send(queued[0]); } catch (const std::exception&) { rejected = true; }
+    require(rejected && actuator.size() == 1, "delayed drain after a stalled coordinator must not reach actuator");
+    require(!controlEngine.runOnce(wall + 30).errors.empty() && store.peekPendingWriteCommands().empty(),
+            "fresh wall timestamps must not refresh expired Graph command authority");
 }
 }
 int main() {

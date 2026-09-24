@@ -52,6 +52,8 @@ try:
             break
         with tempfile.TemporaryDirectory(prefix='shm11-', dir=BUILD) as work:
             (Path(work) / 'config').symlink_to(SOURCE / 'config', target_is_directory=True)
+            (Path(work) / 'tools').mkdir()
+            (Path(work) / 'tools/testdata').symlink_to(SOURCE / 'tools/testdata', target_is_directory=True)
             os.environ['GATEWAY_MIGRATION_TEST_BACKUP_DIR'] = work
             run(test, ['unshare', '--mount', '--net', '--ipc', '--pid', '--fork', '--mount-proc',
                       'sh', str(ISOLATE), str(binary), work], 120)
