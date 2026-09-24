@@ -16,11 +16,12 @@ ISOLATE = SOURCE.parent / 'cluster-evidence-20260924/evidence/realese1.0/cluster
 label = sys.argv[1]
 tests = sys.argv[2:] or ['memory_point_store_shm11_test']
 BUILD.mkdir(parents=True, exist_ok=True)
-result = {'label': label, 'steps': {}, 'sources': {}}
+result = {'label': label, 'steps': {}, 'sources': {}, 'sourcesLfSha256': {}}
 for folder in ('src', 'include', 'tools'):
     for path in (SOURCE / folder).rglob('*'):
         if path.suffix in ('.cpp', '.hpp'):
             result['sources'][str(path.relative_to(SOURCE))] = hashlib.sha256(path.read_bytes()).hexdigest()
+            result['sourcesLfSha256'][str(path.relative_to(SOURCE))] = hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
 
 def run(name, argv, timeout=300):
     started = time.monotonic()

@@ -39,6 +39,20 @@ void authorizationSurvivesSharedQueue() {
     auth.dispatchSequence = 9007199254740995ULL;
     auth.authorityStoreName = "cluster_authority_test";
     command.clusterAuthorization = auth;
+    ClusterAuthoritySnapshot snapshot;
+    snapshot.authorization = auth;
+    snapshot.valid = true;
+    snapshot.targets = {{18, 19, 20, 1, 2, 3}};
+    snapshot.targetIndexes = {1234, 1235};
+    store.publishClusterAuthority(snapshot);
+    {
+        MemoryPointStore observer(name, MemoryStoreOpenMode::OpenExisting);
+        const auto actual = observer.clusterAuthority();
+        require(actual && actual->valid && actual->authorization &&
+                actual->authorization->dispatchSequence == auth.dispatchSequence &&
+                actual->targets == snapshot.targets && actual->targetIndexes == snapshot.targetIndexes,
+                "atomic authority snapshot must cross process mappings without scalar encoding");
+    }
     store.submitWriteCommand(command);
     const auto verify = [&](const std::vector<PendingWriteCommand>& commands) {
         require(commands.size() == 1, "one queued command expected");
@@ -74,6 +88,8 @@ void authorizationSurvivesSharedQueue() {
     require(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0,
             "independent process must receive complete authorization");
     require(store.peekPendingWriteCommands().empty(), "child must drain shared queue");
+    store.publishClusterAuthority(ClusterAuthoritySnapshot{});
+    require(!store.clusterAuthority()->valid, "invalid authority must revoke prior snapshot");
     for (int invalid = 0; invalid < 5; ++invalid) {
         auto bad = command;
         auto& context = *bad.clusterAuthorization;

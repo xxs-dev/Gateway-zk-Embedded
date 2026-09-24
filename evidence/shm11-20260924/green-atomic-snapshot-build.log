@@ -1,0 +1,3 @@
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/memory_point_store.cpp.o
+[  0%] Linking CXX static library libedge_gateway.a
+[100%] Built target edge_gateway

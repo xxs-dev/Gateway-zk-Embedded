@@ -1,0 +1,1 @@
+memory_point_store_shm11_test failed: atomic authority snapshot must cross process mappings without scalar encoding

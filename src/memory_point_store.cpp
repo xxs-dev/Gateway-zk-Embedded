@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <cstdint>
@@ -65,6 +66,7 @@ void resetSharedStorePayloadAfterOwnerDeath(SharedStoreLayout* layout) noexcept 
     std::memset(layout->pointUpdates, 0, sizeof(layout->pointUpdates));
     std::memset(layout->owners, 0, sizeof(layout->owners));
     std::memset(layout->claims, 0, sizeof(layout->claims));
+    layout->clusterAuthority = SharedClusterAuthoritySnapshot{};
 }
 #endif
 
@@ -1281,6 +1283,57 @@ void MemoryPointStore::registerDevicePoints(const std::vector<DeviceConfig>& con
         bindings_[registration.binding.index] = registration.binding;
         registeredIndexes_.insert(registration.binding.index);
     }
+}
+
+void MemoryPointStore::publishClusterAuthority(const ClusterAuthoritySnapshot& snapshot) {
+    SharedClusterAuthoritySnapshot encoded{};
+    encoded.authorization = encodeAuthorization(snapshot.authorization);
+    if ((snapshot.valid && !snapshot.authorization) || snapshot.targetIndexes.size() > 256 ||
+        std::any_of(snapshot.targets.begin(), snapshot.targets.end(), [](double x) { return !std::isfinite(x); }))
+        throw std::invalid_argument("invalid cluster authority snapshot");
+    const std::set<std::uint32_t> targets(snapshot.targetIndexes.begin(), snapshot.targetIndexes.end());
+    if (targets.count(0) || targets.size() != snapshot.targetIndexes.size())
+        throw std::invalid_argument("invalid cluster authority target scope");
+    encoded.occupied = 1;
+    encoded.valid = snapshot.valid ? 1 : 0;
+    encoded.role = snapshot.role;
+    encoded.dispatchCode = snapshot.dispatchCode;
+    encoded.stationStrategyActive = snapshot.stationStrategyActive ? 1 : 0;
+    encoded.targetCount = static_cast<std::uint32_t>(snapshot.targetIndexes.size());
+    std::copy(snapshot.targets.begin(), snapshot.targets.end(), encoded.targets);
+    std::copy(snapshot.targetIndexes.begin(), snapshot.targetIndexes.end(), encoded.targetIndexes);
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    SharedLockGuard sharedLock(&layoutFrom(sharedView_)->header.mutex);
+#endif
+    layoutFrom(sharedView_)->clusterAuthority = encoded;
+}
+
+Optional<ClusterAuthoritySnapshot> MemoryPointStore::clusterAuthority() const {
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    SharedLockGuard sharedLock(&layoutFrom(sharedView_)->header.mutex);
+#endif
+    const auto& stored = layoutFrom(sharedView_)->clusterAuthority;
+    if (!stored.occupied) return NullOpt;
+    if (stored.occupied != 1 || stored.valid > 1 || stored.stationStrategyActive > 1 || stored.targetCount > 256)
+        throw std::runtime_error("malformed cluster authority snapshot");
+    ClusterAuthoritySnapshot result;
+    result.authorization = decodeAuthorization(stored.authorization);
+    result.valid = stored.valid == 1;
+    if (result.valid && !result.authorization) throw std::runtime_error("cluster authority has no context");
+    result.role = stored.role;
+    result.dispatchCode = stored.dispatchCode;
+    result.stationStrategyActive = stored.stationStrategyActive == 1;
+    std::copy(std::begin(stored.targets), std::end(stored.targets), result.targets.begin());
+    result.targetIndexes.assign(stored.targetIndexes, stored.targetIndexes + stored.targetCount);
+    return result;
 }
 
 void MemoryPointStore::putLatest(const PointValue& value) {

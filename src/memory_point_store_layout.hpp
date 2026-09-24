@@ -64,6 +64,19 @@ struct SharedClusterWriteAuthorization {
 };
 static_assert(sizeof(SharedClusterWriteAuthorization) == 120, "cluster authorization ABI changed");
 
+struct SharedClusterAuthoritySnapshot {
+    SharedClusterWriteAuthorization authorization{};
+    std::uint32_t occupied = 0;
+    std::uint32_t valid = 0;
+    std::int32_t role = 0;
+    std::int32_t dispatchCode = 0;
+    std::uint32_t stationStrategyActive = 0;
+    std::uint32_t targetCount = 0;
+    double targets[6] = {};
+    std::uint32_t targetIndexes[256] = {};
+};
+static_assert(sizeof(SharedClusterAuthoritySnapshot) == 1216, "cluster snapshot ABI changed");
+
 struct SharedPendingWriteSlot {
     std::uint64_t sequence = 0;
     std::uint32_t index = 0;
@@ -190,6 +203,7 @@ struct SharedStoreLayout {
     SharedPointUpdateSlot pointUpdates[kMaxPointUpdateSlots];
     SharedOwnerSlot owners[kMaxOwnerSlots];
     SharedClaimSlot claims[kMaxClaimSlots];
+    SharedClusterAuthoritySnapshot clusterAuthority{};
 };
 
 }  // namespace memory_layout

@@ -271,6 +271,16 @@ struct ClusterWriteAuthorization {
     std::string authorityStoreName;
 };
 
+struct ClusterAuthoritySnapshot {
+    Optional<ClusterWriteAuthorization> authorization;
+    bool valid = false;
+    int role = 0;
+    int dispatchCode = 0;
+    bool stationStrategyActive = false;
+    std::array<double, 6> targets{};
+    std::vector<std::uint32_t> targetIndexes;
+};
+
 struct PendingWriteCommand {
     std::string cmdId;
     std::uint32_t index = 0;
