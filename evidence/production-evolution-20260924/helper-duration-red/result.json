@@ -1,0 +1,70 @@
+{
+  "librarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "steps": {
+    "compile-ems_shadow_live_helper": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_shadow_live_helper.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-h7rto91a/ems_shadow_live_helper"
+      ],
+      "exitCode": 0,
+      "binarySha256": "77bf4cda76add9f28cccdb8636b44ff9e1ca07584457ea9ad3d10988c9599ae1"
+    },
+    "compile-ems_shadow_live_helper_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_shadow_live_helper_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-h7rto91a/ems_shadow_live_helper_test"
+      ],
+      "exitCode": 0,
+      "binarySha256": "7588a043f835c76c2589b29b0c5c649e25cab4da8ac082c9041a247adf560d6d"
+    },
+    "test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-h7rto91a/ems_shadow_live_helper_test",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-h7rto91a"
+      ],
+      "exitCode": 1
+    },
+    "cxx14": {
+      "argv": [
+        "c++",
+        "-std=c++14",
+        "-fsyntax-only",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_shadow_live_helper.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_shadow_live_helper_test.cpp"
+      ],
+      "exitCode": 0
+    }
+  },
+  "sources": {
+    "ems_shadow_live_helper.cpp": "69ec8d81d430862db3b3a6d127e8e18b42caad93ba8ccf05c39993e50aa18691",
+    "ems_shadow_live_helper_test.cpp": "606520ac2f7d4a8b9ee07f3dd01bc6247ff2fb9fa3c4c1f97dc4188bfa8a2c1a"
+  }
+}

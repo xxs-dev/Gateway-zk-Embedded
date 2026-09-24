@@ -11,7 +11,7 @@ template <typename F> void refused(F action) {
     require(rejected, "operation should have been refused");
 }
 
-void pipeProtocol() {
+void pipeProtocol(const std::string& duration = "5", bool waitForAlarm = false, bool quit = false) {
     int input[2], output[2];
     require(pipe(input) == 0 && pipe(output) == 0, "create CLI pipes");
     const auto pid = fork();
@@ -20,11 +20,11 @@ void pipeProtocol() {
         dup2(input[0], STDIN_FILENO);
         dup2(output[1], STDOUT_FILENO);
         close(input[0]); close(input[1]); close(output[0]); close(output[1]);
-        std::vector<std::string> args{"helper", "--shm", kName, "--exclusive-inputs", "--duration-seconds", "5"};
+        std::vector<std::string> args{"helper", "--shm", kName, "--exclusive-inputs", "--duration-seconds", duration};
         std::vector<char*> argv;
         for (auto& arg : args) argv.push_back(&arg[0]);
         try { _exit(ems_shadow::run(static_cast<int>(argv.size()), argv.data())); }
-        catch (...) { _exit(2); }
+        catch (const std::exception& error) { std::cerr << error.what() << '\n'; _exit(2); }
     }
     close(input[0]); close(output[1]);
     struct Child {
@@ -54,14 +54,33 @@ void pipeProtocol() {
         return reply();
     };
     require(reply().find("op")->asString() == "ready", "CLI ready record");
-    require(send(R"({"op":"set","values":[{"index":724021,"value":77}]})").find("ok")->asBool(), "CLI set ack");
-    usleep(300000);
-    const auto sample = send(R"({"op":"sample"})");
-    bool refreshed = false;
-    for (const auto& point : sample.find("inputs")->asArray().values)
-        if (point->find("index")->asNumber() == 724021)
-            refreshed = point->find("present")->asBool() && point->find("value")->asNumber() == 77;
-    require(refreshed && sample.find("targetsPaused")->asBool(), "CLI timer refresh without target writes");
+    if (waitForAlarm) {
+        const auto started = std::chrono::steady_clock::now();
+        int status = 0;
+        while (std::chrono::steady_clock::now() - started < std::chrono::seconds(3)) {
+            if (waitpid(pid, &status, WNOHANG) == pid) {
+                child.pid = 0;
+                require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "alarm must stop helper cleanly");
+                require(std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(700),
+                        "alarm fixture must actually keep stdin open until its deadline");
+                Session released(kName);
+                return;
+            }
+            usleep(10000);
+        }
+        throw std::runtime_error("alarm failed to stop helper with idle open stdin");
+    }
+    if (duration == "5") {
+        require(send(R"({"op":"set","values":[{"index":724021,"value":77}]})").find("ok")->asBool(), "CLI set ack");
+        usleep(300000);
+        const auto sample = send(R"({"op":"sample"})");
+        bool refreshed = false;
+        for (const auto& point : sample.find("inputs")->asArray().values)
+            if (point->find("index")->asNumber() == 724021)
+                refreshed = point->find("present")->asBool() && point->find("value")->asNumber() == 77;
+        require(refreshed && sample.find("targetsPaused")->asBool(), "CLI timer refresh without target writes");
+    }
+    if (quit) require(send(R"({"op":"quit"})").find("ok")->asBool(), "explicit quit acknowledgment");
     close(child.in);
     child.in = -1;
     int status = 0;
@@ -70,6 +89,21 @@ void pipeProtocol() {
 }
 
 void test() {
+    for (const auto& value : {"", "0", "-1", "1.5", "2101", "9999", "10000", "1s"}) {
+        refused([&] {
+            std::vector<std::string> args{"helper", "--shm", kName, "--exclusive-inputs", "--duration-seconds", value};
+            std::vector<char*> argv;
+            for (auto& arg : args) argv.push_back(&arg[0]);
+            ems_shadow::run(static_cast<int>(argv.size()), argv.data());
+        });
+    }
+    refused([] {
+        std::vector<std::string> args{"helper", "--shm", kName, "--exclusive-inputs",
+                                      "--duration-seconds", "5", "--duration-seconds", "6"};
+        std::vector<char*> argv;
+        for (auto& arg : args) argv.push_back(&arg[0]);
+        ems_shadow::run(static_cast<int>(argv.size()), argv.data());
+    });
     refused([] { Session helper("gateway_point_store"); });
     refused([] { Session helper(std::string("/") + kName); });
     refused([] { Session helper(""); });
@@ -83,6 +117,10 @@ void test() {
     struct Cleanup { std::string path; ~Cleanup() { shm_unlink(path.c_str()); } } cleanup{path};
     MemoryPointStore store(kName);
     pipeProtocol();
+    pipeProtocol("600");
+    pipeProtocol("1800");
+    pipeProtocol("2100", false, true);
+    pipeProtocol("1", true);
     const std::int64_t now = wallNow();
     {
         Session helper(kName);

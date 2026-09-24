@@ -241,11 +241,11 @@ int run(int argc, char** argv) {
         else if (arg == "--exclusive-inputs" && !exclusive) exclusive = true;
         else if (arg == "--duration-seconds" && duration == 0 && i + 1 < argc) {
             const std::string value = argv[++i];
-            require(!value.empty() && value.size() <= 3 && value.find_first_not_of("0123456789") == std::string::npos,
+            require(!value.empty() && value.size() <= 4 && value.find_first_not_of("0123456789") == std::string::npos,
                     "invalid duration");
             duration = std::stoi(value);
-            require(duration >= 1 && duration <= 600, "duration must be 1..600 seconds");
-        } else throw std::runtime_error("expected --shm NAME --exclusive-inputs --duration-seconds 1..600");
+            require(duration >= 1 && duration <= 2100, "duration must be 1..2100 seconds");
+        } else throw std::runtime_error("expected --shm NAME --exclusive-inputs --duration-seconds 1..2100");
     }
     require(exclusive && duration > 0, "explicit SHM, duration and exclusive-inputs acknowledgment required");
     struct sigaction action{};

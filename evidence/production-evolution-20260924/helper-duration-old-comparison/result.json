@@ -1,0 +1,71 @@
+{
+  "librarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "steps": {
+    "compile-ems_shadow_live_helper": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-xw4neu06/ems_shadow_live_helper.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-xw4neu06/ems_shadow_live_helper"
+      ],
+      "exitCode": 0,
+      "binarySha256": "5b95b8ebed1096b8a83a6b2c8f6a53e3f04683df65de71da16facf83d4410f6c"
+    },
+    "compile-ems_shadow_live_helper_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-xw4neu06/ems_shadow_live_helper_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-xw4neu06/ems_shadow_live_helper_test"
+      ],
+      "exitCode": 0,
+      "binarySha256": "60b78c6cda85329614ad858d09408d4011b8622412e34af3b19aeca3005f35bb"
+    },
+    "test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-xw4neu06/ems_shadow_live_helper_test",
+        "/var/tmp/ems-production-candidate-20260924-build/helper-duration-xw4neu06"
+      ],
+      "exitCode": 1
+    },
+    "cxx14": {
+      "argv": [
+        "c++",
+        "-std=c++14",
+        "-fsyntax-only",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_shadow_live_helper.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_shadow_live_helper_test.cpp"
+      ],
+      "exitCode": 0
+    }
+  },
+  "sources": {
+    "ems_shadow_live_helper.cpp": "fa230e40360d300d8a7e48d7de1547518c55a853d243094752702a88ca1cfe5b",
+    "ems_shadow_live_helper_test.cpp": "df7046b6886606dfa39084cbf2ddbbca817741b6fbd99c50c09ce4f7c3e225bd"
+  },
+  "oldHelperCommit": "b89f3f0"
+}

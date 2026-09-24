@@ -9,6 +9,11 @@ cmake --build <existing-owned-build> --target ems_shadow_live_helper --parallel 
 <pinned-helper> --shm ems_shadow_20260924_pair --exclusive-inputs --duration-seconds 600
 ```
 
+The explicit duration accepts integer seconds from 1 through 2100 (at most four
+digits). There is no implicit duration or renewal. A 30-minute observation must
+fit within the pinned total duration, including startup allowance. The existing
+SIGALRM stop remains active; no helper restart is equivalent to continuous operation.
+
 The CMake target must first exist in the approved source/build configuration.
 This does not authorize remote compilation or device execution.
 
