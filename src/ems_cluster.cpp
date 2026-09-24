@@ -1336,10 +1336,23 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
         message.senderIncarnation.empty() || message.senderIncarnation.size() > 128 || message.sequence == 0) return;
     if (!isVotingMember(message.senderNodeId)) return;
     if (message.senderNodeId == nodeId_) {
-        if (message.senderIncarnation != bootId_) {
+        if (message.senderIncarnation == bootId_) return;
+        // Old self traffic survives a restart. Only a reply to this process's live
+        // challenge proves a competing instance; discovery alone has no authority.
+        if (message.type == EmsClusterMessageType::Discover && message.discoveryChallenge != 0 &&
+            (lastSelfDiscoveryReplyMs_ == 0 || nowMs - lastSelfDiscoveryReplyMs_ >= config_.discoveryIntervalMs) &&
+            outgoing_.size() < 255) {
+            auto hello = baseMessage(EmsClusterMessageType::Hello);
+            hello.discoveryReplyTo = message.discoveryChallenge;
+            hello.recipientIncarnation = message.senderIncarnation;
+            outgoing_.push_back({std::move(hello), {}, true});
+            lastSelfDiscoveryReplyMs_ = nowMs;
+        } else if (message.type == EmsClusterMessageType::Hello &&
+                   message.recipientIncarnation == bootId_ &&
+                   discoveryRounds_.find(message.discoveryReplyTo) != discoveryRounds_.end()) {
             role_ = EmsClusterRole::Quarantined;
             invalidateDispatch(EmsClusterDispatchCode::NoQuorum);
-            reason_ = "duplicate machineCode detected with a different process incarnation";
+            reason_ = "duplicate machineCode confirmed by a live process challenge";
         }
         return;
     }
