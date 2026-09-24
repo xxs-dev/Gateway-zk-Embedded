@@ -95,6 +95,18 @@ approval/state to schema2. Required fields:
   `gateway_point_store` with no JSON reference; it receives the same stopped
   digest/quiescence/backup/copy checks, but its implicit readers are unproven,
   so `observe` refuses this transaction. All other extra stores refuse.
+- The fixed `gateway_point_store_system_monitor` is a second, separate narrow
+  extra source when it actually exists. It must be explicitly listed with a
+  stopped SHA256 and distinct V11 target; omitting an existing instance refuses.
+  Admission requires standalone mode, both `system-monitor@monitor-service.service`
+  and `ky-ems.service` in the stopped unit scope, both SystemMonitor and
+  LocalDisplayQtEms in the approved product set, the real `ky-ems/KY-EMS`
+  destination, and no existing `998-shm.conf`/monitor binding pin. The old
+  segment stays intact and is backed up/copied by the same migration loop.
+  `observe` always refuses this unqualified implicit-monitor transaction:
+  no SystemMonitor/KY-EMS environment or SCADA project mapping is changed by
+  this stop-only admission. Recovery retains the original absence of a monitor
+  drop-in. Other extra segment names remain forbidden.
 - Optional `systemMonitorShmDropinSha256`: original-byte SHA256 for only
   `/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf`
   when that exact instance is in `units`. The file must consist solely of

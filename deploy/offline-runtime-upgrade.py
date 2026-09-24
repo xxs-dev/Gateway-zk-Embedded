@@ -23,6 +23,7 @@ OBSERVER_UNIT = re.compile(r'(?:compute-engine|ems-cluster|system-monitor)@[A-Za
 MONITOR_UNIT = 'system-monitor@monitor-service.service'
 MONITOR_DROPIN = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
 MONITOR_ENV = b'[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME='
+MONITOR_IMPLICIT_SHM = 'gateway_point_store_system_monitor'
 B_MONITOR_BINARY_SHA256 = '91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928'
 B_MONITOR_UNIT_SHA256 = '946e192e53d54482d0758aac4260575a617f2495b43ad87b4dd1a2f3257465a2'
 B_MONITOR_APPS = {'camera-service.json', 'monitor-service.json', 'mqtt-service.json'}
@@ -481,8 +482,20 @@ def apply(args):
     # The fixed default may exist without a JSON reference; retain and migrate it
     # under the same explicit segment, digest, quiescence and backup gates.
     unreferenced_default = 'gateway_point_store' in names and 'gateway_point_store' not in references
-    require(references <= set(names) and set(names) - references <= {'gateway_point_store'},
+    require(references <= set(names) and set(names) - references <= {'gateway_point_store', MONITOR_IMPLICIT_SHM},
             'all SHM references must be explicit and covered exactly')
+    monitor_path = Path('/dev/shm', MONITOR_IMPLICIT_SHM)
+    require(not (monitor_path.exists() or monitor_path.is_symlink()) or MONITOR_IMPLICIT_SHM in names,
+            'uncovered implicit SystemMonitor SHM segment')
+    if MONITOR_IMPLICIT_SHM in names:
+        targets = {item['target'] for item in components}
+        require(approval_mode(approval) == 'standalone' and
+                {MONITOR_UNIT, 'ky-ems.service'} <= set(approval['units']) and
+                {'SystemMonitor', 'LocalDisplayQtEms'} <= targets and
+                approval['installPaths']['LocalDisplayQtEms'] == 'ky-ems/KY-EMS' and
+                not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink() and
+                'systemMonitorShmDropinSha256' not in approval,
+                'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
     binding = monitor_binding(approval, names)
     for doc in documents.values():
         no_old_references(switch_names(doc, names), names)
@@ -503,6 +516,7 @@ def apply(args):
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
     state = {'phase': 'PREPARED', 'stopConfirmed': False, 'approvalSha256': args.approval_sha256, 'files': [], 'segments': [],
              'unreferencedDefaultShm': unreferenced_default,
+             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names,
              'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
                                {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
@@ -510,6 +524,8 @@ def apply(args):
     try:
         fence(home, approval, args.state, state)
         no_processes(home, [c['target'] for c in components])
+        require(not (monitor_path.exists() or monitor_path.is_symlink()) or MONITOR_IMPLICIT_SHM in names,
+                'uncovered implicit SystemMonitor SHM segment after stop')
         state['stopConfirmed'] = True
         require(tree_hashes(configs) == approval['configSha256'], 'config changed during stop')
         if binding:
@@ -650,6 +666,8 @@ def observe(args):
     state = checked_json(args.state / 'state.json', ready['stateSha256'])
     require(state['phase'] == 'UPGRADED_STOPPED' and state['approvalSha256'] == args.approval_sha256,
             'observe requires unchanged successful stopped upgrade')
+    require(state.get('implicitMonitorShmUnqualified') is not True,
+            'implicit SystemMonitor SHM readers are not jointly bound for observe')
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
     require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
             ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')

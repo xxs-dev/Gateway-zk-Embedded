@@ -57,6 +57,9 @@ case "$1" in
     if [ "$1" = stop ] && [ "${MUTATE_MONITOR_DROPIN_ON_STOP:-0}" = 1 ]; then
       printf '# changed after preflight\n' >> /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf
     fi
+    if [ "$1" = stop ] && [ "${CREATE_MONITOR_SHM_ON_STOP:-0}" = 1 ]; then
+      ln -s /dev/shm/missing-monitor-store /dev/shm/gateway_point_store_system_monitor
+    fi
     case "$*" in *@.service*) echo 'cannot operate on uninstantiated template' >&2; exit 45 ;; esac
     if [ "$1" = show ]; then
       if [ "${OFFLINE_TEST:-0}" = 1 ]; then
@@ -733,6 +736,44 @@ exec /bin/cp "$@"
         approval['installedRuntimeSha256']['ky-ems/KY-EMS'] = hashlib.sha256((home / 'ky-ems/KY-EMS').read_bytes()).hexdigest()
         return home, approval
 
+    def a_implicit_monitor_fixture(self):
+        home, approval = self.qt_offline_fixture()
+        monitor_name = 'gateway_point_store_system_monitor'
+        monitor = Path('/dev/shm') / monitor_name
+        subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'create', monitor_name], check=True,
+                       stdout=subprocess.PIPE)
+        approval['segments'].append({'source': monitor_name, 'target': 'offline_target_1',
+                                     'sha256': hashlib.sha256(monitor.read_bytes()).hexdigest()})
+        default = Path('/dev/shm/gateway_point_store')
+        subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'create', default.name], check=True,
+                       stdout=subprocess.PIPE)
+        approval['segments'].append({'source': default.name, 'target': 'offline_target_2',
+                                     'sha256': hashlib.sha256(default.read_bytes()).hexdigest()})
+        config = home / 'config/runtime/apps/compute.json'
+        doc = json.loads(config.read_text())
+        doc['computeEngine']['sharedMemoryNames'] = ['offline_source_0']
+        doc['emsCluster']['enabled'] = False
+        write(config, json.dumps(doc))
+        approval['configSha256']['apps/compute.json'] = hashlib.sha256(config.read_bytes()).hexdigest()
+        write(home / 'bin/SystemMonitor', 'old monitor\n')
+        product = self.root / 'payload/programs/bin/SystemMonitor'
+        shutil.copyfile('/usr/bin/true', product)
+        manifest = json.loads((self.root / 'program-manifest.json').read_text())
+        manifest['components'].append({'kind': 'product', 'target': 'SystemMonitor',
+                                       'archivePath': 'programs/bin/SystemMonitor', 'bytes': product.stat().st_size,
+                                       'sha256': hashlib.sha256(product.read_bytes()).hexdigest()})
+        write(self.root / 'program-manifest.json', json.dumps(manifest))
+        approval['programManifestSha256'] = hashlib.sha256((self.root / 'program-manifest.json').read_bytes()).hexdigest()
+        approval['installPaths']['SystemMonitor'] = 'bin/SystemMonitor'
+        approval['installedRuntimeSha256']['bin/SystemMonitor'] = hashlib.sha256((home / 'bin/SystemMonitor').read_bytes()).hexdigest()
+        approval['units'].append('system-monitor@monitor-service.service')
+        approval['mode'] = 'standalone'
+        approval['offlineLocal'] = dict(approval.pop('offlineVoters')['A'], nodeId=approval['nodeId'])
+        approval.pop('membershipSha256')
+        (home / 'data/cluster-membership.json').unlink()
+        self.assertFalse(Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf').exists())
+        return home, approval
+
     def test_offline_real_qt_path_roundtrip(self):
         home, approval = self.qt_offline_fixture()
         original = (home / 'ky-ems/KY-EMS').read_bytes()
@@ -948,6 +989,77 @@ exec /bin/cp "$@"
         self.assertIn('unreferenced default SHM', result.stdout)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
         self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_a_implicit_monitor_stopped_only(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        monitor = Path('/dev/shm/gateway_point_store_system_monitor')
+        old = hashlib.sha256(monitor.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertIs(True, state['implicitMonitorShmUnqualified'])
+        self.assertEqual(old, hashlib.sha256(monitor.read_bytes()).hexdigest())
+        self.assertTrue((self.root / 'transaction/gateway_point_store_system_monitor.v10.bak').is_file())
+        subprocess.run([str(EVIDENCE / 'offline-upgrade-fixture'), 'verify', 'offline_target_1'], check=True)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        observed = self.offline_run('observe')
+        self.assertNotEqual(0, observed.returncode, observed.stdout)
+        self.assertIn('implicit SystemMonitor SHM', observed.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(old, hashlib.sha256(monitor.read_bytes()).hexdigest())
+        self.assertFalse(Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf').exists())
+
+    def test_offline_a_implicit_monitor_omission_rejected(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        approval['segments'] = [segment for segment in approval['segments']
+                                if segment['source'] != 'gateway_point_store_system_monitor']
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('uncovered implicit SystemMonitor SHM', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_implicit_monitor_unknown_dropin_rejected(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        dropin = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
+        write(dropin, '[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=unknown\n')
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('unbound implicit SystemMonitor SHM', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_implicit_monitor_dangling_dropin_rejected(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        dropin = Path('/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf')
+        dropin.parent.mkdir(parents=True)
+        dropin.symlink_to('/etc/systemd/system/missing-monitor-binding.conf')
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('unbound implicit SystemMonitor SHM', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_implicit_monitor_dangling_alias_rejected(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        monitor = Path('/dev/shm/gateway_point_store_system_monitor')
+        monitor.unlink()
+        monitor.symlink_to('/dev/shm/missing-monitor-store')
+        approval['segments'] = [segment for segment in approval['segments'] if segment['source'] != monitor.name]
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('uncovered implicit SystemMonitor SHM', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_implicit_monitor_appears_during_stop_rejected(self):
+        home, approval = self.a_implicit_monitor_fixture()
+        monitor = Path('/dev/shm/gateway_point_store_system_monitor')
+        monitor.unlink()
+        approval['segments'] = [segment for segment in approval['segments'] if segment['source'] != monitor.name]
+        result = self.offline_run(approval=approval, env={'CREATE_MONITOR_SHM_ON_STOP': '1'})
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn('uncovered implicit SystemMonitor SHM', result.stdout)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_arbitrary_extra_segment_rejected(self):
         home, approval = self.offline_fixture()
