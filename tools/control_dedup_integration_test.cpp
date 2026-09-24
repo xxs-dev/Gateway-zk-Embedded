@@ -4,8 +4,13 @@
 #include "edge_gateway/can_driver_service.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "../src/memory_point_store_layout_v10.hpp"
 #include <arpa/inet.h>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <iostream>
 #include <atomic>
 #include "../system_monitor_direct_maintenance.cpp"
@@ -84,6 +89,86 @@ struct Fixture {
     }
 };
 
+void legacyStoreRefusalTest(const MemoryStoreConfig& config, int version) {
+    using namespace edge_gateway::memory_layout_v10;
+    const auto name = config.sharedMemoryName + "_v" + std::to_string(version);
+    const auto path = "/" + name;
+    const int fd = shm_open(path.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+    require(fd >= 0, "create exclusive legacy fixture");
+    struct Cleanup {
+        int fd;
+        std::string path;
+        ~Cleanup() { close(fd); shm_unlink(path.c_str()); }
+    } cleanup{fd, path};
+
+    // The ABI11 runtime cannot create legacy fixtures; use the frozen on-disk layout.
+    auto original = std::make_unique<SharedStoreLayout>();
+    original->header.magic = kSharedStoreMagic;
+    original->header.version = version;
+    pthread_mutexattr_t attr{};
+    require(pthread_mutexattr_init(&attr) == 0, "legacy mutex attributes");
+    require(pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) == 0, "legacy shared mutex");
+    require(pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST) == 0, "legacy robust mutex");
+    require(pthread_mutex_init(&original->header.mutex, &attr) == 0, "legacy mutex initialization");
+    pthread_mutexattr_destroy(&attr);
+    original->header.latestCount = 2;
+    original->header.persistentTail = 2;
+    original->header.persistentSequence = 2;
+    for (std::size_t i = 0; i < 2; ++i) {
+        auto& latest = original->latest[i];
+        latest.index = 1001 + i;
+        latest.value = i == 0 ? 77 : 0;
+        latest.ts = 100;
+        latest.expireAt = 10000;
+        latest.occupied = 1;
+        auto& history = original->persistent[i];
+        history.index = latest.index;
+        history.value = latest.value;
+        history.ts = latest.ts;
+        history.sequence = i + 1;
+        history.occupied = 1;
+    }
+    require(ftruncate(fd, sizeof(*original)) == 0, "legacy fixture size");
+    require(pwrite(fd, original.get(), sizeof(*original), 0) == static_cast<ssize_t>(sizeof(*original)),
+            "legacy fixture contents");
+    struct stat before{};
+    require(fstat(fd, &before) == 0, "legacy fixture identity");
+    const auto preserved = [&] {
+        const int named = shm_open(path.c_str(), O_RDONLY, 0);
+        require(named >= 0, "runtime must preserve legacy segment name");
+        struct stat afterStat{};
+        auto after = std::make_unique<SharedStoreLayout>();
+        const auto statResult = fstat(named, &afterStat);
+        const auto bytes = pread(named, after.get(), sizeof(*after), 0);
+        close(named);
+        require(statResult == 0 && afterStat.st_dev == before.st_dev && afterStat.st_ino == before.st_ino &&
+                afterStat.st_size == before.st_size && bytes == static_cast<ssize_t>(sizeof(*after)) &&
+                std::memcmp(original.get(), after.get(), sizeof(*after)) == 0,
+                "runtime refusal must preserve every legacy byte, including offline zero and history");
+    };
+    require(!MemoryPointStore::cleanupOrphanedSegment(name), "startup cleanup must preserve old ownerless segment");
+    preserved();
+    for (const auto mode : {MemoryStoreOpenMode::CreateOrOpen, MemoryStoreOpenMode::OpenExisting}) {
+        bool rejected = false;
+        try { MemoryPointStore old(name, mode); }
+        catch (const std::exception& error) {
+            rejected = std::string(error.what()).find("shared memory size mismatch") != std::string::npos;
+        }
+        require(rejected, "ABI11 runtime must refuse legacy attach before any command can enter its queue");
+        preserved();
+    }
+    auto oldConfig = config;
+    oldConfig.sharedMemoryName = name;
+    oldConfig.sharedMemoryCreateVersion = version;
+    bool rejected = false;
+    try { MemoryPointStore old(oldConfig); }
+    catch (const std::exception& error) {
+        rejected = std::string(error.what()).find("runtime requires ABI 11") != std::string::npos;
+    }
+    require(rejected, "explicit legacy creation must remain forbidden");
+    preserved();
+}
+
 void gatewayTest() {
     Fixture f;
     auto c = f.command("same");
@@ -157,24 +242,7 @@ void gatewayTest() {
     require(f.hardware->writes == 6 && !edge_gateway::filesystem::exists(f.config.memoryStore.controlDedupPath),
             "internal writes must not touch dedup DB");
     require(dedup_test::Database(f.dir.file("ledger.db")).count() == count, "internal must not consume capacity");
-    for (int version : {8, 9}) {
-        auto oldConfig = f.config.memoryStore; oldConfig.sharedMemoryCreateVersion = version;
-        oldConfig.sharedMemoryName += "_v" + std::to_string(version);
-        { MemoryPointStore old(oldConfig);
-          PointValue value; value.index = 1001; value.value = 77; value.machineCode = "GW";
-          value.meterCode = "METER"; value.pointCode = "P1001"; value.ts = 100; value.expireAt = 10000;
-          value.isStore = true; old.putLatest(value);
-          value.index = 1002; value.pointCode = "device_online"; value.value = 0; old.putLatest(value);
-        }
-        require(!MemoryPointStore::cleanupOrphanedSegment(oldConfig.sharedMemoryName), "startup cleanup must preserve old ownerless segment");
-        { MemoryPointStore old(oldConfig); bool rejected = false;
-          c.cmdId = "valid"; c.durableControl = true;
-          try { old.submitWriteCommand(c); } catch (...) { rejected = true; }
-          require(rejected && old.getLatestByIndex(1001, 101)->value == 77 &&
-                  old.getLatestByIndex(1002, 101)->value == 0 && old.peekPersistentSamples().size() == 2,
-                  "old SHM must reject durable writes without clearing data"); }
-        MemoryPointStore::cleanupOrphanedSegment(oldConfig.sharedMemoryName, true);
-    }
+    for (int version : {8, 9, 10}) legacyStoreRefusalTest(f.config.memoryStore, version);
     auto otherConfig = f.config; otherConfig.memoryStore.controlDedupPath = f.dir.file("different.db");
     bool rejected = false;
     try { PointStoreRouter router; router.addRoutesFromDeviceConfigs({f.config, otherConfig}, "unused"); }
@@ -256,7 +324,7 @@ void directTest() {
     f.config.meters = {firstMeter, secondMeter}; f.config.points.clear(); f.restart();
     const auto deviceFile = f.dir.file("device.json");
     const auto appFile = f.dir.file("app.json");
-    const auto identityFile = f.dir.file("identity.json");
+    const auto identityFile = f.dir.file("device_identity.json");
     {
         std::ofstream identity(identityFile); identity << R"({"machineCode":"GW"})";
         std::ofstream device(deviceFile);

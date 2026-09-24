@@ -1,0 +1,12 @@
+CHECK shm=gateway_migration_test_1_6 version=9 target=10 occupied_before=2 occupied_after=2 duplicate_groups=0 removed_count=0
+CHECK FAILED shm=gateway_migration_test_1_7: conflicting highest-ts latest samples for index 1001; migration refused
+CHECK shm=gateway_migration_test_1_6 version=9 target=10 occupied_before=2 occupied_after=2 duplicate_groups=0 removed_count=0
+CHECK shm=gateway_migration_test_1_7 version=8 target=10 occupied_before=2 occupied_after=1 duplicate_groups=1 removed_count=1
+index=1001 winner_slot=0 removed_slots=1
+PASS v8 preservation, runtime reopen, no unlink and repeated migration refusal
+PASS v9 preservation, runtime reopen, no unlink and repeated migration refusal
+PASS fail-closed cases, exact original bytes retained
+PASS v8 dedup preflight, original slots and exact allowed bytes
+PASS v9 dedup preflight, original slots and exact allowed bytes
+PASS CLI all-segment preflight success and late conflict, zero writes/backups
+PASS dedup/check safety gates, field conflicts, signed zero and NaN bit comparison
