@@ -473,14 +473,21 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             }
             continue;
         }
+        const auto executePending = [&] {
+            BeforePhysicalWrite beforeWrite;
+            if (clusterAuthorizationRequired(config_.emsCluster, command)) {
+                auto guard = std::make_shared<ClusterWriteGuard>(config_.emsCluster);
+                beforeWrite = [guard, command] { guard->check(command); };
+            }
+            return runtimeDevices_[it->second].executor->executePending(command, nowMsValue, beforeWrite);
+        };
         if (command.durableControl) {
             const auto& device = runtimeDevices_[it->second];
             try {
                 ControlDedupStore dedup(config_.memoryStore.controlDedupPath);
                 writebackResult = dedup.dispatch(device.config.machineCode, device.config.meterCode,
                     command, startedAt, [&] {
-                        const auto result = device.executor->executeByIndex(
-                            command.cmdId, command.index, command.value, nowMsValue);
+                        const auto result = executePending();
                         auto receipt = beginWritebackResult(command, startedAt);
                         completeWritebackResult(receipt, result.success, result.message,
                             result.success ? "writeback-succeeded" : "writeback-failed", nowMs(),
@@ -499,12 +506,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             continue;
         }
         try {
-            const auto result = runtimeDevices_[it->second].executor->executeByIndex(
-                command.cmdId,
-                command.index,
-                command.value,
-                nowMsValue
-            );
+            const auto result = executePending();
             const auto& runtimeDevice = runtimeDevices_[it->second];
             if (!result.success) {
                 const auto completedAt = nowMs();
