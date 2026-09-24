@@ -319,6 +319,7 @@ private:
     mutable std::uint64_t sequence_ = 0;
     std::int64_t electionDeadlineMs_ = 0;
     std::int64_t lastDiscoveryMs_ = 0;
+    std::int64_t lastSelfDiscoveryReplyMs_ = 0;
     std::int64_t lastHeartbeatMs_ = 0;
     std::int64_t lastLeaderSeenMs_ = 0;
     std::int64_t lastQuorumMs_ = 0;
