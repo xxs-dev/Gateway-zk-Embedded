@@ -236,6 +236,7 @@ public:
     const std::string& nodeId() const { return nodeId_; }
     const std::string& bootId() const { return bootId_; }
     std::uint64_t currentTerm() const { return currentTerm_; }
+    std::uint64_t configurationHash() const { return configHash_; }
     EmsClusterRole role() const { return role_; }
 
     static void validateConfig(const EmsClusterConfig& config);
@@ -273,17 +274,12 @@ private:
     void loadPersistentState();
     void persistConsensusState();
     void loadMembership();
-    void persistMembership();
     void resetElectionDeadline(std::int64_t nowMs);
     void becomeFollower(std::uint64_t term, const std::string& leader, std::int64_t nowMs, const std::string& reason);
     void startElection(std::int64_t nowMs);
     void becomeLeader(std::int64_t nowMs);
     void refreshMember(const EmsClusterInbound& inbound, std::int64_t nowMs);
     void handleVoteRequest(const EmsClusterMessage& message, std::int64_t nowMs);
-    void handleMembershipProposal(const EmsClusterMessage& message, std::int64_t nowMs);
-    void handleMembershipCommit(const EmsClusterMessage& message, std::int64_t nowMs);
-    void maybeProposeMembership(std::int64_t nowMs);
-    void maybeCommitMembership(std::int64_t nowMs);
     void tickDispatch(std::int64_t nowMs);
     void handleCapabilityReport(const EmsClusterMessage& message, std::int64_t nowMs);
     void handleDispatchTarget(const EmsClusterMessage& message, std::int64_t nowMs);
@@ -344,11 +340,6 @@ private:
     std::set<std::string> votesGranted_;
     std::uint64_t membershipEpoch_ = 0;
     std::vector<EmsClusterCabinetAssignment> assignments_;
-    std::uint64_t pendingProposalId_ = 0;
-    std::uint64_t pendingMembershipEpoch_ = 0;
-    std::int64_t pendingProposalLastSentMs_ = 0;
-    std::vector<EmsClusterCabinetAssignment> pendingAssignments_;
-    std::set<std::string> membershipAcks_;
     EmsClusterCapability localCapability_;
     std::int64_t localCapabilityAtMs_ = 0;
     EmsClusterPhasePower stationTarget_;

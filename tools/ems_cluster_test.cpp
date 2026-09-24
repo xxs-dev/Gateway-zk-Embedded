@@ -52,6 +52,19 @@ edge_gateway::EmsClusterConfig configFor(const std::string& name, int expectedMe
     return config;
 }
 
+void presetMembership(const edge_gateway::EmsClusterConfig& config,
+                      const std::vector<edge_gateway::EmsClusterCabinetAssignment>& assignments) {
+    std::ofstream out(config.membershipFile.c_str());
+    out << "{\"schemaVersion\":\"1.0\",\"clusterId\":\"" << config.clusterId
+        << "\",\"membershipEpoch\":1,\"assignments\":[";
+    for (std::size_t i = 0; i < assignments.size(); ++i) {
+        out << (i ? "," : "") << "{\"nodeId\":\"" << assignments[i].nodeId
+            << "\",\"cabinetNo\":" << assignments[i].cabinetNo << "}";
+    }
+    out << "]}";
+    require(static_cast<bool>(out), "test membership fixture must be writable");
+}
+
 struct SimNode {
     std::string id;
     edge_gateway::EmsClusterConfig config;
@@ -80,6 +93,14 @@ public:
         std::function<void(edge_gateway::EmsClusterConfig&)> configure = {}
     )
         : name_(std::move(name)) {
+        std::vector<edge_gateway::EmsClusterCabinetAssignment> assignments;
+        std::set<int> used;
+        for (const auto number : lockedCabinetNumbers) if (number > 0) used.insert(number);
+        for (int i = 0; i < count; ++i) {
+            int number = static_cast<std::size_t>(i) < lockedCabinetNumbers.size() ? lockedCabinetNumbers[i] : 0;
+            if (number == 0) { number = 1; while (used.count(number)) ++number; used.insert(number); }
+            assignments.push_back({"COMM_TEST_" + std::to_string(i + 1), number});
+        }
         for (int i = 0; i < count; ++i) {
             SimNode item;
             item.id = "COMM_TEST_" + std::to_string(i + 1);
@@ -110,6 +131,7 @@ public:
             item.capability.availableChargePowerKw = 90.0;
             item.capability.availableDischargePowerKw = 90.0;
             item.capability.availableReactivePowerKvar = 60.0;
+            presetMembership(item.config, assignments);
             item.node.reset(new edge_gateway::EmsClusterNode(item.config, item.id, "BOOT_" + item.id));
             nodes_.push_back(std::move(item));
         }
@@ -401,8 +423,8 @@ void testBoundedIncarnationAndChallengeState() {
     edge_gateway::EmsClusterMessage hello;
     hello.type = edge_gateway::EmsClusterMessageType::Hello;
     hello.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(node.config().clusterId);
-    hello.configHash = edge_gateway::EmsClusterProtocol::configHash(node.config());
-    hello.senderNodeId = "SESSION_PEER";
+    hello.configHash = node.configurationHash();
+    hello.senderNodeId = "COMM_TEST_2";
     hello.recipientIncarnation = node.bootId();
     hello.discoveryReplyTo = challenge;
     hello.sequence = 1;
@@ -443,8 +465,8 @@ void testLongLeaseBoundedWindows() {
     edge_gateway::EmsClusterMessage stale;
     stale.type = edge_gateway::EmsClusterMessageType::Hello;
     stale.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(node.config().clusterId);
-    stale.configHash = edge_gateway::EmsClusterProtocol::configHash(node.config());
-    stale.senderNodeId = "EVICTED_PEER";
+    stale.configHash = node.configurationHash();
+    stale.senderNodeId = "COMM_TEST_2";
     stale.senderIncarnation = "EVICTED_PROCESS";
     stale.recipientIncarnation = node.bootId();
     stale.discoveryReplyTo = firstChallenge;
@@ -491,6 +513,82 @@ void testMissingMembershipCannotBootstrap() {
     try { edge_gateway::EmsClusterNode node(config, "COMM_A", "PROCESS_A"); }
     catch (const std::exception&) { rejected = true; }
     require(rejected, "missing complete voting membership must fail startup, not auto-bootstrap");
+}
+
+void testFixedVotersPartitionAtStartup() {
+    for (const auto count : {2, 3, 5}) {
+        Simulation simulation("boot-partition-" + std::to_string(count), count, {}, count, true);
+        std::vector<int> minority, majority;
+        for (int i = 0; i < count; ++i) {
+            (i < count / 2 ? minority : majority).push_back(i);
+            simulation.at(i).stationTarget = {18, 18, 18, 0, 0, 0};
+            simulation.at(i).stationTargetValid = true;
+        }
+        simulation.partition(minority, majority);
+        for (int elapsed = 25; elapsed <= 8000; elapsed += 25) {
+            simulation.run(25);
+            int activeLeaders = 0;
+            for (int i = 0; i < count; ++i) {
+                const auto status = simulation.at(i).node->status(simulation.now());
+                if (status.role == edge_gateway::EmsClusterRole::Leader && status.quorumValid) ++activeLeaders;
+                if (i < count / 2 || count == 2) {
+                    require(!status.controlActive, "startup partition minority must never acquire control");
+                }
+            }
+            require(activeLeaders <= 1, "fixed voters must not form two startup quorums");
+        }
+        require(simulation.leaderCount() == (count == 2 ? 0 : 1), "only the full-set majority can elect at startup");
+    }
+}
+
+void testOnlineExpansionWithOnlyAdeIsRejected() {
+    Simulation simulation("fixed-membership-reject", 3);
+    simulation.run(5000);
+    simulation.alignLeaderHeartbeat();
+    auto change = simulation.at(0).lastHeartbeatAck;
+    change.senderNodeId = simulation.at(0).id;
+    change.senderIncarnation = simulation.at(0).node->bootId();
+    change.senderBootId = change.senderIncarnation;
+    change.leaderNodeId = change.senderNodeId;
+    change.sequence += 10000;
+    change.membershipEpoch += 1;
+    change.proposalId = 77;
+    change.assignments = {{simulation.at(0).id, 1}, {simulation.at(1).id, 2}, {simulation.at(2).id, 3},
+                          {"COMM_D", 4}, {"COMM_E", 5}};
+    auto& follower = *simulation.at(1).node;
+    const auto before = follower.status(simulation.now());
+    follower.drainOutgoing();
+    change.type = edge_gateway::EmsClusterMessageType::MembershipProposal;
+    follower.receive({change, "169.254.1.1"}, simulation.now());
+    require(follower.drainOutgoing().empty(), "fixed voter must not ACK an online expansion proposal");
+    change.type = edge_gateway::EmsClusterMessageType::MembershipCommit;
+    ++change.sequence;
+    follower.receive({change, "169.254.1.1"}, simulation.now());
+    for (const auto id : {simulation.at(0).id, std::string("COMM_D"), std::string("COMM_E")}) {
+        auto ack = change;
+        ack.type = edge_gateway::EmsClusterMessageType::MembershipAck;
+        ack.senderNodeId = id;
+        simulation.at(0).node->receive({ack, "169.254.1.4"}, simulation.now());
+    }
+    simulation.run(1000);
+    for (int i = 0; i < 3; ++i) {
+        const auto status = simulation.at(i).node->status(simulation.now());
+        require(status.membershipEpoch == before.membershipEpoch && status.quorum == 2 &&
+                status.cabinetNo == i + 1, "A+D+E cannot change fixed ABC voting membership");
+    }
+}
+
+void testDifferentProvisionedSetsCannotExchangeVotes() {
+    Simulation simulation("fixed-set-mismatch", 3);
+    const auto original = simulation.at(0).node->configurationHash();
+    auto& other = simulation.at(2);
+    presetMembership(other.config, {{other.id, 3}, {"FOREIGN_A", 1}, {"FOREIGN_B", 2}});
+    other.node.reset(new edge_gateway::EmsClusterNode(other.config, other.id, "OTHER_VOTING_SET_PROCESS"));
+    require(other.node->configurationHash() != original, "complete voting identities must bind configuration digest");
+    simulation.run(6000);
+    require(!other.node->status(simulation.now()).quorumValid && other.node->status(simulation.now()).members.empty(),
+            "different provisioned sets cannot exchange membership, votes or heartbeats");
+    require(simulation.leaderCount() == 1, "the original matching two voters may still form their configured majority");
 }
 
 void testProtocolAuthentication() {
@@ -801,26 +899,11 @@ void testFiveNodeFormation() {
             "five-node leader must observe all members");
 }
 
-void testQuorumExpandsWithCommittedMembership() {
-    Simulation simulation("dynamic-quorum", 5, {}, 2);
-    simulation.run(6000);
-    require(simulation.leaderCount() == 1, "expanded cluster must elect exactly one leader");
-    const auto oldLeader = simulation.leaderIndex();
-    const auto before = simulation.at(oldLeader).node->status(simulation.now());
-    require(before.membershipEpoch > 0 && before.quorum == 3,
-            "five committed members must require three votes even when expectedMembers started at two");
-    std::vector<int> majority;
-    std::vector<int> minority{oldLeader};
-    for (int i = 0; i < 5; ++i) {
-        if (i == oldLeader) continue;
-        if (minority.size() < 2) minority.push_back(i);
-        else majority.push_back(i);
-    }
-    simulation.partition(minority, majority);
-    simulation.run(4000);
-    require(simulation.at(oldLeader).node->role() != edge_gateway::EmsClusterRole::Leader,
-            "two-node minority must lose leadership after membership expands to five");
-    require(simulation.leaderCount() == 1, "three-node majority must retain exactly one leader");
+void testMismatchedExpectedMembershipRejected() {
+    bool rejected = false;
+    try { Simulation simulation("dynamic-quorum", 5, {}, 2); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "five provisioned voters cannot bootstrap with expectedMembers=2");
 }
 
 void testLockedCabinetNumbersAreHonored() {
@@ -836,16 +919,13 @@ void testLockedCabinetNumbersAreHonored() {
 }
 
 void testDuplicateLockedCabinetNumberIsRejected() {
-    Simulation simulation("duplicate-lock", 3, {1, 1, 0});
-    simulation.run(4000);
-    require(simulation.leaderCount() == 1, "duplicate lock test still requires a consensus leader");
-    const auto status = simulation.at(simulation.leaderIndex()).node->status(simulation.now());
-    require(status.membershipEpoch == 0, "conflicting locked cabinet numbers must not be committed");
-    require(status.reason.find("duplicate locked cabinet number") != std::string::npos,
-            "locked cabinet conflict must remain visible in cluster status");
+    bool rejected = false;
+    try { Simulation simulation("duplicate-lock", 3, {1, 1, 0}); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, "duplicate cabinet numbers in a provisioned voting set must fail startup");
 }
 
-void testStaleUncommittedMemberIsNotNumbered() {
+void testOfflineCommittedMemberKeepsNumber() {
     Simulation simulation("stale-member", 3);
     simulation.at(0).load.computeHealthy = false;
     simulation.at(1).load.computeHealthy = false;
@@ -861,7 +941,7 @@ void testStaleUncommittedMemberIsNotNumbered() {
         return member.nodeId == "COMM_TEST_3";
     });
     require(stale != status.members.end(), "stale member remains observable for diagnostics");
-    require(stale->cabinetNo == 0, "stale uncommitted member must not consume a cabinet number");
+    require(stale->cabinetNo == 3, "offline provisioned member keeps its identity and vote slot");
 }
 
 void testRestartKeepsTermAndCabinetNumber() {
@@ -887,9 +967,14 @@ void testStateFromAnotherClusterIsIgnored() {
         membership << "{\"clusterId\":\"OLD_CLUSTER\",\"membershipEpoch\":9,"
                       "\"assignments\":[{\"nodeId\":\"COMM_NEW\",\"cabinetNo\":4}]}";
     }
+    bool rejected = false;
+    try { edge_gateway::EmsClusterNode invalid(config, "COMM_NEW", "BOOT_NEW"); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "foreign membership cannot replace missing provisioned voters");
+    presetMembership(config, {{"COMM_NEW", 1}, {"COMM_OTHER", 2}});
     edge_gateway::EmsClusterNode node(config, "COMM_NEW", "BOOT_NEW");
     require(node.currentTerm() == 0, "consensus state from another cluster must be ignored");
-    require(node.status(1000).cabinetNo == 0, "membership from another cluster must be ignored");
+    require(node.status(1000).cabinetNo == 1, "only current cluster provisioned membership is used");
     std::remove(config.consensusStateFile.c_str());
     std::remove(config.membershipFile.c_str());
 }
@@ -979,11 +1064,12 @@ void testDuplicateMachineCodeQuarantinesNode() {
     auto config = configFor("duplicate", 2);
     config.consensusStateFile = "ems-cluster-test-duplicate-consensus.json";
     config.membershipFile = "ems-cluster-test-duplicate-membership.json";
+    presetMembership(config, {{"COMM_DUP", 1}, {"COMM_OTHER", 2}});
     edge_gateway::EmsClusterNode node(config, "COMM_DUP", "BOOT_LOCAL");
     edge_gateway::EmsClusterInbound inbound;
     inbound.message.type = edge_gateway::EmsClusterMessageType::Discover;
     inbound.message.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(config.clusterId);
-    inbound.message.configHash = edge_gateway::EmsClusterProtocol::configHash(config);
+    inbound.message.configHash = node.configurationHash();
     inbound.message.senderNodeId = "COMM_DUP";
     inbound.message.senderBootId = "BOOT_OTHER_DEVICE";
     inbound.message.senderIncarnation = "PROCESS_OTHER_DEVICE";
@@ -1217,7 +1303,7 @@ void testDispatchRejectsSameTermReplayAndOldTermMessage() {
     edge_gateway::EmsClusterMessage replay;
     replay.type = edge_gateway::EmsClusterMessageType::DispatchTarget;
     replay.clusterIdHash = edge_gateway::EmsClusterProtocol::clusterIdHash(followerNode.config().clusterId);
-    replay.configHash = edge_gateway::EmsClusterProtocol::configHash(followerNode.config());
+    replay.configHash = followerNode.configurationHash();
     replay.term = status.term;
     replay.membershipEpoch = status.membershipEpoch;
     replay.sequence = std::numeric_limits<std::uint64_t>::max() - 1;
@@ -1412,6 +1498,8 @@ void testEthernetTransportLoopback() {
     firstConfig.membershipFile = "ems-cluster-test-transport-a-membership.json";
     secondConfig.consensusStateFile = "ems-cluster-test-transport-b-consensus.json";
     secondConfig.membershipFile = "ems-cluster-test-transport-b-membership.json";
+    presetMembership(firstConfig, {{"COMM_NET_A", 1}, {"COMM_NET_B", 2}});
+    presetMembership(secondConfig, {{"COMM_NET_A", 1}, {"COMM_NET_B", 2}});
     edge_gateway::EmsClusterNode first(firstConfig, "COMM_NET_A", "BOOT_NET_A");
     edge_gateway::EmsClusterNode second(secondConfig, "COMM_NET_B", "BOOT_NET_B");
     auto firstTransport = edge_gateway::makeEthernetClusterTransport(firstConfig, "COMM_NET_A");
@@ -1474,6 +1562,9 @@ int main(int argc, char** argv) {
         testBoundedIncarnationAndChallengeState();
         testLongLeaseBoundedWindows();
         testLeaderSelfVoteProtectsOldFollowerTargets();
+        testFixedVotersPartitionAtStartup();
+        testOnlineExpansionWithOnlyAdeIsRejected();
+        testDifferentProvisionedSetsCannotExchangeVotes();
         testProtocolAuthentication();
         testLeaseExpiresAtLastAckBoundary();
         testControlPartitionAndRejoin(2);
@@ -1486,10 +1577,11 @@ int main(int argc, char** argv) {
         testLeaderPartitionFencesMinority();
         testTwoNodePartitionStopsBoth();
         testFiveNodeFormation();
-        testQuorumExpandsWithCommittedMembership();
+        testMissingMembershipCannotBootstrap();
+        testMismatchedExpectedMembershipRejected();
         testLockedCabinetNumbersAreHonored();
         testDuplicateLockedCabinetNumberIsRejected();
-        testStaleUncommittedMemberIsNotNumbered();
+        testOfflineCommittedMemberKeepsNumber();
         testRestartKeepsTermAndCabinetNumber();
         testStateFromAnotherClusterIsIgnored();
         testCorruptPersistedClusterStateFailsSafe();

@@ -945,6 +945,19 @@ EmsClusterNode::EmsClusterNode(EmsClusterConfig config, std::string nodeId, std:
     if (config_.enabled) {
         loadPersistentState();
         loadMembership();
+        if (membershipEpoch_ == 0 || assignments_.size() != static_cast<std::size_t>(config_.expectedMembers) ||
+            !validAssignmentsForLocal(assignments_) || cabinetNoFor(nodeId_) == 0) {
+            throw std::invalid_argument("KECP/2 requires a complete pre-provisioned fixed voting membership");
+        }
+        auto canonical = assignments_;
+        std::sort(canonical.begin(), canonical.end(), [](const auto& left, const auto& right) {
+            return left.nodeId < right.nodeId;
+        });
+        std::vector<std::uint8_t> digest;
+        appendU64(digest, configHash_);
+        appendU64(digest, membershipEpoch_);
+        for (const auto& member : canonical) { appendString(digest, member.nodeId); appendU16(digest, member.cabinetNo); }
+        configHash_ = fnv1a64(std::string(digest.begin(), digest.end()));
     }
 }
 
@@ -1147,19 +1160,6 @@ void EmsClusterNode::loadMembership() {
     }
 }
 
-void EmsClusterNode::persistMembership() {
-    std::ostringstream out;
-    out << "{\n  \"schemaVersion\": \"1.0\",\n  \"clusterId\": \"" << escapeJson(config_.clusterId)
-        << "\",\n  \"membershipEpoch\": " << membershipEpoch_ << ",\n  \"assignments\": [";
-    for (std::size_t i = 0; i < assignments_.size(); ++i) {
-        out << (i == 0 ? "\n" : ",\n") << "    {\"nodeId\": \"" << escapeJson(assignments_[i].nodeId)
-            << "\", \"cabinetNo\": " << assignments_[i].cabinetNo << "}";
-    }
-    if (!assignments_.empty()) out << '\n';
-    out << "  ]\n}\n";
-    try { writeAtomic(config_.membershipFile, out.str()); }
-    catch (...) { failClosed("membership persistence failed"); throw; }
-}
 
 std::string EmsClusterNode::newProcessIncarnation() {
 #ifndef _WIN32
@@ -1270,10 +1270,6 @@ void EmsClusterNode::tick(std::int64_t nowMs, const EmsClusterLoadSample& load) 
         if (lastHeartbeatMs_ == 0 || nowMs - lastHeartbeatMs_ >= config_.heartbeatMs) {
             sendHeartbeat(nowMs);
         }
-        if (leaderLeaseValid(nowMs)) {
-            maybeProposeMembership(nowMs);
-            maybeCommitMembership(nowMs);
-        }
         tickDispatch(nowMs);
         return;
     }
@@ -1332,9 +1328,13 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
     if (!config_.enabled || role_ == EmsClusterRole::Disabled || role_ == EmsClusterRole::Fault ||
         role_ == EmsClusterRole::Quarantined) return;
     const auto& message = inbound.message;
+    if (message.type == EmsClusterMessageType::MembershipProposal ||
+        message.type == EmsClusterMessageType::MembershipAck ||
+        message.type == EmsClusterMessageType::MembershipCommit) return;
     if (message.clusterIdHash != clusterIdHash_ || message.configHash != configHash_ ||
         message.senderNodeId.empty() || message.senderNodeId.size() > 128 ||
         message.senderIncarnation.empty() || message.senderIncarnation.size() > 128 || message.sequence == 0) return;
+    if (!isVotingMember(message.senderNodeId)) return;
     if (message.senderNodeId == nodeId_) {
         if (message.senderIncarnation != bootId_) {
             role_ = EmsClusterRole::Quarantined;
@@ -1420,7 +1420,7 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
     if (message.type == EmsClusterMessageType::Heartbeat || message.type == EmsClusterMessageType::LeaderCommit) {
         if (message.heartbeatId == 0 || message.heartbeatIncarnation != message.senderIncarnation ||
             message.leaderNodeId != message.senderNodeId || nowMs < startupUntilMs_ ||
-            message.membershipEpoch < membershipEpoch_ ||
+            message.membershipEpoch != membershipEpoch_ || !sameAssignments(message.assignments, assignments_) ||
             (nowMs < voteHoldUntilMs_ && (promisedLeader_ != message.senderNodeId ||
              promisedIncarnation_ != message.senderIncarnation))) return;
     }
@@ -1439,9 +1439,6 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
         case EmsClusterMessageType::LeaderCommit:
             if (message.term < currentTerm_ || message.leaderNodeId != message.senderNodeId) break;
             becomeFollower(message.term, message.senderNodeId, nowMs, "leader heartbeat received");
-            if (message.membershipEpoch > membershipEpoch_ && !message.assignments.empty()) {
-                handleMembershipCommit(message, nowMs);
-            }
             promisedLeader_ = message.senderNodeId;
             promisedIncarnation_ = message.senderIncarnation;
             voteHoldUntilMs_ = nowMs + config_.leaderLeaseMs + config_.heartbeatMs;
@@ -1494,19 +1491,8 @@ void EmsClusterNode::receive(const EmsClusterInbound& inbound, std::int64_t nowM
             }
             break;
         case EmsClusterMessageType::MembershipProposal:
-            handleMembershipProposal(message, nowMs);
-            break;
         case EmsClusterMessageType::MembershipAck:
-            if (role_ == EmsClusterRole::Leader && message.term == currentTerm_ &&
-                message.proposalId == pendingProposalId_ &&
-                std::find_if(pendingAssignments_.begin(), pendingAssignments_.end(), [&](const auto& item) {
-                    return item.nodeId == message.senderNodeId;
-                }) != pendingAssignments_.end()) {
-                membershipAcks_.insert(message.senderNodeId);
-            }
-            break;
         case EmsClusterMessageType::MembershipCommit:
-            handleMembershipCommit(message, nowMs);
             break;
         case EmsClusterMessageType::CapabilityReport:
             handleCapabilityReport(message, nowMs);
@@ -1542,10 +1528,6 @@ void EmsClusterNode::becomeFollower(
     if (!leader.empty()) lastLeaderSeenMs_ = nowMs;
     votesGranted_.clear();
     if (termChanged || leaderChanged) {
-        pendingProposalId_ = 0;
-        pendingAssignments_.clear();
-        membershipAcks_.clear();
-        pendingProposalLastSentMs_ = 0;
         invalidateDispatch(EmsClusterDispatchCode::TermMismatch);
         if (termChanged) {
             localDispatch_.term = currentTerm_;
@@ -1597,7 +1579,7 @@ void EmsClusterNode::handleVoteRequest(const EmsClusterMessage& message, std::in
         (votedFor_.empty() || (votedFor_ == message.senderNodeId &&
          votedForIncarnation_ == message.senderIncarnation)) &&
         message.configHash == configHash_ && message.computeHealthy &&
-        message.membershipEpoch >= membershipEpoch_ && isVotingMember(message.senderNodeId) &&
+        message.membershipEpoch == membershipEpoch_ && isVotingMember(message.senderNodeId) &&
         isVotingMember(nodeId_)) {
         votedFor_ = message.senderNodeId;
         votedForIncarnation_ = message.senderIncarnation;
@@ -1615,158 +1597,6 @@ void EmsClusterNode::handleVoteRequest(const EmsClusterMessage& message, std::in
     outgoing_.push_back({std::move(reply), message.senderNodeId, false});
 }
 
-void EmsClusterNode::handleMembershipProposal(const EmsClusterMessage& message, std::int64_t nowMs) {
-    if (message.term != currentTerm_ || message.senderNodeId != leaderNodeId_ ||
-        message.membershipEpoch <= membershipEpoch_ || message.assignments.empty()) return;
-    if (!validAssignmentsForLocal(message.assignments)) return;
-    if (std::find_if(message.assignments.begin(), message.assignments.end(), [&](const auto& item) {
-            return item.nodeId == nodeId_;
-        }) == message.assignments.end()) return;
-    pendingProposalId_ = message.proposalId;
-    pendingMembershipEpoch_ = message.membershipEpoch;
-    pendingAssignments_ = message.assignments;
-    auto ack = baseMessage(EmsClusterMessageType::MembershipAck);
-    ack.proposalId = pendingProposalId_;
-    ack.membershipEpoch = pendingMembershipEpoch_;
-    outgoing_.push_back({std::move(ack), message.senderNodeId, false});
-}
-
-void EmsClusterNode::handleMembershipCommit(const EmsClusterMessage& message, std::int64_t nowMs) {
-    if (message.term != currentTerm_ || message.senderNodeId != leaderNodeId_ ||
-        message.membershipEpoch < membershipEpoch_ || message.assignments.empty() ||
-        !validAssignmentsForLocal(message.assignments)) return;
-    if (message.proposalId != 0 && pendingProposalId_ != 0 && message.proposalId != pendingProposalId_) return;
-    assignments_ = message.assignments;
-    membershipEpoch_ = message.membershipEpoch;
-    persistMembership();
-    pendingProposalId_ = 0;
-    pendingAssignments_.clear();
-    pendingProposalLastSentMs_ = 0;
-    reason_ = "membership committed";
-}
-
-void EmsClusterNode::maybeProposeMembership(std::int64_t nowMs) {
-    if (pendingProposalId_ != 0) {
-        if (pendingProposalLastSentMs_ == 0 ||
-            nowMs - pendingProposalLastSentMs_ >= config_.heartbeatMs * 4) {
-            auto proposal = baseMessage(EmsClusterMessageType::MembershipProposal);
-            proposal.proposalId = pendingProposalId_;
-            proposal.membershipEpoch = pendingMembershipEpoch_;
-            proposal.assignments = pendingAssignments_;
-            outgoing_.push_back({std::move(proposal), {}, false});
-            pendingProposalLastSentMs_ = nowMs;
-        }
-        return;
-    }
-    struct Candidate { std::string nodeId; int priority; int locked; };
-    std::vector<Candidate> candidates{{nodeId_, config_.electionPriority, config_.lockedCabinetNo}};
-    for (const auto& entry : members_) {
-        if (entry.second.status.compatible &&
-            nowMs - entry.second.status.lastSeenMs <= config_.memberTimeoutMs) {
-            candidates.push_back({
-                entry.first,
-                entry.second.status.electionPriority,
-                entry.second.status.lockedCabinetNo
-            });
-        }
-    }
-    std::sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.priority != rhs.priority ? lhs.priority > rhs.priority : lhs.nodeId < rhs.nodeId;
-    });
-
-    auto desired = assignments_;
-    std::map<int, std::string> lockedOwners;
-    for (const auto& candidate : candidates) {
-        if (candidate.locked == 0) continue;
-        const auto inserted = lockedOwners.emplace(candidate.locked, candidate.nodeId);
-        if (!inserted.second && inserted.first->second != candidate.nodeId) {
-            reason_ = "duplicate locked cabinet number: " + std::to_string(candidate.locked);
-            return;
-        }
-    }
-    for (const auto& candidate : candidates) {
-        if (candidate.locked == 0) continue;
-        auto own = std::find_if(desired.begin(), desired.end(), [&](const auto& item) {
-            return item.nodeId == candidate.nodeId;
-        });
-        const auto occupant = std::find_if(desired.begin(), desired.end(), [&](const auto& item) {
-            return item.cabinetNo == candidate.locked;
-        });
-        if (occupant != desired.end() && occupant->nodeId != candidate.nodeId) {
-            reason_ = "locked cabinet number conflicts with committed membership: " +
-                std::to_string(candidate.locked);
-            return;
-        }
-        if (own == desired.end()) desired.push_back({candidate.nodeId, candidate.locked});
-        else own->cabinetNo = candidate.locked;
-    }
-
-    std::set<int> used;
-    std::set<std::string> assignedNodes;
-    for (const auto& item : desired) {
-        used.insert(item.cabinetNo);
-        assignedNodes.insert(item.nodeId);
-    }
-    for (const auto& candidate : candidates) {
-        if (assignedNodes.count(candidate.nodeId) != 0) continue;
-        int number = candidate.locked;
-        if (number > 0 && used.count(number) != 0) {
-            reason_ = "locked cabinet number conflicts with committed membership";
-            return;
-        }
-        if (number == 0) {
-            for (int value = 1; value <= config_.maxMembers; ++value) {
-                if (used.count(value) == 0) { number = value; break; }
-            }
-        }
-        if (number == 0) continue;
-        desired.push_back({candidate.nodeId, number});
-        assignedNodes.insert(candidate.nodeId);
-        used.insert(number);
-    }
-    std::sort(desired.begin(), desired.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.cabinetNo < rhs.cabinetNo;
-    });
-    if (sameAssignments(desired, assignments_)) return;
-    pendingAssignments_ = desired;
-    pendingMembershipEpoch_ = membershipEpoch_ + 1;
-    pendingProposalId_ = fnv1a64(
-        nodeId_ + ':' + std::to_string(currentTerm_) + ':' +
-        std::to_string(pendingMembershipEpoch_) + ':' + assignmentsKey(desired)
-    );
-    membershipAcks_.clear();
-    membershipAcks_.insert(nodeId_);
-    auto proposal = baseMessage(EmsClusterMessageType::MembershipProposal);
-    proposal.proposalId = pendingProposalId_;
-    proposal.membershipEpoch = pendingMembershipEpoch_;
-    proposal.assignments = pendingAssignments_;
-    outgoing_.push_back({std::move(proposal), {}, false});
-    pendingProposalLastSentMs_ = nowMs;
-}
-
-void EmsClusterNode::maybeCommitMembership(std::int64_t) {
-    const auto pendingMajority = static_cast<int>(pendingAssignments_.size() / 2U + 1U);
-    const auto requiredAcks = std::max(effectiveQuorum(), pendingMajority);
-    if (pendingProposalId_ == 0 || static_cast<int>(membershipAcks_.size()) < requiredAcks) return;
-    assignments_ = pendingAssignments_;
-    membershipEpoch_ = pendingMembershipEpoch_;
-    for (auto& entry : members_) { entry.second.lastAckMs = 0; entry.second.lastAckId = 0; }
-    heartbeatRounds_.clear();
-    lastQuorumMs_ = 0;
-    lastHeartbeatMs_ = 0;
-    invalidateDispatch(EmsClusterDispatchCode::MembershipMismatch);
-    persistMembership();
-    auto commit = baseMessage(EmsClusterMessageType::MembershipCommit);
-    commit.proposalId = pendingProposalId_;
-    commit.membershipEpoch = membershipEpoch_;
-    commit.assignments = assignments_;
-    outgoing_.push_back({std::move(commit), {}, false});
-    pendingProposalId_ = 0;
-    pendingAssignments_.clear();
-    membershipAcks_.clear();
-    pendingProposalLastSentMs_ = 0;
-    reason_ = "leader and majority committed membership";
-}
 
 void EmsClusterNode::queue(EmsClusterMessageType type, const std::string& target, bool discovery) {
     outgoing_.push_back({baseMessage(type), target, discovery});
@@ -1822,7 +1652,7 @@ int EmsClusterNode::cabinetNoFor(const std::string& nodeId) const {
 }
 
 bool EmsClusterNode::isVotingMember(const std::string& nodeId) const {
-    return assignments_.empty() || cabinetNoFor(nodeId) > 0;
+    return cabinetNoFor(nodeId) > 0;
 }
 
 bool EmsClusterNode::leaderLeaseValid(std::int64_t nowMs) const {
