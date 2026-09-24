@@ -1,0 +1,7 @@
+Test project /var/tmp/ems-production-candidate-20260924-build
+    Start 18: ems_shadow_live_helper
+1/1 Test #18: ems_shadow_live_helper ...........   Passed    0.33 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.33 sec

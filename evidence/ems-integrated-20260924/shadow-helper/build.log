@@ -1,0 +1,8 @@
+[ 95%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_shadow_live_helper.dir/tools/ems_shadow_live_helper.cpp.o
+[100%] Linking CXX executable ems_shadow_live_helper
+[100%] Built target ems_shadow_live_helper
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ems_shadow_live_helper_test.dir/tools/ems_shadow_live_helper_test.cpp.o
+[100%] Linking CXX executable ems_shadow_live_helper_test
+[100%] Built target ems_shadow_live_helper_test

@@ -1,0 +1,80 @@
+{
+  "sourceCommit": "52e01bd90b76d3e1fc4ac419c9ac2b25119feac3",
+  "targets": [
+    "ems_shadow_live_helper",
+    "ems_shadow_live_helper_test"
+  ],
+  "nativeOnly": true,
+  "deviceAccess": false,
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924",
+        "-B",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 2.471
+    },
+    "build": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--target",
+        "ems_shadow_live_helper",
+        "ems_shadow_live_helper_test",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 3.123
+    },
+    "ctest": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924/evidence/ems-integrated-20260924/isolated.sh",
+        "ctest",
+        "--test-dir",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "60",
+        "-j1",
+        "-R",
+        "^ems_shadow_live_helper$"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 0.367
+    }
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runnerSha256": "1063ed1c945207535944e5190e8eaab7f6f061782a1275a4b0583fe893c7b91c",
+  "isolationSha256": "61002b72d2b02b51be33efd26fb8223ac03a8a10d29596dd7061b5686b22b4a3",
+  "binaries": {
+    "ems_shadow_live_helper": "2aaba045383238384230d41de07d67be0ae49303e2b95fa27ed4cb769609a8c9",
+    "ems_shadow_live_helper_test": "ad265430573e85797b9156a62e4eb15dc202faeb62dfcd60169a962302526e5f"
+  },
+  "sourceUnchanged": true,
+  "status": "PASS_NATIVE_INTEGRATION_ONLY",
+  "logs": {
+    "build.log": "23f81e6b2ad00fffc98b2e26f56c6daccd0f035b9c3b6435e05b0c02e8c694cc",
+    "configure.log": "ca17460e6fc495eb68723da9466bfa2bc92110f1da320b85c70e2fc3d12f2b74",
+    "ctest.log": "159b763dfa24abf625b2d4bb6974d8f8b9ed87c8e6d3d95df0e63912c57658e5"
+  }
+}
