@@ -1,0 +1,83 @@
+{
+  "sourceCommit": "cd6b52949317f1640611d690128c5c5928f62b20",
+  "targets": [
+    "memory_point_store_shm11_test",
+    "memory_point_store_v11_migration_test",
+    "control_dedup_integration_test"
+  ],
+  "nativeOnly": true,
+  "deviceAccess": false,
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924",
+        "-B",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 2.722
+    },
+    "build": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--target",
+        "memory_point_store_shm11_test",
+        "memory_point_store_v11_migration_test",
+        "control_dedup_integration_test",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 1.519
+    },
+    "ctest": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924/evidence/ems-integrated-20260924/isolated.sh",
+        "ctest",
+        "--test-dir",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "60",
+        "-j1",
+        "-R",
+        "^(memory_point_store_shm11|memory_point_store_v11_migration|control_dedup_integration)$"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 0.768
+    }
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runnerSha256": "1063ed1c945207535944e5190e8eaab7f6f061782a1275a4b0583fe893c7b91c",
+  "isolationSha256": "61002b72d2b02b51be33efd26fb8223ac03a8a10d29596dd7061b5686b22b4a3",
+  "binaries": {
+    "memory_point_store_shm11_test": "3a35de23d1106eb5e51a6bf9fe7723ca5d1c65dbd9dc2703ca2f6e1225f67351",
+    "memory_point_store_v11_migration_test": "1cef868a88723b25b111c3ff0f44906832292fd447bbb18d224995c2b34750ba",
+    "control_dedup_integration_test": "b72e3e47dcd83ba1a110f0c358616434d0d0cfef778e4ee67ce4b37d7c228a39"
+  },
+  "sourceUnchanged": true,
+  "status": "PASS_NATIVE_INTEGRATION_ONLY",
+  "logs": {
+    "build.log": "e5d76962d602492440d8c70f9990f1c346755b3bcab7d5ab72e2de0e3becd0df",
+    "configure.log": "736785bebdb1b7d2130e173ed1900c17f4e573e95b059ebe53a83464ccc998cf",
+    "ctest.log": "843bffea595adb880ceed0638d8f6e682b0bdf10041737edfced7f46cbcefc99"
+  }
+}

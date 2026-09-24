@@ -1,0 +1,8 @@
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/memory_point_store_shm11_test.dir/tools/memory_point_store_shm11_test.cpp.o
+[100%] Linking CXX executable memory_point_store_shm11_test
+[100%] Built target memory_point_store_shm11_test
+[ 95%] Built target edge_gateway
+[100%] Built target memory_point_store_v11_migration_test
+[ 95%] Built target edge_gateway
+[100%] Built target control_dedup_integration_test
