@@ -355,6 +355,10 @@ std::vector<std::uint16_t> ModbusTcpClient::readInputRegisters(int slave, int st
 }
 
 void ModbusTcpClient::writeSingleCoil(int slave, int address, bool value) {
+    writeSingleCoil(slave, address, value, BeforePhysicalWrite());
+}
+
+void ModbusTcpClient::writeSingleCoil(int slave, int address, bool value, const BeforePhysicalWrite& beforeWrite) {
     ModbusTcpPriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
@@ -363,11 +367,15 @@ void ModbusTcpClient::writeSingleCoil(int slave, int address, bool value) {
     pdu.insert(pdu.end(), addr.begin(), addr.end());
     pdu.insert(pdu.end(), coilValue.begin(), coilValue.end());
 
-    const auto response = transact(slave, 0x05, pdu);
+    const auto response = transact(slave, 0x05, pdu, beforeWrite);
     validateWriteEcho(response, 0x05, address, value ? 0xFF00 : 0x0000);
 }
 
 void ModbusTcpClient::writeSingleRegister(int slave, int address, std::uint16_t value) {
+    writeSingleRegister(slave, address, value, BeforePhysicalWrite());
+}
+
+void ModbusTcpClient::writeSingleRegister(int slave, int address, std::uint16_t value, const BeforePhysicalWrite& beforeWrite) {
     ModbusTcpPriorityWriteScope priority(*this);
     std::vector<std::uint8_t> pdu;
     const auto addr = makeWord(address);
@@ -376,7 +384,7 @@ void ModbusTcpClient::writeSingleRegister(int slave, int address, std::uint16_t 
     pdu.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
     pdu.push_back(static_cast<std::uint8_t>(value & 0xFF));
 
-    const auto response = transact(slave, 0x06, pdu);
+    const auto response = transact(slave, 0x06, pdu, beforeWrite);
     validateWriteEcho(response, 0x06, address, value);
 }
 
@@ -384,6 +392,13 @@ void ModbusTcpClient::writeMultipleRegisters(
     int slave,
     int address,
     const std::vector<std::uint16_t>& values
+) {
+    writeMultipleRegisters(slave, address, values, BeforePhysicalWrite());
+}
+
+void ModbusTcpClient::writeMultipleRegisters(
+    int slave, int address, const std::vector<std::uint16_t>& values,
+    const BeforePhysicalWrite& beforeWrite
 ) {
     ModbusTcpPriorityWriteScope priority(*this);
     if (values.empty()) {
@@ -413,14 +428,15 @@ void ModbusTcpClient::writeMultipleRegisters(
         pdu.push_back(static_cast<std::uint8_t>(values[i] & 0xFF));
     }
 
-    const auto response = transact(slave, 0x10, pdu);
+    const auto response = transact(slave, 0x10, pdu, beforeWrite);
     validateWriteEcho(response, 0x10, address, static_cast<int>(values.size()));
 }
 
 std::vector<std::uint8_t> ModbusTcpClient::transact(
     int slave,
     std::uint8_t function,
-    const std::vector<std::uint8_t>& pdu
+    const std::vector<std::uint8_t>& pdu,
+    const BeforePhysicalWrite& beforeWrite
 ) {
     ModbusTcpTransactionScope transaction(*this);
     if (slave < 0 || slave > 255) {
@@ -447,7 +463,7 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
     frame.push_back(static_cast<std::uint8_t>(slave & 0xFF));
     frame.insert(frame.end(), pdu.begin(), pdu.end());
 
-    sendAll(frame, deadline);
+    sendAll(frame, deadline, beforeWrite);
 
     const auto header = readExact(7, deadline);
     const auto responseTransactionId = static_cast<std::uint16_t>(
@@ -696,13 +712,21 @@ std::vector<std::uint8_t> ModbusTcpClient::readExact(
 
 void ModbusTcpClient::sendAll(
     const std::vector<std::uint8_t>& bytes,
-    std::chrono::steady_clock::time_point deadline
+    std::chrono::steady_clock::time_point deadline,
+    const BeforePhysicalWrite& beforeWrite
 ) {
     std::size_t sent = 0;
     while (sent < bytes.size()) {
         if (!waitForSocket(static_cast<SocketHandle>(socket_), true, deadline)) {
             disconnect();
             throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp send timeout");
+        }
+        try {
+            if (beforeWrite) beforeWrite();
+        } catch (...) {
+            // A partial ADU must never be continued on a later command.
+            disconnect();
+            throw;
         }
 #ifdef _WIN32
         const auto rc = send(static_cast<SocketHandle>(socket_), reinterpret_cast<const char*>(bytes.data() + sent), static_cast<int>(bytes.size() - sent), 0);

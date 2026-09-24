@@ -86,7 +86,7 @@ std::vector<CommandResult> WritebackService::processPendingWrites(
     std::vector<CommandResult> results;
     results.reserve(commands.size());
     for (const auto& command : commands) {
-        results.push_back(executor_.executeByIndex(command.cmdId, command.index, command.value, nowMs));
+        results.push_back(executor_.executePending(command, nowMs));
     }
     return results;
 }

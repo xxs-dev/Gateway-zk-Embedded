@@ -21,6 +21,8 @@ public:
     );
 
     CommandResult execute(const CommandRequest& request, std::int64_t nowMs) const;
+    CommandResult executePending(const PendingWriteCommand& command, std::int64_t nowMs,
+        const BeforePhysicalWrite& beforeWrite = BeforePhysicalWrite()) const override;
     CommandResult executeByIndex(
         const std::string& cmdId,
         std::uint32_t index,
@@ -29,9 +31,12 @@ public:
     ) const override;
 
 private:
+    CommandResult execute(const CommandRequest& request, std::int64_t nowMs,
+                          const BeforePhysicalWrite& beforeWrite) const;
     const PointDefinition& findPoint(const std::string& pointCode) const;
     const PointDefinition& findPointByIndex(std::uint32_t index) const;
-    void dispatchWrite(const PointDefinition& point, const std::vector<std::uint16_t>& encoded) const;
+    void dispatchWrite(const PointDefinition& point, const std::vector<std::uint16_t>& encoded,
+                       const BeforePhysicalWrite& beforeWrite) const;
     void dispatchLocalDioWrite(const PointDefinition& point, double value, std::int64_t nowMs) const;
     std::uint16_t mergeBitWrite(const PointDefinition& point, bool value) const;
     void verifyWrite(
