@@ -82,6 +82,7 @@ int main(int argc, char* argv[]) {
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;
+    config.emsCluster = appConfig.emsCluster;
     std::string processToken;
     if (config.protocol.type == "modbus_tcp") {
         processToken = "tcp" + std::to_string(config.protocol.tcp.port);

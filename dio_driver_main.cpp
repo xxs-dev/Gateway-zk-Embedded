@@ -75,6 +75,7 @@ int main(int argc, char* argv[]) {
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;
+    config.emsCluster = appConfig.emsCluster;
     if (config.protocol.type != "local_dio") {
         throw std::invalid_argument("DioDriver requires protocol.type=local_dio");
     }
