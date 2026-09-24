@@ -15,6 +15,7 @@ BUILD = Path('/var/tmp/ems-production-candidate-20260924-build')
 LIBRARY = BUILD / 'libedge_gateway.a'
 OUT = HERE / sys.argv[1]
 OUT.mkdir(exist_ok=False)
+P1 = len(sys.argv) > 2 and sys.argv[2] == 'p1'
 
 
 def digest(path):
@@ -51,8 +52,15 @@ def run(name, args, timeout):
 try:
     with tempfile.TemporaryDirectory(prefix='s2-cpu-probe-', dir=BUILD) as directory:
         binary = Path(directory) / 's2-cpu-probe'
+        additions = []
+        if P1:
+            bridge = Path(directory) / 'bridge.o'
+            run('compile-bridge', ['c++', '-std=c++17', '-O0', '-g', '-ffunction-sections', '-fdata-sections',
+                '-I' + str(ROOT / 'include'), '-c', str(ROOT / 'src/ems_cluster_points.cpp'), '-o', str(bridge)], 60)
+            additions = ['-DBENCHMARK_BATCH_CAPABILITY', str(bridge)]
+            result['newBridgeObjectSha256'] = digest(bridge)
         run('compile', ['c++', '-std=c++17', '-O0', '-g', '-ffunction-sections', '-fdata-sections',
-            '-I' + str(ROOT / 'include'), str(HERE / 's2-cpu-benchmark.cpp'), str(LIBRARY),
+            '-I' + str(ROOT / 'include'), str(HERE / 's2-cpu-benchmark.cpp')] + additions + [str(LIBRARY),
             '-Wl,--gc-sections', '-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore16getLatestByIndexEjl',
             '-pthread', '-lrt', '-ldl', '-o', str(binary)], 60)
         result['binarySha256'] = digest(binary)

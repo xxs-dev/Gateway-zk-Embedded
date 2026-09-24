@@ -1,0 +1,119 @@
+{
+  "architecture": "x86_64",
+  "productRebuilds": 0,
+  "remoteConnections": 0,
+  "librarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "libraryOptimization": "existing Debug -g (no -O)",
+  "armQualification": false,
+  "steps": {
+    "compile-bridge": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "-c",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/src/ems_cluster_points.cpp",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/s2-cpu-probe-5obchvyc/bridge.o"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "compile": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/production-evolution-20260924/s2-cpu-benchmark.cpp",
+        "-DBENCHMARK_BATCH_CAPABILITY",
+        "/var/tmp/ems-production-candidate-20260924-build/s2-cpu-probe-5obchvyc/bridge.o",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore16getLatestByIndexEjl",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/s2-cpu-probe-5obchvyc/s2-cpu-probe"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "measure": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/s2-cpu-probe-5obchvyc/s2-cpu-probe"
+      ],
+      "exitCode": 0,
+      "logSha256": "034a29803a00e8922be49167439603159e1c7e1524cd1802dfec05160f6379fc"
+    }
+  },
+  "sources": {
+    "ems_cluster_main.cpp": "a8ca045bc254bb307ad967a2f5510972f1631be4754d105bb2aa40a30ef105c1",
+    "src/memory_point_store.cpp": "8968b4c2bd3a460ed2a0016cbe5b270b482e9fa7c4c2b77d15a8c2912bcef2b7",
+    "src/ems_cluster_points.cpp": "fe4ff7a4b589f3cf7ac55041968a2a1748be256d5722e200589ba914d4d476d9",
+    "include/edge_gateway/ems_cluster_points.hpp": "8060c6b0577f866a66ad84580d74fdd09871904066cf269533080f33df644495",
+    "evidence/production-evolution-20260924/s2-cpu-benchmark.cpp": "fd00ff283cde7ae12b01e02152b02f7e7537dc61b670268e227cb287cb307dae",
+    "evidence/production-evolution-20260924/run_s2_cpu_benchmark.py": "5b44d55d4e306a6f15e48e5b3eb10a5bedbe7da187d3abe733018c1de49d6038"
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "newBridgeObjectSha256": "0f34a17b44ceb126172596d19cc45305ca388f7eed0df13c7fe9403a0e17a9c5",
+  "binarySha256": "1ec84a03c63383c249b5c0ecbea81ae40b026047cdfe4d41874acd6d4030d685",
+  "callCounts": [
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "count_actual_capability",
+      "reads": 0,
+      "misses": 0
+    },
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "count_actual_target",
+      "reads": 1,
+      "misses": 1
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "count_actual_capability",
+      "reads": 0,
+      "misses": 0
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "count_actual_target",
+      "reads": 6,
+      "misses": 0
+    }
+  ],
+  "medians": [
+    {
+      "scenario": "before_helper_inputs",
+      "operation": "actual_bridge_capability_plus_target",
+      "cpuUsPerCall": 354.92566,
+      "wallUsPerCall": 355.24466
+    },
+    {
+      "scenario": "helper_inputs_feedback_absent",
+      "operation": "actual_bridge_capability_plus_target",
+      "cpuUsPerCall": 292.043175,
+      "wallUsPerCall": 292.217765
+    }
+  ],
+  "checksPassed": true
+}

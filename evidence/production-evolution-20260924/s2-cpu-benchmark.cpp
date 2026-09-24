@@ -106,7 +106,11 @@ void points() {
         countReads = true;
         reads = misses = 0;
         bridge.sampleCapability(now);
+#ifdef BENCHMARK_BATCH_CAPABILITY
+        require(reads == 0 && misses == 0, "batch capability fell back to single API");
+#else
         require(reads == 16 && misses == (stage ? 6 : 16), "unexpected capability reads");
+#endif
         std::cout << "{\"scenario\":\"" << scenario
             << "\",\"operation\":\"count_actual_capability\",\"reads\":" << reads
             << ",\"misses\":" << misses << "}\n";
@@ -125,6 +129,9 @@ void points() {
             auto t = bridge.sampleStationTarget(now, ok);
             sink += c.socPercent + t.paKw + ok;
         });
+#ifdef BENCHMARK_BATCH_CAPABILITY
+        continue;
+#endif
         measure(scenario, "single_16_capability", 200, [&] {
             sink += singles(store, capability, now).size();
         });
@@ -191,7 +198,9 @@ extern "C" Optional<StoredPointValue> wrappedSingle(
 int main() {
     try {
         probe::points();
+#ifndef BENCHMARK_BATCH_CAPABILITY
         probe::regexes();
+#endif
         std::cout << "{\"checksPassed\":true,\"sink\":" << probe::sink << "}\n";
         return 0;
     } catch (const std::exception& error) {

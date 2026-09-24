@@ -140,6 +140,32 @@ bool EmsClusterPointBridge::read(
 }
 
 EmsClusterCapability EmsClusterPointBridge::sampleCapability(std::int64_t nowMs) const {
+    const std::uint32_t offsets[] = {
+        ems_cluster_point::kEnable, ems_cluster_point::kSoc,
+        ems_cluster_point::kRatedActivePower, ems_cluster_point::kRatedApparentPower,
+        ems_cluster_point::kAvailableChargePower, ems_cluster_point::kAvailableDischargePower,
+        ems_cluster_point::kAvailableReactivePower, ems_cluster_point::kControlReady,
+        ems_cluster_point::kInterlocked, ems_cluster_point::kManualOverride,
+        ems_cluster_point::kFeedbackPa, ems_cluster_point::kFeedbackPb, ems_cluster_point::kFeedbackPc,
+        ems_cluster_point::kFeedbackQa, ems_cluster_point::kFeedbackQb, ems_cluster_point::kFeedbackQc
+    };
+    std::vector<std::uint32_t> indexes;
+    indexes.reserve(sizeof(offsets) / sizeof(offsets[0]));
+    for (const auto offset : offsets) indexes.push_back(config_.virtualPointBaseIndex + offset);
+    // Coalesce missing-point scans without retaining a snapshot across invocations.
+    const auto snapshot = store_.getLatestByIndexes(indexes, nowMs);
+    const auto read = [&](std::uint32_t offset, std::int64_t at, double& value,
+                          std::int64_t maxAgeMs = -1) {
+        const auto point = std::find_if(snapshot.begin(), snapshot.end(), [&](const StoredPointValue& item) {
+            return item.index == config_.virtualPointBaseIndex + offset;
+        });
+        if (point == snapshot.end() || point->stale || point->quality != 1 || !std::isfinite(point->value)) return false;
+        if (maxAgeMs >= 0 && (point->ts <= 0 || point->ts > at + 1000 || at - point->ts > maxAgeMs)) {
+            return false;
+        }
+        value = point->value;
+        return true;
+    };
     EmsClusterCapability result;
     double value = 0.0;
     const bool enablePresent = read(ems_cluster_point::kEnable, nowMs, value);

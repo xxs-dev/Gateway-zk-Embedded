@@ -1,0 +1,52 @@
+{
+  "mode": "red",
+  "librarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "steps": {
+    "compile-regression": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "-DGATEWAY_CAPABILITY_READ_PROBE",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_capability_snapshot_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore16getLatestByIndexEjl",
+        "-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore18getLatestByIndexesERKSt6vectorIjSaIjEEl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-red-8hjyfn0n/capability-test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "regression": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-red-8hjyfn0n/capability-test"
+      ],
+      "exitCode": 1,
+      "expectedExitCode": 1,
+      "logSha256": "9cbecb48dfbc4fc53793322054ee581615703e762edb434be38075cae208fead"
+    }
+  },
+  "armQualification": false,
+  "bridgeSourceSha256": "320716fbd1748d47a0245c067df8e21d18a2b5f5e7e5d197b6177d2b53645e04",
+  "testSourceSha256": "33f2f7f332150bdbb221d72452b6671afaf161d9dd34e494872235efbc3de13b",
+  "expectedResultsVerified": true
+}

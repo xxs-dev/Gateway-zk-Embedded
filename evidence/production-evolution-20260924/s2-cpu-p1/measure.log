@@ -1,0 +1,11 @@
+{"scenario":"before_helper_inputs","operation":"count_actual_capability","reads":0,"misses":0}
+{"scenario":"before_helper_inputs","operation":"count_actual_target","reads":1,"misses":1}
+{"scenario":"before_helper_inputs","operation":"actual_bridge_capability_plus_target","repeat":0,"iterations":200,"cpuUsPerCall":354.92566,"wallUsPerCall":355.24466}
+{"scenario":"before_helper_inputs","operation":"actual_bridge_capability_plus_target","repeat":1,"iterations":200,"cpuUsPerCall":352.67743,"wallUsPerCall":352.68743}
+{"scenario":"before_helper_inputs","operation":"actual_bridge_capability_plus_target","repeat":2,"iterations":200,"cpuUsPerCall":365.59457,"wallUsPerCall":365.70647}
+{"scenario":"helper_inputs_feedback_absent","operation":"count_actual_capability","reads":0,"misses":0}
+{"scenario":"helper_inputs_feedback_absent","operation":"count_actual_target","reads":6,"misses":0}
+{"scenario":"helper_inputs_feedback_absent","operation":"actual_bridge_capability_plus_target","repeat":0,"iterations":200,"cpuUsPerCall":292.043175,"wallUsPerCall":292.217765}
+{"scenario":"helper_inputs_feedback_absent","operation":"actual_bridge_capability_plus_target","repeat":1,"iterations":200,"cpuUsPerCall":295.153665,"wallUsPerCall":295.861975}
+{"scenario":"helper_inputs_feedback_absent","operation":"actual_bridge_capability_plus_target","repeat":2,"iterations":200,"cpuUsPerCall":289.470505,"wallUsPerCall":289.91439}
+{"checksPassed":true,"sink":1815}

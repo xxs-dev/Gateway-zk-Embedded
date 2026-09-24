@@ -1,0 +1,205 @@
+{
+  "mode": "green",
+  "librarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "steps": {
+    "compile-bridge": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "-c",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/src/ems_cluster_points.cpp",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/bridge.o"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "compile-regression": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "-DGATEWAY_CAPABILITY_READ_PROBE",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_capability_snapshot_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/bridge.o",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore16getLatestByIndexEjl",
+        "-Wl,--wrap=_ZNK12edge_gateway16MemoryPointStore18getLatestByIndexesERKSt6vectorIjSaIjEEl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/capability-test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "regression": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/capability-test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "d6f495e982c0bab2660e7dc3cf6123d505dde1fb77ab002abe1a33566e6ccd67"
+    },
+    "compile-ems_cluster_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/bridge.o",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/ems_cluster_test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ems_cluster_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/ems_cluster_test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "5cdafe6b2ac22e58fad7ffec5adf7df3d48159f928e9dc08f08f245855f24cbc"
+    },
+    "compile-ems_cluster_output_authority_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_output_authority_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/bridge.o",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/ems_cluster_output_authority_test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ems_cluster_output_authority_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/ems_cluster_output_authority_test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "d9693d20c3f68fe597483e7f309769ebc115121f921341ea333fd022f21db848"
+    },
+    "compile-ems_cluster_strategy_startup_test": {
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_strategy_startup_test.cpp",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/bridge.o",
+        "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+        "-Wl,--gc-sections",
+        "-pthread",
+        "-lrt",
+        "-ldl",
+        "-o",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/ems_cluster_strategy_startup_test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ems_cluster_strategy_startup_test": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/evidence/ems-integrated-20260924/isolated.sh",
+        "/var/tmp/ems-production-candidate-20260924-build/capability-green-n96he9xi/ems_cluster_strategy_startup_test"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "db34c9bcf421df6c6098cd688bdae9702221c78f728dbf7dd0026e1b963124be"
+    },
+    "cxx14": {
+      "argv": [
+        "c++",
+        "-std=c++14",
+        "-fsyntax-only",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/src/ems_cluster_points.cpp",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ems_cluster_capability_snapshot_test.cpp"
+      ],
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "armQualification": false,
+  "bridgeSourceSha256": "fe4ff7a4b589f3cf7ac55041968a2a1748be256d5722e200589ba914d4d476d9",
+  "testSourceSha256": "33f2f7f332150bdbb221d72452b6671afaf161d9dd34e494872235efbc3de13b",
+  "oldNewIdenticalCases": 309,
+  "expectedResultsVerified": true
+}

@@ -177,3 +177,40 @@ refuse migration before switching. Original hashes and all-participant fences st
 New eight-script pins: `real-schema-final/paired-deploy-delta.json`. Product ELF,
 SHM ABI and KECP protocol unchanged; no remote connection or product rebuild.
 Windows must re-pair changed scripts; prior8926a5f artifacts remain preserved.
+
+## CPU P1: capability snapshot
+
+Coordinator authorized only capability sampling after the diagnostic benchmark
+was committed as `ddbd131`. The bridge now makes one existing batch16 query per
+sample. It does not cache across samples, alter the store/SHM ABI, or change target
+short-circuit evaluation, point validation predicates, control or authority code.
+
+`capability-snapshot-red` runs the new actual-bridge regression against the pinned
+original library and fails specifically at16 single calls/zero batch calls.
+`capability-snapshot-green` compiles only the new bridge object, links it before
+that unchanged library, and observes zero single calls/one batch with exactly the
+same16 indexes. All309 emitted semantic cases match old output: missing/late
+points, bad quality, NaN/Inf, timestamp/TTL/expiry boundaries, flag thresholds,
+feedback mapping, deleted/reused slots, reinsertion and configuration disable.
+The store's existing stale-marking semantics are preserved rather than redefined.
+Target short-circuit assertions also pass. Three existing affected native suites
+pass: ems_cluster, ems_cluster_output_authority, ems_cluster_strategy_startup.
+They include authority epoch, leader/term/membership and restart safety coverage.
+C++14 syntax passes on local GCC15; GCC6.3/ARM is not executed.
+
+`s2-cpu-p1` measures only the new bridge using the same fixture/compiler/library
+conditions as the retained old benchmark, without rerunning old primitive tests.
+Median actual capability+target process CPU falls from1274.837 to354.926us before
+helper inputs and from477.125 to292.043us with helper inputs but absent feedback.
+These are local sparse/uncontended Debug results, not an ARM utilization claim.
+No qualified R5 executable/archive is modified. P2 health-regex work is separate.
+
+Source/link boundary: only `ems_cluster_main.cpp` instantiates the production
+EmsClusterPointBridge and calls sampleCapability; CMake assigns that translation
+unit to EmsClusterCoordinator. ComputeEngine/MqttDriver/MqttForwarder also call
+the unchanged addEmsClusterPointRoutes function in the same library object.
+With the existing function-sections/gc-sections size option they discard unused
+bridge methods. Without that option, these executables may retain changed dead
+bridge code. A future minimal ARM build must verify the sealed flags and symbols;
+functional need is EmsClusterCoordinator, not all20 runtime executables. No ARM
+build is authorized by this source-dependency analysis.
