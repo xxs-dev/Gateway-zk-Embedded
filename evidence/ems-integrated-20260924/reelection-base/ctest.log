@@ -1,0 +1,7 @@
+Test project /var/tmp/ems-production-candidate-20260924-build
+    Start 40: ems_cluster_output_authority
+1/1 Test #40: ems_cluster_output_authority .....   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.02 sec

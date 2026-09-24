@@ -1,0 +1,89 @@
+{
+  "sourceCommit": "45d03d1c3327b0e8584f76279fb4ddec6af94a86",
+  "targets": [
+    "EmsClusterCoordinator",
+    "ComputeEngine",
+    "MqttDriver",
+    "MqttForwarder",
+    "ems_cluster_output_authority_test"
+  ],
+  "nativeOnly": true,
+  "deviceAccess": false,
+  "steps": {
+    "configure": {
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924",
+        "-B",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 2.922
+    },
+    "build": {
+      "argv": [
+        "cmake",
+        "--build",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--target",
+        "EmsClusterCoordinator",
+        "ComputeEngine",
+        "MqttDriver",
+        "MqttForwarder",
+        "ems_cluster_output_authority_test",
+        "--parallel",
+        "2"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 4.928
+    },
+    "ctest": {
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/ems-production-candidate-20260924/evidence/ems-integrated-20260924/isolated.sh",
+        "ctest",
+        "--test-dir",
+        "/var/tmp/ems-production-candidate-20260924-build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "60",
+        "-j1",
+        "-R",
+        "^ems_cluster_output_authority$"
+      ],
+      "exitCode": 0,
+      "timeout": false,
+      "seconds": 0.066
+    }
+  },
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runnerSha256": "1063ed1c945207535944e5190e8eaab7f6f061782a1275a4b0583fe893c7b91c",
+  "isolationSha256": "61002b72d2b02b51be33efd26fb8223ac03a8a10d29596dd7061b5686b22b4a3",
+  "binaries": {
+    "EmsClusterCoordinator": "c980c8a9dd308047067f6ac5d469a733498e86751d0362012a8a6eaf169f7105",
+    "ComputeEngine": "e5621acc6e66d53497d71eeeda82d0ad70e323ff3a390e77c114e2f901b06be3",
+    "MqttDriver": "4feb49965d67da87081300be21a844a985616049fddb2f93b7e3a98a59fd3aff",
+    "MqttForwarder": "7197722b1b061028422c52f4dbb7a4ad45c60959939f4427383291bb97da4b0c",
+    "ems_cluster_output_authority_test": "15b9ee1dff4a97e003ff2877386bb06a5410e1749b29dce305a607d8ed35a2b9"
+  },
+  "sourceUnchanged": true,
+  "status": "PASS_NATIVE_INTEGRATION_ONLY",
+  "logs": {
+    "build.log": "f8e3d9e4fbb9eeef4d828c423eeff75e0c355eb6c9851d7e05f98eeb0850e467",
+    "configure.log": "729c77d97885db6f24a1d90c5e1ddced5a7612d88724d092fd8d9ac8d1313694",
+    "ctest.log": "70607f210efbd5cfe2120c1e2a304d06e698846504fe211fd66ced2cc8c0e71c"
+  }
+}

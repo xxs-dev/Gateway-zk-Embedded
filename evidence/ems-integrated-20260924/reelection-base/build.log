@@ -1,0 +1,27 @@
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/ems_cluster_points.cpp.o
+[  0%] Linking CXX static library libedge_gateway.a
+[100%] Built target edge_gateway
+[100%] Linking CXX executable EmsClusterCoordinator
+[100%] Built target EmsClusterCoordinator
+[ 95%] Built target edge_gateway
+[100%] Linking CXX executable ComputeEngine
+[100%] Built target ComputeEngine
+[ 81%] Built target edge_gateway
+[ 81%] Built target event_store_runtime
+[ 85%] Built target event_store_client
+[ 88%] Built target event_stats_reader
+[ 96%] Built target event_store_producer
+[ 96%] Built target event_store_sender
+[100%] Linking CXX executable MqttDriver
+[100%] Built target MqttDriver
+[ 88%] Built target edge_gateway
+[ 88%] Built target event_store_runtime
+[ 92%] Built target event_store_client
+[ 96%] Built target event_stats_reader
+[100%] Built target event_store_sender
+[100%] Linking CXX executable MqttForwarder
+[100%] Built target MqttForwarder
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/ems_cluster_output_authority_test.dir/tools/ems_cluster_output_authority_test.cpp.o
+[100%] Linking CXX executable ems_cluster_output_authority_test
+[100%] Built target ems_cluster_output_authority_test
