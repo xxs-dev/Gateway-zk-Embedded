@@ -28,6 +28,10 @@ public:
     std::vector<std::uint16_t> readInputRegisters(int slave, int start, int count) override;
 
     void writeSingleCoil(int slave, int address, bool value) override;
+    void writeSingleCoil(int slave, int address, bool value, const BeforePhysicalWrite& beforeWrite) override;
+    void writeSingleRegister(int slave, int address, std::uint16_t value, const BeforePhysicalWrite& beforeWrite) override;
+    void writeMultipleRegisters(int slave, int address, const std::vector<std::uint16_t>& values,
+                               const BeforePhysicalWrite& beforeWrite) override;
     void writeSingleRegister(int slave, int address, std::uint16_t value) override;
     void writeMultipleRegisters(
         int slave,
@@ -40,7 +44,8 @@ private:
         int slave,
         std::uint8_t function,
         const std::vector<std::uint8_t>& pdu,
-        std::size_t minResponseSize
+        std::size_t minResponseSize,
+        const BeforePhysicalWrite& beforeWrite = BeforePhysicalWrite()
     );
 
     std::vector<std::uint16_t> executeRegisterRead(

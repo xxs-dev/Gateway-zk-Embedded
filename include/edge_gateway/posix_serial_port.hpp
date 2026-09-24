@@ -21,6 +21,7 @@ public:
     void close() override;
     bool isOpen() const override;
     void write(const std::vector<std::uint8_t>& bytes) override;
+    void write(const std::vector<std::uint8_t>& bytes, const BeforePhysicalWrite& beforeWrite) override;
     std::vector<std::uint8_t> read(std::size_t maxBytes, int timeoutMs) override;
 
 private:
