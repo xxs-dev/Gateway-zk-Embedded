@@ -74,8 +74,10 @@ struct SharedClusterAuthoritySnapshot {
     std::uint32_t targetCount = 0;
     double targets[6] = {};
     std::uint32_t targetIndexes[256] = {};
+    std::uint8_t strategyKernelBootId[16] = {};
+    std::int64_t strategyNotAfterMonotonicMs = 0;
 };
-static_assert(sizeof(SharedClusterAuthoritySnapshot) == 1216, "cluster snapshot ABI changed");
+static_assert(sizeof(SharedClusterAuthoritySnapshot) == 1240, "cluster snapshot ABI changed");
 
 struct SharedPendingWriteSlot {
     std::uint64_t sequence = 0;

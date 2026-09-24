@@ -81,8 +81,11 @@ public:
         const EmsClusterDispatchState& dispatch,
         std::int64_t nowMs
     );
+    void publish(const EmsClusterStatus& status, const EmsClusterDispatchState& dispatch,
+                 std::int64_t wallNowMs, std::int64_t monotonicNowMs);
 
 private:
+    void publishDiagnostics(const EmsClusterStatus&, const EmsClusterDispatchState&, std::int64_t);
     bool read(
         std::uint32_t offset,
         std::int64_t nowMs,
@@ -94,6 +97,15 @@ private:
     EmsClusterConfig config_;
     std::string machineCode_;
     MemoryPointStore store_;
+    std::array<std::uint8_t, 16> authorityEpoch_{};
+    std::uint64_t lastTerm_ = 0;
+    std::uint64_t lastMembershipEpoch_ = 0;
+    std::uint64_t lastDispatchSequence_ = 0;
+    std::string lastLeader_;
+    std::int64_t lastAuthorityDeadline_ = 0;
+    std::int64_t publicationDeadline_ = 0;
+    std::int64_t publicationLeaseDeadline_ = 0;
+    bool authorityPublished_ = false;
 };
 
 }  // namespace edge_gateway
