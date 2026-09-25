@@ -1,0 +1,8 @@
+test_offline_a_joint_absent_camera_default_observe (__main__.InstallIsolationTest.test_offline_a_joint_absent_camera_default_observe) ... ok
+test_offline_a_joint_approved_inbound_disable_roundtrip (__main__.InstallIsolationTest.test_offline_a_joint_approved_inbound_disable_roundtrip) ... ok
+test_offline_a_joint_sibling_camera_enabled_refused (__main__.InstallIsolationTest.test_offline_a_joint_sibling_camera_enabled_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 5.577s
+
+OK

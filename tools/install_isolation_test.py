@@ -903,6 +903,27 @@ exec /bin/cp "$@"
         self.assertEqual(original, app.read_bytes())
         self.assertEqual(original_mode, stat.S_IMODE(app.stat().st_mode))
 
+    def test_offline_a_joint_absent_camera_default_observe(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source.pop('cameraService')
+        source['mqtt']['enabled'] = True
+        source['systemMonitor']['directMaintenance']['enabled'] = True
+        original = json.dumps(source).encode()
+        app.write_bytes(original)
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(original).hexdigest()
+        approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.assertNotIn('cameraService', json.loads(app.read_text()))
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, app.read_bytes())
+
     def test_offline_non_a_inbound_disable_pin_refused(self):
         home, approval, _ = self.b_implicit_default_fixture()
         approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']

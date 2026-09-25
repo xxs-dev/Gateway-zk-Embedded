@@ -373,12 +373,12 @@ def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documen
             isinstance(camera_app, dict) and camera_app.get('deviceConfigFiles') == [] and
             isinstance(camera_app.get('cameraService'), dict) and
             camera_app['cameraService'].get('enabled') is False and
-            all(not isinstance(doc.get('cameraService'), dict) or
-                doc['cameraService'].get('enabled') is False for doc in (app, mqtt_app)) and
+            all('cameraService' not in doc or
+                isinstance(doc['cameraService'], dict) and doc['cameraService'].get('enabled') is False
+                for doc in (app, mqtt_app)) and
             isinstance(memory_store, dict) and memory_store.get('sharedMemoryName') in
             {s['target'] for s in state['segments']} and
-            isinstance(app.get('systemMonitor'), dict) and app['systemMonitor'].get('enabled') is True and
-            isinstance(app.get('cameraService'), dict) and app['cameraService'].get('enabled') is False,
+            isinstance(app.get('systemMonitor'), dict) and app['systemMonitor'].get('enabled') is True,
             'A joint monitor loader or disabled camera shape changed')
     mqtt = app.get('mqtt')
     direct = app['systemMonitor'].get('directMaintenance')
