@@ -900,6 +900,81 @@ exec /bin/cp "$@"
                                     for p in config.rglob('*') if p.is_file()}
         return home, approval, envfile
 
+    def scada_readonly_fixture(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        target = next(s['target'] for s in approval['segments'] if s['source'] == 'gateway_point_store_system_monitor')
+        release = home / 'scada/releases/readonly-fixture'
+        documents = {
+            'manifest.json': {'schemaVersion': '2.0', 'projectId': 'monitor-fixture', 'projectName': 'Monitor',
+                              'packageVersion': '1.0.0', 'entryScreen': 'overview', 'packageRole': 'project'},
+            'topology.json': {'mode': 'integrated', 'scadaHost': 'edge', 'emsHost': 'edge',
+                              'dataTransport': 'sharedMemory', 'offlinePolicy': 'continueLocal'},
+            'nodes.json': [{'nodeId': 'monitor', 'machineCode': approval['nodeId'], 'displayName': 'Monitor', 'roles': []}],
+            'tags.json': [{'nodeId': 'monitor', 'tagId': 'monitor.signal', 'access': 'read',
+                           'dataType': 'float64', 'unit': '%', 'indexFallback': 0}],
+            'runtime-map.json': [{'nodeId': 'monitor', 'tagId': 'monitor.signal', 'sharedMemoryName': target,
+                                  'index': 920000005, 'writable': False, 'dataType': 'float64', 'unit': '%'}],
+            'screens/overview.json': {'screenId': 'overview', 'title': 'Monitor', 'width': 800, 'height': 480,
+                'widgets': [{'widgetId': 'signal', 'type': 'metricCard', 'title': 'Signal',
+                    'geometry': {'x': 10, 'y': 20, 'width': 220, 'height': 90}, 'zIndex': 1, 'visible': True,
+                    'bindings': [{'nodeId': 'monitor', 'tagId': 'monitor.signal', 'slot': 'value'}], 'properties': {}}]}}
+        for name, document in documents.items():
+            write(release / name, json.dumps(document))
+        pins = lambda root: {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+                             for p in root.rglob('*') if p.is_file()}
+        approval['scadaReadOnlyProject'] = {
+            'oldTarget': 'releases/fixture-release', 'oldFilesSha256': pins(home / 'scada/releases/fixture-release'),
+            'newTarget': 'releases/readonly-fixture', 'newFilesSha256': pins(release)}
+        return home, approval, release
+
+    def test_offline_scada_readonly_activation_recovery(self):
+        home, approval, release = self.scada_readonly_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        original = app.read_bytes()
+        self.activation_scripts(home, approval, absent_guard=True)
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual('releases/readonly-fixture', os.readlink(home / 'scada/current'))
+        self.assertIs(False, json.loads(app.read_text())['localDisplay']['scada']['autoReload'])
+        self.activation_ready(approval, ['system-monitor@monitor-service.service', 'ky-ems.service'])
+        result = self.offline_run('activate', env={'ACTIVATION_EMULATE_UNIT_LOAD': '1'})
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(0, self.activation_guard('activated-unit', 'ky-ems.service').returncode)
+        mapping = release / 'runtime-map.json'
+        saved = mapping.read_bytes()
+        mapping.write_bytes(saved + b' ')
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'ky-ems.service').returncode)
+        # Recovery restores the old binding, never overwrites changed candidate bytes.
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(saved + b' ', mapping.read_bytes())
+        self.assertEqual('releases/fixture-release', os.readlink(home / 'scada/current'))
+        self.assertEqual(original, app.read_bytes())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_scada_readonly_unqualified_map_refused(self):
+        home, approval, release = self.scada_readonly_fixture()
+        mapping = release / 'runtime-map.json'
+        original = json.loads(mapping.read_text())
+        for key, value in [('sharedMemoryName', 'gateway_point_store'), ('writable', True), ('index', 1)]:
+            changed = copy.deepcopy(original)
+            changed[0][key] = value
+            write(mapping, json.dumps(changed))
+            approval['scadaReadOnlyProject']['newFilesSha256']['runtime-map.json'] = hashlib.sha256(mapping.read_bytes()).hexdigest()
+            result = self.offline_run(approval=approval)
+            self.assertNotEqual(0, result.returncode, result.stdout)
+            self.assertFalse((self.root / 'transaction').exists())
+            self.assertEqual('releases/fixture-release', os.readlink(home / 'scada/current'))
+        write(mapping, '[]')
+        approval['scadaReadOnlyProject']['newFilesSha256']['runtime-map.json'] = hashlib.sha256(mapping.read_bytes()).hexdigest()
+        self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+
+    def test_offline_scada_readonly_non_a_scope_refused(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        approval['scadaReadOnlyProject'] = {}
+        self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+        self.assertFalse((self.root / 'transaction').exists())
+
     def test_offline_a_joint_binding_apply_recover(self):
         home, approval, envfile = self.a_joint_monitor_fixture()
         before = envfile.read_bytes()
