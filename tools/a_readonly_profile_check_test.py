@@ -17,7 +17,8 @@ def fixture():
              'write': {'enable': False}}
     device = {'machineCode': 'SYNTHETIC_ONLY', 'meterCode': 'meter',
               'protocol': {'type': 'modbus_rtu', 'transport': {'serialPort': '/dev/ttySP2'}},
-              'memoryStore': {'sharedMemoryName': target}, 'northboundServer': {'enabled': False},
+              'memoryStore': {'enabled': True, 'backend': 'memory', 'sharedMemoryName': target},
+              'northboundServer': {'enabled': False},
               'meters': [{'meterCode': 'meter', 'enabled': True, 'points': [point]}]}
     documents = {profile.DEVICE: device}
     for name in profile.APPS:
@@ -31,6 +32,7 @@ def fixture():
                 'fullUploadWorker': {'mode': 'inline', 'eventForwardingEnabled': False}},
             'computeEngine': {'enabled': False}, 'cameraService': {'enabled': False},
             'ota': {'enabled': False}, 'emsCluster': {'enabled': False, 'controlEnabled': False},
+            'localDisplay': {'enabled': False, 'sharedMemoryNames': [target]},
             'systemMonitor': {'enabled': name == 'monitor-service.json',
                               'directMaintenance': {'enabled': False}}}
     return documents, [target]
@@ -197,6 +199,66 @@ class ProfileTest(unittest.TestCase):
         self.reject()
         self.targets[:] = [True]
         self.reject()
+
+    def test_memory_store_enabled_backend_and_loader_defaults(self):
+        memory = self.device['memoryStore']
+        for value in (False, 0, 1, 'true'):
+            with self.subTest(enabled=value):
+                memory['enabled'] = value
+                with self.assertRaisesRegex(ValueError, 'memoryStore.enabled'):
+                    self.check()
+        for value in (True, None):
+            memory['enabled'] = value
+            self.check()
+        del memory['enabled']
+        self.check()
+        for value in (False, [], {}, 1):
+            with self.subTest(backend=value):
+                memory['backend'] = value
+                with self.assertRaisesRegex(ValueError, 'memoryStore.backend'):
+                    self.check()
+        for value in ('memory', 'shared_memory', 'sqlite', 'private', '', None):
+            memory['backend'] = value
+            self.check()
+        del memory['backend']
+        self.check()
+
+    def test_reader_store_sources_and_unproven_monitor_environment(self):
+        for name in profile.APPS:
+            app = self.documents['apps/' + name]
+            display = app['localDisplay']
+            for enabled in (False, True):
+                display['enabled'] = enabled
+                for names in (['unapproved_store'], [False], 'bad', {}):
+                    with self.subTest(app=name, enabled=enabled, names=names):
+                        display['sharedMemoryNames'] = names
+                        with self.assertRaisesRegex(ValueError, 'localDisplay.sharedMemoryNames'):
+                            self.check()
+                for names in ([self.targets[0]], [], None, ['']):
+                    display['sharedMemoryNames'] = names
+                    self.check()
+            del display['sharedMemoryNames']
+            self.check()
+            app['localDisplay'] = None
+            self.check()
+            del app['localDisplay']
+            self.check()
+            driver = app['mqttDriver']
+            for key, bad in (('sharedMemoryName', 'unapproved_store'),
+                             ('sharedMemoryNames', ['unapproved_store'])):
+                original = driver[key]
+                driver[key] = bad
+                self.reject()
+                driver[key] = original
+        original = self.device['memoryStore']['sharedMemoryName']
+        self.device['memoryStore']['sharedMemoryName'] = 'unapproved_store'
+        self.reject()
+        self.device['memoryStore']['sharedMemoryName'] = original
+        monitor = self.documents['apps/monitor-service.json']
+        monitor['systemMonitor']['sharedMemoryName'] = self.targets[0]
+        result = self.check()
+        self.assertIs(result['monitorEnvironmentQualified'], False)
+        self.assertIn('system-monitor-effective-environment', result['pending'])
 
     def test_agc_mailbox_configuration_refused_even_disabled(self):
         self.mqtt['agcAvc'] = {'enabled': False}

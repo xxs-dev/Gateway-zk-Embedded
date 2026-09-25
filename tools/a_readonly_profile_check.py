@@ -77,6 +77,12 @@ def check_profile(documents, target_names):
     if 'server' in device:
         disabled(device, 'server', DEVICE)
     memory = obj(device.get('memoryStore'), DEVICE + '.memoryStore')
+    # ConfigLoader uses MemoryStoreConfig defaults for absent/null fields.
+    enabled = True if memory.get('enabled') is None else memory['enabled']
+    backend = 'memory' if memory.get('backend') is None else memory['backend']
+    require(enabled is True, DEVICE + '.memoryStore.enabled must resolve to true')
+    # main.cpp constructs the SHM store regardless of backend; do not invent an enum.
+    require(isinstance(backend, str), DEVICE + '.memoryStore.backend must resolve to a string')
     require(memory.get('sharedMemoryName') in names, 'RTU store outside target set')
     meters = array(device.get('meters'), DEVICE + '.meters')
     owners = [(device, DEVICE, True)]
@@ -130,6 +136,15 @@ def check_profile(documents, target_names):
         require(driver.get('sharedMemoryName') in names, path + ': primary store outside target set')
         stores = array(driver.get('sharedMemoryNames'), path + '.mqttDriver.sharedMemoryNames')
         require(stores and all(isinstance(n, str) and n in names for n in stores), path + ': invalid stores')
+        # Qt merges this list even when localDisplay.enabled=false. Missing/null means [].
+        display = app.get('localDisplay')
+        if display is not None:
+            display = obj(display, path + '.localDisplay')
+            display_names = display.get('sharedMemoryNames')
+            if display_names is not None:
+                display_names = array(display_names, path + '.localDisplay.sharedMemoryNames')
+                require(all(isinstance(n, str) and (not n or n in names) for n in display_names),
+                        path + '.localDisplay.sharedMemoryNames outside target set')
         if name == 'mqtt-service.json':
             require(memory['sharedMemoryName'] in stores, 'MQTT must include acquisition store')
             worker = obj(driver.get('fullUploadWorker'), 'mqttDriver.fullUploadWorker')
@@ -147,7 +162,9 @@ def check_profile(documents, target_names):
     return {'profile': 'A_RTU_READONLY_MQTT_TX_FULL_PREPARATION', 'configPredicatePassed': True,
             'pointCount': len(indexes), 'acquisitionIndexes': sorted(collected),
             'activationAuthorized': False, 'actualAQualified': False, 'realtimeSessionQualified': False,
+            'monitorEnvironmentQualified': False,
             'pending': ['actual-config-projection', 'effective-unit-and-dependency-pins',
+                        'system-monitor-effective-environment',
                         'existing-activation-gates-integration', 'stopped-state-and-runtime-acceptance']}
 
 

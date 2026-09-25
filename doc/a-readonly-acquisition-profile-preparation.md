@@ -25,6 +25,25 @@ read function 1..4, no non-null initialValue/startupValue or retain=true, exact 
 inventory, disabled extra producers/control/OTA/maintenance, all eleven MQTT RX topics
 explicitly empty, positive full interval and inline worker without event delegation.
 It inspects top-level and meter points including disabled ones and all six loader group aliases.
+Device memoryStore.enabled must resolve to true. Missing/null enabled defaults to true;
+missing/null backend defaults to "memory" (models.hpp:603-610, config_loader.cpp:1362-1373).
+Backend must parse as a string, with no invented enum restriction. main.cpp:163 constructs
+MemoryPointStore unconditionally; its config constructor maps SHM without using enabled/backend.
+Thus enabled=false is rejected by our narrow profile policy, NOT because source proves it
+disables collection, and backend="memory" does NOT imply private heap storage. Any other backend
+string is likewise not an implementation selector in this fixed path. No production bug is claimed.
+
+All three apps' localDisplay.sharedMemoryNames are checked against the approved targets,
+including when display.enabled=false. Missing/null localDisplay or missing/null list means []
+(models.hpp:1455-1462, config_loader.cpp:3619-3635); empty string entries are skipped by readers.
+Together with checked device and MQTT primary/list names, these cover the JSON store sources
+that remain reachable here. Qt merges display/MQTT/device names unconditionally (:231-256).
+Monitor merges enabled sibling display lists and primary/MQTT/device lists; enabled Compute,
+camera, AGC and EMS cluster routes remain excluded by the existing narrow checks.
+Monitor and Qt additionally call system_monitor_points::sharedMemoryName(), which resolves
+GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME from the process environment, then its built-in default.
+JSON systemMonitor fields are NOT an override. monitorEnvironmentQualified stays false;
+effective unit/environment proof for each affected process remains a separate pending condition.
 Explicit fullUploadIndexes must cover collected indexes: mqtt_driver_service.cpp:751-759
 shows per-point flags may override publishAllOnFull. Inline worker is a proposed narrow
 constraint, not a claim about the current device; isolated mode needs separate assessment.
@@ -80,9 +99,13 @@ Projected/redacted bytes have a separate hash; never present that as the full-fi
 ## Local verification
 
 `python -B -m unittest discover -s tools -p a_readonly_profile_check_test.py -v`
-21 tests PASS, including subcases for each RX topic and each top/meter group alias.
+23 tests PASS, including subcases for each RX topic and each top/meter group alias.
 Synthetic config only; no C++ build, device connection, live service cycle or deployment.
 Coverage includes explicit empty vs missing/null topics, disabled writable points/meters,
 initial zero/startup zero, retention, extra configs, northbound aliases, isolated worker,
 upload coverage, malformed/duplicate indexes and JSON keys, external evidence hash mismatch.
 Actual A compatibility, unit gating integration and runtime acceptance remain pending.
+Two added RED/GREEN groups reproduce the memory enabled/type checks and reader store sources,
+including the exact disabled Monitor display + unapproved store case. They exercise loader
+defaults, enabled and disabled display lists in every app, existing MQTT/device bounds, and
+the refusal to turn a JSON Monitor name into effective-environment qualification.
