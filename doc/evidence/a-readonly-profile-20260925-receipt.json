@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-25",
+  "scope": "LOCAL_PREPARATION_ONLY",
+  "baseCommit": "03308887dde489a90a9ef88149d085ef35ded6d8",
+  "runtimeBaseCommit": "d5884517586c17ce40a50717d1157534da69a61d",
+  "branch": "codex/a-readonly-acquisition-20260925",
+  "command": "python -B -m unittest discover -s tools -p a_readonly_profile_check_test.py -v",
+  "tests": 37,
+  "passed": 37,
+  "failed": 0,
+  "exitCode": 0,
+  "testReportedSeconds": 0.647,
+  "files": [
+    {
+      "path": "doc/a-readonly-acquisition-profile-preparation.md",
+      "stagedMatchesWorking": true,
+      "sha256": "9ee241029f27b97b2d4459d9173a257ec85d4eadf0ef69375399352b637c972e",
+      "bytes": 14781
+    },
+    {
+      "path": "doc/evidence/a-readonly-profile-20260925-tests.txt",
+      "stagedMatchesWorking": true,
+      "sha256": "e15d627cf5046ab0c1a8e45e7c4c5dedc7fe88ddd85f1aa7ebb3a7a4df8f48c9",
+      "bytes": 5370
+    },
+    {
+      "path": "tools/a_readonly_profile_check.py",
+      "stagedMatchesWorking": true,
+      "sha256": "d301b112c5a792ea8d000d072a04160b63860457bd66c42b7c4b37851d452e79",
+      "bytes": 23817
+    },
+    {
+      "path": "tools/a_readonly_profile_check_test.py",
+      "stagedMatchesWorking": true,
+      "sha256": "49b071dc0e386ff19db228188f9bc0979ec0f485cd36d1b7aa9eb7440af0efab",
+      "bytes": 26293
+    },
+    {
+      "path": "tools/fixtures/a-profile-preflight-20260925-01.json",
+      "stagedMatchesWorking": true,
+      "sha256": "4da811ae013a43b51e7f8ba701085fe78bea2fb0e8f2f4e27db9a104f247ec60",
+      "bytes": 108814
+    },
+    {
+      "path": "tools/fixtures/a-unit-env-public-supplement-20260925-01.json",
+      "stagedMatchesWorking": true,
+      "sha256": "a6fc97e7f69a96849665532f38051c82780b26276748ee8b3bb012940064d206",
+      "bytes": 1836
+    }
+  ],
+  "originalConfig": "REFUSED",
+  "minimalCandidateWithoutSupplement": "PENDING_FIVE_PUBLIC_VALUES",
+  "minimalCandidateWithActualSupplement": "CONFIG_ONLY_PASS",
+  "fullUpload": {
+    "intervalMs": 5000,
+    "workerMode": "inline",
+    "indexCount": 151,
+    "indexFirst": 4500,
+    "indexLast": 4650,
+    "topic": "edge/telemetry/full"
+  },
+  "sourceReportSha256": "8009d45e417946fa12fb7bcc7bba7a512b8a7ede1848ca2bbb7ef0866f13fefc",
+  "supplementReportSha256": "81a6ebaa035cfd6a60ba139044474404bd37497391f4088be5b3f575cce56928",
+  "supplementProjectionSha256": "8b53c6864b7a443636830368a83d32583e50bbacd03b1d1bc02869abfb8402eb",
+  "activationAuthorized": false,
+  "actualAQualified": false,
+  "monitorEnvironmentQualified": false,
+  "realtimeSessionQualified": false,
+  "unitFieldsComplete": false,
+  "devicesConnected": 0,
+  "builds": 0,
+  "runtimeChanges": false,
+  "guardChanges": false,
+  "stableChanges": false,
+  "notes": [
+    "In-memory candidate only: Monitor two inbound flags false; MQTT eleven RX topics empty. No configuration files deployed or rewritten.",
+    "All original projection hashes and four matching full-file pins verified in tests. Fixture source numbers preserve float/integer types.",
+    "Source store names bound in tests are diagnostic only, not live target approval. Full-file pins remain original source pins, not candidate config pins.",
+    "Test transcript preserves command text with newline normalization to LF; staged Git blob bytes matched all listed working files.",
+    "Existing stable untracked evidence and pycache observed, not created, cleaned or committed by this work.",
+    "Next integration list is documentation only; separate coordinator authorization still required."
+  ]
+}

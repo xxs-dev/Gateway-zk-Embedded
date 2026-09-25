@@ -1,0 +1,56 @@
+{
+  "activationAuthorized": false,
+  "actualAQualified": false,
+  "configHashes": {
+    "apps/camera-service.json": {
+      "fullFileBytes": 1379,
+      "fullFileSha256": "c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8"
+    },
+    "apps/monitor-service.json": {
+      "fullFileBytes": 9701,
+      "fullFileSha256": "6a64c844c339a826986bfeea7de2c7af85526a439ae9d36c8fe1f1d2bcf1ba0b"
+    },
+    "apps/mqtt-service.json": {
+      "fullFileBytes": 10242,
+      "fullFileSha256": "a656fe30d5a7220cad5efcde04f40b4211393fb56bfa867eaf3f9b097d8f542b"
+    },
+    "devices/device_modbusRTU_2_readonly.json": {
+      "fullFileBytes": 160753,
+      "fullFileSha256": "75e3740da48961bf928b0cdeeb9815ff6919f1e233ef8d0126679a2750abbdf0"
+    }
+  },
+  "diagnosticComplete": true,
+  "fieldsComplete": false,
+  "mqttPublicSupplement": {
+    "fullFileSha256": "a656fe30d5a7220cad5efcde04f40b4211393fb56bfa867eaf3f9b097d8f542b",
+    "projection": {
+      "document": {
+        "mqtt": {
+          "telemetryTopic": "edge/telemetry"
+        },
+        "mqttDriver": {
+          "fullUploadWorker": {
+            "failoverTimeoutMs": 3000,
+            "healthHeartbeatMs": 1000,
+            "retryMaxMs": 5000,
+            "retryMinMs": 500
+          }
+        }
+      },
+      "fieldMetadata": {
+        "missingFields": {
+          "": [],
+          "/mqtt": [
+            "realtimeTelemetryTopic"
+          ],
+          "/mqttDriver": [],
+          "/mqttDriver/fullUploadWorker": []
+        }
+      }
+    },
+    "projectionIsFullConfiguration": false,
+    "projectionSha256": "8b53c6864b7a443636830368a83d32583e50bbacd03b1d1bc02869abfb8402eb"
+  },
+  "priorConfigReportSha256": "8009d45e417946fa12fb7bcc7bba7a512b8a7ede1848ca2bbb7ef0866f13fefc",
+  "sourceReportSha256": "81a6ebaa035cfd6a60ba139044474404bd37497391f4088be5b3f575cce56928"
+}

@@ -172,9 +172,9 @@ class ProfileTest(unittest.TestCase):
     def test_full_index_coverage(self):
         driver = self.mqtt['mqttDriver']
         driver['fullUploadIndexes'] = []
-        self.reject()
+        self.check()
         driver['publishAllOnFull'] = False
-        self.reject()
+        self.check()
         driver['fullUploadIndexes'] = [1234]
         self.check()
         driver['fullUploadIndexes'] = [True]
@@ -248,7 +248,10 @@ class ProfileTest(unittest.TestCase):
                              ('sharedMemoryNames', ['unapproved_store'])):
                 original = driver[key]
                 driver[key] = bad
-                self.reject()
+                if name == 'camera-service.json':
+                    self.check()  # Disabled sibling does not open its driver stores.
+                else:
+                    self.reject()
                 driver[key] = original
         original = self.device['memoryStore']['sharedMemoryName']
         self.device['memoryStore']['sharedMemoryName'] = 'unapproved_store'
@@ -281,6 +284,261 @@ class ProfileTest(unittest.TestCase):
                                  capture_output=True, text=True)
             self.assertEqual(1, bad.returncode)
             self.assertIn('duplicate JSON key', bad.stdout)
+
+
+class ActualProjectionTest(unittest.TestCase):
+    def setUp(self):
+        self.evidence = json.loads((Path(__file__).parent / 'fixtures' /
+                                   'a-profile-preflight-20260925-01.json').read_text(encoding='utf-8'))
+        self.entries = self.evidence['documents']
+        self.mqtt_name = 'apps/mqtt-service.json'
+        self.monitor_name = 'apps/monitor-service.json'
+        self.mqtt = self.entries[self.mqtt_name]['projection']['document']
+        self.monitor = self.entries[self.monitor_name]['projection']['document']
+        self.device = self.entries[profile.DEVICE]['projection']['document']
+        # Observed SOURCE names are diagnostic only, not reviewed live remap targets.
+        self.names = self.mqtt['mqttDriver']['sharedMemoryNames'] + [self.device['memoryStore']['sharedMemoryName']]
+        self.expected_pending = [self.mqtt_name + '#/mqtt/telemetryTopic'] + [
+            self.mqtt_name + '#/mqttDriver/fullUploadWorker/' + key for key in profile.WORKER_DEFAULTS]
+
+    def repin(self):
+        for entry in self.entries.values():
+            raw = (json.dumps(entry['projection'], sort_keys=True, separators=(',', ':'),
+                              allow_nan=False) + '\n').encode()
+            entry['projectionSha256'] = hashlib.sha256(raw).hexdigest()
+
+    def set_field(self, name, pointer, key, value=None, state='present'):
+        projection = self.entries[name]['projection']
+        parent = projection['document']
+        for part in pointer.split('/')[1:]:
+            parent = parent[int(part)] if isinstance(parent, list) else parent[part]
+        parent.pop(key, None)
+        for kind in ('missingFields', 'unknownKeys'):
+            keys = projection['fieldMetadata'][kind].setdefault(pointer, [])
+            if key in keys:
+                keys.remove(key)
+        if state == 'present':
+            parent[key] = value
+        else:
+            projection['fieldMetadata'][state][pointer].append(key)
+
+    def candidate(self):
+        self.set_field(self.monitor_name, '/mqtt', 'enabled', False)
+        self.set_field(self.monitor_name, '/systemMonitor/directMaintenance', 'enabled', False)
+        for key in profile.RX_TOPICS:
+            self.set_field(self.mqtt_name, '/mqtt', key, '')
+        self.repin()
+
+    def supplement(self):
+        # Synthetic public values for boundary tests, never claimed as actual device evidence.
+        self.set_field(self.mqtt_name, '/mqtt', 'telemetryTopic', 'synthetic/telemetry')
+        for key, value in profile.WORKER_DEFAULTS.items():
+            self.set_field(self.mqtt_name, '/mqttDriver/fullUploadWorker', key, value)
+        self.repin()
+
+    def actual_supplement(self):
+        supplement = json.loads((Path(__file__).parent / 'fixtures' /
+                                 'a-unit-env-public-supplement-20260925-01.json').read_text(encoding='utf-8'))
+        self.assertEqual(self.evidence['sourceReportSha256'], supplement['priorConfigReportSha256'])
+        self.assertFalse(supplement['fieldsComplete'])
+        for name, pin in supplement['configHashes'].items():
+            self.assertEqual(pin['fullFileSha256'], self.entries[name]['fullFileSha256'])
+            self.assertEqual(pin['fullFileBytes'], self.entries[name]['fullFileBytes'])
+        public = supplement['mqttPublicSupplement']
+        self.assertEqual(self.entries[self.mqtt_name]['fullFileSha256'], public['fullFileSha256'])
+        raw = (json.dumps(public['projection'], sort_keys=True, separators=(',', ':'),
+                          allow_nan=False) + '\n').encode()
+        self.assertEqual(public['projectionSha256'], hashlib.sha256(raw).hexdigest())
+        document = public['projection']['document']
+        self.set_field(self.mqtt_name, '/mqtt', 'telemetryTopic', document['mqtt']['telemetryTopic'])
+        for key, value in document['mqttDriver']['fullUploadWorker'].items():
+            self.set_field(self.mqtt_name, '/mqttDriver/fullUploadWorker', key, value)
+        self.assertEqual(['realtimeTelemetryTopic'], public['projection']['fieldMetadata']['missingFields']['/mqtt'])
+        self.set_field(self.mqtt_name, '/mqtt', 'realtimeTelemetryTopic', state='missingFields')
+        self.repin()
+
+    def check(self):
+        return profile.check_projected_profile(self.entries, self.names)
+
+    def test_exact_evidence_hashes_and_original_monitor_rx_refused(self):
+        original = copy.deepcopy(self.entries)
+        self.repin()
+        self.assertEqual(original, self.entries)
+        self.assertFalse(self.evidence['snapshotComplete'])
+        with self.assertRaisesRegex(ValueError, 'directMaintenance.enabled'):
+            self.check()
+
+    def test_minimal_candidate_preserves_actual_values_and_five_unknowns(self):
+        device = copy.deepcopy(self.device)
+        camera = copy.deepcopy(self.entries['apps/camera-service.json'])
+        driver = copy.deepcopy(self.mqtt['mqttDriver'])
+        self.candidate()
+        before = copy.deepcopy(self.entries)
+        result = self.check()
+        self.assertEqual(before, self.entries)
+        self.assertEqual(camera, self.entries['apps/camera-service.json'])
+        self.assertEqual(device, self.device)
+        self.assertEqual(driver, self.mqtt['mqttDriver'])
+        self.assertEqual(5000, driver['fullUploadIntervalMs'])
+        self.assertEqual('inline', driver['fullUploadWorker']['mode'])
+        self.assertEqual([], driver['fullUploadIndexes'])
+        self.assertEqual('PENDING', result['configurationStatus'])
+        self.assertFalse(result['configPredicatePassed'])
+        self.assertEqual(sorted(self.expected_pending), result['pendingConfigFields'])
+        self.assertEqual(151, result['pointCount'])
+        self.assertEqual(list(range(4500, 4651)), result['acquisitionIndexes'])
+        self.assertEqual(list(range(4500, 4651)), result['effectiveFullUploadIndexes'])
+
+    def test_synthetic_supplement_pass_never_authorizes_activation(self):
+        self.candidate()
+        self.supplement()
+        result = self.check()
+        self.assertTrue(result['configPredicatePassed'])
+        for key in ('activationAuthorized', 'actualAQualified', 'realtimeSessionQualified',
+                    'monitorEnvironmentQualified', 'projectionIsFullConfiguration'):
+            self.assertIs(result[key], False)
+
+    def test_actual_public_supplement_only_proves_candidate_config(self):
+        self.actual_supplement()
+        with self.assertRaisesRegex(ValueError, 'directMaintenance.enabled'):
+            self.check()
+        self.candidate()
+        result = self.check()
+        self.assertTrue(result['configPredicatePassed'])
+        self.assertEqual([], result['pendingConfigFields'])
+        self.assertEqual('edge/telemetry/full', result['effectiveFullTelemetryTopic'])
+        self.assertEqual(list(range(4500, 4651)), result['effectiveFullUploadIndexes'])
+        self.assertEqual(5000, self.mqtt['mqttDriver']['fullUploadIntervalMs'])
+        self.assertFalse(result['activationAuthorized'])
+        self.assertFalse(result['actualAQualified'])
+        self.assertFalse(result['monitorEnvironmentQualified'])
+        self.assertIn('effective-unit-and-dependency-pins', result['pending'])
+        self.assertIn('system-monitor-effective-environment', result['pending'])
+
+    def test_legacy_null_key_is_presence_not_absence(self):
+        self.candidate()
+        self.set_field(self.mqtt_name, '/systemMonitor', 'listenHost', None)
+        self.repin()
+        with self.assertRaisesRegex(ValueError, 'legacy directMaintenance'):
+            self.check()
+
+    def test_proven_missing_worker_and_topic_defaults_only(self):
+        self.candidate()
+        for key in profile.WORKER_DEFAULTS:
+            self.set_field(self.mqtt_name, '/mqttDriver/fullUploadWorker', key, state='missingFields')
+        self.set_field(self.mqtt_name, '/mqtt', 'telemetryTopic', state='missingFields')
+        self.repin()
+        self.assertTrue(self.check()['configPredicatePassed'])
+        self.set_field(self.mqtt_name, '/mqtt', 'telemetryTopic', state='unknownKeys')
+        self.repin()
+        self.assertEqual([self.expected_pending[0]], self.check()['pendingConfigFields'])
+
+    def test_no_metadata_is_not_absence(self):
+        self.candidate()
+        meta = self.entries['apps/camera-service.json']['projection']['fieldMetadata']
+        meta['missingFields'][''].remove('computeEngine')
+        self.repin()
+        self.assertEqual(['apps/camera-service.json#/computeEngine'], self.check()['pendingConfigFields'])
+
+    def test_omitted_safety_fields_remain_pending(self):
+        self.candidate()
+        saved = copy.deepcopy(self.entries)
+        for name, pointer, key in (
+            ('apps/camera-service.json', '', 'computeEngine'),
+            (profile.DEVICE, '/meters/0/points/0', 'initialValue'),
+            (profile.DEVICE, '/meters/0/points/0', 'retain'),
+            (profile.DEVICE, '/meters/0/points/0/write', 'startupValue'),
+            (profile.DEVICE, '', 'server'),
+            (self.mqtt_name, '/localDisplay', 'sharedMemoryNames'),
+            (self.mqtt_name, '/systemMonitor', 'listenHost')):
+            with self.subTest(pointer=pointer, key=key):
+                self.entries = copy.deepcopy(saved)
+                self.set_field(name, pointer, key, state='unknownKeys')
+                self.repin()
+                result = self.check()
+                self.assertFalse(result['configPredicatePassed'])
+                self.assertIn(name + '#' + pointer + '/' + key, result['pendingConfigFields'])
+
+    def test_missing_or_nonempty_rx_refused_with_pending_supplement(self):
+        self.candidate()
+        for key in profile.RX_TOPICS:
+            for value, state in ((None, 'missingFields'), (None, 'present'), ('request', 'present')):
+                with self.subTest(key=key, state=state, value=value):
+                    self.set_field(self.mqtt_name, '/mqtt', key, value, state)
+                    self.repin()
+                    with self.assertRaisesRegex(ValueError, 'explicit empty string'):
+                        self.check()
+            self.set_field(self.mqtt_name, '/mqtt', key, '')
+
+    def test_worker_bounds_even_inline(self):
+        self.candidate()
+        self.supplement()
+        for key, values in (('healthHeartbeatMs', [99, 60001, True, '1000']),
+                            ('failoverTimeoutMs', [-1, 1999, 300001]),
+                            ('retryMinMs', [99, 60001]), ('retryMaxMs', [-1, 499, 300001])):
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    self.set_field(self.mqtt_name, '/mqttDriver/fullUploadWorker', key, value)
+                    self.repin()
+                    with self.assertRaisesRegex(ValueError, 'full worker timing'):
+                        self.check()
+            self.set_field(self.mqtt_name, '/mqttDriver/fullUploadWorker', key, profile.WORKER_DEFAULTS[key])
+
+    def test_empty_or_invalid_derived_full_topic_refused(self):
+        self.candidate()
+        self.supplement()
+        for value in ('', False, 7):
+            self.set_field(self.mqtt_name, '/mqtt', 'telemetryTopic', value)
+            self.repin()
+            with self.assertRaises(ValueError):
+                self.check()
+        for value in ('synthetic/full', 'synthetic', None):
+            self.set_field(self.mqtt_name, '/mqtt', 'telemetryTopic', value)
+            self.repin()
+            self.assertTrue(self.check()['configPredicatePassed'])
+
+    def test_partial_point_flags_require_full_coverage(self):
+        self.candidate()
+        self.device['meters'][0]['points'][0]['fullUpload'] = False
+        self.repin()
+        with self.assertRaisesRegex(ValueError, 'effective full upload'):
+            self.check()
+        self.mqtt['mqttDriver']['publishAllOnFull'] = True
+        self.repin()
+        with self.assertRaisesRegex(ValueError, 'effective full upload'):
+            self.check()
+        self.mqtt['mqttDriver']['fullUploadIndexes'] = [4500]
+        self.repin()
+        self.assertEqual(151, len(self.check()['effectiveFullUploadIndexes']))
+
+    def test_projection_hash_metadata_conflicts_and_invalid_types_refused(self):
+        self.candidate()
+        entry = self.entries[self.mqtt_name]
+        saved = copy.deepcopy(entry)
+        self.mqtt['mqtt']['enabled'] = False
+        with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
+            self.check()
+        self.entries[self.mqtt_name] = copy.deepcopy(saved)
+        self.entries[self.mqtt_name]['projection']['fieldMetadata']['invalidTypes'] = {'/mqtt/enabled': 'string'}
+        self.repin()
+        with self.assertRaisesRegex(ValueError, 'invalid projected types'):
+            self.check()
+        self.entries[self.mqtt_name] = copy.deepcopy(saved)
+        self.entries[self.mqtt_name]['projection']['fieldMetadata']['unknownKeys']['/mqtt'].append('enabled')
+        self.repin()
+        with self.assertRaisesRegex(ValueError, 'inconsistent metadata'):
+            self.check()
+
+    def test_redacted_cli_pending_exit_code(self):
+        self.candidate()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'simulation-only.json'
+            path.write_text(json.dumps({'documents': self.entries, 'targetSharedMemoryNames': self.names}))
+            result = subprocess.run([sys.executable, '-B', str(Path(profile.__file__)), '--redacted',
+                                     '--projection', str(path), '--sha256',
+                                     hashlib.sha256(path.read_bytes()).hexdigest()], capture_output=True, text=True)
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            self.assertEqual('PENDING', json.loads(result.stdout)['configurationStatus'])
 
 
 if __name__ == '__main__':
