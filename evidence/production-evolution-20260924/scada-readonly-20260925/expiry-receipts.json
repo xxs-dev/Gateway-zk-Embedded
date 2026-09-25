@@ -1,0 +1,67 @@
+{
+  "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-expiry-20260925",
+  "sourceSha256": "fade642ca7194bb453f88af37cb0cad852b944dd7e9dbc11cbee264bc478c83f",
+  "nativeLibrarySha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2",
+  "files": [
+    {
+      "name": "fixture-compile.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "invocation.json",
+      "bytes": 537,
+      "sha256": "a071dfc6b1578fcc76c3945ac88ff93bcdf56a214e0f140bbb7fdb6336b086f3"
+    },
+    {
+      "name": "native-build.json",
+      "bytes": 722,
+      "sha256": "ec9eb5e8526c0970c35c552f98fda74908b55f9fac658c716269f80e38bc9cce"
+    },
+    {
+      "name": "native-build.stderr",
+      "bytes": 153,
+      "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+    },
+    {
+      "name": "native-build.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "native-fixture-provenance.json",
+      "bytes": 537,
+      "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+    },
+    {
+      "name": "offline-upgrade-fixture",
+      "bytes": 57928,
+      "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+    },
+    {
+      "name": "result.txt",
+      "bytes": 234,
+      "sha256": "54f73a22be337a5c815bdc1e8d66a235c3cb70657705ab5e94ce46b582ffe506"
+    },
+    {
+      "name": "scada_runtime_test",
+      "bytes": 13744864,
+      "sha256": "9fa08b7b397ba0bb723f308dabe155719e879be1efc708ffacc1acfd4552aa92"
+    },
+    {
+      "name": "stderr.txt",
+      "bytes": 153,
+      "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+    },
+    {
+      "name": "stdout.txt",
+      "bytes": 235,
+      "sha256": "33c6ebf7a15d0226f29595b4ae09f3301bab27639d0f660daeacc861978a3ae8"
+    },
+    {
+      "name": "test_offline_scada_readonly_native_monitor_value.log",
+      "bytes": 488,
+      "sha256": "dcc64b2a10c506645b9ce3de350fed90ce5ab197e38698fc60282cf42767835b"
+    }
+  ]
+}

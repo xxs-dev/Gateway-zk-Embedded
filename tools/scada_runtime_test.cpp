@@ -381,7 +381,14 @@ int main(int argc, char** argv) {
             edge_gateway::ScadaRuntimeMap runtime(project, machine, router);
             const auto values = runtime.readScreen(project.screens.front(), 1000);
             require(values.size() == 1 && values.front().index == 920000005U && values.front().value == 42.0 &&
-                    values.front().quality == 1, "read-only monitor value 42 missing");
+                    values.front().quality == 1 && !values.front().stale, "read-only monitor value 42 missing");
+            const auto atExpiry = runtime.readScreen(project.screens.front(), 31000);
+            require(atExpiry.size() == 1 && !atExpiry.front().stale, "expiry boundary must remain fresh");
+            const auto expired = runtime.readScreen(project.screens.front(), 31001);
+            require(expired.size() == 1 && expired.front().index == 920000005U && expired.front().stale &&
+                    expired.front().value == 42.0 && expired.front().quality == 1 &&
+                    expired.front().ts == 1000 && expired.front().expireAt == 31000,
+                    "expired monitor read must retain value/quality/timestamps and set stale");
             edge_gateway::PendingWriteCommand command;
             command.cmdId = "READONLY_FIXTURE_REJECT";
             command.value = 99.0;
@@ -392,6 +399,7 @@ int main(int argc, char** argv) {
             edge_gateway::ScadaRuntimeMap wrongRuntime(wrong, machine, router);
             require(!wrongRuntime.readTag(project.tags.front().tagId, 1000), "old monitor route must not resolve");
             std::cout << "readonly monitor index=920000005 value=42 quality=1; write and old-store route refused" << std::endl;
+            std::cout << "expiry now=31000 stale=0; now=31001 stale=1 value=42 quality=1 ts=1000 expireAt=31000" << std::endl;
             return 0;
         }
         require(argc == 1, "unsupported fixture arguments");
