@@ -158,6 +158,10 @@ actual public supplement. No unrelated suites were rerun.
 
 ## Next minimal integration, NOT implemented or authorized here
 
+Historical preparation-stage list. The subsequent separately authorized local implementation
+and its limits are recorded in a-readonly-acquisition-activation.md; device activation is still
+not authorized by either document.
+
 1. deploy/offline-runtime-upgrade.py: extend existing a_joint_binding/apply and
    a_joint_config_safe with one explicitly approved A acquisition profile. Bind the MQTT
    eleven-topic change to its original full-file SHA, record new SHA and backup through the

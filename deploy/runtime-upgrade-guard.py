@@ -33,6 +33,91 @@ EMPTY_MAP_SHA = '37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b57
 LAUNCHER_UNIT_SHA = 'eb6ca219d61ea2c832a1b2e08b1c2b7e7edbde9d3bd1285d040bd4306fb82705'
 WATCHDOG_UNIT_SHA = '0f15974d09185ca6b042b817eb686975988a9050c85dac08f1119faccbb1d323'
 WATCHDOG_SCRIPT_SHA = 'fa44162d8deae152ed76bc0bf3bf743c3f2515b289ab4227d1597f1630f64da8'
+A_ACQUISITION_PROFILE = 'A_RTU_READ_MQTT_TX_FULL'
+A_RTU_UNIT = 'modbus-rtu@device_modbusRTU_2_readonly.service'
+A_MQTT_UNIT = 'mqtt-driver@mqtt-service.service'
+A_ACQUISITION_READERS = [A_RTU_UNIT, A_MQTT_UNIT, MONITOR_UNIT, QT_UNIT]
+A_RTU_TEMPLATE = '62c530751dd310a7612a5d3176f0549260b79a968e2e37582bfd7eb4c4524434'
+A_MQTT_TEMPLATE = '83d021d45aa2120393248b97c1b84fd27cddf908aecdff124c4b00e508cca3ac'
+A_SOURCE_CONFIGS = {
+    'apps/camera-service.json': 'c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8',
+    'apps/monitor-service.json': '6a64c844c339a826986bfeea7de2c7af85526a439ae9d36c8fe1f1d2bcf1ba0b',
+    'apps/mqtt-service.json': 'a656fe30d5a7220cad5efcde04f40b4211393fb56bfa867eaf3f9b097d8f542b',
+    'devices/device_modbusRTU_2_readonly.json': '75e3740da48961bf928b0cdeeb9815ff6919f1e233ef8d0126679a2750abbdf0'}
+A_RX_TOPICS = ('commandRequestTopic', 'otaRequestTopic', 'realtimeRequestTopic',
+               'systemMonitorRequestTopic', 'diagRequestTopic', 'configPullRequestTopic',
+               'configApplyRequestTopic', 'configDeleteRequestTopic', 'configRestoreRequestTopic',
+               'recordingRequestTopic', 'recordingAckTopic')
+
+
+def a_acquisition_scope(home, approval):
+    if (approval.get('aReadonlyAcquisition') is not True or home != Path('/opt/modbus-gateway') or
+            approval.get('mode') != 'standalone' or approval.get('controlEnabled') is not False or
+            not approval.get('scadaReadOnlyProject') or not approval.get('qtDisplayEnvSha256') or
+            approval.get('aInboundDisableSourceSha256') != A_SOURCE_CONFIGS['apps/monitor-service.json'] or
+            not set(A_ACQUISITION_READERS + ['gateway-services.service', 'qt-display-bridge.service',
+                    'modbus-rtu@.service', 'mqtt-driver@.service']) <= set(approval['units']) or
+            any(approval['configSha256'].get(path) != pin for path, pin in A_SOURCE_CONFIGS.items())):
+        raise ValueError('A acquisition requires exact original config pins and joint scope')
+
+
+def switch_names(value, names):
+    if isinstance(value, dict):
+        return {key: (names.get(shm_name(item), item) if key in SINGLE_SHM_KEYS else
+                      [names.get(shm_name(v), v) for v in item] if key in MULTI_SHM_KEYS
+                      else switch_names(item, names)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [switch_names(item, names) for item in value]
+    return value
+
+
+def a_acquisition_patch(relative, document):
+    # Only the approved MQTT RX fields change; defaults, full upload and auth stay intact.
+    if relative == 'apps/mqtt-service.json':
+        for key in A_RX_TOPICS:
+            document['mqtt'][key] = ''
+    return document
+
+
+def a_acquisition_config(home, state_dir, approval, state):
+    a_acquisition_scope(home, approval)
+    names = {item['source']: item['target'] for item in state['segments']}
+    if names != {item['source']: item['target'] for item in approval['segments']}:
+        raise ValueError('A acquisition remap approval changed')
+    config = home / 'config/runtime'
+    inventory = {str(p.relative_to(config)) for folder in ('apps', 'devices')
+                 for p in (config / folder).rglob('*.json')}
+    if inventory != set(A_SOURCE_CONFIGS):
+        raise ValueError('A acquisition config inventory changed')
+    for relative, pin in A_SOURCE_CONFIGS.items():
+        rows = [(i, row) for i, row in enumerate(state['files'])
+                if row['path'] == 'config/runtime/' + relative]
+        if len(rows) > 1 or rows and rows[0][1]['oldSha256'] != pin:
+            raise ValueError('A acquisition original backup binding changed')
+        current = exact_file(config / relative)
+        # A disabled camera with no remapped fields may remain byte-for-byte original.
+        original = exact_file(state_dir / 'files' / str(rows[0][0])) if rows else current
+        if sha(original) != pin:
+            raise ValueError('A acquisition original backup changed')
+        expected = switch_names(json.loads(original.read_text()), names)
+        if relative == 'apps/monitor-service.json':
+            expected['mqtt']['enabled'] = False
+            expected['systemMonitor']['directMaintenance']['enabled'] = False
+            expected['localDisplay']['scada']['autoReload'] = False
+        a_acquisition_patch(relative, expected)
+        expected_pin = rows[0][1]['newSha256'] if rows else pin
+        if (sha(current) != expected_pin or state['configSha256'].get(relative) != expected_pin or
+                json.dumps(json.loads(current.read_text()), sort_keys=True) != json.dumps(expected, sort_keys=True)):
+            raise ValueError('A acquisition exceeds the approved minimal config patch')
+    manifest_path = exact_file(state_dir / 'program-manifest.json')
+    if sha(manifest_path) != approval['programManifestSha256']:
+        raise ValueError('A acquisition manifest changed')
+    components = json.loads(manifest_path.read_text())['components']
+    for name in ('ModbusRtu', 'MqttDriver'):
+        selected = [c for c in components if c.get('kind') == 'product' and c.get('target') == name]
+        if (len(selected) != 1 or approval.get('installPaths', {}).get(name) != 'bin/' + name or
+                sha(exact_file(home / 'bin' / name)) != selected[0]['sha256']):
+            raise ValueError('A acquisition installed binary not pinned: ' + name)
 
 
 def sha(path):
@@ -184,11 +269,17 @@ def active_context(home):
         raise ValueError('activation approval changed')
     approval = json.loads(approval_path.read_text())
     ready = json.loads(ready_path.read_text())
-    readers = [MONITOR_UNIT] if state.get('activationProfile') == 'B_MONITOR' else [MONITOR_UNIT, QT_UNIT]
+    acquisition = state.get('activationProfile') == A_ACQUISITION_PROFILE
+    if acquisition or 'aReadonlyAcquisition' in approval:
+        a_acquisition_scope(home, approval)
+        if not acquisition:
+            raise ValueError('A acquisition cannot fall back to an observer-only profile')
+    readers = (A_ACQUISITION_READERS if acquisition else
+               [MONITOR_UNIT] if state.get('activationProfile') == 'B_MONITOR' else [MONITOR_UNIT, QT_UNIT])
     watchdog = ('gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
     allowed = ['gateway-services.service'] + (['gateway-health-watchdog.service'] if watchdog else []) + readers
     if (state.get('phase') != 'ACTIVATED_CONTROL_DISABLED' or
-            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT') or
+            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE) or
             state.get('activationReadySha256') != active['readySha256'] or
             state.get('activatedUnits') != allowed or active.get('allowedUnits') != allowed or
             ready.get('schemaVersion') != 'offline-shm11-activate-1' or
@@ -225,6 +316,122 @@ def systemctl_value(unit, prop):
     if result.returncode:
         raise ValueError('systemctl show failed: ' + unit + ' ' + prop)
     return result.stdout.strip()
+
+
+def a_acquisition_unit_properties(unit):
+    fields = ('Id', 'LoadState', 'NeedDaemonReload', 'FragmentPath', 'DropInPaths', 'WorkingDirectory',
+              'Environment', 'EnvironmentFiles', 'PassEnvironment', 'UnsetEnvironment',
+              'ExecStart', 'ExecStartPre', 'ExecStartPost', 'ExecStop', 'ExecStopPost',
+              'Requires', 'Wants', 'BindsTo', 'Triggers', 'TriggeredBy')
+    result = subprocess.run(['systemctl', 'show', '--all', '--property=' + ','.join(fields), unit],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=45)
+    if result.returncode:
+        raise ValueError('A acquisition effective unit query failed: ' + unit)
+    values = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition('=')
+        if not separator or key not in fields or key in values:
+            raise ValueError('A acquisition effective unit output invalid: ' + unit)
+        values[key] = value
+    return values
+
+
+def a_acquisition_units(home, approval, monitor_target, inhibited):
+    """Fixed-file proof for this one profile, never a generic systemd parser."""
+    root = Path('/etc/systemd/system')
+    fence_name = '90-offline-' + approval['transactionId'] + '.conf'
+    fence = ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
+    specs = (
+        (A_RTU_UNIT, 'modbus-rtu@.service', A_RTU_TEMPLATE, str(home / 'bin/ModbusRtu'),
+         ' --config ' + str(home / 'config/runtime/devices/device_modbusRTU_2_readonly.json'), r'system-modbus\x2drtu.slice'),
+        (A_MQTT_UNIT, 'mqtt-driver@.service', A_MQTT_TEMPLATE, str(home / 'bin/MqttDriver'),
+         ' --app-config ' + str(home / 'config/runtime/apps/mqtt-service.json'), r'system-mqtt\x2ddriver.slice'),
+        (MONITOR_UNIT, 'system-monitor@.service', MONITOR_TEMPLATE, str(home / 'bin/SystemMonitor'),
+         ' --app-config ' + str(home / 'config/runtime/apps/monitor-service.json'), r'system-system\x2dmonitor.slice'),
+        (QT_UNIT, QT_UNIT, QT_UNIT_SHA, '/bin/sh', ' ' + str(home / 'bin/gateway-qt-run.sh'), 'system.slice'),
+        ('gateway-services.service', 'gateway-services.service', LAUNCHER_UNIT_SHA,
+         str(home / 'bin/gateway-services.sh'), ' apply', 'system.slice'))
+    derived = {}
+    for unit, template, pin, executable, arguments, slice_unit in specs:
+        fragment = root / template
+        if sha(exact_file(fragment)) != pin:
+            raise ValueError('A acquisition unit fragment not pinned: ' + unit)
+        expected = {root / (unit + '.d') / fence_name:
+                    fence if inhibited else active_dropin(home, approval['transactionId'], unit)[1]}
+        if unit == MONITOR_UNIT:
+            expected[root / (unit + '.d') / '998-shm.conf'] = (
+                '[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + monitor_target + '\n').encode()
+        effective_paths = {str(p) for p in expected}
+        if template != unit and template in approval['units']:
+            expected[root / (template + '.d') / fence_name] = (
+                fence if inhibited else denied_dropin(home, approval['transactionId'], template)[1])
+        # Check shadowed template files too; effective DropInPaths alone cannot prove their content.
+        directory_names = {unit + '.d', template + '.d', 'service.d'}
+        prefix = template.split('@')[0]
+        if prefix.endswith('.service'):
+            prefix = prefix[:-8]
+        for i, character in enumerate(prefix):
+            if character == '-':
+                directory_names.add(prefix[:i + 1] + '.service.d')
+        for base in ('/etc/systemd/system', '/run/systemd/system', '/usr/local/lib/systemd/system',
+                     '/usr/lib/systemd/system', '/lib/systemd/system', '/etc/systemd/system.control',
+                     '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator',
+                     '/run/systemd/generator.early', '/run/systemd/generator.late'):
+            for dirname in directory_names:
+                directory = Path(base) / dirname
+                wanted = {p.name for p in expected if p.parent == directory}
+                if directory.is_symlink() or (directory.exists() and (
+                        not directory.is_dir() or {p.name for p in directory.iterdir()} != wanted)) or (
+                        wanted and not directory.exists()):
+                    raise ValueError('A acquisition unknown drop-in coverage: ' + unit)
+        for path, body in expected.items():
+            if exact_file(path).read_bytes() != body:
+                raise ValueError('A acquisition drop-in bytes changed: ' + unit)
+        values = a_acquisition_unit_properties(unit)
+        complex_fields = {'EnvironmentFiles', 'ExecStartPre', 'ExecStartPost', 'ExecStop', 'ExecStopPost'}
+        mandatory = {'Id', 'LoadState', 'NeedDaemonReload', 'FragmentPath', 'DropInPaths', 'WorkingDirectory',
+                     'Environment', 'PassEnvironment', 'UnsetEnvironment', 'ExecStart',
+                     'Requires', 'Wants', 'BindsTo', 'Triggers', 'TriggeredBy'}
+        required = {'sysinit.target', slice_unit} | ({'qt-display-bridge.service'} if unit == QT_UNIT else set())
+        wants = {'graphical.target'} if unit == QT_UNIT else set()
+        environment = ('GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + monitor_target if unit == MONITOR_UNIT else
+                       'DISPLAY=:0 QT_QPA_PLATFORM=xcb XDG_RUNTIME_DIR=/run/ky-ems' if unit == QT_UNIT else '')
+        if (not mandatory <= set(values) or values['Id'] != unit or values['LoadState'] != 'loaded' or
+                values['NeedDaemonReload'] != 'no' or values['FragmentPath'] != str(fragment) or
+                set(values['DropInPaths'].split()) != effective_paths or
+                values['WorkingDirectory'] != str(home / 'ky-ems' if unit == QT_UNIT else home) or
+                set(values['Environment'].split()) != set(environment.split()) or
+                values['PassEnvironment'] or values['UnsetEnvironment'] or
+                set(values['Requires'].split()) != required or set(values['Wants'].split()) != wants or
+                any(values[key] for key in ('BindsTo', 'Triggers', 'TriggeredBy'))):
+            raise ValueError('A acquisition effective unit/env/dependency mismatch: ' + unit)
+
+        def command_matches(value, path, args):
+            prefix = '{ path=' + path + ' ; argv[]=' + path + args + ' ; ignore_errors=no ;'
+            return re.fullmatch(re.escape(prefix) + r'[^{}]*\}', value.strip()) is not None
+
+        if not command_matches(values['ExecStart'], executable, arguments):
+            raise ValueError('A acquisition effective ExecStart mismatch: ' + unit)
+        expected_complex = dict.fromkeys(complex_fields, '')
+        if unit == QT_UNIT:
+            expected_complex['EnvironmentFiles'] = str(home / 'config/runtime/qt-display.env') + ' (ignore_errors=yes)'
+        if unit == 'gateway-services.service':
+            expected_complex['ExecStop'] = (executable, ' stop')
+        if not inhibited:
+            expected_complex['ExecStartPre'] = ('/usr/bin/python3', ' ' + str(home / 'bin/runtime-upgrade-guard.py') +
+                                               ' activated-unit ' + str(home) + ' ' + unit)
+        derived[unit] = []
+        for key, expected_value in expected_complex.items():
+            if key not in values:
+                if expected_value:
+                    raise ValueError('A acquisition nonempty effective field missing: ' + unit + ' ' + key)
+                # Absence follows from exact files + coverage + loaded/no-reload state above,
+                # not from an empty --value response or the old WITH_GAPS report.
+                derived[unit].append(key)
+            elif (isinstance(expected_value, tuple) and not command_matches(values[key], *expected_value) or
+                  isinstance(expected_value, str) and values[key] != expected_value):
+                raise ValueError('A acquisition unexpected effective field: ' + unit + ' ' + key)
+    return {'source': 'STATIC_PINNED_FILES', 'derivedEmptyFields': {u: sorted(v) for u, v in derived.items()}}
 
 
 def no_old_mappings(names):
@@ -271,8 +478,11 @@ def activated_unit(home, unit):
                    MONITOR_UNIT: MONITOR_TEMPLATE,
                    QT_UNIT: QT_UNIT_SHA,
                    'gateway-health-watchdog.service': WATCHDOG_UNIT_SHA}
+    if state['activationProfile'] == A_ACQUISITION_PROFILE:
+        fixed_units.update({A_RTU_UNIT: A_RTU_TEMPLATE, A_MQTT_UNIT: A_MQTT_TEMPLATE})
     for selected in allowed:
-        fragment = ('system-monitor@.service' if selected == MONITOR_UNIT else selected)
+        fragment = (selected.split('@')[0] + '@.service' if selected in (MONITOR_UNIT, A_RTU_UNIT, A_MQTT_UNIT)
+                    else selected)
         path = Path('/etc/systemd/system') / fragment
         if (sha(exact_file(path)) != fixed_units[selected] or
                 systemctl_value(selected, 'FragmentPath') != str(path)):
@@ -320,7 +530,7 @@ def activated_unit(home, unit):
     no_old_mappings(sources)
     if sha(home / 'bin/SystemMonitor') != MONITOR_BINARY or sha(Path('/etc/systemd/system/system-monitor@.service')) != MONITOR_TEMPLATE:
         raise ValueError('activated monitor binary/template changed')
-    if state['activationProfile'] == 'A_MONITOR_QT':
+    if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE):
         if (sha(home / 'ky-ems/KY-EMS') != QT_BINARY or
                 sha(home / 'bin/gateway-qt-run.sh') != QT_WRAPPER_SHA or
                 sha(Path('/etc/systemd/system/ky-ems.service')) != QT_UNIT_SHA or
@@ -335,7 +545,7 @@ def activated_unit(home, unit):
         raise ValueError('activated monitor drop-in changed')
     if systemctl_value(MONITOR_UNIT, 'Environment') != 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + monitor_target:
         raise ValueError('activated monitor environment changed')
-    if state['activationProfile'] == 'A_MONITOR_QT':
+    if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE):
         env = exact_file(config / 'qt-display.env').read_bytes()
         if b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + monitor_target.encode() not in env:
             raise ValueError('activated Qt environment changed')
@@ -358,6 +568,9 @@ def activated_unit(home, unit):
                 systemctl_value('qt-display-bridge.service', 'DropInPaths').split() != [str(bridge_dropin)] or
                 systemctl_value('graphical.target', 'ActiveState') != 'active'):
             raise ValueError('activated bridge inhibition changed')
+    if state['activationProfile'] == A_ACQUISITION_PROFILE:
+        a_acquisition_config(home, Path(active['stateDir']), approval, state)
+        a_acquisition_units(home, approval, monitor_target, inhibited=False)
     return readers
 
 

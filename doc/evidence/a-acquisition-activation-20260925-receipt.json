@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-25",
+  "scope": "LOCAL_IMPLEMENTATION_NOT_DEVICE_AUTHORIZATION",
+  "branch": "codex/a-readonly-acquisition-20260925",
+  "baseCommit": "56dea83f5b64255d98c1fb4c8eaead6e4375387f",
+  "runtimeBaseCommit": "d5884517586c17ce40a50717d1157534da69a61d",
+  "profile": "A_RTU_READ_MQTT_TX_FULL",
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "sha256": "7021f5130a2b1153d37a4eabcb12bb16794d682053c478a730885b22ca18beb7",
+      "bytes": 97561,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "sha256": "da075c9951fbb33709ca546047dd71e32434387916c1627a980d863411df262b",
+      "bytes": 44343,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/a-readonly-acquisition-activation.md",
+      "sha256": "0d38adc64bc575aa03fcebead3a82540aa19f72a4c9bad9724790ad709c3719e",
+      "bytes": 5749,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/a-readonly-acquisition-profile-preparation.md",
+      "sha256": "16835ccabd2043e589c087fa0f0cda9b9d1ec5aedd7ba71f4de17e38593f42cc",
+      "bytes": 15006,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/evidence/a-acquisition-activation-20260925-tests.txt",
+      "sha256": "b04b331f54707eae916c9c5e54f01090019c50aee8a2b98d7c40ef5dac61c4da",
+      "bytes": 4558,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/evidence/a-acquisition-old-observer-20260925/native-fixture-provenance.json",
+      "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b",
+      "bytes": 537,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/evidence/a-acquisition-old-observer-20260925/result.txt",
+      "sha256": "5f932bf39a6554fe1212af49070d4eaa5e6093ab8d1568fded50967d1f8e8374",
+      "bytes": 348,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/evidence/a-acquisition-old-observer-20260925/test_offline_a_activation_joint_binding.log",
+      "sha256": "bef4f7439d3b3587e060b93a79cafa0e33ab72beadf2ebae8ee2dcf56914fe25",
+      "bytes": 496,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "doc/evidence/a-acquisition-old-observer-20260925/test_offline_b_activate_recover_fixed_readers.log",
+      "sha256": "ab9221fdda37b8108069a35965d34d365abd895b89b4eb03e37e675d2fc096ff",
+      "bytes": 612,
+      "gitBlobMatches": true
+    },
+    {
+      "path": "tools/a_acquisition_activation_test.py",
+      "sha256": "07d41c5d3464218baa636004ba893377cb9c7c3f2f5bbc643112b6048189fd41",
+      "bytes": 25657,
+      "gitBlobMatches": true
+    }
+  ],
+  "verification": {
+    "newProfile": {
+      "command": "wsl -d Ubuntu -- python3 -B /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/a-readonly-acquisition-20260925/tools/a_acquisition_activation_test.py -v",
+      "passed": 17,
+      "failed": 0,
+      "seconds": 2.29,
+      "exitCode": 0
+    },
+    "oldProfiles": {
+      "runner": "tools/install_isolation_test.py",
+      "selection": [
+        "test_offline_b_activate_recover_fixed_readers",
+        "test_offline_a_activation_joint_binding"
+      ],
+      "passed": 2,
+      "failed": 0,
+      "seconds": 3.908,
+      "privateMountNetworkIpcNamespaces": true,
+      "nativeFixtureReusedSha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0",
+      "fixtureCompileLogExists": false
+    },
+    "jsonTypeFocusedRegression": "1 PASS before final 17-case run",
+    "diffCheck": "source/docs PASS; two original legacy command logs retain blank EOF lines"
+  },
+  "actualDeviceAuthorized": false,
+  "actualAQualified": false,
+  "unitStateActuallyQualified": false,
+  "builds": 0,
+  "deviceConnections": 0,
+  "deployments": 0,
+  "stableMerges": 0,
+  "pushes": 0,
+  "notes": [
+    "Only two existing runtime scripts changed; launcher, C++, runtime configs and stable checkout were not edited.",
+    "New tests execute real file transactions and restoration with simulated systemctl/migration, synthetic full config/binary pins and existing SCADA validator boundary mocked.",
+    "Old A/B regression reuses an already-built native migration CLI and a copied already-built fixture. Temporary binary copy removed after tests; provenance retained.",
+    "Final new test transcript preserves Python stdout/stderr, LF normalized, excluding unrelated WSL startup proxy diagnostic.",
+    "STATIC_PINNED_FILES proof is recomputed at combined pre-start/guard entry, never promoted into the historical WITH_GAPS report.",
+    "Actual RTU samples, wire MQTT full topic identity, effective A units/env and real service cycle/recovery remain unverified.",
+    "Base topic edge/telemetry/full; expected machine-scoped wire topic edge/telemetry/full/COMM202600999."
+  ]
+}

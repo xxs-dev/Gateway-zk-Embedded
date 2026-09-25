@@ -142,13 +142,7 @@ def configured(root):
 
 
 def switch_names(value, names):
-    if isinstance(value, dict):
-        return {key: (names.get(guard.shm_name(item), item) if key in guard.SINGLE_SHM_KEYS else
-                      [names.get(guard.shm_name(v), v) for v in item] if key in guard.MULTI_SHM_KEYS
-                      else switch_names(item, names)) for key, item in value.items()}
-    if isinstance(value, list):
-        return [switch_names(item, names) for item in value]
-    return value
+    return guard.switch_names(value, names)
 
 
 def no_old_references(value, names):
@@ -400,7 +394,8 @@ def b_monitor_default_safe(home, approval, manifest, state, selected, monitor, d
 
 def a_joint_config_safe(home, approval, state, selected, documents, project_pending=False):
     require(approval_mode(approval) == 'standalone' and
-            selected in ([MONITOR_UNIT], [MONITOR_UNIT, A_QT_UNIT]) and
+            (selected in ([MONITOR_UNIT], [MONITOR_UNIT, A_QT_UNIT]) or
+             approval.get('aReadonlyAcquisition') is True and selected == guard.A_ACQUISITION_READERS) and
             state.get('unreferencedDefaultShm') is True and
             {MONITOR_UNIT, A_QT_UNIT, 'qt-display-bridge.service'} <= set(approval['units']) and
             {s['source'] for s in state['segments']} >= {'gateway_point_store', MONITOR_IMPLICIT_SHM},
@@ -629,6 +624,8 @@ def read_inputs(args):
     home = Path(approval['gatewayHome'])
     require(re.fullmatch('/[A-Za-z0-9_/-]+', str(home)) and home.resolve() == home and
             str(home) not in ('/', '/opt'), 'unsafe gateway home')
+    if 'aReadonlyAcquisition' in approval:
+        guard.a_acquisition_scope(home, approval)
     activation_script_pins(home, approval, 'old')
     manifest = checked_json(args.manifest, approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
@@ -965,6 +962,17 @@ def apply(args):
                 'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
     binding = monitor_binding(approval, names)
     a_binding = a_joint_binding(home, approval, names, documents)
+    if 'aReadonlyAcquisition' in approval:
+        guard.a_acquisition_scope(home, approval)
+        require(a_binding is not None and a_binding['disableInbound'] and
+                approval.get('activationStartupScripts') is not None and
+                {key for key in documents if key.startswith(('apps/', 'devices/'))} == set(guard.A_SOURCE_CONFIGS),
+                'A acquisition requires pinned scripts, original inbound settings and exact config inventory')
+        for relative, pin in guard.A_SOURCE_CONFIGS.items():
+            require(digest(configs / relative) == pin, 'A acquisition original config changed: ' + relative)
+        require({'ModbusRtu', 'MqttDriver'} <= {c['target'] for c in components} and
+                all(approval['installPaths'].get(name) == 'bin/' + name for name in ('ModbusRtu', 'MqttDriver')),
+                'A acquisition requires both pinned driver components')
     require('scadaReadOnlyProject' not in approval or a_binding is not None,
             'read-only SCADA approval requires A joint profile')
     if 'scadaReadOnlyProject' in approval:
@@ -1085,6 +1093,8 @@ def apply(args):
                                 approval['activationStartupScripts'][name]['mode']))
         for relative, doc in documents.items():
             updated = switch_names(doc, names)
+            if approval.get('aReadonlyAcquisition') is True:
+                guard.a_acquisition_patch(relative, updated)
             if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
                 updated['mqtt']['enabled'] = False
                 updated['systemMonitor']['directMaintenance']['enabled'] = False
@@ -1164,7 +1174,7 @@ def recover(args):
     local_identity(home, approval)
     if 'recoveredFrom' in approval and not state.get('successorHandoffComplete', False):
         successor_handoff(home, approval, args.state, state)
-    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT'):
+    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE):
         refence_activation(home, approval, args.state, state)
     else:
         fence(home, approval, args.state, state)
@@ -1253,6 +1263,7 @@ def observe(args):
             'implicit SystemMonitor SHM readers are not jointly bound for observe')
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
     a_joint = checked_a_joint_record(args.state, state, approval)
+    require('aReadonlyAcquisition' not in approval, 'A acquisition requires combined activate, not observe')
     require(ready.get('approvalSha256') == args.approval_sha256 and ready.get('transactionId') == approval['transactionId'] and
             ready.get('programManifestSha256') == approval['programManifestSha256'], 'observe approval lineage mismatch')
     home = Path(approval['gatewayHome'])
@@ -1410,6 +1421,9 @@ def observe(args):
 
 
 def activation_units(approval, readers):
+    if 'aReadonlyAcquisition' in approval:
+        require(approval['aReadonlyAcquisition'] is True and readers == guard.A_ACQUISITION_READERS,
+                'A acquisition requires the exact combined group')
     watchdog = ('gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
     return ['gateway-services.service'] + (['gateway-health-watchdog.service'] if watchdog else []) + readers
 
@@ -1423,6 +1437,7 @@ def inhibition_dropin(home, transaction, unit):
 def refence_activation(home, approval, state_dir, state):
     allowed = state.get('activatedUnits', [])
     require(isinstance(allowed, list) and allowed == activation_units(approval,
+            guard.A_ACQUISITION_READERS if state['activationProfile'] == guard.A_ACQUISITION_PROFILE else
             [MONITOR_UNIT] if state['activationProfile'] == 'B_MONITOR' else [MONITOR_UNIT, A_QT_UNIT]),
             'invalid activation recovery scope')
     require(regular(home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'],
@@ -1518,7 +1533,16 @@ def activate(args):
     readers = ready.get('startUnits')
     monitor = checked_monitor_record(args.state, state, approval)
     joint = checked_a_joint_record(args.state, state, approval)
-    if joint and readers == [MONITOR_UNIT, A_QT_UNIT]:
+    if 'aReadonlyAcquisition' in approval:
+        guard.a_acquisition_scope(home, approval)
+        require(joint and readers == guard.A_ACQUISITION_READERS, 'A acquisition ready group changed')
+        profile, monitor_source = guard.A_ACQUISITION_PROFILE, MONITOR_IMPLICIT_SHM
+        guard.a_acquisition_config(home, args.state, approval, state)
+        a_joint_monitor_observe_safe(home, approval, state, readers, joint, documents, True)
+        state['aReadonlyUnitProof'] = guard.a_acquisition_units(home, approval, joint[0]['target'], inhibited=True)
+        require(systemctl('show', '--property=ActiveState', '--value', 'graphical.target') == 'active',
+                'A acquisition requires already-active graphical target')
+    elif joint and readers == [MONITOR_UNIT, A_QT_UNIT]:
         profile, monitor_source = 'A_MONITOR_QT', MONITOR_IMPLICIT_SHM
         a_joint_monitor_observe_safe(home, approval, state, readers, joint, documents, True)
         require(systemctl('show', '--property=ActiveState', '--value', 'graphical.target') == 'active',

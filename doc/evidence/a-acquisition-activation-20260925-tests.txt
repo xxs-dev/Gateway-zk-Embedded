@@ -1,0 +1,45 @@
+test_actual_four_source_pins_are_fixed (__main__.AcquisitionTest.test_actual_four_source_pins_are_fixed) ... ok
+test_apply_activate_recover_restores_exact_bytes (__main__.AcquisitionTest.test_apply_activate_recover_restores_exact_bytes) ... ok
+test_changed_backup_prevents_any_config_restore (__main__.AcquisitionTest.test_changed_backup_prevents_any_config_restore) ... ok
+test_each_driver_start_failure_refences_every_participant (__main__.AcquisitionTest.test_each_driver_start_failure_refences_every_participant) ... ok
+test_guarded_same_boot_service_cycle_keeps_full_configuration (__main__.AcquisitionTest.test_guarded_same_boot_service_cycle_keeps_full_configuration) ... ok
+test_interrupted_second_start_refences_and_recovers (__main__.AcquisitionTest.test_interrupted_second_start_refences_and_recovers) ... ok
+test_late_dropin_drift_is_rechecked_by_guard (__main__.AcquisitionTest.test_late_dropin_drift_is_rechecked_by_guard) ... ok
+test_missing_monitor_envfile_closes_only_with_actual_file_coverage (__main__.AcquisitionTest.test_missing_monitor_envfile_closes_only_with_actual_file_coverage) ... ok
+test_missing_nonempty_prestart_not_static_empty (__main__.AcquisitionTest.test_missing_nonempty_prestart_not_static_empty) ... ok
+test_old_groups_keep_original_membership (__main__.AcquisitionTest.test_old_groups_keep_original_membership) ... ok
+test_opt_in_strict_boolean_and_source_pin (__main__.AcquisitionTest.test_opt_in_strict_boolean_and_source_pin) ... ok
+test_ready_cannot_drop_or_add_units (__main__.AcquisitionTest.test_ready_cannot_drop_or_add_units) ... ok
+test_rtu_start_failure_refences_every_participant (__main__.AcquisitionTest.test_rtu_start_failure_refences_every_participant) ... ok
+test_runtime_guard_rejects_patch_expansion_even_with_rehashed_state (__main__.AcquisitionTest.test_runtime_guard_rejects_patch_expansion_even_with_rehashed_state) ... ok
+test_shadowed_template_override_refused (__main__.AcquisitionTest.test_shadowed_template_override_refused) ... ok
+test_unconfirmed_stop_retains_failed_state_and_backups (__main__.AcquisitionTest.test_unconfirmed_stop_retains_failed_state_and_backups) ... ok
+test_unknown_dependency_environment_or_unloaded_state_refused (__main__.AcquisitionTest.test_unknown_dependency_environment_or_unloaded_state_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 2.290s
+
+OK
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
