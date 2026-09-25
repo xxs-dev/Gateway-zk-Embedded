@@ -872,6 +872,96 @@ exec /bin/cp "$@"
         self.assertEqual(before, envfile.read_bytes())
         self.assertFalse(dropin.exists())
 
+    def test_offline_a_joint_approved_inbound_disable_roundtrip(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source['mqtt']['enabled'] = True
+        source['systemMonitor']['directMaintenance']['enabled'] = True
+        original = json.dumps(source).encode()
+        app.write_bytes(original)
+        app.chmod(0o640)
+        original_mode = stat.S_IMODE(app.stat().st_mode)
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(original).hexdigest()
+        approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        switched = json.loads(app.read_text())
+        self.assertIs(False, switched['mqtt']['enabled'])
+        self.assertIs(False, switched['systemMonitor']['directMaintenance']['enabled'])
+        self.assertEqual(source['deviceConfigFiles'], switched['deviceConfigFiles'])
+        self.assertEqual(source['cameraService'], switched['cameraService'])
+        self.assertEqual(source['localDisplay']['scada'], switched['localDisplay']['scada'])
+        self.assertEqual(source['emsCluster'], switched['emsCluster'])
+        self.assertEqual(source['mqttDriver']['sharedMemoryName'].replace('offline_source_0', 'offline_target_0'),
+                         switched['mqttDriver']['sharedMemoryName'])
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        self.assertEqual(0, self.offline_run('observe').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, app.read_bytes())
+        self.assertEqual(original_mode, stat.S_IMODE(app.stat().st_mode))
+
+    def test_offline_non_a_inbound_disable_pin_refused(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('requires A joint binding', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_joint_inbound_null_refused(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source['systemMonitor']['directMaintenance']['enabled'] = None
+        write(app, json.dumps(source))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('source shape changed', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_joint_inbound_disable_requires_source_pin(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source['mqtt']['enabled'] = True
+        source['systemMonitor']['directMaintenance']['enabled'] = True
+        write(app, json.dumps(source))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('A inbound maintenance disable approval', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_joint_inbound_disable_rejects_wrong_pin_or_partial_source(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source['mqtt']['enabled'] = True
+        source['systemMonitor']['directMaintenance']['enabled'] = True
+        write(app, json.dumps(source))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        approval['aInboundDisableSourceSha256'] = '0' * 64
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
+    def test_offline_a_joint_inbound_disable_rejects_partial_source(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source['mqtt']['enabled'] = True
+        write(app, json.dumps(source))
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
+        approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']
+        result = self.offline_run(approval=approval)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('source shape changed', result.stdout)
+        self.assertFalse((home / 'data/runtime-upgrade-stop').exists())
+
     def test_offline_a_joint_partial_switch_recover(self):
         home, approval, envfile = self.a_joint_monitor_fixture()
         before = envfile.read_bytes()
@@ -1015,13 +1105,9 @@ exec /bin/cp "$@"
             doc['systemMonitor']['directMaintenance'][key] = value
         write(app, json.dumps(doc))
         approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
-        self.assertEqual(0, self.offline_run(approval=approval).returncode)
-        ready = self.offline_ready(approval)
-        ready['startUnits'] = ['system-monitor@monitor-service.service']
-        write(self.root / 'ready.json', json.dumps(ready))
-        result = self.offline_run('observe')
+        result = self.offline_run(approval=approval)
         self.assertNotEqual(0, result.returncode, result.stdout)
-        self.assertIn('A monitor inbound maintenance must be disabled', result.stdout)
+        self.assertIn('A inbound maintenance source shape changed', result.stdout)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_a_joint_mqtt_inbound_refused(self):
@@ -1038,13 +1124,9 @@ exec /bin/cp "$@"
         doc['systemMonitor']['listenPort'] = 9443
         write(app, json.dumps(doc))
         approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(app.read_bytes()).hexdigest()
-        self.assertEqual(0, self.offline_run(approval=approval).returncode)
-        ready = self.offline_ready(approval)
-        ready['startUnits'] = ['system-monitor@monitor-service.service']
-        write(self.root / 'ready.json', json.dumps(ready))
-        result = self.offline_run('observe')
+        result = self.offline_run(approval=approval)
         self.assertNotEqual(0, result.returncode)
-        self.assertIn('A monitor inbound maintenance must be disabled', result.stdout)
+        self.assertIn('A inbound maintenance source shape changed', result.stdout)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
 
     def test_offline_a_joint_sibling_camera_enabled_refused(self):

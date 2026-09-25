@@ -1,0 +1,45 @@
+test_offline_a_joint_approved_inbound_disable_roundtrip (__main__.InstallIsolationTest.test_offline_a_joint_approved_inbound_disable_roundtrip) ... ok
+test_offline_a_joint_inbound_disable_requires_source_pin (__main__.InstallIsolationTest.test_offline_a_joint_inbound_disable_requires_source_pin) ... ERROR
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... ok
+test_offline_a_joint_monitor_only_observe (__main__.InstallIsolationTest.test_offline_a_joint_monitor_only_observe) ... ok
+test_offline_a_joint_mqtt_inbound_refused (__main__.InstallIsolationTest.test_offline_a_joint_mqtt_inbound_refused) ... FAIL
+test_offline_a_joint_direct_maintenance_refused (__main__.InstallIsolationTest.test_offline_a_joint_direct_maintenance_refused) ... FAIL
+test_offline_b_default_monitor_observe_roundtrip (__main__.InstallIsolationTest.test_offline_b_default_monitor_observe_roundtrip) ... ok
+
+======================================================================
+ERROR: test_offline_a_joint_inbound_disable_requires_source_pin (__main__.InstallIsolationTest.test_offline_a_joint_inbound_disable_requires_source_pin)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 904, in test_offline_a_joint_inbound_disable_requires_source_pin
+    self.assertFalse(dropin.exists())
+                     ^^^^^^
+NameError: name 'dropin' is not defined
+
+======================================================================
+FAIL: test_offline_a_joint_mqtt_inbound_refused (__main__.InstallIsolationTest.test_offline_a_joint_mqtt_inbound_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 1059, in test_offline_a_joint_mqtt_inbound_refused
+    self.a_joint_inbound_gate_case('mqtt', 'enabled', True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 1049, in a_joint_inbound_gate_case
+    self.assertEqual(0, self.offline_run(approval=approval).returncode)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2
+
+======================================================================
+FAIL: test_offline_a_joint_direct_maintenance_refused (__main__.InstallIsolationTest.test_offline_a_joint_direct_maintenance_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 1062, in test_offline_a_joint_direct_maintenance_refused
+    self.a_joint_inbound_gate_case('directMaintenance', 'enabled', True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 1049, in a_joint_inbound_gate_case
+    self.assertEqual(0, self.offline_run(approval=approval).returncode)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2
+
+----------------------------------------------------------------------
+Ran 7 tests in 9.199s
+
+FAILED (failures=2, errors=1)

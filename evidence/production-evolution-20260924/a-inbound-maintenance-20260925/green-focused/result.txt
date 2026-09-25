@@ -1,0 +1,17 @@
+test_offline_a_joint_approved_inbound_disable_roundtrip (__main__.InstallIsolationTest.test_offline_a_joint_approved_inbound_disable_roundtrip) ... ok
+test_offline_non_a_inbound_disable_pin_refused (__main__.InstallIsolationTest.test_offline_non_a_inbound_disable_pin_refused) ... ok
+test_offline_a_joint_inbound_null_refused (__main__.InstallIsolationTest.test_offline_a_joint_inbound_null_refused) ... ok
+test_offline_a_joint_inbound_disable_requires_source_pin (__main__.InstallIsolationTest.test_offline_a_joint_inbound_disable_requires_source_pin) ... ok
+test_offline_a_joint_inbound_disable_rejects_wrong_pin_or_partial_source (__main__.InstallIsolationTest.test_offline_a_joint_inbound_disable_rejects_wrong_pin_or_partial_source) ... ok
+test_offline_a_joint_inbound_disable_rejects_partial_source (__main__.InstallIsolationTest.test_offline_a_joint_inbound_disable_rejects_partial_source) ... ok
+test_offline_a_joint_binding_apply_recover (__main__.InstallIsolationTest.test_offline_a_joint_binding_apply_recover) ... ok
+test_offline_a_joint_monitor_only_observe (__main__.InstallIsolationTest.test_offline_a_joint_monitor_only_observe) ... ok
+test_offline_a_joint_mqtt_inbound_refused (__main__.InstallIsolationTest.test_offline_a_joint_mqtt_inbound_refused) ... ok
+test_offline_a_joint_direct_maintenance_refused (__main__.InstallIsolationTest.test_offline_a_joint_direct_maintenance_refused) ... ok
+test_offline_a_joint_legacy_direct_maintenance_ambiguity_refused (__main__.InstallIsolationTest.test_offline_a_joint_legacy_direct_maintenance_ambiguity_refused) ... ok
+test_offline_b_default_monitor_observe_roundtrip (__main__.InstallIsolationTest.test_offline_b_default_monitor_observe_roundtrip) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 13.217s
+
+OK

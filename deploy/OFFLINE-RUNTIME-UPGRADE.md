@@ -116,6 +116,16 @@ approval/state to schema2. Required fields:
   Both changes are staged and backed up in the existing state; stopped recovery
   restores the original env bytes/mode and removes the newly created drop-in.
   This does not alter the SCADA project, old SHM, dedup, or unit policy.
+- For the pinned A joint profile only, when the original
+  `apps/monitor-service.json` explicitly has both `mqtt.enabled:true` and
+  `systemMonitor.directMaintenance.enabled:true`, approval must also contain
+  `aInboundDisableSourceSha256` equal to that original app file's
+  `configSha256` entry. Apply switches exactly those booleans to `false` in
+  the existing staged config update; observe still requires both effectively
+  false. Recovery restores the original file bytes and mode. Missing/wrong
+  approval, mixed/null/legacy values, or this pin outside A joint binding
+  refuse before fencing. This is an inbound maintenance shutdown, not a
+  physical control approval.
 - Optional `systemMonitorShmDropinSha256`: original-byte SHA256 for only
   `/etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf`
   when that exact instance is in `units`. The file must consist solely of

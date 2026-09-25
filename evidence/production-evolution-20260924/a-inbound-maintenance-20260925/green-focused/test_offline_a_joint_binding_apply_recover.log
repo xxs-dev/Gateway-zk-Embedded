@@ -1,0 +1,6 @@
+action=apply exit=0
+UPGRADED_STOPPED: SHM11 files installed; no services started, no physical control authorized
+
+action=recover exit=0
+RECOVERED_STOPPED: old files restored; SHM/dedup/consensus preserved; old control MUST NOT restart
+

@@ -236,10 +236,24 @@ def a_joint_binding(home, approval, names, documents):
             digest(Path('/etc/systemd/system/system-monitor@.service')) == B_MONITOR_UNIT_SHA256,
             'A Qt or monitor startup binding changed')
     a_scada_empty_map(home, documents)
+    app = documents.get('apps/monitor-service.json')
+    mqtt = app.get('mqtt') if isinstance(app, dict) else None
+    monitor = app.get('systemMonitor') if isinstance(app, dict) else None
+    direct = monitor.get('directMaintenance') if isinstance(monitor, dict) else None
+    require(isinstance(mqtt, dict) and isinstance(direct, dict) and
+            type(mqtt.get('enabled')) is bool and type(direct.get('enabled')) is bool and
+            mqtt['enabled'] is direct['enabled'], 'A inbound maintenance source shape changed')
+    disable_inbound = mqtt['enabled'] is True
+    source_pin = approval.get('aInboundDisableSourceSha256')
+    require((disable_inbound and source_pin == approval['configSha256'].get('apps/monitor-service.json') and
+             source_pin == digest(home / 'config/runtime/apps/monitor-service.json')) or
+            (not disable_inbound and source_pin is None),
+            'A inbound maintenance disable approval missing or changed')
     target = names[MONITOR_IMPLICIT_SHM]
     return {'old': old, 'new': a_qt_env_new(old, target),
             'mode': stat.S_IMODE(envfile.stat().st_mode), 'target': target,
-            'monitorNew': MONITOR_ENV + target.encode() + b'\n'}
+            'monitorNew': MONITOR_ENV + target.encode() + b'\n',
+            'disableInbound': disable_inbound}
 
 
 def a_qt_env_new(old, target):
@@ -646,6 +660,8 @@ def apply(args):
                 'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
     binding = monitor_binding(approval, names)
     a_binding = a_joint_binding(home, approval, names, documents)
+    require('aInboundDisableSourceSha256' not in approval or a_binding is not None,
+            'A inbound maintenance disable approval requires A joint binding')
     if a_binding:
         require(any(c.get('kind') == 'product' and c.get('target') == 'LocalDisplayQtEms' and
                     c.get('sha256') == A_QT_BINARY_SHA256 for c in manifest['components']) and
@@ -722,6 +738,9 @@ def apply(args):
             changed.append((home / paths[component['target']], payload, 0o755))
         for relative, doc in documents.items():
             updated = switch_names(doc, names)
+            if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
+                updated['mqtt']['enabled'] = False
+                updated['systemMonitor']['directMaintenance']['enabled'] = False
             if updated != doc:
                 require(relative != 'device_identity.json', 'identity cannot contain migrated references')
                 changed.append((configs / relative, (json.dumps(updated, indent=2) + '\n').encode(), stat.S_IMODE((configs / relative).stat().st_mode)))
