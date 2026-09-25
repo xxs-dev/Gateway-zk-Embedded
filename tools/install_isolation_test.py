@@ -51,10 +51,11 @@ printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
 [ "$1" != "${FAIL_SYSTEMCTL_ACTION:-none}" ] || exit 42
 run_unit_pre() {
   unit="$1"
-  path="/etc/systemd/system/$unit.d/90-offline-fixture-offline.conf"
+  transaction=$(cat /opt/modbus-gateway/data/runtime-upgrade-stop) || return 1
+  path="/etc/systemd/system/$unit.d/90-offline-$transaction.conf"
   if [ ! -f "$path" ]; then
     template="${unit%%@*}@.service"
-    path="/etc/systemd/system/$template.d/90-offline-fixture-offline.conf"
+    path="/etc/systemd/system/$template.d/90-offline-$transaction.conf"
   fi
   [ -f "$path" ] || return 41
   pre=$(sed -n 's/^ExecStartPre=//p' "$path")
@@ -900,8 +901,11 @@ exec /bin/cp "$@"
                                     for p in config.rglob('*') if p.is_file()}
         return home, approval, envfile
 
-    def scada_readonly_fixture(self):
-        home, approval, _ = self.a_joint_monitor_fixture()
+    def scada_readonly_fixture(self, successor=False):
+        if successor:
+            home, _, approval, _ = self.recovered_handoff_fixture('A')
+        else:
+            home, approval, _ = self.a_joint_monitor_fixture()
         target = next(s['target'] for s in approval['segments'] if s['source'] == 'gateway_point_store_system_monitor')
         release = home / 'scada/releases/readonly-fixture'
         documents = {
@@ -974,6 +978,140 @@ exec /bin/cp "$@"
         approval['scadaReadOnlyProject'] = {}
         self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
         self.assertFalse((self.root / 'transaction').exists())
+
+    def test_offline_scada_readonly_native_monitor_value(self):
+        home, approval, release = self.scada_readonly_fixture()
+        target = next(s['target'] for s in approval['segments'] if s['source'] == 'gateway_point_store_system_monitor')
+        binary = EVIDENCE / 'scada_runtime_test'
+        self.assertTrue(binary.is_file(), 'explicit native fixture build required; no mock fallback')
+        command = [str(binary), '--readonly-monitor', str(release)]
+        result = subprocess.run(command, env={**self.env, 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME': target},
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
+        write(EVIDENCE / (self.id().split('.')[-1] + '.log'),
+              json.dumps({'command': command, 'binarySha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+                          'exit': result.returncode}) + '\n' + result.stdout)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertIn('index=920000005 value=42 quality=1', result.stdout)
+
+    def test_offline_scada_readonly_project_drift_and_shape_refused(self):
+        home, approval, release = self.scada_readonly_fixture()
+        cases = [('tags.json', lambda v: v[0].update(indexFallback=920000005)),
+                 ('tags.json', lambda v: v[0].update(access='readWrite')),
+                 ('nodes.json', lambda v: v[0].update(machineCode='foreign')),
+                 ('screens/overview.json', lambda v: v['widgets'][0].update(type='button'))]
+        for name, mutate in cases:
+            path = release / name
+            original = path.read_bytes()
+            original_pin = approval['scadaReadOnlyProject']['newFilesSha256'][name]
+            value = json.loads(original)
+            mutate(value)
+            write(path, json.dumps(value))
+            approval['scadaReadOnlyProject']['newFilesSha256'][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            result = self.offline_run(approval=approval)
+            self.assertNotEqual(0, result.returncode, name + result.stdout)
+            self.assertFalse((self.root / 'transaction').exists())
+            path.write_bytes(original)
+            approval['scadaReadOnlyProject']['newFilesSha256'][name] = original_pin
+        for name in approval['scadaReadOnlyProject']['newFilesSha256']:
+            path = release / name
+            original = path.read_bytes()
+            path.write_bytes(original + b' ')
+            self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+            path.write_bytes(original)
+        extra = release / 'permissions.json'
+        write(extra, '{}')
+        self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+        extra.unlink()
+        (release / 'runtime-map.json').unlink()
+        (release / 'runtime-map.json').symlink_to(self.root / 'missing')
+        self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+        self.assertFalse((self.root / 'transaction').exists())
+        self.assertEqual('releases/fixture-release', os.readlink(home / 'scada/current'))
+
+    def scada_readonly_interrupted(self, after):
+        home, approval, _ = self.scada_readonly_fixture()
+        write(self.root / 'approval.json', json.dumps(approval))
+        app = home / 'config/runtime/apps/monitor-service.json'
+        original = app.read_bytes()
+        spec = importlib.util.spec_from_file_location('scada_under_test', str(REPO / 'deploy/offline-runtime-upgrade.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        args = argparse.Namespace(approval=self.root / 'approval.json',
+            approval_sha256=hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest(),
+            manifest=self.root / 'program-manifest.json', payload=self.root / 'payload', state=self.root / 'transaction')
+        original_replace = os.replace
+        def interrupted(src, dst):
+            if dst == str(home / 'scada/current'):
+                if after:
+                    original_replace(src, dst)
+                raise OSError('injected SCADA current switch interruption')
+            return original_replace(src, dst)
+        with mock.patch.dict(os.environ, dict(self.env, OFFLINE_TEST='1')), mock.patch.object(os, 'replace', interrupted):
+            with self.assertRaisesRegex(OSError, 'SCADA current switch interruption'):
+                module.apply(args)
+        write(EVIDENCE / (self.id().split('.')[-1] + '-interrupted-state.json'), (args.state / 'state.json').read_text())
+        self.assertEqual('releases/readonly-fixture' if after else 'releases/fixture-release', os.readlink(home / 'scada/current'))
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+        result = self.offline_run('recover')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual('releases/fixture-release', os.readlink(home / 'scada/current'))
+        self.assertEqual(original, app.read_bytes())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_scada_readonly_interrupted_before_switch(self):
+        self.scada_readonly_interrupted(False)
+
+    def test_offline_scada_readonly_interrupted_after_switch(self):
+        self.scada_readonly_interrupted(True)
+
+    def test_offline_scada_readonly_observe_and_binding_drift(self):
+        home, approval, _ = self.scada_readonly_fixture()
+        result = self.offline_run(approval=approval)
+        self.assertEqual(0, result.returncode, result.stdout)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service', 'ky-ems.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertNotIn('start qt-display-bridge.service', self.log.read_text())
+        current = home / 'scada/current'
+        current.unlink()
+        current.symlink_to('releases/foreign-project')
+        before = self.log.read_text()
+        refused = self.offline_run('recover')
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn('current drift', refused.stdout)
+        self.assertEqual('releases/foreign-project', os.readlink(current))
+        stops = self.log.read_text()[len(before):]
+        self.assertIn('stop ', stops)
+        self.assertIn('ky-ems.service', stops)
+        # Restore only our deliberate fixture corruption, then exercise normal recovery.
+        current.unlink()
+        current.symlink_to('releases/readonly-fixture')
+        old = home / 'scada/releases/fixture-release/runtime-map.json'
+        old.write_bytes(b'[]\n ')
+        refused = self.offline_run('recover')
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn('file pin changed', refused.stdout)
+        self.assertEqual('releases/readonly-fixture', os.readlink(current))
+        old.write_bytes(b'[]\n')
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual('releases/fixture-release', os.readlink(current))
+
+    def test_offline_scada_readonly_recovered_a_successor(self):
+        home, approval, _ = self.scada_readonly_fixture(successor=True)
+        result = self.offline_run(approval=approval, state_name='transaction-next')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service', 'ky-ems.service'],
+                              state_name='transaction-next')
+        result = self.offline_run('activate', state_name='transaction-next', env={'ACTIVATION_EMULATE_UNIT_LOAD': '1'})
+        write(EVIDENCE / (self.id().split('.')[-1] + '-systemctl.log'), self.log.read_text())
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual('releases/readonly-fixture', os.readlink(home / 'scada/current'))
+        self.assertEqual(0, self.offline_run('recover', state_name='transaction-next').returncode)
+        self.assertEqual('releases/fixture-release', os.readlink(home / 'scada/current'))
+        self.assertFalse((home / 'bin/runtime-upgrade-guard.py').exists())
 
     def test_offline_a_joint_binding_apply_recover(self):
         home, approval, envfile = self.a_joint_monitor_fixture()

@@ -245,6 +245,25 @@ def a_scada_empty_map(home, documents):
             'A Qt SCADA runtime map is not empty')
 
 
+def scada_current_switch(home, approval, new):
+    pins = approval['scadaReadOnlyProject']
+    current = home / 'scada/current'
+    require(current.is_symlink() and os.readlink(str(current)) in (pins['oldTarget'], pins['newTarget']),
+            'read-only SCADA current drift; preserve unknown binding')
+    side = 'new' if new else 'old'
+    guard.scada_readonly_binding(home, approval, side, check_current=False)
+    prior = os.readlink(str(current))
+    target = pins[side + 'Target']
+    if prior != target:
+        temporary = current.with_name('.current.offline-' + uuid.uuid4().hex)
+        temporary.symlink_to(target)
+        sync_dir(current.parent)
+        require(current.is_symlink() and os.readlink(str(current)) == prior,
+                'read-only SCADA current changed before switch')
+        os.replace(str(temporary), str(current))
+        sync_dir(current.parent)
+
+
 def a_joint_binding(home, approval, names, documents):
     pin = approval.get('qtDisplayEnvSha256')
     if pin is None:
@@ -263,6 +282,9 @@ def a_joint_binding(home, approval, names, documents):
             digest(Path('/etc/systemd/system/system-monitor@.service')) == B_MONITOR_UNIT_SHA256,
             'A Qt or monitor startup binding changed')
     a_scada_empty_map(home, documents)
+    if 'scadaReadOnlyProject' in approval:
+        guard.scada_readonly_binding(home, approval, 'old')
+        guard.scada_readonly_binding(home, approval, 'new', check_current=False)
     app = documents.get('apps/monitor-service.json')
     mqtt = app.get('mqtt') if isinstance(app, dict) else None
     monitor = app.get('systemMonitor') if isinstance(app, dict) else None
@@ -376,7 +398,7 @@ def b_monitor_default_safe(home, approval, manifest, state, selected, monitor, d
                     'B monitor default sibling service gate changed')
 
 
-def a_joint_config_safe(home, approval, state, selected, documents):
+def a_joint_config_safe(home, approval, state, selected, documents, project_pending=False):
     require(approval_mode(approval) == 'standalone' and
             selected in ([MONITOR_UNIT], [MONITOR_UNIT, A_QT_UNIT]) and
             state.get('unreferencedDefaultShm') is True and
@@ -411,7 +433,19 @@ def a_joint_config_safe(home, approval, state, selected, documents):
     require(isinstance(mqtt, dict) and mqtt.get('enabled') is False and
             isinstance(direct, dict) and direct.get('enabled') is False,
             'A monitor inbound maintenance must be disabled')
-    a_scada_empty_map(home, documents)
+    if 'scadaReadOnlyProject' in approval:
+        scada = app.get('localDisplay', {}).get('scada', {})
+        require(scada.get('enabled') is True and scada.get('autoReload') is False and
+                scada.get('projectDirectory') == str(home / 'scada/current'),
+                'read-only SCADA configuration changed')
+        if project_pending:
+            guard.scada_readonly_binding(home, approval, 'old')
+        else:
+            require(state.get('scadaReadOnlyProject') == approval['scadaReadOnlyProject'],
+                    'read-only SCADA transaction binding changed')
+        guard.scada_readonly_binding(home, approval, 'new', check_current=not project_pending)
+    else:
+        a_scada_empty_map(home, documents)
 
 
 def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documents, inhibited):
@@ -774,6 +808,10 @@ def recovered_predecessor(home, approval, state_dir):
                 require(digest(archived) == item['newSha256'], 'recovered predecessor retained file changed')
     monitor = checked_monitor_record(previous, recovered, old)
     joint = checked_a_joint_record(previous, recovered, old)
+    if 'scadaReadOnlyProject' in old:
+        require(recovered.get('scadaReadOnlyProject') == old['scadaReadOnlyProject'],
+                'recovered read-only SCADA binding state changed')
+        guard.scada_readonly_binding(home, old, 'old')
     if monitor:
         require(digest(MONITOR_DROPIN) == monitor[0]['oldSha256'] and
                 stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == monitor[0]['mode'],
@@ -927,6 +965,17 @@ def apply(args):
                 'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
     binding = monitor_binding(approval, names)
     a_binding = a_joint_binding(home, approval, names, documents)
+    require('scadaReadOnlyProject' not in approval or a_binding is not None,
+            'read-only SCADA approval requires A joint profile')
+    if 'scadaReadOnlyProject' in approval:
+        projected = {key: switch_names(doc, names) for key, doc in documents.items()}
+        monitor_app = projected['apps/monitor-service.json']
+        monitor_app['localDisplay']['scada']['autoReload'] = False
+        if a_binding['disableInbound']:
+            monitor_app['mqtt']['enabled'] = False
+            monitor_app['systemMonitor']['directMaintenance']['enabled'] = False
+        a_joint_config_safe(home, approval, {'segments': segments, 'unreferencedDefaultShm': unreferenced_default},
+                            [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)
     require('aInboundDisableSourceSha256' not in approval or a_binding is not None,
             'A inbound maintenance disable approval requires A joint binding')
     if a_binding:
@@ -958,7 +1007,9 @@ def apply(args):
             if a_binding['disableInbound']:
                 projected['apps/monitor-service.json']['mqtt']['enabled'] = False
                 projected['apps/monitor-service.json']['systemMonitor']['directMaintenance']['enabled'] = False
-            a_joint_config_safe(home, approval, profile_state, [MONITOR_UNIT, A_QT_UNIT], projected)
+            if 'scadaReadOnlyProject' in approval:
+                projected['apps/monitor-service.json']['localDisplay']['scada']['autoReload'] = False
+            a_joint_config_safe(home, approval, profile_state, [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)
         else:
             require(binding is not None, 'successor requires pinned A or B monitor profile')
             b_monitor_default_safe(home, approval, manifest, profile_state, [MONITOR_UNIT], (binding,), projected)
@@ -974,6 +1025,8 @@ def apply(args):
                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
     if 'recoveredFrom' in approval:
         state['successorHandoffComplete'] = False
+    if 'scadaReadOnlyProject' in approval:
+        state['scadaReadOnlyProject'] = approval['scadaReadOnlyProject']
     save(args.state / 'state.json', state)
     try:
         if 'recoveredFrom' in approval:
@@ -1001,6 +1054,9 @@ def apply(args):
                     stat.S_IMODE((home / 'config/runtime/qt-display.env').stat().st_mode) == a_binding['mode'],
                     'A Qt monitor environment changed during stop')
             a_scada_empty_map(home, configured(configs))
+            if 'scadaReadOnlyProject' in approval:
+                guard.scada_readonly_binding(home, approval, 'old')
+                guard.scada_readonly_binding(home, approval, 'new', check_current=False)
             require(digest(Path('/etc/systemd/system/ky-ems.service')) == A_QT_UNIT_SHA256 and
                     digest(home / 'bin/gateway-qt-run.sh') == A_QT_WRAPPER_SHA256 and
                     digest(Path('/etc/systemd/system/system-monitor@.service')) == B_MONITOR_UNIT_SHA256,
@@ -1032,6 +1088,8 @@ def apply(args):
             if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
                 updated['mqtt']['enabled'] = False
                 updated['systemMonitor']['directMaintenance']['enabled'] = False
+            if 'scadaReadOnlyProject' in approval and relative == 'apps/monitor-service.json':
+                updated['localDisplay']['scada']['autoReload'] = False
             if updated != doc:
                 require(relative != 'device_identity.json', 'identity cannot contain migrated references')
                 changed.append((configs / relative, (json.dumps(updated, indent=2) + '\n').encode(), stat.S_IMODE((configs / relative).stat().st_mode)))
@@ -1083,6 +1141,9 @@ def apply(args):
             stage = args.state / 'new' / str(index)
             require(digest(stage) == item['newSha256'], 'staged file changed')
             replace(home / item['path'], stage.read_bytes(), item['mode'])
+        if 'scadaReadOnlyProject' in approval:
+            guard.scada_readonly_binding(home, approval, 'old')
+            scada_current_switch(home, approval, True)
         if binding or a_binding:
             systemctl('daemon-reload')
         state['phase'] = 'UPGRADED_STOPPED'
@@ -1108,6 +1169,9 @@ def recover(args):
     else:
         fence(home, approval, args.state, state)
     no_processes(home, [])
+    if 'scadaReadOnlyProject' in approval:
+        require(state.get('scadaReadOnlyProject') == approval['scadaReadOnlyProject'],
+                'read-only SCADA transaction binding changed')
     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
     paths = install_paths(components, approval)
@@ -1148,6 +1212,9 @@ def recover(args):
             require(digest(args.state / 'files' / str(index)) == item['oldSha256'], 'recovery backup mismatch')
         live = home / relative
         require(not live.exists() or digest(live) in (item['oldSha256'], item['newSha256']), 'live file changed since transaction')
+    if 'scadaReadOnlyProject' in approval:
+        # Stop and validate backups first; retain any changed candidate bytes.
+        scada_current_switch(home, approval, False)
     for index, item in enumerate(state['files']):
         live = home / item['path']
         if item['oldSha256']:

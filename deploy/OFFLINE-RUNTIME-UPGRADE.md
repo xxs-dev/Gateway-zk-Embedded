@@ -357,6 +357,66 @@ This is local lifecycle support, not device activation approval. Missing old
 sources, drifted backups/fences, or unproven ingress/unit bindings still refuse;
 there is no implicit cold reconstruction for this V10 migration handoff.
 
+## Restricted nonempty read-only SCADA
+
+The A joint monitor/Qt profile may additionally approve `scadaReadOnlyProject`:
+
+```json
+{
+  "scadaReadOnlyProject": {
+    "oldTarget": "releases/previous-approved-project",
+    "oldFilesSha256": {"runtime-map.json": "<SHA256, plus every other old release file>"},
+    "newTarget": "releases/approved-monitor-project",
+    "newFilesSha256": {"manifest.json": "<SHA256, plus every other candidate file>"}
+  }
+}
+```
+
+These are relative symlink targets under `gatewayHome/scada`, never arbitrary
+paths. Both distinct releases must already exist, unaliased, with complete
+externally approved file inventories. This helper does not generate projects,
+extract packages, overwrite release files or add SHM references. The old map
+must still be exactly `[]\n`. Old project bytes and the candidate release are
+retained; state/approval preserve the exact original `current` binding.
+Project inventories are bounded to 64 files, 2 MiB/file and 8 MiB total.
+
+The candidate is deliberately a small schema-2.0 subset: exactly manifest.json,
+topology.json, nodes.json, tags.json, runtime-map.json and screens/overview.json.
+One integrated edge/sharedMemory node must match the approved machine identity,
+with empty roles. There are 1-9 explicit read-only float64 mappings to distinct
+existing monitor indexes 920000001..920000009, all in this transaction's monitor
+V11 target. Tags and mappings must be in matching order, indexFallback is zero,
+and writable is false. The single overview screen has one metricCard per tag,
+value-only bindings, empty properties and bounded geometry; unknown fields,
+extra files/assets, controls, other stores/nodes and fallback routes refuse.
+This is not support for the full mobile/stationary product templates.
+
+Apply requires the existing complete A profile and all original SHM/participant
+gates. It checks both releases before and after stop, backs up the app through
+the existing file transaction, and sets only scada.autoReload=false in addition
+to the already approved SHM/inbound changes. After installing the stopped files,
+it rechecks the original binding and atomically replaces current using a unique
+temporary symlink. A failed switch leaves either the approved old or new link;
+temporary links are retained and are not loader inputs.
+
+Observe and every approved persistent unit entry validate the same pinned
+candidate/schema through the shared guard function. activated-list does not
+load/hash the project. Disabling autoReload prevents the existing Qt timer from
+following an unapproved project change during this restricted run. Recovery
+stops participants and checks file backups before restoring the exact old link
+and original app bytes/mode (including autoReload). A changed candidate is never
+overwritten: it remains evidence while recovery can restore the verified old
+binding. Unknown current targets or changed old-release files refuse after stop.
+Successor handoff also verifies a predecessor's restored old project binding.
+
+Use the paired new upgrader/guard, and pin the new guard in activation startup
+script approval when activating. Existing approvals with no project field keep
+their empty-map behavior; the project field in B/non-A scopes is rejected, not
+ignored. No generic generator, Qt binary, C++ protocol or service allowlist is
+changed. Both monitor ingress gates, bridge/physical fences, old-source/default
+protection and separate ready approvals remain mandatory. Local fixture tests
+do not qualify a device project, graphical output or physical PCS operation.
+
 ## Persistent control-disabled activation
 
 `activate` is a separate, locally bounded lifecycle step from

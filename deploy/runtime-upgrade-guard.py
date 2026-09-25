@@ -49,6 +49,120 @@ def exact_file(path):
     return path
 
 
+def scada_project_files(home, target, pins):
+    if (not isinstance(target, str) or re.fullmatch(r'releases/[A-Za-z0-9_-][A-Za-z0-9_.-]*', target) is None or
+            not isinstance(pins, dict) or not 1 <= len(pins) <= 64):
+        raise ValueError('invalid read-only SCADA release pins')
+    root = home / 'scada' / target
+    paths = list(root.rglob('*'))
+    if (not root.is_dir() or any(p.is_symlink() for p in [root] + list(root.parents) + paths) or
+            {str(p.relative_to(root)) for p in paths if not p.is_dir()} != set(pins)):
+        raise ValueError('read-only SCADA project inventory changed')
+    raw = {}
+    for name, pin in pins.items():
+        path = exact_file(root / name)
+        if path.stat().st_size > 2 * 1024 * 1024:
+            raise ValueError('read-only SCADA file exceeds bound')
+        raw[name] = path.read_bytes()
+        if not isinstance(pin, str) or hashlib.sha256(raw[name]).hexdigest() != pin:
+            raise ValueError('read-only SCADA file pin changed: ' + name)
+    if sum(len(value) for value in raw.values()) > 8 * 1024 * 1024:
+        raise ValueError('read-only SCADA project exceeds bound')
+    return raw
+
+
+def scada_readonly_binding(home, approval, side, check_current=True):
+    pins = approval.get('scadaReadOnlyProject')
+    if (not isinstance(pins, dict) or set(pins) != {'oldTarget', 'oldFilesSha256', 'newTarget', 'newFilesSha256'} or
+            pins['oldTarget'] == pins['newTarget'] or approval.get('mode') != 'standalone' or
+            'qtDisplayEnvSha256' not in approval):
+        raise ValueError('invalid A read-only SCADA approval')
+    current = home / 'scada/current'
+    if check_current and (not current.is_symlink() or os.readlink(str(current)) != pins[side + 'Target']):
+        raise ValueError('read-only SCADA current binding changed')
+    raw = scada_project_files(home, pins[side + 'Target'], pins[side + 'FilesSha256'])
+    if side == 'old':
+        if raw.get('runtime-map.json') != b'[]\n':
+            raise ValueError('read-only SCADA requires the qualified old empty map')
+        return
+    if set(raw) != {'manifest.json', 'topology.json', 'nodes.json', 'tags.json',
+                    'runtime-map.json', 'screens/overview.json'}:
+        raise ValueError('unsupported read-only SCADA project files')
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate read-only SCADA JSON key')
+            result[key] = value
+        return result
+    docs = {name: json.loads(value.decode('utf-8'), object_pairs_hook=unique_object) for name, value in raw.items()}
+    manifest = docs['manifest.json']
+    if (not isinstance(manifest, dict) or set(manifest) !=
+            {'schemaVersion', 'projectId', 'projectName', 'packageVersion', 'entryScreen', 'packageRole'} or
+            manifest['schemaVersion'] != '2.0' or manifest['entryScreen'] != 'overview' or
+            manifest['packageRole'] != 'project' or
+            any(not isinstance(manifest[k], str) or re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', manifest[k]) is None
+                for k in ('projectId', 'packageVersion')) or not isinstance(manifest['projectName'], str)):
+        raise ValueError('unsupported read-only SCADA manifest')
+    if docs['topology.json'] != {'mode': 'integrated', 'scadaHost': 'edge', 'emsHost': 'edge',
+                                 'dataTransport': 'sharedMemory', 'offlinePolicy': 'continueLocal'}:
+        raise ValueError('unsupported read-only SCADA topology')
+    nodes = docs['nodes.json']
+    if (not isinstance(nodes, list) or len(nodes) != 1 or not isinstance(nodes[0], dict) or
+            set(nodes[0]) != {'nodeId', 'machineCode', 'displayName', 'roles'} or
+            nodes[0]['machineCode'] != approval['nodeId'] or nodes[0]['roles'] != [] or
+            not isinstance(nodes[0]['displayName'], str) or not isinstance(nodes[0]['nodeId'], str) or
+            re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', nodes[0]['nodeId']) is None):
+        raise ValueError('unsupported read-only SCADA node')
+    node = nodes[0]['nodeId']
+    target = next(s['target'] for s in approval['segments'] if s['source'] == 'gateway_point_store_system_monitor')
+    tags, mappings = docs['tags.json'], docs['runtime-map.json']
+    if not isinstance(tags, list) or not isinstance(mappings, list) or not 1 <= len(tags) == len(mappings) <= 9:
+        raise ValueError('read-only SCADA requires explicit monitor mappings')
+    tag_ids, indexes = set(), set()
+    for tag, mapping in zip(tags, mappings):
+        if (not isinstance(tag, dict) or not isinstance(mapping, dict) or set(tag) !=
+                {'nodeId', 'tagId', 'access', 'dataType', 'unit', 'indexFallback'} or set(mapping) !=
+                {'nodeId', 'tagId', 'sharedMemoryName', 'index', 'writable', 'dataType', 'unit'} or
+                not isinstance(tag['tagId'], str) or re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', tag['tagId']) is None or
+                tag['tagId'] in tag_ids or tag['nodeId'] != node or tag['access'] != 'read' or
+                type(tag['indexFallback']) is not int or tag['indexFallback'] != 0 or
+                tag['dataType'] != 'float64' or not isinstance(tag['unit'], str) or
+                any(mapping[k] != tag[k] for k in ('nodeId', 'tagId', 'dataType', 'unit')) or
+                mapping['sharedMemoryName'] != target or mapping['writable'] is not False or
+                type(mapping['index']) is not int or not 920000001 <= mapping['index'] <= 920000009 or
+                mapping['index'] in indexes):
+            raise ValueError('unsupported read-only SCADA monitor mapping')
+        tag_ids.add(tag['tagId'])
+        indexes.add(mapping['index'])
+    screen = docs['screens/overview.json']
+    if (not isinstance(screen, dict) or set(screen) != {'screenId', 'title', 'width', 'height', 'widgets'} or
+            screen['screenId'] != 'overview' or not isinstance(screen['title'], str) or
+            any(type(screen[k]) is not int or not 1 <= screen[k] <= 4096 for k in ('width', 'height')) or
+            not isinstance(screen['widgets'], list) or len(screen['widgets']) != len(tags)):
+        raise ValueError('unsupported read-only SCADA screen')
+    widget_ids, bound = set(), set()
+    for widget in screen['widgets']:
+        if (not isinstance(widget, dict) or set(widget) !=
+                {'widgetId', 'type', 'title', 'geometry', 'zIndex', 'visible', 'bindings', 'properties'} or
+                widget['type'] != 'metricCard' or widget['visible'] is not True or widget['properties'] != {} or
+                not isinstance(widget['title'], str) or type(widget['zIndex']) is not int or
+                not isinstance(widget['widgetId'], str) or widget['widgetId'] in widget_ids or
+                re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', widget['widgetId']) is None):
+            raise ValueError('unsupported read-only SCADA widget')
+        geometry, binding = widget['geometry'], widget['bindings']
+        if (not isinstance(geometry, dict) or set(geometry) != {'x', 'y', 'width', 'height'} or
+                any(type(v) is not int for v in geometry.values()) or
+                min(geometry['x'], geometry['y']) < 0 or min(geometry['width'], geometry['height']) <= 0 or
+                geometry['x'] + geometry['width'] > screen['width'] or geometry['y'] + geometry['height'] > screen['height'] or
+                not isinstance(binding, list) or len(binding) != 1 or not isinstance(binding[0], dict) or
+                set(binding[0]) != {'nodeId', 'tagId', 'slot'} or binding[0]['nodeId'] != node or
+                binding[0]['slot'] != 'value' or binding[0]['tagId'] not in tag_ids or binding[0]['tagId'] in bound):
+            raise ValueError('unsupported read-only SCADA widget binding')
+        widget_ids.add(widget['widgetId'])
+        bound.add(binding[0]['tagId'])
+
+
 def active_context(home):
     marker = home / 'data/runtime-upgrade-stop'
     active_path = home / 'data' / ACTIVATION_FILE
@@ -228,7 +342,13 @@ def activated_unit(home, unit):
         app = json.loads(exact_file(config / 'apps/monitor-service.json').read_text())
         scada = app['localDisplay']['scada']
         current = home / 'scada/current'
-        if (scada.get('enabled') is not True or scada.get('projectDirectory') != str(current) or
+        if 'scadaReadOnlyProject' in approval:
+            if (state.get('scadaReadOnlyProject') != approval['scadaReadOnlyProject'] or
+                    scada.get('enabled') is not True or scada.get('projectDirectory') != str(current) or
+                    scada.get('autoReload') is not False):
+                raise ValueError('activated read-only SCADA configuration changed')
+            scada_readonly_binding(home, approval, 'new')
+        elif (scada.get('enabled') is not True or scada.get('projectDirectory') != str(current) or
                 not current.is_symlink() or re.fullmatch(r'releases/[A-Za-z0-9_.-]+', os.readlink(str(current))) is None or
                 sha(exact_file(home / 'scada' / os.readlink(str(current)) / 'runtime-map.json')) != EMPTY_MAP_SHA):
             raise ValueError('activated SCADA map binding changed')

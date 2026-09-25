@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 1,
+  "createdUtc": "2026-09-25T04:45:53.9805829Z",
+  "baseCommit": "488c3f78370f0187b93041baea7001812252d920",
+  "runs": [
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-red",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 679,
+          "sha256": "f97feb3bccdd19b170436e3dc2e1ee4f3a0859e7d46a5f15946154f8d15c1d16"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 2767,
+          "sha256": "7cc1d53b9765afba6b26ca8dd3691bf74e9b529e8c095f8b4d8a1ed45226d167"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 2768,
+          "sha256": "3a877ad4ecb967b3c3ff9f6df1f254cbf537a60de6d366c813e2054bcf2f1dd6"
+        },
+        {
+          "name": "test_offline_scada_readonly_activation_recovery.log",
+          "bytes": 114,
+          "sha256": "944316c7925eebc0eb92169b419f766b393ba38b41e14a8b91592a9e90291d91"
+        },
+        {
+          "name": "test_offline_scada_readonly_non_a_scope_refused.log",
+          "bytes": 114,
+          "sha256": "944316c7925eebc0eb92169b419f766b393ba38b41e14a8b91592a9e90291d91"
+        },
+        {
+          "name": "test_offline_scada_readonly_unqualified_map_refused.log",
+          "bytes": 114,
+          "sha256": "944316c7925eebc0eb92169b419f766b393ba38b41e14a8b91592a9e90291d91"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-green-initial",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 689,
+          "sha256": "e744218c07dd90a12880213a6f6e4e70edf006d95ecde736ec7ed821cedc3636"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 511,
+          "sha256": "7cbe19e6ea92af326d3ff144861c964a660e992653245724e1fdb1422a693a99"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 512,
+          "sha256": "5fb91f903d6c95806e02d93bb71e6a27ba7506bce95cb3e19b2e76e048442bf8"
+        },
+        {
+          "name": "test_offline_scada_readonly_activation_recovery.log",
+          "bytes": 475,
+          "sha256": "49627eddbe7036997efc0d3025df9edc126460b788d07991b4ed951fc8e9ba5f"
+        },
+        {
+          "name": "test_offline_scada_readonly_non_a_scope_refused.log",
+          "bytes": 161,
+          "sha256": "a946b9d0cd49d5f4ab05e90a855b4bff91010da81a71464a942f0fbea02fb725"
+        },
+        {
+          "name": "test_offline_scada_readonly_unqualified_map_refused.log",
+          "bytes": 627,
+          "sha256": "2262c45e4b807f224646ea2d1613404d5e91ed1419e85b9f9a58c076d9c64f35"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-focused",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 1225,
+          "sha256": "9368a2dce11f969ea657d8a7365da1158a51ef5c05e9d100b25287d8b4d1120a"
+        },
+        {
+          "name": "native-build-2.json",
+          "bytes": 723,
+          "sha256": "19dcc65e2d369e8ab37d651ee16efcbb6ec00e9ddf46881ae03faf529d116930"
+        },
+        {
+          "name": "native-build-2.stderr",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "native-build-2.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "native-build.json",
+          "bytes": 723,
+          "sha256": "489ca477f78ed533ae47a9624b50dca1ac00143d27f2fa39dfd756839fa5f4a7"
+        },
+        {
+          "name": "native-build.stderr",
+          "bytes": 408,
+          "sha256": "bdb3594a70c183e105062381ebe3886ecd3e69fb3184e88c6fc1fc9ddda012f6"
+        },
+        {
+          "name": "native-build.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 1548,
+          "sha256": "db00660bd51a5574178f330054104458fba76b41aa1355d46adbe44d549d00cb"
+        },
+        {
+          "name": "scada_runtime_test",
+          "bytes": 13744152,
+          "sha256": "e03355f350816e87eb1738545f46c11b5783831dfbc8c566b1f7a34c5b2c3100"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 1549,
+          "sha256": "f6d17e0942e12c467422e54793bea524055f15c749ca4bfc85d48bb53981b730"
+        },
+        {
+          "name": "test_offline_a_joint_monitor_qt_observe_and_recover.log",
+          "bytes": 367,
+          "sha256": "93c1685b381c0cf93a7bb2188a599963baa9f60c85b38027b300c817b3b19934"
+        },
+        {
+          "name": "test_offline_b_activate_recover_fixed_readers.log",
+          "bytes": 612,
+          "sha256": "ab9221fdda37b8108069a35965d34d365abd895b89b4eb03e37e675d2fc096ff"
+        },
+        {
+          "name": "test_offline_recovered_a_absent_guard_handoff_activation_roundtrip.log",
+          "bytes": 745,
+          "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+        },
+        {
+          "name": "test_offline_scada_readonly_activation_recovery.log",
+          "bytes": 475,
+          "sha256": "49627eddbe7036997efc0d3025df9edc126460b788d07991b4ed951fc8e9ba5f"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_after_switch-interrupted-state.json",
+          "bytes": 5076,
+          "sha256": "7e3f65b62e67143d08eaf034bbc3bbc760ae8d36275ef6ff8b6e898f00ebf42a"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_after_switch.log",
+          "bytes": 244,
+          "sha256": "8bf7f4233ba2e1146fc09491f4e672defa6a3da8cf80166274099fafb08b6629"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_before_switch-interrupted-state.json",
+          "bytes": 5076,
+          "sha256": "bd5277021e2b928876f2634c9be85bd0e45990f67f7090607bdec440ecd775a7"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_before_switch.log",
+          "bytes": 244,
+          "sha256": "8bf7f4233ba2e1146fc09491f4e672defa6a3da8cf80166274099fafb08b6629"
+        },
+        {
+          "name": "test_offline_scada_readonly_native_monitor_value.log",
+          "bytes": 403,
+          "sha256": "c0dbc1b8653fcc4db4172a5d1ecabe3fa3c07cb02e0973ddd13e259e4932479c"
+        },
+        {
+          "name": "test_offline_scada_readonly_non_a_scope_refused.log",
+          "bytes": 161,
+          "sha256": "a946b9d0cd49d5f4ab05e90a855b4bff91010da81a71464a942f0fbea02fb725"
+        },
+        {
+          "name": "test_offline_scada_readonly_project_drift_and_shape_refused.log",
+          "bytes": 1864,
+          "sha256": "29b31b2b57862f6e6db3392058a72cb6a8d5fb5e4727643e757e0826b0d61589"
+        },
+        {
+          "name": "test_offline_scada_readonly_unqualified_map_refused.log",
+          "bytes": 627,
+          "sha256": "2262c45e4b807f224646ea2d1613404d5e91ed1419e85b9f9a58c076d9c64f35"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-observe-drift",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 549,
+          "sha256": "a028b0b695edc5df0a473ab99e2c7c4c578ea3ca2fd51e50aa090ef829690a31"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 244,
+          "sha256": "65e13ab25ab74f07ed1b1530840fee40e20e57996297edb11cda478d639bca67"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 245,
+          "sha256": "6b059bcbc88479109ddfa4ec426574ab04ace597a2fc206f54c75ef2b899cff9"
+        },
+        {
+          "name": "test_offline_scada_readonly_observe_and_binding_drift.log",
+          "bytes": 700,
+          "sha256": "6dd3932164226418794066c7bdc4815ff0480e8ca4d7be263140c9e7d0dcf81b"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-recovery-final",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 774,
+          "sha256": "339cacea25f3ebf86ed670905cb5f214197b5a4563417f5265fd8262e5060d82"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 672,
+          "sha256": "e57854eeb1988173c3d927f89e9065ed4d7ad725446df51a28ed4026ee222459"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 673,
+          "sha256": "3d947ebd4e3ee19ea3c8c76ff54f7feedccee8087b7fa48e6be4584798d434b9"
+        },
+        {
+          "name": "test_offline_scada_readonly_activation_recovery.log",
+          "bytes": 475,
+          "sha256": "49627eddbe7036997efc0d3025df9edc126460b788d07991b4ed951fc8e9ba5f"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_after_switch-interrupted-state.json",
+          "bytes": 5076,
+          "sha256": "d3b5ca5b17a8313065bb79cd5454542a57792fad5928cdf56b621a7ba3bf94d3"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_after_switch.log",
+          "bytes": 244,
+          "sha256": "8bf7f4233ba2e1146fc09491f4e672defa6a3da8cf80166274099fafb08b6629"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_before_switch-interrupted-state.json",
+          "bytes": 5076,
+          "sha256": "216678eca68ef904ad0d426b4e82786ffc95fdd4c151d03714659527bdadaa7a"
+        },
+        {
+          "name": "test_offline_scada_readonly_interrupted_before_switch.log",
+          "bytes": 244,
+          "sha256": "8bf7f4233ba2e1146fc09491f4e672defa6a3da8cf80166274099fafb08b6629"
+        },
+        {
+          "name": "test_offline_scada_readonly_observe_and_binding_drift.log",
+          "bytes": 700,
+          "sha256": "6dd3932164226418794066c7bdc4815ff0480e8ca4d7be263140c9e7d0dcf81b"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-successor",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 541,
+          "sha256": "dcafab37a4edcf9e832be84be77e9dfedc6c5996488d8b7d6d4696ae201fce61"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 1060,
+          "sha256": "36de330a5667385022dbe1ead05e9c0cfcb48ffffa0b35601002a6678976c34d"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 1061,
+          "sha256": "e8ac2404e52ee059cbbd73df90a03caba3fc237184248570d7e3b3317f6eba85"
+        },
+        {
+          "name": "test_offline_scada_readonly_recovered_a_successor.log",
+          "bytes": 529,
+          "sha256": "d45af9154b7104d91b07ca849caec5d0befdba0eb89ac13742fecc510a3188d8"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-successor-green",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 637,
+          "sha256": "883af7534a9e163f67d6c868d27c3bf85d805b18a34c25757c5eda4989d92690"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "fc4f180a4d95d67820e38964778150c737b6e22e2d76caf57e503a1746dd273b"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 410,
+          "sha256": "f960c3039ea20f3a097fc27969674ae2533b4708bf0fa05dffcd3bda30034477"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 411,
+          "sha256": "09678dc60b1884acd4db78ca4c177dca745ba5695e02f919794677db0ccf417f"
+        },
+        {
+          "name": "test_offline_activation_denied_unit_own_prestart_blocks_dependency.log",
+          "bytes": 353,
+          "sha256": "df591e8f4a6c0ef3322bb9f853d1749f440182fbb03805eeb475ceefc1c21f41"
+        },
+        {
+          "name": "test_offline_scada_readonly_recovered_a_successor-systemctl.log",
+          "bytes": 9296,
+          "sha256": "fcfec56305ea151b9e6e2fd8e9f55e8b0281ab472d11b92248bf2bad7649b95b"
+        },
+        {
+          "name": "test_offline_scada_readonly_recovered_a_successor.log",
+          "bytes": 589,
+          "sha256": "7fbe04e3ed066d9d440e117777f4a1f5042b6fbf7019fa112d71aa628904cc10"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/scada-readonly-20260925-static",
+      "files": [
+        {
+          "name": "invocation.json",
+          "bytes": 610,
+          "sha256": "9baa5ae850669b580d54f2a736610bcbd03fcc88d39a579c4a93d73e9b93c758"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 185,
+          "sha256": "011d62c068e8c150d9726058b9d643fe1ab005b070afaa1acd3ac57945add151"
+        }
+      ]
+    }
+  ],
+  "finalUpgraderSha256": "930b2a83a1c962c4c6af3d47ce976526badc1f13029344c06490541206583edd",
+  "finalGuardSha256": "363183c813bd956c487dd8785a555fdd9f46fe5fdbc08f046046b4e82dfe7e87",
+  "nativeLibrary": {
+    "qualification": "reused native library, not ARM or a new product build",
+    "path": "/var/tmp/ems-production-candidate-20260924-build/libedge_gateway.a",
+    "sha256": "d9c02f29e4fa2c830db033ccefc038ca12315c260318e9b9a213f77115226ad2"
+  }
+}

@@ -16,6 +16,7 @@
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/scada_project_loader.hpp"
 #include "edge_gateway/scada_runtime_map.hpp"
+#include "edge_gateway/system_monitor_points.hpp"
 
 namespace {
 
@@ -350,8 +351,50 @@ void verifyLocalAccessPermissionsValidation() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string(argv[1]) == "--readonly-monitor") {
+            const auto project = edge_gateway::ScadaProjectLoader::loadFromDirectory(argv[2]);
+            require(project.nodes.size() == 1 && project.runtimeMappings.size() == 1, "single monitor fixture required");
+            const auto storeName = edge_gateway::system_monitor_points::sharedMemoryName();
+            require(storeName.find("offline_target_") == 0 && project.runtimeMappings.front().sharedMemoryName == storeName,
+                    "private fixture store binding required");
+            edge_gateway::MemoryStoreConfig config;
+            config.sharedMemoryName = storeName;
+            config.maxLatestPoints = 32;
+            edge_gateway::MemoryPointStore store(config);
+            const auto machine = project.nodes.front().machineCode;
+            edge_gateway::system_monitor_points::registerStorePoints(store, machine);
+            edge_gateway::PointStoreRouter router;
+            router.addStore(storeName, store);
+            edge_gateway::system_monitor_points::addRoutes(router, machine);
+            edge_gateway::PointValue value;
+            value.index = 920000005U;
+            value.machineCode = machine;
+            value.meterCode = edge_gateway::system_monitor_points::kMeterCode;
+            value.pointCode = "cellular_signal_percent";
+            value.value = 42.0;
+            value.quality = 1;
+            value.ts = 1000;
+            value.expireAt = 31000;
+            store.putLatest(value);
+            edge_gateway::ScadaRuntimeMap runtime(project, machine, router);
+            const auto values = runtime.readScreen(project.screens.front(), 1000);
+            require(values.size() == 1 && values.front().index == 920000005U && values.front().value == 42.0 &&
+                    values.front().quality == 1, "read-only monitor value 42 missing");
+            edge_gateway::PendingWriteCommand command;
+            command.cmdId = "READONLY_FIXTURE_REJECT";
+            command.value = 99.0;
+            const auto denied = runtime.submitWrite(project.tags.front().tagId, command);
+            require(!denied.accepted && denied.message == "SCADA tag is read-only", "write must be rejected");
+            auto wrong = project;
+            wrong.runtimeMappings.front().sharedMemoryName = "gateway_point_store_system_monitor";
+            edge_gateway::ScadaRuntimeMap wrongRuntime(wrong, machine, router);
+            require(!wrongRuntime.readTag(project.tags.front().tagId, 1000), "old monitor route must not resolve");
+            std::cout << "readonly monitor index=920000005 value=42 quality=1; write and old-store route refused" << std::endl;
+            return 0;
+        }
+        require(argc == 1, "unsupported fixture arguments");
         verifyLoadResolveReadAndWrite();
         verifySameIndexAcrossIndependentStores();
         verifyDuplicateRuntimeRouteRejected();
