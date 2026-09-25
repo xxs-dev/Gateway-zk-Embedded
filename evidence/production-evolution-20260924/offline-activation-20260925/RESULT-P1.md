@@ -2,7 +2,8 @@
 
 All commands ran as WSL root through `tools/install_isolation_test.py` in its
 private mount/net/IPC namespaces. The runner wrote its original unittest
-stdout to each `result.txt`; command exits were 0. No device, ARM build, or
+stdout to each `result.txt`. Listed green runs exited 0; the retained
+batch-stop 3 PASS / 1 FAIL run exited 1. No device, ARM build, or
 Windows package operation was performed. The native fixture binary remained
 outside Git under LocalAppData; SHA256
 `f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0`.
