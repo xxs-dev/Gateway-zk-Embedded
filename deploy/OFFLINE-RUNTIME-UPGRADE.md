@@ -239,18 +239,26 @@ approval flag. Other observers, unknown apps, changed unit bindings, and
 other default-store cases still refuse. Local fake-systemctl tests cannot
 establish real process target mappings or production service safety; those
 remain separate on-device observation requirements.
-The A joint-binding profile admits only a standalone, monitor-only observation
+The A joint-binding profile admits a standalone monitor-only observation or
+the exact ordered `[system-monitor@monitor-service.service, ky-ems.service]`
+observation
 with the approved default and implicit monitor segments. It rechecks the actual
 three-app/one-device loader shape including disabled sibling camera, the empty
 SCADA map, both switched bindings,
 the pinned Qt/monitor/bridge units, and the bridge's retained inhibition and
-inactive PID 0 state. The monitor app must explicitly have `mqtt.enabled:false`
+inactive PID 0 state. Qt selection additionally requires an already-active
+`graphical.target`; observe never starts/stops the graphical target or Bridge.
+The monitor app must explicitly have `mqtt.enabled:false`
 and `systemMonitor.directMaintenance.enabled:false`; the general
 `controlEnabled:false` approval does not disable either inbound maintenance
 path. After start, every old source (including default) remains hashed and
-unmapped. `ky-ems.service` is not an allowed observer yet; its `Requires=` bridge
-dependency and actual V11 process mapping still need a separate bounded startup
-qualification. No Qt or bridge is started by this profile.
+unmapped. After both readers start, the A loader/unit/environment/empty-map
+profile is rechecked, all other approved units must remain stopped, and the
+Bridge must remain inhibited, inactive with PID 0 and `ConditionResult=no`.
+Failed Qt startup restores inhibition and checks both readers and Bridge stopped
+with PID 0. Qt is write-capable; this is not a general read-only qualification.
+Actual reader executable/environment/V11 inode mappings and inbound effective
+values still need bounded on-device verification; no Bridge is started.
 Previously masked units are refused, never unmasked. `is-active` must succeed.
 The entrypoint temporarily removes only selected observer/observer-template
 drop-ins, starts them, then restores inhibition and reloads systemd before success.

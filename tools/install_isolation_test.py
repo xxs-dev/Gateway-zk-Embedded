@@ -54,6 +54,9 @@ case "$1" in
     [ "${OFFLINE_WATCHDOG_DISCOVERED:-0}" != 1 ] || echo 'gateway-health-watchdog.service disabled'
     [ "${OFFLINE_TEST:-0}" != 1 ] || echo 'compute-engine@.service disabled' ;;
   stop|show)
+    if [ "$1" = stop ]; then
+      case " $* " in *' ky-ems.service '*) rm -f "$HOME/qt-started" ;; esac
+    fi
     if [ "$1" = stop ] && [ "${MUTATE_MONITOR_DROPIN_ON_STOP:-0}" = 1 ]; then
       printf '# changed after preflight\n' >> /etc/systemd/system/system-monitor@monitor-service.service.d/998-shm.conf
     fi
@@ -89,7 +92,14 @@ case "$1" in
               [ ! -f "$path" ] || printf '%s ' "$path"
             done
             echo ;;
-          *--property=MainPID*qt-display-bridge.service*) echo 0 ;;
+          *--property=MainPID*qt-display-bridge.service*)
+            if [ "${BRIDGE_STARTS_WITH_QT:-0}" = 1 ] && [ -e "$HOME/qt-started" ]; then echo 4321; else echo 0; fi ;;
+          *--property=MainPID*system-monitor@monitor-service.service*|*--property=MainPID*ky-ems.service*) echo 0 ;;
+          *--property=ActiveState*qt-display-bridge.service*)
+            if [ "${BRIDGE_STARTS_WITH_QT:-0}" = 1 ] && [ -e "$HOME/qt-started" ]; then echo active; else echo inactive; fi ;;
+          *--property=ActiveState*graphical.target*) echo "${GRAPHICAL_TARGET_STATE:-active}" ;;
+          *--property=ConditionResult*qt-display-bridge.service*)
+            if [ "${BRIDGE_STARTS_WITH_QT:-0}" = 1 ] && [ -e "$HOME/qt-started" ]; then echo yes; else echo "${BRIDGE_CONDITION_RESULT:-no}"; fi ;;
           *--property=EnvironmentFiles*ky-ems.service*)
             echo '/opt/modbus-gateway/config/runtime/qt-display.env (ignore_errors=yes)' ;;
           *--property=Environment\\ --value\\ ky-ems.service*)
@@ -104,6 +114,11 @@ case "$1" in
           *) echo inactive ;;
         esac
       else echo 4242; fi
+    fi ;;
+  start)
+    if [ "$2" = ky-ems.service ]; then
+      [ "${FAIL_QT_START:-0}" != 1 ] || exit 42
+      : > "$HOME/qt-started"
     fi ;;
   daemon-reload)
     if [ "${MUTATE_MONITOR_DROPIN_BEFORE_START:-0}" = 1 ] && [ ! -e /etc/systemd/system/system-monitor@monitor-service.service.d/90-offline-fixture-offline.conf ]; then
@@ -913,6 +928,82 @@ exec /bin/cp "$@"
         self.assertNotEqual(0, result.returncode)
         self.assertIn('SCADA runtime map is not empty', result.stdout)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+
+    def test_offline_a_joint_monitor_qt_observe_and_recover(self):
+        home, approval, envfile = self.a_joint_monitor_fixture()
+        original = envfile.read_bytes()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service', 'ky-ems.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe')
+        self.assertEqual(0, result.returncode, result.stdout)
+        lines = self.log.read_text().splitlines()
+        self.assertLess(lines.index('start system-monitor@monitor-service.service'), lines.index('start ky-ems.service'))
+        self.assertNotIn('start qt-display-bridge.service', lines)
+        for unit in ready['startUnits']:
+            self.assertTrue((Path('/etc/systemd/system') / (unit + '.d') / '90-offline-fixture-offline.conf').exists())
+        self.assertTrue(Path('/etc/systemd/system/qt-display-bridge.service.d/90-offline-fixture-offline.conf').exists())
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertEqual('OBSERVING_CONTROL_DISABLED', state['phase'])
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, envfile.read_bytes())
+
+    def test_offline_a_joint_qt_start_failure_refences_and_stops_both(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service', 'ky-ems.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'FAIL_QT_START': '1'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('systemctl failed: start ky-ems.service', result.stdout)
+        lines = self.log.read_text().splitlines()
+        self.assertIn('stop system-monitor@monitor-service.service ky-ems.service qt-display-bridge.service', lines)
+        for unit in ready['startUnits']:
+            self.assertTrue((Path('/etc/systemd/system') / (unit + '.d') / '90-offline-fixture-offline.conf').exists())
+        self.assertEqual('FAILED_OBSERVER_START', json.loads((self.root / 'transaction/state.json').read_text())['phase'])
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_a_joint_bridge_unexpected_start_refused(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service', 'ky-ems.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'BRIDGE_STARTS_WITH_QT': '1'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('bridge must remain pinned, fenced and stopped', result.stdout)
+        self.assertIn('stop system-monitor@monitor-service.service ky-ems.service qt-display-bridge.service',
+                      self.log.read_text().splitlines())
+        self.assertFalse((self.root / 'qt-started').exists())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_a_joint_qt_requires_existing_graphical_target(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service', 'ky-ems.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'GRAPHICAL_TARGET_STATE': 'inactive'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('already active graphical target', result.stdout)
+        self.assertNotIn('start ky-ems.service', self.log.read_text().splitlines())
+        self.assertEqual('UPGRADED_STOPPED', json.loads((self.root / 'transaction/state.json').read_text())['phase'])
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_a_joint_qt_requires_skipped_bridge_condition(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service', 'ky-ems.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        result = self.offline_run('observe', env={'BRIDGE_CONDITION_RESULT': 'yes'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('bridge inhibition condition did not skip', result.stdout)
+        self.assertIn('stop system-monitor@monitor-service.service ky-ems.service qt-display-bridge.service',
+                      self.log.read_text().splitlines())
+        self.assertEqual(0, self.offline_run('recover').returncode)
 
     def a_joint_inbound_gate_case(self, section, key, value):
         home, approval, _ = self.a_joint_monitor_fixture()

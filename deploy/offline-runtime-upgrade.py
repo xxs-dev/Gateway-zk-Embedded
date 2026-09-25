@@ -337,11 +337,12 @@ def b_monitor_default_safe(home, approval, manifest, state, selected, monitor, d
 
 def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documents, inhibited):
     record, _, new_env, new_dropin = joint
-    require(approval_mode(approval) == 'standalone' and selected == [MONITOR_UNIT] and
+    require(approval_mode(approval) == 'standalone' and
+            selected in ([MONITOR_UNIT], [MONITOR_UNIT, A_QT_UNIT]) and
             state.get('unreferencedDefaultShm') is True and
             {MONITOR_UNIT, A_QT_UNIT, 'qt-display-bridge.service'} <= set(approval['units']) and
             {s['source'] for s in state['segments']} >= {'gateway_point_store', MONITOR_IMPLICIT_SHM},
-            'A joint monitor-only observation scope changed')
+            'A joint monitor/Qt observation scope changed')
     apps = home / 'config/runtime/apps'
     require({p.name for p in apps.glob('*.json')} == B_MONITOR_APPS and
             all(regular(apps / name) for name in B_MONITOR_APPS),
@@ -389,7 +390,8 @@ def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documen
             systemctl('show', '--property=PassEnvironment', '--value', A_QT_UNIT) == '',
             'A Qt effective environment precedence changed')
     inhibit = Path('/etc/systemd/system/ky-ems.service.d') / ('90-offline-' + approval['transactionId'] + '.conf')
-    require(systemctl('show', '--property=DropInPaths', '--value', A_QT_UNIT).split() == [str(inhibit)],
+    require(systemctl('show', '--property=DropInPaths', '--value', A_QT_UNIT).split() ==
+            ([str(inhibit)] if inhibited or A_QT_UNIT not in selected else []),
             'A Qt effective drop-ins changed')
     bridge = 'qt-display-bridge.service'
     bridge_inhibit = Path('/etc/systemd/system') / (bridge + '.d') / ('90-offline-' + approval['transactionId'] + '.conf')
@@ -900,7 +902,8 @@ def observe(args):
     units_stopped(approval['units'])
     selected = ready['startUnits']
     require(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and
-            set(selected) <= set(approval['units']) and all(OBSERVER_UNIT.fullmatch(u) for u in selected) and
+            set(selected) <= set(approval['units']) and
+            all(OBSERVER_UNIT.fullmatch(u) or (a_joint and u == A_QT_UNIT) for u in selected) and
             (mode != 'standalone' or not any(u.startswith('ems-cluster@') for u in selected)),
             'only explicitly approved compute/cluster/monitor observers may start; physical participants remain inhibited')
     monitor = None
@@ -918,6 +921,9 @@ def observe(args):
                     'monitor SHM effective environment is not the approved target')
     if a_joint:
         a_joint_monitor_observe_safe(home, approval, state, selected, a_joint, documents, True)
+        if A_QT_UNIT in selected:
+            require(systemctl('show', '--property=ActiveState', '--value', 'graphical.target') == 'active',
+                    'A Qt observe requires an already active graphical target')
     if state.get('unreferencedDefaultShm') is True:
         if a_joint is None:
             b_monitor_default_safe(home, approval, manifest, state, selected, monitor, documents)
@@ -965,6 +971,14 @@ def observe(args):
         for unit in selected:
             systemctl('start', unit)
             systemctl('is-active', '--quiet', unit)
+        if a_joint:
+            require(tree_hashes(home / 'config/runtime') == state['configSha256'],
+                    'A joint config changed after start')
+            a_joint_monitor_observe_safe(home, approval, state, selected, a_joint, documents, False)
+            if A_QT_UNIT in selected:
+                require(systemctl('show', '--property=ConditionResult', '--value', 'qt-display-bridge.service') == 'no',
+                        'A Qt bridge inhibition condition did not skip startup')
+            units_stopped([unit for unit in approval['units'] if unit not in selected])
         if state.get('unreferencedDefaultShm') is True:
             for segment in state['segments']:
                 require(digest(Path('/dev/shm') / segment['source']) == segment['sourceSha256'],
@@ -992,8 +1006,12 @@ def observe(args):
         except (OSError, ValueError, subprocess.SubprocessError):
             state['phase'] = 'FAILED_INHIBITION_RESTORE'
         try:
-            systemctl('stop', *selected)
-            units_stopped(selected)
+            stopped = selected + (['qt-display-bridge.service'] if a_joint and A_QT_UNIT in selected else [])
+            systemctl('stop', *stopped)
+            units_stopped(stopped)
+            if a_joint:
+                require(all(systemctl('show', '--property=MainPID', '--value', unit) == '0'
+                            for unit in stopped), 'A joint observer process still active after failed start')
         except BaseException:
             state['phase'] = 'FAILED_STOP_UNCONFIRMED'
         save(args.state / 'state.json', state)

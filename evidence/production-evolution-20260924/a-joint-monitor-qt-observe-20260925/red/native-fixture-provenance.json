@@ -1,0 +1,13 @@
+{
+  "runtimeExecution": "native CLI only, not AArch64 qualification",
+  "migrationCli": {
+    "kind": "product",
+    "target": "memory_point_store_migrate",
+    "archivePath": "programs/bin/memory_point_store_migrate",
+    "bytes": 569728,
+    "sha256": "e7043d6dc3363f746a171eb0082f855f151ae6f6604bc5aa70ce9cd882dd1832"
+  },
+  "fixtureSourceSha256": "35555790af569e793c8a8d44696c35140d329b5f406a63d5d19f76a4c43a37eb",
+  "fixtureBinarySha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0",
+  "runtimeRebuilds": 0
+}
