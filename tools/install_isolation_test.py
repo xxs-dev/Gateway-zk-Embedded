@@ -48,6 +48,20 @@ class InstallIsolationTest(unittest.TestCase):
         write(mock / "systemctl", """#!/bin/sh
 printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
 [ "$1" != "${FAIL_SYSTEMCTL_ACTION:-none}" ] || exit 42
+run_unit_pre() {
+  unit="$1"
+  path="/etc/systemd/system/$unit.d/90-offline-fixture-offline.conf"
+  if [ ! -f "$path" ]; then
+    template="${unit%%@*}@.service"
+    path="/etc/systemd/system/$template.d/90-offline-fixture-offline.conf"
+  fi
+  [ -f "$path" ] || return 41
+  pre=$(sed -n 's/^ExecStartPre=//p' "$path")
+  [ -n "$pre" ] || return 41
+  printf 'pre %s\\n' "$unit" >> "$SYSTEMCTL_LOG"
+  set -- $pre
+  "$@"
+}
 case "$1" in
   list-unit-files)
     echo 'ky-ems.service enabled'
@@ -65,12 +79,24 @@ case "$1" in
     fi
     case "$*" in *@.service*) echo 'cannot operate on uninstantiated template' >&2; exit 45 ;; esac
     if [ "$1" = show ]; then
+      if [ "$2" = --property=Id,ActiveState,MainPID ]; then
+        shift 2
+        first=1
+        for unit do
+          [ "$first" = 1 ] || printf '\n'
+          printf 'Id=%s\nActiveState=%s\nMainPID=%s\n' "$unit" "${BATCH_ACTIVE_STATE:-inactive}" "${BATCH_MAIN_PID:-0}"
+          first=0
+        done
+        exit 0
+      fi
       if [ "${OFFLINE_TEST:-0}" = 1 ]; then
         case "$*" in
           *UnitFileState*) echo "${OFFLINE_UNIT_STATE:-disabled}" ;;
           *--property=LoadState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_LOAD_STATE:-loaded}" ;;
           *--property=ActiveState*gateway-health-watchdog.service*) echo "${OFFLINE_WATCHDOG_ACTIVE_STATE:-inactive}" ;;
           *--property=FragmentPath*system-monitor@monitor-service.service*) echo /etc/systemd/system/system-monitor@.service ;;
+          *--property=FragmentPath*gateway-services.service*) echo /etc/systemd/system/gateway-services.service ;;
+          *--property=FragmentPath*gateway-health-watchdog.service*) echo /etc/systemd/system/gateway-health-watchdog.service ;;
           *--property=FragmentPath*ky-ems.service*) echo /etc/systemd/system/ky-ems.service ;;
           *--property=FragmentPath*qt-display-bridge.service*) echo /etc/systemd/system/qt-display-bridge.service ;;
           *--property=DropInPaths*system-monitor@monitor-service.service*)
@@ -92,9 +118,17 @@ case "$1" in
               [ ! -f "$path" ] || printf '%s ' "$path"
             done
             echo ;;
+          *--property=DropInPaths*gateway-services.service*|*--property=DropInPaths*gateway-health-watchdog.service*)
+            unit="${*##* }"
+            for path in /etc/systemd/system/"$unit".d/90-offline-*.conf; do
+              [ ! -f "$path" ] || printf '%s ' "$path"
+            done
+            [ -z "${ACTIVATION_EXTRA_DROPIN:-}" ] || printf '%s ' "$ACTIVATION_EXTRA_DROPIN"
+            echo ;;
           *--property=MainPID*qt-display-bridge.service*)
             if [ "${BRIDGE_STARTS_WITH_QT:-0}" = 1 ] && [ -e "$HOME/qt-started" ]; then echo 4321; else echo 0; fi ;;
           *--property=MainPID*system-monitor@monitor-service.service*|*--property=MainPID*ky-ems.service*) echo 0 ;;
+          *--property=MainPID*gateway-services.service*|*--property=MainPID*gateway-health-watchdog.service*) echo 0 ;;
           *--property=ActiveState*qt-display-bridge.service*)
             if [ "${BRIDGE_STARTS_WITH_QT:-0}" = 1 ] && [ -e "$HOME/qt-started" ]; then echo active; else echo inactive; fi ;;
           *--property=ActiveState*graphical.target*) echo "${GRAPHICAL_TARGET_STATE:-active}" ;;
@@ -116,6 +150,12 @@ case "$1" in
       else echo 4242; fi
     fi ;;
   start)
+    if [ "${ACTIVATION_EMULATE_UNIT_LOAD:-0}" = 1 ]; then
+      if [ "$2" = ky-ems.service ] && [ "${BRIDGE_FORCE_CONDITION_PASS:-0}" = 1 ]; then
+        run_unit_pre qt-display-bridge.service || exit 43
+      fi
+      run_unit_pre "$2" || exit 43
+    fi
     if [ "$2" = ky-ems.service ]; then
       [ "${FAIL_QT_START:-0}" != 1 ] || exit 42
       : > "$HOME/qt-started"
@@ -742,7 +782,7 @@ exec /bin/cp "$@"
                    '--approval-sha256', pin, '--state', str(self.root / 'transaction')]
         if action == 'apply':
             command += ['--approval', str(self.root / 'approval.json'), '--manifest', str(self.root / 'program-manifest.json'), '--payload', str(self.root / 'payload')]
-        if action == 'observe':
+        if action in ('observe', 'activate'):
             command += ['--ready', str(self.root / 'ready.json'), '--ready-sha256', hashlib.sha256((self.root / 'ready.json').read_bytes()).hexdigest()]
         result = subprocess.run(command, env={**self.env, 'OFFLINE_TEST': '1', **(env or {})},
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
@@ -1663,6 +1703,356 @@ exec /bin/cp "$@"
             ready['local'] = dict(ready.pop('voters')['A'], nodeId=approval['nodeId'])
         write(self.root / 'ready.json', json.dumps(ready))
         return ready
+
+    def activation_ready(self, approval, readers):
+        ready = self.offline_ready(approval)
+        ready['schemaVersion'] = 'offline-shm11-activate-1'
+        ready['startUnits'] = readers
+        write(self.root / 'ready.json', json.dumps(ready))
+        return ready
+
+    def activation_scripts(self, home, approval, watchdog=True, absent_guard=False):
+        approval['activationStartupScripts'] = {}
+        for name in ('runtime-upgrade-guard.py', 'gateway-services.sh'):
+            path = home / 'bin' / name
+            if not (absent_guard and name == 'runtime-upgrade-guard.py'):
+                write(path, '#!/bin/sh\necho old-startup-fixture\n')
+                path.chmod(0o755)
+            approval['activationStartupScripts'][name] = {
+                'oldSha256': hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None,
+                'newSha256': hashlib.sha256((REPO / 'deploy' / name).read_bytes()).hexdigest(),
+                'mode': 0o755}
+        if watchdog:
+            shutil.copyfile(REPO / 'deploy/gateway-health-watchdog.sh', home / 'bin/gateway-health-watchdog.sh')
+        for name in (('gateway-services.service', 'gateway-health-watchdog.service') if watchdog else ('gateway-services.service',)):
+            shutil.copyfile(REPO / 'deploy' / name, Path('/etc/systemd/system') / name)
+
+    def activation_guard(self, action, unit=None, extra_env=None):
+        command = ['python3', str(REPO / 'deploy/runtime-upgrade-guard.py'), action, '/opt/modbus-gateway']
+        if unit:
+            command.append(unit)
+        return subprocess.run(command, env={**self.env, 'OFFLINE_TEST': '1', **(extra_env or {})}, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, timeout=45)
+
+    def test_offline_b_activate_recover_fixed_readers(self):
+        home, approval, dropin = self.b_implicit_default_fixture()
+        old = dropin.read_bytes()
+        self.activation_scripts(home, approval)
+        old_scripts = {name: (home / 'bin' / name).read_bytes() for name in
+                       ('runtime-upgrade-guard.py', 'gateway-services.sh')}
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        for name in old_scripts:
+            live = home / 'bin' / name
+            self.assertEqual((REPO / 'deploy' / name).read_bytes(), live.read_bytes())
+            self.assertEqual(0o755, stat.S_IMODE(live.stat().st_mode))
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        result = self.offline_run('activate')
+        self.assertEqual(0, result.returncode, result.stdout)
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertEqual('ACTIVATED_CONTROL_DISABLED', state['phase'])
+        self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
+        before_list = self.log.read_text()
+        self.assertEqual('system-monitor@monitor-service.service\n', self.activation_guard('activated-list').stdout)
+        self.assertEqual(before_list, self.log.read_text())
+        checked = self.activation_guard('activated-unit', 'system-monitor@monitor-service.service')
+        self.assertEqual(0, checked.returncode, checked.stdout)
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'compute-engine@fixture.service').returncode)
+        listed = self.run_script('gateway-services.sh', ['list'], {'GATEWAY_HOME': str(home)})
+        self.assertEqual('system-monitor@monitor-service.service\n', listed.stdout)
+        stopped = self.run_script('gateway-services.sh', ['stop'], {'GATEWAY_HOME': str(home)})
+        self.assertEqual(0, stopped.returncode, stopped.stdout)
+        self.assertNotIn('\ndisable ', '\n' + self.log.read_text())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(old, dropin.read_bytes())
+        for name, content in old_scripts.items():
+            live = home / 'bin' / name
+            self.assertEqual(content, live.read_bytes())
+            self.assertEqual(0o755, stat.S_IMODE(live.stat().st_mode))
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_denied_unit_own_prestart_blocks_dependency(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service', 'ky-ems.service'])
+        self.assertEqual(0, self.offline_run('activate', env={'ACTIVATION_EMULATE_UNIT_LOAD': '1'}).returncode)
+        before = self.log.read_text()
+        result = subprocess.run(['systemctl', 'start', 'compute-engine@fixture.service'], env={**self.env,
+                                'ACTIVATION_EMULATE_UNIT_LOAD': '1'}, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, timeout=45)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('pre compute-engine@fixture.service', self.log.read_text()[len(before):])
+        before = self.log.read_text()
+        result = subprocess.run(['systemctl', 'start', 'compute-engine@another.service'], env={**self.env,
+                                'ACTIVATION_EMULATE_UNIT_LOAD': '1'}, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, timeout=45)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('pre compute-engine@another.service', self.log.read_text()[len(before):])
+        before = self.log.read_text()
+        result = subprocess.run(['systemctl', 'start', 'ky-ems.service'], env={**self.env,
+                                'ACTIVATION_EMULATE_UNIT_LOAD': '1', 'BRIDGE_FORCE_CONDITION_PASS': '1'},
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=45)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('pre qt-display-bridge.service', self.log.read_text()[len(before):])
+        self.assertNotIn('pre ky-ems.service', self.log.read_text()[len(before):])
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_drift_still_stops_and_recovers(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        dropin = Path('/etc/systemd/system/compute-engine@fixture.service.d/90-offline-fixture-offline.conf')
+        original = dropin.read_bytes()
+        changed = original + b'#drift\n'
+        dropin.write_bytes(changed)
+        before = self.log.read_text()
+        result = self.offline_run('recover')
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(changed, dropin.read_bytes())
+        stop_calls = [line for line in self.log.read_text()[len(before):].splitlines() if line.startswith('stop ')]
+        self.assertEqual(1, len(stop_calls))
+        self.assertIn('system-monitor@monitor-service.service', stop_calls[0])
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertEqual('FAILED_STOP_UNCONFIRMED', state['phase'])
+        self.assertTrue(all(row['stopOk'] for row in state['activationStopResult']))
+        dropin.write_bytes(original)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_batch_stop_or_status_failure_unconfirmed(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.activation_scripts(home, approval, absent_guard=True)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service', 'ky-ems.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        for failure in ('stop', 'show'):
+            before = self.log.read_text()
+            result = self.offline_run('recover', env={'FAIL_SYSTEMCTL_ACTION': failure})
+            self.assertNotEqual(0, result.returncode)
+            calls = self.log.read_text()[len(before):]
+            stop_calls = [line for line in calls.splitlines() if line.startswith('stop ')]
+            self.assertEqual(1, len(stop_calls))
+            self.assertTrue(all(unit in stop_calls[0] for unit in
+                            ('gateway-services.service', 'system-monitor@monitor-service.service', 'ky-ems.service')))
+            state = json.loads((self.root / 'transaction/state.json').read_text())
+            self.assertEqual('FAILED_STOP_UNCONFIRMED', state['phase'])
+            self.assertTrue({'gateway-services.service', 'system-monitor@monitor-service.service', 'ky-ems.service'} <=
+                            {row['unit'] for row in state['activationStopResult']})
+            if failure == 'stop':
+                self.assertFalse(any(row['stopOk'] for row in state['activationStopResult']))
+            else:
+                self.assertTrue(all(row['activeState'] == 'unknown' for row in state['activationStopResult']))
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_effective_dropin_override_refused(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        result = self.activation_guard('activated-unit', 'system-monitor@monitor-service.service',
+                                       {'ACTIVATION_EXTRA_DROPIN': '/etc/systemd/system/gateway-services.service.d/99-other.conf'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('effective unit gate changed', result.stdout)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_dangling_marker_refused(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        marker = home / 'data/runtime-upgrade-stop'
+        marker.unlink()
+        marker.symlink_to('/dev/shm/no-such-marker')
+        self.assertNotEqual(0, self.activation_guard('startup').returncode)
+        listed = self.run_script('gateway-services.sh', ['list'], {'GATEWAY_HOME': str(home)})
+        self.assertNotEqual(0, listed.returncode)
+        self.assertNotIn('compute-engine@', listed.stdout)
+
+    def test_offline_activation_approval_config_and_binding_tamper_refused(self):
+        home, approval, dropin = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        approval_file = self.root / 'transaction/approval.json'
+        old_approval = approval_file.read_bytes()
+        approval_file.write_bytes(old_approval + b' ')
+        self.assertNotEqual(0, self.activation_guard('activated-list').returncode)
+        approval_file.write_bytes(old_approval)
+        config = home / 'config/runtime/apps/monitor-service.json'
+        old_config = config.read_bytes()
+        config.write_bytes(old_config + b' ')
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        config.write_bytes(old_config)
+        old_dropin = dropin.read_bytes()
+        dropin.write_bytes(old_dropin + b'#changed\n')
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        dropin.write_bytes(old_dropin)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_old_source_change_refused(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        source = Path('/dev/shm') / approval['segments'][0]['source']
+        with source.open('r+b') as stream:
+            stream.seek(-1, os.SEEK_END)
+            stream.write(b'\x01')
+        result = self.activation_guard('activated-unit', 'system-monitor@monitor-service.service')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('old SHM metadata changed', result.stdout)
+
+    def test_offline_b_activation_without_missing_watchdog(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        approval['units'].remove('gateway-health-watchdog.service')
+        self.activation_scripts(home, approval, watchdog=False)
+        env = {'OFFLINE_WATCHDOG_LOAD_STATE': 'not-found'}
+        self.assertEqual(0, self.offline_run(approval=approval, env=env).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate', env=env).returncode)
+        self.assertNotIn('start gateway-health-watchdog.service', self.log.read_text())
+        self.assertEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        self.assertEqual(0, self.offline_run('recover', env=env).returncode)
+
+    def test_offline_activation_does_not_promote_observing(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        self.assertEqual(0, self.offline_run('observe').returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        result = self.offline_run('activate')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('requires unchanged upgraded/stopped state', result.stdout)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_activation_unapproved_fence_and_watchdog_env_refused(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        fence_file = Path('/etc/systemd/system/compute-engine@fixture.service.d/90-offline-fixture-offline.conf')
+        original = fence_file.read_bytes()
+        fence_file.write_bytes(b'[Unit]\nConditionPathExists=\n')
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        fence_file.write_bytes(original)
+        envfile = Path('/etc/default/gateway-health-watchdog')
+        write(envfile, 'GATEWAY_SERVICES_SCRIPT=/tmp/unapproved\n')
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'gateway-health-watchdog.service').returncode)
+        envfile.unlink()
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_a_activation_qt_start_failure_stops_both(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service', 'ky-ems.service'])
+        result = self.offline_run('activate', env={'FAIL_QT_START': '1'})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('stop gateway-services.service', self.log.read_text())
+        self.assertIn('system-monitor@monitor-service.service', self.log.read_text())
+        self.assertEqual('FAILED_ACTIVATION_STOPPED', json.loads((self.root / 'transaction/state.json').read_text())['phase'])
+        self.assertNotEqual(0, self.activation_guard('activated-list').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_b_activation_same_boot_change_and_cold_boot(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        self.assertEqual(0, self.offline_run('activate').returncode)
+        target = Path('/dev/shm/offline_target_0')
+        with target.open('r+b') as stream:
+            stream.seek(-1, os.SEEK_END)
+            stream.write(b'\x01')
+        checked = self.activation_guard('activated-unit', 'system-monitor@monitor-service.service')
+        self.assertEqual(0, checked.returncode, checked.stdout)
+        old_default = Path('/dev/shm/gateway_point_store')
+        with old_default.open('r+b') as stream:
+            stream.seek(-1, os.SEEK_END)
+            stream.write(b'\x01')
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        state_path = self.root / 'transaction/state.json'
+        state = json.loads(state_path.read_text())
+        state['activationBootId'] = '00000000-0000-0000-0000-000000000000'
+        write(state_path, json.dumps(state))
+        active_path = home / 'data/runtime-upgrade-active.json'
+        active = json.loads(active_path.read_text())
+        active['stateSha256'] = hashlib.sha256(state_path.read_bytes()).hexdigest()
+        write(active_path, json.dumps(active))
+        for segment in approval['segments']:
+            (Path('/dev/shm') / segment['source']).unlink()
+            (Path('/dev/shm') / segment['target']).unlink()
+        self.assertEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual('current durable dedup\n', (home / 'data/control-dedup.sqlite').read_text())
+
+    def test_offline_a_activation_joint_binding(self):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        self.activation_scripts(home, approval, absent_guard=True)
+        self.assertFalse((home / 'bin/runtime-upgrade-guard.py').exists())
+        watchdog_env = Path('/etc/default/gateway-health-watchdog')
+        write(watchdog_env, 'UNKNOWN_A_WATCHDOG_SETTING=unchanged\n')
+        app = home / 'config/runtime/apps/monitor-service.json'
+        source = json.loads(app.read_text())
+        source.pop('cameraService')
+        source['mqtt']['enabled'] = True
+        source['systemMonitor']['directMaintenance']['enabled'] = True
+        write(app, json.dumps(source))
+        original = app.read_bytes()
+        approval['configSha256']['apps/monitor-service.json'] = hashlib.sha256(original).hexdigest()
+        approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']
+        camera = home / 'config/runtime/apps/camera-service.json'
+        camera_source = json.loads(camera.read_text())
+        camera_source.pop('deviceConfigFiles')
+        write(camera, json.dumps(camera_source))
+        approval['configSha256']['apps/camera-service.json'] = hashlib.sha256(camera.read_bytes()).hexdigest()
+        unexpected_guard = home / 'bin/runtime-upgrade-guard.py'
+        write(unexpected_guard, 'unapproved old guard\n')
+        self.assertNotEqual(0, self.offline_run(approval=approval).returncode)
+        unexpected_guard.unlink()
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.assertEqual((REPO / 'deploy/runtime-upgrade-guard.py').read_bytes(),
+                         (home / 'bin/runtime-upgrade-guard.py').read_bytes())
+        self.activation_ready(approval, ['system-monitor@monitor-service.service', 'ky-ems.service'])
+        result = self.offline_run('activate')
+        self.assertEqual(0, result.returncode, result.stdout)
+        checked = self.activation_guard('activated-unit', 'ky-ems.service')
+        self.assertEqual(0, checked.returncode, checked.stdout)
+        self.assertNotIn('start gateway-health-watchdog.service', self.log.read_text())
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'gateway-health-watchdog.service').returncode)
+        self.assertEqual('UNKNOWN_A_WATCHDOG_SETTING=unchanged\n', watchdog_env.read_text())
+        self.assertNotIn('start qt-display-bridge.service', self.log.read_text().splitlines())
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        self.assertEqual(original, app.read_bytes())
+        self.assertFalse((home / 'bin/runtime-upgrade-guard.py').exists())
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        guard_index = next(i for i, item in enumerate(state['files']) if item['path'] == 'bin/runtime-upgrade-guard.py')
+        self.assertEqual((REPO / 'deploy/runtime-upgrade-guard.py').read_bytes(),
+                         (self.root / 'transaction' / ('recovered-new-' + str(guard_index))).read_bytes())
+
+    def test_offline_b_activation_start_failure_refences(self):
+        home, approval, _ = self.b_implicit_default_fixture()
+        self.activation_scripts(home, approval)
+        self.assertEqual(0, self.offline_run(approval=approval).returncode)
+        self.activation_ready(approval, ['system-monitor@monitor-service.service'])
+        result = self.offline_run('activate', env={'FAIL_SYSTEMCTL_ACTION': 'start'})
+        self.assertNotEqual(0, result.returncode)
+        state = json.loads((self.root / 'transaction/state.json').read_text())
+        self.assertEqual('FAILED_ACTIVATION_STOPPED', state['phase'])
+        self.assertFalse((home / 'data/runtime-upgrade-active.json').exists())
+        self.assertNotEqual(0, self.activation_guard('activated-unit', 'system-monitor@monitor-service.service').returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
 
     def real_offline_fixture(self, scope='r4'):
         home, approval = self.offline_fixture()

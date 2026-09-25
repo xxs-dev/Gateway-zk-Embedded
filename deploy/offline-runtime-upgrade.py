@@ -34,6 +34,7 @@ A_QT_ENV_KEY = b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME'
 B_MONITOR_BINARY_SHA256 = '91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928'
 B_MONITOR_UNIT_SHA256 = '946e192e53d54482d0758aac4260575a617f2495b43ad87b4dd1a2f3257465a2'
 B_MONITOR_APPS = {'camera-service.json', 'monitor-service.json', 'mqtt-service.json'}
+ACTIVATION_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh')
 
 
 def require(condition, message):
@@ -485,6 +486,32 @@ def installed_inventory(home, paths, approval):
         require(not destination.exists() or relative in installed, 'unapproved existing destination')
 
 
+def activation_script_pins(home, approval, side):
+    pins = approval.get('activationStartupScripts')
+    if pins is None:
+        return None
+    require(isinstance(pins, dict) and set(pins) == set(ACTIVATION_SCRIPTS),
+            'activation startup scripts require exact two-file approval')
+    for name in ACTIVATION_SCRIPTS:
+        pin = pins[name]
+        require(isinstance(pin, dict) and set(pin) == {'oldSha256', 'newSha256', 'mode'} and
+                type(pin['mode']) is int and 0 < pin['mode'] <= 0o777 and
+                (pin['oldSha256'] is None and name == 'runtime-upgrade-guard.py' or
+                 isinstance(pin['oldSha256'], str) and re.fullmatch('[0-9a-f]{64}', pin['oldSha256'])) and
+                re.fullmatch('[0-9a-f]{64}', pin['newSha256']) and
+                digest(Path(__file__).with_name(name)) == pin['newSha256'],
+                'activation startup candidate not pinned: ' + name)
+        live = home / 'bin' / name
+        if side == 'old' and pin['oldSha256'] is None:
+            require(not any(part.is_symlink() for part in (live,) + tuple(live.parents)) and
+                    live.parent.is_dir() and not live.exists(), 'unexpected old activation guard')
+        else:
+            require(digest(regular(live)) == pin[side + 'Sha256'] and
+                    stat.S_IMODE(live.stat().st_mode) == pin['mode'],
+                    'activation startup installed script changed: ' + name)
+    return pins
+
+
 def no_mappings(names):
     identities = set()
     for name in names:
@@ -513,6 +540,7 @@ def read_inputs(args):
     home = Path(approval['gatewayHome'])
     require(re.fullmatch('/[A-Za-z0-9_/-]+', str(home)) and home.resolve() == home and
             str(home) not in ('/', '/opt'), 'unsafe gateway home')
+    activation_script_pins(home, approval, 'old')
     manifest = checked_json(args.manifest, approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
     paths = install_paths(components, approval)
@@ -736,6 +764,11 @@ def apply(args):
             payload = regular(path).read_bytes()
             require(hashlib.sha256(payload).hexdigest() == component['sha256'], 'staged component changed')
             changed.append((home / paths[component['target']], payload, 0o755))
+        if approval.get('activationStartupScripts') is not None:
+            activation_script_pins(home, approval, 'old')
+            for name in ACTIVATION_SCRIPTS:
+                changed.append((home / 'bin' / name, regular(Path(__file__).with_name(name)).read_bytes(),
+                                approval['activationStartupScripts'][name]['mode']))
         for relative, doc in documents.items():
             updated = switch_names(doc, names)
             if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
@@ -810,7 +843,10 @@ def recover(args):
     require(state['approvalSha256'] == args.approval_sha256, 'state approval mismatch')
     home = Path(approval['gatewayHome'])
     local_identity(home, approval)
-    fence(home, approval, args.state, state)
+    if state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT'):
+        refence_activation(home, approval, args.state, state)
+    else:
+        fence(home, approval, args.state, state)
     no_processes(home, [])
     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
@@ -832,11 +868,19 @@ def recover(args):
     for index, item in enumerate(state['files']):
         relative = Path(item['path'])
         require(not relative.is_absolute() and '..' not in relative.parts and
-                (str(relative) in products or relative.parts[:2] == ('config', 'runtime')) and
+                (str(relative) in products or relative.parts[:2] == ('config', 'runtime') or
+                 str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}) and
                 relative != Path('config/runtime/device_identity.json'), 'unsafe recovery path')
         if str(relative) in products:
             require(item['newSha256'] == products[str(relative)]['sha256'] and
                     item['oldSha256'] == approval['installedRuntimeSha256'].get(str(relative)), 'unapproved binary recovery')
+        elif str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}:
+            pins = approval.get('activationStartupScripts')
+            pin = pins.get(relative.name) if isinstance(pins, dict) else None
+            require(isinstance(pin, dict) and item['oldSha256'] == pin.get('oldSha256') and
+                    item['newSha256'] == pin.get('newSha256') and
+                    item['oldMode'] == (None if pin.get('oldSha256') is None else pin.get('mode')),
+                    'unapproved activation script recovery')
         else:
             require(item['oldSha256'] == approval['configSha256'].get(str(relative.relative_to('config/runtime'))),
                     'unapproved config recovery')
@@ -1038,9 +1082,203 @@ def observe(args):
     print('OBSERVING_CONTROL_DISABLED: selected observers active; drivers/launcher remain fenced; no physical approval')
 
 
+def activation_units(approval, readers):
+    watchdog = ('gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
+    return ['gateway-services.service'] + (['gateway-health-watchdog.service'] if watchdog else []) + readers
+
+
+def inhibition_dropin(home, transaction, unit):
+    path = Path('/etc/systemd/system') / (unit + '.d') / ('90-offline-' + transaction + '.conf')
+    body = ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
+    return path, body
+
+
+def refence_activation(home, approval, state_dir, state):
+    allowed = state.get('activatedUnits', [])
+    require(isinstance(allowed, list) and allowed == activation_units(approval,
+            [MONITOR_UNIT] if state['activationProfile'] == 'B_MONITOR' else [MONITOR_UNIT, A_QT_UNIT]),
+            'invalid activation recovery scope')
+    require(regular(home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'],
+            'activation recovery marker changed')
+    active_path = home / 'data' / guard.ACTIVATION_FILE
+    if active_path.exists() or active_path.is_symlink():
+        record = json.loads(regular(active_path).read_text())
+        require(record.get('stateDir') == str(state_dir) and
+                record.get('transactionId') == approval['transactionId'] and
+                record.get('allowedUnits') == allowed, 'foreign activation record')
+    owned = [unit for unit in approval['units'] if not unit.endswith('@.service')]
+    require(set(allowed) <= set(owned), 'activation recovery unit scope changed')
+    stop_results = [{'unit': unit, 'stopOk': False, 'activeState': 'unknown', 'mainPid': 'unknown'}
+                    for unit in owned]
+    try:
+        systemctl('stop', *owned)
+        for row in stop_results:
+            row['stopOk'] = True
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        output = systemctl('show', '--property=Id,ActiveState,MainPID', *owned)
+        records = {}
+        for block in output.split('\n\n'):
+            fields = dict(line.split('=', 1) for line in block.splitlines())
+            require(set(fields) == {'Id', 'ActiveState', 'MainPID'} and
+                    fields['Id'] in owned and fields['Id'] not in records,
+                    'unexpected activation stop status')
+            records[fields['Id']] = fields
+        require(set(records) == set(owned), 'incomplete activation stop status')
+        for row in stop_results:
+            fields = records[row['unit']]
+            row['activeState'] = fields['ActiveState']
+            row['mainPid'] = fields['MainPID']
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    state['activationStopResult'] = stop_results
+    drift = []
+    for unit in approval['units']:
+        path, inhibited = inhibition_dropin(home, approval['transactionId'], unit)
+        _, active = (guard.active_dropin(home, approval['transactionId'], unit) if unit in allowed else
+                     guard.denied_dropin(home, approval['transactionId'], unit))
+        try:
+            current = regular(path).read_bytes()
+            if current not in (inhibited, active):
+                drift.append(unit)
+            elif current != inhibited:
+                replace(path, inhibited, 0o644)
+        except (OSError, ValueError):
+            drift.append(unit)
+    try:
+        systemctl('daemon-reload')
+    except (OSError, ValueError, subprocess.SubprocessError):
+        drift.append('daemon-reload')
+    if active_path.exists():
+        active_path.unlink()
+        sync_dir(active_path.parent)
+    stopped = all(row['stopOk'] and row['activeState'] in ('inactive', 'failed') and row['mainPid'] == '0'
+                  for row in stop_results)
+    if not stopped or drift:
+        state['phase'] = 'FAILED_STOP_UNCONFIRMED'
+        state['activationFenceDrift'] = drift
+        save(state_dir / 'state.json', state)
+        raise ValueError('activation refence unconfirmed; stop results retained; drift=' + ','.join(drift))
+    save(state_dir / 'state.json', state)
+
+
+def activate(args):
+    require(args.ready and args.ready_sha256, 'activate requires separate fixed approval')
+    ready = checked_json(args.ready, args.ready_sha256)
+    require(ready.get('schemaVersion') == 'offline-shm11-activate-1' and
+            ready.get('controlEnabled') is False and type(ready.get('expiresAtUnix')) is int and
+            time.time() < ready['expiresAtUnix'], 'invalid/expired activation approval')
+    state = checked_json(args.state / 'state.json', ready['stateSha256'])
+    require(state['phase'] == 'UPGRADED_STOPPED' and state['approvalSha256'] == args.approval_sha256,
+            'activate requires unchanged upgraded/stopped state')
+    approval = checked_json(args.state / 'approval.json', args.approval_sha256)
+    home = Path(approval['gatewayHome'])
+    mode = approval_mode(approval)
+    require(mode == 'standalone' and ready.get('mode') == mode and
+            ready.get('transactionId') == approval['transactionId'] and
+            ready.get('approvalSha256') == args.approval_sha256 and
+            ready.get('programManifestSha256') == approval['programManifestSha256'] and
+            'voters' not in ready and isinstance(ready.get('local'), dict) and
+            ready['local'].get('nodeId') == approval['nodeId'] and
+            ready['local'].get('phase') == 'UPGRADED_STOPPED' and
+            ready['local'].get('stateSha256') == ready['stateSha256'] and
+            ready['local'].get('programManifestSha256') == approval['programManifestSha256'] and
+            ready['local'].get('controlEnabled') is False,
+            'activation ready lineage or participant changed')
+    local_identity(home, approval)
+    require(regular(home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'] and
+            not (home / 'data' / guard.ACTIVATION_FILE).exists(), 'activation fence/record changed')
+    require(activation_script_pins(home, approval, 'new') is not None and
+            {'bin/' + name for name in ACTIVATION_SCRIPTS} <= {item['path'] for item in state['files']},
+            'activation requires installed paired startup scripts')
+    manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
+    components = [c for c in manifest['components'] if c.get('kind') == 'product']
+    paths = install_paths(components, approval)
+    for component in components:
+        require(digest(home / paths[component['target']]) == component['sha256'],
+                'installed component no longer approved')
+    installed_inventory(home, paths, {'installedRuntimeSha256': {
+        paths[c['target']]: c['sha256'] for c in components}})
+    require(tree_hashes(home / 'config/runtime') == state['configSha256'], 'activated configuration changed')
+    documents = configured(home / 'config/runtime')
+    for doc in documents.values():
+        controls_disabled(doc)
+    for segment in state['segments']:
+        for side in ('source', 'target'):
+            require(digest(Path('/dev/shm') / segment[side]) == segment[side + 'Sha256'],
+                    'SHM changed before activation')
+    no_processes(home, [c['target'] for c in components])
+    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')])
+    units_stopped(approval['units'])
+    readers = ready.get('startUnits')
+    monitor = checked_monitor_record(args.state, state, approval)
+    joint = checked_a_joint_record(args.state, state, approval)
+    if joint and readers == [MONITOR_UNIT, A_QT_UNIT]:
+        profile, monitor_source = 'A_MONITOR_QT', MONITOR_IMPLICIT_SHM
+        a_joint_monitor_observe_safe(home, approval, state, readers, joint, documents, True)
+        require(systemctl('show', '--property=ActiveState', '--value', 'graphical.target') == 'active',
+                'A Qt activation requires already-active graphical target')
+    elif monitor and not joint and readers == [MONITOR_UNIT]:
+        profile, monitor_source = 'B_MONITOR', monitor[0]['source']
+        b_monitor_default_safe(home, approval, manifest, state, readers, monitor, documents)
+        monitor_default_unit_binding(approval, True)
+        require(monitor_effective_target(monitor[0]['target']), 'B monitor effective target changed')
+    else:
+        raise ValueError('only pinned B monitor or A joint monitor/Qt activation supported')
+    allowed = activation_units(approval, readers)
+    for unit in approval['units']:
+        path, body = inhibition_dropin(home, approval['transactionId'], unit)
+        require(regular(path).read_bytes() == body, 'activation inhibition changed: ' + unit)
+    source_meta = {}
+    for segment in state['segments']:
+        info = regular(Path('/dev/shm') / segment['source']).stat()
+        source_meta[segment['source']] = {'dev': info.st_dev, 'ino': info.st_ino, 'size': info.st_size,
+                                          'mtimeNs': info.st_mtime_ns, 'ctimeNs': info.st_ctime_ns}
+    write_new(args.state / 'activation-ready.json', regular(args.ready).read_bytes())
+    state.update(phase='ACTIVATING', activationProfile=profile, activationMonitorSource=monitor_source,
+                 activationReadySha256=args.ready_sha256, activatedUnits=allowed,
+                 activationBootId=regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip(),
+                 activationSourceMetadata=source_meta,
+                 activationGuardSha256=digest(home / 'bin/runtime-upgrade-guard.py'),
+                 activationLauncherSha256=digest(home / 'bin/gateway-services.sh'))
+    save(args.state / 'state.json', state)
+    try:
+        for unit in approval['units']:
+            path, _ = inhibition_dropin(home, approval['transactionId'], unit)
+            _, body = (guard.active_dropin(home, approval['transactionId'], unit) if unit in allowed else
+                       guard.denied_dropin(home, approval['transactionId'], unit))
+            replace(path, body, 0o644)
+        systemctl('daemon-reload')
+        state['phase'] = 'ACTIVATED_CONTROL_DISABLED'
+        save(args.state / 'state.json', state)
+        active = {'stateDir': str(args.state), 'stateSha256': digest(args.state / 'state.json'),
+                  'approvalSha256': args.approval_sha256, 'readySha256': args.ready_sha256,
+                  'transactionId': approval['transactionId'], 'allowedUnits': allowed}
+        write_new(home / 'data' / guard.ACTIVATION_FILE, (json.dumps(active, sort_keys=True) + '\n').encode())
+        for unit in readers:
+            guard.activated_unit(home, unit)
+            systemctl('start', unit)
+            systemctl('is-active', '--quiet', unit)
+        guard.activated_unit(home, 'gateway-services.service')
+        systemctl('start', 'gateway-services.service')
+        if 'gateway-health-watchdog.service' in allowed:
+            systemctl('start', 'gateway-health-watchdog.service')
+        units_stopped([unit for unit in approval['units'] if unit not in allowed])
+    except BaseException:
+        try:
+            refence_activation(home, approval, args.state, state)
+            state['phase'] = 'FAILED_ACTIVATION_STOPPED'
+        except BaseException:
+            state['phase'] = 'FAILED_STOP_UNCONFIRMED'
+        save(args.state / 'state.json', state)
+        raise
+    print('ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('apply', 'recover', 'observe'))
+    parser.add_argument('action', choices=('apply', 'recover', 'observe', 'activate'))
     parser.add_argument('--approval', type=Path)
     parser.add_argument('--approval-sha256', required=True)
     parser.add_argument('--manifest', type=Path)

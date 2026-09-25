@@ -284,6 +284,66 @@ can subsequently stop those observers and restore files while remaining fenced.
 Starting physical participants or enabling control remains a separate release
 decision and is intentionally not an option on this entrypoint.
 
+## Persistent control-disabled activation
+
+`activate` is a separate, locally bounded lifecycle step from
+`UPGRADED_STOPPED`; it cannot promote `OBSERVING`. It requires a separately
+approved, unexpired `offline-shm11-activate-1` ready JSON whose state,
+approval, manifest, node, mode, ordered `startUnits`, and `controlEnabled:false`
+lineage match the stopped transaction:
+
+```sh
+python3 deploy/offline-runtime-upgrade.py activate \
+  --approval-sha256 ORIGINAL_APPROVAL_SHA256 \
+  --state /persistent/offline/unique-transaction \
+  --ready /persistent/offline/activation-ready.json \
+  --ready-sha256 SEPARATELY_APPROVED_SHA256
+```
+
+Only standalone pinned B SystemMonitor or A joint SystemMonitor/Qt profiles
+are supported. The approved readers, launcher, and an actually installed and
+approved watchdog receive exact `ExecStartPre` activation guards. The old A
+installation may explicitly pin an absent `runtime-upgrade-guard.py`;
+apply installs it, while recover retains the new bytes in transaction evidence
+and restores the original absence. The launcher must always have a pinned old
+file and mode. The original `runtime-upgrade-stop` marker remains; all other approved units retain their
+transaction `ConditionPathExists` fences. The launcher `start/list` and
+watchdog's launcher list see only the same reader set. A joint activation keeps
+the watchdog fenced even when its unit exists, because its installed env
+override has not been qualified. Denied units, including
+template instances and Bridge, also carry their own rejecting `ExecStartPre`
+so a dependency start cannot bypass the Condition fence. A missing watchdog is
+omitted only when `LoadState=not-found` was established at apply. An included
+watchdog requires its pinned unit/script and no `/etc/default` override.
+The A profile keeps Bridge inactive/inhibited and requires `graphical.target`
+already active; no physical unit or MQTT/direct-maintenance ingress is enabled.
+
+Activation revalidates installed products, configuration, binding, SHM bodies,
+stopped units and absence of old mappings before publication. Each subsequent
+approved unit start checks the pinned entry files/effective drop-ins, current
+config and target ABI, old source isolation, and the A/B profile binding. The
+launcher `list` reads only small hash-bound transaction files and paired
+startup scripts; it does not scan binaries or SHM. In the same boot, old sources
+must retain their recorded file identity/metadata and be unmapped; the old
+unreferenced default additionally retains its full body hash. After a boot
+change, old sources must be absent, while missing V11 targets may be cold-built
+by the approved V11 readers. Live target body hashes are not frozen after
+activation. A transaction-period launcher stop stops services without changing
+their original enabled policy.
+
+`recover` re-fences and stops the activated readers/launcher/watchdog before
+restoring original program/config/binding bytes. It keeps old V10 SHM, target
+SHM evidence and durable dedup intact; repeated recovery remains stopped.
+Refence issues one bounded batch stop for all approved non-template units and one batch
+status query before checking drop-in files; a failed or unknown result records
+`FAILED_STOP_UNCONFIRMED` rather than silently restoring files.
+Interrupted activation is not a physical-control approval. Local tests use
+private namespaces and a fake systemctl that executes pinned pre-start
+commands in dependency order; ARM/systemd runtime behavior, actual
+reader inode mappings, ingress state, and deployment approval remain external
+qualification gates. Existing packaged scripts predating this activation change
+are intentionally refused by the paired-script check.
+
 ## Current qualification boundary
 
 Local tests cover actual fixed-voter R4/S2 full app/roster inputs, the real

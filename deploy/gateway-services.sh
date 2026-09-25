@@ -118,6 +118,9 @@ stop_units() {
   # Stop all instances together so OTA/config switching is bounded by the slowest
   # driver, not by the sum of every serial port timeout.
   systemctl stop $units
+  if [ -e "$BASE_DIR/data/runtime-upgrade-stop" ] || [ -L "$BASE_DIR/data/runtime-upgrade-stop" ]; then
+    return 0
+  fi
   for unit in $units; do
     [ -z "$unit" ] && continue
     systemctl disable "$unit" >/dev/null 2>&1 || true
@@ -540,7 +543,7 @@ start_one_unit() {
 
 start_units() {
   units_file="${TMPDIR:-/tmp}/gateway-services-desired.$$"
-  if ! desired_units > "$units_file"; then
+  if ! listed_units > "$units_file"; then
     rm -f "$units_file"
     return 1
   fi
@@ -560,6 +563,14 @@ start_units() {
   return "$result"
 }
 
+listed_units() {
+  if [ -e "$BASE_DIR/data/runtime-upgrade-stop" ] || [ -L "$BASE_DIR/data/runtime-upgrade-stop" ]; then
+    python3 "$(dirname -- "$0")/runtime-upgrade-guard.py" activated-list "$BASE_DIR"
+  else
+    desired_units
+  fi
+}
+
 run_with_apply_marker() {
   action="$1"
   mark_manual_stop
@@ -567,9 +578,14 @@ run_with_apply_marker() {
   trap 'finish_configuration_apply' EXIT HUP INT TERM
   case "$action" in
     apply)
-      stop_units
-      reset_point_store_segments
-      start_units
+      if [ -e "$BASE_DIR/data/runtime-upgrade-stop" ] || [ -L "$BASE_DIR/data/runtime-upgrade-stop" ]; then
+        reset_point_store_segments
+        start_units
+      else
+        stop_units
+        reset_point_store_segments
+        start_units
+      fi
       ;;
     start)
       reset_point_store_segments
@@ -595,7 +611,7 @@ case "${1:-apply}" in
     stop_units
     ;;
   list)
-    desired_units
+    listed_units
     ;;
   *)
     echo "Usage: gateway-services.sh [apply|restart|start|stop|list]" >&2
