@@ -1785,6 +1785,35 @@ exec /bin/cp "$@"
     def test_offline_recovered_a_absent_guard_handoff_activation_roundtrip(self):
         self.recovered_handoff_roundtrip('A')
 
+    def test_offline_recovered_handoff_ancestor_id_reuse_refused(self):
+        home, first, second, receipt = self.recovered_handoff_fixture('B')
+        self.assertEqual(0, self.offline_run(approval=second, state_name='transaction-next').returncode)
+        self.assertEqual(0, self.offline_run('recover', state_name='transaction-next').returncode)
+        second_dir = self.root / 'transaction-next'
+        sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+        receipt.update(transactionId=second['transactionId'], stateSha256=sha(second_dir / 'state.json'),
+                       approvalSha256=sha(second_dir / 'approval.json'),
+                       retainedTargetsSha256={s['target']: sha(Path('/dev/shm') / s['target']) for s in second['segments']})
+        receipt_path = self.root / 'second-recovered.json'
+        write(receipt_path, json.dumps(receipt))
+        third = copy.deepcopy(second)
+        third['transactionId'] = first['transactionId']
+        for i, segment in enumerate(third['segments']):
+            segment['target'] = 'third_target_' + str(i)
+        third['recoveredFrom'] = dict(stateDir=str(second_dir), stateSha256=receipt['stateSha256'],
+            approvalSha256=receipt['approvalSha256'], receiptPath=str(receipt_path), receiptSha256=sha(receipt_path))
+        first_state = sha(self.root / 'transaction/state.json')
+        result = self.offline_run(approval=third, state_name='transaction-third')
+        old_recover = self.offline_run('recover', approval=first)
+        write(EVIDENCE / (self.id().split('.')[-1] + '-observed.json'), json.dumps({
+            'reuseApplyExit': result.returncode, 'firstRecoverExit': old_recover.returncode,
+            'firstStateChanged': first_state != sha(self.root / 'transaction/state.json')}))
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertNotEqual(0, old_recover.returncode)
+        self.assertEqual(first_state, sha(self.root / 'transaction/state.json'))
+        self.assertEqual(second['transactionId'] + '\n', (home / 'data/runtime-upgrade-stop').read_text())
+        self.assertFalse((self.root / 'transaction-third').exists())
+
     def test_offline_recovered_handoff_drift_refused_before_ownership(self):
         home, old, new, _ = self.recovered_handoff_fixture('B')
         marker = home / 'data/runtime-upgrade-stop'
@@ -1847,9 +1876,14 @@ exec /bin/cp "$@"
             manifest=self.root / 'program-manifest.json', payload=self.root / 'payload', state=self.root / 'transaction-next')
         marker = home / 'data/runtime-upgrade-stop'
         original_write, original_replace, original_unlink = module.write_new, module.replace, Path.unlink
+        partial_files = []
         def interrupted_write(path, *args, **kwargs):
             if boundary == 'new-fence' and path.name == '90-offline-fixture-next.conf':
                 raise OSError('injected interruption before first successor fence')
+            if boundary == 'partial-fence' and '90-offline-fixture-next.conf' in path.name:
+                original_write(path, args[0][:8], *args[1:], **kwargs)
+                partial_files.append(path)
+                raise OSError('injected interruption after partial successor fence write')
             return original_write(path, *args, **kwargs)
         def interrupted_replace(path, *args, **kwargs):
             if boundary == 'marker' and path == marker:
@@ -1876,6 +1910,8 @@ exec /bin/cp "$@"
             self.assertNotEqual(0, self.offline_run('recover', approval=old).returncode)
         result = self.offline_run('recover', approval=new, state_name='transaction-next')
         self.assertEqual(0, result.returncode, result.stdout)
+        for path in partial_files:
+            self.assertEqual(b'[Unit]\nC', path.read_bytes())
         self.assertEqual(0, self.offline_run('recover', state_name='transaction-next').returncode)
         self.assertNotEqual(0, self.offline_run(approval=new, state_name='transaction-next').returncode)
         self.assertNotIn('\nstart ', '\n' + self.log.read_text())
@@ -1905,6 +1941,9 @@ exec /bin/cp "$@"
 
     def test_offline_recovered_handoff_interrupted_during_archive(self):
         self.recovered_handoff_interrupted('archive')
+
+    def test_offline_recovered_handoff_interrupted_after_partial_fence_write(self):
+        self.recovered_handoff_interrupted('partial-fence')
 
     def activation_guard(self, action, unit=None, extra_env=None):
         command = ['python3', str(REPO / 'deploy/runtime-upgrade-guard.py'), action, '/opt/modbus-gateway']
