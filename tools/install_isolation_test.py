@@ -924,6 +924,41 @@ exec /bin/cp "$@"
         self.assertEqual(0, self.offline_run('recover').returncode)
         self.assertEqual(original, app.read_bytes())
 
+    def a_camera_device_list_case(self, value, present, accepted):
+        home, approval, _ = self.a_joint_monitor_fixture()
+        camera = home / 'config/runtime/apps/camera-service.json'
+        document = json.loads(camera.read_text())
+        if present:
+            document['deviceConfigFiles'] = value
+        else:
+            del document['deviceConfigFiles']
+        write(camera, json.dumps(document))
+        approval['configSha256']['apps/camera-service.json'] = hashlib.sha256(camera.read_bytes()).hexdigest()
+        applied = self.offline_run(approval=approval)
+        self.assertEqual(0, applied.returncode, applied.stdout)
+        ready = self.offline_ready(approval)
+        ready['startUnits'] = ['system-monitor@monitor-service.service']
+        write(self.root / 'ready.json', json.dumps(ready))
+        observed = self.offline_run('observe')
+        if accepted:
+            self.assertEqual(0, observed.returncode, observed.stdout)
+        else:
+            self.assertNotEqual(0, observed.returncode, observed.stdout)
+            self.assertIn('A joint monitor loader or disabled camera shape changed', observed.stdout)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+
+    def test_offline_a_camera_device_list_absent(self):
+        self.a_camera_device_list_case(None, False, True)
+
+    def test_offline_a_camera_device_list_null(self):
+        self.a_camera_device_list_case(None, True, True)
+
+    def test_offline_a_camera_device_list_nonempty_refused(self):
+        self.a_camera_device_list_case(['/opt/modbus-gateway/config/runtime/devices/unknown.json'], True, False)
+
+    def test_offline_a_camera_device_list_wrong_type_refused(self):
+        self.a_camera_device_list_case('not-an-array', True, False)
+
     def test_offline_non_a_inbound_disable_pin_refused(self):
         home, approval, _ = self.b_implicit_default_fixture()
         approval['aInboundDisableSourceSha256'] = approval['configSha256']['apps/monitor-service.json']

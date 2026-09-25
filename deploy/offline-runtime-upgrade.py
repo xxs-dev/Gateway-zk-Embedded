@@ -370,7 +370,7 @@ def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documen
     require(isinstance(app, dict) and app.get('deviceConfigFiles') ==
             [device_file] and isinstance(mqtt_app, dict) and
             mqtt_app.get('deviceConfigFiles') == [device_file] and
-            isinstance(camera_app, dict) and camera_app.get('deviceConfigFiles') == [] and
+            isinstance(camera_app, dict) and camera_app.get('deviceConfigFiles') in (None, []) and
             isinstance(camera_app.get('cameraService'), dict) and
             camera_app['cameraService'].get('enabled') is False and
             all('cameraService' not in doc or

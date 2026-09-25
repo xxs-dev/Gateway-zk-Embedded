@@ -1,0 +1,35 @@
+test_offline_a_camera_device_list_absent (__main__.InstallIsolationTest.test_offline_a_camera_device_list_absent) ... FAIL
+test_offline_a_camera_device_list_null (__main__.InstallIsolationTest.test_offline_a_camera_device_list_null) ... FAIL
+
+======================================================================
+FAIL: test_offline_a_camera_device_list_absent (__main__.InstallIsolationTest.test_offline_a_camera_device_list_absent)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 951, in test_offline_a_camera_device_list_absent
+    self.a_camera_device_list_case(None, False, True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 944, in a_camera_device_list_case
+    self.assertEqual(0, observed.returncode, observed.stdout)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : offline upgrade refused/failed: A joint monitor loader or disabled camera shape changed
+Keep all participants stopped; no automatic ABI rollback.
+
+
+======================================================================
+FAIL: test_offline_a_camera_device_list_null (__main__.InstallIsolationTest.test_offline_a_camera_device_list_null)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 954, in test_offline_a_camera_device_list_null
+    self.a_camera_device_list_case(None, True, True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/install_isolation_test.py", line 944, in a_camera_device_list_case
+    self.assertEqual(0, observed.returncode, observed.stdout)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : offline upgrade refused/failed: A joint monitor loader or disabled camera shape changed
+Keep all participants stopped; no automatic ABI rollback.
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 3.758s
+
+FAILED (failures=2)

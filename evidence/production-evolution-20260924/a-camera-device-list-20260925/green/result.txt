@@ -1,0 +1,10 @@
+test_offline_a_camera_device_list_absent (__main__.InstallIsolationTest.test_offline_a_camera_device_list_absent) ... ok
+test_offline_a_camera_device_list_null (__main__.InstallIsolationTest.test_offline_a_camera_device_list_null) ... ok
+test_offline_a_camera_device_list_nonempty_refused (__main__.InstallIsolationTest.test_offline_a_camera_device_list_nonempty_refused) ... ok
+test_offline_a_camera_device_list_wrong_type_refused (__main__.InstallIsolationTest.test_offline_a_camera_device_list_wrong_type_refused) ... ok
+test_offline_a_joint_absent_camera_default_observe (__main__.InstallIsolationTest.test_offline_a_joint_absent_camera_default_observe) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 9.247s
+
+OK
