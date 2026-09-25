@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "workItem": "GW-20260809-002",
+  "date": "2026-09-25",
+  "type": "DOCUMENTATION_ONLY_COMPATIBILITY_ADDENDUM",
+  "productFixCommit": "2bd5f0274e48d900bcb50cad646be1262b879c22",
+  "originalGreenReceipt": {
+    "path": "doc/evidence/full-identity-expiry-20260925-green.json",
+    "sha256": "2e0334afcbac3b1a56558a71835263dad99bf9a78a4db789413bc7e89896e23e",
+    "unchanged": true
+  },
+  "status": "NOT_DEPLOYMENT_COMPATIBLE_UNTIL_CONSUMERS_ARE_READY",
+  "findingSource": "Coordinator relay of the Windows consumer audit; not independently executed by the edge role",
+  "finding": "Current Windows MQTT consumer fails the entire batch when a point value is null. Existing encoder support and local edge GREEN do not prove compatibility with installed consumers.",
+  "sentinel": {"value": null, "quality": 0, "stale": true, "ts": 0, "expireAt": 0},
+  "dependencies": [
+    "Platform: exclude the exact missing-sample sentinel from history and preserve existing valid latest values; never treat it as valid control input",
+    "Windows: recognize the exact missing-sample sentinel without failing the batch or losing other valid points, while keeping it invalid/missing rather than a numeric zero",
+    "Implementation: narrowly recognize the exact sentinel in acceptance without weakening exact configured identity, chunk integrity, good/fresh or safety checks"
+  ],
+  "rolloutOrder": [
+    "Finish and pin Platform, Windows and Implementation consumer/acceptance fixes and their tests",
+    "Under separately granted release authority, upgrade all affected Platform and Windows consumers first and verify both existing numeric frames and exact missing-sample frames; do not enable the edge sender while an incompatible consumer remains",
+    "Only after consumer readiness and separate AArch64 build/target-validation/deployment authorization, integrate and enable the edge sender fix",
+    "Perform joint end-to-end acceptance; local GREEN and exact identity completeness alone are not deployment approval or physical acquisition success"
+  ],
+  "evidencePolicy": "This addendum supplements the original receipt's compatibility/dependency statements only. It does not change the product fix, original RED/GREEN receipts, source hashes, test binary hashes or recorded results. No tests rerun for this documentation-only update.",
+  "deviceAccess": false,
+  "armBuild": false,
+  "deployment": false,
+  "stableMerge": false,
+  "remaining": "4561 not-refreshing cause remains unresolved; previous actual run remains RECOVERED_STOPPED with no cycle and zero physical writes."
+}
