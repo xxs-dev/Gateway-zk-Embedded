@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "workItem": "GW-20260809-002",
+  "sourceBase": "a6037cff3119d73d86402e07aae59c5d80765c2f",
+  "scope": "Local native regression only; no device/network access, ARM/Windows build, deployment, stable merge or push",
+  "actualObservation": {
+    "source": "Previously sealed observer-request-before-cycle.json and observer-wire.jsonl",
+    "packets": 6,
+    "identityCounts": [151, 150, 150, 150, 150, 150],
+    "missingIdentity": ["T2216_modbusRTU_2_slave_1", 4561, "mb2_s1_4561"],
+    "firstPacketSample": [4561, "mb2_s1_4561", 0, 0, 1790303376246, 1790303976246, true],
+    "samePublisherPid": 4079413,
+    "allPacketsCompleteSingleChunk": true,
+    "lastChunkId": "1790332947231-4079413-6",
+    "sourceDeviceSha256": "75e3740da48961bf928b0cdeeb9815ff6919f1e233ef8d0126679a2750abbdf0",
+    "bindingIdentitySha256": "405a1088e1159cfb2287dcb9614480d8e184f762c9e8056beb5faf3a99ebfea2"
+  },
+  "nativeReproduction": {
+    "build": "WSL Ubuntu, GNU 15.2.0, CMake Debug, all library objects built from this worktree",
+    "buildDirectory": "/var/tmp/gw-full-identity-20260925-build",
+    "command": "./mqtt_driver_service_test --full-identity",
+    "runs": 2,
+    "exitCodes": [1, 1],
+    "output": "full identity before=151 rawAfterSweep=150 publishedAfterSweep=150; full lost configured identity 4561 after expiry sweep",
+    "model": "151 synthetic configured points; recorded expiry timestamps for 4561; real MemoryPointStore, PointStoreRouter and MqttDriverService; in-memory capturing publisher",
+    "fixtureCorrection": "Initial fixture registered nested meters via top-level-only registerDevicePoints and failed earlier. Corrected to registerPoints for each meter before the two reported RED runs.",
+    "environmentWarning": "WSL emits an existing localhost proxy startup warning; CMake/native build succeeds. This is not target-device evidence."
+  },
+  "diagnosis": {
+    "confirmedLocalMechanism": "GatewayDaemon runs removeExpired every 5 seconds. MemoryPointStore clears an expired slot even if actively claimed; router skips absent samples; full publisher uses only returned samples, silently losing configured identity.",
+    "fixBoundary": "Complete selected routed identities only for primary full snapshots with null value, quality=0, stale=true, ts=0 and expireAt=0. Do not repopulate the store or alter TTL/realtime/legacy semantics.",
+    "openIssue": "Why 4561 never refreshed is unproven. Existing public projection lacks address/length/cachePolicy and no point-specific RTU error log is available. No new collection was requested.",
+    "acceptance": "Exact 151 identity gate remains unchanged. Identity completeness is not freshness or successful physical acquisition. Actual before-cycle acceptance failed; cycle never ran and recovery remains RECOVERED_STOPPED."
+  }
+}

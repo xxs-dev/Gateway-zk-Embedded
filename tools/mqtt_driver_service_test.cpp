@@ -48,6 +48,7 @@ public:
     ) override {
         fullSnapshotTopics.push_back(topic);
         fullSnapshotCounts.push_back(values.size());
+        fullSnapshotValues.push_back(values);
     }
 
     void publishAlarm(
@@ -128,6 +129,7 @@ public:
 
     std::vector<MqttIncomingMessage> incoming;
     std::vector<std::size_t> fullSnapshotCounts;
+    std::vector<std::vector<StoredPointValue>> fullSnapshotValues;
     std::vector<std::string> fullSnapshotTopics;
     std::vector<std::string> onDemandTopics;
     std::vector<std::size_t> onDemandCounts;
@@ -484,6 +486,90 @@ void testFullUploadOnlyWithoutRealtimeSession() {
     require(fixture.publisher->fullSnapshotCounts.size() == 1, "full snapshot should publish when full interval is due");
     require(fixture.publisher->fullSnapshotCounts.back() == 2, "full snapshot should include configured full points");
     require(fixture.publisher->onDemandCounts.empty(), "full upload should not publish realtime demand messages");
+    cleanupFixture(fixture);
+}
+
+void testFullIdentitySurvivesExpiredSlotRemoval() {
+    auto fixture = makeFixture("full_identity_expiry", 5000);
+    fixture.service.reset();
+    fixture.router = PointStoreRouter();
+    fixture.deviceConfig.meters.clear();
+    fixture.driverConfig.fullUploadIndexes.clear();
+    for (int slave = 1; slave <= 3; ++slave) {
+        LogicalDeviceConfig meter;
+        meter.meterCode = "T2216_modbusRTU_2_slave_" + std::to_string(slave);
+        const std::uint32_t first = slave == 1 ? 4500 : (slave == 2 ? 4562 : 4625);
+        const std::uint32_t last = slave == 1 ? 4561 : (slave == 2 ? 4624 : 4650);
+        for (auto index = first; index <= last; ++index) {
+            meter.points.push_back(makePoint(index,
+                "mb2_s" + std::to_string(slave) + "_" + std::to_string(index)));
+        }
+        fixture.deviceConfig.meters.push_back(meter);
+    }
+    for (const auto& meter : fixture.deviceConfig.meters) {
+        fixture.store->registerPoints(fixture.deviceConfig.machineCode, meter.meterCode, meter.points);
+    }
+    fixture.router.addStore(fixture.shmName, *fixture.store);
+    fixture.router.addRoutesFromDeviceConfigs({fixture.deviceConfig}, fixture.shmName);
+    // Reproduce the recorded stale 4561 followed by a 5-second expiry sweep.
+    const std::int64_t nowMs = 1790332922178LL;
+    for (std::uint32_t index = 4500; index <= 4650; ++index) {
+        PointValue value;
+        value.index = index;
+        value.value = index == 4561 ? 0 : 12.3;
+        value.quality = index == 4561 ? 0 : 1;
+        value.ts = index == 4561 ? 1790303376246LL : 1790332918320LL;
+        value.expireAt = index == 4561 ? 1790303976246LL : 1790333518320LL;
+        require(fixture.router.putLatestByIndex(value).accepted, "failed to seed full identity fixture");
+    }
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher));
+    fixture.service->publishFullSnapshotNow(nowMs);
+    require(fixture.publisher->fullSnapshotCounts.back() == 151, "pre-sweep full must contain 151");
+    const auto before = fixture.router.getLatestByIndex(4561, nowMs);
+    require(before && before->stale && before->quality == 0 && before->ts == 1790303376246LL,
+        "recorded stale sample was not reproduced");
+
+    fixture.store->heartbeatRegisteredPoints(nowMs + 5000);
+    fixture.store->removeExpired(nowMs + 5000);
+    require(!fixture.router.getLatestByIndex(4561, nowMs + 5000), "TTL must still remove expired slot");
+    require(fixture.router.getAllLatest(nowMs + 5000).size() == 150, "raw router must keep missing semantics");
+    fixture.service->publishFullSnapshotNow(nowMs + 5000);
+    const auto values = fixture.publisher->fullSnapshotValues.back();
+    std::cout << "full identity before=151 rawAfterSweep=150 publishedAfterSweep=" << values.size() << '\n';
+    require(values.size() == 151, "full lost configured identity 4561 after expiry sweep");
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const auto& value = values[i];
+        const auto route = fixture.router.routeByIndex(4500 + static_cast<std::uint32_t>(i));
+        require(route && value.index == route->index && value.machineCode == route->machineCode &&
+            value.meterCode == route->meterCode && value.pointCode == route->pointCode,
+            "full must preserve each exact routed identity once in index order");
+        if (value.index == 4561) {
+            require(std::isnan(value.value) && value.quality == 0 && value.stale &&
+                value.ts == 0 && value.expireAt == 0, "missing sample must be explicitly unknown, bad and stale");
+        } else {
+            require(value.value == 12.3 && value.quality == 1 && !value.stale &&
+                value.ts == 1790332918320LL && value.expireAt == 1790333518320LL,
+                "full completion altered an existing fresh sample");
+        }
+    }
+    require(!fixture.router.getLatestByIndex(4561, nowMs + 5000), "full must not write placeholder to store");
+    fixture.publisher->incoming.push_back(realtimeRequest("{\"indexes\":[4561]}"));
+    fixture.service->runScanOnce(nowMs + 5001);
+    require(fixture.publisher->onDemandCounts.size() == 1 && fixture.publisher->onDemandCounts.back() == 0,
+        "full completion must not inject missing samples into realtime");
+
+    PointValue recovered;
+    recovered.index = 4561;
+    recovered.value = 27.5;
+    recovered.ts = nowMs + 6000;
+    recovered.expireAt = nowMs + 606000;
+    require(fixture.router.putLatestByIndex(recovered).accepted, "failed to restore actual sample");
+    fixture.service->publishFullSnapshotNow(nowMs + 6000);
+    const auto& restored = fixture.publisher->fullSnapshotValues.back().at(61);
+    require(restored.index == 4561 && restored.value == 27.5 && restored.quality == 1 &&
+        !restored.stale && restored.ts == recovered.ts, "new actual sample must replace placeholder");
+    require(fixture.router.peekPendingWrites().empty(), "full publication queued physical writes");
     cleanupFixture(fixture);
 }
 
@@ -2466,6 +2552,13 @@ void testIpcDriverStatsIdentityAndBackoff() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--full-identity") {
+            testFullIdentitySurvivesExpiredSlotRemoval();
+            testFullUploadOnlyWithoutRealtimeSession();
+            testFullUploadPointSelectionIsSharedWithForwarder();
+            std::cout << "mqtt_driver_service_test --full-identity passed" << std::endl;
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--realtime-admission") {
             testRealtimeAdmissionFeedbackAndSafeIdentity();
             testRealtimeStartedPrecedesReadAndSurvivesFailures();
@@ -2485,6 +2578,7 @@ int main(int argc, char** argv) {
             testIpcDriverWorkerCadence(workMs, fail);
         testIpcDriverStatsIdentityAndBackoff();
         testFullUploadOnlyWithoutRealtimeSession();
+        testFullIdentitySurvivesExpiredSlotRemoval();
         testIsolatedFullWorkerUsesBoundedStartupGrace();
         testIsolatedFullWorkerLeaseSuppressesAndThenImmediatelyFallsBack();
         testIsolatedFallbackRetriesWithoutAnotherStartupGrace();
