@@ -284,6 +284,65 @@ can subsequently stop those observers and restore files while remaining fenced.
 Starting physical participants or enabling control remains a separate release
 decision and is intentionally not an option on this entrypoint.
 
+## Successor of a recovered standalone transaction
+
+A new `apply` may explicitly reference a `RECOVERED_STOPPED` predecessor using
+`recoveredFrom` in its independently approved schema2 approval:
+
+```json
+{
+  "recoveredFrom": {
+    "stateDir": "/persistent/offline/old-transaction",
+    "stateSha256": "<recovered state SHA256>",
+    "approvalSha256": "<old approval SHA256>",
+    "receiptPath": "/persistent/receipts/old-recovered.json",
+    "receiptSha256": "<externally approved recovery receipt SHA256>"
+  }
+}
+```
+
+The external receipt has `schemaVersion:offline-shm11-recovered-1`,
+`phase:RECOVERED_STOPPED`, `controlEnabled:false`, and the old `transactionId`,
+`gatewayHome`, `nodeId`, `stateSha256`, `approvalSha256`. Its
+`retainedTargetsSha256` object pins the current bytes of each existing target
+from the old approval, by SHM name. These may differ from the initial migration
+hashes after observation. Every target recorded as completed in the old state
+must still exist. A recovered interruption before any migration can have an
+empty target object; it does not authorize removal of completed targets.
+
+Only the existing standalone B monitor and A joint monitor/Qt profiles qualify.
+Both approvals must have the same unit set, identity, original installed
+inventory/configuration, source names/hashes and monitor/Qt binding approvals.
+The new approval must pin both activation startup scripts. An old schema2
+transaction without these pins is supported; an originally absent guard stays
+absent until the new apply installs it. New transaction ID, state directory and
+target names are mandatory. Fixed-voter and other profiles are refused.
+
+The existing `apply` command performs the handoff under its transaction lock.
+It validates recovered original files/modes and backups, old source/retained
+target hashes, exact owned fence bytes/modes, stopped participants and no SHM
+mappings. It archives only the old transaction's own fence files in
+`new-state/previous-fences/` and copies the pinned receipt to
+`new-state/predecessor-receipt.json`. The stop marker always exists: its owner
+changes atomically before new fences are installed; old fences remain until
+every new fence exists. Their Conditions check that same marker path.
+Foreign drop-ins are not removed. Old state/approval, old SHM and durable data
+are never rewritten. Migration then uses the ordinary stopped apply path.
+
+If handoff is interrupted after the new state was saved, use `recover` with
+the NEW state directory and NEW approval pin. It validates and completes the
+pending fence transfer, then restores only new-transaction file changes and
+returns `RECOVERED_STOPPED`. Repeated recovery remains stopped. After marker
+ownership changes, the old approval/recover cannot reclaim the node. Before
+any state was saved, there has been no ownership change; retain the incomplete
+directory and use another separately approved fresh transaction. `apply` never
+replays an existing state directory. A recovered failed successor can itself
+be a pinned predecessor for another new transaction.
+
+This is local lifecycle support, not device activation approval. Missing old
+sources, drifted backups/fences, or unproven ingress/unit bindings still refuse;
+there is no implicit cold reconstruction for this V10 migration handoff.
+
 ## Persistent control-disabled activation
 
 `activate` is a separate, locally bounded lifecycle step from

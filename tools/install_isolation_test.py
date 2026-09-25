@@ -1785,6 +1785,127 @@ exec /bin/cp "$@"
     def test_offline_recovered_a_absent_guard_handoff_activation_roundtrip(self):
         self.recovered_handoff_roundtrip('A')
 
+    def test_offline_recovered_handoff_drift_refused_before_ownership(self):
+        home, old, new, _ = self.recovered_handoff_fixture('B')
+        marker = home / 'data/runtime-upgrade-stop'
+        before_calls = self.log.read_text()
+        cases = [
+            (marker, b'foreign-transaction\n'),
+            (self.root / 'transaction/state.json', b'{}\n'),
+            (self.root / 'transaction/files/0', b'corrupt backup\n'),
+            (self.root / 'recovery-receipt.json', b'{}\n'),
+            (Path('/dev/shm') / old['segments'][0]['source'], b'corrupt source\n'),
+            (Path('/dev/shm') / old['segments'][0]['target'], b'corrupt retained target\n'),
+            (Path('/etc/systemd/system/gateway-services.service.d/90-offline-fixture-offline.conf'), b'foreign fence\n')]
+        for path, changed in cases:
+            original = path.read_bytes()
+            try:
+                path.write_bytes(changed)
+                refused = self.offline_run(approval=new, state_name='transaction-next')
+                self.assertNotEqual(0, refused.returncode, str(path))
+                self.assertFalse((self.root / 'transaction-next').exists())
+                self.assertEqual(changed, path.read_bytes())
+            finally:
+                path.write_bytes(original)
+        for key, value in (('mode', 'fixed-voter'), ('units', new['units'] + ['camera-service@unknown.service'])):
+            changed = copy.deepcopy(new)
+            changed[key] = value
+            self.assertNotEqual(0, self.offline_run(approval=changed, state_name='transaction-next').returncode)
+            self.assertFalse((self.root / 'transaction-next').exists())
+        target = Path('/dev/shm') / old['segments'][0]['target']
+        missing_target = target.read_bytes()
+        receipt_path = self.root / 'recovery-receipt.json'
+        receipt_bytes = receipt_path.read_bytes()
+        target.unlink()
+        try:
+            receipt = json.loads(receipt_bytes)
+            receipt['retainedTargetsSha256'].pop(target.name)
+            write(receipt_path, json.dumps(receipt))
+            omitted = copy.deepcopy(new)
+            omitted['recoveredFrom']['receiptSha256'] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+            refused = self.offline_run(approval=omitted, state_name='transaction-next')
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn('completed target missing', refused.stdout)
+        finally:
+            target.write_bytes(missing_target)
+            receipt_path.write_bytes(receipt_bytes)
+        foreign = Path('/etc/systemd/system/gateway-services.service.d/90-offline-fixture-next.conf')
+        write(foreign, '[Unit]\nConditionPathExists=!/opt/modbus-gateway/data/runtime-upgrade-stop\n')
+        self.assertNotEqual(0, self.offline_run(approval=new, state_name='transaction-next').returncode)
+        self.assertTrue(foreign.exists())
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text()[len(before_calls):])
+        self.assertEqual(old['transactionId'] + '\n', marker.read_text())
+
+    def recovered_handoff_interrupted(self, boundary):
+        home, old, new, receipt = self.recovered_handoff_fixture('B')
+        write(self.root / 'approval.json', json.dumps(new))
+        spec = importlib.util.spec_from_file_location('handoff_under_test', str(REPO / 'deploy/offline-runtime-upgrade.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        args = argparse.Namespace(approval=self.root / 'approval.json',
+            approval_sha256=hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest(),
+            manifest=self.root / 'program-manifest.json', payload=self.root / 'payload', state=self.root / 'transaction-next')
+        marker = home / 'data/runtime-upgrade-stop'
+        original_write, original_replace, original_unlink = module.write_new, module.replace, Path.unlink
+        def interrupted_write(path, *args, **kwargs):
+            if boundary == 'new-fence' and path.name == '90-offline-fixture-next.conf':
+                raise OSError('injected interruption before first successor fence')
+            return original_write(path, *args, **kwargs)
+        def interrupted_replace(path, *args, **kwargs):
+            if boundary == 'marker' and path == marker:
+                raise OSError('injected interruption before marker replacement')
+            return original_replace(path, *args, **kwargs)
+        def interrupted_unlink(path, *args, **kwargs):
+            if boundary == 'archive' and path == Path('/etc/systemd/system/gateway-health-watchdog.service.d/90-offline-fixture-offline.conf'):
+                raise OSError('injected interruption during predecessor fence archival')
+            return original_unlink(path, *args, **kwargs)
+        with mock.patch.dict(os.environ, dict(self.env, OFFLINE_TEST='1')), \
+                mock.patch.object(module, 'write_new', interrupted_write), \
+                mock.patch.object(module, 'replace', interrupted_replace), \
+                mock.patch.object(Path, 'unlink', interrupted_unlink):
+            with self.assertRaisesRegex(OSError, 'injected interruption'):
+                module.apply(args)
+        write(EVIDENCE / (self.id().split('.')[-1] + '-interrupted-state.json'), (args.state / 'state.json').read_text())
+        expected_owner = old['transactionId'] if boundary == 'marker' else new['transactionId']
+        self.assertEqual(expected_owner + '\n', marker.read_text())
+        for unit in old['units']:
+            directory = Path('/etc/systemd/system') / (unit + '.d')
+            self.assertTrue(any(p.read_text() == '[Unit]\nConditionPathExists=!' + str(marker) + '\n'
+                                for p in directory.glob('90-offline-*.conf')))
+        if boundary != 'marker':
+            self.assertNotEqual(0, self.offline_run('recover', approval=old).returncode)
+        result = self.offline_run('recover', approval=new, state_name='transaction-next')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(0, self.offline_run('recover', state_name='transaction-next').returncode)
+        self.assertNotEqual(0, self.offline_run(approval=new, state_name='transaction-next').returncode)
+        self.assertNotIn('\nstart ', '\n' + self.log.read_text())
+        self.assertEqual(receipt['stateSha256'], hashlib.sha256((self.root / 'transaction/state.json').read_bytes()).hexdigest())
+        # A recovered interruption can itself hand off; it is not a new terminal state.
+        receipt.update(transactionId=new['transactionId'],
+                       stateSha256=hashlib.sha256((args.state / 'state.json').read_bytes()).hexdigest(),
+                       approvalSha256=hashlib.sha256((args.state / 'approval.json').read_bytes()).hexdigest(),
+                       retainedTargetsSha256={})
+        write(self.root / 'next-recovery-receipt.json', json.dumps(receipt))
+        third = copy.deepcopy(new)
+        third['transactionId'] = 'fixture-third'
+        for i, segment in enumerate(third['segments']):
+            segment['target'] = 'third_target_' + str(i)
+        third['recoveredFrom'] = dict(stateDir=str(args.state), stateSha256=receipt['stateSha256'],
+            approvalSha256=receipt['approvalSha256'], receiptPath=str(self.root / 'next-recovery-receipt.json'),
+            receiptSha256=hashlib.sha256((self.root / 'next-recovery-receipt.json').read_bytes()).hexdigest())
+        result = self.offline_run(approval=third, state_name='transaction-third')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(0, self.offline_run('recover', state_name='transaction-third').returncode)
+
+    def test_offline_recovered_handoff_interrupted_before_marker(self):
+        self.recovered_handoff_interrupted('marker')
+
+    def test_offline_recovered_handoff_interrupted_before_new_fence(self):
+        self.recovered_handoff_interrupted('new-fence')
+
+    def test_offline_recovered_handoff_interrupted_during_archive(self):
+        self.recovered_handoff_interrupted('archive')
+
     def activation_guard(self, action, unit=None, extra_env=None):
         command = ['python3', str(REPO / 'deploy/runtime-upgrade-guard.py'), action, '/opt/modbus-gateway']
         if unit:

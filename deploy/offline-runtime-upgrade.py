@@ -350,8 +350,7 @@ def b_monitor_default_safe(home, approval, manifest, state, selected, monitor, d
                     'B monitor default sibling service gate changed')
 
 
-def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documents, inhibited):
-    record, _, new_env, new_dropin = joint
+def a_joint_config_safe(home, approval, state, selected, documents):
     require(approval_mode(approval) == 'standalone' and
             selected in ([MONITOR_UNIT], [MONITOR_UNIT, A_QT_UNIT]) and
             state.get('unreferencedDefaultShm') is True and
@@ -387,6 +386,11 @@ def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documen
             isinstance(direct, dict) and direct.get('enabled') is False,
             'A monitor inbound maintenance must be disabled')
     a_scada_empty_map(home, documents)
+
+
+def a_joint_monitor_observe_safe(home, approval, state, selected, joint, documents, inhibited):
+    record, _, new_env, new_dropin = joint
+    a_joint_config_safe(home, approval, state, selected, documents)
     envfile = home / 'config/runtime/qt-display.env'
     require(regular(envfile).read_bytes() == new_env and digest(envfile) == record['newSha256'] and
             stat.S_IMODE(envfile.stat().st_mode) == record['mode'] and
@@ -444,6 +448,31 @@ def units_stopped(units):
             continue
         state = systemctl('show', '--property=ActiveState', '--value', unit)
         require(state in ('inactive', 'failed'), 'unit not stopped: ' + unit + '=' + state)
+
+
+def batch_stop_results(owned):
+    rows = [{'unit': unit, 'stopOk': False, 'activeState': 'unknown', 'mainPid': 'unknown'} for unit in owned]
+    try:
+        systemctl('stop', *owned)
+        for row in rows:
+            row['stopOk'] = True
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        output = systemctl('show', '--property=Id,ActiveState,MainPID', *owned)
+        records = {}
+        for block in output.split('\n\n'):
+            fields = dict(line.split('=', 1) for line in block.splitlines())
+            require(set(fields) == {'Id', 'ActiveState', 'MainPID'} and
+                    fields['Id'] in owned and fields['Id'] not in records, 'unexpected offline stop status')
+            records[fields['Id']] = fields
+        require(set(records) == set(owned), 'incomplete offline stop status')
+        for row in rows:
+            row['activeState'] = records[row['unit']]['ActiveState']
+            row['mainPid'] = records[row['unit']]['MainPID']
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return rows
 
 
 def approval_mode(approval):
@@ -622,6 +651,161 @@ def local_identity(home, approval):
     return voters
 
 
+def recovered_predecessor(home, approval, state_dir):
+    link = approval['recoveredFrom']
+    require(approval_mode(approval) == 'standalone' and isinstance(link, dict) and set(link) ==
+            {'stateDir', 'stateSha256', 'approvalSha256', 'receiptPath', 'receiptSha256'},
+            'recovered predecessor requires exact standalone pins')
+    previous = Path(link['stateDir'])
+    require(previous.is_absolute() and previous.resolve() == previous and previous != state_dir and
+            previous not in state_dir.parents and state_dir not in previous.parents and
+            home != previous and home not in previous.parents and previous not in home.parents,
+            'recovered predecessor state directory overlaps transaction')
+    old = checked_json(previous / 'approval.json', link['approvalSha256'])
+    recovered = checked_json(previous / 'state.json', link['stateSha256'])
+    receipt = checked_json(Path(link['receiptPath']), link['receiptSha256'])
+    require(approval_mode(old) == 'standalone' and recovered.get('phase') == 'RECOVERED_STOPPED' and
+            recovered.get('approvalSha256') == link['approvalSha256'] and
+            old.get('controlEnabled') is False and NAME.fullmatch(old.get('transactionId', '')) and
+            old['transactionId'] != approval['transactionId'] and
+            all(old.get(key) == approval.get(key) for key in
+                ('gatewayHome', 'nodeId', 'identitySha256', 'configSha256', 'installedRuntimeSha256',
+                 'systemMonitorShmDropinSha256', 'qtDisplayEnvSha256', 'aInboundDisableSourceSha256')) and
+            set(old['units']) == set(approval['units']), 'recovered predecessor scope or phase changed')
+    require(receipt.get('schemaVersion') == 'offline-shm11-recovered-1' and
+            receipt.get('phase') == 'RECOVERED_STOPPED' and receipt.get('controlEnabled') is False and
+            receipt.get('stateSha256') == link['stateSha256'] and
+            receipt.get('approvalSha256') == link['approvalSha256'] and
+            all(receipt.get(key) == old[key] for key in ('transactionId', 'nodeId', 'gatewayHome')),
+            'recovered predecessor receipt lineage changed')
+    old_sources = {s['source']: s for s in old['segments']}
+    require(len(old_sources) == len(old['segments']) and
+            all(NAME.fullmatch(s[key]) for s in old['segments'] for key in ('source', 'target')) and
+            {s['source']: s['sha256'] for s in approval['segments']} ==
+            {name: s['sha256'] for name, s in old_sources.items()} and
+            not {s['target'] for s in approval['segments']} &
+            {s[key] for s in old['segments'] for key in ('source', 'target')},
+            'recovered predecessor sources changed or target reused')
+    retained = receipt.get('retainedTargetsSha256')
+    require(isinstance(retained, dict) and set(retained) ==
+            {s['target'] for s in old['segments'] if (Path('/dev/shm') / s['target']).exists() or
+             (Path('/dev/shm') / s['target']).is_symlink()}, 'recovered predecessor retained target set changed')
+    require(all(s['source'] in old_sources and s['target'] == old_sources[s['source']]['target'] and
+                s['sourceSha256'] == old_sources[s['source']]['sha256'] and s['target'] in retained
+                for s in recovered['segments']), 'recovered predecessor completed target missing or changed')
+    for segment in old['segments']:
+        require(NAME.fullmatch(segment['source']) and NAME.fullmatch(segment['target']),
+                'unsafe recovered predecessor SHM name')
+        require(digest(Path('/dev/shm') / segment['source']) == segment['sha256'],
+                'recovered predecessor source changed')
+        backup = previous / (segment['source'] + '.v10.bak')
+        if segment['target'] in retained or backup.exists() or backup.is_symlink():
+            require(digest(backup) == segment['sha256'], 'recovered predecessor SHM backup changed')
+        if segment['target'] in retained:
+            require(digest(Path('/dev/shm') / segment['target']) == retained[segment['target']],
+                    'recovered predecessor retained target changed')
+    manifest = checked_json(previous / 'program-manifest.json', old['programManifestSha256'])
+    components = [c for c in manifest['components'] if c.get('kind') == 'product']
+    paths = install_paths(components, old)
+    installed_inventory(home, paths, old)
+    require(tree_hashes(home / 'config/runtime') == old['configSha256'],
+            'recovered predecessor configuration not restored')
+    for index, item in enumerate(recovered['files']):
+        relative = Path(item['path'])
+        require(not relative.is_absolute() and '..' not in relative.parts and
+                (str(relative) in paths.values() or relative.parts[:2] == ('config', 'runtime') or
+                 str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}),
+                'unsafe recovered predecessor backup path')
+        live = home / relative
+        if item['oldSha256'] is not None:
+            require(digest(previous / 'files' / str(index)) == item['oldSha256'] and
+                    digest(live) == item['oldSha256'] and stat.S_IMODE(live.stat().st_mode) == item['oldMode'],
+                    'recovered predecessor file or backup changed')
+        else:
+            require(not live.exists() and not live.is_symlink(), 'recovered predecessor absence changed')
+            archived = previous / ('recovered-new-' + str(index))
+            if archived.exists() or archived.is_symlink():
+                require(digest(archived) == item['newSha256'], 'recovered predecessor retained file changed')
+    monitor = checked_monitor_record(previous, recovered, old)
+    joint = checked_a_joint_record(previous, recovered, old)
+    if monitor:
+        require(digest(MONITOR_DROPIN) == monitor[0]['oldSha256'] and
+                stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == monitor[0]['mode'],
+                'recovered predecessor monitor binding not restored')
+    if joint:
+        require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink() and
+                digest(home / 'config/runtime/qt-display.env') == joint[0]['oldSha256'],
+                'recovered predecessor Qt binding not restored')
+    require(not (home / 'data' / guard.ACTIVATION_FILE).exists() and
+            not (home / 'data' / guard.ACTIVATION_FILE).is_symlink(), 'recovered predecessor still activated')
+    return old, receipt
+
+
+def successor_handoff(home, approval, state_dir, state=None):
+    old, receipt = recovered_predecessor(home, approval, state_dir)
+    marker = home / 'data/runtime-upgrade-stop'
+    owner = regular(marker).read_text().strip()
+    require(owner == old['transactionId'] or state is not None and owner == approval['transactionId'],
+            'recovered predecessor marker changed')
+    pairs = []
+    for unit in approval['units']:
+        previous, body = inhibition_dropin(home, old['transactionId'], unit)
+        current, _ = inhibition_dropin(home, approval['transactionId'], unit)
+        archived = state_dir / 'previous-fences' / (unit + '.conf')
+        for path in (previous, current, archived):
+            require(not any(part.is_symlink() for part in (path,) + tuple(path.parents)),
+                    'recovered predecessor fence alias: ' + str(path))
+            if path.exists() or path.is_symlink():
+                require(regular(path).read_bytes() == body and stat.S_IMODE(path.stat().st_mode) == 0o644,
+                        'recovered predecessor fence drift: ' + str(path))
+        require(previous.exists() or owner == approval['transactionId'] and archived.exists(),
+                'recovered predecessor fence missing')
+        require(state is not None or not current.exists(), 'successor fence already exists')
+        pairs.append((previous, current, archived, body))
+    no_processes(home, [])
+    no_mappings(list(s['source'] for s in old['segments']) + list(receipt['retainedTargetsSha256']))
+    if state is None:
+        return
+    state['handoffStopResult'] = batch_stop_results([u for u in approval['units'] if not u.endswith('@.service')])
+    save(state_dir / 'state.json', state)
+    require(all(r['stopOk'] and r['activeState'] in ('inactive', 'failed') and r['mainPid'] == '0'
+                for r in state['handoffStopResult']), 'successor stop unconfirmed')
+    recovered_predecessor(home, approval, state_dir)
+    no_processes(home, [])
+    no_mappings(list(s['source'] for s in old['segments']) + list(receipt['retainedTargetsSha256']))
+    (state_dir / 'previous-fences').mkdir(exist_ok=True)
+    for previous, _, archived, body in pairs:
+        if previous.exists() or previous.is_symlink():
+            require(regular(previous).read_bytes() == body and stat.S_IMODE(previous.stat().st_mode) == 0o644,
+                    'predecessor fence changed during stop')
+        if not archived.exists():
+            write_new(archived, regular(previous).read_bytes(), 0o644)
+        require(regular(archived).read_bytes() == body and stat.S_IMODE(archived.stat().st_mode) == 0o644,
+                'successor fence backup changed')
+    receipt_file = state_dir / 'predecessor-receipt.json'
+    if not receipt_file.exists():
+        write_new(receipt_file, regular(Path(approval['recoveredFrom']['receiptPath'])).read_bytes())
+    require(digest(receipt_file) == approval['recoveredFrom']['receiptSha256'], 'successor receipt backup changed')
+    require(regular(marker).read_text().strip() == owner, 'successor marker changed during stop')
+    # The old Condition checks marker existence, so this replacement has no unfenced interval.
+    replace(marker, (approval['transactionId'] + '\n').encode())
+    for _, current, _, body in pairs:
+        if not current.exists():
+            write_new(current, body, 0o644)
+        require(regular(current).read_bytes() == body and stat.S_IMODE(current.stat().st_mode) == 0o644,
+                'successor fence changed')
+    for previous, _, _, body in pairs:
+        if previous.exists() or previous.is_symlink():
+            require(regular(previous).read_bytes() == body and stat.S_IMODE(previous.stat().st_mode) == 0o644,
+                    'predecessor fence changed before archive')
+            previous.unlink()
+            sync_dir(previous.parent)
+    systemctl('daemon-reload')
+    state['successorHandoffComplete'] = True
+    state['phase'] = 'FENCED'
+    save(state_dir / 'state.json', state)
+
+
 def fence(home, approval, state_dir, state):
     marker = home / 'data/runtime-upgrade-stop'
     if marker.exists():
@@ -639,8 +823,17 @@ def fence(home, approval, state_dir, state):
     state['phase'] = 'FENCED'
     save(state_dir / 'state.json', state)
     systemctl('daemon-reload')
-    systemctl('stop', *(u for u in approval['units'] if not u.endswith('@.service')))
-    units_stopped(approval['units'])
+    if 'recoveredFrom' in approval:
+        rows = batch_stop_results([u for u in approval['units'] if not u.endswith('@.service')])
+        state['handoffStopResult'] = rows
+        stopped = all(r['stopOk'] and r['activeState'] in ('inactive', 'failed') and r['mainPid'] == '0' for r in rows)
+        if not stopped:
+            state['phase'] = 'FAILED_STOP_UNCONFIRMED'
+        save(state_dir / 'state.json', state)
+        require(stopped, 'successor stop unconfirmed')
+    else:
+        systemctl('stop', *(u for u in approval['units'] if not u.endswith('@.service')))
+        units_stopped(approval['units'])
 
 
 def apply(args):
@@ -710,6 +903,20 @@ def apply(args):
             home not in args.state.parents and args.state not in home.parents, 'separate persistent state directory required')
     fs = subprocess.check_output(['stat', '-f', '-c', '%T', str(args.state.parent)], universal_newlines=True).strip()
     require(fs in ('ext2/ext3', 'ext4', 'xfs', 'btrfs'), 'state requires persistent ext-family/XFS/Btrfs filesystem')
+    if 'recoveredFrom' in approval:
+        require(approval_mode(approval) == 'standalone' and approval.get('activationStartupScripts') is not None,
+                'successor requires standalone activation script approval')
+        projected = {key: switch_names(doc, names) for key, doc in documents.items()}
+        profile_state = {'segments': segments, 'unreferencedDefaultShm': unreferenced_default}
+        if a_binding:
+            if a_binding['disableInbound']:
+                projected['apps/monitor-service.json']['mqtt']['enabled'] = False
+                projected['apps/monitor-service.json']['systemMonitor']['directMaintenance']['enabled'] = False
+            a_joint_config_safe(home, approval, profile_state, [MONITOR_UNIT, A_QT_UNIT], projected)
+        else:
+            require(binding is not None, 'successor requires pinned A or B monitor profile')
+            b_monitor_default_safe(home, approval, manifest, profile_state, [MONITOR_UNIT], (binding,), projected)
+        successor_handoff(home, approval, args.state)
     args.state.mkdir(mode=0o700)
     write_new(args.state / 'approval.json', regular(args.approval).read_bytes())
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
@@ -719,9 +926,14 @@ def apply(args):
              'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
                                {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
+    if 'recoveredFrom' in approval:
+        state['successorHandoffComplete'] = False
     save(args.state / 'state.json', state)
     try:
-        fence(home, approval, args.state, state)
+        if 'recoveredFrom' in approval:
+            successor_handoff(home, approval, args.state, state)
+        else:
+            fence(home, approval, args.state, state)
         no_processes(home, [c['target'] for c in components])
         require(not (monitor_path.exists() or monitor_path.is_symlink()) or MONITOR_IMPLICIT_SHM in names,
                 'uncovered implicit SystemMonitor SHM segment after stop')
@@ -843,7 +1055,9 @@ def recover(args):
     require(state['approvalSha256'] == args.approval_sha256, 'state approval mismatch')
     home = Path(approval['gatewayHome'])
     local_identity(home, approval)
-    if state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT'):
+    if 'recoveredFrom' in approval and not state.get('successorHandoffComplete', False):
+        successor_handoff(home, approval, args.state, state)
+    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT'):
         refence_activation(home, approval, args.state, state)
     else:
         fence(home, approval, args.state, state)
@@ -1108,30 +1322,7 @@ def refence_activation(home, approval, state_dir, state):
                 record.get('allowedUnits') == allowed, 'foreign activation record')
     owned = [unit for unit in approval['units'] if not unit.endswith('@.service')]
     require(set(allowed) <= set(owned), 'activation recovery unit scope changed')
-    stop_results = [{'unit': unit, 'stopOk': False, 'activeState': 'unknown', 'mainPid': 'unknown'}
-                    for unit in owned]
-    try:
-        systemctl('stop', *owned)
-        for row in stop_results:
-            row['stopOk'] = True
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    try:
-        output = systemctl('show', '--property=Id,ActiveState,MainPID', *owned)
-        records = {}
-        for block in output.split('\n\n'):
-            fields = dict(line.split('=', 1) for line in block.splitlines())
-            require(set(fields) == {'Id', 'ActiveState', 'MainPID'} and
-                    fields['Id'] in owned and fields['Id'] not in records,
-                    'unexpected activation stop status')
-            records[fields['Id']] = fields
-        require(set(records) == set(owned), 'incomplete activation stop status')
-        for row in stop_results:
-            fields = records[row['unit']]
-            row['activeState'] = fields['ActiveState']
-            row['mainPid'] = fields['MainPID']
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
+    stop_results = batch_stop_results(owned)
     state['activationStopResult'] = stop_results
     drift = []
     for unit in approval['units']:

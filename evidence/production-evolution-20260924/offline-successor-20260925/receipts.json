@@ -1,0 +1,242 @@
+[
+  {
+    "run": "offline-handoff-20260925-red",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-red/fixture-compile.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "run": "offline-handoff-20260925-red",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-red/native-fixture-provenance.json",
+    "bytes": 537,
+    "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+  },
+  {
+    "run": "offline-handoff-20260925-red",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-red/result.txt",
+    "bytes": 2524,
+    "sha256": "3fa270563b0762a03113ff51d60d4de2c94d54fed65ccb67acf6178884b912d1"
+  },
+  {
+    "run": "offline-handoff-20260925-red",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-red/test_offline_recovered_a_absent_guard_handoff_activation_roundtrip.log",
+    "bytes": 390,
+    "sha256": "75b7a58df0157b9ec9bec3ed4c36303ca9c4e73fb658397cf3a890ebf78bd4bd"
+  },
+  {
+    "run": "offline-handoff-20260925-red",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-red/test_offline_recovered_b_handoff_activation_roundtrip.log",
+    "bytes": 390,
+    "sha256": "75b7a58df0157b9ec9bec3ed4c36303ca9c4e73fb658397cf3a890ebf78bd4bd"
+  },
+  {
+    "run": "offline-handoff-20260925-green-initial",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-green-initial/fixture-compile.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "run": "offline-handoff-20260925-green-initial",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-green-initial/native-fixture-provenance.json",
+    "bytes": 537,
+    "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+  },
+  {
+    "run": "offline-handoff-20260925-green-initial",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-green-initial/result.txt",
+    "bytes": 418,
+    "sha256": "c8bc7b78f1d94747ab1b150b14be06d3bf874e8f625384c5913795f68282d382"
+  },
+  {
+    "run": "offline-handoff-20260925-green-initial",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-green-initial/test_offline_recovered_a_absent_guard_handoff_activation_roundtrip.log",
+    "bytes": 745,
+    "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+  },
+  {
+    "run": "offline-handoff-20260925-green-initial",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-green-initial/test_offline_recovered_b_handoff_activation_roundtrip.log",
+    "bytes": 745,
+    "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/fixture-compile.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/native-fixture-provenance.json",
+    "bytes": 537,
+    "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/result.txt",
+    "bytes": 1160,
+    "sha256": "0e9a7287a08fe43bc1cea83f3b9bbf5a6b1a5ad4c8b05ee95901dd319e6445cc"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_a_joint_binding_apply_recover.log",
+    "bytes": 236,
+    "sha256": "05ee476ed9d2492bcc680723e804784bf3e6b986b315fdd8ed4c60bb6dfae756"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_activation_batch_stop_or_status_failure_unconfirmed.log",
+    "bytes": 703,
+    "sha256": "e22b115f55fd70fd3c6b73a467bfa85f8358d5314cef5aafc343f2369d325ae1"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_b_default_monitor_observe_roundtrip.log",
+    "bytes": 367,
+    "sha256": "93c1685b381c0cf93a7bb2188a599963baa9f60c85b38027b300c817b3b19934"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_drift_refused_before_ownership.log",
+    "bytes": 1886,
+    "sha256": "101fa83fa920ae1ee2fff7172b5d9e14c9ea9a97e8245dc13b3e8b261625e9d8"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_interrupted_before_marker-interrupted-state.json",
+    "bytes": 1736,
+    "sha256": "28306971c0376a6be51424ceb90e260095850a80b68a4c2d28db39639a7f620a"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_interrupted_before_marker.log",
+    "bytes": 891,
+    "sha256": "ad48f69f4099e805bb15c903424b93f5af86bd1c724aeca688dc7230c0ea30ea"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_interrupted_before_new_fence-interrupted-state.json",
+    "bytes": 1736,
+    "sha256": "98d284444a1d80aedb55eb1ca48bccd9792f3e0e329fa54905ff5fb0f5357fc5"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_interrupted_before_new_fence.log",
+    "bytes": 1047,
+    "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_interrupted_during_archive-interrupted-state.json",
+    "bytes": 1736,
+    "sha256": "5069241712256b802ee59aec9ef0b0a8c5077b345aeac87c93781a40f73698a3"
+  },
+  {
+    "run": "offline-handoff-20260925-interruptions",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-interruptions/test_offline_recovered_handoff_interrupted_during_archive.log",
+    "bytes": 1047,
+    "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/fixture-compile.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/native-fixture-provenance.json",
+    "bytes": 537,
+    "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/real-fixture-provenance-r4.json",
+    "bytes": 333,
+    "sha256": "b2a3dc4c6ff52d376a4d2f1f8b8b014ab9442007853b696905904da47bc4002e"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/real-fixture-provenance-s2.json",
+    "bytes": 333,
+    "sha256": "44ef58b4d9d9426a96eba44a097df0d915359581e35466ed00d849020e5388cc"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/result.txt",
+    "bytes": 1414,
+    "sha256": "888dcd9e4089be3e3ad1f590b8d1145dd95d5f552d057e716385e7cec0ab9ec7"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_a_joint_monitor_qt_observe_and_recover.log",
+    "bytes": 367,
+    "sha256": "93c1685b381c0cf93a7bb2188a599963baa9f60c85b38027b300c817b3b19934"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_real_r4_roster_and_app.log",
+    "bytes": 367,
+    "sha256": "93c1685b381c0cf93a7bb2188a599963baa9f60c85b38027b300c817b3b19934"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_real_s2_roster_and_app.log",
+    "bytes": 367,
+    "sha256": "93c1685b381c0cf93a7bb2188a599963baa9f60c85b38027b300c817b3b19934"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_a_absent_guard_handoff_activation_roundtrip.log",
+    "bytes": 745,
+    "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_b_handoff_activation_roundtrip.log",
+    "bytes": 745,
+    "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_drift_refused_before_ownership.log",
+    "bytes": 2055,
+    "sha256": "c31863f9ec5985bc630a58d18b44abe14e84de9ff894adbe871c7e8e5f119ecc"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_interrupted_before_marker-interrupted-state.json",
+    "bytes": 1736,
+    "sha256": "7d5d08c2c039cd18f82e1e2c5a983027b2a5e5e43c3608d388d516238633ac43"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_interrupted_before_marker.log",
+    "bytes": 891,
+    "sha256": "ad48f69f4099e805bb15c903424b93f5af86bd1c724aeca688dc7230c0ea30ea"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_interrupted_before_new_fence-interrupted-state.json",
+    "bytes": 1736,
+    "sha256": "4cb81d95fabb6e9c9aa63e24890c89f9c30fcaf99e641a37300d06e563bdcfb2"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_interrupted_before_new_fence.log",
+    "bytes": 1047,
+    "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_interrupted_during_archive-interrupted-state.json",
+    "bytes": 1736,
+    "sha256": "e52eccdefaea7a4adc42e2a877185575640db941019879ff46f04c627a5b02c1"
+  },
+  {
+    "run": "offline-handoff-20260925-final",
+    "path": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-20260925-final/test_offline_recovered_handoff_interrupted_during_archive.log",
+    "bytes": 1047,
+    "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+  }
+]
