@@ -1876,9 +1876,10 @@ exec /bin/cp "$@"
             manifest=self.root / 'program-manifest.json', payload=self.root / 'payload', state=self.root / 'transaction-next')
         marker = home / 'data/runtime-upgrade-stop'
         original_write, original_replace, original_unlink = module.write_new, module.replace, Path.unlink
+        original_sync, original_cdll = module.sync_dir, module.ctypes.CDLL
         partial_files = []
         def interrupted_write(path, *args, **kwargs):
-            if boundary == 'new-fence' and path.name == '90-offline-fixture-next.conf':
+            if boundary == 'new-fence' and '90-offline-fixture-next.conf' in path.name:
                 raise OSError('injected interruption before first successor fence')
             if boundary == 'partial-fence' and '90-offline-fixture-next.conf' in path.name:
                 original_write(path, args[0][:8], *args[1:], **kwargs)
@@ -1893,20 +1894,30 @@ exec /bin/cp "$@"
             if boundary == 'archive' and path == Path('/etc/systemd/system/gateway-health-watchdog.service.d/90-offline-fixture-offline.conf'):
                 raise OSError('injected interruption during predecessor fence archival')
             return original_unlink(path, *args, **kwargs)
+        def interrupted_sync(path):
+            original_sync(path)
+            if boundary == 'published-fence' and (path / '90-offline-fixture-next.conf').exists():
+                raise OSError('injected interruption after complete successor fence publication')
+        def interrupted_cdll(*args, **kwargs):
+            if boundary == 'no-publish':
+                raise OSError('injected interruption: atomic publication unavailable')
+            return original_cdll(*args, **kwargs)
         with mock.patch.dict(os.environ, dict(self.env, OFFLINE_TEST='1')), \
                 mock.patch.object(module, 'write_new', interrupted_write), \
                 mock.patch.object(module, 'replace', interrupted_replace), \
+                mock.patch.object(module, 'sync_dir', interrupted_sync), \
+                mock.patch.object(module.ctypes, 'CDLL', interrupted_cdll), \
                 mock.patch.object(Path, 'unlink', interrupted_unlink):
             with self.assertRaisesRegex(OSError, 'injected interruption'):
                 module.apply(args)
         write(EVIDENCE / (self.id().split('.')[-1] + '-interrupted-state.json'), (args.state / 'state.json').read_text())
-        expected_owner = old['transactionId'] if boundary == 'marker' else new['transactionId']
+        expected_owner = old['transactionId'] if boundary in ('marker', 'no-publish') else new['transactionId']
         self.assertEqual(expected_owner + '\n', marker.read_text())
         for unit in old['units']:
             directory = Path('/etc/systemd/system') / (unit + '.d')
             self.assertTrue(any(p.read_text() == '[Unit]\nConditionPathExists=!' + str(marker) + '\n'
                                 for p in directory.glob('90-offline-*.conf')))
-        if boundary != 'marker':
+        if boundary not in ('marker', 'no-publish'):
             self.assertNotEqual(0, self.offline_run('recover', approval=old).returncode)
         result = self.offline_run('recover', approval=new, state_name='transaction-next')
         self.assertEqual(0, result.returncode, result.stdout)
@@ -1944,6 +1955,54 @@ exec /bin/cp "$@"
 
     def test_offline_recovered_handoff_interrupted_after_partial_fence_write(self):
         self.recovered_handoff_interrupted('partial-fence')
+
+    def test_offline_recovered_handoff_interrupted_after_fence_publication(self):
+        self.recovered_handoff_interrupted('published-fence')
+
+    def test_offline_recovered_handoff_publication_unavailable_before_marker(self):
+        self.recovered_handoff_interrupted('no-publish')
+
+    def test_offline_successor_atomic_publication_no_clobber(self):
+        spec = importlib.util.spec_from_file_location('publish_under_test', str(REPO / 'deploy/offline-runtime-upgrade.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        body = b'[Unit]\nConditionPathExists=!/fixture\n'
+        target = self.root / 'fence.conf'
+        original_write = module.write_new
+        # Destination appears after staging, so a precheck plus rename/replace is insufficient.
+        def concurrent_file(path, *args, **kwargs):
+            original_write(path, *args, **kwargs)
+            original_write(target, b'foreign bytes', 0o644)
+        with mock.patch.object(module, 'write_new', concurrent_file):
+            with self.assertRaises(FileExistsError):
+                module.publish_new(target, body, 0o644)
+        self.assertEqual(b'foreign bytes', target.read_bytes())
+        stages = list(self.root.glob('.fence.conf.stage-*'))
+        self.assertEqual(1, len(stages))
+        self.assertEqual(body, stages[0].read_bytes())
+        alias = self.root / 'alias.conf'
+        alias.symlink_to(self.root / 'absent')
+        with self.assertRaises(FileExistsError):
+            module.publish_new(alias, body, 0o644)
+        self.assertTrue(alias.is_symlink())
+        libc = module.ctypes.CDLL(None, use_errno=True)
+        # Exercise the actual native syscall path used when old libc lacks renameat2.
+        with mock.patch.object(module.ctypes, 'CDLL', return_value=argparse.Namespace(syscall=libc.syscall)):
+            published = self.root / 'fallback.conf'
+            module.publish_new(published, body, 0o644)
+        self.assertEqual(body, published.read_bytes())
+        self.assertEqual(1, published.stat().st_nlink)
+        self.assertEqual(0o644, stat.S_IMODE(published.stat().st_mode))
+        self.assertFalse(list(self.root.glob('.fallback.conf.stage-*')))
+        def unsupported(*args):
+            module.ctypes.set_errno(38)  # ENOSYS, not an overwrite fallback.
+            return -1
+        with mock.patch.object(module.ctypes, 'CDLL', return_value=argparse.Namespace(renameat2=unsupported)):
+            with self.assertRaises(OSError) as refused:
+                module.publish_new(self.root / 'unsupported.conf', body, 0o644)
+        self.assertEqual(38, refused.exception.errno)
+        self.assertFalse((self.root / 'unsupported.conf').exists())
+        self.assertEqual(body, next(self.root.glob('.unsupported.conf.stage-*')).read_bytes())
 
     def activation_guard(self, action, unit=None, extra_env=None):
         command = ['python3', str(REPO / 'deploy/runtime-upgrade-guard.py'), action, '/opt/modbus-gateway']

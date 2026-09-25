@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Narrow SHM10 -> SHM11 installer. Recovery restores files, never old authority."""
 import argparse
+import ctypes
 import fcntl
 import hashlib
 import importlib.util
@@ -12,6 +13,7 @@ import stat
 import subprocess
 import sys
 import time
+import uuid
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('upgrade_guard', str(Path(__file__).with_name('runtime-upgrade-guard.py')))
@@ -92,6 +94,30 @@ def replace(path, data, mode=0o600):
     temp = path.with_name(path.name + '.offline-' + str(os.getpid()))
     write_new(temp, data, mode)
     os.replace(str(temp), str(path))
+    sync_dir(path.parent)
+
+
+def publish_new(path, data, mode=0o600):
+    # Never expose partial final bytes or clobber an unexpected destination.
+    # Interrupted staging files remain as evidence and are not systemd .conf files.
+    temp = path.with_name('.' + path.name + '.stage-' + uuid.uuid4().hex)
+    write_new(temp, data, mode)
+    require(regular(temp).read_bytes() == data and stat.S_IMODE(temp.stat().st_mode) == mode,
+            'successor staging file changed')
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = getattr(libc, 'renameat2', None)
+    args = (ctypes.c_int(-100), ctypes.c_char_p(os.fsencode(str(temp))),
+            ctypes.c_int(-100), ctypes.c_char_p(os.fsencode(str(path))), ctypes.c_uint(1))
+    if rename is not None:
+        result = rename(*args)
+    else:
+        # Older target libc may omit the wrapper; these are the supported Linux ABIs.
+        number = {'aarch64': 276, 'x86_64': 316}.get(os.uname().machine)
+        require(number is not None, 'atomic no-replace publication unavailable')
+        result = libc.syscall(ctypes.c_long(number), *args)
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(path))
     sync_dir(path.parent)
 
 
@@ -662,6 +688,26 @@ def recovered_predecessor(home, approval, state_dir):
             home != previous and home not in previous.parents and previous not in home.parents,
             'recovered predecessor state directory overlaps transaction')
     old = checked_json(previous / 'approval.json', link['approvalSha256'])
+    ancestor, directory = old, previous
+    seen_ids, seen_dirs = {approval['transactionId']}, {state_dir}
+    while True:
+        transaction = ancestor.get('transactionId', '')
+        require(isinstance(transaction, str) and NAME.fullmatch(transaction) and transaction not in seen_ids,
+                'recovered predecessor ancestor transaction ID reused')
+        require(directory.is_absolute() and directory.resolve() == directory and directory not in seen_dirs and
+                all(directory not in p.parents and p not in directory.parents for p in seen_dirs | {home}) and
+                directory != home and approval_mode(ancestor) == 'standalone' and
+                ancestor.get('controlEnabled') is False and
+                all(ancestor.get(key) == approval.get(key) for key in ('gatewayHome', 'nodeId')),
+                'recovered predecessor ancestor scope or directory changed')
+        seen_ids.add(transaction)
+        seen_dirs.add(directory)
+        if 'recoveredFrom' not in ancestor:
+            break
+        parent = ancestor['recoveredFrom']
+        require(isinstance(parent, dict) and set(parent) == set(link), 'invalid recovered ancestor pins')
+        directory = Path(parent['stateDir'])
+        ancestor = checked_json(directory / 'approval.json', parent['approvalSha256'])
     recovered = checked_json(previous / 'state.json', link['stateSha256'])
     receipt = checked_json(Path(link['receiptPath']), link['receiptSha256'])
     require(approval_mode(old) == 'standalone' and recovered.get('phase') == 'RECOVERED_STOPPED' and
@@ -779,19 +825,19 @@ def successor_handoff(home, approval, state_dir, state=None):
             require(regular(previous).read_bytes() == body and stat.S_IMODE(previous.stat().st_mode) == 0o644,
                     'predecessor fence changed during stop')
         if not archived.exists():
-            write_new(archived, regular(previous).read_bytes(), 0o644)
+            publish_new(archived, regular(previous).read_bytes(), 0o644)
         require(regular(archived).read_bytes() == body and stat.S_IMODE(archived.stat().st_mode) == 0o644,
                 'successor fence backup changed')
     receipt_file = state_dir / 'predecessor-receipt.json'
     if not receipt_file.exists():
-        write_new(receipt_file, regular(Path(approval['recoveredFrom']['receiptPath'])).read_bytes())
+        publish_new(receipt_file, regular(Path(approval['recoveredFrom']['receiptPath'])).read_bytes())
     require(digest(receipt_file) == approval['recoveredFrom']['receiptSha256'], 'successor receipt backup changed')
     require(regular(marker).read_text().strip() == owner, 'successor marker changed during stop')
     # The old Condition checks marker existence, so this replacement has no unfenced interval.
     replace(marker, (approval['transactionId'] + '\n').encode())
     for _, current, _, body in pairs:
         if not current.exists():
-            write_new(current, body, 0o644)
+            publish_new(current, body, 0o644)
         require(regular(current).read_bytes() == body and stat.S_IMODE(current.stat().st_mode) == 0o644,
                 'successor fence changed')
     for previous, _, _, body in pairs:

@@ -317,6 +317,11 @@ The new approval must pin both activation startup scripts. An old schema2
 transaction without these pins is supported; an originally absent guard stays
 absent until the new apply installs it. New transaction ID, state directory and
 target names are mandatory. Fixed-voter and other profiles are refused.
+The transaction ID must differ from every ancestor, not just the immediate
+predecessor. Each ancestor approval is read through the existing pinned
+`recoveredFrom` chain; missing/changed approvals, repeated IDs/directories,
+aliases or mismatched node/home refuse before ownership changes. Keep those
+approval files available; no global ID registry is introduced.
 
 The existing `apply` command performs the handoff under its transaction lock.
 It validates recovered original files/modes and backups, old source/retained
@@ -326,6 +331,15 @@ mappings. It archives only the old transaction's own fence files in
 `new-state/predecessor-receipt.json`. The stop marker always exists: its owner
 changes atomically before new fences are installed; old fences remain until
 every new fence exists. Their Conditions check that same marker path.
+Fence archives, receipt copies and successor fences are staged as complete,
+fsynced single-link files, then published by Linux `renameat2(RENAME_NOREPLACE)`.
+An unexpected destination is never overwritten. Unique hidden staging files
+do not end in `.conf`; interrupted staging bytes remain untouched as evidence,
+and official new-transaction recovery can stage a fresh complete file.
+Publication support is exercised by archival before marker transfer. Older
+libc without the wrapper uses the Linux aarch64/x86_64 syscall; unsupported
+kernel/filesystem combinations fail closed, with no ordinary rename fallback.
+This local qualification is not verification of a device kernel/filesystem.
 Foreign drop-ins are not removed. Old state/approval, old SHM and durable data
 are never rewritten. Migration then uses the ordinary stopped apply path.
 

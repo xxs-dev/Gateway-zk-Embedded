@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "createdUtc": "2026-09-25T03:07:23.7370770Z",
+  "runs": [
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-boundaries-20260925-red",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 633,
+          "sha256": "1df0ae154ff12758cf14463a883d4e06bbace45766aa2ce1d2abcc1f88db1d59"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 2372,
+          "sha256": "d62fa319b476b3e7c46d1e258ca5fc5a932cb1b0167d2297ce8b2d87034c8157"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 2373,
+          "sha256": "c2aae1114c64120fa158c0822bf60149a007f40d84e21506459e9ee7369052cc"
+        },
+        {
+          "name": "test_offline_recovered_handoff_ancestor_id_reuse_refused-observed.json",
+          "bytes": 71,
+          "sha256": "03de8510732cc636e9448265e22e462b1f6825dd1c2e22e84c9fe5c541347146"
+        },
+        {
+          "name": "test_offline_recovered_handoff_ancestor_id_reuse_refused.log",
+          "bytes": 745,
+          "sha256": "960f7d5e04d7b867381fa8ace8c3a50627e81a56f63741b5e9335e4dfdf113d9"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_after_partial_fence_write-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "7f4b13aa9eee100a85ae9b5d740e8bd13fe25c42fefb410c67822f583a0123df"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_after_partial_fence_write.log",
+          "bytes": 616,
+          "sha256": "50b51831340d432bc97c9ce455cde1dc93afc1a53864157911830e3332d51151"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-boundaries-20260925-green",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 635,
+          "sha256": "8f42aa5422fe1ffbfad2d16fb3f1c7d0360a4ee79f32079a15942cd47cfa50c2"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 428,
+          "sha256": "7f09a7405023535b8a87703448a62a7faa9464c856b77c6d5fb212c5110ff6a7"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 429,
+          "sha256": "41906d7a5f5fdf1698c44c4cc3a5396c52b335aed52720e80074bcc641fa53b5"
+        },
+        {
+          "name": "test_offline_recovered_handoff_ancestor_id_reuse_refused-observed.json",
+          "bytes": 72,
+          "sha256": "f0998ac46565365987170318997c4333dd04b0187d1abc4a75f44c495be11926"
+        },
+        {
+          "name": "test_offline_recovered_handoff_ancestor_id_reuse_refused.log",
+          "bytes": 792,
+          "sha256": "a3c9a21937c85e3230902689ef87a67d424ee802d72fb8f9d8846f6dbc3e8081"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_after_partial_fence_write-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "af4b0c04e887badfa23885fc8e309c19488d06a6b41ea4aa96ee3a2aeeb9cac7"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_after_partial_fence_write.log",
+          "bytes": 1047,
+          "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+        }
+      ]
+    },
+    {
+      "directory": "C:/Users/12193/AppData/Local/GatewaySuiteImplementation/GW-20260809-002/offline-handoff-boundaries-20260925-focused",
+      "files": [
+        {
+          "name": "fixture-compile.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "invocation.json",
+          "bytes": 1219,
+          "sha256": "decc253b80bfad9a72effbe40e69948768f524166cace351a3c3cfcbb5ea96f3"
+        },
+        {
+          "name": "native-fixture-provenance.json",
+          "bytes": 537,
+          "sha256": "0ee29e085795118a78e23a4d4e47a09f5fc821b144dfa814feee531bb7aa6760"
+        },
+        {
+          "name": "offline-upgrade-fixture",
+          "bytes": 57928,
+          "sha256": "f621efe7f6e2523718fcc52988cd1da941e8ecff9421be911fa9b5cab09523d0"
+        },
+        {
+          "name": "result.txt",
+          "bytes": 1544,
+          "sha256": "195820edcca3fb873a22bc6cecb9107b4c934cc4c08c1051e6400da4cade4c81"
+        },
+        {
+          "name": "stderr.txt",
+          "bytes": 153,
+          "sha256": "e816706cd44ce0c6c65a7a7938be8103514f7c899694c8240d844f74319b7f98"
+        },
+        {
+          "name": "stdout.txt",
+          "bytes": 1545,
+          "sha256": "b60b55ddb27ca3ad8bdac9bc8a3c978fb55d9910391a5f8ea9ccd3c8536f092a"
+        },
+        {
+          "name": "test_offline_recovered_a_absent_guard_handoff_activation_roundtrip.log",
+          "bytes": 745,
+          "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+        },
+        {
+          "name": "test_offline_recovered_b_handoff_activation_roundtrip.log",
+          "bytes": 745,
+          "sha256": "27d88a0235f9433ffa2f6c45a2337e59858b8474c0987665b43a316201d3a639"
+        },
+        {
+          "name": "test_offline_recovered_handoff_drift_refused_before_ownership.log",
+          "bytes": 2055,
+          "sha256": "3e18f92f9048f710e83255049f602a4d1f433674b1981a38bd308aec2752c8e6"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_after_fence_publication-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "ae666c6113abd1409061fac36164deab0e3465762dcb61847df40f64090c43bf"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_after_fence_publication.log",
+          "bytes": 1047,
+          "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_before_marker-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "dcfa3eff513bf2b8b489df0729659f0b09a61ab684a8670a94010db71a92fc49"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_before_marker.log",
+          "bytes": 891,
+          "sha256": "ad48f69f4099e805bb15c903424b93f5af86bd1c724aeca688dc7230c0ea30ea"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_before_new_fence-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "39f7f1a18ea166fe8eadd6aec5d575a28c0013009693361cc845725a9395210b"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_before_new_fence.log",
+          "bytes": 1047,
+          "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_during_archive-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "ce86f9df36d5b2fb5f7fd8fe5a0eb14f6000998cdcd8ba0d85b7eb72161fddba"
+        },
+        {
+          "name": "test_offline_recovered_handoff_interrupted_during_archive.log",
+          "bytes": 1047,
+          "sha256": "efd01648ffa61840af0f6af0fb79aecc422910e89b9adeffc7476780a0d88a6f"
+        },
+        {
+          "name": "test_offline_recovered_handoff_publication_unavailable_before_marker-interrupted-state.json",
+          "bytes": 1736,
+          "sha256": "f7053829ab85e38308c6decfe4b8124846bf4582e638819e93d5185271605e1d"
+        },
+        {
+          "name": "test_offline_recovered_handoff_publication_unavailable_before_marker.log",
+          "bytes": 891,
+          "sha256": "ad48f69f4099e805bb15c903424b93f5af86bd1c724aeca688dc7230c0ea30ea"
+        }
+      ]
+    }
+  ],
+  "testedProductSha256": "a4c1f31ec8876133e3268ba7b26874c06235481f0c3e7aa3aee9dd601e57debb",
+  "unchangedGuardSha256": "fee15b210fff4200932fa0a907126eb6df40f33900cd866b3701d239f8810997",
+  "finalTestsSha256": "0668e0e8801a58eed4de61c965ebc0c9107a972014fbb2e0cd7020a64349ee75"
+}
