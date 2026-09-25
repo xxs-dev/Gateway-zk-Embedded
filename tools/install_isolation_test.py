@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 import zipfile
 
 
@@ -774,12 +775,12 @@ exec /bin/cp "$@"
         self.assertIn('unit not stopped: gateway-health-watchdog.service=unknown', result.stdout)
         self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
 
-    def offline_run(self, action='apply', approval=None, env=None):
+    def offline_run(self, action='apply', approval=None, env=None, state_name='transaction'):
         if approval is not None:
             write(self.root / 'approval.json', json.dumps(approval))
         pin = hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest()
         command = ['python3', str(REPO / 'deploy/offline-runtime-upgrade.py'), action,
-                   '--approval-sha256', pin, '--state', str(self.root / 'transaction')]
+                   '--approval-sha256', pin, '--state', str(self.root / state_name)]
         if action == 'apply':
             command += ['--approval', str(self.root / 'approval.json'), '--manifest', str(self.root / 'program-manifest.json'), '--payload', str(self.root / 'payload')]
         if action in ('observe', 'activate'):
@@ -1690,8 +1691,8 @@ exec /bin/cp "$@"
         self.assertTrue((home / 'data/runtime-upgrade-stop').exists())
         self.assertFalse(Path('/dev/shm/offline_target_0').exists())
 
-    def offline_ready(self, approval):
-        state_pin = hashlib.sha256((self.root / 'transaction/state.json').read_bytes()).hexdigest()
+    def offline_ready(self, approval, state_name='transaction'):
+        state_pin = hashlib.sha256((self.root / state_name / 'state.json').read_bytes()).hexdigest()
         ready = {'schemaVersion': 'offline-shm11-observe-2', 'mode': approval['mode'], 'controlEnabled': False,
                  'transactionId': approval['transactionId'], 'expiresAtUnix': int(time.time()) + 300,
                  'approvalSha256': hashlib.sha256((self.root / 'approval.json').read_bytes()).hexdigest(),
@@ -1704,8 +1705,8 @@ exec /bin/cp "$@"
         write(self.root / 'ready.json', json.dumps(ready))
         return ready
 
-    def activation_ready(self, approval, readers):
-        ready = self.offline_ready(approval)
+    def activation_ready(self, approval, readers, state_name='transaction'):
+        ready = self.offline_ready(approval, state_name)
         ready['schemaVersion'] = 'offline-shm11-activate-1'
         ready['startUnits'] = readers
         write(self.root / 'ready.json', json.dumps(ready))
@@ -1726,6 +1727,63 @@ exec /bin/cp "$@"
             shutil.copyfile(REPO / 'deploy/gateway-health-watchdog.sh', home / 'bin/gateway-health-watchdog.sh')
         for name in (('gateway-services.service', 'gateway-health-watchdog.service') if watchdog else ('gateway-services.service',)):
             shutil.copyfile(REPO / 'deploy' / name, Path('/etc/systemd/system') / name)
+
+    def recovered_handoff_fixture(self, profile):
+        home, old, _ = (self.a_joint_monitor_fixture() if profile == 'A' else self.b_implicit_default_fixture())
+        self.activation_scripts(home, old, absent_guard=True)
+        pins = old.pop('activationStartupScripts')
+        self.assertEqual(0, self.offline_run(approval=old).returncode)
+        self.assertEqual(0, self.offline_run('recover').returncode)
+        old_dir = self.root / 'transaction'
+        sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+        receipt = {'schemaVersion': 'offline-shm11-recovered-1', 'phase': 'RECOVERED_STOPPED',
+                   'transactionId': old['transactionId'], 'nodeId': old['nodeId'],
+                   'gatewayHome': str(home), 'controlEnabled': False,
+                   'stateSha256': sha(old_dir / 'state.json'), 'approvalSha256': sha(old_dir / 'approval.json'),
+                   'retainedTargetsSha256': {s['target']: sha(Path('/dev/shm') / s['target']) for s in old['segments']}}
+        receipt_path = self.root / 'recovery-receipt.json'
+        write(receipt_path, json.dumps(receipt))
+        new = copy.deepcopy(old)
+        new['transactionId'] = 'fixture-next'
+        for i, segment in enumerate(new['segments']):
+            segment['target'] = 'next_target_' + str(i)
+        new['activationStartupScripts'] = pins
+        new['recoveredFrom'] = {'stateDir': str(old_dir), 'stateSha256': receipt['stateSha256'],
+                                'approvalSha256': receipt['approvalSha256'],
+                                'receiptPath': str(receipt_path), 'receiptSha256': sha(receipt_path)}
+        self.assertFalse((home / 'bin/runtime-upgrade-guard.py').exists())
+        return home, old, new, receipt
+
+    def recovered_handoff_roundtrip(self, profile):
+        home, old, new, receipt = self.recovered_handoff_fixture(profile)
+        result = self.offline_run(approval=new, state_name='transaction-next')
+        self.assertEqual(0, result.returncode, result.stdout)
+        readers = ['system-monitor@monitor-service.service'] + (['ky-ems.service'] if profile == 'A' else [])
+        self.activation_ready(new, readers, 'transaction-next')
+        result = self.offline_run('activate', state_name='transaction-next')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(0, self.offline_run('recover', state_name='transaction-next').returncode)
+        self.assertFalse((home / 'bin/runtime-upgrade-guard.py').exists())
+        self.assertEqual('current durable dedup\n', (home / 'data/control-dedup.sqlite').read_text())
+        for name, pin in receipt['retainedTargetsSha256'].items():
+            self.assertEqual(pin, hashlib.sha256((Path('/dev/shm') / name).read_bytes()).hexdigest())
+        for segment in old['segments']:
+            self.assertEqual(segment['sha256'], hashlib.sha256((Path('/dev/shm') / segment['source']).read_bytes()).hexdigest())
+        self.assertEqual(receipt['stateSha256'], hashlib.sha256((self.root / 'transaction/state.json').read_bytes()).hexdigest())
+        self.assertEqual(receipt['approvalSha256'], hashlib.sha256((self.root / 'transaction/approval.json').read_bytes()).hexdigest())
+        for unit in old['units']:
+            previous = Path('/etc/systemd/system') / (unit + '.d/90-offline-fixture-offline.conf')
+            self.assertFalse(previous.exists())
+            self.assertTrue((self.root / 'transaction-next/previous-fences' / (unit + '.conf')).is_file())
+        denied = self.offline_run('recover', approval=old)
+        self.assertNotEqual(0, denied.returncode)
+        self.assertEqual('fixture-next\n', (home / 'data/runtime-upgrade-stop').read_text())
+
+    def test_offline_recovered_b_handoff_activation_roundtrip(self):
+        self.recovered_handoff_roundtrip('B')
+
+    def test_offline_recovered_a_absent_guard_handoff_activation_roundtrip(self):
+        self.recovered_handoff_roundtrip('A')
 
     def activation_guard(self, action, unit=None, extra_env=None):
         command = ['python3', str(REPO / 'deploy/runtime-upgrade-guard.py'), action, '/opt/modbus-gateway']
