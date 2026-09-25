@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -54,6 +55,7 @@ public:
     ) override {
         fullSnapshotTopics.push_back(topic);
         fullSnapshotCounts.push_back(values.size());
+        fullSnapshotSamples.push_back(values);
         fullSnapshotFormats.push_back(jsonFormat);
         std::vector<std::uint32_t> indexes;
         indexes.reserve(values.size());
@@ -135,6 +137,7 @@ public:
     std::vector<MqttIncomingMessage> incoming;
     std::vector<std::string> fullSnapshotTopics;
     std::vector<std::size_t> fullSnapshotCounts;
+    std::vector<std::vector<StoredPointValue>> fullSnapshotSamples;
     std::vector<std::string> fullSnapshotFormats;
     std::vector<std::vector<std::uint32_t>> fullSnapshotIndexes;
     std::vector<std::vector<double>> fullSnapshotValues;
@@ -1902,6 +1905,80 @@ void testPrimaryFullRetriesQuicklyAndPublishesLatestAfterRecovery() {
     MemoryPointStore::cleanupOrphanedSegment(shmName);
 }
 
+void testFullExpiryCompletionIsPrimaryOnly() {
+    for (const auto& mode : {std::string("primary"), std::string("third"), std::string("legacy")}) {
+        const auto shmName = "mqtt_full_expiry_" + mode;
+        const auto healthFile = temporaryTestPath(shmName, ".json");
+        MemoryPointStore::cleanupOrphanedSegment(shmName);
+        MemoryStoreConfig storeConfig;
+        storeConfig.sharedMemoryName = shmName;
+        MemoryPointStore store(storeConfig);
+        PointStoreRouter router;
+        router.addStore(shmName, store);
+        PointStoreRoute route;
+        route.index = route.sourceIndex = 4561;
+        route.machineCode = "GW_TEST";
+        route.meterCode = "METER_1";
+        route.pointCode = "P_4561";
+        route.sharedMemoryName = shmName;
+        router.addRoute(route);
+        PointValue value;
+        value.index = 4561;
+        value.value = 15;
+        value.ts = 1000;
+        value.expireAt = 2000;
+        store.putLatest(value);
+        MqttForwardConfig forward;
+        forward.enabled = true;
+        forward.pointIndexes = {4561};
+        forward.fullTelemetryTopic = "edge/full";
+        forward.intervalMs = 1000;
+        forward.primaryFullUpload = mode != "third";
+        forward.payloadFormat = mode == "legacy" ? "legacy" : "compactArray";
+        forward.primaryMachineCode = "GW_TEST";
+        forward.primaryClientId = "GW_TEST-full";
+        forward.publishLockFile = healthFile + ".lock";
+        auto publisher = std::make_shared<CapturingMqttDriverPublisher>();
+        {
+            auto duplicateForward = forward;
+            duplicateForward.pointIndexes.push_back(4561);
+            bool duplicateRejected = false;
+            try {
+                MqttForwarderService duplicateService(duplicateForward, router, publisher, healthFile);
+            } catch (const std::invalid_argument&) {
+                duplicateRejected = true;
+            }
+            require(duplicateRejected, "forwarder must still reject duplicate configured indexes");
+            MqttForwarderService service(forward, router, publisher, healthFile);
+            service.runOnce(1500);
+            store.removeExpired(2001);
+            require(!router.getLatestByIndex(4561, 3000), "expired forwarder slot was not removed");
+            service.runOnce(3000);
+            if (mode == "legacy") {
+                require(publisher->fullSnapshotCounts.empty() && publisher->jsonPayloads.size() == 2 &&
+                    publisher->jsonPayloads.back().find("\"data\":[]") != std::string::npos,
+                    "full placeholders changed legacy forwarder payload");
+            } else {
+                require(publisher->fullSnapshotCounts.size() == 2 && publisher->fullSnapshotCounts.front() == 1 &&
+                    publisher->fullSnapshotCounts.back() == (mode == "primary" ? 1u : 0u),
+                    "expiry completion must be restricted to primary full");
+                if (mode == "primary") {
+                    const auto& missing = publisher->fullSnapshotSamples.back().front();
+                    require(missing.index == 4561 && missing.machineCode == "GW_TEST" &&
+                        missing.meterCode == "METER_1" && missing.pointCode == "P_4561" &&
+                        std::isnan(missing.value) && missing.quality == 0 && missing.stale &&
+                        missing.ts == 0 && missing.expireAt == 0, "expired primary sample was fabricated as valid");
+                }
+            }
+            require(!router.getLatestByIndex(4561, 3000) && router.peekPendingWrites().empty(),
+                "forwarder synthesized samples or queued physical writes");
+        }
+        std::remove(healthFile.c_str());
+        std::remove(forward.publishLockFile.c_str());
+        MemoryPointStore::cleanupOrphanedSegment(shmName);
+    }
+}
+
 void testPrimaryFullKeepsAvailableStoresWhenOneStoreFails() {
     const std::string availableName = "mqtt_primary_full_available";
     const std::string missingName = "mqtt_primary_full_missing";
@@ -1954,10 +2031,24 @@ void testPrimaryFullKeepsAvailableStoresWhenOneStoreFails() {
     MqttForwarderService service(forward, router, publisher, healthFile);
     service.runOnce(1770000700000LL);
 
-    require(publisher->fullSnapshotCounts == std::vector<std::size_t>{1},
-        "primary full should preserve the main driver's best-effort store behavior");
-    require(publisher->fullSnapshotIndexes.front() == std::vector<std::uint32_t>{2501},
-        "primary full should publish available points when one store is unavailable");
+    require(publisher->fullSnapshotCounts == std::vector<std::size_t>{2},
+        "primary full must preserve configured identities during best-effort store reads");
+    require(publisher->fullSnapshotIndexes.front() == std::vector<std::uint32_t>({2501, 2502}),
+        "primary full must keep available samples and missing store identities");
+    const auto& missing = publisher->fullSnapshotSamples.front().at(1);
+    require(missing.meterCode == "METER_MISSING" && missing.pointCode == "P_MISSING" &&
+        std::isnan(missing.value) && missing.quality == 0 && missing.stale && missing.ts == 0 && missing.expireAt == 0,
+        "unavailable store placeholder must be explicitly bad and stale");
+    const auto& available = publisher->fullSnapshotSamples.front().at(0);
+    require(available.value == 12.5 && available.quality == 1 && !available.stale && available.ts == value.ts,
+        "missing store completion changed an available sample");
+
+    auto strictForward = forward;
+    strictForward.failOnStoreError = true;
+    auto strictPublisher = std::make_shared<CapturingMqttDriverPublisher>();
+    MqttForwarderService strictService(strictForward, router, strictPublisher, healthFile);
+    strictService.runOnce(1770000700000LL);
+    require(strictPublisher->fullSnapshotCounts.empty(), "strict primary store errors must still fail closed");
 
     MqttForwardConfig blockedForward = forward;
 #ifdef _WIN32
@@ -3555,9 +3646,22 @@ void testIpcForwarderLeaseOnlyRenewsAfterHealthyReplay() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--full-identity") {
+            testFullExpiryCompletionIsPrimaryOnly();
+            testPrimaryFullKeepsAvailableStoresWhenOneStoreFails();
+            testPrimaryFullRetriesQuicklyAndPublishesLatestAfterRecovery();
+            testUnavailablePointStoreFailsClosed();
+            testTxOnlyConfigClearsControlTopicsAndNeverPolls();
+            testLegacyPayloadUsesIndependentMappings();
+            testUnroutedPointIndexIsRejected();
+            testRealtimeStopLeavesMainFullAndForwarderFullRunning();
+            std::cout << "mqtt_forwarder_service_test --full-identity passed" << std::endl;
+            return 0;
+        }
         testIpcForwarderDelegationPendingAndHealth();
+        testFullExpiryCompletionIsPrimaryOnly();
         testIpcForwarderControlBoundedAndOrdered();
         testIpcForwarderLeaseOnlyRenewsAfterHealthyReplay();
         std::cerr << "running control result sqlite lifetime test" << std::endl;

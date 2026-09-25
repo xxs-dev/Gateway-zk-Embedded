@@ -574,6 +574,16 @@ add_executable(mqtt_forwarder_service_test tools/mqtt_forwarder_service_test.cpp
 target_link_libraries(mqtt_forwarder_service_test PRIVATE edge_gateway)
 target_compile_options(mqtt_forwarder_service_test PRIVATE -fdiagnostics-color=never)
 
+if(BUILD_TESTING)
+    add_executable(mqtt_full_snapshot_encoding_test tools/mqtt_full_snapshot_encoding_test.cpp)
+    target_link_libraries(mqtt_full_snapshot_encoding_test PRIVATE edge_gateway)
+    add_test(NAME mqtt_full_identity_driver COMMAND mqtt_driver_service_test --full-identity)
+    add_test(NAME mqtt_full_identity_forwarder COMMAND mqtt_forwarder_service_test --full-identity)
+    add_test(NAME mqtt_full_identity_encoding COMMAND mqtt_full_snapshot_encoding_test)
+    set_tests_properties(mqtt_full_identity_driver mqtt_full_identity_forwarder mqtt_full_identity_encoding
+        PROPERTIES TIMEOUT 60)
+endif()
+
 add_executable(event_engine_service_test tools/event_engine_service_test.cpp)
 target_link_libraries(event_engine_service_test PRIVATE edge_gateway)
 target_compile_options(event_engine_service_test PRIVATE -fdiagnostics-color=never)

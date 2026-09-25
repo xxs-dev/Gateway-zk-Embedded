@@ -23,6 +23,7 @@
 
 #include "edge_gateway/legacy_telemetry_payload.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
+#include "edge_gateway/mqtt_full_snapshot.hpp"
 #include "edge_gateway/power_control_ownership.hpp"
 #include "edge_gateway/process_file_lock.hpp"
 
@@ -1312,7 +1313,7 @@ void MqttForwarderService::runOnce(std::int64_t nowMs) {
     }
     const auto publishStarted = std::chrono::steady_clock::now();
     try {
-        const auto values = forwardConfig_.failOnStoreError
+        auto values = forwardConfig_.failOnStoreError
             ? router_.getLatestByIndexesStrict(forwardConfig_.pointIndexes, nowMs)
             : router_.getLatestByIndexes(forwardConfig_.pointIndexes, nowMs);
         if (forwardConfig_.payloadFormat == "legacy") {
@@ -1326,6 +1327,9 @@ void MqttForwarderService::runOnce(std::int64_t nowMs) {
                 )
             );
         } else {
+            if (forwardConfig_.primaryFullUpload) {
+                values = completeMqttFullSnapshot(std::move(values), forwardConfig_.pointIndexes, router_);
+            }
             publisher_->publishFullSnapshot(
                 forwardConfig_.fullTelemetryTopic,
                 values,

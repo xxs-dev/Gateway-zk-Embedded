@@ -573,6 +573,52 @@ void testFullIdentitySurvivesExpiredSlotRemoval() {
     cleanupFixture(fixture);
 }
 
+void testFullMissingSelectionAndLegacyBoundary(bool publishAll) {
+    auto fixture = makeFixture(publishAll ? "full_missing_all" : "full_missing_selected", 5000);
+    fixture.service.reset();
+    fixture.router = PointStoreRouter();
+    for (auto& point : fixture.deviceConfig.meters.front().points) point.fullUpload = false;
+    auto neverCollected = makePoint(1003, "P_NEVER");
+    neverCollected.fullUpload = false;
+    fixture.deviceConfig.meters.front().points.push_back(neverCollected);
+    fixture.router.addStore(fixture.shmName, *fixture.store);
+    fixture.router.addRoutesFromDeviceConfigs({fixture.deviceConfig}, fixture.shmName);
+    fixture.driverConfig.publishAllOnFull = publishAll;
+    fixture.driverConfig.fullUploadIndexes = publishAll
+        ? std::vector<std::uint32_t>{} : std::vector<std::uint32_t>{1002, 1002, 99999};
+    fixture.mqttConfig.legacyTelemetryEnabled = true;
+    fixture.mqttConfig.legacyTelemetryTopic = "legacy/full-missing-test";
+    fixture.mqttConfig.legacyTelemetryIntervalMs = 1000;
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher));
+    const std::int64_t nowMs = 1770000600001LL;
+    fixture.store->removeExpired(nowMs);
+    require(fixture.router.getAllLatest(nowMs).empty(), "cold store fixture must have no samples");
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        fixture.service->publishFullSnapshotNow(nowMs + repeat * 2000);
+        const auto& values = fixture.publisher->fullSnapshotValues.back();
+        require(values.size() == (publishAll ? 3u : 1u), "full widened configured selection or duplicated identity");
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            const auto& value = values[i];
+            require(value.index == (publishAll ? 1001 + i : 1002) && std::isnan(value.value) &&
+                value.quality == 0 && value.stale && value.ts == 0 && value.expireAt == 0,
+                "cold full placeholder has incorrect identity or quality");
+        }
+    }
+    bool sawLegacy = false;
+    for (std::size_t i = 0; i < fixture.publisher->jsonTopics.size(); ++i) {
+        if (fixture.publisher->jsonTopics[i] == fixture.mqttConfig.legacyTelemetryTopic) {
+            sawLegacy = true;
+            require(fixture.publisher->statusPayloads[i].find("\"data\":[]") != std::string::npos,
+                "primary full placeholders leaked into legacy telemetry");
+        }
+    }
+    require(sawLegacy, "legacy boundary was not exercised");
+    require(fixture.router.getAllLatest(nowMs).empty() && fixture.router.peekPendingWrites().empty(),
+        "full completion mutated PointStore or queued writes");
+    cleanupFixture(fixture);
+}
+
 void testIsolatedFullWorkerUsesBoundedStartupGrace() {
     auto fixture = makeFixture("isolated_startup", 30000);
     fixture.service.reset();
@@ -2554,8 +2600,17 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--full-identity") {
             testFullIdentitySurvivesExpiredSlotRemoval();
+            testFullMissingSelectionAndLegacyBoundary(false);
+            testFullMissingSelectionAndLegacyBoundary(true);
             testFullUploadOnlyWithoutRealtimeSession();
             testFullUploadPointSelectionIsSharedWithForwarder();
+            testIsolatedFullWorkerUsesBoundedStartupGrace();
+            testIsolatedFullWorkerLeaseSuppressesAndThenImmediatelyFallsBack();
+            testIsolatedFallbackRetriesWithoutAnotherStartupGrace();
+            testLegacyTelemetryUsesOldTopicAndPayloadShape();
+            testLegacyTelemetryCanPublishFasterThanFullSnapshot();
+            testLegacyTelemetryRestoresLogicalMeterMapping();
+            testLegacyTelemetryMappedOnlyFiltersUnmappedPoints();
             std::cout << "mqtt_driver_service_test --full-identity passed" << std::endl;
             return 0;
         }
@@ -2579,6 +2634,8 @@ int main(int argc, char** argv) {
         testIpcDriverStatsIdentityAndBackoff();
         testFullUploadOnlyWithoutRealtimeSession();
         testFullIdentitySurvivesExpiredSlotRemoval();
+        testFullMissingSelectionAndLegacyBoundary(false);
+        testFullMissingSelectionAndLegacyBoundary(true);
         testIsolatedFullWorkerUsesBoundedStartupGrace();
         testIsolatedFullWorkerLeaseSuppressesAndThenImmediatelyFallsBack();
         testIsolatedFallbackRetriesWithoutAnotherStartupGrace();

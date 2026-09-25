@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "workItem": "GW-20260809-002",
+  "recordedAtUtc": "2026-09-25T11:08:07Z",
+  "branch": "codex/a-readonly-acquisition-20260925",
+  "redCommit": "94a33214e28e34f83cc66cb412a791851b31b3e4",
+  "baseCommit": "a6037cff3119d73d86402e07aae59c5d80765c2f",
+  "result": "LOCAL_GREEN_NOT_DEPLOYED",
+  "scope": {
+    "product": "Gateway-zk only",
+    "changedBehavior": "Primary full snapshots retain each selected routed identity even when its sample slot is absent. Inline, inline isolated-worker fallback and primary isolated worker use the same completion helper.",
+    "unchanged": ["MemoryPointStore TTL and removal", "PointStoreRouter absent-sample reads", "realtime admission and publication", "legacy telemetry", "third-party forwarding", "strict store-read failure", "full selection resolver", "exact 151 identity gate"],
+    "deviceAccess": false,
+    "networkAccess": false,
+    "armOrWindowsBuild": false,
+    "deployment": false,
+    "stableMerge": false,
+    "push": false
+  },
+  "missingSampleContract": {
+    "value": null,
+    "quality": 0,
+    "stale": true,
+    "ts": 0,
+    "expireAt": 0,
+    "identity": "Existing PointStoreRoute machineCode/meterCode/index/pointCode; never fabricate an unrouted identity",
+    "representation": "Publication-only quiet_NaN in StoredPointValue; existing appendJsonNumber emits JSON null in both compactArray and object formats",
+    "safety": "Not a measurement, not a fresh/good sample and not collection success. Never inserted into PointStore or the physical write queue. A new real sample replaces the placeholder automatically.",
+    "decision": "Coordinator confirmed platform audit accepts explicit null/zero time and selected this exact sentinel. Numeric zero candidate was rejected because it can be mistaken for a measurement.",
+    "dependencies": "Platform must exclude the exact sentinel from historical persistence and preserve existing valid latest. Implementation must narrowly recognize the exact sentinel in offline acceptance; identity completeness remains mandatory. These sibling changes are not implemented or validated by this edge-only receipt."
+  },
+  "verification": {
+    "runtime": "Local WSL Ubuntu, GNU 15.2.0, C++17 Debug",
+    "buildDirectory": "/var/tmp/gw-full-identity-20260925-build",
+    "sourceProvenance": "All native library objects initially built from this isolated worktree; final changed targets rebuilt incrementally. No reused foreign archive.",
+    "configureCommand": "cmake -S /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/a-readonly-acquisition-20260925 -B /var/tmp/gw-full-identity-20260925-build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON",
+    "buildCommand": "cmake --build /var/tmp/gw-full-identity-20260925-build --target mqtt_driver_service_test mqtt_forwarder_service_test mqtt_full_snapshot_encoding_test memory_point_store_reader_cache_test -j 6",
+    "ctestCommand": "ctest --test-dir /var/tmp/gw-full-identity-20260925-build -R '^(mqtt_full_identity_.*|memory_point_store_reader_cache)$' --output-on-failure",
+    "ctestPassed": ["mqtt_full_identity_driver", "mqtt_full_identity_forwarder", "mqtt_full_identity_encoding", "memory_point_store_reader_cache"],
+    "ctestResult": "4/4 PASS, 0 failures, 0.36 seconds",
+    "additionalCommand": "./mqtt_driver_service_test --realtime-admission",
+    "additionalResult": "9 realtime admission groups PASS, exit 0",
+    "nativeReproduction": "before=151, rawAfterSweep=150, publishedAfterSweep=151; 4561 strictly null/bad/stale/zero-time; other 150 values and timestamps preserved; resumed sample replaces placeholder",
+    "coverage": [
+      "Real store/register/heartbeat/expiry sweep/router/full service path",
+      "Cold/never-collected points, selected subset, all-routed fallback, repeated publications",
+      "Duplicate indexes deduplicated by driver/helper and rejected by forwarder; unrouted driver/helper indexes not invented and forwarder rejects them",
+      "Inline worker grace/lease/fallback retry and primary isolated worker",
+      "Primary best-effort missing store yields missing identity; strict store failure still blocks publication",
+      "Legacy full companion does not receive placeholders; primary legacy forwarder and third-party full remain unchanged",
+      "Actual production JSON encoder, compactArray/object x single/multiple chunks, exact 151 identities, strict null and quality/time assertions; no publisher construction or sockets",
+      "Original memory reader cache/remap/TTL/reuse/concurrency regression",
+      "Realtime missing sample remains missing and full does not create physical writes"
+    ],
+    "review": "Direct scoped diff review and git diff --check passed; no Grok review",
+    "warnings": [
+      "WSL prints an existing localhost proxy startup diagnostic; local native commands complete successfully",
+      "Offline encoder test includes the production translation unit and GCC emits Wsubobject-linkage for its existing private anonymous-namespace connection member; production encoder source is unchanged",
+      "Injected publisher/store/status failures are expected negative-test diagnostics"
+    ]
+  },
+  "testedWorkingTreeSha256": {
+    "include/edge_gateway/mqtt_full_snapshot.hpp": "1cb17ea2c1d8728ae0cea691846c5da03b6f706acf72ae147135745d9f3caf83",
+    "src/mqtt_driver_service.cpp": "ce1941b07286a2aaed271dffb17d845410a61b69ae5eff5350621524b184eee3",
+    "src/mqtt_forwarder_service.cpp": "3a9e7963275363df09a28b76a86331d2145ac4d53d84c5805cfbc4029c9d31f5",
+    "tools/mqtt_driver_service_test.cpp": "326edcd064dd8eee95b6d26bb84bcf0ae860739192dfa85744280894d21dc09c",
+    "tools/mqtt_forwarder_service_test.cpp": "a2e92e3d2f4d1912ec61499e421f04628790849f0e3b496a7fff676b897ff8b8",
+    "tools/mqtt_full_snapshot_encoding_test.cpp": "225060841ae66b19acfea9fca00e93ce4c7b3b8cb9ad0a847c2161a4fb259f17",
+    "CMakeLists.txt": "86a8720f4ef7afad172205b8c48a4f5cde62beabcdbd236466c5ae39482b954c"
+  },
+  "localNativeTestBinarySha256": {
+    "mqtt_driver_service_test": "c67654a61e74540258c8c33a853f5d81c2836618dffae6e76126907739c5be15",
+    "mqtt_forwarder_service_test": "767ffad15587a068211d464338fbb9ef259fb073a01054f44ee5b64c4a0005bd",
+    "mqtt_full_snapshot_encoding_test": "7b7612a5c2ebbdcca58b412b41ddb0c7658272b3cc225584e137d4bdaff1e182",
+    "memory_point_store_reader_cache_test": "035bdb6f81822884ffa8678441d2d53b78dbd377d3587ab6b7c5a9e2ac706c40"
+  },
+  "remaining": [
+    "Why 4561 did not refresh is not established. Sealed public point projection has no address/length/cachePolicy and no point-specific RTU error evidence was available. No new device collection was requested.",
+    "Actual before-cycle run remains failed and RECOVERED_STOPPED; no cycle and zero physical writes. Offline identity repair does not retroactively pass it.",
+    "No AArch64 build, target runtime validation, platform joint acceptance or deployment has been performed. Coordinate sibling consumer/acceptance fixes before any later integration."
+  ]
+}

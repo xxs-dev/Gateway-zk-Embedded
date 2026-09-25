@@ -23,6 +23,7 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/json_value.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
+#include "edge_gateway/mqtt_full_snapshot.hpp"
 #include "edge_gateway/legacy_telemetry_payload.hpp"
 #include "edge_gateway/process_file_lock.hpp"
 #include "edge_gateway/scada_control_lease.hpp"
@@ -1671,7 +1672,10 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
     const auto& topic = mqttConfig_.fullTelemetryTopic.empty()
         ? mqttConfig_.telemetryTopic
         : mqttConfig_.fullTelemetryTopic;
-    publisher_->publishFullSnapshot(topic, values, driverConfig_.fullUploadJsonFormat);
+    const auto indexes = driverConfig_.publishAllOnFull || driverConfig_.fullUploadIndexes.empty()
+        ? router_.allIndexes() : driverConfig_.fullUploadIndexes;
+    const auto fullValues = completeMqttFullSnapshot(values, indexes, router_);
+    publisher_->publishFullSnapshot(topic, fullValues, driverConfig_.fullUploadJsonFormat);
     if (isLegacyTelemetryDue(nowMs)) {
         publishLegacyTelemetry(values, nowMs);
     }
@@ -1680,7 +1684,7 @@ void MqttDriverService::publishFullSnapshotNow(std::int64_t nowMs) {
     publishStatusEvent(
         "full-snapshot",
         finishedMs,
-        std::string(R"("valueCount":)") + std::to_string(values.size()) +
+        std::string(R"("valueCount":)") + std::to_string(fullValues.size()) +
             R"(,"durationMs":)" + std::to_string(std::max<std::int64_t>(0, finishedMs - nowMs))
     );
     lastFullUploadMs_ = finishedMs;
