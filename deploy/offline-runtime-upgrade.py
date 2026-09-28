@@ -430,6 +430,10 @@ def a_joint_config_safe(home, approval, state, selected, documents, project_pend
     require(isinstance(mqtt, dict) and mqtt.get('enabled') is monitor_mqtt and
             isinstance(direct, dict) and direct.get('enabled') is False,
             'A monitor inbound maintenance must be disabled')
+    if monitor_mqtt:
+        recording = app['systemMonitor'].get('recordingTransfer')
+        require(isinstance(recording, dict) and recording.get('enabled') is False,
+                'A Windows read-only recording transfer must be disabled')
     if 'scadaReadOnlyProject' in approval:
         scada = app.get('localDisplay', {}).get('scada', {})
         require(scada.get('enabled') is True and scada.get('autoReload') is False and
@@ -984,6 +988,8 @@ def apply(args):
         if a_binding['disableInbound']:
             monitor_app['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
             monitor_app['systemMonitor']['directMaintenance']['enabled'] = False
+        if 'aReadonlyAcquisition' in approval:
+            guard.a_acquisition_patch('apps/monitor-service.json', monitor_app, approval)
         a_joint_config_safe(home, approval, {'segments': segments, 'unreferencedDefaultShm': unreferenced_default},
                             [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)
     require('aInboundDisableSourceSha256' not in approval or a_binding is not None,
@@ -1017,6 +1023,8 @@ def apply(args):
             if a_binding['disableInbound']:
                 projected['apps/monitor-service.json']['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
                 projected['apps/monitor-service.json']['systemMonitor']['directMaintenance']['enabled'] = False
+            if 'aReadonlyAcquisition' in approval:
+                guard.a_acquisition_patch('apps/monitor-service.json', projected['apps/monitor-service.json'], approval)
             if 'scadaReadOnlyProject' in approval:
                 projected['apps/monitor-service.json']['localDisplay']['scada']['autoReload'] = False
             a_joint_config_safe(home, approval, profile_state, [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)

@@ -88,6 +88,8 @@ def a_acquisition_patch(relative, document, approval):
         allowed = A_WINDOWS_RX[relative] if windows else {}
         for key in A_RX_TOPICS:
             document['mqtt'][key] = allowed.get(key, '')
+    if windows and relative == 'apps/monitor-service.json':
+        document['systemMonitor']['recordingTransfer']['enabled'] = False
     return document
 
 

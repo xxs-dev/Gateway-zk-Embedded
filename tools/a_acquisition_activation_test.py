@@ -72,6 +72,7 @@ class AcquisitionTest(unittest.TestCase):
             self.documents[name]['deviceConfigFiles'] = [str(self.config / 'devices/device_modbusRTU_2_readonly.json')]
         monitor = self.documents['apps/monitor-service.json']
         monitor['localDisplay']['scada'].update(autoReload=True, projectDirectory=str(self.home / 'scada/current'))
+        monitor['systemMonitor']['recordingTransfer'] = {'enabled': True}
         mqtt = self.documents['apps/mqtt-service.json']
         mqtt['mqtt'].update(telemetryTopic='edge/telemetry', username='synthetic', password='test-only', tls={'enabled': True})
         mqtt['mqttDriver']['fullUploadWorker'].update(healthHeartbeatMs=1000, failoverTimeoutMs=3000,
@@ -293,6 +294,7 @@ class AcquisitionTest(unittest.TestCase):
         monitor = json.loads((self.config / 'apps/monitor-service.json').read_text())
         self.assertIs(monitor['mqtt']['enabled'], True)
         self.assertIs(monitor['systemMonitor']['directMaintenance']['enabled'], False)
+        self.assertIs(monitor['systemMonitor']['recordingTransfer']['enabled'], False)
         self.activate()
         state = json.loads((self.state_dir / 'state.json').read_text())
         self.assertEqual(self.g.A_WINDOWS_PROFILE, state['activationProfile'])
@@ -329,6 +331,15 @@ class AcquisitionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'minimal config patch'):
                 self.g.a_acquisition_config(self.home, self.state_dir, self.approval, state)
             write(path, original)
+        relative = 'apps/monitor-service.json'
+        path = self.config / relative
+        document = json.loads(path.read_text())
+        document['systemMonitor']['recordingTransfer']['enabled'] = True
+        write(path, json.dumps(document))
+        state['configSha256'][relative] = sha(path)
+        next(row for row in state['files'] if row['path'] == 'config/runtime/' + relative)['newSha256'] = sha(path)
+        with self.assertRaisesRegex(ValueError, 'minimal config patch'):
+            self.g.a_acquisition_config(self.home, self.state_dir, self.approval, state)
 
     def test_windows_readonly_requires_explicit_true_and_acquisition(self):
         for value in (False, 0, 1, 'true', None, {}, []):
