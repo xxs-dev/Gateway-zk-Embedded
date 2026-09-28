@@ -425,7 +425,9 @@ def a_joint_config_safe(home, approval, state, selected, documents, project_pend
             'A joint monitor loader or disabled camera shape changed')
     mqtt = app.get('mqtt')
     direct = app['systemMonitor'].get('directMaintenance')
-    require(isinstance(mqtt, dict) and mqtt.get('enabled') is False and
+    monitor_mqtt = ('aReadonlyAcquisition' in approval and
+                    guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE)
+    require(isinstance(mqtt, dict) and mqtt.get('enabled') is monitor_mqtt and
             isinstance(direct, dict) and direct.get('enabled') is False,
             'A monitor inbound maintenance must be disabled')
     if 'scadaReadOnlyProject' in approval:
@@ -624,7 +626,7 @@ def read_inputs(args):
     home = Path(approval['gatewayHome'])
     require(re.fullmatch('/[A-Za-z0-9_/-]+', str(home)) and home.resolve() == home and
             str(home) not in ('/', '/opt'), 'unsafe gateway home')
-    if 'aReadonlyAcquisition' in approval:
+    if 'aReadonlyAcquisition' in approval or 'aReadonlyWindowsIntegration' in approval:
         guard.a_acquisition_scope(home, approval)
     activation_script_pins(home, approval, 'old')
     manifest = checked_json(args.manifest, approval['programManifestSha256'])
@@ -980,7 +982,7 @@ def apply(args):
         monitor_app = projected['apps/monitor-service.json']
         monitor_app['localDisplay']['scada']['autoReload'] = False
         if a_binding['disableInbound']:
-            monitor_app['mqtt']['enabled'] = False
+            monitor_app['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
             monitor_app['systemMonitor']['directMaintenance']['enabled'] = False
         a_joint_config_safe(home, approval, {'segments': segments, 'unreferencedDefaultShm': unreferenced_default},
                             [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)
@@ -1013,7 +1015,7 @@ def apply(args):
         profile_state = {'segments': segments, 'unreferencedDefaultShm': unreferenced_default}
         if a_binding:
             if a_binding['disableInbound']:
-                projected['apps/monitor-service.json']['mqtt']['enabled'] = False
+                projected['apps/monitor-service.json']['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
                 projected['apps/monitor-service.json']['systemMonitor']['directMaintenance']['enabled'] = False
             if 'scadaReadOnlyProject' in approval:
                 projected['apps/monitor-service.json']['localDisplay']['scada']['autoReload'] = False
@@ -1094,9 +1096,9 @@ def apply(args):
         for relative, doc in documents.items():
             updated = switch_names(doc, names)
             if approval.get('aReadonlyAcquisition') is True:
-                guard.a_acquisition_patch(relative, updated)
+                guard.a_acquisition_patch(relative, updated, approval)
             if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
-                updated['mqtt']['enabled'] = False
+                updated['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
                 updated['systemMonitor']['directMaintenance']['enabled'] = False
             if 'scadaReadOnlyProject' in approval and relative == 'apps/monitor-service.json':
                 updated['localDisplay']['scada']['autoReload'] = False
@@ -1174,7 +1176,7 @@ def recover(args):
     local_identity(home, approval)
     if 'recoveredFrom' in approval and not state.get('successorHandoffComplete', False):
         successor_handoff(home, approval, args.state, state)
-    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE):
+    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE):
         refence_activation(home, approval, args.state, state)
     else:
         fence(home, approval, args.state, state)
@@ -1437,7 +1439,7 @@ def inhibition_dropin(home, transaction, unit):
 def refence_activation(home, approval, state_dir, state):
     allowed = state.get('activatedUnits', [])
     require(isinstance(allowed, list) and allowed == activation_units(approval,
-            guard.A_ACQUISITION_READERS if state['activationProfile'] == guard.A_ACQUISITION_PROFILE else
+            guard.A_ACQUISITION_READERS if state['activationProfile'] in (guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE) else
             [MONITOR_UNIT] if state['activationProfile'] == 'B_MONITOR' else [MONITOR_UNIT, A_QT_UNIT]),
             'invalid activation recovery scope')
     require(regular(home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'],
@@ -1536,7 +1538,7 @@ def activate(args):
     if 'aReadonlyAcquisition' in approval:
         guard.a_acquisition_scope(home, approval)
         require(joint and readers == guard.A_ACQUISITION_READERS, 'A acquisition ready group changed')
-        profile, monitor_source = guard.A_ACQUISITION_PROFILE, MONITOR_IMPLICIT_SHM
+        profile, monitor_source = guard.a_acquisition_profile(approval), MONITOR_IMPLICIT_SHM
         guard.a_acquisition_config(home, args.state, approval, state)
         a_joint_monitor_observe_safe(home, approval, state, readers, joint, documents, True)
         state['aReadonlyUnitProof'] = guard.a_acquisition_units(home, approval, joint[0]['target'], inhibited=True)

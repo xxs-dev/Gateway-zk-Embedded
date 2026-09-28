@@ -34,6 +34,7 @@ LAUNCHER_UNIT_SHA = 'eb6ca219d61ea2c832a1b2e08b1c2b7e7edbde9d3bd1285d040bd4306fb
 WATCHDOG_UNIT_SHA = '0f15974d09185ca6b042b817eb686975988a9050c85dac08f1119faccbb1d323'
 WATCHDOG_SCRIPT_SHA = 'fa44162d8deae152ed76bc0bf3bf743c3f2515b289ab4227d1597f1630f64da8'
 A_ACQUISITION_PROFILE = 'A_RTU_READ_MQTT_TX_FULL'
+A_WINDOWS_PROFILE = 'A_RTU_READ_MQTT_WINDOWS_READONLY'
 A_RTU_UNIT = 'modbus-rtu@device_modbusRTU_2_readonly.service'
 A_MQTT_UNIT = 'mqtt-driver@mqtt-service.service'
 A_ACQUISITION_READERS = [A_RTU_UNIT, A_MQTT_UNIT, MONITOR_UNIT, QT_UNIT]
@@ -48,10 +49,19 @@ A_RX_TOPICS = ('commandRequestTopic', 'otaRequestTopic', 'realtimeRequestTopic',
                'systemMonitorRequestTopic', 'diagRequestTopic', 'configPullRequestTopic',
                'configApplyRequestTopic', 'configDeleteRequestTopic', 'configRestoreRequestTopic',
                'recordingRequestTopic', 'recordingAckTopic')
+A_WINDOWS_RX = {
+    'apps/mqtt-service.json': {'realtimeRequestTopic': 'edge/telemetry/realtime/request'},
+    'apps/monitor-service.json': {'systemMonitorRequestTopic': 'edge/system/monitor/request',
+                                  'configPullRequestTopic': 'edge/config/pull/request'}}
+
+
+def a_acquisition_profile(approval):
+    return A_WINDOWS_PROFILE if approval.get('aReadonlyWindowsIntegration') is True else A_ACQUISITION_PROFILE
 
 
 def a_acquisition_scope(home, approval):
     if (approval.get('aReadonlyAcquisition') is not True or home != Path('/opt/modbus-gateway') or
+            ('aReadonlyWindowsIntegration' in approval and approval['aReadonlyWindowsIntegration'] is not True) or
             approval.get('mode') != 'standalone' or approval.get('controlEnabled') is not False or
             not approval.get('scadaReadOnlyProject') or not approval.get('qtDisplayEnvSha256') or
             approval.get('aInboundDisableSourceSha256') != A_SOURCE_CONFIGS['apps/monitor-service.json'] or
@@ -71,11 +81,13 @@ def switch_names(value, names):
     return value
 
 
-def a_acquisition_patch(relative, document):
+def a_acquisition_patch(relative, document, approval):
     # Only the approved MQTT RX fields change; defaults, full upload and auth stay intact.
-    if relative == 'apps/mqtt-service.json':
+    windows = a_acquisition_profile(approval) == A_WINDOWS_PROFILE
+    if relative == 'apps/mqtt-service.json' or (windows and relative == 'apps/monitor-service.json'):
+        allowed = A_WINDOWS_RX[relative] if windows else {}
         for key in A_RX_TOPICS:
-            document['mqtt'][key] = ''
+            document['mqtt'][key] = allowed.get(key, '')
     return document
 
 
@@ -101,10 +113,10 @@ def a_acquisition_config(home, state_dir, approval, state):
             raise ValueError('A acquisition original backup changed')
         expected = switch_names(json.loads(original.read_text()), names)
         if relative == 'apps/monitor-service.json':
-            expected['mqtt']['enabled'] = False
+            expected['mqtt']['enabled'] = a_acquisition_profile(approval) == A_WINDOWS_PROFILE
             expected['systemMonitor']['directMaintenance']['enabled'] = False
             expected['localDisplay']['scada']['autoReload'] = False
-        a_acquisition_patch(relative, expected)
+        a_acquisition_patch(relative, expected, approval)
         expected_pin = rows[0][1]['newSha256'] if rows else pin
         if (sha(current) != expected_pin or state['configSha256'].get(relative) != expected_pin or
                 json.dumps(json.loads(current.read_text()), sort_keys=True) != json.dumps(expected, sort_keys=True)):
@@ -269,17 +281,17 @@ def active_context(home):
         raise ValueError('activation approval changed')
     approval = json.loads(approval_path.read_text())
     ready = json.loads(ready_path.read_text())
-    acquisition = state.get('activationProfile') == A_ACQUISITION_PROFILE
-    if acquisition or 'aReadonlyAcquisition' in approval:
+    acquisition = state.get('activationProfile') in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE)
+    if acquisition or 'aReadonlyAcquisition' in approval or 'aReadonlyWindowsIntegration' in approval:
         a_acquisition_scope(home, approval)
-        if not acquisition:
+        if not acquisition or state['activationProfile'] != a_acquisition_profile(approval):
             raise ValueError('A acquisition cannot fall back to an observer-only profile')
     readers = (A_ACQUISITION_READERS if acquisition else
                [MONITOR_UNIT] if state.get('activationProfile') == 'B_MONITOR' else [MONITOR_UNIT, QT_UNIT])
     watchdog = ('gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
     allowed = ['gateway-services.service'] + (['gateway-health-watchdog.service'] if watchdog else []) + readers
     if (state.get('phase') != 'ACTIVATED_CONTROL_DISABLED' or
-            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE) or
+            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE) or
             state.get('activationReadySha256') != active['readySha256'] or
             state.get('activatedUnits') != allowed or active.get('allowedUnits') != allowed or
             ready.get('schemaVersion') != 'offline-shm11-activate-1' or
@@ -478,7 +490,7 @@ def activated_unit(home, unit):
                    MONITOR_UNIT: MONITOR_TEMPLATE,
                    QT_UNIT: QT_UNIT_SHA,
                    'gateway-health-watchdog.service': WATCHDOG_UNIT_SHA}
-    if state['activationProfile'] == A_ACQUISITION_PROFILE:
+    if state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         fixed_units.update({A_RTU_UNIT: A_RTU_TEMPLATE, A_MQTT_UNIT: A_MQTT_TEMPLATE})
     for selected in allowed:
         fragment = (selected.split('@')[0] + '@.service' if selected in (MONITOR_UNIT, A_RTU_UNIT, A_MQTT_UNIT)
@@ -530,7 +542,7 @@ def activated_unit(home, unit):
     no_old_mappings(sources)
     if sha(home / 'bin/SystemMonitor') != MONITOR_BINARY or sha(Path('/etc/systemd/system/system-monitor@.service')) != MONITOR_TEMPLATE:
         raise ValueError('activated monitor binary/template changed')
-    if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE):
+    if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         if (sha(home / 'ky-ems/KY-EMS') != QT_BINARY or
                 sha(home / 'bin/gateway-qt-run.sh') != QT_WRAPPER_SHA or
                 sha(Path('/etc/systemd/system/ky-ems.service')) != QT_UNIT_SHA or
@@ -545,7 +557,7 @@ def activated_unit(home, unit):
         raise ValueError('activated monitor drop-in changed')
     if systemctl_value(MONITOR_UNIT, 'Environment') != 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + monitor_target:
         raise ValueError('activated monitor environment changed')
-    if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE):
+    if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         env = exact_file(config / 'qt-display.env').read_bytes()
         if b'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=' + monitor_target.encode() not in env:
             raise ValueError('activated Qt environment changed')
@@ -568,7 +580,7 @@ def activated_unit(home, unit):
                 systemctl_value('qt-display-bridge.service', 'DropInPaths').split() != [str(bridge_dropin)] or
                 systemctl_value('graphical.target', 'ActiveState') != 'active'):
             raise ValueError('activated bridge inhibition changed')
-    if state['activationProfile'] == A_ACQUISITION_PROFILE:
+    if state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         a_acquisition_config(home, Path(active['stateDir']), approval, state)
         a_acquisition_units(home, approval, monitor_target, inhibited=False)
     return readers

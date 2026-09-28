@@ -282,6 +282,66 @@ class AcquisitionTest(unittest.TestCase):
             self.assertEqual(raw, (self.config / name).read_bytes(), name)
         self.assertEqual('RECOVERED_STOPPED', json.loads((self.state_dir / 'state.json').read_text())['phase'])
 
+    def test_windows_readonly_apply_activate_recover(self):
+        self.approval['aReadonlyWindowsIntegration'] = True
+        state = self.apply()
+        self.assertEqual('UPGRADED_STOPPED', state['phase'])
+        for relative, allowed in self.g.A_WINDOWS_RX.items():
+            document = json.loads((self.config / relative).read_text())
+            self.assertEqual({key: allowed.get(key, '') for key in self.g.A_RX_TOPICS},
+                             {key: document['mqtt'][key] for key in self.g.A_RX_TOPICS})
+        monitor = json.loads((self.config / 'apps/monitor-service.json').read_text())
+        self.assertIs(monitor['mqtt']['enabled'], True)
+        self.assertIs(monitor['systemMonitor']['directMaintenance']['enabled'], False)
+        self.activate()
+        state = json.loads((self.state_dir / 'state.json').read_text())
+        self.assertEqual(self.g.A_WINDOWS_PROFILE, state['activationProfile'])
+        self.assertEqual(set(self.g.A_ACQUISITION_READERS + ['gateway-services.service']), self.live)
+        self.g.activated_unit(self.home, self.g.MONITOR_UNIT)
+        self.m.recover(self.args)
+        self.assert_refenced()
+        for name, raw in self.originals.items():
+            self.assertEqual(raw, (self.config / name).read_bytes(), name)
+
+    def test_windows_readonly_start_failure_refences_and_recovers(self):
+        self.approval['aReadonlyWindowsIntegration'] = True
+        self.apply()
+        self.fail_start = self.g.MONITOR_UNIT
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            self.activate()
+        self.assert_refenced()
+        self.m.recover(self.args)
+        for name, raw in self.originals.items():
+            self.assertEqual(raw, (self.config / name).read_bytes(), name)
+
+    def test_windows_readonly_rejects_extra_rx_even_with_rehashed_state(self):
+        self.approval['aReadonlyWindowsIntegration'] = True
+        state = self.apply()
+        for relative, key in (('apps/mqtt-service.json', 'commandRequestTopic'),
+                              ('apps/monitor-service.json', 'configApplyRequestTopic')):
+            path = self.config / relative
+            original = path.read_bytes()
+            document = json.loads(original)
+            document['mqtt'][key] = 'edge/unsafe/request'
+            write(path, json.dumps(document))
+            state['configSha256'][relative] = sha(path)
+            next(row for row in state['files'] if row['path'] == 'config/runtime/' + relative)['newSha256'] = sha(path)
+            with self.assertRaisesRegex(ValueError, 'minimal config patch'):
+                self.g.a_acquisition_config(self.home, self.state_dir, self.approval, state)
+            write(path, original)
+
+    def test_windows_readonly_requires_explicit_true_and_acquisition(self):
+        for value in (False, 0, 1, 'true', None, {}, []):
+            self.approval['aReadonlyWindowsIntegration'] = value
+            with self.assertRaisesRegex(ValueError, 'original config pins'):
+                self.apply()
+            self.assertFalse(self.state_dir.exists())
+        self.approval['aReadonlyWindowsIntegration'] = True
+        del self.approval['aReadonlyAcquisition']
+        with self.assertRaisesRegex(ValueError, 'original config pins'):
+            self.apply()
+        self.assertFalse(self.state_dir.exists())
+
     def test_each_driver_start_failure_refences_every_participant(self):
         self.apply()
         self.fail_start = self.g.A_MQTT_UNIT
