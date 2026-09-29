@@ -7,6 +7,7 @@ param(
     [Security.SecureString]$LocalOperatorPassword,
     [string]$SourceProjectDirectory,
     [string]$RuntimeConfigDirectory,
+    [switch]$EnableLocalControls,
     [string]$OutputDirectory,
     [string]$PackageVersion,
     [string]$DisplayName = "Kaiyuan Mobile Energy Storage Vehicle",
@@ -39,6 +40,7 @@ $implementation = Join-Path $productRoot "tools\generate-scada.ps1"
 & $implementation `
     -SourceProjectDirectory $SourceProjectDirectory `
     -RuntimeConfigDirectory $RuntimeConfigDirectory `
+    -EnableLocalControls:$EnableLocalControls `
     -OutputProjectDirectory $outputProject `
     -OutputPackage $outputPackage `
     -MachineCode $MachineCode `

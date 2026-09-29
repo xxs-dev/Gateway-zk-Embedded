@@ -78,6 +78,7 @@ add_library(edge_gateway
     src/scada_upper_computer_safety.cpp
     src/sqlite_sample_writer.cpp
     src/sqlite_alarm_writer.cpp
+    src/storage_budget.cpp
     src/system_monitor_runtime_discovery.cpp
     src/system_monitor_points.cpp
     src/sysfs_gpio_port.cpp
@@ -499,6 +500,9 @@ if(UNIX)
     target_link_libraries(storage_retention_test PRIVATE edge_gateway dl)
     add_test(NAME storage_retention COMMAND storage_retention_test)
     set_tests_properties(storage_retention PROPERTIES TIMEOUT 30)
+    add_executable(storage_budget_test tools/storage_budget_test.cpp)
+    target_link_libraries(storage_budget_test PRIVATE edge_gateway)
+    add_test(NAME storage_budget COMMAND storage_budget_test)
 
     add_executable(posix_serial_port_recovery_test tools/posix_serial_port_recovery_test.cpp)
     target_link_libraries(posix_serial_port_recovery_test PRIVATE edge_gateway)
@@ -692,6 +696,10 @@ if(BUILD_TESTING)
     add_test(NAME timing_policy COMMAND timing_policy_test)
     if(UNIX)
         add_test(NAME mqtt_offline_restart_replay COMMAND builtin_mqtt_driver_publisher_test)
+        add_test(
+            NAME gateway_cellular_failover
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_cellular_failover_test.sh"
+        )
         add_test(
             NAME gateway_test_lab_modbus_e2e
             COMMAND sh

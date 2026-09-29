@@ -11,6 +11,7 @@
     "publishFullOnStart": true,
     "publishAllOnFull": true,
     "priorityControlLeaseFile": "__TEST_LAB_ROOT__/run/priority-control.json",
+    "powerControlOwnershipFile": "__TEST_LAB_ROOT__/run/power-control-owner.json",
     "healthFile": "__TEST_LAB_ROOT__/run/mqtt-driver-health.json",
     "healthPublishIntervalMs": 1000,
     "healthWindowCycles": 300

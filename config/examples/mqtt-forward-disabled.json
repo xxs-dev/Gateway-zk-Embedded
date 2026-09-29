@@ -10,6 +10,8 @@
     "clientId": "GW0001",
     "fullTelemetryTopic": "edge/telemetry/full",
     "realtimeTelemetryTopic": "edge/telemetry/realtime",
+    "changeEventTopicMachineScoped": true,
+    "alarmTopicMachineScoped": true,
     "commandRequestTopic": "edge/command/request",
     "commandReplyTopic": "edge/command/reply"
   },
@@ -31,6 +33,17 @@
     "retryMaxMs": 5000,
     "healthHeartbeatMs": 1000,
     "failOnStoreError": true,
+    "events": {
+      "enabled": false,
+      "targetId": "third-party",
+      "changeTopic": "third/event/change",
+      "alarmTopic": "third/alarm",
+      "changeTopicMachineScoped": true,
+      "alarmTopicMachineScoped": true,
+      "pointIndexes": [],
+      "replayIntervalMs": 100,
+      "replayMaxBytes": 262144
+    },
     "tls": {
       "enabled": false,
       "caFile": "",
@@ -53,7 +66,10 @@
       "healthHeartbeatMs": 1000,
       "failoverTimeoutMs": 3000,
       "retryMinMs": 500,
-      "retryMaxMs": 5000
+      "retryMaxMs": 5000,
+      "eventForwardingEnabled": false,
+      "eventReplayLockFile": "/opt/modbus-gateway/run/mqtt-primary-events-{instance}.lock",
+      "eventDelegationReadyFile": "/opt/modbus-gateway/run/mqtt-event-delegation-{instance}.json"
     }
   }
 }

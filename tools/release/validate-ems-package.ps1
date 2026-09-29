@@ -76,6 +76,9 @@ try {
     $expectedVersionPattern = if ($Product -eq "stationary") { '^1\.0\.' } else { '^2\.0\.' }
     $expectedScreenCount = if ($Product -eq "stationary") {
         15
+    } elseif ($null -ne $manifest.PSObject.Properties['localControlContract'] -and
+        [string]$manifest.localControlContract -eq 'comm104-740100-v1') {
+        35
     } elseif ([string]$manifest.packageVersion -match '^2\.0\.(?<patch>[0-9]+)' -and
         [int]$Matches.patch -ge 10) {
         34
@@ -171,7 +174,13 @@ try {
         }
     } else {
         $permissions = Read-Json (Join-Path $tempRoot "permissions.json")
-        if (@($permissions.localAccess.protectedScreenPrefixes) -join ',' -ne 'Guide-,Vehicle-,Strategy-,Control-') {
+        $requiredPrefixes = @('Guide-','Vehicle-','Strategy-','Control-')
+        if ($null -ne $manifest.PSObject.Properties['localControlContract']) {
+            if ($manifest.localControlContract -ne 'comm104-740100-v1') { throw 'Unknown local control contract' }
+            $requiredPrefixes += 'LocalControl'
+            [void](Require-File $tempRoot 'screens/LocalControl.json')
+        }
+        if (@($requiredPrefixes | Where-Object { $_ -notin $permissions.localAccess.protectedScreenPrefixes }).Count -gt 0) {
             throw "EMS 2.0 package must protect Guide-*, Vehicle-*, Strategy-* and Control-* screens"
         }
         $screenText = ($screens | ForEach-Object {

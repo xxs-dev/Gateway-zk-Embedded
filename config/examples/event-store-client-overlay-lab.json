@@ -1,0 +1,18 @@
+{
+  "eventStore": {
+    "backend": "ipc-lab",
+    "storeId": "integrated-lab",
+    "configGeneration": "lab-v1",
+    "socketPath": "/tmp/gateway-integrated-lab/events.sock",
+    "storageProfile": "wal-full",
+    "detectorProducerId": "event-engine",
+    "managementProducerId": "mqtt-management",
+    "businessSenderId": "main-events",
+    "managementSenderId": "management-events",
+    "thirdPartySenderId": "third-party-events",
+    "queueItems": 128,
+    "queueBytes": 1048576,
+    "timeoutMs": 3000,
+    "producerHealthFile": "/tmp/gateway-integrated-lab/producer-health.json"
+  }
+}

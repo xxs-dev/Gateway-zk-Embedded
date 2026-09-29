@@ -78,7 +78,9 @@
 
 `mqttForward.pointIndexes` 是第三方专属点位数组。启用转发时必须至少配置一个不重复的 uint32 index；转发器每周期只读取这些点位的最新值，不读取或回退到点位的 `fullUpload` 标记，也不复用 `mqttDriver.fullUploadIndexes`、`publishAllOnFull` 或 `fullUploadJsonFormat`。`mqttForward.payloadFormat` 默认 `compactArray`，也可显式设为 `object` 或旧平台兼容格式 `legacy`。
 
-`mqttForward.control` 缺失或 `enabled=false` 时第三方进程保持 TX-only：只向 `mqttForward.fullTelemetryTopic` 发布，不订阅、不处理控制或实时监测命令，也不做离线补发。只有显式设置 `mqttForward.control.enabled=true` 后，进程才订阅一个精确的第三方控制 topic；详细仲裁规则见 [第三方储能控制权接管设计](../doc/架构设计/第三方储能控制权接管设计.md)。主 MQTT 的 realtime/full 启停与第三方周期转发互不影响。
+`mqttForward.control` 缺失或 `enabled=false` 时第三方进程保持 TX-only：只向 `mqttForward.fullTelemetryTopic` 发布，不订阅、不处理控制或实时监测命令，也不做离线补发。只有显式设置 `mqttForward.control.enabled=true` 后，进程才订阅一个精确的第三方控制 topic；此时 `mqttForward.qos` 必须为 `1` 或 `2`。控制结果数据库无需增加配置项，默认由 `control.ownershipFile` 派生：以 `.json` 结尾时替换为 `.control-results.db`，否则直接追加该后缀。详细仲裁规则见 [第三方储能控制权接管设计](../doc/架构设计/第三方储能控制权接管设计.md)。主 MQTT 的 realtime/full 启停与第三方周期转发互不影响。
+
+控制与事件转发共用一次 `runOnce()` 调度时，每轮最多补发一条事件，确保下一轮先得到控制轮询机会。该限制只约束一轮中的事件条数；`replayMaxBytes` 也只是单条/批次字节边界，不是 MQTT 发布时限。当前 `publishReliableJsonMessage()` 没有覆盖连接、发送和等待 ACK 全过程的单一绝对 deadline，单条调用仍可能受底层 Socket/TLS 行为阻塞。配置发布周期时必须把这一残余边界计入控制响应预算，不能把“每轮一条”等同于有界实时调度。
 
 多串口：
 

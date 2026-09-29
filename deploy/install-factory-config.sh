@@ -917,7 +917,7 @@ for bin in $REQUIRED_BINS; do
     required_binary_file "$bin" >/dev/null || { echo "required binary missing: $bin" >&2; exit 2; }
   fi
 done
-for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh; do
+for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-szrl-idempotency.sh 10-szrl-start-idempotent.conf; do
   deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
 done
 
@@ -1096,6 +1096,9 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   install_deploy_file_if_exists "gateway-network-failover.service" "/etc/systemd/system/gateway-network-failover.service"
   install_deploy_file_if_exists "gateway-cellular.service" "/etc/systemd/system/gateway-cellular.service"
+  SZRL_IDEMPOTENCY_HELPER=$(deploy_file "gateway-szrl-idempotency.sh" || true)
+  [ -n "$SZRL_IDEMPOTENCY_HELPER" ] || { echo "required deploy file missing: gateway-szrl-idempotency.sh" >&2; exit 2; }
+  sh "$SZRL_IDEMPOTENCY_HELPER" install
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
     mkdir -p /etc/systemd/system.conf.d
     install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"

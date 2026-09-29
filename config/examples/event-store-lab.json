@@ -1,0 +1,13 @@
+{
+  "laboratoryOnly": true,
+  "storeId": "event-store-lab",
+  "configGeneration": "lab-v1",
+  "databasePath": "/tmp/gateway-event-store-lab/events.db",
+  "socketPath": "/tmp/gateway-event-store-lab/events.sock",
+  "sqliteLibraryPath": "",
+  "storageProfile": "delete-full",
+  "producers": ["test-events"],
+  "senders": [
+    {"senderId": "test-sender", "targetId": "main", "eventTypes": ["alarm", "change"]}
+  ]
+}
