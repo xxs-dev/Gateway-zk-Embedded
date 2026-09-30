@@ -4,18 +4,23 @@ set -eu
 REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 ROOT="$(mktemp -d /tmp/ota-async-health.XXXXXX)"
 INSTALL=/opt/modbus-gateway
+INSTALL_CREATED=0
 cleanup() {
   result=$?
   if [ "$result" -ne 0 ] && [ -f "$ROOT/staging/upgrade_history.log" ]; then
     tail -n 20 "$ROOT/staging/upgrade_history.log" >&2
   fi
   case "$ROOT" in /tmp/ota-async-health.*) rm -rf -- "$ROOT" ;; esac
-  [ ! -d "$INSTALL" ] || rm -rf -- "$INSTALL"
+  if [ "$INSTALL_CREATED" = 1 ] && [ -d "$INSTALL" ] && [ ! -L "$INSTALL" ] &&
+     [ "$(realpath -e -- "$INSTALL")" = /opt/modbus-gateway ]; then
+    rm -rf -- "$INSTALL"
+  fi
 }
 trap cleanup EXIT INT TERM
 [ "$(id -u)" -eq 0 ] || { echo "requires isolated root namespace" >&2; exit 1; }
-[ ! -e "$INSTALL" ] || { echo "installation path must be disposable" >&2; exit 1; }
+[ ! -e "$INSTALL" ] && [ ! -L "$INSTALL" ] || { echo "installation path must be disposable" >&2; exit 1; }
 mkdir -p "$INSTALL/config" "$INSTALL/bin" "$ROOT/bin" "$ROOT/package/config" "$ROOT/staging" "$ROOT/backup" "$ROOT/watchdog"
+INSTALL_CREATED=1
 for name in ota-apply.sh ota-rollback.sh ota-health-result.py runtime-upgrade-guard.py; do
   cp "$REPO_ROOT/deploy/$name" "$INSTALL/bin/$name"
   chmod 0755 "$INSTALL/bin/$name"
@@ -110,6 +115,18 @@ test "$(cat "$INSTALL/config/ota-health-test.txt")" = new
 test "$(cat "$ROOT/staging/applied_version.txt")" = health-test
 test "$(sed -n 's/^jobId=//p' "$ROOT/staging/current_version.txt")" = GOOD_JOB
 test "$(sed -n 's/^version=//p' "$ROOT/staging/current_version.txt")" = health-test
+mkdir -p "$ROOT/staging/LATE_JOB"
+printf 'jobId=LATE_JOB\nversion=stale\ntoken=old-token\n' > "$ROOT/staging/LATE_JOB/health_pending.txt"
+printf 'jobId=LATE_JOB\nversion=stale\n' > "$ROOT/staging/LATE_JOB/applied_state_pending.txt"
+printf 'jobId=NEWER_JOB\ntoken=new-token\n' > "$ROOT/staging/ota_active_job.txt"
+if python3 "$INSTALL/bin/ota-health-result.py" "$ROOT/staging" LATE_JOB stale healthy none > "$ROOT/late-result.log" 2>&1; then
+  echo "late old health must not overwrite a newer active job" >&2
+  exit 1
+fi
+test ! -e "$ROOT/staging/health_LATE_JOB.txt"
+test "$(sed -n 's/^jobId=//p' "$ROOT/staging/current_version.txt")" = GOOD_JOB
+test "$(cat "$ROOT/staging/applied_version.txt")" = health-test
+rm -f "$ROOT/staging/ota_active_job.txt"
 export FAKE_ACTIVATING=1
 sh "$APPLY" "$ROOT/health-test.tar.gz" health-test ACTIVATING_JOB "$ROOT/backup" "$ROOT/staging"
 for i in $(seq 1 100); do

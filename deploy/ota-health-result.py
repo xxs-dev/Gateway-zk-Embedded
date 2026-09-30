@@ -8,6 +8,73 @@ import sys
 import time
 
 
+def active_job(staging, job, token, cancel=False):
+    if not job or not token or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-" for c in job + token):
+        raise ValueError("invalid active job identity")
+    lock_fd = os.open(os.path.join(staging, "ota_state.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    active_path = os.path.join(staging, "ota_active_job.txt")
+    expected = ("jobId=" + job + "\ntoken=" + token + "\n").encode("ascii")
+    try:
+        with open(active_path, "rb") as source:
+            current = source.read(257)
+    except FileNotFoundError:
+        current = b""
+    if cancel:
+        if current == expected and not os.path.exists(os.path.join(staging, "ota_job_" + job + ".json")):
+            os.unlink(active_path)
+            sync_dir(staging)
+        return
+    if current == expected:
+        return
+    if current:
+        lines = current.decode("ascii").splitlines()
+        if len(lines) != 2 or not lines[0].startswith("jobId=") or not lines[1].startswith("token="):
+            raise ValueError("invalid active job marker")
+        previous_job, previous_token = lines[0][6:], lines[1][6:]
+        if (not previous_job or not previous_token or
+            any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-" for c in previous_job + previous_token) or
+            current != ("jobId=" + previous_job + "\ntoken=" + previous_token + "\n").encode("ascii")):
+            raise ValueError("invalid active job marker")
+        final = os.path.join(staging, "ota_final_" + previous_job + ".txt")
+        health = os.path.join(staging, "health_" + previous_job + ".txt")
+        if os.path.exists(os.path.join(staging, "ota_job_" + previous_job + ".json")):
+            with open(final, "rb") as source:
+                terminal = source.read(257)
+            if terminal not in (("jobId=" + previous_job + "\ntoken=" + previous_token + "\nstatus=" + status + "\n").encode("ascii")
+                                for status in ("completed", "failed")):
+                raise ValueError("previous OTA job is unresolved")
+        else:
+            with open(health, "rb") as source:
+                terminal = source.read(4097)
+            if len(terminal) > 4096 or not terminal.endswith(b"\n"):
+                raise ValueError("previous OTA health is incomplete")
+            result = json.loads(terminal)
+            if (result.get("jobId") != previous_job or result.get("token") != previous_token or
+                not (result.get("status") == "healthy" or
+                     (result.get("status") == "failed" and result.get("rollback") == "succeeded"))):
+                raise ValueError("previous OTA job is unresolved")
+    temporary = active_path + ".tmp." + str(os.getpid())
+    try:
+        with open(temporary, "xb") as output:
+            output.write(expected)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, active_path)
+        sync_dir(staging)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def sync_dir(path):
+    directory = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def main():
     if len(sys.argv) != 6:
         raise ValueError("expected staging, job, version, status, rollback")
@@ -30,6 +97,13 @@ def main():
             fields[key] = value
     if fields.get("jobId") != job or fields.get("version") != version or not fields.get("token"):
         raise ValueError("health identity mismatch")
+    active_path = os.path.join(staging, "ota_active_job.txt")
+    if os.path.exists(active_path):
+        with open(active_path, "rb") as source:
+            active = source.read(257)
+        expected = ("jobId=" + job + "\ntoken=" + fields["token"] + "\n").encode("ascii")
+        if active != expected:
+            raise ValueError("health result is not for active OTA job")
     state = None
     if status == "healthy":
         with open(os.path.join(staging, job, "applied_state_pending.txt"), encoding="utf-8") as source:
@@ -78,4 +152,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 5 and sys.argv[1] in ("--activate", "--cancel"):
+        active_job(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[1] == "--cancel")
+    else:
+        main()

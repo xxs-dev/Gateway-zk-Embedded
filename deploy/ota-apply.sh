@@ -53,6 +53,7 @@ cleanup_applying_marker() {
 
 LIVE_CHANGE_STARTED=0
 JOB_DIRS_CREATED=0
+ACTIVE_REGISTERED=0
 
 on_exit() {
   status=$?
@@ -64,6 +65,9 @@ on_exit() {
   fi
   if [ "$status" -ne 0 ] && [ "$JOB_DIRS_CREATED" = "1" ] && [ "$LIVE_CHANGE_STARTED" != "1" ]; then
     rm -rf -- "${WORK_DIR:?}" "${JOB_BACKUP_DIR:?}" 2>/dev/null || true
+  fi
+  if [ "$status" -ne 0 ] && [ "$ACTIVE_REGISTERED" = "1" ] && [ "$LIVE_CHANGE_STARTED" != "1" ]; then
+    python3 "$SCRIPT_DIR/ota-health-result.py" --cancel "$STAGING_DIR" "$JOB_ID" "$OTA_JOB_TOKEN" || true
   fi
   cleanup_applying_marker
 }
@@ -438,6 +442,8 @@ durable_file write "$HEALTH_PENDING_FILE" "jobId=$JOB_ID
 version=$VERSION
 token=$OTA_JOB_TOKEN
 "
+python3 "$SCRIPT_DIR/ota-health-result.py" --activate "$STAGING_DIR" "$JOB_ID" "$OTA_JOB_TOKEN"
+ACTIVE_REGISTERED=1
 MANIFEST_PATH="$WORK_DIR/manifest.json"
 if [ ! -f "$MANIFEST_PATH" ]; then
   echo "[ota-apply] root manifest.json is required for non-SCADA packages" >&2
