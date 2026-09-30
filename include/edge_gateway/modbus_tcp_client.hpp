@@ -15,7 +15,7 @@ namespace edge_gateway {
 
 class ModbusTcpClient : public IModbusClient {
 public:
-    explicit ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters = 125);
+    explicit ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters = 125, int requestGapMs = 0);
     ~ModbusTcpClient() override;
 
     void beginPriorityWrite() override;
@@ -76,6 +76,8 @@ private:
 
     TcpTransportConfig config_;
     int maxRequestRegisters_ = 125;
+    int requestGapMs_ = 0;
+    std::chrono::steady_clock::time_point nextRequestAt_{};
     std::uint16_t transactionId_ = 0;
     std::intptr_t socket_ = -1;
     std::mutex transactionMutex_;

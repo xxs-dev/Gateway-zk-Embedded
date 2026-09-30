@@ -17,6 +17,7 @@
 #include "edge_gateway/modbus_tcp_client.hpp"
 #include "edge_gateway/modbus_error.hpp"
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/read_task_planner.hpp"
 
 namespace {
 
@@ -24,6 +25,23 @@ void require(bool condition, const std::string& message) {
     if (!condition) {
         throw std::runtime_error(message);
     }
+}
+
+void verifyReadPlannerDoesNotCrossAddressGaps() {
+    std::vector<edge_gateway::PointDefinition> points;
+    for (const int address : {10, 11, 11, 14}) {
+        edge_gateway::PointDefinition point;
+        point.enabled = true;
+        point.address = address;
+        point.read.enable = true;
+        point.read.function = 3;
+        point.read.length = 1;
+        points.push_back(point);
+    }
+    const auto tasks = edge_gateway::ReadTaskPlanner::build(points, 125);
+    require(tasks.size() == 2 && tasks[0].start == 10 && tasks[0].count == 2 &&
+            tasks[0].points.size() == 3 && tasks[1].start == 14 && tasks[1].count == 1,
+            "read planner must merge contiguous/overlapping addresses without reading the gap");
 }
 
 void verifyReadCountLimitIsEnforcedBeforeConnect() {
@@ -207,6 +225,85 @@ void verifyTransactionMismatchDisconnectsAndRecovers() {
     require(recovered, "client should reconnect after MBAP mismatch");
 }
 
+void verifyRequestGapAndPriorityExpiry() {
+    std::uint16_t port = 0;
+    const auto listener = createLoopbackListener(port);
+    std::exception_ptr serverFailure;
+    std::vector<std::chrono::steady_clock::time_point> requestStarts;
+    std::thread server([&] {
+        try {
+            const auto connection = accept(listener, nullptr, nullptr);
+            require(connection >= 0, "gap test accept failed");
+            timeval timeout{};
+            timeout.tv_sec = 2;
+            setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            for (int i = 0; i < 2; ++i) {
+                const auto request = readExactFd(connection, 12);
+                requestStarts.push_back(std::chrono::steady_clock::now());
+                require(request[7] == 0x03, "expired priority write reached TCP peer");
+                const auto transaction = static_cast<std::uint16_t>((request[0] << 8) | request[1]);
+                sendAllFd(connection, readResponseFor(request, transaction, static_cast<std::uint16_t>(i + 1)));
+            }
+            close(connection);
+            const auto reconnected = accept(listener, nullptr, nullptr);
+            require(reconnected >= 0, "gap test reconnect after guarded refusal failed");
+            const auto request = readExactFd(reconnected, 12);
+            requestStarts.push_back(std::chrono::steady_clock::now());
+            require(request[7] == 0x03, "expired priority write reached TCP peer");
+            const auto transaction = static_cast<std::uint16_t>((request[0] << 8) | request[1]);
+            sendAllFd(reconnected, readResponseFor(request, transaction, 3));
+            close(reconnected);
+        } catch (...) {
+            serverFailure = std::current_exception();
+        }
+    });
+
+    edge_gateway::TcpTransportConfig config;
+    config.host = "127.0.0.1";
+    config.port = port;
+    config.connectTimeoutMs = 500;
+    config.timeoutMs = 1000;
+    edge_gateway::ModbusTcpClient client(config, 125, 200);
+    std::exception_ptr readerFailure;
+    bool expired = false;
+    try {
+        require(client.readHoldingRegisters(1, 0, 1).front() == 1, "first gap read");
+        require(client.readHoldingRegisters(1, 1, 1).front() == 2, "second gap read");
+        client.beginPriorityWrite();
+        std::thread reader([&] {
+            try { require(client.readHoldingRegisters(1, 2, 1).front() == 3, "post-priority read"); }
+            catch (...) { readerFailure = std::current_exception(); }
+        });
+        const auto queuedAt = std::chrono::steady_clock::now();
+        try {
+            client.writeSingleRegister(1, 3, 4, [&] {
+                const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - queuedAt).count();
+                expired = waitedMs >= 150;
+                throw std::runtime_error("simulated control expiry before TCP send");
+            });
+        } catch (const std::runtime_error&) {}
+        client.endPriorityWrite();
+        reader.join();
+    } catch (...) {
+        client.endPriorityWrite();
+        server.join();
+        close(listener);
+        throw;
+    }
+    server.join();
+    close(listener);
+    if (serverFailure) std::rethrow_exception(serverFailure);
+    if (readerFailure) std::rethrow_exception(readerFailure);
+    require(expired, "priority write guard must see request-gap wait before send");
+    require(requestStarts.size() == 3, "three TCP reads expected");
+    for (std::size_t i = 1; i < requestStarts.size(); ++i) {
+        const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            requestStarts[i] - requestStarts[i - 1]).count();
+        require(gapMs >= 150, "TCP request starts must honor requestGapMs");
+    }
+}
+
 void verifyPeerResetDoesNotTerminateClientProcess() {
     std::uint16_t port = 0;
     const auto listener = createLoopbackListener(port);
@@ -318,12 +415,14 @@ void verifyPartialResponseUsesOneTransactionDeadline() {
 
 int main() {
     try {
+        verifyReadPlannerDoesNotCrossAddressGaps();
         verifyReadCountLimitIsEnforcedBeforeConnect();
         verifyBitReadCountLimitIsEnforcedBeforeConnect();
         verifyWriteCountLimitIsEnforcedBeforeConnect();
         verifyPriorityWriteHooksAreBalanced();
 #ifndef _WIN32
         verifyTransactionMismatchDisconnectsAndRecovers();
+        verifyRequestGapAndPriorityExpiry();
         verifyPeerResetDoesNotTerminateClientProcess();
         verifyPartialResponseUsesOneTransactionDeadline();
 #endif

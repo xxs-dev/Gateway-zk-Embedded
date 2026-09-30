@@ -102,7 +102,8 @@ int main(int argc, char* argv[]) {
         }
         modbusClient = std::make_shared<ModbusTcpClient>(
             config.protocol.tcp,
-            config.collect.maxRequestRegisters
+            config.collect.maxRequestRegisters,
+            frameIntervalMs
         );
     } else if (config.protocol.type == "dlt645_2007") {
         SerialPortOptions serialOptions;

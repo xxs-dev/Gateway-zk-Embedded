@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -278,9 +279,10 @@ private:
 
 }  // namespace
 
-ModbusTcpClient::ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters)
+ModbusTcpClient::ModbusTcpClient(TcpTransportConfig config, int maxRequestRegisters, int requestGapMs)
     : config_(std::move(config)),
-      maxRequestRegisters_(maxRequestRegisters > 0 ? maxRequestRegisters : kMaxReadRegisters) {
+      maxRequestRegisters_(maxRequestRegisters > 0 ? maxRequestRegisters : kMaxReadRegisters),
+      requestGapMs_(std::max(0, requestGapMs)) {
     if (config_.connectTimeoutMs <= 0) {
         throw std::invalid_argument("modbus tcp connectTimeoutMs must be positive");
     }
@@ -443,6 +445,8 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
         throw std::invalid_argument("unit id must be in range 0..255");
     }
     ensureConnected();
+    std::this_thread::sleep_until(nextRequestAt_);
+    nextRequestAt_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(requestGapMs_);
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(config_.timeoutMs);
 

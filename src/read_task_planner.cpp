@@ -11,6 +11,9 @@ bool canMerge(const ReadTask& task, const PointDefinition& point, int maxBatchRe
     if (task.function != point.read.function) {
         return false;
     }
+    if (point.address > task.start + task.count) {
+        return false;
+    }
 
     const auto nextEnd = std::max(task.start + task.count, point.address + point.read.length);
     return (nextEnd - task.start) <= maxBatchRegisters;
