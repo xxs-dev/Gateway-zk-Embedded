@@ -1,0 +1,32 @@
+ipc cadence work=0 fail=0 gapMs=200.511 cycleMs=200.511
+ipc cadence work=0 fail=0 gapMs=200.545 cycleMs=200.546
+ipc cadence work=0 fail=1 gapMs=201.175 cycleMs=201.176
+ipc cadence work=0 fail=1 gapMs=200.383 cycleMs=200.387
+ipc cadence work=250 fail=0 gapMs=10.1521 cycleMs=260.249
+ipc cadence work=250 fail=0 gapMs=10.1281 cycleMs=260.216
+ipc cadence work=250 fail=1 gapMs=10.1516 cycleMs=260.226
+ipc cadence work=250 fail=1 gapMs=10.1216 cycleMs=260.198
+full identity before=151 rawAfterSweep=150 publishedAfterSweep=151
+mqtt driver isolated full fallback failed error=simulated fallback publish failure retryMs=500
+session echo: indexes/meter/all, immediate/periodic, Studio/default, stop/full passed
+mqtt command accepted cmdId=CMD_NORMAL index=1001 device=METER_1 highPriority=0
+mqtt command accepted cmdId=CMD_ASYNC index=1001 device=METER_1 highPriority=0
+mqtt command accepted cmdId=CMD_LEASE index=1001 device=METER_1 highPriority=1
+mqtt command rejected cmdId=HP_DENIED index=1001 error=high-priority control is not permitted over MQTT
+mqtt command rejected cmdId=RETAINED index=1001 error=retained control commands are rejected
+mqtt command rejected cmdId=STALE index=1001 error=command ts is outside the accepted clock skew window
+mqtt command rejected cmdId= index=0 error=command payload contains duplicate field value
+mqtt command rejected cmdId= index=0 error=command index must be an integer in 1..4294967295
+mqtt command accepted cmdId=LEGACY_OK index=1001 device=METER_1 highPriority=0
+mqtt command rejected cmdId=CMD_NORMAL_BLOCKED index=1001 error=priority control in progress
+realtime admission: invalid timing rejected before publish passed
+realtime feedback: safe identity, rejection envelope and full isolation passed
+mqtt status event publish failed event=realtime-session-started error=injected status publication failure
+realtime feedback: admission-before-read, renewal and publication failures passed
+realtime admission: selector validity/raw bounds/empty precedence passed
+realtime admission: 16 slots, renew/stop at capacity, expiry release passed
+realtime admission: repeated start/renew interval and starvation guard passed
+realtime admission: ID bytes/ASCII/types/Studio59 and 128 boundary passed
+realtime admission: exact long default stop positive/negative and no-ID stop passed
+realtime admission: defaults, numeric boundaries, checked deadlines passed
+mqtt_driver_service_test passed

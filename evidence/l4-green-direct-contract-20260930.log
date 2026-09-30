@@ -1,0 +1,3 @@
+SystemMonitor direct maintenance locked client 10.0.0.3 for 300s after repeated authentication failures
+direct OTA worker error jobId=SIGNED_EXPLICIT error=ota signature public key not found: /tmp/direct-maintenance-contract-894-missing.pub
+system_monitor_direct_maintenance_contract_test passed

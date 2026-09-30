@@ -1,0 +1,10 @@
+ota checksum required-missing-validation failed: unexpected ota validation error: cannot inspect OTA recovery evidence
+ota checksum required-missing-before-download failed: expected 'ota sha256 is required', got 'cannot inspect OTA recovery evidence'
+ota checksum required-missing-verification passed
+ota checksum invalid-format failed: unexpected ota validation error: cannot inspect OTA recovery evidence
+ota checksum matching-lowercase failed: valid checksum request rejected
+ota checksum matching-mixed-case failed: valid mixed-case checksum request rejected
+ota checksum mismatch failed: well-formed checksum request rejected
+ota checksum optional-compatibility failed: optional empty checksum rejected
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  ota checksum regression failures (no apply scripts executed)

@@ -37,6 +37,7 @@
 #include "edge_gateway/priority_control_lease.hpp"
 #include "edge_gateway/system_monitor_service.hpp"
 #include "edge_gateway/json_value.hpp"
+#include "edge_gateway/ota_request_json.hpp"
 
 #ifndef _WIN32
 #include <arpa/inet.h>
@@ -906,21 +907,6 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
         << ",\"points\":" << pointsJson
         << "}";
     return out.str();
-}
-
-edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
-    edge_gateway::OtaRequest request;
-    request.signature = jsonString(body, "signature");
-    request.jobId = jsonString(body, "jobId", request.signature.empty() ?
-        "DIRECT_OTA_" + std::to_string(nowMs()) : "");
-    request.packageType = jsonString(body, "packageType", "full");
-    request.artifactUrl = jsonString(body, "artifactUrl");
-    request.version = jsonString(body, "version");
-    request.sha256 = jsonString(body, "sha256");
-    request.size = jsonUint64(body, "size", 0);
-    request.upgradeMode = jsonString(body, "upgradeMode", "download_install_reboot");
-    request.ts = nowMs();
-    return request;
 }
 
 std::string otaStatusLine(const edge_gateway::OtaStatus& status) {
@@ -2648,21 +2634,31 @@ std::string startOtaJob(const SystemMonitorDirectMaintenanceConfig& config, cons
         );
     }
 
-    auto request = parseOtaRequest(body);
+    auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
+    edge_gateway::OtaService service(appConfig.ota);
+    const auto identity = loadIdentity(config.identityConfigFile);
+    const auto machineCode = identity.machineCode.empty() ? appConfig.mqtt.clientId : identity.machineCode;
+    const auto root = edge_gateway::ota_request_json::parseRoot(body);
+    const auto target = edge_gateway::ota_request_json::stringField(root, "machineCode");
+    if (!target.empty() && target != machineCode)
+        return response(400, "Bad Request", "{\"success\":false,\"message\":\"machineCode mismatch\"}");
+    const auto explicitId = edge_gateway::ota_request_json::stringField(root, "jobId");
+    if (!explicitId.empty()) service.rejectDuplicateRequest(explicitId);
+    auto request = edge_gateway::ota_request_json::request(root);
+    if (request.jobId.empty() && request.signature.empty()) request.jobId = "DIRECT_OTA_" + std::to_string(nowMs());
+    if (request.packageType.empty()) request.packageType = "full";
+    if (request.upgradeMode.empty()) request.upgradeMode = "download_install_reboot";
+    request.ts = nowMs();
     const auto packageType = request.packageType.empty() ? std::string("full") : request.packageType;
     if (packageType != "full" && packageType != "config" && packageType != "scada") {
         return response(400, "Bad Request", "{\"success\":false,\"message\":\"unsupported packageType\"}");
     }
 
-    auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
-    edge_gateway::OtaService service(appConfig.ota);
     std::string error;
     if (!service.validateRequest(request, &error)) {
         return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(error) + "\"}");
     }
 
-    const auto identity = loadIdentity(config.identityConfigFile);
-    const auto machineCode = identity.machineCode.empty() ? appConfig.mqtt.clientId : identity.machineCode;
     const auto responseBody = "{\"success\":true,\"jobId\":\"" + jsonEscape(request.jobId) +
         "\",\"packageType\":\"" + jsonEscape(packageType) +
         "\",\"message\":\"direct OTA job accepted\"}";
@@ -2683,17 +2679,14 @@ std::string startOtaJob(const SystemMonitorDirectMaintenanceConfig& config, cons
                     appendOtaStatus(config, item);
                 }
             );
+        } catch (const edge_gateway::OtaRequestRejected& ex) {
+            std::cerr << "direct OTA request rejected jobId=" << request.jobId
+                      << " duplicate=" << (ex.reason() == edge_gateway::OtaRejectionReason::Duplicate)
+                      << " error=" << ex.what() << std::endl;
         } catch (const std::exception& ex) {
-            edge_gateway::OtaStatus status;
-            status.jobId = request.jobId;
-            status.machineCode = machineCode;
-            status.stage = "failed";
-            status.progress = 0;
-            status.downloadedBytes = 0;
-            status.totalBytes = request.size;
-            status.message = ex.what();
-            status.ts = nowMs();
-            appendOtaStatus(config, status);
+            // execute owns durable task failures; do not synthesize one from a request ID.
+            std::cerr << "direct OTA worker error jobId=" << request.jobId
+                      << " error=" << ex.what() << std::endl;
         }
     }).detach();
 

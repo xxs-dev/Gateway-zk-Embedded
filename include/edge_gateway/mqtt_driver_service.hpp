@@ -204,6 +204,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> otaInProgress_{false};
     std::mutex otaMutex_;
+    std::string otaJobId_;
     std::thread scanThread_;
     std::thread replayThread_;
     std::thread otaThread_;

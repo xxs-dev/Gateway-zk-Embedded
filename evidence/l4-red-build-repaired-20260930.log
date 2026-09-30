@@ -1,0 +1,11 @@
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o
+In file included from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:50:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_duplicate_ingress_test.hpp: In function ‘void {anonymous}::verifyOtaDuplicateIngress(bool, bool)’:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_duplicate_ingress_test.hpp:60:9: error: ‘writeFixtureFile’ was not declared in this scope
+   60 |         writeFixtureFile(root + "/source.tar.gz", "payload");
+      |         ^~~~~~~~~~~~~~~~
+gmake[3]: *** [CMakeFiles/ota_final_state_test.dir/build.make:79: CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o] Error 1
+gmake[2]: *** [CMakeFiles/Makefile2:5423: CMakeFiles/ota_final_state_test.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:5430: CMakeFiles/ota_final_state_test.dir/rule] Error 2
+gmake: *** [Makefile:2110: ota_final_state_test] Error 2

@@ -1,0 +1,43 @@
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:49: error: unterminated #ifndef
+   49 | #ifndef _WIN32
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp: In function ‘void {anonymous}::verifySynchronousSuccessAndSameJobRace()’:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:48: error: ‘firstErr’ was not declared in this scope; did you mean ‘firstError’?
+  852 |         if (firstError) std::rethrow_exception(firstErr
+      |                                                ^~~~~~~~
+      |                                                firstError
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘}’ at end of input
+  852 |         if (firstError) std::rethrow_exception(firstErr
+      |                                                        ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:797:9: note: to match this ‘{’
+  797 |     try {
+      |         ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘catch’ at end of input
+  852 |         if (firstError) std::rethrow_exception(firstErr
+      |                                                        ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘(’ at end of input
+  852 |         if (firstError) std::rethrow_exception(firstErr
+      |                                                        ^
+      |                                                        (
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected type-specifier at end of input
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘)’ at end of input
+  852 |         if (firstError) std::rethrow_exception(firstErr
+      |                                                        ^
+      |                                                        )
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘{’ at end of input
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘}’ at end of input
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:792:47: note: to match this ‘{’
+  792 | void verifySynchronousSuccessAndSameJobRace() {
+      |                                               ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp: At global scope:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:852:56: error: expected ‘}’ at end of input
+  852 |         if (firstError) std::rethrow_exception(firstErr
+      |                                                        ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:29:11: note: to match this ‘{’
+   29 | namespace {
+      |           ^
+gmake[3]: *** [CMakeFiles/ota_final_state_test.dir/build.make:79: CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o] Error 1
+gmake[2]: *** [CMakeFiles/Makefile2:5423: CMakeFiles/ota_final_state_test.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:5430: CMakeFiles/ota_final_state_test.dir/rule] Error 2
+gmake: *** [Makefile:2110: ota_final_state_test] Error 2

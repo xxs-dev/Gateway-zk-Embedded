@@ -4,11 +4,23 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 #include "edge_gateway/models.hpp"
 
 namespace edge_gateway {
+
+enum class OtaRejectionReason { NotAdmitted, Duplicate };
+
+class OtaRequestRejected : public std::runtime_error {
+public:
+    OtaRequestRejected(OtaRejectionReason reason, const std::string& message)
+        : std::runtime_error(message), reason_(reason) {}
+    OtaRejectionReason reason() const { return reason_; }
+private:
+    OtaRejectionReason reason_;
+};
 
 class OtaService {
 public:
@@ -18,7 +30,11 @@ public:
     OtaService& operator=(const OtaService&) = delete;
 
     bool enabled() const;
-    bool validateRequest(const OtaRequest& request, std::string* errorMessage = nullptr) const;
+    bool validateRequest(const OtaRequest& request, std::string* errorMessage = nullptr,
+                         OtaRejectionReason* reason = nullptr) const;
+    // Caller must establish the target device before probing a safe job ID.
+    // A duplicate is not a new failure of the original task.
+    void rejectDuplicateRequest(const std::string& jobId) const;
     OtaReply createAcceptedReply(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs) const;
     // JSON-lines v2 retains exact strings, decimal integers and occurrenceId.
     // Legacy TSV retains its original timestamp and empty occurrenceId: never

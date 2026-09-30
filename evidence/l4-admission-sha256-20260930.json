@@ -1,0 +1,153 @@
+{
+  "base": "c3e643e",
+  "branch": "fix/edge-review-r1-20260930",
+  "hashScope": "Raw Windows worktree bytes, before staging; existing Git newline normalization may change checkout hashes.",
+  "logs": [
+    {
+      "file": "l4-green-admission-first-20260930.log",
+      "sha256": "4485ec07e83f797effcacba310e805de20c05e4cce93463ef7b43cef991eb8bc"
+    },
+    {
+      "file": "l4-green-build-corrected-20260930.log",
+      "sha256": "e83e37842e553e19782f652181abd06972b53d6cff0710e98cf6ad3450d88b02"
+    },
+    {
+      "file": "l4-green-build-direct-late-20260930.log",
+      "sha256": "72471ba656d80b63967304f4d94ae7fb73bba79875f32b0e72465d65ac094b50"
+    },
+    {
+      "file": "l4-green-build-final-20260930.log",
+      "sha256": "c7b6cb6ea799a00a38763a9da5dc8db47ca29096e0d25b4481743cb873ed45ab"
+    },
+    {
+      "file": "l4-green-build-first-20260930.log",
+      "sha256": "9bbe0a7497804d92d2b089e35e939caa22466463bf451c6c3f127f0446fd89d7"
+    },
+    {
+      "file": "l4-green-build-refined-20260930.log",
+      "sha256": "8406e57074fc836dc8ae82d56ea2ac93a1439e865152d1b650b65a83e0fc8146"
+    },
+    {
+      "file": "l4-green-build-test-expanded-20260930.log",
+      "sha256": "fc7b1d5cde0ed5a953c303daaed9ee41cb6dafa8c543181be635b041bc53223a"
+    },
+    {
+      "file": "l4-green-build-verified-20260930.log",
+      "sha256": "89c42084f9586806e04c6a77b1e0dc9406bb512dcffaa70d14b4c96f20beb9a5"
+    },
+    {
+      "file": "l4-green-ctest-first-20260930.log",
+      "sha256": "33659932ad2310df92c056663c1312f54845befa9c0c97e9a86072b036009ef0"
+    },
+    {
+      "file": "l4-green-direct-contract-20260930.log",
+      "sha256": "86004b711c0423fbcfc765d3d8b7a21cc156a74f5dab812ac7cf346681880413"
+    },
+    {
+      "file": "l4-green-direct-invalid-first-20260930.log",
+      "sha256": "05b456f3468aa11a75f6ade69bc7dd6476bc4eb62249d4e0f0df99434ca800c6"
+    },
+    {
+      "file": "l4-green-mqtt-driver-final-20260930.log",
+      "sha256": "d229208da016cd6f7d6d195faae54b2cb99caf87fe486a363f63427b6719c9a3"
+    },
+    {
+      "file": "l4-green-mqtt-valid-first-20260930.log",
+      "sha256": "d7ed743d243a1a3d111732a1f9481726cf082a37ddf8674881ac87e37dfccbae"
+    },
+    {
+      "file": "l4-green-native-final-20260930.log",
+      "sha256": "3deaab711e9c1190fd8c99931c069446ce5343e9c0567e3d0d401a26e5eeb906"
+    },
+    {
+      "file": "l4-green-native-first-20260930.log",
+      "sha256": "39519a804497785bf7cd3142e49b4d2c89d8008b258fb80c97c83e9e0e9c1234"
+    },
+    {
+      "file": "l4-green-native-verified-20260930.log",
+      "sha256": "83549213499de9e9dfe42a7547fe123a7d2d31a802ffb7247586927eff5a120a"
+    },
+    {
+      "file": "l4-green-official-final-20260930.log",
+      "sha256": "22eadadfd0ab61637b8929eee9351d75b99fd997bb2cd238825ed48a94d4c20b"
+    },
+    {
+      "file": "l4-green-official-verified-20260930.log",
+      "sha256": "8a5d196d347155d2140f0f2a29c88540a1189bec9950aaf5175aef41c00bb839"
+    },
+    {
+      "file": "l4-green-service-20260930.log",
+      "sha256": "fb1668ea8ec2baf6ae59aeef5df3932d933a3f31804be22d8b5b36c235bc8107"
+    },
+    {
+      "file": "l4-green-service-final-20260930.log",
+      "sha256": "f6b6d923bef79c7e34a119ab96088573782a0bfd25a3a18d15ee14212d3d6c1f"
+    },
+    {
+      "file": "l4-green-service-verified-20260930.log",
+      "sha256": "7c72156b439d744d9c025e6448b37af1aca44606e6fba9f21b5de90c426d688e"
+    },
+    {
+      "file": "l4-red-build-20260930.log",
+      "sha256": "88ce4cc35dec3d2d3712e28b1c9fba0f8a3e7c5d36318cdf5cb0f7fb44482719"
+    },
+    {
+      "file": "l4-red-build-ready-20260930.log",
+      "sha256": "72471ba656d80b63967304f4d94ae7fb73bba79875f32b0e72465d65ac094b50"
+    },
+    {
+      "file": "l4-red-build-repaired-20260930.log",
+      "sha256": "5ce9ac00dd4a79aa5175dd6f512342217df1f9f1f4689fdb3d9b1e1ad4771107"
+    },
+    {
+      "file": "l4-red-direct-invalid-20260930.log",
+      "sha256": "f3c206804c15f2e127075adf3d9ab265bac3c7b62ce8dbeba85c68d5ae6c5110"
+    },
+    {
+      "file": "l4-red-mqtt-valid-20260930.log",
+      "sha256": "2d0747ca83f1c2d6225710e603af37841dc799a541fa78f0402ddd33a8692338"
+    }
+  ],
+  "sources": [
+    {
+      "file": "include/edge_gateway/mqtt_driver_service.hpp",
+      "sha256": "ee2e028a42a7d72b2e6cb631aeaef8e6f491b0060f8d25c430a809d0fb5d375a"
+    },
+    {
+      "file": "include/edge_gateway/ota_service.hpp",
+      "sha256": "28e536f8eaae4f7a079b9c4a525e8c249edbe0834d41ba50034da9d53d19915e"
+    },
+    {
+      "file": "include/edge_gateway/ota_request_json.hpp",
+      "sha256": "4587f484d6f4638032195cfea18f562dae34307e256581121a99f9df1b664867"
+    },
+    {
+      "file": "src/mqtt_driver_service.cpp",
+      "sha256": "97e89916f74f9708ab2898915415661e9e5d7b78aa19ff4c6c2d9e5cc1c9b9e5"
+    },
+    {
+      "file": "src/ota_service.cpp",
+      "sha256": "cca5caaa726b8ae39629229e21ec75453aa59a0ba00c6cabd241ccde80ebe442"
+    },
+    {
+      "file": "system_monitor_direct_maintenance.cpp",
+      "sha256": "4287744a7d6a8d42c89463e751c7a88408f41a176a5212c159d4b9e5cd216cbe"
+    },
+    {
+      "file": "tools/ota_checksum_test.cpp",
+      "sha256": "f4c0f03ff3266163a4ed704eda0404392ab75416056b9b2497436d8ce86fc8ca"
+    },
+    {
+      "file": "tools/ota_final_state_test.cpp",
+      "sha256": "624bf502674db99ef0f69cfc34eec1afd41ed845e011720b4d2ba7756f73cc0d"
+    },
+    {
+      "file": "tools/ota_duplicate_ingress_test.hpp",
+      "sha256": "024dfd5700e2e9cb1e6c01d50f03808bfdf8f1e903a76076a59e03adbfada809"
+    },
+    {
+      "file": "tools/ota_service_test.cpp",
+      "sha256": "94ee92aceac27ba9da1a308ce2ad0eb974dd6f6cc482e67919c9633bfe8ac58e"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+OTA root identity/type/duplicate-key and safe-integer boundaries passed
+pre-intent failed callback reentry: Duplicate; real download failure persisted once
+mqtt ota request queued jobId=SHARED
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=0 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=0 in-flight/history suppressed; different invalid ID replied
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+mqtt ota publication failed: injected accepted reply failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt status event publish failed event=ota-completed error=injected audit publication failure
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=injected audit publication failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request queued jobId=AFTER_AUDIT_FAILURE
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=injected audit publication failure
+mqtt ota job returned jobId=AFTER_AUDIT_FAILURE stage=completed message=upgrade completed
+mqtt status event publish failed event=ota-completed error=injected audit publication failure

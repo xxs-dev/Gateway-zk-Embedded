@@ -22,6 +22,7 @@
 
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/json_value.hpp"
+#include "edge_gateway/ota_request_json.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/mqtt_full_snapshot.hpp"
 #include "edge_gateway/legacy_telemetry_payload.hpp"
@@ -489,26 +490,6 @@ MqttCommandRequest parseCommandRequest(const std::string& payload) {
         commandAliasBool(root, "priorityControl", &highPriority)) {
         request.highPriority = highPriority;
     }
-    return request;
-}
-
-OtaRequest parseOtaRequest(const std::string& payload) {
-    FlatJsonReader json(payload);
-    OtaRequest request;
-    if (!json.tryGetString("jobId", &request.jobId) || request.jobId.empty()) {
-        throw std::invalid_argument("ota jobId is required");
-    }
-    json.tryGetString("machineCode", &request.machineCode);
-    json.tryGetString("packageType", &request.packageType);
-    if (!json.tryGetString("artifactUrl", &request.artifactUrl) || request.artifactUrl.empty()) {
-        throw std::invalid_argument("ota artifactUrl is required");
-    }
-    json.tryGetString("version", &request.version);
-    json.tryGetString("sha256", &request.sha256);
-    json.tryGetUInt64("size", &request.size);
-    json.tryGetString("upgradeMode", &request.upgradeMode);
-    json.tryGetInt64("ts", &request.ts);
-    json.tryGetString("signature", &request.signature);
     return request;
 }
 
@@ -2417,95 +2398,65 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
 
 void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_t nowMs) {
     OtaReply reply;
-    OtaStatus status;
     reply.ts = nowMs;
-    status.ts = nowMs;
-    bool acceptedForExecution = false;
-
     try {
-        const auto request = parseOtaRequest(payload);
-        if (request.machineCode.empty()) {
-            throw std::invalid_argument("machineCode is required");
-        }
-        const std::string machineCode = request.machineCode;
-        reply.jobId = request.jobId;
-        reply.machineCode = machineCode;
-        status.jobId = request.jobId;
-        status.machineCode = machineCode;
-
-        if (!request.machineCode.empty() && machineCodes_.find(request.machineCode) == machineCodes_.end()) {
+        // Identify this device's safe job before validating the rest of a duplicate.
+        const auto root = ota_request_json::parseRoot(payload);
+        reply.machineCode = ota_request_json::stringField(root, "machineCode");
+        if (reply.machineCode.empty() || machineCodes_.find(reply.machineCode) == machineCodes_.end())
             throw std::invalid_argument("machineCode mismatch");
+        reply.jobId = ota_request_json::stringField(root, "jobId");
+        if (otaService_) otaService_->rejectDuplicateRequest(reply.jobId);
+        {
+            std::lock_guard<std::mutex> lock(otaMutex_);
+            if (otaInProgress_.load() && otaJobId_ == reply.jobId)
+                throw OtaRequestRejected(OtaRejectionReason::Duplicate, "OTA job already queued");
         }
-        if (!otaService_ || !otaService_->enabled()) {
-            throw std::runtime_error("ota is disabled");
-        }
+        const auto request = ota_request_json::request(root);
+        if (!otaService_ || !otaService_->enabled()) throw std::runtime_error("ota is disabled");
         std::string validateError;
-        if (!otaService_->validateRequest(request, &validateError)) {
-            throw std::invalid_argument(validateError.empty() ? "invalid ota request" : validateError);
-        }
-
+        OtaRejectionReason reason;
+        if (!otaService_->validateRequest(request, &validateError, &reason))
+            throw OtaRequestRejected(reason, validateError.empty() ? "invalid ota request" : validateError);
         std::thread finishedThread;
         {
             std::lock_guard<std::mutex> lock(otaMutex_);
-            if (otaThread_.joinable() && !otaInProgress_.load()) {
-                finishedThread = std::move(otaThread_);
-            }
+            if (otaThread_.joinable() && !otaInProgress_.load()) finishedThread = std::move(otaThread_);
         }
-        if (finishedThread.joinable()) {
-            finishedThread.join();
-        }
+        if (finishedThread.joinable()) finishedThread.join();
         {
             std::lock_guard<std::mutex> lock(otaMutex_);
-            if (otaInProgress_.load() || otaThread_.joinable()) {
-                throw std::runtime_error("ota job already running");
-            }
+            if (otaInProgress_.load() || otaThread_.joinable())
+                throw OtaRequestRejected(otaJobId_ == reply.jobId ? OtaRejectionReason::Duplicate :
+                    OtaRejectionReason::NotAdmitted, "ota job already running");
+            otaJobId_ = reply.jobId;
             otaInProgress_.store(true);
         }
+        try { startOtaJob(request, reply.machineCode, nowMs); }
+        catch (...) { otaInProgress_.store(false); throw; }
+        // Accepted reply/status belong to execute's owned accepted callback only.
+        std::cout << "mqtt ota request queued jobId=" << reply.jobId << std::endl;
+        return;
+    } catch (const OtaRequestRejected& ex) {
+        std::cerr << "mqtt ota request rejected jobId=" << reply.jobId << " error=" << ex.what() << std::endl;
         try {
-            reply = otaService_->createAcceptedReply(request, machineCode, nowMs);
-            status.stage = "accepted";
-            status.progress = 0;
-            status.message = "accepted";
-            publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
-            publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
-            startOtaJob(request, machineCode, nowMs);
-            acceptedForExecution = true;
-        } catch (...) {
-            otaInProgress_.store(false);
-            throw;
-        }
-
-        std::cout << "mqtt ota request accepted"
-                  << " jobId=" << reply.jobId
-                  << std::endl;
-        publishStatusEvent(
-            "ota-accepted",
-            nowMs,
-            std::string(R"("jobId":")") + escapeJson(reply.jobId) +
-                R"(","machineCode":")" + escapeJson(machineCode) + R"(")"
-        );
-    } catch (const std::exception& ex) {
-        reply.accepted = false;
+            publishStatusEvent("ota-rejected", nowMs, std::string(R"("jobId":")") + escapeJson(reply.jobId) +
+                R"(","duplicate":)" + (ex.reason() == OtaRejectionReason::Duplicate ? "true" : "false") +
+                R"(,"message":")" + escapeJson(ex.what()) + R"(")");
+        } catch (...) {}
+        // Shared reply has no attempt ID: negative duplicate would fail the original task.
+        if (ex.reason() == OtaRejectionReason::Duplicate) return;
         reply.message = ex.what();
-        status.stage = "failed";
-        status.progress = 0;
-        status.message = ex.what();
-        std::cerr << "mqtt ota request rejected"
-                  << " jobId=" << reply.jobId
-                  << " error=" << ex.what()
-                  << std::endl;
-        publishStatusEvent(
-            "ota-rejected",
-            nowMs,
-            std::string(R"("jobId":")") + escapeJson(reply.jobId) +
-                R"(","message":")" + escapeJson(ex.what()) + R"(")"
-        );
-        publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
+    } catch (const std::exception& ex) {
+        reply.message = ex.what();
+        std::cerr << "mqtt ota request rejected jobId=" << reply.jobId << " error=" << ex.what() << std::endl;
+        try {
+            publishStatusEvent("ota-rejected", nowMs, std::string(R"("jobId":")") + escapeJson(reply.jobId) +
+                R"(","message":")" + escapeJson(ex.what()) + R"(")");
+        } catch (...) {}
     }
-
-    if (!acceptedForExecution && (!status.jobId.empty() || !status.stage.empty())) {
-        publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
-    }
+    reply.accepted = false;
+    publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
 }
 
 void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::int64_t nowMs) {
@@ -2656,6 +2607,10 @@ void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string
     }
 
     otaThread_ = std::thread([this, request, machineCode, nowMs]() {
+        struct ClearBusy {
+            std::atomic<bool>& busy;
+            ~ClearBusy() { busy.store(false); }
+        } clearBusy{otaInProgress_};
         OtaReply reply;
         OtaStatus status;
         try {
@@ -2665,8 +2620,15 @@ void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string
                 nowMs,
                 &reply,
                 &status,
-                [this](const OtaStatus& stageStatus) {
-                    publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, stageStatus);
+                [this, &reply](const OtaStatus& stageStatus) {
+                    try {
+                        if (stageStatus.stage == "accepted")
+                            publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
+                        publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, stageStatus);
+                    } catch (const std::exception& ex) {
+                        // Status is already durable; transport failure is not job failure.
+                        std::cerr << "mqtt ota publication failed: " << ex.what() << std::endl;
+                    } catch (...) {}
                 }
             );
             std::cout << "mqtt ota job returned"
@@ -2674,36 +2636,43 @@ void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string
                       << " stage=" << status.stage
                       << " message=" << status.message
                       << std::endl;
-            publishStatusEvent(
+            try { publishStatusEvent(
                 status.stage == "completed" ? "ota-completed" : "ota-applying",
                 currentTimeMs(),
                 std::string(R"("jobId":")") + escapeJson(reply.jobId) +
                     R"(","stage":")" + escapeJson(status.stage) +
                     R"(","message":")" + escapeJson(status.message) + R"(")"
-            );
+            ); } catch (...) {}
+        } catch (const OtaRequestRejected& ex) {
+            try {
+                publishStatusEvent("ota-rejected", currentTimeMs(), std::string(R"("jobId":")") +
+                    escapeJson(request.jobId) + R"(","duplicate":)" +
+                    (ex.reason() == OtaRejectionReason::Duplicate ? "true" : "false") +
+                    R"(,"message":")" + escapeJson(ex.what()) + R"(")");
+            } catch (...) {}
+            if (ex.reason() != OtaRejectionReason::Duplicate) {
+                try {
+                    OtaReply rejected;
+                    rejected.jobId = request.jobId;
+                    rejected.machineCode = machineCode;
+                    rejected.accepted = false;
+                    rejected.message = ex.what();
+                    rejected.ts = currentTimeMs();
+                    publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, rejected);
+                } catch (...) {}
+            }
         } catch (const std::exception& ex) {
-            status.jobId = request.jobId;
-            status.machineCode = machineCode;
-            status.stage = "failed";
-            status.progress = 0;
-            status.message = ex.what();
-            status.ts = currentTimeMs();
             std::cerr << "mqtt ota job failed"
                       << " jobId=" << request.jobId
                       << " error=" << ex.what()
                       << std::endl;
-            publishStatusEvent(
+            try { publishStatusEvent(
                 "ota-failed",
-                status.ts,
+                currentTimeMs(),
                 std::string(R"("jobId":")") + escapeJson(request.jobId) +
                     R"(","message":")" + escapeJson(ex.what()) + R"(")"
-            );
-            try {
-                publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
-            } catch (...) {
-            }
+            ); } catch (...) {}
         }
-        otaInProgress_.store(false);
     });
 }
 

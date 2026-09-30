@@ -169,7 +169,8 @@ private:
 bool strictlyAbsent(const std::string& path) {
 #ifdef _WIN32
     if (GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES) return false;
-    if (GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+    const auto error = GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return true;
 #else
     struct stat info{};
     if (lstat(path.c_str(), &info) == 0) return false;
@@ -1033,8 +1034,27 @@ bool OtaService::enabled() const {
     return config_.enabled;
 }
 
-bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMessage) const {
+void OtaService::rejectDuplicateRequest(const std::string& jobId) const {
+    if (!isSafeOtaId(jobId))
+        throw OtaRequestRejected(OtaRejectionReason::NotAdmitted, "invalid ota jobId");
+    OtaRequest identity;
+    identity.jobId = jobId;
+    ensureJobNotProcessed(identity);
+#ifndef _WIN32
+    const auto path = joinPath(config_.stagingDir, "ota_job_" + jobId + ".lock");
+    if (!strictlyAbsent(path)) {
+        JobLifecycleLock probe(path, false);
+        if (probe.fd() < 0)
+            throw OtaRequestRejected(OtaRejectionReason::Duplicate, "OTA job execution already owned");
+    }
+#endif
+}
+
+bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMessage,
+                                 OtaRejectionReason* reason) const {
+    if (reason) *reason = OtaRejectionReason::NotAdmitted;
     try {
+        rejectDuplicateRequest(request.jobId);
         validateOtaRequestFields(request, config_);
         validateOtaSize(config_, request.size);
         (void)resolveArtifactPath(request);
@@ -1042,6 +1062,10 @@ bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMe
         ensureJobNotProcessed(request);
         ensureNoUnresolvedJob();
         return true;
+    } catch (const OtaRequestRejected& ex) {
+        if (reason) *reason = ex.reason();
+        if (errorMessage) *errorMessage = ex.what();
+        return false;
     } catch (const std::exception& ex) {
         if (errorMessage != nullptr) {
             *errorMessage = ex.what();
@@ -1460,13 +1484,32 @@ void OtaService::execute(
     if (reply == nullptr || status == nullptr) {
         throw std::invalid_argument("ota reply/status is required");
     }
-    if (!config_.enabled) {
-        throw std::runtime_error("ota is disabled");
+#ifndef _WIN32
+    std::unique_ptr<JobLifecycleLock> applyLease;
+#endif
+    try {
+        rejectDuplicateRequest(request.jobId);
+        if (!config_.enabled) throw std::runtime_error("ota is disabled");
+        validateOtaRequestFields(request, config_);
+        validateOtaSize(config_, request.size);
+        ensureDirectory(config_.downloadDir);
+        ensureDirectory(config_.stagingDir);
+        ensureDirectory(config_.backupDir);
+#ifndef _WIN32
+        applyLease.reset(new JobLifecycleLock(joinPath(config_.stagingDir, "ota_job_" + request.jobId + ".lock"), true));
+        if (applyLease->fd() < 0)
+            throw OtaRequestRejected(OtaRejectionReason::Duplicate, "OTA job execution already owned");
+#endif
+        PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+        ensureJobNotProcessed(request);
+        ensureNoUnresolvedJob();
+        if (!strictlyAbsent(joinPath(config_.stagingDir, "ota-in-progress")))
+            throw std::runtime_error("previous OTA in-progress marker requires recovery");
+    } catch (const OtaRequestRejected&) {
+        throw;
+    } catch (const std::exception& ex) {
+        throw OtaRequestRejected(OtaRejectionReason::NotAdmitted, ex.what());
     }
-    validateOtaRequestFields(request, config_);
-    validateOtaSize(config_, request.size);
-    ensureJobNotProcessed(request);
-    ensureNoUnresolvedJob();
 
     reply->jobId = request.jobId;
     reply->machineCode = machineCode;
@@ -1478,18 +1521,15 @@ void OtaService::execute(
     status->machineCode = machineCode;
     status->downloadedBytes = 0;
     status->totalBytes = request.size;
-    reportStage(status, "accepted", 0, "accepted", nowMs, publishStatus);
-
-    ensureDirectory(config_.downloadDir);
-    ensureDirectory(config_.stagingDir);
-    ensureDirectory(config_.backupDir);
-
-    const auto artifactPath = resolveArtifactPath(request);
-    const auto previousVersion = readInstalledVersion();
+    std::string artifactPath;
+    std::string previousVersion;
     const auto startedAt = currentTimeMs();
     bool intentPersisted = false;
     std::string ownToken;
     try {
+        reportStage(status, "accepted", 0, "accepted", nowMs, publishStatus);
+        artifactPath = resolveArtifactPath(request);
+        previousVersion = readInstalledVersion();
         // The signed descriptor binds jobId/machineCode/version/sha256/size, so it
         // is checked before anything is downloaded; the sha256 check below then
         // binds the downloaded bytes to the signed descriptor.
@@ -1519,16 +1559,20 @@ void OtaService::execute(
             !commandStatusSucceeded(runArgvWithTimeout({"python3", "-c", "import fcntl,json,os,sys"},
                                                        config_.upgradeTimeoutSec)))
             throw std::runtime_error("official OTA requires python3 before intent");
-        JobLifecycleLock applyLease(jobLifecyclePath(config_.stagingDir, pending), true);
-        if (applyLease.fd() < 0) throw std::runtime_error("OTA apply lifecycle already owned");
         pending.lifecycle = "inherited-flock-v1";
 #endif
         {
             PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
-            ensureJobNotProcessed(request);
-            ensureNoUnresolvedJob();
-            if (!strictlyAbsent(joinPath(config_.stagingDir, "ota-in-progress")))
-                throw std::runtime_error("previous OTA in-progress marker requires recovery");
+            try {
+                ensureJobNotProcessed(request);
+                ensureNoUnresolvedJob();
+                if (!strictlyAbsent(joinPath(config_.stagingDir, "ota-in-progress")))
+                    throw std::runtime_error("previous OTA in-progress marker requires recovery");
+            } catch (const OtaRequestRejected&) {
+                throw;
+            } catch (const std::exception& ex) {
+                throw OtaRequestRejected(OtaRejectionReason::NotAdmitted, ex.what());
+            }
             replacePendingJournal(pendingJobPath(config_.stagingDir, request.jobId), encodePendingJob(pending));
             intentPersisted = true;
             replacePendingJournal(joinPath(config_.stagingDir, "ota_active_job.txt"),
@@ -1537,12 +1581,17 @@ void OtaService::execute(
         reportStage(status, "applying", 100, "running apply script", currentTimeMs(), publishStatus);
         runScript(config_.applyScript, request, artifactPath, pending.token,
 #ifndef _WIN32
-                  applyLease.fd()
+                  applyLease->fd()
 #else
                   -1
 #endif
         );
     } catch (const std::exception& ex) {
+        const auto* rejection = dynamic_cast<const OtaRequestRejected*>(&ex);
+        if (rejection && rejection->reason() == OtaRejectionReason::Duplicate) throw;
+#ifndef _WIN32
+        if (intentPersisted) applyLease.reset();
+#endif
         const auto failedStage = status->stage.empty() ? std::string("unknown") : status->stage;
         bool rollbackAttempted = false;
         bool rollbackProcessSucceeded = false;
@@ -1667,9 +1716,15 @@ void OtaService::execute(
             appendFailureRecord(request, failedStage, ex.what(), rollbackAttempted, rollbackSucceeded, currentTimeMs());
             reportStage(status, "failed", 0, ex.what(), currentTimeMs(), publishStatus);
         }
+        // An owned late refusal has already reported its own failure. Do not
+        // let an entry worker turn it into a second, post-lease negative reply.
+        if (rejection) throw std::runtime_error(ex.what());
         throw;
     }
 
+#ifndef _WIN32
+    applyLease.reset();
+#endif
     reconcilePendingJobs();
     PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
     const auto pending = decodePendingJob(readPendingJournal(pendingJobPath(config_.stagingDir, request.jobId)));
@@ -1842,27 +1897,32 @@ void OtaService::writeVersionMarker(
 void OtaService::ensureJobNotProcessed(const OtaRequest& request) const {
     // Job IDs are single-use once the apply stage has started: re-applying the
     // same job would overwrite its rollback backup with the new files.
-    struct stat info {};
-    if (stat(pendingJobPath(config_.stagingDir, request.jobId).c_str(), &info) == 0 ||
-        stat(joinPath(config_.backupDir, request.jobId).c_str(), &info) == 0 ||
-        stat(joinPath(config_.stagingDir, request.jobId).c_str(), &info) == 0) {
-        throw std::runtime_error("ota jobId already processed");
+    if (!strictlyAbsent(pendingJobPath(config_.stagingDir, request.jobId)) ||
+        !strictlyAbsent(joinPath(config_.backupDir, request.jobId)) ||
+        !strictlyAbsent(joinPath(config_.stagingDir, request.jobId))) {
+        throw OtaRequestRejected(OtaRejectionReason::Duplicate, "ota jobId already processed");
     }
-    std::ifstream applied(joinPath(config_.stagingDir, "applied_jobs.txt").c_str());
-    std::string line;
-    while (std::getline(applied, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line == request.jobId) {
-            throw std::runtime_error("ota jobId already processed");
+    const auto scan = [](const std::string& path, const std::function<bool(const std::string&)>& matches) {
+        if (strictlyAbsent(path)) return false;
+        struct stat info{};
+        if (stat(path.c_str(), &info) != 0 || (info.st_mode & S_IFMT) != S_IFREG)
+            throw std::runtime_error("cannot inspect OTA job history");
+        std::ifstream input(path, std::ios::binary);
+        if (!input) throw std::runtime_error("cannot open OTA job history");
+        std::string line;
+        while (std::getline(input, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (matches(line)) return true;
         }
-    }
-    std::ifstream history(joinPath(config_.stagingDir, "upgrade_history.log").c_str());
+        if (input.bad() || !input.eof()) throw std::runtime_error("cannot read OTA job history");
+        return false;
+    };
     const auto needle = ",jobId=" + sanitizeJournalField(request.jobId) + ",";
-    while (std::getline(history, line)) {
-        if (line.find(",result=success") != std::string::npos && line.find(needle) != std::string::npos) {
-            throw std::runtime_error("ota jobId already processed");
-        }
-    }
+    if (scan(joinPath(config_.stagingDir, "applied_jobs.txt"),
+             [&](const std::string& line) { return line == request.jobId; }) ||
+        scan(joinPath(config_.stagingDir, "upgrade_history.log"), [&](const std::string& line) {
+            return line.find(",result=success") != std::string::npos && line.find(needle) != std::string::npos;
+        })) throw OtaRequestRejected(OtaRejectionReason::Duplicate, "ota jobId already processed");
 }
 
 void OtaService::ensureTransportAllowed(const std::string& source) const {

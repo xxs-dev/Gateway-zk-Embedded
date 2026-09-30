@@ -1,0 +1,17 @@
+Test project /var/tmp/edge-review-r1-20260930-build
+    Start  81: mqtt_driver_service
+1/6 Test  #81: mqtt_driver_service ..........................   Passed    3.47 sec
+    Start  83: ota_service
+2/6 Test  #83: ota_service ..................................   Passed    5.81 sec
+    Start  84: ota_final_state
+3/6 Test  #84: ota_final_state ..............................   Passed    9.42 sec
+    Start  85: ota_checksum
+4/6 Test  #85: ota_checksum .................................   Passed    0.30 sec
+    Start  86: ota_checksum_standalone
+5/6 Test  #86: ota_checksum_standalone ......................   Passed    0.31 sec
+    Start 105: system_monitor_direct_maintenance_contract
+6/6 Test #105: system_monitor_direct_maintenance_contract ...   Passed    0.18 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =  19.49 sec

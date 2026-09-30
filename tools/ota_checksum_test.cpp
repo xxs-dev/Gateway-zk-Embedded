@@ -54,7 +54,7 @@ void checksumTests() {
     config.requireSignature = false;
     // A regular file blocks downloads even if a broken preflight accepts the request.
     config.downloadDir = artifactPath + "/downloads";
-    config.stagingDir = artifactPath;
+    config.stagingDir = directory.path + "/staging";
     config.backupDir = directory.path + "/backup";
     config.applyScript.clear();
     config.rollbackScript.clear();

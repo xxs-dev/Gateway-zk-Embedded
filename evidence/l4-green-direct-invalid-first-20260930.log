@@ -1,0 +1,4 @@
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=OTHER error=ota artifactUrl is required
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=1 in-flight/history suppressed; different invalid ID replied

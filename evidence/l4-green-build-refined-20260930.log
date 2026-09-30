@@ -1,0 +1,14 @@
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/ota_service.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/src/mqtt_driver_service.cpp:2803:38: error: expected initializer at end of input
+ 2803 | std::vector<StoredPointValue> MqttDri
+      |                                      ^
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/src/mqtt_driver_service.cpp:2803:38: error: expected ‘}’ at end of input
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/src/mqtt_driver_service.cpp:32:24: note: to match this ‘{’
+   32 | namespace edge_gateway {
+      |                        ^
+gmake[3]: *** [CMakeFiles/edge_gateway.dir/build.make:779: CMakeFiles/edge_gateway.dir/src/mqtt_driver_service.cpp.o] Error 1
+gmake[3]: *** Waiting for unfinished jobs....
+gmake[2]: *** [CMakeFiles/Makefile2:1394: CMakeFiles/edge_gateway.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:5430: CMakeFiles/ota_final_state_test.dir/rule] Error 2
+gmake: *** [Makefile:2110: ota_final_state_test] Error 2

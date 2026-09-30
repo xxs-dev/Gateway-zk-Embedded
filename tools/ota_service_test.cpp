@@ -207,8 +207,8 @@ void checksumTests() {
     config.checksumRequired = true;
     config.requireSignature = false;
     config.downloadDir = directory.path + "/downloads";
-    // A regular file blocks staging even if a broken preflight accepts the request.
-    config.stagingDir = artifactPath;
+    // Valid isolated paths let field validation run without masking it with ENOTDIR.
+    config.stagingDir = directory.path + "/staging";
     config.backupDir = directory.path + "/backup";
     config.applyScript.clear();
     config.rollbackScript.clear();

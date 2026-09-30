@@ -1,6 +1,8 @@
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/json_value.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
+#include "edge_gateway/mqtt_driver_service.hpp"
+#include "edge_gateway/ota_request_json.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -46,6 +48,7 @@ int countStage(const std::vector<edge_gateway::OtaStatus>& statuses, const std::
 }
 
 #ifndef _WIN32
+
 void verifyOfficialEarlyFailure(const std::string& root, const std::string& mode) {
     const bool missingPython = mode == "missing-python";
     const bool natural = mode == "invalid-manifest" || mode == "missing-helper";
@@ -148,6 +151,8 @@ void writeFixtureFile(const std::string& path, const std::string& bytes) {
     output << bytes;
     require(output.good(), "cannot write lifecycle fixture");
 }
+
+#include "ota_duplicate_ingress_test.hpp"
 
 edge_gateway::OtaConfig lifecycleConfig(const std::string& root) {
     edge_gateway::OtaConfig config;
@@ -493,6 +498,7 @@ void verifyDurableHealthReconciliation() {
     removeEventStoreTestTree(root);
 }
 
+
 void verifyLegacyMarkerAdmission() {
     for (const auto& variant : {"legacy", "empty", "directory", "dangling-link", "loop-link"}) {
         char pattern[] = "/tmp/ota-legacy-marker-XXXXXX";
@@ -654,11 +660,11 @@ void verifySynchronousSuccessAndSameJobRace() {
         bool delayed = false;
         bool release = false;
         bool rejected = false;
+        edge_gateway::OtaStatus ownerStatus;
         std::thread second([&] {
             edge_gateway::OtaReply reply;
-            edge_gateway::OtaStatus status;
             try {
-                edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status,
+                edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &ownerStatus,
                     [&](const edge_gateway::OtaStatus& event) {
                         if (event.stage != "accepted") return;
                         std::unique_lock<std::mutex> guard(mutex);
@@ -674,21 +680,32 @@ void verifySynchronousSuccessAndSameJobRace() {
         }
         edge_gateway::OtaReply reply;
         edge_gateway::OtaStatus status;
-        std::exception_ptr firstError;
-        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 2000, &reply, &status, nullptr); }
-        catch (...) { firstError = std::current_exception(); }
         const auto intentPath = config.stagingDir + "/ota_job_SHARED_JOB.json";
-        const auto originalIntent = readFile(intentPath);
+        const auto originalJournal = readFile(config.stagingDir + "/ota_status_pending.log");
+        bool duplicate = false;
+        int publications = 0;
+        request.sha256 = "bad";
+        request.artifactUrl.clear();
+        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 2000, &reply, &status,
+                    [&](const edge_gateway::OtaStatus&) { ++publications; }); }
+        catch (const edge_gateway::OtaRequestRejected& ex) {
+            duplicate = ex.reason() == edge_gateway::OtaRejectionReason::Duplicate;
+        }
+        request.sha256.clear();
+        request.artifactUrl = root + "/source.tar.gz";
+        const bool unchanged = readFile(intentPath).empty() && publications == 0 &&
+            readFile(config.stagingDir + "/ota_status_pending.log") == originalJournal &&
+            readFile(config.stagingDir + "/upgrade_history.log").empty();
         {
             std::lock_guard<std::mutex> guard(mutex);
             release = true;
         }
         changed.notify_all();
         second.join();
-        if (firstError) std::rethrow_exception(firstError);
-        require(status.stage == "completed", "synchronous success must complete");
-        require(rejected && readFile(intentPath) == originalIntent,
-                "delayed duplicate must not replace a completed job intent");
+        require(!rejected && ownerStatus.stage == "completed", "reserved owner must complete");
+        require(duplicate && unchanged && !readFile(intentPath).empty(),
+                "pre-intent invalid duplicate must have typed rejection without task side effects");
+        std::cout << "same-ID pre-intent lease: invalid duplicate typed; no publication/history; owner completed\n";
         request.jobId = "NEXT_SUCCESS";
         request.version = "3.0.0";
         edge_gateway::OtaService(config).execute(request, "GW_TEST", 3000, &reply, &status, nullptr);
@@ -810,6 +827,25 @@ int main(int argc, char** argv) {
             verifyOfficialEarlyFailure(argv[2], argv[3]);
             return 0;
         }
+        if (argc == 4 && std::string(argv[1]) == "--duplicate-ingress") {
+            verifyOtaDuplicateIngress(std::string(argv[2]) == "direct", std::string(argv[3]) == "invalid");
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--admission") {
+            verifyOtaRootParsing();
+            verifyPreIntentFailureRetainsLease();
+            for (bool direct : {false, true}) for (bool invalid : {false, true})
+                verifyOtaDuplicateIngress(direct, invalid);
+            verifyOtaDuplicateIngress(false, true, true);
+            verifyOtaDuplicateIngress(false, false, false, true);
+            return 0;
+        }
+        verifyOtaRootParsing();
+        verifyPreIntentFailureRetainsLease();
+        for (bool direct : {false, true}) for (bool invalid : {false, true})
+            verifyOtaDuplicateIngress(direct, invalid);
+        verifyOtaDuplicateIngress(false, true, true);
+        verifyOtaDuplicateIngress(false, false, false, true);
         verifyLegacyMarkerAdmission();
         verifyDurableHealthReconciliation();
         verifyLifecycleEvidenceGuards();
