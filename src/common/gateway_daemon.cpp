@@ -422,6 +422,7 @@ void GatewayDaemon::flushImmediatePersistentSamples() {
 }
 
 std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
+    const auto entryTime = std::chrono::steady_clock::now();
     const auto commands = drainScheduledWriteCommands(
         store_,
         &priorityControlLease_,
@@ -430,10 +431,17 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
     );
     std::size_t processed = 0;
     const auto maxAgeMs = config_.memoryStore.pendingWriteMaxAgeMs;
+    const auto currentTime = [&] {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - entryTime).count();
+        return nowMsValue > std::numeric_limits<std::int64_t>::max() - elapsed
+            ? std::numeric_limits<std::int64_t>::max() : nowMsValue + elapsed;
+    };
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
+        const auto commandNowMs = currentTime();
         auto writebackResult = beginWritebackResult(command, startedAt);
-        if (isPendingWriteExpired(command, nowMsValue, maxAgeMs)) {
+        if (isPendingWriteExpired(command, commandNowMs, maxAgeMs)) {
             // Never execute a stale setpoint late (e.g. queued while this daemon was down).
             const auto message = "pending write expired before execution (memoryStore.pendingWriteMaxAgeMs=" +
                 std::to_string(maxAgeMs) + ")";
@@ -458,7 +466,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-expired",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
             );
@@ -472,7 +480,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             command.source,
             command.controlGeneration,
             command.highPriority,
-            nowMsValue
+            commandNowMs
         );
         if (!authorization.allowed) {
             const auto completedAt = nowMs();
@@ -486,7 +494,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "control-rejected",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) +
                     R"(","message":")" + escapeJson(authorization.message) + R"(")"
@@ -510,7 +518,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-skipped",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"reason":"unknown-index")"
             );
@@ -519,13 +527,22 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             }
             continue;
         }
+        bool expiredBeforeSend = false;
         const auto executePending = [&] {
             BeforePhysicalWrite beforeWrite;
-            if (clusterAuthorizationRequired(config_.emsCluster, command)) {
-                auto guard = std::make_shared<ClusterWriteGuard>(config_.emsCluster);
-                beforeWrite = [guard, command] { guard->check(command); };
+            const bool clusterGuard = clusterAuthorizationRequired(config_.emsCluster, command);
+            if (clusterGuard || (maxAgeMs > 0 &&
+                (config_.protocol.type == "modbus_rtu" || config_.protocol.type == "modbus_tcp"))) {
+                auto guard = clusterGuard ? std::make_shared<ClusterWriteGuard>(config_.emsCluster) : nullptr;
+                beforeWrite = [&, guard] {
+                    if (guard) guard->check(command);
+                    if (isPendingWriteExpired(command, currentTime(), maxAgeMs)) {
+                        expiredBeforeSend = true;
+                        throw std::runtime_error("pending write expired before physical send");
+                    }
+                };
             }
-            return runtimeDevices_[it->second].executor->executePending(command, nowMsValue, beforeWrite);
+            return runtimeDevices_[it->second].executor->executePending(command, commandNowMs, beforeWrite);
         };
         if (command.durableControl) {
             const auto& device = runtimeDevices_[it->second];
@@ -544,7 +561,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                 completeWritebackResult(writebackResult, false, ex.what(), "writeback-failed", nowMs());
             }
             store_.recordWritebackResult(writebackResult);
-            publishStatusEvent(writebackResult.stage, nowMsValue,
+            publishStatusEvent(writebackResult.stage, commandNowMs,
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")");
             if (command.highPriority) priorityControlLease_.release(command.cmdId);
@@ -560,7 +577,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                     writebackResult,
                     false,
                     result.message,
-                    "writeback-failed",
+                    expiredBeforeSend ? "expired" : "writeback-failed",
                     completedAt,
                     result.verifyAttempted,
                     result.verifyPassed
@@ -573,8 +590,8 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                           << " error=" << result.message
                           << std::endl;
                 publishStatusEvent(
-                    "writeback-failed",
-                    nowMsValue,
+                    expiredBeforeSend ? "expired" : "writeback-failed",
+                    commandNowMs,
                     std::string(R"("meterCode":")") + runtimeDevice.config.meterCode +
                         R"(","index":)" + std::to_string(command.index) +
                         R"(,"message":")" + escapeJson(result.message) + R"(")"
@@ -601,7 +618,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "writeback-succeeded",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("meterCode":")") + runtimeDevice.config.meterCode +
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) +
@@ -628,7 +645,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                       << std::endl;
             publishStatusEvent(
                 "writeback-failed",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("meterCode":")") + runtimeDevice.config.meterCode +
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"

@@ -587,6 +587,7 @@ std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
 }
 
 std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
+    const auto entryTime = std::chrono::steady_clock::now();
     const auto commands = drainScheduledWriteCommands(
         store_,
         &priorityControlLease_,
@@ -594,15 +595,50 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
         config_.memoryStore.writebackBatchSize
     );
     std::size_t processed = 0;
+    const auto maxAgeMs = config_.memoryStore.pendingWriteMaxAgeMs;
+    const auto currentTime = [&] {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - entryTime).count();
+        return nowMsValue > std::numeric_limits<std::int64_t>::max() - elapsed
+            ? std::numeric_limits<std::int64_t>::max() : nowMsValue + elapsed;
+    };
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
+        const auto commandNowMs = currentTime();
         auto writebackResult = beginWritebackResult(command, startedAt);
+        if (isPendingWriteExpired(command, commandNowMs, maxAgeMs)) {
+            const auto expire = [&] {
+                auto receipt = beginWritebackResult(command, startedAt);
+                completeWritebackResult(receipt, false, "pending write expired before execution",
+                                        "expired", nowMs());
+                return receipt;
+            };
+            const auto pointIt = indexToRuntimePoint_.find(command.index);
+            if (command.durableControl && pointIt != indexToRuntimePoint_.end()) {
+                try {
+                    const auto& device = runtimeDevices_[runtimePoints_[pointIt->second].deviceIndex].config;
+                    ControlDedupStore dedup(config_.memoryStore.controlDedupPath);
+                    writebackResult = dedup.dispatch(device.machineCode, device.meterCode,
+                                                     command, startedAt, expire);
+                } catch (const std::exception& ex) {
+                    completeWritebackResult(writebackResult, false, ex.what(), "expired", nowMs());
+                }
+            } else {
+                writebackResult = expire();
+            }
+            store_.recordWritebackResult(writebackResult);
+            publishStatusEvent(writebackResult.stage, commandNowMs,
+                std::string(R"("index":)") + std::to_string(command.index) +
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")");
+            if (command.highPriority) priorityControlLease_.release(command.cmdId);
+            continue;
+        }
         const auto authorization = powerControlOwnership_.authorize(
             command.index,
             command.source,
             command.controlGeneration,
             command.highPriority,
-            nowMsValue
+            commandNowMs
         );
         if (!authorization.allowed) {
             const auto completedAt = nowMs();
@@ -616,7 +652,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
                 "control-rejected",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) +
                     R"(","message":")" + escapeJson(authorization.message) + R"(")"
@@ -651,6 +687,13 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             if (command.highPriority) priorityControlLease_.release(command.cmdId);
             continue;
         }
+        bool expiredBeforeSend = false;
+        const BeforePhysicalWrite beforeWrite = maxAgeMs > 0 ? BeforePhysicalWrite([&] {
+            if (isPendingWriteExpired(command, currentTime(), maxAgeMs)) {
+                expiredBeforeSend = true;
+                throw std::runtime_error("pending write expired before physical send");
+            }
+        }) : BeforePhysicalWrite();
         if (command.durableControl) {
             const auto& device = runtimeDevices_[runtimePoint.deviceIndex].config;
             try {
@@ -658,7 +701,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                 ControlDedupStore dedup(config_.memoryStore.controlDedupPath);
                 writebackResult = dedup.dispatch(device.machineCode, device.meterCode,
                     command, startedAt, [&] {
-                        sendCanWrite(point, command.value);
+                        sendCanWrite(point, command.value, beforeWrite);
                         auto receipt = beginWritebackResult(command, startedAt);
                         completeWritebackResult(receipt, true, "ok", "writeback-succeeded", nowMs());
                         return receipt;
@@ -667,7 +710,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                 completeWritebackResult(writebackResult, false, ex.what(), "writeback-failed", nowMs());
             }
             store_.recordWritebackResult(writebackResult);
-            publishStatusEvent(writebackResult.stage, nowMsValue,
+            publishStatusEvent(writebackResult.stage, commandNowMs,
                 std::string(R"("index":)") + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")");
             if (command.highPriority) priorityControlLease_.release(command.cmdId);
@@ -676,10 +719,10 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
         }
         try {
             validateWriteValue(point, command.value);
-            sendCanWrite(point, command.value);
+            sendCanWrite(point, command.value, beforeWrite);
             publishStatusEvent(
                 "writeback-succeeded",
-                nowMsValue,
+                commandNowMs,
                 std::string(R"("meterCode":")") + escapeJson(runtimeDevices_[runtimePoint.deviceIndex].config.meterCode) +
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
@@ -703,13 +746,13 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                 writebackResult,
                 false,
                 ex.what(),
-                "writeback-failed",
+                expiredBeforeSend ? "expired" : "writeback-failed",
                 completedAt
             );
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
-                "writeback-failed",
-                nowMsValue,
+                expiredBeforeSend ? "expired" : "writeback-failed",
+                commandNowMs,
                 std::string(R"("meterCode":")") + escapeJson(runtimeDevices_[runtimePoint.deviceIndex].config.meterCode) +
                     R"(","index":)" + std::to_string(command.index) +
                     R"(,"message":")" + escapeJson(ex.what()) + R"(")"
@@ -820,7 +863,8 @@ void CanDriverService::runStartupWrites() {
     }
 }
 
-bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) {
+bool CanDriverService::sendCanWrite(const PointDefinition& point, double value,
+                                    const BeforePhysicalWrite& beforeWrite) {
     const auto frameKey = (static_cast<std::uint64_t>(CanSignalCodec::parseFrameId(point.write.can.frameId)) << 1) |
         (point.write.can.extended ? 1U : 0U);
     std::vector<std::uint8_t> basePayload;
@@ -852,6 +896,7 @@ bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) 
         }
         std::lock_guard<std::mutex> lock(socketMutex_);
         openSocketLocked();
+        if (beforeWrite) beforeWrite();
         if (sendto(
                 socketFd_,
                 bytes.data(),
@@ -870,6 +915,7 @@ bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) 
     }
     std::lock_guard<std::mutex> lock(socketMutex_);
     openSocketLocked();
+    if (beforeWrite) beforeWrite();
     if (config_.protocol.can.fdEnabled || encoded.payload.size() > CAN_MAX_DLEN) {
         canfd_frame frame{};
         frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);

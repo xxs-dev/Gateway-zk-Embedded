@@ -66,7 +66,8 @@ private:
     bool isInterfaceReady() const;
     void checkInterfaceOnce(std::int64_t nowMs);
     void runStartupWrites();
-    bool sendCanWrite(const PointDefinition& point, double value);
+    bool sendCanWrite(const PointDefinition& point, double value,
+                      const BeforePhysicalWrite& beforeWrite = BeforePhysicalWrite());
     void receiveLoop();
     void writebackLoop();
     void persistLoop();

@@ -1,0 +1,15 @@
+[  0%] Building CXX object CMakeFiles/edge_gateway.dir/src/can_driver_service.cpp.o
+[  4%] Building CXX object CMakeFiles/edge_gateway.dir/src/common/gateway_daemon.cpp.o
+[  8%] Linking CXX static library libedge_gateway.a
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/gateway_daemon_realtime_priority_test.dir/tools/gateway_daemon_realtime_priority_test.cpp.o
+[100%] Linking CXX executable gateway_daemon_realtime_priority_test
+[100%] Built target gateway_daemon_realtime_priority_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/cluster_driver_rejection_test.dir/tools/cluster_driver_rejection_test.cpp.o
+[100%] Linking CXX executable cluster_driver_rejection_test
+[100%] Built target cluster_driver_rejection_test
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/control_dedup_integration_test.dir/tools/control_dedup_integration_test.cpp.o
+[100%] Linking CXX executable control_dedup_integration_test
+[100%] Built target control_dedup_integration_test

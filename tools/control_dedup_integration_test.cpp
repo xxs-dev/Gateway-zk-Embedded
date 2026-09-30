@@ -29,6 +29,20 @@ public:
     void writeSingleCoil(int, int, bool) override { ++writes; if (afterWrite) afterWrite(); }
     void writeSingleRegister(int, int, std::uint16_t) override { ++writes; if (afterWrite) afterWrite(); }
     void writeMultipleRegisters(int, int, const std::vector<std::uint16_t>&) override { ++writes; if (afterWrite) afterWrite(); }
+    void writeSingleCoil(int slave, int address, bool value, const BeforePhysicalWrite& beforeWrite) override {
+        if (beforeWrite) beforeWrite();
+        writeSingleCoil(slave, address, value);
+    }
+    void writeSingleRegister(int slave, int address, std::uint16_t value,
+                             const BeforePhysicalWrite& beforeWrite) override {
+        if (beforeWrite) beforeWrite();
+        writeSingleRegister(slave, address, value);
+    }
+    void writeMultipleRegisters(int slave, int address, const std::vector<std::uint16_t>& values,
+                                const BeforePhysicalWrite& beforeWrite) override {
+        if (beforeWrite) beforeWrite();
+        writeMultipleRegisters(slave, address, values);
+    }
 };
 class Publisher : public IMqttDriverPublisher {
 public:
@@ -346,10 +360,10 @@ void directTest() {
     std::atomic<bool> running{true};
     std::thread worker([&] { while (running) { f.gateway->processWritebackOnce(nowMs()); std::this_thread::sleep_for(std::chrono::milliseconds(5)); } });
     try {
-        const std::string body = R"({"machineCode":"GW","commands":[{"cmdId":"direct-1","index":1001,"value":1,"source":"compute-engine","durableControl":false},{"cmdId":"direct-2","index":1002,"value":2},{"cmdId":"direct-3","index":1003,"value":3}]})";
+        const std::string body = R"({"machineCode":"GW","commands":[{"cmdId":"direct-1","index":1001,"value":1,"ts":1,"source":"compute-engine","durableControl":false},{"cmdId":"direct-2","index":1002,"value":2},{"cmdId":"direct-3","index":1003,"value":3}]})";
         const auto first = batchControlJson(config, body);
         require(first.find("writeback-succeeded") != std::string::npos && f.hardware->writes == 3,
-                "Direct real batch to SHM to actual Modbus writes: " + first);
+                "Direct historical client ts must use fresh acceptedAt for physical write: " + first);
         const auto repeat = batchControlJson(config, body);
         require(repeat.find("writeback-succeeded") != std::string::npos && f.hardware->writes == 3, "Direct same/different-meter batch replay");
         const auto conflict = batchControlJson(config,

@@ -165,6 +165,22 @@ void canCase() {
     const auto ordinary = f.store->getWritebackResult(f.command.cmdId);
     require(ordinary && ordinary->success, "ordinary CAN receipt: " + (ordinary ? ordinary->message : "missing"));
     require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) > 0, "ordinary CAN datagram missing");
+    for (int durable = 0; durable < 2; ++durable) {
+        f.command.cmdId = "expired-" + std::to_string(durable);
+        f.command.durableControl = durable != 0;
+        f.command.ts = 1;
+        f.command.acceptedAt = 1;
+        if (durable) require(!ledger.bind(f.config.machineCode, f.config.meterCode, f.command),
+                             "expired durable CAN ingress bind");
+        f.store->submitWriteCommand(f.command);
+        driver.processWritebackOnce(1 + f.config.memoryStore.pendingWriteMaxAgeMs + 1);
+        const auto expired = f.store->getWritebackResult(f.command.cmdId);
+        require(expired && !expired->success && expired->stage ==
+                    (durable ? "writeback-timeout" : "expired"),
+                "stale CAN command must not dispatch durable=" + std::to_string(durable) +
+                    " stage=" + (expired ? expired->stage : "missing"));
+        require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) < 0, "stale CAN command emitted datagram");
+    }
     std::cout << "CAN cluster=0 ordinary=1 passed\n";
 }
 }

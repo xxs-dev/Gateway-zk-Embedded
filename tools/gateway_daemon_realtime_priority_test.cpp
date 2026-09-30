@@ -7,6 +7,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "edge_gateway/gateway_daemon.hpp"
@@ -55,7 +56,19 @@ public:
 
     void writeSingleRegister(int slave, int, std::uint16_t) override {
         ++writesBySlave_[slave];
+        if (writeDelayMs_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(writeDelayMs_));
     }
+    void writeSingleRegister(int slave, int address, std::uint16_t value,
+                             const edge_gateway::BeforePhysicalWrite& beforeWrite) override {
+        if (preSendDelayMs_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(preSendDelayMs_));
+        if (beforeWrite) ++guardCalls_;
+        if (beforeWrite) beforeWrite();
+        writeSingleRegister(slave, address, value);
+    }
+
+    void setWriteDelayMs(int value) { writeDelayMs_ = value; }
+    void setPreSendDelayMs(int value) { preSendDelayMs_ = value; }
+    int guardCalls() const { return guardCalls_; }
 
     void writeMultipleRegisters(int, int, const std::vector<std::uint16_t>&) override {
     }
@@ -78,6 +91,9 @@ private:
 
     std::map<int, int> readsBySlave_;
     std::map<int, int> writesBySlave_;
+    int writeDelayMs_ = 0;
+    int preSendDelayMs_ = 0;
+    int guardCalls_ = 0;
 };
 
 edge_gateway::PointDefinition point(std::uint32_t index, const std::string& code, int address) {
@@ -206,6 +222,7 @@ void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
 
     try {
         auto deviceConfig = config(storeName);
+        deviceConfig.memoryStore.pendingWriteMaxAgeMs = 200;
         deviceConfig.mqttDriver.powerControlOwnershipFile = ownershipFile;
         deviceConfig.mqttDriver.priorityControlLeaseFile = priorityLeaseFile;
         {
@@ -305,6 +322,56 @@ void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
             require(staleResult && !staleResult->success && staleResult->stage == "expired",
                 "a queued write older than pendingWriteMaxAgeMs must fail with stage expired");
             require(client->writeCount(1) == 1, "an expired write must never reach the field device");
+
+            client->setWriteDelayMs(400);
+            for (int i = 0; i < 2; ++i) {
+                edge_gateway::PendingWriteCommand queued;
+                queued.cmdId = "CMD_BATCH_" + std::to_string(i);
+                queued.index = 1001;
+                queued.value = 10 + i;
+                queued.source = "compute-engine";
+                queued.ts = 4000;
+                queued.acceptedAt = 4000;
+                store.submitWriteCommand(queued);
+            }
+            daemon.processWritebackOnce(4000);
+            const auto batchFirst = store.getWritebackResult("CMD_BATCH_0");
+            const auto batchSecond = store.getWritebackResult("CMD_BATCH_1");
+            require(batchFirst && batchFirst->success, "first batch write should execute");
+            require(batchSecond && !batchSecond->success && batchSecond->stage == "expired",
+                "second batch write must expire while the first write occupies the executor");
+            require(client->writeCount(1) == 2, "only first batch write should reach device");
+
+            client->setWriteDelayMs(0);
+            client->setPreSendDelayMs(400);
+            edge_gateway::PendingWriteCommand beforeSend;
+            beforeSend.cmdId = "CMD_EXPIRES_BEFORE_SEND";
+            beforeSend.index = 1001;
+            beforeSend.value = 12;
+            beforeSend.source = "compute-engine";
+            beforeSend.ts = 5000;
+            beforeSend.acceptedAt = 5000;
+            store.submitWriteCommand(beforeSend);
+            daemon.processWritebackOnce(5000);
+            const auto beforeSendResult = store.getWritebackResult(beforeSend.cmdId);
+            require(beforeSendResult && !beforeSendResult->success && beforeSendResult->stage == "expired",
+                "write must expire after transport wait and before physical send");
+            require(client->writeCount(1) == 2, "expired before-send write reached device");
+
+            client->setPreSendDelayMs(0);
+            deviceConfig.memoryStore.pendingWriteMaxAgeMs = 0;
+            edge_gateway::GatewayDaemon noExpiry(deviceConfig, store, client);
+            edge_gateway::PendingWriteCommand noExpiryCommand = beforeSend;
+            noExpiryCommand.cmdId = "CMD_ZERO_MAX_AGE";
+            noExpiryCommand.ts = 1;
+            noExpiryCommand.acceptedAt = 1;
+            store.submitWriteCommand(noExpiryCommand);
+            const auto guardsBefore = client->guardCalls();
+            noExpiry.processWritebackOnce(100000);
+            const auto noExpiryResult = store.getWritebackResult(noExpiryCommand.cmdId);
+            require(noExpiryResult && noExpiryResult->success, "maxAge=0 must preserve ordinary write");
+            require(client->guardCalls() == guardsBefore, "maxAge=0 must not add a guarded write callback");
+            require(client->writeCount(1) == 3, "maxAge=0 ordinary write did not reach device");
         }
     } catch (...) {
         std::remove(ownershipFile.c_str());
