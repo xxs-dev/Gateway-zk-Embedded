@@ -1,0 +1,121 @@
+finalization order: initial-final=committed no false failed/reapply
+finalization final: initial-final=unknown no false failed/reapply
+finalization version: initial-final=unknown no false failed/reapply
+finalization applied-version: initial-final=unknown no false failed/reapply
+finalization intent: initial-final=unknown no false failed/reapply
+finalization identity: initial-final=unknown no false failed/reapply
+finalization active: initial-final=unknown no false failed/reapply
+finalization state: initial-final=unknown no false failed/reapply
+OTA reconciliation audit NOT durable; jobId=FINAL_JOB token=9e1be134-d139-4c5d-a10e-9a7996110a6e finalState=unknown phase=final-marker; stderr is best effort only
+finalization audit: initial-final=unknown no false failed/reapply
+finalization journal: initial-final=committed no false failed/reapply
+ota status publish failed stage=completed error=fixture notification fault https://secret.invalid/token
+finalization callback: initial-final=committed no false failed/reapply
+finalization crash: initial-final=committed no false failed/reapply
+finalization existing-final: initial-final=committed no false failed/reapply
+finalization existing-final-new-active: initial-final=committed no false failed/reapply
+finalization health-final: recovered via matched health only
+finalization health-final: initial-final=unknown no false failed/reapply
+finalization health-version: recovered via matched health only
+finalization health-version: initial-final=unknown no false failed/reapply
+finalization health-journal: initial-final=committed no false failed/reapply
+finalization directory-sync: initial-final=unknown no false failed/reapply
+OTA root identity/type/duplicate-key and safe-integer boundaries passed
+pre-intent failed callback reentry: Duplicate; real download failure persisted once
+mqtt ota request queued jobId=SHARED
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=0 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=0 in-flight/history suppressed; different invalid ID replied
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+mqtt ota publication failed: injected accepted reply failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt status event publish failed event=ota-completed error=injected audit publication failure
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=injected audit publication failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request queued jobId=AFTER_AUDIT_FAILURE
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=injected audit publication failure
+mqtt ota job returned jobId=AFTER_AUDIT_FAILURE stage=completed message=upgrade completed
+mqtt status event publish failed event=ota-completed error=injected audit publication failure
+duplicate ingress: owner=MQTT invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+direct OTA worker error jobId=LATE_DIRECT error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=0 in-flight/history suppressed; different invalid ID replied
+Direct post-accepted distinct-job refusal: own durable failed; original task completed
+legacy marker legacy: rejected without intent; marker retained
+legacy marker legacy: new job actually completed after simulated recovery
+legacy marker empty: rejected without intent; marker retained
+legacy marker empty: new job actually completed after simulated recovery
+legacy marker directory: rejected without intent; marker retained
+legacy marker directory: new job actually completed after simulated recovery
+legacy marker dangling-link: rejected without intent; marker retained
+legacy marker dangling-link: new job actually completed after simulated recovery
+legacy marker loop-link: rejected without intent; marker retained
+legacy marker loop-link: new job actually completed after simulated recovery
+lifecycle evidence prepared: recovered
+lifecycle evidence missing-barrier: blocked
+lifecycle evidence damaged-barrier: blocked
+lifecycle evidence wrong-token: blocked
+lifecycle evidence changed-barrier: blocked
+lifecycle evidence pending-health: blocked
+lifecycle evidence burned: blocked
+lifecycle evidence damaged-applied: blocked
+lifecycle evidence unreadable-applied: blocked
+lifecycle evidence marker: blocked
+lifecycle evidence missing-lock: blocked
+lifecycle evidence old-intent: blocked
+lifecycle evidence damaged-health: blocked
+intent-to-fork: held before fork, parent CLOEXEC; unregistered custom failure blocked
+parent exit, live child, health=0: blocked until child closes inherited lease
+parent exit, live child, health=1: blocked until child closes inherited lease
+parent timeout, live child, health=1: blocked until child closes inherited lease
+same-ID pre-intent lease: invalid duplicate typed; no publication/history; owner completed
+rollback in progress: next actual execute rejected
+ota final-state test passed

@@ -1225,6 +1225,55 @@ OtaHealthResult decodeHealthResult(const std::string& bytes, const PendingOtaJob
     return result;
 }
 
+class SuccessfulFinalizationError : public std::runtime_error {
+public:
+    explicit SuccessfulFinalizationError(const PendingOtaJob& job)
+        : std::runtime_error("OTA successful apply requires finalization reconciliation"),
+          jobId(job.jobId), token(job.token) {}
+    std::string jobId;
+    std::string token;
+};
+
+void persistFinalizationAudit(const std::string& stagingDir, const PendingOtaJob& job,
+                             bool finalCommitted, const char* phase, const char* evidence) {
+    replacePendingJournal(joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json"),
+            "{\"format\":\"ota-reconcile-v1\",\"reason\":\"successful-apply-finalization-error\",\"jobId\":" +
+            pendingJsonString(job.jobId) + ",\"token\":" + pendingJsonString(job.token) +
+            ",\"version\":" + pendingJsonString(job.version) +
+            ",\"finalState\":" + pendingJsonString(finalCommitted ? "committed" : "unknown") +
+            ",\"phase\":" + pendingJsonString(phase) + ",\"evidence\":" + pendingJsonString(evidence) +
+            ",\"ts\":\"" + std::to_string(currentTimeMs()) + "\"}\n");
+}
+
+void auditSuccessfulFinalization(const std::string& stagingDir, const PendingOtaJob& job,
+                                bool finalCommitted, const char* phase, const char* evidence) noexcept {
+    try {
+        persistFinalizationAudit(stagingDir, job, finalCommitted, phase, evidence);
+    } catch (...) {
+        // No exception text or artifact location: either may contain credentials.
+        try {
+            std::cerr << "OTA reconciliation audit NOT durable; jobId=" << job.jobId
+                      << " token=" << job.token << " finalState=" << (finalCommitted ? "committed" : "unknown")
+                      << " phase=" << phase << "; stderr is best effort only\n";
+        } catch (...) {}
+    }
+}
+
+bool needsFinalizationReconciliation(const std::string& stagingDir, const PendingOtaJob& job) {
+    const auto path = joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json");
+    if (strictlyAbsent(path)) return false;
+    if (fileSizeBytes(path) > 4096) throw std::runtime_error("invalid OTA reconciliation audit");
+    const auto bytes = readPendingJournal(path);
+    if (bytes.empty() || bytes.back() != '\n') throw std::runtime_error("incomplete OTA reconciliation audit");
+    const auto audit = json::JsonParser(bytes, 4, 32).parse();
+    if (pendingField(audit, "format") != "ota-reconcile-v1" ||
+        pendingField(audit, "jobId") != job.jobId || pendingField(audit, "token") != job.token ||
+        pendingField(audit, "version") != job.version)
+        throw std::runtime_error("OTA reconciliation audit does not match intent");
+    // A visible marker after rename does not undo a directory-fsync failure.
+    return pendingField(audit, "finalState") != "committed";
+}
+
 bool hasValidFinal(const std::string& stagingDir, const PendingOtaJob& job) {
     const auto path = joinPath(stagingDir, "ota_final_" + job.jobId + ".txt");
     struct stat info{};
@@ -1321,6 +1370,8 @@ void OtaService::ensureNoUnresolvedJob() const {
             if (lease->fd() < 0) throw std::runtime_error("previous OTA writer is still running");
         }
 #endif
+        if (needsFinalizationReconciliation(config_.stagingDir, job))
+            throw std::runtime_error("previous successful OTA requires finalization reconciliation");
         if (!hasValidFinal(config_.stagingDir, job))
             throw std::runtime_error("previous OTA job has no verified terminal result");
         const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
@@ -1343,6 +1394,7 @@ void OtaService::reconcilePendingJobs() const {
     for (const auto& path : pendingJobFiles(config_.stagingDir)) {
         PendingOtaJob job;
         OtaHealthResult health;
+        bool reconciliationNeeded = false;
 #ifndef _WIN32
         std::unique_ptr<JobLifecycleLock> lease;
 #endif
@@ -1350,7 +1402,8 @@ void OtaService::reconcilePendingJobs() const {
             if (fileSizeBytes(path) > 4096) continue;
             job = decodePendingJob(readPendingJournal(path));
             if (path != pendingJobPath(config_.stagingDir, job.jobId)) continue;
-            if (hasValidFinal(config_.stagingDir, job)) continue;
+            reconciliationNeeded = needsFinalizationReconciliation(config_.stagingDir, job);
+            if (hasValidFinal(config_.stagingDir, job) && !reconciliationNeeded) continue;
             if (!isActiveJob(config_.stagingDir, job)) continue;
 #ifndef _WIN32
             if (!job.lifecycle.empty()) {
@@ -1360,10 +1413,12 @@ void OtaService::reconcilePendingJobs() const {
 #endif
             const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
 #ifndef _WIN32
-            if (lease && strictlyAbsent(healthPath)) recordPreparedFailure(config_.stagingDir, job);
+            if (lease && !reconciliationNeeded && strictlyAbsent(healthPath)) recordPreparedFailure(config_.stagingDir, job);
 #endif
             if (fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096) continue;
             health = decodeHealthResult(readPendingJournal(healthPath), job);
+            // Only existing, matched healthy proof may repair a success audit.
+            if (reconciliationNeeded && health.status != "healthy") continue;
         } catch (const std::exception&) {
             // A missing, stale or partial result cannot authorize success.
             continue;
@@ -1392,19 +1447,36 @@ void OtaService::reconcilePendingJobs() const {
             }
             return false;
         };
-        if (health.status == "healthy") {
-            writeVersionMarker(request, job.artifactPath, job.previousVersion);
-            replacePendingJournal(joinPath(config_.stagingDir, "applied_version.txt"), job.version + "\n");
-            if (!recorded("success"))
-                appendUpgradeRecord(request, job.artifactPath, job.previousVersion, health.ts);
-        } else if (!recorded("failure")) {
-            appendFailureRecord(request, "health", terminal.message,
-                health.rollback == "succeeded" || health.rollback == "failed",
-                health.rollback == "succeeded", health.ts);
+        bool finalCommitted = false;
+        const char* phase = "version";
+        try {
+            if (health.status == "healthy") {
+                writeVersionMarker(request, job.artifactPath, job.previousVersion);
+                replacePendingJournal(joinPath(config_.stagingDir, "applied_version.txt"), job.version + "\n");
+                phase = "history";
+                if (!recorded("success"))
+                    appendUpgradeRecord(request, job.artifactPath, job.previousVersion, health.ts);
+            } else if (!recorded("failure")) {
+                appendFailureRecord(request, "health", terminal.message,
+                    health.rollback == "succeeded" || health.rollback == "failed",
+                    health.rollback == "succeeded", health.ts);
+            }
+            phase = "final-marker";
+            replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"),
+                "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + terminal.stage + "\n");
+            finalCommitted = true;
+            if (reconciliationNeeded) {
+                phase = "audit-update";
+                persistFinalizationAudit(config_.stagingDir, job, true, "health-reconciled", "verified-health");
+            }
+            phase = "terminal-journal";
+            appendPendingStatus(terminal);
+        } catch (...) {
+            if (health.status != "healthy") throw;
+            // Keep ota_state held until the uncertainty is durably recorded.
+            auditSuccessfulFinalization(config_.stagingDir, job, finalCommitted, phase, "verified-health");
+            throw SuccessfulFinalizationError(job);
         }
-        appendPendingStatus(terminal);
-        replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"),
-            "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + terminal.stage + "\n");
     }
 }
 
@@ -1417,6 +1489,7 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
             if (fileSizeBytes(path) > 4096) continue;
             const auto job = decodePendingJob(readPendingJournal(path));
             if (path != pendingJobPath(config_.stagingDir, job.jobId) ||
+                needsFinalizationReconciliation(config_.stagingDir, job) ||
                 !hasValidFinal(config_.stagingDir, job)) continue;
             const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
             OtaStatus status;
@@ -1725,30 +1798,79 @@ void OtaService::execute(
 #ifndef _WIN32
     applyLease.reset();
 #endif
-    reconcilePendingJobs();
-    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
-    const auto pending = decodePendingJob(readPendingJournal(pendingJobPath(config_.stagingDir, request.jobId)));
-    if (hasValidFinal(config_.stagingDir, pending)) {
-        const auto health = decodeHealthResult(readPendingJournal(
-            joinPath(config_.stagingDir, "health_" + request.jobId + ".txt")), pending);
-        status->stage = health.status == "healthy" ? "completed" : "failed";
-        status->progress = health.status == "healthy" ? 100 : 0;
-        status->message = "restart and health result already finalized";
-        status->ts = health.ts;
-        return;
-    }
-    if (pathExists(joinPath(joinPath(config_.stagingDir, request.jobId), "health_pending.txt"))) {
-        reportStage(status, "applying", 100, "waiting for restart and health result", currentTimeMs(), publishStatus);
-        return;
-    }
+    const PendingOtaJob own{request.jobId, machineCode, request.version, artifactPath, previousVersion, ownToken};
+    bool finalCommitted = false;
+    const char* phase = "health-reconciliation";
+    try {
+        reconcilePendingJobs();
+        phase = "state-lock";
+        PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+        try {
+            phase = "intent";
+            const auto pending = decodePendingJob(readPendingJournal(pendingJobPath(config_.stagingDir, request.jobId)));
+            if (pending.jobId != own.jobId || pending.token != own.token || pending.version != own.version ||
+                pending.machineCode != own.machineCode)
+                throw std::runtime_error("OTA finalization identity changed");
+            if (needsFinalizationReconciliation(config_.stagingDir, pending))
+                throw std::runtime_error("OTA finalization requires reconciliation");
+            phase = "final-evidence";
+            if (hasValidFinal(config_.stagingDir, pending)) {
+                const auto finalPath = joinPath(config_.stagingDir, "ota_final_" + request.jobId + ".txt");
+                const auto final = readPendingJournal(finalPath);
+                const bool completed = final.find("status=completed\n") != std::string::npos;
+                const auto healthPath = joinPath(config_.stagingDir, "health_" + request.jobId + ".txt");
+                std::int64_t ts = currentTimeMs();
+                if (!strictlyAbsent(healthPath)) {
+                    const auto health = decodeHealthResult(readPendingJournal(healthPath), pending);
+                    if (completed != (health.status == "healthy"))
+                        throw std::runtime_error("OTA final conflicts with health evidence");
+                    ts = health.ts;
+                } else if (!completed) {
+                    throw std::runtime_error("OTA failed final requires health evidence");
+                }
+                status->stage = completed ? "completed" : "failed";
+                status->progress = completed ? 100 : 0;
+                status->message = "apply result already finalized";
+                status->ts = ts;
+                status->occurrenceId = pending.token;
+                return;
+            }
+            if (!isActiveJob(config_.stagingDir, pending))
+                throw std::runtime_error("OTA finalization active owner changed");
+            phase = "pending-health";
+            if (!strictlyAbsent(joinPath(joinPath(config_.stagingDir, request.jobId), "health_pending.txt"))) {
+                reportStage(status, "applying", 100, "waiting for restart and health result", currentTimeMs(), publishStatus);
+                return;
+            }
+            if (!strictlyAbsent(joinPath(config_.stagingDir, "health_" + request.jobId + ".txt")))
+                throw std::runtime_error("OTA health evidence has not been finalized");
 
-    writeVersionMarker(request, artifactPath, previousVersion);
-    replacePendingJournal(joinPath(config_.stagingDir, "applied_version.txt"), request.version + "\n");
-    appendUpgradeRecord(request, artifactPath, previousVersion, currentTimeMs());
-    cleanupOldArtifacts(fileNameOf(artifactPath));
-    reportStage(status, "completed", 100, "upgrade completed", currentTimeMs(), publishStatus);
-    replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + request.jobId + ".txt"),
-        "jobId=" + pending.jobId + "\ntoken=" + pending.token + "\nstatus=completed\n");
+            phase = "version";
+            writeVersionMarker(request, artifactPath, previousVersion);
+            replacePendingJournal(joinPath(config_.stagingDir, "applied_version.txt"), request.version + "\n");
+            phase = "history";
+            appendUpgradeRecord(request, artifactPath, previousVersion, currentTimeMs());
+            phase = "artifact-retention";
+            cleanupOldArtifacts(fileNameOf(artifactPath));
+            phase = "final-marker";
+            replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + request.jobId + ".txt"),
+                "jobId=" + own.jobId + "\ntoken=" + own.token + "\nstatus=completed\n");
+            finalCommitted = true;
+            phase = "terminal-journal";
+            reportStage(status, "completed", 100, "upgrade completed", currentTimeMs(), publishStatus);
+        } catch (...) {
+            auditSuccessfulFinalization(config_.stagingDir, own, finalCommitted, phase, "apply-returned-success");
+            throw SuccessfulFinalizationError(own);
+        }
+    } catch (const SuccessfulFinalizationError& ex) {
+        // Health reconciliation has already recorded its precise commit outcome.
+        if (ex.jobId != own.jobId || ex.token != own.token)
+            auditSuccessfulFinalization(config_.stagingDir, own, finalCommitted, phase, "apply-returned-success");
+        throw;
+    } catch (...) {
+        auditSuccessfulFinalization(config_.stagingDir, own, finalCommitted, phase, "apply-returned-success");
+        throw SuccessfulFinalizationError(own);
+    }
 }
 
 std::string OtaService::resolveArtifactPath(const OtaRequest& request) const {

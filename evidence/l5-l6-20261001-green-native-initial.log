@@ -1,0 +1,10 @@
+finalization order: final=committed no false failed/reapply
+finalization final: final=unknown no false failed/reapply
+finalization version: final=unknown no false failed/reapply
+finalization applied-version: final=unknown no false failed/reapply
+finalization intent: final=unknown no false failed/reapply
+finalization identity: final=unknown no false failed/reapply
+finalization active: final=unknown no false failed/reapply
+finalization state: final=unknown no false failed/reapply
+OTA reconciliation audit NOT durable; jobId=FINAL_JOB token=f7b48d6b-1c7e-4def-a2ac-3a15d75e7a95 finalState=unknown phase=intent; stderr is best effort only
+ota final-state test failed: basic_filebuf::underflow error reading the file: Is a directory

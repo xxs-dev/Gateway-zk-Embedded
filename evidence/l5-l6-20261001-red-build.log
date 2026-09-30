@@ -1,0 +1,11 @@
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o
+In file included from /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_final_state_test.cpp:172:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_finalization_test.hpp: In function ‘void {anonymous}::verifySuccessfulFinalization(const std::string&)’:
+/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_finalization_test.hpp:65:21: error: ‘waitpid’ was not declared in this scope
+   65 |             require(waitpid(child, &childStatus, 0) == child && WIFEXITED(childStatus) &&
+      |                     ^~~~~~~
+gmake[3]: *** [CMakeFiles/ota_final_state_test.dir/build.make:79: CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o] Error 1
+gmake[2]: *** [CMakeFiles/Makefile2:5423: CMakeFiles/ota_final_state_test.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:5430: CMakeFiles/ota_final_state_test.dir/rule] Error 2
+gmake: *** [Makefile:2110: ota_final_state_test] Error 2

@@ -1,0 +1,13 @@
+4007C37565730000:error:030000EA:digital envelope routines:EVP_DigestVerifyFinal:provider signature failure:../crypto/evp/m_sigver.c:701:ECDSA digest_verify_final:
+ota checksum required-missing-validation passed
+ota checksum required-missing-before-download passed
+ota checksum required-missing-verification passed
+ota checksum invalid-format passed
+ota checksum matching-lowercase passed
+ota checksum matching-mixed-case passed
+ota checksum mismatch passed
+ota checksum optional-compatibility passed
+ota pending JSON/legacy/restart/retention/concurrency passed
+ota signature verification passed
+curl required for secure OTA download (wget fallback requires allowInsecureHttp)
+ota_service_test passed

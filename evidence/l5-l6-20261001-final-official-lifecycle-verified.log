@@ -1,0 +1,35 @@
+fixture python3 unavailable
+[2026-10-01 01:12:55] [ota-apply] start jobId=NEXT_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/missing-python/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+official missing-python: intent=0 health=0 marker=0
+official next actual execute: durable failed/unchanged, fresh intent
+[2026-10-01 01:12:55] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/early-kill/downloads/2.0.0.tar.gz
+[2026-10-01 01:12:56] [ota-apply] start jobId=NEXT_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/early-kill/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+official early-kill: intent=1 health=1 marker=0
+official next actual execute: durable failed/unchanged, fresh intent
+[2026-10-01 01:12:56] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/invalid-manifest/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+[2026-10-01 01:12:56] [ota-apply] start jobId=NEXT_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/invalid-manifest/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+official invalid-manifest: intent=1 health=1 marker=0
+official next actual execute: durable failed/unchanged, fresh intent
+[ota-apply] required health result helper is missing
+[2026-10-01 01:12:57] [ota-apply] start jobId=NEXT_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/missing-helper/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+official missing-helper: intent=1 health=1 marker=0
+official next actual execute: durable failed/unchanged, fresh intent
+official registration-kill: intent=1 health=0 marker=0
+official registration-kill: remains blocked
+[2026-10-01 01:12:57] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/pending-kill/downloads/2.0.0.tar.gz
+official pending-kill: intent=1 health=0 marker=0
+official pending-kill: remains blocked
+[2026-10-01 01:12:57] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/scada-marker-kill/downloads/2.0.0.kyscada
+official scada-marker-kill: intent=1 health=0 marker=1
+official scada-marker-kill: remains blocked
+[2026-10-01 01:12:58] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.vN4eK8/manifest-marker-kill/downloads/2.0.0.tar.gz
+official manifest-marker-kill: intent=1 health=0 marker=1
+official manifest-marker-kill: remains blocked
+official lifecycle isolation test passed
+
+fixture_exit=0

@@ -12,12 +12,14 @@
 #include <cstdlib>
 #include <mutex>
 #include <stdexcept>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/file.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -25,6 +27,38 @@
 #include <signal.h>
 #include <unistd.h>
 #include "event_store_test_files.hpp"
+#endif
+
+#ifdef OTA_FINALIZATION_FAULT_TEST
+// Same linker-wrap technique as ota_service_test, limited to this thread/job.
+static thread_local int finalizationFault = 0;
+static thread_local bool failFinalDirectorySync = false;
+extern "C" int __real_rename(const char*, const char*);
+extern "C" int __real_fsync(int);
+extern "C" int __wrap_rename(const char* source, const char* destination) {
+    const std::string path(destination);
+    const std::string auditSuffix = "/ota_reconcile_FINAL_JOB.json";
+    if (finalizationFault == 3 && path.size() >= auditSuffix.size() &&
+        path.compare(path.size() - auditSuffix.size(), auditSuffix.size(), auditSuffix) == 0) {
+        errno = ENOSPC; return -1;
+    }
+    if (finalizationFault && path.size() >= 24 &&
+        path.compare(path.size() - 24, 24, "/ota_final_FINAL_JOB.txt") == 0) {
+        if (finalizationFault == 1 || finalizationFault == 3) { errno = ENOSPC; return -1; }
+        const int result = __real_rename(source, destination);
+        if (result == 0) failFinalDirectorySync = true;
+        return result;
+    }
+    return __real_rename(source, destination);
+}
+extern "C" int __wrap_fsync(int fd) {
+    if (failFinalDirectorySync) {
+        failFinalDirectorySync = false;
+        errno = EIO;
+        return -1;
+    }
+    return __real_fsync(fd);
+}
 #endif
 
 namespace {
@@ -168,6 +202,8 @@ edge_gateway::OtaConfig lifecycleConfig(const std::string& root) {
     config.minFreeBytes = 0;
     return config;
 }
+
+#include "ota_finalization_test.hpp"
 
 std::string fixtureBarrier(const std::string& job, const std::string& token, const std::string& state = "prepared") {
     return "{\"format\":\"official-ota-apply-barrier-v1\",\"jobId\":\"" + job +
@@ -823,6 +859,10 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
 int main(int argc, char** argv) {
     try {
 #ifndef _WIN32
+        if (argc == 3 && std::string(argv[1]) == "--finalization") {
+            verifySuccessfulFinalization(argv[2]);
+            return 0;
+        }
         if (argc == 4 && std::string(argv[1]) == "--official-early-failure") {
             verifyOfficialEarlyFailure(argv[2], argv[3]);
             return 0;
@@ -840,6 +880,7 @@ int main(int argc, char** argv) {
             verifyOtaDuplicateIngress(false, false, false, true);
             return 0;
         }
+        verifySuccessfulFinalizationCases();
         verifyOtaRootParsing();
         verifyPreIntentFailureRetainsLease();
         for (bool direct : {false, true}) for (bool invalid : {false, true})
