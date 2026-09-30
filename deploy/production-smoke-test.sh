@@ -258,7 +258,7 @@ check_runtime_files() {
   for bin in $(required_runtime_binaries); do
     exec_exists "$(runtime_binary_path "$bin")" "$bin"
   done
-  for script in gateway-services.sh gateway-health-watchdog.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh gateway-cellular.sh gateway-network-failover.sh; do
+  for script in gateway-services.sh gateway-health-watchdog.sh gateway-run.sh gateway-tls-enroll.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh gateway-cellular.sh gateway-network-failover.sh; do
     exec_exists "$BIN_DIR/$script" "$script"
   done
 }
@@ -942,6 +942,7 @@ check_ota() {
   exec_exists "$BIN_DIR/ota-apply.sh" "ota-apply.sh"
   exec_exists "$BIN_DIR/install-scada-project.sh" "install-scada-project.sh"
   exec_exists "$BIN_DIR/ota-rollback.sh" "ota-rollback.sh"
+  exec_exists "$BIN_DIR/ota-health-result.py" "ota-health-result.py"
   retention=$(json_number "$APP_CONFIG" retentionCount)
   if [ -n "$retention" ]; then
     if [ "$retention" -le 3 ]; then

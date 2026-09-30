@@ -937,7 +937,7 @@ for bin in $REQUIRED_BINS; do
     required_binary_file "$bin" >/dev/null || { echo "required binary missing: $bin" >&2; exit 2; }
   fi
 done
-for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh install-scada-project.sh; do
+for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh; do
   deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
 done
 
@@ -972,6 +972,7 @@ install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/inst
 install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
+install_required_deploy_file "ota-health-result.py" "$GATEWAY_HOME/bin/ota-health-result.py"
 install_required_deploy_file "runtime-upgrade-guard.py" "$GATEWAY_HOME/bin/runtime-upgrade-guard.py"
 install_required_deploy_file "offline-runtime-upgrade.py" "$GATEWAY_HOME/bin/offline-runtime-upgrade.py"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"

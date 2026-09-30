@@ -42,8 +42,14 @@ if [ "${1:-}" = "--recover-interrupted" ]; then
   echo "[ota-rollback] recovering interrupted OTA jobId=$(recover_field jobId)" >&2
   OTA_ROLLBACK_SKIP_RESTART="$RECOVER_SKIP_RESTART"
   export OTA_ROLLBACK_SKIP_RESTART
-  exec /bin/sh "$0" "$(recover_field artifact)" "$(recover_field version)" "$(recover_field jobId)" \
+  recover_job="$(recover_field jobId)"
+  recover_version="$(recover_field version)"
+  /bin/sh "$0" "$(recover_field artifact)" "$recover_version" "$recover_job" \
     "$(recover_field backupRoot)" "$RECOVER_STAGING"
+  if [ -f "$RECOVER_STAGING/$recover_job/health_pending.txt" ]; then
+    python3 "$(dirname -- "$0")/ota-health-result.py" "$RECOVER_STAGING" "$recover_job" "$recover_version" failed succeeded
+  fi
+  exit 0
 fi
 SKIP_RESTART="${OTA_ROLLBACK_SKIP_RESTART:-0}"
 

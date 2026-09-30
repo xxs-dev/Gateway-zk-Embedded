@@ -32,6 +32,8 @@ public:
     // Linux acceptance requires file and directory fsync; storage failures throw
     // before publish. This does not promise durability on dishonest hardware.
     std::vector<OtaStatus> loadPendingStatuses() const;
+    void reconcilePendingJobs() const;
+    std::vector<OtaStatus> loadFinalStatuses() const;
     void clearPendingStatuses() const;
     void execute(
         const OtaRequest& request,
@@ -58,6 +60,7 @@ private:
                              const std::string& previousVersion, std::int64_t ts) const;
     std::string readInstalledVersion() const;
     void ensureJobNotProcessed(const OtaRequest& request) const;
+    void ensureNoUnresolvedJob() const;
     void ensureTransportAllowed(const std::string& source) const;
     void verifySignature(const OtaRequest& request, const std::string& machineCode) const;
     void appendFailureRecord(
@@ -115,8 +118,10 @@ private:
         const std::function<void(const OtaStatus&)>& publishStatus
     ) const;
     void verifyChecksum(const OtaRequest& request, const std::string& artifactPath) const;
-    void runScript(const std::string& scriptPath, const OtaRequest& request, const std::string& artifactPath) const;
-    std::string buildScriptCommand(const std::string& scriptPath, const OtaRequest& request, const std::string& artifactPath) const;
+    void runScript(const std::string& scriptPath, const OtaRequest& request,
+                   const std::string& artifactPath, const std::string& token) const;
+    std::string buildScriptCommand(const std::string& scriptPath, const OtaRequest& request,
+                                   const std::string& artifactPath, const std::string& token = {}) const;
     bool isHttpUrl(const std::string& value) const;
     bool isHttpsUrl(const std::string& value) const;
 

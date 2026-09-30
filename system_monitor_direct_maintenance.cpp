@@ -921,6 +921,19 @@ edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
     return request;
 }
 
+std::string otaStatusLine(const edge_gateway::OtaStatus& status) {
+    std::ostringstream out;
+    out << "{\"jobId\":\"" << jsonEscape(status.jobId)
+        << "\",\"machineCode\":\"" << jsonEscape(status.machineCode)
+        << "\",\"stage\":\"" << jsonEscape(status.stage)
+        << "\",\"progress\":" << status.progress
+        << ",\"downloadedBytes\":" << status.downloadedBytes
+        << ",\"totalBytes\":" << status.totalBytes
+        << ",\"message\":\"" << jsonEscape(status.message)
+        << "\",\"ts\":" << status.ts << "}";
+    return out.str();
+}
+
 void appendOtaStatus(const SystemMonitorDirectMaintenanceConfig& config, const edge_gateway::OtaStatus& status) {
 #ifndef _WIN32
     const auto slash = config.otaStatusFile.find_last_of('/');
@@ -943,15 +956,7 @@ void appendOtaStatus(const SystemMonitorDirectMaintenanceConfig& config, const e
     if (!output.is_open()) {
         return;
     }
-    output << "{\"jobId\":\"" << jsonEscape(status.jobId)
-           << "\",\"machineCode\":\"" << jsonEscape(status.machineCode)
-           << "\",\"stage\":\"" << jsonEscape(status.stage)
-           << "\",\"progress\":" << status.progress
-           << ",\"downloadedBytes\":" << status.downloadedBytes
-           << ",\"totalBytes\":" << status.totalBytes
-           << ",\"message\":\"" << jsonEscape(status.message)
-           << "\",\"ts\":" << status.ts
-           << "}\n";
+    output << otaStatusLine(status) << "\n";
 }
 
 // ---- Maintenance credential (per device, salted PBKDF2-HMAC-SHA256) ----------------------
@@ -2605,6 +2610,19 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
         if (lines.size() > 100) {
             lines.erase(lines.begin());
         }
+    }
+
+    const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
+    edge_gateway::OtaService service(appConfig.ota);
+    service.reconcilePendingJobs();
+    auto finals = service.loadFinalStatuses();
+    std::sort(finals.begin(), finals.end(), [](const auto& a, const auto& b) { return a.ts < b.ts; });
+    for (const auto& status : finals) {
+        lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const std::string& item) {
+            return jsonString(item, "jobId") == status.jobId;
+        }), lines.end());
+        lines.push_back(otaStatusLine(status));
+        if (lines.size() > 100) lines.erase(lines.begin());
     }
 
     std::ostringstream out;

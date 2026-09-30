@@ -6,6 +6,7 @@ VERSION="${2:-}"
 JOB_ID="${3:-}"
 BACKUP_DIR="${4:-}"
 STAGING_DIR="${5:-}"
+OTA_JOB_TOKEN="${6:-direct-${3:-}}"
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
 KEEP_APPLYING_MARKER=0
@@ -181,6 +182,7 @@ PY
 
 require_safe_id "jobId" "$JOB_ID"
 require_safe_id "version" "$VERSION"
+require_safe_id "health token" "$OTA_JOB_TOKEN"
 require_safe_dir "backupDir" "$BACKUP_DIR"
 require_safe_dir "stagingDir" "$STAGING_DIR"
 # The previous job's restart/health-verification sequence must finish first:
@@ -198,6 +200,8 @@ write_applying_marker
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 ARTIFACT_NAME="$(basename "$ARTIFACT_PATH")"
 WORK_DIR="$STAGING_DIR/$JOB_ID"
+HEALTH_PENDING_FILE="$WORK_DIR/health_pending.txt"
+HEALTH_FILE="$STAGING_DIR/health_${JOB_ID}.txt"
 LOG_FILE="$STAGING_DIR/upgrade_history.log"
 STATE_FILE="$STAGING_DIR/current_version.txt"
 JOB_BACKUP_DIR="$BACKUP_DIR/$JOB_ID"
@@ -302,6 +306,10 @@ if [ -e "$WORK_DIR" ] || [ -e "$JOB_BACKUP_DIR" ] ||
   exit 5
 fi
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/ota-health-result.py" ] || [ ! -r "$SCRIPT_DIR/ota-health-result.py" ]; then
+  echo "[ota-apply] required health result helper is missing" >&2
+  exit 5
+fi
 if [ -f "$IN_PROGRESS_FILE" ]; then
   marker_boot="$(sed -n 's/^boot_id=//p' "$IN_PROGRESS_FILE" | sed -n '1p')"
   marker_pid="$(sed -n 's/^pid=//p' "$IN_PROGRESS_FILE" | sed -n '1p')"
@@ -330,6 +338,10 @@ if [ -f "$IN_PROGRESS_FILE" ]; then
 fi
 mkdir -p "$WORK_DIR" "$JOB_BACKUP_DIR"
 JOB_DIRS_CREATED=1
+if [ -e "$HEALTH_FILE" ]; then
+  echo "[ota-apply] health result already exists for jobId=$JOB_ID" >&2
+  exit 5
+fi
 
 # Written immediately before the first change to the live runtime; removed only
 # after the state file is complete. ota-rollback.sh clears it after a rollback.
@@ -422,6 +434,10 @@ case "$ARTIFACT_NAME" in
     ;;
 esac
 
+durable_file write "$HEALTH_PENDING_FILE" "jobId=$JOB_ID
+version=$VERSION
+token=$OTA_JOB_TOKEN
+"
 MANIFEST_PATH="$WORK_DIR/manifest.json"
 if [ ! -f "$MANIFEST_PATH" ]; then
   echo "[ota-apply] root manifest.json is required for non-SCADA packages" >&2
@@ -502,6 +518,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/production-smoke-test.sh",
     "/opt/modbus-gateway/bin/ota-apply.sh",
     "/opt/modbus-gateway/bin/ota-rollback.sh",
+    "/opt/modbus-gateway/bin/ota-health-result.py",
     "/opt/modbus-gateway/bin/runtime-upgrade-guard.py",
     "/opt/modbus-gateway/bin/offline-runtime-upgrade.py",
     "/opt/modbus-gateway/bin/install-scada-project.sh",
@@ -836,20 +853,14 @@ fi
   echo "backupArtifact=$BACKUP_ARTIFACT"
   echo "workDir=$WORK_DIR"
   echo "appliedAt=$TIMESTAMP"
-} > "$STATE_FILE.tmp.$$"
-mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"
-
-echo "$VERSION" > "$STAGING_DIR/applied_version.txt"
-clear_in_progress_marker
-prune_old_jobs
-echo "[$TIMESTAMP] [ota-apply] success jobId=$JOB_ID version=$VERSION workDir=$WORK_DIR" | tee -a "$LOG_FILE"
+} > "$WORK_DIR/applied_state_pending.txt"
+echo "[$TIMESTAMP] [ota-apply] files applied; waiting for restart health jobId=$JOB_ID" | tee -a "$LOG_FILE"
 
 if command -v systemctl >/dev/null 2>&1 && [ -n "$RESTART_FILE" ] && [ -f "$RESTART_FILE" ]; then
   RESTART_LATER="$WORK_DIR/restart_later.sh"
   SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
   ROLLBACK_SCRIPT="$SCRIPT_DIR/ota-rollback.sh"
   GATEWAY_SERVICES_SCRIPT="$SCRIPT_DIR/gateway-services.sh"
-  HEALTH_FILE="$STAGING_DIR/health_${JOB_ID}.txt"
   # Post-restart health gate: if restarted units are not active after the
   # verify window, run ota-rollback.sh for this job. OTA_AUTO_ROLLBACK=0 opts out.
   HEALTH_VERIFY_SEC="${OTA_HEALTH_VERIFY_SEC:-30}"
@@ -868,13 +879,13 @@ cleanup_own_applying_marker() {
   fi
 }
 restarted=""
-# active/reloading, or still starting (but not crash-looping in auto-restart).
+restart_failed=0
+# At the end of the verification window, a unit still activating has not passed.
 unit_ok() {
   unit_state=\$(systemctl show -p ActiveState --value "\$1" 2>/dev/null)
   unit_sub=\$(systemctl show -p SubState --value "\$1" 2>/dev/null)
   case "\$unit_state" in
     active|reloading) return 0 ;;
-    activating) [ "\$unit_sub" != "auto-restart" ] && return 0 ;;
   esac
   return 1
 }
@@ -882,7 +893,7 @@ trap cleanup_own_applying_marker EXIT HUP INT TERM
 sleep 2
 if [ -f "$SYSTEMD_RELOAD_FILE" ]; then
   echo "[$TIMESTAMP] [ota-apply] systemctl daemon-reload" >> "$LOG_FILE"
-  systemctl daemon-reload >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] daemon-reload failed" >> "$LOG_FILE"
+  systemctl daemon-reload >> "$LOG_FILE" 2>&1 || { echo "[$TIMESTAMP] [ota-apply] daemon-reload failed" >> "$LOG_FILE"; restart_failed=1; }
 fi
 while IFS= read -r service; do
   [ -z "\$service" ] && continue
@@ -896,15 +907,15 @@ while IFS= read -r service; do
   if [ "\$service" = "gateway-services.service" ]; then
     systemctl enable "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] enable failed \$service" >> "$LOG_FILE"
     echo "[$TIMESTAMP] [ota-apply] reloading or starting \$service" >> "$LOG_FILE"
-    systemctl reload-or-restart "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] reload-or-restart failed \$service" >> "$LOG_FILE"
+    systemctl reload-or-restart "\$service" >> "$LOG_FILE" 2>&1 || { echo "[$TIMESTAMP] [ota-apply] reload-or-restart failed \$service" >> "$LOG_FILE"; restart_failed=1; }
     restarted="\$restarted \$service"
     continue
   fi
   echo "[$TIMESTAMP] [ota-apply] restarting \$service" >> "$LOG_FILE"
-  systemctl restart "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] restart failed \$service" >> "$LOG_FILE"
+  systemctl restart "\$service" >> "$LOG_FILE" 2>&1 || { echo "[$TIMESTAMP] [ota-apply] restart failed \$service" >> "$LOG_FILE"; restart_failed=1; }
   restarted="\$restarted \$service"
 done < "$RESTART_FILE"
-if [ "$AUTO_ROLLBACK" = "1" ] && [ -n "\$restarted" ]; then
+if [ -n "\$restarted" ]; then
   sleep $HEALTH_VERIFY_SEC
   unhealthy=""
   for service in \$restarted; do
@@ -918,17 +929,24 @@ if [ "$AUTO_ROLLBACK" = "1" ] && [ -n "\$restarted" ]; then
       done
     fi
   done
-  if [ -n "\$unhealthy" ]; then
+  if [ -n "\$unhealthy" ] || [ "\$restart_failed" = "1" ]; then
     echo "[$TIMESTAMP] [ota-apply] unhealthy after restart:\$unhealthy; rolling back jobId=$JOB_ID" >> "$LOG_FILE"
-    printf 'status=unhealthy\nunits=%s\n' "\$unhealthy" > "$HEALTH_FILE"
-    if OTA_ROLLBACK_REASON=unhealthy-after-restart sh "$ROLLBACK_SCRIPT" "$ARTIFACT_PATH" "$VERSION" "$JOB_ID" "$BACKUP_DIR" "$STAGING_DIR" >> "$LOG_FILE" 2>&1; then
-      printf 'rollback=succeeded\n' >> "$HEALTH_FILE"
+    if [ "$AUTO_ROLLBACK" = "1" ]; then
+      if OTA_ROLLBACK_REASON=unhealthy-after-restart sh "$ROLLBACK_SCRIPT" "$ARTIFACT_PATH" "$VERSION" "$JOB_ID" "$BACKUP_DIR" "$STAGING_DIR" >> "$LOG_FILE" 2>&1; then
+        python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" failed succeeded
+      else
+        python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" failed failed
+      fi
     else
-      printf 'rollback=failed\n' >> "$HEALTH_FILE"
+      python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" failed skipped
     fi
   else
-    printf 'status=healthy\n' > "$HEALTH_FILE"
+    rm -f "$IN_PROGRESS_FILE"
+    python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" healthy none
   fi
+else
+  rm -f "$IN_PROGRESS_FILE"
+  python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" healthy none
 fi
 EOF
   chmod +x "$RESTART_LATER"
@@ -947,6 +965,9 @@ EOF
   fi
   write_applying_marker_for ota-restart "$RESTART_PID"
   KEEP_APPLYING_MARKER=1
+else
+  clear_in_progress_marker
+  python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" healthy none
 fi
 
 exit 0

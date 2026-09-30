@@ -2669,13 +2669,13 @@ void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string
                     publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, stageStatus);
                 }
             );
-            std::cout << "mqtt ota job completed"
+            std::cout << "mqtt ota job returned"
                       << " jobId=" << reply.jobId
                       << " stage=" << status.stage
                       << " message=" << status.message
                       << std::endl;
             publishStatusEvent(
-                "ota-completed",
+                status.stage == "completed" ? "ota-completed" : "ota-applying",
                 currentTimeMs(),
                 std::string(R"("jobId":")") + escapeJson(reply.jobId) +
                     R"(","stage":")" + escapeJson(status.stage) +
@@ -2789,6 +2789,7 @@ void MqttDriverService::replayPendingOtaStatuses() {
     }
     const auto nowMs = currentTimeMs();
     lastOtaReplayAttemptMs_ = nowMs;
+    otaService_->reconcilePendingJobs();
     const auto statuses = otaService_->loadPendingStatuses();
     if (statuses.empty()) {
         otaReplayFirstSuccessMs_ = 0;

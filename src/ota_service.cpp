@@ -994,6 +994,7 @@ bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMe
         (void)resolveArtifactPath(request);
         ensureTransportAllowed(resolveArtifactSource(request));
         ensureJobNotProcessed(request);
+        ensureNoUnresolvedJob();
         return true;
     } catch (const std::exception& ex) {
         if (errorMessage != nullptr) {
@@ -1078,6 +1079,211 @@ std::vector<OtaStatus> OtaService::loadPendingStatuses() const {
     return statuses;
 }
 
+struct PendingOtaJob {
+    std::string jobId;
+    std::string machineCode;
+    std::string version;
+    std::string artifactPath;
+    std::string previousVersion;
+    std::string token;
+};
+
+std::string pendingJobPath(const std::string& stagingDir, const std::string& jobId) {
+    return joinPath(stagingDir, "ota_job_" + jobId + ".json");
+}
+
+std::string encodePendingJob(const PendingOtaJob& job) {
+    return "{\"format\":\"ota-job-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
+        ",\"machineCode\":" + pendingJsonString(job.machineCode) +
+        ",\"version\":" + pendingJsonString(job.version) +
+        ",\"artifactPath\":" + pendingJsonString(job.artifactPath) +
+        ",\"previousVersion\":" + pendingJsonString(job.previousVersion) +
+        ",\"token\":" + pendingJsonString(job.token) + "}\n";
+}
+
+PendingOtaJob decodePendingJob(const std::string& bytes) {
+    if (bytes.empty() || bytes.size() > 4096 || bytes.back() != '\n')
+        throw std::runtime_error("incomplete OTA job intent");
+    const auto document = json::JsonParser(bytes, 4, 32).parse();
+    if (pendingField(document, "format") != "ota-job-v1")
+        throw std::runtime_error("unsupported OTA job intent");
+    PendingOtaJob job;
+    job.jobId = pendingField(document, "jobId");
+    job.machineCode = pendingField(document, "machineCode");
+    job.version = pendingField(document, "version");
+    job.artifactPath = pendingField(document, "artifactPath");
+    job.previousVersion = pendingField(document, "previousVersion");
+    job.token = pendingField(document, "token");
+    if (!isSafeOtaId(job.jobId) || !isSafeOtaId(job.version) || job.machineCode.empty() ||
+        job.token.size() != 36 || job.artifactPath.empty())
+        throw std::runtime_error("invalid OTA job intent");
+    return job;
+}
+
+struct OtaHealthResult {
+    std::string status;
+    std::string rollback;
+    std::int64_t ts = 0;
+};
+
+OtaHealthResult decodeHealthResult(const std::string& bytes, const PendingOtaJob& job) {
+    if (bytes.empty() || bytes.size() > 4096 || bytes.back() != '\n')
+        throw std::runtime_error("incomplete OTA health result");
+    const auto document = json::JsonParser(bytes, 4, 32).parse();
+    if (pendingField(document, "format") != "ota-health-v1" ||
+        pendingField(document, "jobId") != job.jobId ||
+        pendingField(document, "version") != job.version ||
+        pendingField(document, "token") != job.token)
+        throw std::runtime_error("OTA health result does not match job intent");
+    OtaHealthResult result;
+    result.status = pendingField(document, "status");
+    result.rollback = pendingField(document, "rollback");
+    result.ts = pendingInteger<std::int64_t>(pendingField(document, "ts"));
+    if (result.ts <= 0 ||
+        !((result.status == "healthy" && result.rollback == "none") ||
+          (result.status == "failed" &&
+           (result.rollback == "succeeded" || result.rollback == "failed" || result.rollback == "skipped"))))
+        throw std::runtime_error("invalid OTA health terminal result");
+    return result;
+}
+
+bool hasValidFinal(const std::string& stagingDir, const PendingOtaJob& job) {
+    const auto path = joinPath(stagingDir, "ota_final_" + job.jobId + ".txt");
+    struct stat info{};
+    if (stat(path.c_str(), &info) != 0) {
+        if (errno == ENOENT) return false;
+        throw std::runtime_error("cannot stat OTA final marker");
+    }
+    if (info.st_size < 1 || info.st_size > 256) throw std::runtime_error("invalid OTA final marker");
+    const auto bytes = readPendingJournal(path);
+    const auto prefix = "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=";
+    if (bytes != prefix + "completed\n" && bytes != prefix + "failed\n")
+        throw std::runtime_error("OTA final marker does not match job intent");
+    return true;
+}
+
+bool isActiveJob(const std::string& stagingDir, const PendingOtaJob& job) {
+    const auto path = joinPath(stagingDir, "ota_active_job.txt");
+    if (fileSizeBytes(path) > 256) return false;
+    return readPendingJournal(path) == "jobId=" + job.jobId + "\ntoken=" + job.token + "\n";
+}
+
+std::vector<std::string> pendingJobFiles(const std::string& stagingDir) {
+    std::vector<std::string> files;
+    for (const auto& path : listFilesInDirectory(stagingDir)) {
+        const auto name = fileNameOf(path);
+        if (name.compare(0, 8, "ota_job_") == 0 && name.size() > 13 &&
+            name.compare(name.size() - 5, 5, ".json") == 0) files.push_back(path);
+    }
+    return files;
+}
+
+void OtaService::ensureNoUnresolvedJob() const {
+    for (const auto& path : pendingJobFiles(config_.stagingDir)) {
+        if (fileSizeBytes(path) > 4096) throw std::runtime_error("invalid OTA job intent");
+        const auto job = decodePendingJob(readPendingJournal(path));
+        if (path != pendingJobPath(config_.stagingDir, job.jobId))
+            throw std::runtime_error("invalid OTA job intent path");
+        if (!hasValidFinal(config_.stagingDir, job))
+            throw std::runtime_error("previous OTA job has no verified terminal result");
+    }
+}
+
+void OtaService::reconcilePendingJobs() const {
+    ensureDirectory(config_.stagingDir);
+    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+    for (const auto& path : pendingJobFiles(config_.stagingDir)) {
+        PendingOtaJob job;
+        OtaHealthResult health;
+        try {
+            if (fileSizeBytes(path) > 4096) continue;
+            job = decodePendingJob(readPendingJournal(path));
+            if (path != pendingJobPath(config_.stagingDir, job.jobId)) continue;
+            if (hasValidFinal(config_.stagingDir, job)) continue;
+            if (!isActiveJob(config_.stagingDir, job)) continue;
+            const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
+            if (fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096) continue;
+            health = decodeHealthResult(readPendingJournal(healthPath), job);
+        } catch (const std::exception&) {
+            // A missing, stale or partial result cannot authorize success.
+            continue;
+        }
+        OtaRequest request;
+        request.jobId = job.jobId;
+        request.version = job.version;
+        OtaStatus terminal;
+        terminal.jobId = job.jobId;
+        terminal.machineCode = job.machineCode;
+        terminal.stage = health.status == "healthy" ? "completed" : "failed";
+        terminal.progress = health.status == "healthy" ? 100 : 0;
+        terminal.message = health.status == "healthy" ? "upgrade completed after health verification" :
+            "restart or health check failed; rollback " + health.rollback;
+        terminal.ts = health.ts;
+        terminal.occurrenceId = job.token;
+        const auto historyPath = joinPath(config_.stagingDir, "upgrade_history.log");
+        const auto recorded = [&](const std::string& result) {
+            std::ifstream history(historyPath.c_str());
+            std::string line;
+            const auto needle = ",jobId=" + sanitizeJournalField(job.jobId) + ",";
+            while (std::getline(history, line)) {
+                if (line.find(",result=" + result + ",") != std::string::npos &&
+                    line.find(needle) != std::string::npos) return true;
+            }
+            return false;
+        };
+        if (health.status == "healthy") {
+            writeVersionMarker(request, job.artifactPath, job.previousVersion);
+            replacePendingJournal(joinPath(config_.stagingDir, "applied_version.txt"), job.version + "\n");
+            if (!recorded("success"))
+                appendUpgradeRecord(request, job.artifactPath, job.previousVersion, health.ts);
+        } else if (!recorded("failure")) {
+            appendFailureRecord(request, "health", terminal.message,
+                                health.rollback != "skipped", health.rollback == "succeeded", health.ts);
+        }
+        appendPendingStatus(terminal);
+        replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"),
+            "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + terminal.stage + "\n");
+    }
+}
+
+std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
+    std::vector<OtaStatus> statuses;
+    ensureDirectory(config_.stagingDir);
+    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+    for (const auto& path : pendingJobFiles(config_.stagingDir)) {
+        try {
+            if (fileSizeBytes(path) > 4096) continue;
+            const auto job = decodePendingJob(readPendingJournal(path));
+            if (path != pendingJobPath(config_.stagingDir, job.jobId) ||
+                !hasValidFinal(config_.stagingDir, job)) continue;
+            const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
+            OtaStatus status;
+            status.jobId = job.jobId;
+            status.machineCode = job.machineCode;
+            status.occurrenceId = job.token;
+            if (fileSizeBytes(healthPath) > 0 && fileSizeBytes(healthPath) <= 4096) {
+                const auto health = decodeHealthResult(readPendingJournal(healthPath), job);
+                status.stage = health.status == "healthy" ? "completed" : "failed";
+                status.progress = health.status == "healthy" ? 100 : 0;
+                status.message = health.status == "healthy" ? "upgrade completed after health verification" :
+                    "restart or health check failed; rollback " + health.rollback;
+                status.ts = health.ts;
+            } else {
+                const auto final = readPendingJournal(joinPath(config_.stagingDir,
+                    "ota_final_" + job.jobId + ".txt"));
+                if (final.find("status=completed\n") == std::string::npos) continue;
+                status.stage = "completed";
+                status.progress = 100;
+                status.message = "upgrade completed";
+            }
+            statuses.push_back(std::move(status));
+        } catch (const std::exception&) {
+            // Incomplete or stale state cannot be shown as terminal.
+        }
+    }
+    return statuses;
+}
+
 void OtaService::clearPendingStatuses() const {
     std::lock_guard<std::mutex> guard(pendingMutex_);
     if (pendingSnapshot_.empty()) return;
@@ -1121,6 +1327,7 @@ void OtaService::execute(
     validateOtaRequestFields(request, config_);
     validateOtaSize(config_, request.size);
     ensureJobNotProcessed(request);
+    ensureNoUnresolvedJob();
 
     reply->jobId = request.jobId;
     reply->machineCode = machineCode;
@@ -1163,8 +1370,17 @@ void OtaService::execute(
             throw std::runtime_error("ota upgrade timeout after verify");
         }
 
+        const PendingOtaJob pending{request.jobId, machineCode, request.version, artifactPath,
+                                    previousVersion, newStatusOccurrence()};
+        {
+            PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+            ensureNoUnresolvedJob();
+            replacePendingJournal(joinPath(config_.stagingDir, "ota_active_job.txt"),
+                "jobId=" + pending.jobId + "\ntoken=" + pending.token + "\n");
+            replacePendingJournal(pendingJobPath(config_.stagingDir, request.jobId), encodePendingJob(pending));
+        }
         reportStage(status, "applying", 100, "running apply script", currentTimeMs(), publishStatus);
-        runScript(config_.applyScript, request, artifactPath);
+        runScript(config_.applyScript, request, artifactPath, pending.token);
     } catch (const std::exception& ex) {
         const auto failedStage = status->stage.empty() ? std::string("unknown") : status->stage;
         bool rollbackAttempted = false;
@@ -1179,10 +1395,29 @@ void OtaService::execute(
         throw;
     }
 
+    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+    const auto pending = decodePendingJob(readPendingJournal(pendingJobPath(config_.stagingDir, request.jobId)));
+    if (hasValidFinal(config_.stagingDir, pending)) {
+        const auto health = decodeHealthResult(readPendingJournal(
+            joinPath(config_.stagingDir, "health_" + request.jobId + ".txt")), pending);
+        status->stage = health.status == "healthy" ? "completed" : "failed";
+        status->progress = health.status == "healthy" ? 100 : 0;
+        status->message = "restart and health result already finalized";
+        status->ts = health.ts;
+        return;
+    }
+    if (pathExists(joinPath(joinPath(config_.stagingDir, request.jobId), "health_pending.txt"))) {
+        reportStage(status, "applying", 100, "waiting for restart and health result", currentTimeMs(), publishStatus);
+        return;
+    }
+
     writeVersionMarker(request, artifactPath, previousVersion);
+    replacePendingJournal(joinPath(config_.stagingDir, "applied_version.txt"), request.version + "\n");
     appendUpgradeRecord(request, artifactPath, previousVersion, currentTimeMs());
     cleanupOldArtifacts(fileNameOf(artifactPath));
     reportStage(status, "completed", 100, "upgrade completed", currentTimeMs(), publishStatus);
+    replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + request.jobId + ".txt"),
+        "jobId=" + pending.jobId + "\ntoken=" + pending.token + "\nstatus=completed\n");
 }
 
 std::string OtaService::resolveArtifactPath(const OtaRequest& request) const {
@@ -1968,13 +2203,14 @@ void OtaService::verifyChecksum(const OtaRequest& request, const std::string& ar
 void OtaService::runScript(
     const std::string& scriptPath,
     const OtaRequest& request,
-    const std::string& artifactPath
+    const std::string& artifactPath,
+    const std::string& token
 ) const {
     if (scriptPath.empty()) {
         throw std::runtime_error("ota apply script is empty");
     }
 
-    const auto command = buildScriptCommand(scriptPath, request, artifactPath);
+    const auto command = buildScriptCommand(scriptPath, request, artifactPath, token);
     if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec))) {
         throw std::runtime_error("ota apply script failed");
     }
@@ -1983,7 +2219,8 @@ void OtaService::runScript(
 std::string OtaService::buildScriptCommand(
     const std::string& scriptPath,
     const OtaRequest& request,
-    const std::string& artifactPath
+    const std::string& artifactPath,
+    const std::string& token
 ) const {
     std::ostringstream command;
 #ifdef _WIN32
@@ -1996,6 +2233,7 @@ std::string OtaService::buildScriptCommand(
             << " " << quoteArg(request.jobId)
             << " " << quoteArg(config_.backupDir)
             << " " << quoteArg(config_.stagingDir);
+    if (!token.empty()) command << " " << quoteArg(token);
     return command.str();
 }
 
