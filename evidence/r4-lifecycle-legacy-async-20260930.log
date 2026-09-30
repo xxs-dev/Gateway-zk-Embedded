@@ -1,0 +1,18 @@
+[ota-apply] required health result helper is missing
+Traceback (most recent call last):
+  File "<stdin>", line 12, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/ota-async-health.ym3KBT/staging/ota_active_job.txt'
+[ota-apply] unchanged result not proven; job remains unresolved
+[2026-09-30 21:30:53] [ota-apply] start jobId=FAIL_JOB version=health-test artifact=/tmp/ota-async-health.ym3KBT/health-test.tar.gz
+[2026-09-30 21:30:53] [ota-apply] files applied; waiting for restart health jobId=FAIL_JOB
+[2026-09-30 21:30:55] [ota-apply] start jobId=GOOD_JOB version=health-test artifact=/tmp/ota-async-health.ym3KBT/health-test.tar.gz
+[2026-09-30 21:30:55] [ota-apply] files applied; waiting for restart health jobId=GOOD_JOB
+[2026-09-30 21:30:58] [ota-apply] start jobId=ACTIVATING_JOB version=health-test artifact=/tmp/ota-async-health.ym3KBT/health-test.tar.gz
+[2026-09-30 21:30:58] [ota-apply] files applied; waiting for restart health jobId=ACTIVATING_JOB
+[2026-09-30 21:31:00] [ota-apply] start jobId=INTERRUPTED_JOB version=health-test artifact=/tmp/ota-async-health.ym3KBT/health-test.tar.gz
+[2026-09-30 21:31:00] [ota-apply] files applied; waiting for restart health jobId=INTERRUPTED_JOB
+[ota-rollback] recovering interrupted OTA jobId=INTERRUPTED_JOB
+[2026-09-30 21:31:00] [ota-rollback] start jobId=INTERRUPTED_JOB version=health-test artifact=/tmp/ota-async-health.ym3KBT/health-test.tar.gz
+[2026-09-30 21:31:00] [ota-rollback] restarting mqtt-driver@test.service
+[2026-09-30 21:31:00] [ota-rollback] success jobId=INTERRUPTED_JOB
+ota async health test passed

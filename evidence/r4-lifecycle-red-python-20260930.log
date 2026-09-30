@@ -1,0 +1,6 @@
+[2026-09-30 21:05:27] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.JQRYkg/missing-python/downloads/2.0.0.tar.gz
+fixture python3 unavailable
+fixture python3 unavailable
+[ota-apply] unchanged result not proven; job remains unresolved
+official missing-python: intent=1 health=0 marker=0
+ota final-state test failed: official early failure must allow a fresh job

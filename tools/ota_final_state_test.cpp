@@ -7,6 +7,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -15,6 +16,11 @@
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <cerrno>
+#include <signal.h>
 #include <unistd.h>
 #include "event_store_test_files.hpp"
 #endif
@@ -40,6 +46,274 @@ int countStage(const std::vector<edge_gateway::OtaStatus>& statuses, const std::
 }
 
 #ifndef _WIN32
+void verifyOfficialEarlyFailure(const std::string& root, const std::string& mode) {
+    const bool missingPython = mode == "missing-python";
+    const bool natural = mode == "invalid-manifest" || mode == "missing-helper";
+    const bool changed = mode == "scada-marker-kill" || mode == "manifest-marker-kill";
+    const bool recoverable = missingPython || natural || mode == "early-kill";
+    edge_gateway::OtaConfig config;
+    config.enabled = true;
+    config.downloadDir = root + "/downloads";
+    config.stagingDir = root + "/staging";
+    config.backupDir = root + "/backup";
+    config.applyScript = "/opt/modbus-gateway/bin/ota-apply.sh";
+    config.rollbackScript.clear();
+    config.checksumRequired = false;
+    config.requireSignature = false;
+    config.packageType = "tar.gz";
+    config.minFreeBytes = 0;
+    config.upgradeTimeoutSec = 8;
+    edge_gateway::OtaRequest request;
+    request.jobId = "EARLY_JOB";
+    request.version = "2.0.0";
+    request.artifactUrl = root + "/source.tar.gz";
+    if (mode == "scada-marker-kill") {
+        request.packageType = "scada";
+        request.artifactUrl = root + "/source.kyscada";
+    }
+    edge_gateway::OtaReply reply;
+    edge_gateway::OtaStatus status;
+    bool failed = false;
+    std::thread worker([&] {
+        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr); }
+        catch (const std::exception&) { failed = true; }
+    });
+    if (!missingPython && !natural) {
+        const auto ready = root + "/apply.pgid";
+        for (int i = 0; i < 500 && readFile(ready).empty(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        const auto pgid = readFile(ready);
+        if (pgid.empty()) { worker.join(); throw std::runtime_error("official kill fixture did not reach copy gate"); }
+        if (kill(-std::stoi(pgid), SIGKILL) != 0) {
+            worker.join(); throw std::runtime_error("cannot kill official apply group");
+        }
+    }
+    worker.join();
+    require(failed, "official early failure must reject apply");
+    const auto intent = readFile(config.stagingDir + "/ota_job_EARLY_JOB.json");
+    std::cout << "official " << mode
+              << ": intent=" << !intent.empty()
+              << " health=" << !readFile(config.stagingDir + "/health_EARLY_JOB.txt").empty()
+              << " marker=" << !readFile(config.stagingDir + "/ota-in-progress").empty() << '\n';
+    edge_gateway::OtaService restarted(config);
+    restarted.reconcilePendingJobs();
+    edge_gateway::OtaRequest next = request;
+    next.jobId = "NEXT_JOB";
+    std::string rejection;
+    require(restarted.validateRequest(next, &rejection) == recoverable,
+            "official failure must recover only with sufficient prepared lifecycle proof");
+    if (!recoverable) {
+        require(readFile(config.stagingDir + "/ota_final_EARLY_JOB.txt").empty(), "uncertain official window cannot finalize");
+        const auto barrier = readFile(config.stagingDir + "/ota_barrier_EARLY_JOB.json");
+        if (changed) {
+            const auto document = edge_gateway::json::JsonParser(barrier, 4, 32).parse();
+            require(document.find("state")->asString() == "runtime-may-change", "both live-write paths require changed barrier before marker");
+            require(!readFile(config.stagingDir + "/ota-in-progress").empty(), "after-marker gate did not reach marker");
+        }
+        if (mode == "registration-kill") require(barrier.empty(), "registration gate must stop before prepared proof");
+        if (mode == "pending-kill") require(!readFile(config.stagingDir + "/EARLY_JOB/health_pending.txt").empty(),
+                                            "pending gate must preserve async-pending evidence");
+        require(readFile("/opt/modbus-gateway/config/lifecycle-sentinel.txt") == "unchanged\n", "blocked fixture unexpectedly changed sentinel");
+        std::cout << "official " << mode << ": remains blocked\n";
+        return;
+    }
+    if (missingPython) require(intent.empty(), "missing dependency must be rejected before intent");
+    else require(countStage(restarted.loadFinalStatuses(), request.jobId, "failed") == 1,
+                 "official early kill needs a durable failed terminal");
+    if (natural) require(access((config.stagingDir + "/EARLY_JOB/health_pending.txt").c_str(), F_OK) != 0,
+                         "normal official rejection must remove disposable pending health");
+    require(readFile("/opt/modbus-gateway/config/lifecycle-sentinel.txt") == "unchanged\n",
+            "official early failure changed runtime");
+    // Repair only the dependency/copy gate, then exercise the real service and
+    // official script again. The deliberately malformed archive rejects safely.
+    std::remove((root + "/shims/python3").c_str());
+    std::remove((root + "/shims/cp").c_str());
+    if (mode == "missing-helper") {
+        std::ofstream restored("/opt/modbus-gateway/bin/ota-health-result.py");
+        restored << readFile(root + "/helper-held.py");
+        require(restored.good(), "cannot restore helper across isolated mounts");
+    }
+    bool nextFailed = false;
+    try { restarted.execute(next, "GW_TEST", 2000, &reply, &status, nullptr); }
+    catch (const std::exception&) { nextFailed = true; }
+    require(nextFailed && countStage(restarted.loadFinalStatuses(), next.jobId, "failed") == 1,
+            "repaired dependency must let the next actual official execute reach a safe rejection");
+    require(!readFile(config.stagingDir + "/ota_job_NEXT_JOB.json").empty(),
+            "next actual execute did not persist its intent");
+    std::cout << "official next actual execute: durable failed/unchanged, fresh intent\n";
+}
+
+void writeFixtureFile(const std::string& path, const std::string& bytes) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << bytes;
+    require(output.good(), "cannot write lifecycle fixture");
+}
+
+edge_gateway::OtaConfig lifecycleConfig(const std::string& root) {
+    edge_gateway::OtaConfig config;
+    config.enabled = true;
+    config.downloadDir = root + "/downloads";
+    config.stagingDir = root + "/staging";
+    config.backupDir = root + "/backup";
+    config.applyScript = root + "/apply.sh";
+    config.rollbackScript.clear();
+    config.checksumRequired = false;
+    config.requireSignature = false;
+    config.packageType = "tar.gz";
+    config.minFreeBytes = 0;
+    return config;
+}
+
+std::string fixtureBarrier(const std::string& job, const std::string& token, const std::string& state = "prepared") {
+    return "{\"format\":\"official-ota-apply-barrier-v1\",\"jobId\":\"" + job +
+        "\",\"version\":\"2.0.0\",\"token\":\"" + token + "\",\"state\":\"" + state + "\"}\n";
+}
+
+void verifyLifecycleEvidenceGuards() {
+    for (const std::string variant : {"prepared", "missing-barrier", "damaged-barrier", "wrong-token",
+            "changed-barrier", "pending-health", "burned", "damaged-applied", "unreadable-applied",
+            "marker", "missing-lock", "old-intent", "damaged-health"}) {
+        char pattern[] = "/tmp/ota-lifecycle-evidence-XXXXXX";
+        const char* created = mkdtemp(pattern);
+        require(created != nullptr, "cannot create lifecycle evidence fixture");
+        const std::string root = created;
+        try {
+            auto config = lifecycleConfig(root);
+            require(mkdir(config.stagingDir.c_str(), 0700) == 0, "cannot create staging");
+            const std::string token = "00000000-0000-4000-8000-000000000001";
+            writeFixtureFile(config.stagingDir + "/ota_job_JOB.json",
+                "{\"format\":\"ota-job-v1\",\"jobId\":\"JOB\",\"machineCode\":\"GW_TEST\","
+                "\"version\":\"2.0.0\",\"artifactPath\":\"/fixture.tar.gz\",\"previousVersion\":\"1.0.0\","
+                "\"token\":\"" + token + "\"" + (variant == "old-intent" ? "" : ",\"lifecycle\":\"inherited-flock-v1\"") + "}\n");
+            writeFixtureFile(config.stagingDir + "/ota_active_job.txt", "jobId=JOB\ntoken=" + token + "\n");
+            if (variant != "missing-lock") writeFixtureFile(config.stagingDir + "/ota_job_JOB.lock", "");
+            if (variant != "missing-barrier") writeFixtureFile(config.stagingDir + "/ota_barrier_JOB.json",
+                variant == "damaged-barrier" ? "{broken\n" : fixtureBarrier("JOB", variant == "wrong-token" ? "wrong" : token,
+                    variant == "changed-barrier" ? "runtime-may-change" : "prepared"));
+            if (variant == "pending-health") {
+                require(mkdir((config.stagingDir + "/JOB").c_str(), 0700) == 0, "cannot create job dir");
+                writeFixtureFile(config.stagingDir + "/JOB/health_pending.txt", "pending\n");
+            }
+            if (variant == "marker") writeFixtureFile(config.stagingDir + "/ota-in-progress", "marker\n");
+            if (variant == "burned" || variant == "damaged-applied")
+                writeFixtureFile(config.stagingDir + "/applied_jobs.txt", variant == "burned" ? "JOB\n" : "partial");
+            if (variant == "unreadable-applied")
+                require(mkdir((config.stagingDir + "/applied_jobs.txt").c_str(), 0700) == 0, "cannot create non-file evidence");
+            if (variant == "damaged-health") writeFixtureFile(config.stagingDir + "/health_JOB.txt", "{broken\n");
+            edge_gateway::OtaService service(config);
+            service.reconcilePendingJobs();
+            edge_gateway::OtaRequest next;
+            next.jobId = "NEXT_JOB"; next.version = "3.0.0"; next.artifactUrl = "/fixture.tar.gz";
+            std::string rejection;
+            require(service.validateRequest(next, &rejection) == (variant == "prepared"),
+                    "only exact prepared lifecycle proof may unlock missing-result intent");
+            std::cout << "lifecycle evidence " << variant << ": " << (variant == "prepared" ? "recovered" : "blocked") << '\n';
+        } catch (...) { removeEventStoreTestTree(root); throw; }
+        removeEventStoreTestTree(root);
+    }
+}
+
+void verifyIntentForkLease() {
+    char pattern[] = "/tmp/ota-lifecycle-handoff-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create lifecycle handoff fixture");
+    const std::string root = created;
+    try {
+        const auto config = lifecycleConfig(root);
+        writeFixtureFile(root + "/source.tar.gz", "payload");
+        writeFixtureFile(config.applyScript, "#!/bin/sh\nexit 4\n");
+        edge_gateway::OtaRequest request;
+        request.jobId = "JOB"; request.version = "2.0.0"; request.artifactUrl = root + "/source.tar.gz";
+        edge_gateway::OtaReply reply;
+        edge_gateway::OtaStatus status;
+        bool observed = false;
+        try {
+            edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status,
+                [&](const edge_gateway::OtaStatus& progress) {
+                    if (progress.stage != "applying") return;
+                    const auto path = config.stagingDir + "/ota_job_JOB.lock";
+                    const int probe = open(path.c_str(), O_RDWR | O_CLOEXEC);
+                    require(probe >= 0, "missing pre-fork lease");
+                    const int locked = flock(probe, LOCK_EX | LOCK_NB);
+                    const auto error = errno;
+                    struct stat expected{};
+                    require(fstat(probe, &expected) == 0, "cannot inspect lease");
+                    close(probe);
+                    require(locked < 0 && (error == EWOULDBLOCK || error == EAGAIN), "intent-to-fork lease gap");
+                    bool parentCloexec = false;
+                    auto* directory = opendir("/proc/self/fd");
+                    require(directory != nullptr, "cannot inspect parent descriptors");
+                    while (const auto* entry = readdir(directory)) {
+                        char* end = nullptr;
+                        const int fd = static_cast<int>(std::strtol(entry->d_name, &end, 10));
+                        if (!end || *end || fd < 0) continue;
+                        struct stat candidate{};
+                        if (fstat(fd, &candidate) == 0 && candidate.st_dev == expected.st_dev && candidate.st_ino == expected.st_ino)
+                            parentCloexec = (fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0;
+                    }
+                    closedir(directory);
+                    require(parentCloexec, "parent lease must retain CLOEXEC");
+                    edge_gateway::OtaService(config).reconcilePendingJobs();
+                    require(readFile(config.stagingDir + "/health_JOB.txt").empty(), "reconciler raced pre-fork owner");
+                    observed = true;
+                });
+        } catch (const std::exception&) {}
+        require(observed, "handoff callback was not reached");
+        edge_gateway::OtaService(config).reconcilePendingJobs();
+        require(readFile(config.stagingDir + "/ota_final_JOB.txt").empty(), "unregistered custom failure must remain blocked");
+        std::cout << "intent-to-fork: held before fork, parent CLOEXEC; unregistered custom failure blocked\n";
+    } catch (...) { removeEventStoreTestTree(root); throw; }
+    removeEventStoreTestTree(root);
+}
+
+void verifyLiveChildLease(bool existingHealth, bool timeout) {
+    char pattern[] = "/tmp/ota-lifecycle-child-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create child lifecycle fixture");
+    const std::string root = created;
+    int pgid = 0;
+    try {
+        auto config = lifecycleConfig(root);
+        if (timeout) config.upgradeTimeoutSec = 1;
+        writeFixtureFile(root + "/source.tar.gz", "payload");
+        writeFixtureFile(config.applyScript,
+            "#!/bin/sh\n"
+            "printf '{\"format\":\"official-ota-apply-barrier-v1\",\"jobId\":\"%s\",\"version\":\"%s\",\"token\":\"%s\",\"state\":\"prepared\"}\\n' \"$3\" \"$2\" \"$6\" > \"$5/ota_barrier_$3.json\"\n"
+            "ps -o pgid= -p $$ > \"$5/child.pgid\"\n"
+            "(trap '' TERM; : > \"$5/child.ready\"; while [ ! -f \"$5/release-child\" ]; do sleep 0.05; done) &\n"
+            "while [ ! -f \"$5/child.ready\" ]; do sleep 0.01; done\n" +
+            std::string(existingHealth ?
+            "printf '{\"format\":\"ota-health-v1\",\"jobId\":\"%s\",\"version\":\"%s\",\"token\":\"%s\",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"2000\"}\\n' \"$3\" \"$2\" \"$6\" > \"$5/health_$3.txt\"\n" : "") +
+            (timeout ? "sleep 60\n" : "exit 4\n"));
+        edge_gateway::OtaRequest request;
+        request.jobId = "JOB"; request.version = "2.0.0"; request.artifactUrl = root + "/source.tar.gz";
+        edge_gateway::OtaReply reply;
+        edge_gateway::OtaStatus status;
+        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr); }
+        catch (const std::exception&) {}
+        pgid = std::stoi(readFile(config.stagingDir + "/child.pgid"));
+        edge_gateway::OtaService service(config);
+        service.reconcilePendingJobs();
+        require(readFile(config.stagingDir + "/ota_final_JOB.txt").empty(), "live child must block terminal even with unchanged health");
+        edge_gateway::OtaRequest next = request; next.jobId = "NEXT_JOB";
+        std::string rejection;
+        require(!service.validateRequest(next, &rejection), "live child must block fresh job");
+        writeFixtureFile(config.stagingDir + "/release-child", "release\n");
+        for (int i = 0; i < 200 && readFile(config.stagingDir + "/ota_final_JOB.txt").empty(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            service.reconcilePendingJobs();
+        }
+        require(service.validateRequest(next, &rejection), "last child close must permit exact prepared recovery");
+        std::cout << "parent " << (timeout ? "timeout" : "exit") << ", live child, health=" << existingHealth
+                  << ": blocked until child closes inherited lease\n";
+    } catch (...) {
+        if (pgid > 0) kill(-pgid, SIGKILL);
+        removeEventStoreTestTree(root);
+        throw;
+    }
+    removeEventStoreTestTree(root);
+}
+
 void verifyDurableHealthReconciliation() {
     char pattern[] = "/tmp/ota-final-state-XXXXXX";
     const char* created = mkdtemp(pattern);
@@ -357,7 +631,8 @@ void verifySynchronousSuccessAndSameJobRace() {
     removeEventStoreTestTree(root);
 }
 
-void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper) {
+void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper,
+                               bool concurrentRequest = false, bool damagedBarrier = false) {
     char pattern[] = "/tmp/ota-sync-rollback-XXXXXX";
     const char* created = mkdtemp(pattern);
     require(created != nullptr, "cannot create synchronous rollback fixture");
@@ -381,10 +656,13 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
           script << "#!/bin/sh\nprintf '%s\\n' \"$3\" > \"$5/applied_jobs.txt\"\n"
                     "printf 'jobId=%s\\nversion=%s\\nstagingDir=%s\\n' \"$3\" \"$2\" \"$5\" > \"$5/ota-in-progress\"\n"
                     "printf 'new\\n' > '" << root << "/runtime.txt'\n";
+          if (damagedBarrier) script << "printf '{broken\\n' > \"$5/ota_barrier_$3.json\"\n";
           if (pendingHelper) script << "mkdir -p \"$5/$3\"\nprintf 'jobId=%s\\nversion=%s\\ntoken=%s\\n' \"$3\" \"$2\" \"$6\" > \"$5/$3/health_pending.txt\"\n";
           script << "exit 4\n"; }
         { std::ofstream script(config.rollbackScript);
           script << "#!/bin/sh\nprintf 'called\\n' >> '" << root << "/rollback-calls.txt'\n";
+          if (concurrentRequest) script << ": > '" << root << "/rollback.ready'\n"
+                "while [ ! -f '" << root << "/rollback.release' ]; do sleep 0.01; done\n";
           if (succeed) {
               script << "printf 'old\\n' > '" << root << "/runtime.txt'\nrm \"$5/ota-in-progress\"\n"
                         "printf 'jobId=%s\\nversion=%s\\ntoken=%s\\nstatus=succeeded\\n' \"$3\" \"$2\" "
@@ -399,8 +677,31 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
         request.artifactUrl = root + "/source.tar.gz";
         edge_gateway::OtaReply reply;
         edge_gateway::OtaStatus status;
-        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr); }
-        catch (const std::exception&) {}
+        std::thread worker([&] {
+            try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr); }
+            catch (const std::exception&) {}
+        });
+        bool ready = true;
+        bool rejected = true;
+        if (concurrentRequest) {
+            for (int i = 0; i < 500 && access((root + "/rollback.ready").c_str(), F_OK) != 0; ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            ready = access((root + "/rollback.ready").c_str(), F_OK) == 0;
+            edge_gateway::OtaRequest racing = request; racing.jobId = "RACING_JOB";
+            edge_gateway::OtaReply racingReply;
+            edge_gateway::OtaStatus racingStatus;
+            try {
+                edge_gateway::OtaService(config).execute(racing, "GW_TEST", 1500, &racingReply, &racingStatus, nullptr);
+                rejected = false;
+            } catch (const std::exception&) {}
+            writeFixtureFile(root + "/rollback.release", "release\n");
+        }
+        worker.join();
+        require(ready && rejected, "request during rollback must be rejected before new intent");
+        if (concurrentRequest) {
+            require(readFile(config.stagingDir + "/ota_job_RACING_JOB.json").empty(), "rollback race must not admit intent");
+            std::cout << "rollback in progress: next actual execute rejected\n";
+        }
         require(status.stage == "failed", "changed synchronous failure must report failed");
         require(readFile(root + "/runtime.txt") == (succeed && !pendingHelper ? "old\n" : "new\n"),
                 "rollback fixture runtime mismatch");
@@ -433,16 +734,27 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
 #ifndef _WIN32
+        if (argc == 4 && std::string(argv[1]) == "--official-early-failure") {
+            verifyOfficialEarlyFailure(argv[2], argv[3]);
+            return 0;
+        }
         verifyDurableHealthReconciliation();
+        verifyLifecycleEvidenceGuards();
+        verifyIntentForkLease();
+        verifyLiveChildLease(false, false);
+        verifyLiveChildLease(true, false);
+        verifyLiveChildLease(true, true);
         verifySynchronousRejectionIsTerminal();
         verifySynchronousSuccessAndSameJobRace();
         verifySynchronousRollback(true, false, false);
         verifySynchronousRollback(true, true, false);
         verifySynchronousRollback(false, false, false);
         verifySynchronousRollback(true, false, true);
+        verifySynchronousRollback(true, false, false, true);
+        verifySynchronousRollback(true, false, false, false, true);
 #endif
         std::cout << "ota final-state test passed\n";
         return 0;

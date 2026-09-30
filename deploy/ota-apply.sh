@@ -7,6 +7,8 @@ JOB_ID="${3:-}"
 BACKUP_DIR="${4:-}"
 STAGING_DIR="${5:-}"
 OTA_JOB_TOKEN="${6:-direct-${3:-}}"
+OTA_LIFECYCLE_FD="${7:-}"
+OTA_RUNTIME_BARRIER_PATH=""
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
 KEEP_APPLYING_MARKER=0
@@ -77,6 +79,9 @@ with open(os.path.join(staging, f"ota_job_{job}.json"), encoding="utf-8") as sou
 if (intent.get("format") != "ota-job-v1" or intent.get("jobId") != job or
     intent.get("version") != version or intent.get("token") != token):
     raise SystemExit("OTA intent changed")
+if intent.get("lifecycle") == "inherited-flock-v1":
+    # Only C++ can decide unchanged after every inherited lease holder exits.
+    raise SystemExit(0)
 if os.path.exists(os.path.join(staging, "ota-in-progress")):
     raise SystemExit("OTA runtime change may have started")
 try:
@@ -243,6 +248,72 @@ require_safe_id "version" "$VERSION"
 require_safe_id "health token" "$OTA_JOB_TOKEN"
 require_safe_dir "backupDir" "$BACKUP_DIR"
 require_safe_dir "stagingDir" "$STAGING_DIR"
+runtime_barrier() {
+  [ -n "$OTA_LIFECYCLE_FD" ] || return 0
+  python3 - "$STAGING_DIR" "$JOB_ID" "$VERSION" "$OTA_JOB_TOKEN" "$OTA_LIFECYCLE_FD" "$1" <<'PY'
+import fcntl
+import json
+import os
+import sys
+
+staging, job, version, token, inherited, action = sys.argv[1:]
+lease_path = os.path.join(staging, f"ota_job_{job}.lock")
+lease = os.fstat(int(inherited))
+probe = os.open(lease_path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+identity = os.fstat(probe)
+if (lease.st_dev, lease.st_ino) != (identity.st_dev, identity.st_ino):
+    raise SystemExit("OTA inherited lifecycle descriptor mismatch")
+try:
+    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    pass
+else:
+    raise SystemExit("OTA lifecycle lease is not held")
+finally:
+    os.close(probe)
+with open(os.path.join(staging, f"ota_job_{job}.json"), encoding="utf-8") as source:
+    intent = json.load(source)
+if (intent.get("format") != "ota-job-v1" or intent.get("lifecycle") != "inherited-flock-v1" or
+    intent.get("jobId") != job or intent.get("version") != version or intent.get("token") != token):
+    raise SystemExit("OTA lifecycle intent mismatch")
+with open(os.path.join(staging, "ota_active_job.txt"), "rb") as source:
+    if source.read(257) != f"jobId={job}\ntoken={token}\n".encode("ascii"):
+        raise SystemExit("OTA lifecycle active identity mismatch")
+target = os.path.join(staging, f"ota_barrier_{job}.json")
+record = dict(format="official-ota-apply-barrier-v1", jobId=job, version=version, token=token, state="prepared")
+if action == "prepared" and os.path.lexists(os.path.join(staging, "ota-in-progress")):
+    # A legacy interrupted-job recovery can itself change the live runtime.
+    # Do not register unchanged eligibility before that recovery branch.
+    raise SystemExit("OTA interrupted runtime change must be recovered first")
+if action != "prepared":
+    with open(target, encoding="utf-8") as source:
+        if json.load(source) != record:
+            raise SystemExit("OTA runtime barrier is not prepared")
+    record["state"] = "runtime-may-change"
+temporary = target + ".tmp." + str(os.getpid())
+try:
+    with open(temporary, "x", encoding="utf-8") as output:
+        output.write(json.dumps(record, separators=(",", ":")) + "\n")
+        output.flush()
+        os.fsync(output.fileno())
+    if action == "prepared":
+        os.link(temporary, target)
+    else:
+        os.replace(temporary, target)
+    directory = os.open(staging, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+runtime_barrier prepared
+if [ -n "$OTA_LIFECYCLE_FD" ]; then
+  OTA_RUNTIME_BARRIER_PATH="$STAGING_DIR/ota_barrier_$JOB_ID.json"
+fi
 # The previous job's restart/health-verification sequence must finish first:
 # its automatic rollback would otherwise interleave with this apply.
 if [ -f "$WATCHDOG_APPLYING_FILE" ]; then
@@ -417,6 +488,7 @@ snapshot_previous_state() {
 }
 
 write_in_progress_marker() {
+  runtime_barrier runtime-may-change
   LIVE_CHANGE_STARTED=1
   snapshot_previous_state
   durable_file append "$APPLIED_JOBS_FILE" "$JOB_ID
@@ -517,6 +589,7 @@ if [ -f "$MANIFEST_PATH" ]; then
   # after validating every entry and immediately before the first live change.
   OTA_JOB_ID="$JOB_ID" OTA_APPLIED_JOBS_FILE="$APPLIED_JOBS_FILE" OTA_IN_PROGRESS_FILE="$IN_PROGRESS_FILE" \
   OTA_IN_PROGRESS_TEXT="$(in_progress_text)" \
+  OTA_RUNTIME_BARRIER_PATH="$OTA_RUNTIME_BARRIER_PATH" OTA_JOB_TOKEN="$OTA_JOB_TOKEN" OTA_JOB_VERSION="$VERSION" \
   python3 - "$MANIFEST_PATH" "$JOB_BACKUP_DIR" "$LOG_FILE" "$RESTART_FILE" "$SYSTEMD_RELOAD_FILE" "$CHMOD_FILE" <<'PY'
 import json
 import glob
@@ -802,6 +875,15 @@ def durable_write(path, text, append=False):
         os.close(fd)
 
 # From here on the live runtime changes: burn the jobId and arm boot recovery.
+if os.environ.get("OTA_RUNTIME_BARRIER_PATH"):
+    barrier_path = os.environ["OTA_RUNTIME_BARRIER_PATH"]
+    expected = dict(format="official-ota-apply-barrier-v1", jobId=os.environ["OTA_JOB_ID"],
+                    version=os.environ["OTA_JOB_VERSION"], token=os.environ["OTA_JOB_TOKEN"], state="prepared")
+    with open(barrier_path, encoding="utf-8") as source:
+        if json.load(source) != expected:
+            raise SystemExit("OTA runtime barrier is not prepared")
+    expected["state"] = "runtime-may-change"
+    durable_write(barrier_path, json.dumps(expected, separators=(",", ":")) + "\n")
 durable_write(os.environ["OTA_APPLIED_JOBS_FILE"], os.environ["OTA_JOB_ID"] + "\n", append=True)
 durable_write(os.environ["OTA_IN_PROGRESS_FILE"], os.environ["OTA_IN_PROGRESS_TEXT"] + "\n")
 

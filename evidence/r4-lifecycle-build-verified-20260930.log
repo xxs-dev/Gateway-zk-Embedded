@@ -1,0 +1,6 @@
+[100%] Built target edge_gateway
+[100%] Building CXX object CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o
+[100%] Linking CXX executable ota_final_state_test
+[100%] Built target ota_final_state_test
+[ 95%] Built target edge_gateway
+[100%] Built target ota_service_test

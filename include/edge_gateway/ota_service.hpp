@@ -72,7 +72,7 @@ private:
         std::int64_t ts
     ) const;
     bool tryRollback(const OtaRequest& request, const std::string& artifactPath,
-                     const std::string& token) const;
+                     const std::string& token, int lifecycleFd = -1) const;
     void cleanupOldArtifacts(const std::string& keepFileName) const;
     std::string statusJournalPath() const;
     void appendPendingStatus(OtaStatus& status) const;
@@ -120,7 +120,7 @@ private:
     ) const;
     void verifyChecksum(const OtaRequest& request, const std::string& artifactPath) const;
     void runScript(const std::string& scriptPath, const OtaRequest& request,
-                   const std::string& artifactPath, const std::string& token) const;
+                   const std::string& artifactPath, const std::string& token, int lifecycleFd = -1) const;
     std::string buildScriptCommand(const std::string& scriptPath, const OtaRequest& request,
                                    const std::string& artifactPath, const std::string& token = {}) const;
     bool isHttpUrl(const std::string& value) const;

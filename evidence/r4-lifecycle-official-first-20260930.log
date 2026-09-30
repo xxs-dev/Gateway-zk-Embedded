@@ -1,0 +1,11 @@
+fixture python3 unavailable
+[2026-09-30 21:24:14] [ota-apply] start jobId=NEXT_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.84KqtZ/missing-python/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+official missing-python: intent=0 health=0 marker=0
+official next actual execute: durable failed/unchanged, fresh intent
+[2026-09-30 21:24:15] [ota-apply] start jobId=EARLY_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.84KqtZ/early-kill/downloads/2.0.0.tar.gz
+[2026-09-30 21:24:15] [ota-apply] start jobId=NEXT_JOB version=2.0.0 artifact=/tmp/ota-lifecycle.84KqtZ/early-kill/downloads/2.0.0.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+official early-SIGKILL: intent=1 health=1 marker=0
+official next actual execute: durable failed/unchanged, fresh intent
+official lifecycle isolation test passed

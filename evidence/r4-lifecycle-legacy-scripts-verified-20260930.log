@@ -1,0 +1,35 @@
+[2026-09-30 21:36:07] [ota-apply] start jobId=INVALID_MANIFEST version=2.0.0 artifact=/tmp/ota-sync-failure.dBCrLD/invalid.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+INVALID_MANIFEST: unchanged proof accepted
+[ota-apply] required health result helper is missing
+MISSING_HELPER: unchanged proof accepted
+ota sync-failure script test passed
+[ota-apply] required health result helper is missing
+Traceback (most recent call last):
+  File "<stdin>", line 12, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/ota-async-health.Y2jxI0/staging/ota_active_job.txt'
+[ota-apply] unchanged result not proven; job remains unresolved
+[2026-09-30 21:36:08] [ota-apply] start jobId=FAIL_JOB version=health-test artifact=/tmp/ota-async-health.Y2jxI0/health-test.tar.gz
+[2026-09-30 21:36:08] [ota-apply] files applied; waiting for restart health jobId=FAIL_JOB
+[2026-09-30 21:36:10] [ota-apply] start jobId=GOOD_JOB version=health-test artifact=/tmp/ota-async-health.Y2jxI0/health-test.tar.gz
+[2026-09-30 21:36:10] [ota-apply] files applied; waiting for restart health jobId=GOOD_JOB
+[2026-09-30 21:36:12] [ota-apply] start jobId=ACTIVATING_JOB version=health-test artifact=/tmp/ota-async-health.Y2jxI0/health-test.tar.gz
+[2026-09-30 21:36:12] [ota-apply] files applied; waiting for restart health jobId=ACTIVATING_JOB
+[2026-09-30 21:36:14] [ota-apply] start jobId=INTERRUPTED_JOB version=health-test artifact=/tmp/ota-async-health.Y2jxI0/health-test.tar.gz
+[2026-09-30 21:36:14] [ota-apply] files applied; waiting for restart health jobId=INTERRUPTED_JOB
+[ota-rollback] recovering interrupted OTA jobId=INTERRUPTED_JOB
+[2026-09-30 21:36:15] [ota-rollback] start jobId=INTERRUPTED_JOB version=health-test artifact=/tmp/ota-async-health.Y2jxI0/health-test.tar.gz
+[2026-09-30 21:36:15] [ota-rollback] restarting mqtt-driver@test.service
+[2026-09-30 21:36:15] [ota-rollback] success jobId=INTERRUPTED_JOB
+ota async health test passed
+[2026-09-30 21:36:15] [ota-apply] start jobId=OTA_SELF_UPGRADE_TEST version=self-upgrade-test artifact=/opt/modbus-gateway/ota/downloads/self-upgrade-test.tar.gz
+[2026-09-30 21:36:15] [ota-apply] files applied; waiting for restart health jobId=OTA_SELF_UPGRADE_TEST
+ota apply self-upgrade passed
+sha256=9adc75771cfebac2d5ea7f21cb15aede79dd67d411d5b8f1fd4ddf15582821b8
+[2026-09-30 21:36:17] [ota-apply] start jobId=OTA_RUNTIME_ELF_REFUSAL version=runtime-elf-refusal-test artifact=/opt/modbus-gateway/ota/downloads/runtime-elf-refusal-test.tar.gz
+runtime upgrade refused: runtime ELF OTA requires the offline all-participant upgrade; declarations alone do not prove ABI compatibility
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/opt/modbus-gateway/ota/staging/ota_job_OTA_RUNTIME_ELF_REFUSAL.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+online runtime ELF refusal preserved binary, process, and version

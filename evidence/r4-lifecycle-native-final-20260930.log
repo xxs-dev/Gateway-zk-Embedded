@@ -1,0 +1,19 @@
+lifecycle evidence prepared: recovered
+lifecycle evidence missing-barrier: blocked
+lifecycle evidence damaged-barrier: blocked
+lifecycle evidence wrong-token: blocked
+lifecycle evidence changed-barrier: blocked
+lifecycle evidence pending-health: blocked
+lifecycle evidence burned: blocked
+lifecycle evidence damaged-applied: blocked
+lifecycle evidence unreadable-applied: blocked
+lifecycle evidence marker: blocked
+lifecycle evidence missing-lock: blocked
+lifecycle evidence old-intent: blocked
+lifecycle evidence damaged-health: blocked
+intent-to-fork: held before fork, parent CLOEXEC; unregistered custom failure blocked
+parent exit, live child, health=0: blocked until child closes inherited lease
+parent exit, live child, health=1: blocked until child closes inherited lease
+parent timeout, live child, health=1: blocked until child closes inherited lease
+rollback in progress: next actual execute rejected
+ota final-state test passed

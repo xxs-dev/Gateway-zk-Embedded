@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -133,6 +134,43 @@ private:
     int fd_ = -1;
 #endif
 };
+
+#ifndef _WIN32
+// Never unlink this inode or LOCK_UN: child copies share the same lock.
+class JobLifecycleLock {
+public:
+    JobLifecycleLock(const std::string& path, bool create) {
+        fd_ = open(path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT : 0), 0600);
+        if (fd_ < 0) throw std::runtime_error("cannot open OTA lifecycle lock");
+        struct stat info{};
+        if (fstat(fd_, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size != 0) {
+            close(fd_); fd_ = -1;
+            throw std::runtime_error("invalid OTA lifecycle lock");
+        }
+        int result;
+        do { result = flock(fd_, LOCK_EX | LOCK_NB); } while (result < 0 && errno == EINTR);
+        if (result < 0) {
+            const auto error = errno;
+            close(fd_); fd_ = -1;
+            if (error != EWOULDBLOCK && error != EAGAIN)
+                throw std::runtime_error("cannot acquire OTA lifecycle lock");
+        }
+    }
+    ~JobLifecycleLock() { if (fd_ >= 0) close(fd_); }
+    int fd() const { return fd_; }
+    JobLifecycleLock(const JobLifecycleLock&) = delete;
+    JobLifecycleLock& operator=(const JobLifecycleLock&) = delete;
+private:
+    int fd_ = -1;
+};
+
+bool strictlyAbsent(const std::string& path) {
+    struct stat info{};
+    if (lstat(path.c_str(), &info) == 0) return false;
+    if (errno == ENOENT) return true;
+    throw std::runtime_error("cannot inspect OTA recovery evidence");
+}
+#endif
 
 std::string newStatusOccurrence() {
     unsigned char bytes[16];
@@ -803,13 +841,15 @@ void terminateProcess(pid_t pid) {
     }
 }
 
-int runShellCommandWithTimeout(const std::string& command, int timeoutSec) {
+int runShellCommandWithTimeout(const std::string& command, int timeoutSec, int lifecycleFd = -1) {
     const pid_t pid = fork();
     if (pid < 0) {
         return -1;
     }
     if (pid == 0) {
         setsid();
+        if (lifecycleFd >= 0 &&
+            (dup2(lifecycleFd, 9) < 0 || fcntl(9, F_SETFD, 0) < 0)) _exit(127);
         execl("/bin/sh", "sh", "-c", command.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }
@@ -923,7 +963,7 @@ void ensureFreeDiskSpace(const std::string& path, std::uint64_t minFreeBytes, st
     }
 }
 #else
-int runShellCommandWithTimeout(const std::string& command, int) {
+int runShellCommandWithTimeout(const std::string& command, int, int = -1) {
     return std::system(command.c_str());
 }
 
@@ -1086,6 +1126,7 @@ struct PendingOtaJob {
     std::string artifactPath;
     std::string previousVersion;
     std::string token;
+    std::string lifecycle;
 };
 
 std::string pendingJobPath(const std::string& stagingDir, const std::string& jobId) {
@@ -1098,7 +1139,8 @@ std::string encodePendingJob(const PendingOtaJob& job) {
         ",\"version\":" + pendingJsonString(job.version) +
         ",\"artifactPath\":" + pendingJsonString(job.artifactPath) +
         ",\"previousVersion\":" + pendingJsonString(job.previousVersion) +
-        ",\"token\":" + pendingJsonString(job.token) + "}\n";
+        ",\"token\":" + pendingJsonString(job.token) +
+        (job.lifecycle.empty() ? "" : ",\"lifecycle\":" + pendingJsonString(job.lifecycle)) + "}\n";
 }
 
 PendingOtaJob decodePendingJob(const std::string& bytes) {
@@ -1114,6 +1156,11 @@ PendingOtaJob decodePendingJob(const std::string& bytes) {
     job.artifactPath = pendingField(document, "artifactPath");
     job.previousVersion = pendingField(document, "previousVersion");
     job.token = pendingField(document, "token");
+    if (document.find("lifecycle")) {
+        job.lifecycle = pendingField(document, "lifecycle");
+        if (job.lifecycle != "inherited-flock-v1")
+            throw std::runtime_error("unsupported OTA lifecycle protocol");
+    }
     if (!isSafeOtaId(job.jobId) || !isSafeOtaId(job.version) || job.machineCode.empty() ||
         job.token.size() != 36 || job.artifactPath.empty())
         throw std::runtime_error("invalid OTA job intent");
@@ -1179,12 +1226,71 @@ std::vector<std::string> pendingJobFiles(const std::string& stagingDir) {
     return files;
 }
 
+#ifndef _WIN32
+std::string jobLifecyclePath(const std::string& stagingDir, const PendingOtaJob& job) {
+    return joinPath(stagingDir, "ota_job_" + job.jobId + ".lock");
+}
+
+std::string readRecoveryEvidence(const std::string& path, std::size_t maximum) {
+    struct stat info{};
+    if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
+        info.st_size < 1 || static_cast<std::uint64_t>(info.st_size) > maximum)
+        throw std::runtime_error("invalid OTA recovery evidence");
+    return readPendingJournal(path);
+}
+
+bool recordPreparedFailure(const std::string& stagingDir, const PendingOtaJob& job) {
+    if (job.lifecycle != "inherited-flock-v1") return false;
+    const auto barrierPath = joinPath(stagingDir, "ota_barrier_" + job.jobId + ".json");
+    if (strictlyAbsent(barrierPath)) return false;
+    const auto bytes = readRecoveryEvidence(barrierPath, 4096);
+    if (bytes.empty() || bytes.back() != '\n') return false;
+    const auto barrier = json::JsonParser(bytes, 4, 32).parse();
+    if (pendingField(barrier, "format") != "official-ota-apply-barrier-v1" ||
+        pendingField(barrier, "jobId") != job.jobId ||
+        pendingField(barrier, "version") != job.version ||
+        pendingField(barrier, "token") != job.token ||
+        pendingField(barrier, "state") != "prepared") return false;
+    // Absence only supplements a positive, job-bound protocol/barrier proof.
+    const std::vector<std::string> exclusions{"ota-in-progress", "health_" + job.jobId + ".txt",
+        "rollback_" + job.jobId + ".txt", "rollback_" + job.jobId + "_proof.txt",
+        "ota_final_" + job.jobId + ".txt", job.jobId + "/health_pending.txt"};
+    for (const auto& name : exclusions) {
+        if (!strictlyAbsent(joinPath(stagingDir, name))) return false;
+    }
+    const auto appliedPath = joinPath(stagingDir, "applied_jobs.txt");
+    if (!strictlyAbsent(appliedPath)) {
+        const auto applied = readRecoveryEvidence(appliedPath, 16 * 1024 * 1024);
+        if (applied.empty() || applied.back() != '\n') return false;
+        std::istringstream lines(applied);
+        std::string line;
+        while (std::getline(lines, line)) {
+            if (!isSafeOtaId(line) || line == job.jobId) return false;
+        }
+    }
+    replacePendingJournal(joinPath(stagingDir, "health_" + job.jobId + ".txt"),
+        "{\"format\":\"ota-health-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
+        ",\"version\":" + pendingJsonString(job.version) +
+        ",\"token\":" + pendingJsonString(job.token) +
+        ",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"" +
+        std::to_string(currentTimeMs()) + "\"}\n");
+    return true;
+}
+#endif
+
 void OtaService::ensureNoUnresolvedJob() const {
     for (const auto& path : pendingJobFiles(config_.stagingDir)) {
         if (fileSizeBytes(path) > 4096) throw std::runtime_error("invalid OTA job intent");
         const auto job = decodePendingJob(readPendingJournal(path));
         if (path != pendingJobPath(config_.stagingDir, job.jobId))
             throw std::runtime_error("invalid OTA job intent path");
+#ifndef _WIN32
+        std::unique_ptr<JobLifecycleLock> lease;
+        if (!job.lifecycle.empty()) {
+            lease.reset(new JobLifecycleLock(jobLifecyclePath(config_.stagingDir, job), false));
+            if (lease->fd() < 0) throw std::runtime_error("previous OTA writer is still running");
+        }
+#endif
         if (!hasValidFinal(config_.stagingDir, job))
             throw std::runtime_error("previous OTA job has no verified terminal result");
         const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
@@ -1207,13 +1313,25 @@ void OtaService::reconcilePendingJobs() const {
     for (const auto& path : pendingJobFiles(config_.stagingDir)) {
         PendingOtaJob job;
         OtaHealthResult health;
+#ifndef _WIN32
+        std::unique_ptr<JobLifecycleLock> lease;
+#endif
         try {
             if (fileSizeBytes(path) > 4096) continue;
             job = decodePendingJob(readPendingJournal(path));
             if (path != pendingJobPath(config_.stagingDir, job.jobId)) continue;
             if (hasValidFinal(config_.stagingDir, job)) continue;
             if (!isActiveJob(config_.stagingDir, job)) continue;
+#ifndef _WIN32
+            if (!job.lifecycle.empty()) {
+                lease.reset(new JobLifecycleLock(jobLifecyclePath(config_.stagingDir, job), false));
+                if (lease->fd() < 0) continue;
+            }
+#endif
             const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
+#ifndef _WIN32
+            if (lease && strictlyAbsent(healthPath)) recordPreparedFailure(config_.stagingDir, job);
+#endif
             if (fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096) continue;
             health = decodeHealthResult(readPendingJournal(healthPath), job);
         } catch (const std::exception&) {
@@ -1387,9 +1505,18 @@ void OtaService::execute(
             throw std::runtime_error("ota upgrade timeout after verify");
         }
 
-        const PendingOtaJob pending{request.jobId, machineCode, request.version, artifactPath,
+        PendingOtaJob pending{request.jobId, machineCode, request.version, artifactPath,
                                     previousVersion, newStatusOccurrence()};
         ownToken = pending.token;
+#ifndef _WIN32
+        if (config_.applyScript == "/opt/modbus-gateway/bin/ota-apply.sh" &&
+            !commandStatusSucceeded(runArgvWithTimeout({"python3", "-c", "import fcntl,json,os,sys"},
+                                                       config_.upgradeTimeoutSec)))
+            throw std::runtime_error("official OTA requires python3 before intent");
+        JobLifecycleLock applyLease(jobLifecyclePath(config_.stagingDir, pending), true);
+        if (applyLease.fd() < 0) throw std::runtime_error("OTA apply lifecycle already owned");
+        pending.lifecycle = "inherited-flock-v1";
+#endif
         {
             PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
             ensureJobNotProcessed(request);
@@ -1400,7 +1527,13 @@ void OtaService::execute(
                 "jobId=" + pending.jobId + "\ntoken=" + pending.token + "\n");
         }
         reportStage(status, "applying", 100, "running apply script", currentTimeMs(), publishStatus);
-        runScript(config_.applyScript, request, artifactPath, pending.token);
+        runScript(config_.applyScript, request, artifactPath, pending.token,
+#ifndef _WIN32
+                  applyLease.fd()
+#else
+                  -1
+#endif
+        );
     } catch (const std::exception& ex) {
         const auto failedStage = status->stage.empty() ? std::string("unknown") : status->stage;
         bool rollbackAttempted = false;
@@ -1411,6 +1544,9 @@ void OtaService::execute(
         bool needRollback = false;
         try {
             if (intentPersisted) {
+#ifndef _WIN32
+                std::unique_ptr<JobLifecycleLock> failureLease;
+#endif
                 {
                     PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
                     const auto pending = decodePendingJob(readPendingJournal(
@@ -1418,7 +1554,22 @@ void OtaService::execute(
                     if (pending.jobId == request.jobId && pending.version == request.version &&
                         pending.machineCode == machineCode && pending.token == ownToken &&
                         isActiveJob(config_.stagingDir, pending)) {
+#ifndef _WIN32
+                        if (!pending.lifecycle.empty()) {
+                            failureLease.reset(new JobLifecycleLock(jobLifecyclePath(config_.stagingDir, pending), false));
+                            if (failureLease->fd() < 0) throw std::runtime_error("OTA apply writer still alive");
+                        }
+#endif
                         const auto healthPath = joinPath(config_.stagingDir, "health_" + request.jobId + ".txt");
+#ifndef _WIN32
+                        if (failureLease && strictlyAbsent(healthPath)) {
+                            try { recordPreparedFailure(config_.stagingDir, pending); }
+                            catch (const std::exception&) {
+                                // No prepared proof does not invalidate a separately
+                                // verified changed-job rollback path below.
+                            }
+                        }
+#endif
                         if (pathExists(healthPath)) {
                             const auto health = decodeHealthResult(readPendingJournal(healthPath), pending);
                             rollbackSucceeded = health.status == "failed" && health.rollback == "succeeded";
@@ -1449,7 +1600,13 @@ void OtaService::execute(
                 }
                 if (needRollback) {
                     rollbackAttempted = true;
-                    rollbackProcessSucceeded = tryRollback(request, artifactPath, ownToken);
+                    rollbackProcessSucceeded = tryRollback(request, artifactPath, ownToken,
+#ifndef _WIN32
+                        failureLease ? failureLease->fd() : -1
+#else
+                        -1
+#endif
+                    );
                 }
                 if (rollbackSucceeded || rollbackProcessSucceeded) {
                     PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
@@ -1474,6 +1631,9 @@ void OtaService::execute(
                         safeEvidence = true;
                     }
                 }
+#ifndef _WIN32
+                failureLease.reset();
+#endif
                 if (safeEvidence) reconcilePendingJobs();
                 PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
                 const auto pending = decodePendingJob(readPendingJournal(
@@ -1502,6 +1662,7 @@ void OtaService::execute(
         throw;
     }
 
+    reconcilePendingJobs();
     PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
     const auto pending = decodePendingJob(readPendingJournal(pendingJobPath(config_.stagingDir, request.jobId)));
     if (hasValidFinal(config_.stagingDir, pending)) {
@@ -1804,12 +1965,12 @@ void OtaService::appendFailureRecord(
 }
 
 bool OtaService::tryRollback(const OtaRequest& request, const std::string& artifactPath,
-                             const std::string& token) const {
+                             const std::string& token, int lifecycleFd) const {
     if (config_.rollbackScript.empty()) {
         return false;
     }
     const auto rollbackCommand = buildScriptCommand(config_.rollbackScript, request, artifactPath, token);
-    return commandStatusSucceeded(runShellCommandWithTimeout(rollbackCommand, config_.upgradeTimeoutSec));
+    return commandStatusSucceeded(runShellCommandWithTimeout(rollbackCommand, config_.upgradeTimeoutSec, lifecycleFd));
 }
 
 void OtaService::cleanupOldArtifacts(const std::string& keepFileName) const {
@@ -2314,14 +2475,16 @@ void OtaService::runScript(
     const std::string& scriptPath,
     const OtaRequest& request,
     const std::string& artifactPath,
-    const std::string& token
+    const std::string& token,
+    int lifecycleFd
 ) const {
     if (scriptPath.empty()) {
         throw std::runtime_error("ota apply script is empty");
     }
 
-    const auto command = buildScriptCommand(scriptPath, request, artifactPath, token);
-    if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec))) {
+    const auto command = buildScriptCommand(scriptPath, request, artifactPath, token) +
+        (lifecycleFd >= 0 ? " 9" : "");
+    if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec, lifecycleFd))) {
         throw std::runtime_error("ota apply script failed");
     }
 }

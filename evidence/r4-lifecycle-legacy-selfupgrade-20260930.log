@@ -1,0 +1,11 @@
+[2026-09-30 21:32:25] [ota-apply] start jobId=OTA_SELF_UPGRADE_TEST version=self-upgrade-test artifact=/opt/modbus-gateway/ota/downloads/self-upgrade-test.tar.gz
+[2026-09-30 21:32:25] [ota-apply] files applied; waiting for restart health jobId=OTA_SELF_UPGRADE_TEST
+ota apply self-upgrade passed
+sha256=3989f9d5156170153ad955cdaea481314d7ec8e29a10efb812adb979e1546b47
+[2026-09-30 21:32:27] [ota-apply] start jobId=OTA_RUNTIME_ELF_REFUSAL version=runtime-elf-refusal-test artifact=/opt/modbus-gateway/ota/downloads/runtime-elf-refusal-test.tar.gz
+runtime upgrade refused: runtime ELF OTA requires the offline all-participant upgrade; declarations alone do not prove ABI compatibility
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/opt/modbus-gateway/ota/staging/ota_job_OTA_RUNTIME_ELF_REFUSAL.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+online runtime ELF refusal preserved binary, process, and version
