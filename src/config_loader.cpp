@@ -33,6 +33,9 @@ constexpr int kMqttMaxRetentionMonths = 24;
 constexpr int kMqttMaxCleanupIntervalHours = 168;
 constexpr std::size_t kMqttForwardEventMinReplayBytes = 1U;
 constexpr std::size_t kMqttForwardEventMaxReplayBytes = 64U * 1024U * 1024U;
+// Untrusted config text (config apply, OTA) must not be able to exhaust the stack.
+constexpr std::size_t kConfigJsonMaxDepth = 64U;
+constexpr std::size_t kConfigJsonMaxNodes = 4000000U;
 
 bool isAbsolutePath(const std::string& path) {
     if (path.empty()) {
@@ -201,6 +204,9 @@ void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configP
     if (!maintenance.otaStatusFile.empty()) {
         maintenance.otaStatusFile = resolveRelativeToConfig(configPath, maintenance.otaStatusFile);
     }
+    if (!maintenance.credentialFile.empty()) {
+        maintenance.credentialFile = resolveRelativeToConfig(configPath, maintenance.credentialFile);
+    }
 }
 
 using json::JsonValue;
@@ -251,7 +257,14 @@ int requireInt(const JsonValue::Object& object, const char* key, int defaultValu
     if (value == nullptr || value->isNull()) {
         return defaultValue;
     }
-    return static_cast<int>(value->asNumber());
+    const auto number = value->asNumber();
+    // Out-of-range double->int conversion is undefined behaviour; reject it explicitly.
+    if (!std::isfinite(number) ||
+        number < static_cast<double>(std::numeric_limits<int>::min()) ||
+        number > static_cast<double>(std::numeric_limits<int>::max())) {
+        throw std::invalid_argument(std::string("integer config value out of range: ") + key);
+    }
+    return static_cast<int>(number);
 }
 
 std::size_t requireSize(const JsonValue::Object& object, const char* key, std::size_t defaultValue = 0) {
@@ -902,6 +915,7 @@ SerialTransportConfig parseTransport(const JsonValue* value) {
     transport.frameIntervalMs = requireInt(object, "interRequestDelayMs", transport.frameIntervalMs);
     transport.readRetryCount = requireInt(object, "readRetryCount", transport.readRetryCount);
     transport.wakeupBytes = requireInt(object, "wakeupBytes", transport.wakeupBytes);
+    transport.localEcho = requireBool(object, "localEcho", transport.localEcho);
     if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
         throw std::invalid_argument("transport.wakeupBytes must be between 0 and 16");
     }
@@ -957,6 +971,7 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     can.listenOnly = requireBool(object, "listenOnly", can.listenOnly);
     can.loopback = requireBool(object, "loopback", can.loopback);
     can.fdEnabled = requireBool(object, "fdEnabled", can.fdEnabled);
+    can.preserveFrameSignals = requireBool(object, "preserveFrameSignals", can.preserveFrameSignals);
     can.dataBitrate = requireInt(object, "dataBitrate", can.dataBitrate);
     can.manageInterface = requireBool(object, "manageInterface", can.manageInterface);
     can.rxQueueSize = requireSize(object, "rxQueueSize", can.rxQueueSize);
@@ -989,6 +1004,7 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.idleReadTimeoutMs = requireInt(object, "idleReadTimeoutMs", iec.idleReadTimeoutMs);
     iec.maxPollFrames = requireInt(object, "maxPollFrames", iec.maxPollFrames);
     iec.pollOnCollect = requireBool(object, "pollOnCollect", iec.pollOnCollect);
+    iec.interrogationIntervalMs = requireInt(object, "interrogationIntervalMs", iec.interrogationIntervalMs);
     iec.balanced = requireBool(object, "balanced", iec.balanced);
     iec.t0Ms = requireInt(object, "t0Ms", iec.t0Ms);
     iec.t1Ms = requireInt(object, "t1Ms", iec.t1Ms);
@@ -1036,6 +1052,7 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.pollTimeoutMs = std::max(100, iec.pollTimeoutMs);
     iec.idleReadTimeoutMs = std::max(10, iec.idleReadTimeoutMs);
     iec.maxPollFrames = std::max(1, iec.maxPollFrames);
+    iec.interrogationIntervalMs = std::max(0, iec.interrogationIntervalMs);
     iec.t0Ms = boundedInt(iec.t0Ms, 1000, 120000);
     iec.t1Ms = boundedInt(iec.t1Ms, 1000, 120000);
     iec.t2Ms = boundedInt(iec.t2Ms, 1000, 120000);
@@ -1385,6 +1402,16 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.persistFlushIntervalMs = requireInt(object, "persistFlushIntervalMs", config.persistFlushIntervalMs);
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
+    config.pendingWriteMaxAgeMs = requireInt64(object, "pendingWriteMaxAgeMs", config.pendingWriteMaxAgeMs);
+    if (config.pendingWriteMaxAgeMs < 0) {
+        throw std::invalid_argument("memoryStore.pendingWriteMaxAgeMs must be >= 0 (0 disables expiry)");
+    }
+    config.persistFlushBatchSize = requireSize(object, "persistFlushBatchSize", config.persistFlushBatchSize);
+    config.allowDuplicateIndexAcrossSegments = requireBool(
+        object, "allowDuplicateIndexAcrossSegments", config.allowDuplicateIndexAcrossSegments);
+    if (config.persistFlushBatchSize == 0) {
+        throw std::invalid_argument("memoryStore.persistFlushBatchSize must be positive");
+    }
     return config;
 }
 
@@ -1416,6 +1443,10 @@ NorthboundServerConfig parseNorthboundServerConfig(const JsonValue* value) {
     config.maxReadRegisters = requireInt(object, "maxReadRegisters", config.maxReadRegisters);
     config.maxReadBits = requireInt(object, "maxReadBits", config.maxReadBits);
     config.allowedClientCidrs = parseStringArray(value->find("allowedClientCidrs"));
+    config.idleTimeoutMs = requireInt(object, "idleTimeoutMs", config.idleTimeoutMs);
+    config.allowUnrestrictedClients = requireBool(
+        object, "allowUnrestrictedClients", config.allowUnrestrictedClients);
+    config.idleTimeoutMs = boundedInt(config.idleTimeoutMs, 1000, 3600000);
     config.port = boundedInt(config.port, 1, 65535);
     config.requestTimeoutMs = boundedInt(config.requestTimeoutMs, 100, 60000);
     config.maxClients = boundedInt(config.maxClients, 1, 64);
@@ -1532,6 +1563,16 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
         100,
         60000
     );
+    config.reconnectBackoffMinMs = boundedInt(
+        requireInt(object, "reconnectBackoffMinMs", config.reconnectBackoffMinMs),
+        0,
+        600000
+    );
+    config.reconnectBackoffMaxMs = boundedInt(
+        requireInt(object, "reconnectBackoffMaxMs", config.reconnectBackoffMaxMs),
+        config.reconnectBackoffMinMs,
+        3600000
+    );
     config.sessionExpirySec = requireInt(object, "sessionExpirySec", config.sessionExpirySec);
     if (const auto* tls = value->find("tls")) {
         const auto& tlsObject = tls->asObject();
@@ -1615,6 +1656,8 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
                 kMqttMinDiskBytes,
                 kMqttMaxDiskBytes
             );
+            config.eventOutboxMinFreeBytes = static_cast<std::uint64_t>(
+                requireSize(outboxObject, "minFreeBytes", static_cast<std::size_t>(config.eventOutboxMinFreeBytes)));
         } else {
             config.eventOutboxMaxDiskBytes = config.offlineBufferMaxDiskBytes;
         }
@@ -2526,6 +2569,19 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         0,
         60000
     );
+    config.allowRemoteHighPriority = requireBool(object, "allowRemoteHighPriority", config.allowRemoteHighPriority);
+    config.rejectRetainedCommands = requireBool(object, "rejectRetainedCommands", config.rejectRetainedCommands);
+    config.commandMaxSkewMs = boundedInt(
+        requireInt(object, "commandMaxSkewMs", config.commandMaxSkewMs),
+        0,
+        86400000
+    );
+    config.requireCommandTimestamp = requireBool(object, "requireCommandTimestamp", config.requireCommandTimestamp);
+    config.mailboxRateLimitPerWindow = boundedInt(
+        requireInt(object, "mailboxRateLimitPerWindow", config.mailboxRateLimitPerWindow),
+        0,
+        1000000
+    );
     return config;
 }
 
@@ -2607,6 +2663,7 @@ EventEngineConfig parseEventEngineConfig(const JsonValue* value) {
     config.scanIntervalMs = requireInt(object, "scanIntervalMs", config.scanIntervalMs);
     config.scanFallbackIntervalMs = requireInt(object, "scanFallbackIntervalMs", config.scanFallbackIntervalMs);
     config.updateDrainBatchSize = requireSize(object, "updateDrainBatchSize", config.updateDrainBatchSize);
+    config.evaluateInvalidValues = requireBool(object, "evaluateInvalidValues", config.evaluateInvalidValues);
     config.publishMode = requireString(object, "publishMode", config.publishMode);
     config.mqttClientIdSuffix = requireString(object, "mqttClientIdSuffix", config.mqttClientIdSuffix);
     return config;
@@ -2767,6 +2824,9 @@ AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
         "maxConsecutiveWriteFailures",
         config.maxConsecutiveWriteFailures
     );
+    config.zeroUnavailablePcs = requireBool(object, "zeroUnavailablePcs", config.zeroUnavailablePcs);
+    config.rateLimitMaxGapMs = requireInt(object, "rateLimitMaxGapMs", config.rateLimitMaxGapMs);
+    config.inputMaxFutureSkewMs = requireInt(object, "inputMaxFutureSkewMs", config.inputMaxFutureSkewMs);
     config.signConvention = requireString(object, "signConvention", config.signConvention);
     config.reactiveSignConvention = requireString(object, "reactiveSignConvention", config.reactiveSignConvention);
     config.pqPriority = requireString(object, "pqPriority", config.pqPriority);
@@ -3000,6 +3060,11 @@ EmsClusterConfig parseEmsClusterConfig(const JsonValue* value) {
         config.stationTargetTtlMs
     );
     config.zeroTargetOnLoss = requireBool(object, "zeroTargetOnLoss", config.zeroTargetOnLoss);
+    config.allowZeroWriteWithoutAuthority = requireBool(
+        object,
+        "allowZeroWriteWithoutAuthority",
+        config.allowZeroWriteWithoutAuthority
+    );
     config.virtualSharedMemoryName = requireString(
         object,
         "virtualSharedMemoryName",
@@ -3043,6 +3108,21 @@ ComputeEngineConfig parseComputeEngineConfig(const JsonValue* value) {
     config.maxRuleEvalPerScan = requireSize(object, "maxRuleEvalPerScan", config.maxRuleEvalPerScan);
     config.badQuality = requireInt(object, "badQuality", config.badQuality);
     config.defaultOutputTtlMs = requireInt64(object, "defaultOutputTtlMs", config.defaultOutputTtlMs);
+    config.graphOutputTtlMs = requireInt64(object, "graphOutputTtlMs", config.graphOutputTtlMs);
+    if (config.graphOutputTtlMs < 0) {
+        throw std::invalid_argument("computeEngine.graphOutputTtlMs must be >= 0 (0 = defaultOutputTtlMs)");
+    }
+    config.graphRestoreSetpointOutputs = requireBool(
+        object,
+        "graphRestoreSetpointOutputs",
+        config.graphRestoreSetpointOutputs
+    );
+    config.inputMaxFutureSkewMs = requireInt64(object, "inputMaxFutureSkewMs", config.inputMaxFutureSkewMs);
+    config.graphRateLimitMaxGapMs = requireInt64(object, "graphRateLimitMaxGapMs", config.graphRateLimitMaxGapMs);
+    if (config.graphRateLimitMaxGapMs < 0) {
+        throw std::invalid_argument("computeEngine.graphRateLimitMaxGapMs must be >= 0 (0 = unbounded)");
+    }
+    config.graphNodeErrorsUnhealthy = requireBool(object, "graphNodeErrorsUnhealthy", config.graphNodeErrorsUnhealthy);
     config.maxWritesPerScan = requireSize(object, "maxWritesPerScan", config.maxWritesPerScan);
     config.healthFile = requireString(object, "healthFile", config.healthFile);
     config.healthPublishIntervalMs = requireInt(
@@ -3102,6 +3182,9 @@ OtaConfig parseOtaConfig(const JsonValue* value) {
     config.applyScript = requireString(object, "applyScript", config.applyScript);
     config.rollbackScript = requireString(object, "rollbackScript", config.rollbackScript);
     config.checksumRequired = requireBool(object, "checksumRequired", config.checksumRequired);
+    config.requireSignature = requireBool(object, "requireSignature", config.requireSignature);
+    config.signaturePublicKeyPath = requireString(object, "signaturePublicKeyPath", config.signaturePublicKeyPath);
+    config.allowInsecureHttp = requireBool(object, "allowInsecureHttp", config.allowInsecureHttp);
     config.autoReboot = requireBool(object, "autoReboot", config.autoReboot);
     config.retentionCount = requireInt(object, "retentionCount", config.retentionCount);
     config.statusReportIntervalSec = requireInt(object, "statusReportIntervalSec", config.statusReportIntervalSec);
@@ -3185,6 +3268,35 @@ SystemMonitorConfig::DirectMaintenanceConfig parseDirectMaintenanceConfig(
         config.scadaUpperComputerProjectDirectory
     );
     config.maxRealtimePoints = requireInt(object, "maxRealtimePoints", config.maxRealtimePoints);
+    config.credentialFile = requireString(object, "credentialFile", config.credentialFile);
+    config.allowLegacyFixedPassword = requireBool(object, "allowLegacyFixedPassword", config.allowLegacyFixedPassword);
+    config.allowAnyClient = requireBool(object, "allowAnyClient", config.allowAnyClient);
+    config.requireSensitiveApiEnabled = requireBool(
+        object,
+        "requireSensitiveApiEnabled",
+        config.requireSensitiveApiEnabled
+    );
+    config.maxAuthFailures = boundedInt(requireInt(object, "maxAuthFailures", config.maxAuthFailures), 1, 100);
+    config.authLockoutSec = boundedInt(requireInt(object, "authLockoutSec", config.authLockoutSec), 1, 86400);
+    config.maxRequestBytes = boundedSize(
+        requireSize(object, "maxRequestBytes", config.maxRequestBytes),
+        64U * 1024U,
+        96U * 1024U * 1024U
+    );
+    config.maxHeaderBytes = boundedSize(
+        requireSize(object, "maxHeaderBytes", config.maxHeaderBytes),
+        1024U,
+        256U * 1024U
+    );
+    config.requestTimeoutMs = boundedInt(requireInt(object, "requestTimeoutMs", config.requestTimeoutMs), 1000, 600000);
+    config.realtimeHeartbeatRequiresAuth = requireBool(
+        object,
+        "realtimeHeartbeatRequiresAuth",
+        config.realtimeHeartbeatRequiresAuth
+    );
+    if (config.listenPort <= 0 || config.listenPort > 65535) {
+        throw std::invalid_argument("systemMonitor.directMaintenance.listenPort must be between 1 and 65535");
+    }
     return config;
 }
 
@@ -3196,8 +3308,9 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     const auto& object = value->asObject();
     config.enabled = requireBool(object, "enabled", config.enabled);
     config.defaultIntervalMs = requireInt(object, "defaultIntervalMs", config.defaultIntervalMs);
-    config.minIntervalMs = requireInt(object, "minIntervalMs", config.minIntervalMs);
-    config.subscriptionTtlSec = requireInt(object, "subscriptionTtlSec", config.subscriptionTtlSec);
+    config.minIntervalMs = boundedInt(requireInt(object, "minIntervalMs", config.minIntervalMs), 50, 3600000);
+    config.defaultIntervalMs = boundedInt(config.defaultIntervalMs, config.minIntervalMs, 3600000);
+    config.subscriptionTtlSec = boundedInt(requireInt(object, "subscriptionTtlSec", config.subscriptionTtlSec), 1, 86400);
     config.cpuAlertThreshold = std::max(
         1.0,
         std::min(100.0, requireDouble(object, "cpuAlertThreshold", config.cpuAlertThreshold))
@@ -3226,7 +3339,13 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
     config.diskAlertThreshold = requireDouble(object, "diskAlertThreshold", config.diskAlertThreshold);
     config.alertRepeatIntervalSec = requireInt(object, "alertRepeatIntervalSec", config.alertRepeatIntervalSec);
     config.diagEnabled = requireBool(object, "diagEnabled", config.diagEnabled);
-    config.maxDiagOutputBytes = requireSize(object, "maxDiagOutputBytes", config.maxDiagOutputBytes);
+    // 0 used to mean "unbounded"; keep diagnostic replies bounded.
+    config.maxDiagOutputBytes = boundedSize(
+        requireSize(object, "maxDiagOutputBytes", config.maxDiagOutputBytes),
+        256U,
+        1024U * 1024U
+    );
+    config.configPullRedactSecrets = requireBool(object, "configPullRedactSecrets", config.configPullRedactSecrets);
     config.configPullChunkBytes = std::max<std::size_t>(
         16 * 1024,
         std::min<std::size_t>(
@@ -3261,6 +3380,16 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
             1000,
             60000
         );
+        config.scadaUpperComputerSafety.heartbeatSessionPrefix = requireString(
+            safetyObject,
+            "heartbeatSessionPrefix",
+            config.scadaUpperComputerSafety.heartbeatSessionPrefix
+        );
+        config.scadaUpperComputerSafety.clockStepToleranceMs = boundedInt(
+            requireInt(safetyObject, "clockStepToleranceMs", config.scadaUpperComputerSafety.clockStepToleranceMs),
+            0,
+            3600000
+        );
     }
     config.allowedCommands = parseStringArray(value->find("allowedCommands"));
     if (config.allowedCommands.empty()) {
@@ -3294,6 +3423,8 @@ SystemMonitorConfig parseSystemMonitorConfig(const JsonValue* value) {
         if (!modemDevicePatterns.empty()) {
             config.cellular.modemDevicePatterns = modemDevicePatterns;
         }
+        config.cellular.excludedDevices = parseStringArray(cellular->find("excludedDevices"));
+        config.cellular.commandTimeoutMs = boundedInt(config.cellular.commandTimeoutMs, 200, 10000);
     }
     if (const auto* recording = value->find("recordingTransfer")) {
         const auto& recordingObject = recording->asObject();
@@ -3766,10 +3897,16 @@ CameraServiceConfig parseCameraServiceConfig(const JsonValue* value) {
     config.sharedMemoryName = requireString(object, "sharedMemoryName", config.sharedMemoryName);
     config.statusTopic = requireString(object, "statusTopic", config.statusTopic);
     config.eventTopic = requireString(object, "eventTopic", config.eventTopic);
+    config.allowCustomCommand = requireBool(object, "allowCustomCommand", config.allowCustomCommand);
     config.media = parseCameraMediaConfig(value->find("media"));
     if (const auto* cameras = value->find("cameras")) {
+        std::unordered_set<std::string> cameraCodes;
         for (const auto& item : cameras->asArray().values) {
             config.cameras.push_back(parseCameraConfig(*item));
+            const auto& code = config.cameras.back().cameraCode;
+            if (!code.empty() && !cameraCodes.insert(code).second) {
+                throw std::invalid_argument("cameraService.cameras has duplicate cameraCode: " + code);
+            }
         }
     }
     if (config.statusIntervalMs < 1000) {
@@ -3861,6 +3998,9 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.ota.applyScript = "/opt/modbus-gateway/bin/ota-apply.sh";
     config.ota.rollbackScript = "/opt/modbus-gateway/bin/ota-rollback.sh";
     config.ota.checksumRequired = true;
+    config.ota.requireSignature = true;
+    config.ota.signaturePublicKeyPath = "/etc/modbus-gateway/ota.pub";
+    config.ota.allowInsecureHttp = false;
     config.ota.autoReboot = true;
     config.ota.retentionCount = 3;
     config.ota.statusReportIntervalSec = 5;
@@ -4037,7 +4177,7 @@ DeviceConfig buildBuiltinExampleDeviceConfig() {
 }
 
 DeviceConfig parseDeviceConfig(const std::string& text) {
-    const auto root = JsonParser(text).parse();
+    const auto root = JsonParser(text, kConfigJsonMaxDepth, kConfigJsonMaxNodes).parse();
     const auto& object = root.asObject();
 
     DeviceConfig config;
@@ -4078,7 +4218,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
 }
 
 std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) {
-    const auto root = JsonParser(text).parse();
+    const auto root = JsonParser(text, kConfigJsonMaxDepth, kConfigJsonMaxNodes).parse();
     if (!root.isObject()) {
         throw std::invalid_argument("DLT645 standard points root must be object");
     }
@@ -4131,7 +4271,7 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
 }
 
 AppConfig parseAppConfig(const std::string& text) {
-    const auto root = JsonParser(text).parse();
+    const auto root = JsonParser(text, kConfigJsonMaxDepth, kConfigJsonMaxNodes).parse();
     AppConfig config;
     config.runtimeMode = requireString(root.asObject(), "runtimeMode", config.runtimeMode);
     if (config.runtimeMode != "gateway" &&
@@ -4228,7 +4368,7 @@ AppConfig parseAppConfig(const std::string& text) {
 }
 
 DeviceIdentity parseDeviceIdentity(const std::string& text) {
-    const auto root = JsonParser(text).parse();
+    const auto root = JsonParser(text, kConfigJsonMaxDepth, kConfigJsonMaxNodes).parse();
     const auto& object = root.asObject();
     DeviceIdentity identity;
     identity.schemaVersion = requireString(object, "schemaVersion", identity.schemaVersion);

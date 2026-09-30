@@ -1,0 +1,18 @@
+[Unit]
+Description=Gateway interrupted OTA recovery
+After=local-fs.target
+Before=gateway-services.service gateway-health-watchdog.service
+ConditionPathExists=/opt/modbus-gateway/ota/staging/ota-in-progress
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/sh /opt/modbus-gateway/bin/ota-rollback.sh --recover-interrupted /opt/modbus-gateway/ota/staging --no-restart
+TimeoutStartSec=900
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# Only WantedBy: runtime-upgrade-guard.py pins gateway-services.service Requires=.
+WantedBy=multi-user.target

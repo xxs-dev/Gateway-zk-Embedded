@@ -92,12 +92,13 @@ public:
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+int runSystemMonitor(int argc, char* argv[]) {
     using namespace edge_gateway;
 
     std::string appConfigPath = "config/runtime/apps/mqtt-service.json";
     bool directMaintenanceDisabled = false;
     bool once = false;
+    bool setMaintenancePassword = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--app-config" && i + 1 < argc) {
@@ -106,10 +107,31 @@ int main(int argc, char* argv[]) {
             directMaintenanceDisabled = true;
         } else if (arg == "--once") {
             once = true;
+        } else if (arg == "--set-maintenance-password") {
+            setMaintenancePassword = true;
         }
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    if (setMaintenancePassword) {
+        // Provisioning mode: the password is read from stdin (never from argv/shell history).
+        std::string password;
+        std::getline(std::cin, password);
+        if (!password.empty() && password.back() == '\r') {
+            password.pop_back();
+        }
+        std::string error;
+        if (!system_monitor_direct_maintenance::provisionCredential(
+                appConfig.systemMonitor.directMaintenance,
+                password,
+                &error)) {
+            std::cerr << "maintenance password provisioning failed: " << error << std::endl;
+            return 1;
+        }
+        std::cout << "maintenance credential written to "
+                  << appConfig.systemMonitor.directMaintenance.credentialFile << std::endl;
+        return 0;
+    }
     setProcessName("modbus-sysm-" + sanitizeProcessToken(basenameOf(appConfigPath)));
     setDefaultSharedMutexTimeout();
 
@@ -189,6 +211,12 @@ int main(int argc, char* argv[]) {
         publisher = std::make_shared<StdoutMqttDriverPublisher>();
     }
     auto monitorConfig = appConfig.systemMonitor;
+    // Never AT-probe a serial port that belongs to a configured field interface.
+    for (const auto& config : deviceConfigs) {
+        if (!config.protocol.transport.serialPort.empty()) {
+            monitorConfig.cellular.excludedDevices.push_back(config.protocol.transport.serialPort);
+        }
+    }
     monitorConfig.scadaUpperComputerSafety.priorityControlLeaseFile =
         appConfig.mqttDriver.priorityControlLeaseFile;
     monitorConfig.scadaUpperComputerSafety.priorityControlLeaseTtlMs =
@@ -244,4 +272,13 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "system monitor stopped" << std::endl;
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    try {
+        return runSystemMonitor(argc, argv);
+    } catch (const std::exception& ex) {
+        std::cerr << "system monitor failed: " << ex.what() << std::endl;
+        return 1;
+    }
 }

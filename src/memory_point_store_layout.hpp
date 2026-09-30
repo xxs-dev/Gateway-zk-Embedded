@@ -208,5 +208,14 @@ struct SharedStoreLayout {
     SharedClusterAuthoritySnapshot clusterAuthority{};
 };
 
+// Every runtime array access trusts these cursors; reject a header that would index out of bounds.
+inline bool hasValidRingCursors(const SharedStoreHeader& h) {
+    return h.latestCount <= kMaxLatestSlots &&
+        h.pendingWriteHead < kMaxPendingWriteSlots && h.pendingWriteTail < kMaxPendingWriteSlots &&
+        h.writebackResultHead < kMaxWritebackResultSlots && h.writebackResultTail < kMaxWritebackResultSlots &&
+        h.persistentHead < kMaxPersistentSlots && h.persistentTail < kMaxPersistentSlots &&
+        h.pointUpdateHead < kMaxPointUpdateSlots && h.pointUpdateTail < kMaxPointUpdateSlots;
+}
+
 }  // namespace memory_layout
 }  // namespace edge_gateway

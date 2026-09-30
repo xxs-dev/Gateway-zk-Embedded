@@ -6,8 +6,20 @@ import hashlib
 import json
 import pathlib
 import shlex
+import sys
 import threading
 import time
+
+RETIRED_MESSAGE = (
+    "rolling-upgrade-legacy-runtime.py is retired: upgrade-legacy-runtime-v9.sh always exits 2 "
+    "(SHM11/KECP2 needs the offline all-participant migration), and this tool would otherwise "
+    "rewrite mqtt-service.json and stop mqtt-forwarder before failing without rollback. "
+    "Use offline-runtime-upgrade.py instead."
+)
+
+if __name__ == "__main__":
+    print(RETIRED_MESSAGE, file=sys.stderr)
+    sys.exit(2)
 
 import paramiko
 import paho.mqtt.client as mqtt
@@ -116,7 +128,8 @@ class MqttHold:
 
 def connect(host, password):
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(host, username="root", password=password, timeout=10)
     return client
 
@@ -172,7 +185,7 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--machine-code", required=True)
     parser.add_argument("--virtual-ip", required=True)
-    parser.add_argument("--password", default="root")
+    parser.add_argument("--password", required=True)
     parser.add_argument("--package", required=True)
     parser.add_argument("--upgrade-script", required=True)
     parser.add_argument("--reset-realtime-ring", action="store_true")

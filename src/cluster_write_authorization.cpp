@@ -53,6 +53,13 @@ ClusterBootId newClusterAuthorityEpoch() {
 }
 
 bool clusterAuthorizationRequired(const EmsClusterConfig& config, const PendingWriteCommand& command) {
+    // Driving a configured cluster power target to 0 kW/kvar is the safe state and must stay
+    // possible after the authority lease is lost or revoked (split brain can at most reduce power).
+    // Commands that carry a token keep full token validation (a revoked token is still revoked).
+    if (config.allowZeroWriteWithoutAuthority && !command.clusterAuthorization && command.value == 0.0 &&
+        contains(config.controlTargetIndexes, command.index)) {
+        return false;
+    }
     return static_cast<bool>(command.clusterAuthorization) ||
         (config.enabled && config.controlEnabled && command.source == "graph-ems" &&
          (config.controlTargetIndexes.empty() || contains(config.controlTargetIndexes, command.index)));

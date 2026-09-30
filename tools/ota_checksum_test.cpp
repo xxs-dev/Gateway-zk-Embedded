@@ -51,6 +51,7 @@ void checksumTests() {
     OtaConfig config;
     config.enabled = true;
     config.checksumRequired = true;
+    config.requireSignature = false;
     // A regular file blocks downloads even if a broken preflight accepts the request.
     config.downloadDir = artifactPath + "/downloads";
     config.stagingDir = artifactPath;

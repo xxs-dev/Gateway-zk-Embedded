@@ -545,18 +545,72 @@ std::string artifactFileName(const std::string& value) {
     return fileName;
 }
 
-void validateOtaRequestFields(const OtaRequest& request, bool checksumRequired) {
+bool isBase64Text(const std::string& value) {
+    if (value.empty() || value.size() > 4096 || value.size() % 4 != 0) {
+        return false;
+    }
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const char ch = value[i];
+        const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '+' || ch == '/' ||
+            (ch == '=' && i + 2 >= value.size());
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string decodeBase64(const std::string& value) {
+    if (!isBase64Text(value)) {
+        throw std::runtime_error("invalid ota signature encoding");
+    }
+    std::string decoded;
+    unsigned int buffer = 0;
+    int bits = 0;
+    for (const auto ch : value) {
+        int sextet = -1;
+        if (ch >= 'A' && ch <= 'Z') sextet = ch - 'A';
+        else if (ch >= 'a' && ch <= 'z') sextet = ch - 'a' + 26;
+        else if (ch >= '0' && ch <= '9') sextet = ch - '0' + 52;
+        else if (ch == '+') sextet = 62;
+        else if (ch == '/') sextet = 63;
+        else break;  // '=' padding
+        buffer = (buffer << 6) | static_cast<unsigned int>(sextet);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            decoded.push_back(static_cast<char>((buffer >> bits) & 0xff));
+        }
+    }
+    if (decoded.empty()) {
+        throw std::runtime_error("invalid ota signature encoding");
+    }
+    return decoded;
+}
+
+void validateOtaRequestFields(const OtaRequest& request, const OtaConfig& config) {
     if (!isSafeOtaId(request.jobId)) {
         throw std::runtime_error("invalid ota jobId");
     }
     if (!request.version.empty() && !isSafeOtaId(request.version)) {
         throw std::runtime_error("invalid ota version");
     }
-    if (checksumRequired && request.sha256.empty()) {
+    if (config.checksumRequired && request.sha256.empty()) {
         throw std::runtime_error("ota sha256 is required");
     }
     if (!isSafeSha256(request.sha256)) {
         throw std::runtime_error("invalid ota sha256");
+    }
+    if (config.requireSignature) {
+        if (request.signature.empty()) {
+            throw std::runtime_error("ota signature is required");
+        }
+        if (request.sha256.empty()) {
+            throw std::runtime_error("ota sha256 is required for signed ota");
+        }
+    }
+    if (!request.signature.empty() && !isBase64Text(request.signature)) {
+        throw std::runtime_error("invalid ota signature encoding");
     }
     if (!request.packageType.empty() && request.packageType != "full" &&
         request.packageType != "config" && request.packageType != "scada") {
@@ -778,11 +832,78 @@ int runShellCommandWithTimeout(const std::string& command, int timeoutSec) {
     }
 }
 
+// Runs a program with an explicit argv (never through a shell).
+int runArgvWithTimeout(const std::vector<std::string>& argv, int timeoutSec) {
+    if (argv.empty()) {
+        return -1;
+    }
+    std::vector<char*> args;
+    args.reserve(argv.size() + 1);
+    for (const auto& arg : argv) {
+        args.push_back(const_cast<char*>(arg.c_str()));
+    }
+    args.push_back(nullptr);
+    const pid_t pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        setsid();
+        const int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            close(devnull);
+        }
+        execvp(args[0], args.data());
+        _exit(127);
+    }
+    int status = 0;
+    const auto startedAt = currentTimeMs();
+    while (true) {
+        const pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            return status;
+        }
+        if (waited < 0) {
+            return -1;
+        }
+        if (timeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(timeoutSec) * 1000) {
+            terminateProcess(pid);
+            return -2;
+        }
+        usleep(50 * 1000);
+    }
+}
+
 bool commandStatusSucceeded(int status) {
     if (status < 0) {
         return false;
     }
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+void writePrivateTempFile(const std::string& directory, const std::string& prefix,
+                          const std::string& bytes, std::string* createdPath) {
+    std::string pattern = joinPath(directory, prefix + ".XXXXXX");
+    std::vector<char> buffer(pattern.begin(), pattern.end());
+    buffer.push_back('\0');
+    const int fd = mkstemp(buffer.data());
+    if (fd < 0) {
+        throw std::runtime_error("cannot create ota signature temporary file");
+    }
+    *createdPath = buffer.data();
+    std::size_t offset = 0;
+    while (offset < bytes.size()) {
+        const auto written = write(fd, bytes.data() + offset, bytes.size() - offset);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) {
+            close(fd);
+            unlink(createdPath->c_str());
+            throw std::runtime_error("cannot write ota signature temporary file");
+        }
+        offset += static_cast<std::size_t>(written);
+    }
+    close(fd);
 }
 
 void ensureFreeDiskSpace(const std::string& path, std::uint64_t minFreeBytes, std::uint64_t expectedWriteBytes) {
@@ -868,9 +989,11 @@ bool OtaService::enabled() const {
 
 bool OtaService::validateRequest(const OtaRequest& request, std::string* errorMessage) const {
     try {
-        validateOtaRequestFields(request, config_.checksumRequired);
+        validateOtaRequestFields(request, config_);
         validateOtaSize(config_, request.size);
         (void)resolveArtifactPath(request);
+        ensureTransportAllowed(resolveArtifactSource(request));
+        ensureJobNotProcessed(request);
         return true;
     } catch (const std::exception& ex) {
         if (errorMessage != nullptr) {
@@ -995,8 +1118,9 @@ void OtaService::execute(
     if (!config_.enabled) {
         throw std::runtime_error("ota is disabled");
     }
-    validateOtaRequestFields(request, config_.checksumRequired);
+    validateOtaRequestFields(request, config_);
     validateOtaSize(config_, request.size);
+    ensureJobNotProcessed(request);
 
     reply->jobId = request.jobId;
     reply->machineCode = machineCode;
@@ -1015,9 +1139,18 @@ void OtaService::execute(
     ensureDirectory(config_.backupDir);
 
     const auto artifactPath = resolveArtifactPath(request);
+    const auto previousVersion = readInstalledVersion();
     const auto startedAt = currentTimeMs();
     try {
-        ensureFreeDiskSpace(config_.downloadDir, config_.minFreeBytes, request.size);
+        // The signed descriptor binds jobId/machineCode/version/sha256/size, so it
+        // is checked before anything is downloaded; the sha256 check below then
+        // binds the downloaded bytes to the signed descriptor.
+        verifySignature(request, machineCode);
+        // Download, backup copy and work-dir copy each need the artifact size.
+        const auto expectedWrite = request.size > std::numeric_limits<std::uint64_t>::max() / 3
+            ? std::numeric_limits<std::uint64_t>::max()
+            : request.size * 3;
+        ensureFreeDiskSpace(config_.downloadDir, config_.minFreeBytes, expectedWrite);
 
         downloadArtifact(request, artifactPath, status, publishStatus);
         if (config_.upgradeTimeoutSec > 0 && currentTimeMs() - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
@@ -1046,8 +1179,8 @@ void OtaService::execute(
         throw;
     }
 
-    writeVersionMarker(request, artifactPath);
-    appendUpgradeRecord(request, artifactPath, currentTimeMs());
+    writeVersionMarker(request, artifactPath, previousVersion);
+    appendUpgradeRecord(request, artifactPath, previousVersion, currentTimeMs());
     cleanupOldArtifacts(fileNameOf(artifactPath));
     reportStage(status, "completed", 100, "upgrade completed", currentTimeMs(), publishStatus);
 }
@@ -1133,26 +1266,162 @@ void OtaService::ensureDirectory(const std::string& path) const {
     }
 }
 
-void OtaService::writeVersionMarker(const OtaRequest& request, const std::string& artifactPath) const {
+std::string OtaService::readInstalledVersion() const {
+    std::ifstream input(joinPath(config_.stagingDir, "current_version.txt").c_str());
+    std::string line;
+    std::string version;
+    std::string fallback;
+    while (std::getline(input, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.compare(0, 15, "currentVersion=") == 0) version = line.substr(15);
+        else if (line.compare(0, 8, "version=") == 0) fallback = line.substr(8);
+    }
+    if (!version.empty()) return version;
+    if (!fallback.empty()) return fallback;
+    return config_.currentVersion;
+}
+
+void OtaService::writeVersionMarker(
+    const OtaRequest& request,
+    const std::string& artifactPath,
+    const std::string& previousVersion
+) const {
     const auto versionFile = joinPath(config_.stagingDir, "current_version.txt");
     const auto jobBackupDir = joinPath(config_.backupDir, request.jobId);
     const auto workDir = joinPath(config_.stagingDir, request.jobId);
-    std::ofstream output(versionFile.c_str(), std::ios::trunc);
-    if (!output.is_open()) {
-        throw std::runtime_error("failed to write ota version marker");
-    }
+    std::ostringstream output;
     output << "jobId=" << request.jobId << "\n";
-    output << "previousVersion=" << config_.currentVersion << "\n";
-    output << "currentVersion=" << (request.version.empty() ? config_.currentVersion : request.version) << "\n";
+    output << "previousVersion=" << previousVersion << "\n";
+    output << "currentVersion=" << (request.version.empty() ? previousVersion : request.version) << "\n";
     output << "artifactPath=" << artifactPath << "\n";
     output << "backupDir=" << jobBackupDir << "\n";
     output << "backupArtifact=" << joinPath(jobBackupDir, fileNameOf(artifactPath)) << "\n";
     output << "workDir=" << workDir << "\n";
     output << "retentionCount=" << config_.retentionCount << "\n";
     output << "autoReboot=" << (config_.autoReboot ? "true" : "false") << "\n";
+    // Keep extra keys (packageType, scada*) that the apply script recorded for
+    // this same job so rollback metadata is not lost.
+    {
+        std::ifstream existing(versionFile.c_str());
+        std::vector<std::string> lines;
+        std::string line;
+        bool sameJob = false;
+        while (std::getline(existing, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line == "jobId=" + request.jobId) sameJob = true;
+            lines.push_back(line);
+        }
+        static const char* ownKeys[] = {"jobId=", "previousVersion=", "currentVersion=", "artifactPath=",
+            "backupDir=", "backupArtifact=", "workDir=", "retentionCount=", "autoReboot="};
+        for (const auto& kept : sameJob ? lines : std::vector<std::string>()) {
+            bool own = kept.empty();
+            for (const auto* key : ownKeys) {
+                if (kept.compare(0, std::strlen(key), key) == 0) own = true;
+            }
+            if (!own) output << kept << "\n";
+        }
+    }
+    try {
+        replacePendingJournal(versionFile, output.str());
+    } catch (const std::exception&) {
+        throw std::runtime_error("failed to write ota version marker");
+    }
 }
 
-void OtaService::appendUpgradeRecord(const OtaRequest& request, const std::string& artifactPath, std::int64_t ts) const {
+void OtaService::ensureJobNotProcessed(const OtaRequest& request) const {
+    // Job IDs are single-use once the apply stage has started: re-applying the
+    // same job would overwrite its rollback backup with the new files.
+    struct stat info {};
+    if (stat(joinPath(config_.backupDir, request.jobId).c_str(), &info) == 0 ||
+        stat(joinPath(config_.stagingDir, request.jobId).c_str(), &info) == 0) {
+        throw std::runtime_error("ota jobId already processed");
+    }
+    std::ifstream applied(joinPath(config_.stagingDir, "applied_jobs.txt").c_str());
+    std::string line;
+    while (std::getline(applied, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line == request.jobId) {
+            throw std::runtime_error("ota jobId already processed");
+        }
+    }
+    std::ifstream history(joinPath(config_.stagingDir, "upgrade_history.log").c_str());
+    const auto needle = ",jobId=" + sanitizeJournalField(request.jobId) + ",";
+    while (std::getline(history, line)) {
+        if (line.find(",result=success") != std::string::npos && line.find(needle) != std::string::npos) {
+            throw std::runtime_error("ota jobId already processed");
+        }
+    }
+}
+
+void OtaService::ensureTransportAllowed(const std::string& source) const {
+    if (source.compare(0, 7, "http://") == 0 && !config_.allowInsecureHttp) {
+        throw std::runtime_error("insecure http ota artifactUrl is disabled; use https or set ota.allowInsecureHttp");
+    }
+}
+
+std::string OtaService::signatureDescriptor(const OtaRequest& request, const std::string& machineCode) {
+    // Canonical descriptor "edge-ota-v1"; see doc/评审/OTA签名说明.md.
+    return "edge-ota-v1\n"
+        "jobId=" + request.jobId + "\n"
+        "machineCode=" + machineCode + "\n"
+        "packageType=" + request.packageType + "\n"
+        "version=" + request.version + "\n"
+        "sha256=" + toLower(request.sha256) + "\n"
+        "size=" + std::to_string(request.size) + "\n";
+}
+
+void OtaService::verifySignature(const OtaRequest& request, const std::string& machineCode) const {
+    if (!config_.requireSignature) {
+        return;
+    }
+    if (request.signature.empty()) {
+        throw std::runtime_error("ota signature is required");
+    }
+    if (request.sha256.empty()) {
+        throw std::runtime_error("ota sha256 is required for signed ota");
+    }
+    if (machineCode.empty() || hasControlCharacter(machineCode) || hasControlCharacter(request.packageType)) {
+        throw std::runtime_error("invalid ota signature descriptor");
+    }
+#ifdef _WIN32
+    throw std::runtime_error("ota signature verification is not implemented on windows");
+#else
+    struct stat keyInfo {};
+    if (config_.signaturePublicKeyPath.empty() || stat(config_.signaturePublicKeyPath.c_str(), &keyInfo) != 0 ||
+        (keyInfo.st_mode & S_IFMT) != S_IFREG) {
+        throw std::runtime_error("ota signature public key not found: " + config_.signaturePublicKeyPath);
+    }
+    const auto signatureBytes = decodeBase64(request.signature);
+    ensureDirectory(config_.stagingDir);
+    std::string descriptorPath;
+    std::string signaturePath;
+    writePrivateTempFile(config_.stagingDir, ".ota-descriptor", signatureDescriptor(request, machineCode), &descriptorPath);
+    try {
+        writePrivateTempFile(config_.stagingDir, ".ota-signature", signatureBytes, &signaturePath);
+    } catch (...) {
+        unlink(descriptorPath.c_str());
+        throw;
+    }
+    const int status = runArgvWithTimeout({
+        "openssl", "dgst", "-sha256",
+        "-verify", config_.signaturePublicKeyPath,
+        "-signature", signaturePath,
+        descriptorPath
+    }, 60);
+    unlink(descriptorPath.c_str());
+    unlink(signaturePath.c_str());
+    if (!commandStatusSucceeded(status)) {
+        throw std::runtime_error("ota signature verification failed");
+    }
+#endif
+}
+
+void OtaService::appendUpgradeRecord(
+    const OtaRequest& request,
+    const std::string& artifactPath,
+    const std::string& previousVersion,
+    std::int64_t ts
+) const {
     const auto recordFile = joinPath(config_.stagingDir, "upgrade_history.log");
     std::ofstream output(recordFile.c_str(), std::ios::app);
     if (!output.is_open()) {
@@ -1161,8 +1430,8 @@ void OtaService::appendUpgradeRecord(const OtaRequest& request, const std::strin
     output << ts
            << ",result=success"
            << ",jobId=" << sanitizeJournalField(request.jobId)
-           << ",fromVersion=" << sanitizeJournalField(config_.currentVersion)
-           << ",toVersion=" << sanitizeJournalField(request.version.empty() ? config_.currentVersion : request.version)
+           << ",fromVersion=" << sanitizeJournalField(previousVersion)
+           << ",toVersion=" << sanitizeJournalField(request.version.empty() ? previousVersion : request.version)
            << ",artifactPath=" << sanitizeJournalField(artifactPath)
            << "\n";
 }
@@ -1316,6 +1585,7 @@ void OtaService::downloadArtifact(
     if (source.empty()) {
         throw std::runtime_error("ota artifact source is empty");
     }
+    ensureTransportAllowed(source);
 
     const int maxAttempts = std::max(1, config_.downloadRetryCount);
     std::string lastError;
@@ -1595,7 +1865,8 @@ void OtaService::downloadExternalArtifact(
     // characters as defence in depth.
     const char* script =
         "if command -v curl >/dev/null 2>&1; then "
-        "curl -L --fail --silent --show-error --proto '=http,https' --connect-timeout 15 --max-time \"$3\" -o \"$1\" -- \"$2\"; "
+        "curl -L --fail --silent --show-error --proto \"$4\" --proto-redir \"$4\" ${5:+--max-filesize} ${5:+\"$5\"} "
+        "--connect-timeout 15 --max-time \"$3\" -o \"$1\" -- \"$2\"; "
         "elif command -v wget >/dev/null 2>&1; then "
         "wget -q -T 15 -O \"$1\" -- \"$2\"; "
         "else "
@@ -1609,7 +1880,11 @@ void OtaService::downloadExternalArtifact(
     if (pid == 0) {
         setsid();
         const std::string timeoutText = std::to_string(std::max(1, config_.upgradeTimeoutSec));
-        execl("/bin/sh", "sh", "-c", script, "sh", targetPath.c_str(), source.c_str(), timeoutText.c_str(), static_cast<char*>(nullptr));
+        const std::string protocols = config_.allowInsecureHttp ? "=http,https" : "=https";
+        const std::uint64_t sizeLimit = config_.maxArtifactBytes > 0 ? config_.maxArtifactBytes : request.size;
+        const std::string maxFileSize = sizeLimit > 0 ? std::to_string(sizeLimit) : std::string();
+        execl("/bin/sh", "sh", "-c", script, "sh", targetPath.c_str(), source.c_str(), timeoutText.c_str(),
+            protocols.c_str(), maxFileSize.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }
 
@@ -1617,28 +1892,33 @@ void OtaService::downloadExternalArtifact(
     std::uint64_t lastBytes = 0;
     std::int64_t lastReportMs = currentTimeMs();
     const auto startedAt = currentTimeMs();
-    while (true) {
-        const pid_t waited = waitpid(pid, &exitStatus, WNOHANG);
-        if (waited == pid) {
-            break;
+    try {
+        while (true) {
+            const pid_t waited = waitpid(pid, &exitStatus, WNOHANG);
+            if (waited == pid) {
+                break;
+            }
+            if (waited < 0) {
+                throw std::runtime_error("ota downloader waitpid failed");
+            }
+            const auto currentBytes = fileSizeBytes(targetPath);
+            const auto nowMs = currentTimeMs();
+            if (currentBytes != lastBytes || nowMs - lastReportMs >= 1000) {
+                reportDownloadProgress(status, currentBytes, totalBytes, "downloading artifact", publishStatus);
+                lastBytes = currentBytes;
+                lastReportMs = nowMs;
+            }
+            validateOtaSize(config_, currentBytes);
+            if (config_.upgradeTimeoutSec > 0 &&
+                nowMs - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
+                throw std::runtime_error("ota downloader timeout");
+            }
+            usleep(500 * 1000);
         }
-        if (waited < 0) {
-            throw std::runtime_error("ota downloader waitpid failed");
-        }
-        const auto currentBytes = fileSizeBytes(targetPath);
-        const auto nowMs = currentTimeMs();
-        if (currentBytes != lastBytes || nowMs - lastReportMs >= 1000) {
-            reportDownloadProgress(status, currentBytes, totalBytes, "downloading artifact", publishStatus);
-            lastBytes = currentBytes;
-            lastReportMs = nowMs;
-        }
-        validateOtaSize(config_, currentBytes);
-        if (config_.upgradeTimeoutSec > 0 &&
-            nowMs - startedAt > static_cast<std::int64_t>(config_.upgradeTimeoutSec) * 1000) {
-            terminateProcess(pid);
-            throw std::runtime_error("ota downloader timeout");
-        }
-        usleep(500 * 1000);
+    } catch (...) {
+        // Never leave curl/wget writing into an unlinked inode after an abort.
+        terminateProcess(pid);
+        throw;
     }
 
     const auto finalBytes = fileSizeBytes(targetPath);
@@ -1654,7 +1934,7 @@ void OtaService::downloadExternalArtifact(
 }
 
 void OtaService::verifyChecksum(const OtaRequest& request, const std::string& artifactPath) const {
-    if (!config_.checksumRequired) {
+    if (!config_.checksumRequired && !config_.requireSignature) {
         return;
     }
     if (request.sha256.empty()) {

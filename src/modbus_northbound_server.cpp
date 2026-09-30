@@ -1,6 +1,7 @@
 #include "edge_gateway/modbus_northbound_server.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -19,9 +20,12 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
+
+#include <thread>
 
 namespace edge_gateway {
 
@@ -209,6 +213,39 @@ std::vector<std::uint8_t> writeBigEndian<double>(double value) {
     return writeUint64BigEndian(raw);
 }
 
+#if defined(MSG_NOSIGNAL)
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+
+// Rounds rawValue to T, refusing values T cannot represent instead of letting
+// the cast wrap (e.g. -5 or 70000 into a uint16 register).
+template <typename T>
+T checkedIntegral(double rawValue, const std::string& dataType) {
+    if (!std::isfinite(rawValue)) {
+        throw std::invalid_argument("northbound value is not finite for dataType " + dataType);
+    }
+    const auto rounded = static_cast<long double>(std::round(rawValue));
+    if (rounded < static_cast<long double>(std::numeric_limits<T>::min()) ||
+        rounded > static_cast<long double>(std::numeric_limits<T>::max())) {
+        throw std::out_of_range("northbound value out of range for dataType " + dataType);
+    }
+    return static_cast<T>(std::llround(rawValue));
+}
+
+template <>
+std::uint64_t checkedIntegral<std::uint64_t>(double rawValue, const std::string& dataType) {
+    if (!std::isfinite(rawValue)) {
+        throw std::invalid_argument("northbound value is not finite for dataType " + dataType);
+    }
+    const auto rounded = std::round(rawValue);
+    if (rounded < 0.0 || rounded >= 18446744073709551616.0) {
+        throw std::out_of_range("northbound value out of range for dataType " + dataType);
+    }
+    return static_cast<std::uint64_t>(rounded);
+}
+
 double removeScale(double businessValue, const ModbusNorthboundMappingConfig& mapping) {
     if (std::abs(mapping.scale) < std::numeric_limits<double>::epsilon()) {
         throw std::invalid_argument("northbound scale must not be zero");
@@ -225,20 +262,27 @@ std::vector<std::uint16_t> encodeNumericRegisters(
     if (mapping.dataType == "bit" || mapping.dataType == "bool") {
         canonicalBytes = writeBigEndian(static_cast<std::uint16_t>(std::abs(rawValue) > 0.0 ? 1 : 0));
     } else if (mapping.dataType == "uint16" || mapping.dataType.empty()) {
-        canonicalBytes = writeBigEndian(static_cast<std::uint16_t>(std::llround(rawValue)));
+        canonicalBytes = writeBigEndian(checkedIntegral<std::uint16_t>(rawValue, "uint16"));
     } else if (mapping.dataType == "int16") {
-        canonicalBytes = writeBigEndian(static_cast<std::int16_t>(std::llround(rawValue)));
+        canonicalBytes = writeBigEndian(checkedIntegral<std::int16_t>(rawValue, mapping.dataType));
     } else if (mapping.dataType == "uint32") {
-        canonicalBytes = writeBigEndian(static_cast<std::uint32_t>(std::llround(rawValue)));
+        canonicalBytes = writeBigEndian(checkedIntegral<std::uint32_t>(rawValue, mapping.dataType));
     } else if (mapping.dataType == "int32") {
-        canonicalBytes = writeBigEndian(static_cast<std::int32_t>(std::llround(rawValue)));
+        canonicalBytes = writeBigEndian(checkedIntegral<std::int32_t>(rawValue, mapping.dataType));
     } else if (mapping.dataType == "uint64") {
-        canonicalBytes = writeBigEndian(static_cast<std::uint64_t>(std::llround(rawValue)));
+        canonicalBytes = writeBigEndian(checkedIntegral<std::uint64_t>(rawValue, mapping.dataType));
     } else if (mapping.dataType == "int64") {
-        canonicalBytes = writeBigEndian(static_cast<std::int64_t>(std::llround(rawValue)));
+        canonicalBytes = writeBigEndian(checkedIntegral<std::int64_t>(rawValue, mapping.dataType));
     } else if (mapping.dataType == "float32") {
-        canonicalBytes = writeBigEndian(static_cast<float>(rawValue));
+        const auto narrowed = static_cast<float>(rawValue);
+        if (!std::isfinite(narrowed)) {
+            throw std::out_of_range("northbound value is not representable as float32");
+        }
+        canonicalBytes = writeBigEndian(narrowed);
     } else if (mapping.dataType == "float64" || mapping.dataType == "double") {
+        if (!std::isfinite(rawValue)) {
+            throw std::invalid_argument("northbound value is not finite");
+        }
         canonicalBytes = writeBigEndian(static_cast<double>(rawValue));
     } else {
         throw std::invalid_argument("unsupported northbound dataType: " + mapping.dataType);
@@ -343,6 +387,29 @@ void ModbusNorthboundServer::start() {
     if (config_.northboundServer.mode != "mapped" && config_.northboundServer.mode != "hybrid") {
         throw std::invalid_argument("northboundServer mode passthrough is reserved and must not be enabled in this build");
     }
+    if (isUnrestrictedWildcardBind()) {
+        // Secure default: do not expose the listener to every host on every
+        // interface. Collection keeps running; only the northbound server is
+        // refused.
+        const auto bindHost = config_.northboundServer.bindHost.empty()
+            ? std::string("<any>")
+            : config_.northboundServer.bindHost;
+        {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            startError_ =
+                "northbound modbus tcp REFUSED to start: bindHost=" + bindHost +
+                " port=" + std::to_string(config_.northboundServer.port) +
+                " listens on all interfaces with an empty allowedClientCidrs list. Remedy: set"
+                " northboundServer.allowedClientCidrs (e.g. [\"192.168.1.0/24\"]), or a specific"
+                " northboundServer.bindHost, or explicitly northboundServer.allowUnrestrictedClients=true";
+        }
+        std::cerr << "ERROR " << startError() << std::endl;
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        startError_.clear();
+    }
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
@@ -358,13 +425,40 @@ void ModbusNorthboundServer::stop() {
     }
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
-        for (auto& thread : clientThreads_) {
-            if (thread.joinable()) {
-                thread.join();
+        for (auto& client : clientThreads_) {
+            if (client.thread.joinable()) {
+                client.thread.join();
             }
         }
         clientThreads_.clear();
     }
+}
+
+bool ModbusNorthboundServer::isUnrestrictedWildcardBind() const {
+    const auto& server = config_.northboundServer;
+    if (server.allowUnrestrictedClients || !server.allowedClientCidrs.empty()) {
+        return false;
+    }
+    const auto& host = server.bindHost;
+    return host.empty() || host == "0.0.0.0" || host == "::" || host == "[::]" || host == "*";
+}
+
+void ModbusNorthboundServer::reapFinishedClientsLocked() {
+    for (auto it = clientThreads_.begin(); it != clientThreads_.end();) {
+        if (it->done && it->done->load()) {
+            if (it->thread.joinable()) {
+                it->thread.join();
+            }
+            it = clientThreads_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+std::string ModbusNorthboundServer::startError() const {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    return startError_;
 }
 
 bool ModbusNorthboundServer::isRunning() const {
@@ -485,6 +579,8 @@ void ModbusNorthboundServer::acceptLoop() {
                 if (!running_.load()) {
                     break;
                 }
+                // e.g. EMFILE: back off instead of spinning on the listener.
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
             }
 
@@ -510,12 +606,26 @@ void ModbusNorthboundServer::acceptLoop() {
             }
             activeClients_.fetch_add(1);
             std::lock_guard<std::mutex> lock(clientsMutex_);
-            clientThreads_.emplace_back(
-                &ModbusNorthboundServer::handleClient,
-                this,
-                static_cast<std::intptr_t>(client),
-                clientAddress
-            );
+            // Join handlers of closed connections so reconnecting masters do
+            // not accumulate unjoined threads (and their stacks) forever.
+            reapFinishedClientsLocked();
+            try {
+                auto done = std::make_shared<std::atomic<bool>>(false);
+                ClientThread entry;
+                entry.done = done;
+                entry.thread = std::thread(
+                    &ModbusNorthboundServer::handleClient,
+                    this,
+                    static_cast<std::intptr_t>(client),
+                    clientAddress,
+                    done
+                );
+                clientThreads_.push_back(std::move(entry));
+            } catch (const std::exception& ex) {
+                std::cerr << "northbound client thread start failed: " << ex.what() << std::endl;
+                closeSocket(client);
+                activeClients_.fetch_sub(1);
+            }
         }
     } catch (const std::exception& ex) {
         if (running_.load()) {
@@ -525,27 +635,45 @@ void ModbusNorthboundServer::acceptLoop() {
     }
 }
 
-void ModbusNorthboundServer::handleClient(std::intptr_t clientSocket, std::string clientAddress) {
+void ModbusNorthboundServer::handleClient(
+    std::intptr_t clientSocket,
+    std::string clientAddress,
+    std::shared_ptr<std::atomic<bool>> done
+) {
     (void)clientAddress;
     const auto socketHandle = static_cast<SocketHandle>(clientSocket);
 #ifdef _WIN32
     const DWORD timeout = static_cast<DWORD>(config_.northboundServer.requestTimeoutMs);
-    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
     setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
 #else
     timeval timeout;
     timeout.tv_sec = config_.northboundServer.requestTimeoutMs / 1000;
     timeout.tv_usec = (config_.northboundServer.requestTimeoutMs % 1000) * 1000;
-    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 #endif
 
     try {
         while (running_.load()) {
-            std::vector<std::uint8_t> header;
-            if (!readExact(clientSocket, header, 7)) {
+            // Idle phase: a master may stay silent up to idleTimeoutMs between
+            // requests. Once the first byte arrives the whole ADU must complete
+            // within requestTimeoutMs, so a byte-dribbling client cannot hold a
+            // connection slot indefinitely.
+            std::vector<std::uint8_t> first;
+            const auto idleDeadline = std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(std::max(1, config_.northboundServer.idleTimeoutMs));
+            if (!readExact(clientSocket, first, 1, idleDeadline)) {
                 break;
             }
+            const auto requestDeadline = std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(std::max(1, config_.northboundServer.requestTimeoutMs));
+            std::vector<std::uint8_t> rest;
+            if (!readExact(clientSocket, rest, 6, requestDeadline)) {
+                break;
+            }
+            std::vector<std::uint8_t> header;
+            header.reserve(7);
+            header.push_back(first.front());
+            header.insert(header.end(), rest.begin(), rest.end());
             const auto transactionId = readWord(header, 0);
             const auto protocolId = readWord(header, 2);
             const auto length = readWord(header, 4);
@@ -554,7 +682,7 @@ void ModbusNorthboundServer::handleClient(std::intptr_t clientSocket, std::strin
                 break;
             }
             std::vector<std::uint8_t> pdu;
-            if (!readExact(clientSocket, pdu, static_cast<std::size_t>(length - 1))) {
+            if (!readExact(clientSocket, pdu, static_cast<std::size_t>(length - 1), requestDeadline)) {
                 break;
             }
 
@@ -572,6 +700,9 @@ void ModbusNorthboundServer::handleClient(std::intptr_t clientSocket, std::strin
     }
     closeSocket(socketHandle);
     activeClients_.fetch_sub(1);
+    if (done) {
+        done->store(true);
+    }
 }
 
 std::vector<std::uint8_t> ModbusNorthboundServer::handleRequest(
@@ -744,7 +875,7 @@ void ModbusNorthboundServer::sendAll(std::intptr_t socket, const std::vector<std
 #ifdef _WIN32
         const auto rc = send(socketHandle, reinterpret_cast<const char*>(bytes.data() + sent), static_cast<int>(bytes.size() - sent), 0);
 #else
-        const auto rc = send(socketHandle, bytes.data() + sent, bytes.size() - sent, 0);
+        const auto rc = send(socketHandle, bytes.data() + sent, bytes.size() - sent, kSendFlags);
 #endif
         if (rc <= 0) {
             throw std::runtime_error("northbound send failed");
@@ -756,12 +887,46 @@ void ModbusNorthboundServer::sendAll(std::intptr_t socket, const std::vector<std
 bool ModbusNorthboundServer::readExact(
     std::intptr_t socket,
     std::vector<std::uint8_t>& bytes,
-    std::size_t size
+    std::size_t size,
+    std::chrono::steady_clock::time_point deadline
 ) const {
     bytes.assign(size, 0);
     const auto socketHandle = static_cast<SocketHandle>(socket);
     std::size_t received = 0;
     while (received < size) {
+        if (!running_.load()) {
+            return false;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+        // Wait in short slices so stop() is honoured promptly.
+        const auto remainingUs = std::min<long long>(
+            200000,
+            std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count());
+        timeval wait{};
+        wait.tv_sec = static_cast<long>(remainingUs / 1000000);
+        wait.tv_usec = static_cast<long>(remainingUs % 1000000);
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(socketHandle, &readSet);
+#ifdef _WIN32
+        const auto ready = select(0, &readSet, nullptr, nullptr, &wait);
+#else
+        const auto ready = select(socketHandle + 1, &readSet, nullptr, nullptr, &wait);
+#endif
+        if (ready == 0) {
+            continue;
+        }
+        if (ready < 0) {
+#ifndef _WIN32
+            if (errno == EINTR) {
+                continue;
+            }
+#endif
+            return false;
+        }
 #ifdef _WIN32
         const auto rc = recv(socketHandle, reinterpret_cast<char*>(bytes.data() + received), static_cast<int>(size - received), 0);
 #else

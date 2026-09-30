@@ -507,6 +507,79 @@ int main() {
     const std::string applyReply = lastPayloadForTopic(*kyEmsPublisher, kyEmsMqtt.configApplyReplyTopic);
     require(applyReply.find("\"success\":true") != std::string::npos, "KY-EMS image apply should succeed");
 
+    const std::string kyEmsLayout = kyEmsRoot + "/layout.json";
+    writeFile(kyEmsLayout, "{\"ok\":true}");
+    auto kyEmsValidatePublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService kyEmsValidateService(
+        SystemMonitorConfig{},
+        kyEmsMqtt,
+        kyEmsValidatePublisher,
+        "GW_TEST",
+        std::vector<std::string>{kyEmsAppConfig}
+    );
+    MqttIncomingMessage kyEmsBadApply;
+    kyEmsBadApply.type = MqttIncomingType::ConfigApplyRequest;
+    kyEmsBadApply.payload =
+        std::string("{\"requestId\":\"REQ_KYEMS_BAD\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"files\":[{\"path\":\"") +
+        kyEmsLayout + "\",\"encoding\":\"utf8\",\"content\":\"{\\\"broken\\\":\"}]}";
+    kyEmsValidatePublisher->incoming.push_back(kyEmsBadApply);
+    kyEmsValidateService.runOnce(1770000001700LL);
+    require(readFile(kyEmsLayout) == "{\"ok\":true}", "malformed KY-EMS JSON must not be written");
+    require(lastPayloadForTopic(*kyEmsValidatePublisher, kyEmsMqtt.configApplyReplyTopic).find("\"success\":false") != std::string::npos,
+            "malformed KY-EMS JSON apply should fail");
+
+    const std::string secretApp = runtimeApps + "/secret-service.json";
+    writeFile(secretApp, "{\"computeEngine\":{\"enabled\":false,\"rules\":[]},\"extra\":{\"username\":\"u\",\"password\":\"s3cr3t-value\"}}\n");
+    MqttConfig secretMqtt;
+    secretMqtt.configPullReplyTopic = "secret/config/reply";
+    secretMqtt.configApplyReplyTopic = "secret/config/apply/reply";
+    auto secretPublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService secretService(SystemMonitorConfig{}, secretMqtt, secretPublisher, "GW_TEST", std::vector<std::string>{secretApp});
+    request.payload = "{\"requestId\":\"REQ_SECRET\",\"machineCode\":\"GW_TEST\"}";
+    secretPublisher->incoming.push_back(request);
+    secretService.runOnce(1770000001800LL);
+    const std::string secretReply = configPullReplyPayload(*secretPublisher, secretMqtt.configPullReplyTopic);
+    require(secretReply.find(secretApp) != std::string::npos, "secret app config should be pulled");
+    require(secretReply.find("s3cr3t-value") == std::string::npos, "config pull must redact secrets");
+    require(secretReply.find("__REDACTED__") != std::string::npos, "config pull should mark redacted secrets");
+    MqttIncomingMessage secretApply;
+    secretApply.type = MqttIncomingType::ConfigApplyRequest;
+    secretApply.payload =
+        std::string("{\"requestId\":\"REQ_SECRET_APPLY\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"files\":[{\"path\":\"") +
+        secretApp +
+        "\",\"encoding\":\"utf8\",\"content\":\"{\\\"computeEngine\\\":{\\\"enabled\\\":false,\\\"rules\\\":[]},"
+        "\\\"extra\\\":{\\\"username\\\":\\\"v\\\",\\\"password\\\":\\\"__REDACTED__\\\"}}\"}]}";
+    secretPublisher->incoming.push_back(secretApply);
+    secretService.runOnce(1770000001900LL);
+    const auto appliedSecret = readFile(secretApp);
+    require(appliedSecret.find("s3cr3t-value") != std::string::npos, "config apply must restore redacted secrets");
+    require(appliedSecret.find("\"username\":\"v\"") != std::string::npos, "config apply should keep edited values");
+    MqttIncomingMessage unknownSecretApply;
+    unknownSecretApply.type = MqttIncomingType::ConfigApplyRequest;
+    unknownSecretApply.payload =
+        std::string("{\"requestId\":\"REQ_SECRET_UNKNOWN\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"files\":[{\"path\":\"") +
+        secretApp +
+        "\",\"encoding\":\"utf8\",\"content\":\"{\\\"computeEngine\\\":{\\\"enabled\\\":false,\\\"rules\\\":[]},"
+        "\\\"other\\\":{\\\"password\\\":\\\"__REDACTED__\\\"}}\"}]}";
+    secretPublisher->incoming.push_back(unknownSecretApply);
+    secretService.runOnce(1770000001950LL);
+    require(readFile(secretApp) == appliedSecret, "unmatched redacted secret must not be written");
+    require(lastPayloadForTopic(*secretPublisher, secretMqtt.configApplyReplyTopic).find("has no matching value") != std::string::npos,
+            "unmatched redacted secret should be rejected with a clear error");
+    MqttIncomingMessage cameraApply;
+    cameraApply.type = MqttIncomingType::ConfigApplyRequest;
+    cameraApply.payload =
+        std::string("{\"requestId\":\"REQ_CAMERA_CMD\",\"machineCode\":\"GW_TEST\",\"dryRun\":true,\"files\":[{\"path\":\"") +
+        secretApp +
+        "\",\"encoding\":\"utf8\",\"content\":\"{\\\"cameraService\\\":{\\\"allowCustomCommand\\\":true,"
+        "\\\"cameras\\\":[{\\\"cameraCode\\\":\\\"C1\\\",\\\"command\\\":\\\"id\\\"}]}}\"}]}";
+    secretPublisher->incoming.push_back(cameraApply);
+    secretService.runOnce(1770000002000LL);
+    const auto cameraReply = lastPayloadForTopic(*secretPublisher, secretMqtt.configApplyReplyTopic);
+    require(cameraReply.find("\"success\":false") != std::string::npos &&
+                cameraReply.find("allowCustomCommand") != std::string::npos,
+            "remote config apply must not introduce a custom camera command");
+
     const std::string storeName = "system_monitor_service_test_" + std::to_string(getpid());
     MemoryPointStore::cleanupOrphanedSegment(storeName);
     MemoryPointStore store(storeName);

@@ -8,12 +8,40 @@ INSTALL_BIN_DIR="${INSTALL_BIN_DIR:-/usr/local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/easytier}"
 CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/et.conf}"
 SERVICE_FILE="${SERVICE_FILE:-/etc/systemd/system/easytier.service}"
+# The overlay network secret is never stored in the repository: pass it via
+# EASYTIER_NETWORK_SECRET or a root-only file named by EASYTIER_NETWORK_SECRET_FILE.
+EASYTIER_NETWORK_SECRET="${EASYTIER_NETWORK_SECRET:-}"
+EASYTIER_NETWORK_SECRET_FILE="${EASYTIER_NETWORK_SECRET_FILE:-}"
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
     echo "This installer must run as root." >&2
     exit 1
   fi
+}
+
+load_network_secret() {
+  if [ -z "$EASYTIER_NETWORK_SECRET" ] && [ -n "$EASYTIER_NETWORK_SECRET_FILE" ]; then
+    [ -r "$EASYTIER_NETWORK_SECRET_FILE" ] || {
+      echo "EASYTIER_NETWORK_SECRET_FILE is not readable: $EASYTIER_NETWORK_SECRET_FILE" >&2
+      exit 2
+    }
+    EASYTIER_NETWORK_SECRET=$(sed -n '1p' "$EASYTIER_NETWORK_SECRET_FILE" | tr -d '\r')
+  fi
+  if [ -z "$EASYTIER_NETWORK_SECRET" ]; then
+    echo "EASYTIER_NETWORK_SECRET (or EASYTIER_NETWORK_SECRET_FILE) is required; no default secret is shipped." >&2
+    exit 2
+  fi
+  if [ "${#EASYTIER_NETWORK_SECRET}" -lt 12 ]; then
+    echo "EasyTier network secret must be at least 12 characters." >&2
+    exit 2
+  fi
+  case "$EASYTIER_NETWORK_SECRET" in
+    *'"'*|*'\'*)
+      echo "EasyTier network secret may not contain quotes or backslashes." >&2
+      exit 2
+      ;;
+  esac
 }
 
 validate_virtual_ip() {
@@ -107,7 +135,7 @@ rpc_portal = "0.0.0.0:0"
 
 [network_identity]
 network_name = "kyxn"
-network_secret = "Kydl2025@"
+network_secret = "$EASYTIER_NETWORK_SECRET"
 
 [[peer]]
 uri = "tcp://www.kyxn.net:11010"
@@ -136,6 +164,7 @@ ExecStart=$INSTALL_BIN_DIR/easytier-core -c $CONFIG_FILE
 Restart=always
 RestartSec=5
 User=root
+NoNewPrivileges=yes
 LimitNOFILE=1048576
 
 [Install]
@@ -172,6 +201,7 @@ show_result() {
 }
 
 require_root
+load_network_secret
 validate_virtual_ip
 install_hostname
 install_binaries

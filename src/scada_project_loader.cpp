@@ -143,6 +143,13 @@ private:
     }
 
     JsonValue parseValue() {
+        // Bound recursion: a deeply nested package file must not overflow the stack.
+        if (depth_ >= kMaxJsonDepth || ++nodes_ > kMaxJsonNodes) fail("nesting/node limit exceeded");
+        struct DepthScope {
+            std::size_t& depth;
+            explicit DepthScope(std::size_t& value) : depth(value) { ++depth; }
+            ~DepthScope() { --depth; }
+        } depthScope(depth_);
         skipWhitespace();
         if (position_ >= text_.size()) fail("unexpected end of input");
         const auto ch = text_[position_];
@@ -308,8 +315,12 @@ private:
         if (!consume(expected)) fail(std::string("expected '") + expected + "'");
     }
 
+    static constexpr std::size_t kMaxJsonDepth = 64;
+    static constexpr std::size_t kMaxJsonNodes = 4000000;
     const std::string& text_;
     std::size_t position_ = 0;
+    std::size_t depth_ = 0;
+    std::size_t nodes_ = 0;
 };
 
 std::string readTextFile(const std::string& path) {

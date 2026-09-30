@@ -160,7 +160,17 @@ if [ "${#targets[@]}" -eq 0 ]; then
 fi
 
 if [ "$CLEAN" = "1" ]; then
-  rm -rf "$BUILD_DIR"
+  # Only ever delete a dedicated build directory inside the checkout.
+  build_dir_real=$(realpath -m -- "$BUILD_DIR")
+  root_dir_real=$(realpath -m -- "$ROOT_DIR")
+  case "$build_dir_real" in
+    "$root_dir_real"/build*) ;;
+    *)
+      echo "--clean refuses to delete a build dir outside $ROOT_DIR/build*: $BUILD_DIR" >&2
+      exit 2
+      ;;
+  esac
+  rm -rf -- "$build_dir_real"
 fi
 
 if [ "$PACKAGE" = "1" ] && [ "$CLEAN" != "1" ]; then

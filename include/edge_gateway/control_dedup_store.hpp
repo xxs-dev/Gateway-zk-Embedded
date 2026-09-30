@@ -20,7 +20,14 @@ public:
         bool owner = false;
         WritebackResultRecord result;
     };
-    explicit ControlDedupStore(std::string path, std::size_t capacity = 100000);
+    // Finalized receipts older than retentionMs are pruned; when still at
+    // capacity, the oldest finalized receipts older than minEvictAgeMs are
+    // evicted. Reserved/unknown-outcome rows are never removed.
+    static constexpr std::int64_t kDefaultRetentionMs = 24LL * 60 * 60 * 1000;
+    static constexpr std::int64_t kDefaultMinEvictAgeMs = 60LL * 60 * 1000;
+    explicit ControlDedupStore(std::string path, std::size_t capacity = 100000,
+                               std::int64_t retentionMs = kDefaultRetentionMs,
+                               std::int64_t minEvictAgeMs = kDefaultMinEvictAgeMs);
     Optional<WritebackResultRecord> bind(const std::string& machine, const std::string& meter,
                                        const PendingWriteCommand& command);
     Claim claim(const std::string& machine, const std::string& meter,
@@ -35,6 +42,8 @@ public:
 private:
     std::string path_;
     std::size_t capacity_;
+    std::int64_t retentionMs_;
+    std::int64_t minEvictAgeMs_;
 };
 
 } // namespace edge_gateway

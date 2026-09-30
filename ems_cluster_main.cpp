@@ -249,6 +249,12 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
+        if (appConfig.emsCluster.controlEnabled) {
+            std::cerr << "EMS cluster SIGN CONVENTION: station targets and dispatched targets use "
+                      << "positive active power = discharge (capability allocation and clamping follow this); "
+                      << "Graph EMS PCS nodes use positive = charge. Map explicitly with clusterDispatch.commandSign"
+                      << std::endl;
+        }
         auto transport = makeEthernetClusterTransport(appConfig.emsCluster, identity.machineCode, node.configurationHash());
         transport->start();
         EmsClusterPointBridge pointBridge(appConfig.emsCluster, identity.machineCode);

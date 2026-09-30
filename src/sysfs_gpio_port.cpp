@@ -64,6 +64,31 @@ void SysfsGpioPort::setDirection(int gpio, const std::string& direction) {
     directions_[gpio] = direction;
 }
 
+void SysfsGpioPort::setOutputDirection(int gpio, bool initialHigh) {
+    exportGpio(gpio);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto current = directions_.find(gpio);
+        if (current == directions_.end() || current->second != "out") {
+            std::string actual;
+            try {
+                actual = readFile(gpioPath(gpio, "direction"));
+            } catch (const std::exception&) {
+                actual.clear();
+            }
+            // Writing "out" drives the pin low before the value is written,
+            // which pulses an active-low relay. If the pin is already an output
+            // (e.g. after a driver restart) keep it; otherwise use the kernel's
+            // glitch-free "high"/"low" direction values.
+            if (actual.compare(0, 3, "out") != 0) {
+                writeFile(gpioPath(gpio, "direction"), initialHigh ? "high" : "low");
+            }
+            directions_[gpio] = "out";
+        }
+    }
+    writeValue(gpio, initialHigh);
+}
+
 bool SysfsGpioPort::readValue(int gpio) {
     exportGpio(gpio);
 #ifndef _WIN32

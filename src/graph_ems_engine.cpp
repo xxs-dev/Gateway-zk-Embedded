@@ -9,7 +9,9 @@
 #include <ctime>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -26,6 +28,7 @@
 #include <direct.h>
 #include <io.h>
 #else
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -1456,6 +1459,11 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
             maxTargetAgeMs > 60000.0 || std::floor(maxTargetAgeMs) != maxTargetAgeMs) {
             throw std::runtime_error("clusterDispatch maxTargetAgeMs must be an integer from 100 to 60000");
         }
+        if (const auto sign = paramDouble(node, "commandSign")) {
+            if (*sign != 1.0 && *sign != -1.0) {
+                throw std::runtime_error("clusterDispatch commandSign must be 1 or -1");
+            }
+        }
         return;
     }
 
@@ -1753,6 +1761,12 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         }
         if (!std::isfinite(initialValue) || initialValue < minValue || initialValue > maxValue) {
             throw std::runtime_error("rateLimit initialValue must be within configured bounds");
+        }
+        if (const auto maxGapMs = paramDouble(node, "maxGapMs")) {
+            if (!std::isfinite(*maxGapMs) || *maxGapMs < 0.0 || *maxGapMs > 86400000.0 ||
+                std::floor(*maxGapMs) != *maxGapMs) {
+                throw std::runtime_error("rateLimit maxGapMs must be an integer from 0 to 86400000 (0 = unbounded)");
+            }
         }
         return;
     }
@@ -2762,6 +2776,15 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
                 "unsafe hold-last behavior is limited to explicit migration/test loaders"
             );
         }
+        if (node.type == "clusterDispatch" && !hasParam(node, "commandSign")) {
+            config.loadWarnings.push_back(
+                "SIGN CONVENTION: clusterDispatch node " + node.id +
+                " has no explicit commandSign; KECP/2 cluster targets (positive = discharge) are passed "
+                "through unchanged, while pcsPowerSolve/powerConstraint treat positive active power as "
+                "charge. Verify the station strategy convention and set commandSign=1 (pass-through) or "
+                "-1 (invert active power) explicitly"
+            );
+        }
     }
     return config;
 }
@@ -2838,7 +2861,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
     snapshotResolvedIndexes_.insert(snapshotIndexes_.begin(), snapshotIndexes_.end());
     for (const auto& value : snapshot) {
         snapshotPoints_[value.index] = PointSnapshot{value.value, value.quality, value.ts, value.stale};
-        if (value.quality == 1 && !value.stale) {
+        snapshotPoints_[value.index].expireAt = value.expireAt;
+        if (value.quality == 1 && !value.stale && std::isfinite(value.value)) {
             snapshotValues_[value.index] = value.value;
         }
     }
@@ -2973,6 +2997,7 @@ Optional<GraphEmsEngine::PointSnapshot> GraphEmsEngine::latestPoint(
         snapshotResolvedIndexes_.insert(index);
         if (latest) {
             snapshotPoints_[index] = PointSnapshot{latest->value, latest->quality, latest->ts, latest->stale};
+            snapshotPoints_[index].expireAt = latest->expireAt;
             observeClusterInput(snapshotPoints_[index]);
             return snapshotPoints_[index];
         }
@@ -2981,27 +3006,43 @@ Optional<GraphEmsEngine::PointSnapshot> GraphEmsEngine::latestPoint(
         observeClusterInput(NullOpt);
         return NullOpt;
     }
-    return PointSnapshot{latest->value, latest->quality, latest->ts, latest->stale};
+    PointSnapshot point{latest->value, latest->quality, latest->ts, latest->stale};
+    point.expireAt = latest->expireAt;
+    return point;
 }
 
 Optional<double> GraphEmsEngine::latestValue(std::uint32_t index, std::int64_t nowMs) const {
     const auto latest = latestPoint(index, nowMs);
-    if (!latest || latest->quality != 1 || latest->stale) return NullOpt;
+    // Non-finite values (e.g. a NaN float from a field bus) are treated as missing so that
+    // comparisons against them can never silently disable a protection.
+    if (!latest || latest->quality != 1 || latest->stale || !std::isfinite(latest->value)) return NullOpt;
+    // A sample stamped in the future means the wall clock stepped backwards: expiry is no
+    // longer trustworthy, so treat it as missing. Never-expiring retained parameters are exempt.
+    if (options_.maxInputFutureSkewMs > 0 && latest->expireAt != 0 &&
+        latest->ts > nowMs && latest->ts - nowMs > options_.maxInputFutureSkewMs) {
+        return NullOpt;
+    }
     return latest->value;
 }
 
-CommandSubmitResult GraphEmsEngine::set(std::uint32_t index, double value, std::int64_t nowMs) {
+CommandSubmitResult GraphEmsEngine::set(std::uint32_t index, double value, std::int64_t nowMs, std::int64_t ttlMs) {
+    if (!std::isfinite(value)) {
+        CommandSubmitResult rejected;
+        rejected.message = "graph output value must be finite";
+        return rejected;
+    }
     PointValue point;
     point.index = index;
     point.value = value;
     point.quality = 1;
     point.ts = nowMs;
-    point.expireAt = nowMs + defaultTtlMs_;
+    point.expireAt = nowMs + (ttlMs > 0 ? ttlMs : defaultTtlMs_);
     auto result = router_.putLatestByIndex(point);
     if (result.accepted && snapshotActive_) {
         snapshotResolvedIndexes_.insert(index);
         snapshotValues_[index] = value;
         snapshotPoints_[index] = PointSnapshot{value, 1, nowMs, false};
+        snapshotPoints_[index].expireAt = point.expireAt;
         if (propagateClusterLineage_ && !clusterLineageInvalid_)
             snapshotPoints_[index].clusterAuthorization = clusterInputAuthorization_;
     }
@@ -3102,7 +3143,14 @@ void GraphEmsEngine::restoreState(std::int64_t nowMs) {
     }
     const auto* pointsValue = findValue(object, "points");
     const auto allowedIndexes = stateOutputIndexes();
-    const std::set<std::uint32_t> allowed(allowedIndexes.begin(), allowedIndexes.end());
+    std::set<std::uint32_t> allowed(allowedIndexes.begin(), allowedIndexes.end());
+    if (!options_.restoreSetpointOutputs) {
+        // Power targets and BMS limits must be recomputed from live inputs after a restart; a
+        // restored value would otherwise drive the PCS before any fresh BMS data exists.
+        for (const auto index : setpointOutputIndexes()) {
+            allowed.erase(index);
+        }
+    }
     if (pointsValue != nullptr && !pointsValue->isNull()) {
         for (const auto& item : pointsValue->asArray().values) {
             const auto& pointObject = item->asObject();
@@ -3363,7 +3411,7 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
     const auto latestValues = router_.getLatestByIndexes(indexes, nowMs);
     points.reserve(latestValues.size());
     for (const auto& latest : latestValues) {
-        if (latest.quality == 1 && !latest.stale) {
+        if (latest.quality == 1 && !latest.stale && std::isfinite(latest.value)) {
             points.push_back(latest);
         }
     }
@@ -3395,11 +3443,17 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
         }
         first = false;
         output << "\n      {\"index\": " << entry.first << ", \"values\": [";
-        for (std::size_t i = 0; i < entry.second.size(); ++i) {
-            if (i > 0) {
+        bool firstValue = true;
+        for (const auto value : entry.second) {
+            // NaN/Inf would be written as nan/inf and make the whole state file unparsable.
+            if (!std::isfinite(value)) {
+                continue;
+            }
+            if (!firstValue) {
                 output << ", ";
             }
-            output << entry.second[i];
+            firstValue = false;
+            output << value;
         }
         output << "]}";
     }
@@ -3538,6 +3592,21 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
             throw std::runtime_error("failed to write graph EMS state file: " + temporaryFile);
         }
     }
+#if !defined(_WIN32)
+    // Durable replace: the data must reach disk before the rename, otherwise a power loss can
+    // leave an empty/garbled state file behind the new name.
+    {
+        const int fd = ::open(temporaryFile.c_str(), O_RDONLY | O_CLOEXEC);
+        const bool synced = fd >= 0 && ::fsync(fd) == 0;
+        if (fd >= 0) {
+            ::close(fd);
+        }
+        if (!synced) {
+            std::remove(temporaryFile.c_str());
+            throw std::runtime_error("failed to sync graph EMS state file: " + temporaryFile);
+        }
+    }
+#endif
 #if defined(_WIN32)
     std::remove(stateFile_.c_str());
 #endif
@@ -3545,6 +3614,16 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
         std::remove(temporaryFile.c_str());
         throw std::runtime_error("failed to replace graph EMS state file: " + stateFile_);
     }
+#if !defined(_WIN32)
+    {
+        const auto parent = directoryOf(stateFile_).empty() ? std::string(".") : directoryOf(stateFile_);
+        const int dirFd = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (dirFd >= 0) {
+            ::fsync(dirFd);
+            ::close(dirFd);
+        }
+    }
+#endif
     stateSaved_ = true;
     lastStateSaveAt_ = nowMs;
 }
@@ -3726,6 +3805,54 @@ std::vector<std::uint32_t> GraphEmsEngine::stateOutputIndexes() const {
         }
     }
     return std::vector<std::uint32_t>(indexes.begin(), indexes.end());
+}
+
+std::set<std::uint32_t> GraphEmsEngine::setpointOutputIndexes() const {
+    // Subset of stateOutputIndexes() that carries active/reactive power targets or BMS power
+    // limits. These are never republished from the state file unless explicitly allowed.
+    std::set<std::uint32_t> indexes;
+    const auto add = [&](std::uint32_t index) {
+        if (index != 0) {
+            indexes.insert(index);
+        }
+    };
+    const auto addKeys = [&](const GraphEmsNodeConfig& node,
+                             std::initializer_list<std::pair<const char*, std::uint32_t>> keys) {
+        for (const auto& key : keys) {
+            add(paramIndex(node, key.first, key.second));
+        }
+    };
+    for (const auto& node : config_.nodes) {
+        if (node.type == "bmsDerived") {
+            addKeys(node, {{"chargeKwAllowOutput", 1552}, {"dischargeKwAllowOutput", 1553}});
+        } else if (node.type == "cosCompensation") {
+            addKeys(node, {{"qaOutput", 601}, {"qbOutput", 602}, {"qcOutput", 603}, {"q3Output", 604}});
+        } else if (node.type == "voltageCompensation") {
+            addKeys(node, {{"lvPaOutput", 605}, {"lvPbOutput", 606}, {"lvPcOutput", 607}, {"lvP3Output", 608},
+                           {"hvPaOutput", 609}, {"hvPbOutput", 610}, {"hvPcOutput", 611}, {"hvP3Output", 612}});
+        } else if (node.type == "chargeDischarge") {
+            addKeys(node, {{"cdP3Output", 613}, {"fdP3Output", 614}});
+        } else if (node.type == "chargeDischargeCycleTest" || node.type == "timedChargeDischarge") {
+            addKeys(node, {{"paOutput", 615}, {"pbOutput", 616}, {"pcOutput", 617}, {"p3Output", 618}});
+        } else if (node.type == "photovoltaicCharge") {
+            addKeys(node, {{"paOutput", 619}, {"pbOutput", 620}, {"pcOutput", 621}, {"p3Output", 622}});
+        } else if (node.type == "phaseBalance") {
+            addKeys(node, {{"paOutput", 623}, {"pbOutput", 624}, {"pcOutput", 625}});
+        } else if (node.type == "flexiblePhaseBalance") {
+            addKeys(node, {{"paOutput", 0}, {"pbOutput", 0}, {"pcOutput", 0}});
+        } else if (node.type == "phaseArbiter" || node.type == "powerConstraint") {
+            for (const auto index : paramIndexes(node, "activeOutputIndexes")) add(index);
+            for (const auto index : paramIndexes(node, "reactiveOutputIndexes")) add(index);
+        } else if (node.type == "scheduleSelect") {
+            add(paramIndex(node, "powerOutputIndex", 0));
+        } else if (node.type == "rateLimit") {
+            add(paramIndex(node, "outputIndex", 0));
+        } else if (node.type == "pcsPowerSolve") {
+            addKeys(node, {{"paOutput", 627}, {"pbOutput", 628}, {"pcOutput", 629},
+                           {"qaOutput", 630}, {"qbOutput", 631}, {"qcOutput", 632}});
+        }
+    }
+    return indexes;
 }
 
 bool GraphEmsEngine::runMeterAverage(
@@ -5250,8 +5377,11 @@ bool GraphEmsEngine::runVoltageQualification(
         state.day.key = currentDayKey;
     }
 
+    // Statistics are published once per minute; they are not power setpoints, so they keep a
+    // TTL that spans the publication period regardless of the short graph output TTL.
+    const auto statisticsTtlMs = std::max<std::int64_t>(defaultTtlMs_, 180000);
     const auto writeOutput = [&](std::uint32_t index, double value, const char* field) {
-        const auto routed = set(index, value, nowMs);
+        const auto routed = set(index, value, nowMs, statisticsTtlMs);
         if (!routed.accepted) {
             throw std::runtime_error(std::string("voltageQualification ") + field +
                 " output rejected: " + routed.message);
@@ -5421,6 +5551,8 @@ bool GraphEmsEngine::runClusterDispatch(
         }
         return point;
     };
+    // Explicit sign mapping of cluster active-power targets into this graph (default: unchanged).
+    const double activeSign = paramDouble(node, "commandSign").value_or(1.0) < 0.0 ? -1.0 : 1.0;
     const auto write = [&](std::uint32_t index, double value) {
         const auto routed = set(index, value, nowMs);
         if (!routed.accepted) {
@@ -5454,7 +5586,7 @@ bool GraphEmsEngine::runClusterDispatch(
         const auto activeOutputs = paramIndexes(node, "activeOutputIndexes");
         const auto reactiveOutputs = paramIndexes(node, "reactiveOutputIndexes");
         for (std::size_t i = 0; i < 3; ++i) {
-            write(activeOutputs[i], valid ? authority->targets[i] : 0.0);
+            write(activeOutputs[i], valid ? activeSign * authority->targets[i] : 0.0);
             write(reactiveOutputs[i], valid ? authority->targets[i + 3] : 0.0);
             if (valid) {
                 snapshotPoints_[activeOutputs[i]].clusterAuthorization = authority->authorization;
@@ -5538,7 +5670,7 @@ bool GraphEmsEngine::runClusterDispatch(
                     reason = static_cast<double>(EmsClusterDispatchCode::Expired);
                     break;
                 }
-                active[i] = activePoint->value;
+                active[i] = activeSign * activePoint->value;
                 reactive[i] = reactivePoint->value;
             }
             if (valid) {
@@ -5776,7 +5908,10 @@ bool GraphEmsEngine::runPowerConstraint(
     }
 
     const auto clampAbs = [](double value, double limit) {
-        if (!(limit > 0.0) || std::abs(value) <= limit) {
+        if (!std::isfinite(value)) {
+            return 0.0;
+        }
+        if (!(limit > 0.0) || !std::isfinite(limit) || std::abs(value) <= limit) {
             return value;
         }
         return value > 0.0 ? limit : -limit;
@@ -5821,7 +5956,8 @@ bool GraphEmsEngine::runPowerConstraint(
 
     const auto activeTotal = std::accumulate(active.begin(), active.end(), 0.0);
     if (activeTotal > 0.0) {
-        const auto limit = latestValue(paramIndex(node, "positiveTotalLimitIndex", 0), nowMs);
+        auto limit = latestValue(paramIndex(node, "positiveTotalLimitIndex", 0), nowMs);
+        if (limit) limit = std::max(0.0, *limit);  // negative allowance = no charging, never a sign flip
         if (limit && activeTotal > *limit) {
             limitationFlags |= 8;
             const auto positive = std::accumulate(active.begin(), active.end(), 0.0, [](double total, double value) {
@@ -5829,14 +5965,15 @@ bool GraphEmsEngine::runPowerConstraint(
             });
             const auto negative = activeTotal - positive;
             if (positive > 0.0) {
-                const auto ratio = (*limit - negative) / positive;
+                const auto ratio = std::max(0.0, std::min(1.0, (*limit - negative) / positive));
                 for (auto& value : active) {
                     if (value > 0.0) value *= ratio;
                 }
             }
         }
     } else if (activeTotal < 0.0) {
-        const auto limit = latestValue(paramIndex(node, "negativeTotalLimitIndex", 0), nowMs);
+        auto limit = latestValue(paramIndex(node, "negativeTotalLimitIndex", 0), nowMs);
+        if (limit) limit = std::max(0.0, *limit);
         if (limit && activeTotal < -*limit) {
             limitationFlags |= 8;
             const auto positive = std::accumulate(active.begin(), active.end(), 0.0, [](double total, double value) {
@@ -5844,7 +5981,7 @@ bool GraphEmsEngine::runPowerConstraint(
             });
             const auto negative = activeTotal - positive;
             if (negative < 0.0) {
-                const auto ratio = (-*limit - positive) / negative;
+                const auto ratio = std::max(0.0, std::min(1.0, (-*limit - positive) / negative));
                 for (auto& value : active) {
                     if (value < 0.0) value *= ratio;
                 }
@@ -6178,7 +6315,16 @@ bool GraphEmsEngine::runRateLimit(
             ? *existing
             : paramDouble(node, "initialValue").value_or(0.0);
     } else if (nowMs >= state.lastRunAt) {
-        const auto elapsedSeconds = static_cast<double>(nowMs - state.lastRunAt) / 1000.0;
+        // A gap (stale input, skipped node, restart) must not be converted into one large step.
+        const auto configuredGap = paramDouble(node, "maxGapMs");
+        const auto maxGapMs = configuredGap
+            ? static_cast<std::int64_t>(*configuredGap)
+            : options_.rateLimitMaxGapMs;
+        auto elapsedMs = nowMs - state.lastRunAt;
+        if (maxGapMs > 0 && elapsedMs > maxGapMs) {
+            elapsedMs = maxGapMs;
+        }
+        const auto elapsedSeconds = static_cast<double>(elapsedMs) / 1000.0;
         const auto delta = *input - state.output;
         if (delta > 0.0) {
             next = state.output + std::min(delta, *risePerSecond * elapsedSeconds);
@@ -6416,6 +6562,29 @@ bool GraphEmsEngine::runPcsPowerSolve(
     const auto qMax = latestValue(paramIndex(node, "qMaxIndex", 504), nowMs);
     const auto s3Max = latestValue(paramIndex(node, "s3MaxIndex", 151), nowMs);
 
+    // Fail safe like powerConstraint: a live telemetry/derived limit point that is routed (i.e.
+    // exists on this site) but is missing, stale, bad quality or non-finite must not silently
+    // disable its limit. EMS virtual parameters (operator settings, never expiring) are not
+    // telemetry: an unset parameter keeps the legacy "no limit" behaviour. The points that cause a
+    // zeroing are reported via limitFaultOutput and a rate-limited log line.
+    // failSafeOnMissingLimits=false restores the legacy "skip the limit" behaviour everywhere.
+    const bool failSafe = paramBool(node, "failSafeOnMissingLimits", true);
+    std::set<std::string> limitFaults;
+    const auto limitMissing = [&](const char* key, std::uint32_t defaultIndex, const Optional<double>& value) {
+        const auto index = paramIndex(node, key, defaultIndex);
+        if (!failSafe || index == 0 || value) {
+            return false;
+        }
+        const auto route = router_.routeByIndex(index);
+        if (!route || route->protocolType == "ems_virtual") {
+            return false;
+        }
+        limitFaults.insert(std::string(key) + "=" + std::to_string(index));
+        return true;
+    };
+    const bool activeLimitFault = limitMissing("pMaxIndex", 535, pMax) || limitMissing("s3MaxIndex", 151, s3Max);
+    const bool reactiveLimitFault = limitMissing("qMaxIndex", 504, qMax) || limitMissing("s3MaxIndex", 151, s3Max);
+
     double pcsPaOut = outPaDs ? *outPaDs : 0.0;
     double pcsPbOut = outPbDs ? *outPbDs : 0.0;
     double pcsPcOut = outPcDs ? *outPcDs : 0.0;
@@ -6542,7 +6711,11 @@ bool GraphEmsEngine::runPcsPowerSolve(
     }
 
     auto clampAbs = [](double value, double limit) {
-        if (!(limit > 0.0) || std::abs(value) <= limit) {
+        // Never map an invalid value onto a full-power limit (NaN > 0 is false -> -limit).
+        if (!std::isfinite(value)) {
+            return 0.0;
+        }
+        if (!(limit > 0.0) || !std::isfinite(limit) || std::abs(value) <= limit) {
             return value;
         }
         return value > 0.0 ? limit : -limit;
@@ -6583,7 +6756,13 @@ bool GraphEmsEngine::runPcsPowerSolve(
     const double pcsP3Out = pcsPaOut + pcsPbOut + pcsPcOut;
     if (pcsP3Out > 0.0) {
         const auto chargeKwAllow = latestValue(paramIndex(node, "chargeKwAllowIndex", 1552), nowMs);
-        if (chargeKwAllow && pcsP3Out > *chargeKwAllow) {
+        if (limitMissing("chargeKwAllowIndex", 1552, chargeKwAllow)) {
+            pcsPaOut = std::min(pcsPaOut, 0.0);
+            pcsPbOut = std::min(pcsPbOut, 0.0);
+            pcsPcOut = std::min(pcsPcOut, 0.0);
+        } else if (chargeKwAllow && pcsP3Out > std::max(0.0, *chargeKwAllow)) {
+            // A negative allowance (BMS sign convention) means "no charging", never a sign flip.
+            const double allow = std::max(0.0, *chargeKwAllow);
             double pcsPos = 0.0;
             double pcsNeg = 0.0;
             const double values[] = {pcsPaOut, pcsPbOut, pcsPcOut};
@@ -6595,7 +6774,7 @@ bool GraphEmsEngine::runPcsPowerSolve(
                 }
             }
             if (pcsPos > 0.0) {
-                const double bmsPer = (*chargeKwAllow - pcsNeg) / pcsPos;
+                const double bmsPer = std::max(0.0, std::min(1.0, (allow - pcsNeg) / pcsPos));
                 if (pcsPaOut > 0.0) {
                     pcsPaOut *= bmsPer;
                 }
@@ -6609,8 +6788,12 @@ bool GraphEmsEngine::runPcsPowerSolve(
         }
     } else if (pcsP3Out < 0.0) {
         const auto dischargeKwAllow = latestValue(paramIndex(node, "dischargeKwAllowIndex", 1553), nowMs);
-        if (dischargeKwAllow) {
-            const double bmsDischargeKwAllow = -*dischargeKwAllow;
+        if (limitMissing("dischargeKwAllowIndex", 1553, dischargeKwAllow)) {
+            pcsPaOut = std::max(pcsPaOut, 0.0);
+            pcsPbOut = std::max(pcsPbOut, 0.0);
+            pcsPcOut = std::max(pcsPcOut, 0.0);
+        } else if (dischargeKwAllow) {
+            const double bmsDischargeKwAllow = -std::max(0.0, *dischargeKwAllow);
             if (pcsP3Out < bmsDischargeKwAllow) {
                 double pcsPos = 0.0;
                 double pcsNeg = 0.0;
@@ -6623,7 +6806,7 @@ bool GraphEmsEngine::runPcsPowerSolve(
                     }
                 }
                 if (pcsNeg < 0.0) {
-                    const double bmsPer = (bmsDischargeKwAllow - pcsPos) / pcsNeg;
+                    const double bmsPer = std::max(0.0, std::min(1.0, (bmsDischargeKwAllow - pcsPos) / pcsNeg));
                     if (pcsPaOut < 0.0) {
                         pcsPaOut *= bmsPer;
                     }
@@ -6672,6 +6855,16 @@ bool GraphEmsEngine::runPcsPowerSolve(
             }
         }
     }
+    // Unknown SOC (routed but missing/stale/non-finite) or an inverted SOC window: no battery power.
+    const bool socFault = limitMissing("bmsSocIndex", 1570, bmsSoc) ||
+        limitMissing("bmsSocMaxIndex", 161, bmsSocMax) || limitMissing("bmsSocMinIndex", 162, bmsSocMin) ||
+        (failSafe && bmsSoc && bmsSocMax && bmsSocMin && *bmsSocMin > *bmsSocMax);
+    if (socFault || activeLimitFault) {
+        pcsPaOut = pcsPbOut = pcsPcOut = 0.0;
+    }
+    if (socFault || reactiveLimitFault) {
+        pcsQaOut = pcsQbOut = pcsQcOut = 0.0;
+    }
 
     bool updated = false;
     std::vector<std::pair<std::uint32_t, double>> outputs;
@@ -6684,6 +6877,32 @@ bool GraphEmsEngine::runPcsPowerSolve(
         outputs.push_back({paramIndex(node, "gfRunOutput", 22), 0.0});
     }
     outputs.push_back({paramIndex(node, "zrRunOutput", 24), zrRunValue});
+    const bool limitFault = socFault || !limitFaults.empty();
+    if (const auto faultOutput = paramIndex(node, "limitFaultOutput", 0)) {
+        outputs.push_back({faultOutput, limitFault ? 1.0 : 0.0});
+    }
+    {
+        std::string faultText;
+        for (const auto& fault : limitFaults) {
+            faultText += (faultText.empty() ? "" : ",") + fault;
+        }
+        if (socFault && limitFaults.empty()) {
+            faultText = "bmsSocMin>bmsSocMax";
+        }
+        auto& logState = limitFaultLogs_[node.id];
+        const bool changed = logState.first != faultText;
+        if (changed || (limitFault && (nowMs < logState.second || nowMs - logState.second >= 60000))) {
+            if (limitFault) {
+                std::cerr << "graph EMS pcsPowerSolve fail-safe node=" << node.id
+                          << " zeroing power because limit/SOC inputs are missing, stale or invalid: "
+                          << faultText << std::endl;
+            } else if (!logState.first.empty()) {
+                std::cerr << "graph EMS pcsPowerSolve fail-safe cleared node=" << node.id << std::endl;
+            }
+            logState.first = faultText;
+            logState.second = nowMs;
+        }
+    }
     outputs.push_back({paramIndex(node, "paOutput", 627), pcsPaOut});
     outputs.push_back({paramIndex(node, "pbOutput", 628), pcsPbOut});
     outputs.push_back({paramIndex(node, "pcOutput", 629), pcsPcOut});

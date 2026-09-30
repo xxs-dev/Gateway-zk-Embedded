@@ -75,6 +75,7 @@ private:
     };
 
     void loop();
+    bool isEvaluableValue(const StoredPointValue& value) const;
     void evaluateValues(const std::vector<StoredPointValue>& values, std::int64_t nowMs);
     bool evaluateIpcValue(const StoredPointValue& value, std::int64_t nowMs, std::size_t& acceptedChanges);
     bool processPendingInputs(std::int64_t nowMs);

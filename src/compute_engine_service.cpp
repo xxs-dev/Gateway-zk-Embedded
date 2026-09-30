@@ -600,6 +600,10 @@ void ComputeEngineService::loop() {
             failed = true;
             std::cerr << "compute engine scan failed error=" << ex.what() << std::endl;
         }
+        // A graph whose nodes keep failing (e.g. PCS solve/writeback) is not a healthy controller.
+        if (graphErrorsThisScan_ && config_.graphNodeErrorsUnhealthy) {
+            failed = true;
+        }
         const auto durationMs = std::chrono::duration<double, std::milli>(SteadyClock::now() - cycleStarted).count();
         recordAndPublishHealth(durationMs, failed, now);
 
@@ -709,6 +713,7 @@ void ComputeEngineService::runOnce(std::int64_t nowMs) {
         return;
     }
 
+    graphErrorsThisScan_ = false;
     std::size_t evaluated = 0;
     std::size_t deviceWritesThisScan = 0;
     const auto ruleCount = config_.rules.size();
@@ -751,6 +756,11 @@ bool ComputeEngineService::shouldEvaluate(
     std::int64_t nowMs
 ) {
     auto& state = ruleStates_[safeRuleCode(rule)];
+    // Wall clock stepped backwards: re-anchor instead of freezing the rule until the clock
+    // catches up with the old timestamp (which would silently stop all EMS control).
+    if (state.lastEvalMs > nowMs) {
+        state.lastEvalMs = 0;
+    }
     const auto triggerType = rule.trigger.type.empty() ? std::string("interval") : rule.trigger.type;
     if (triggerType == "interval") {
         const auto interval = std::max(1, rule.trigger.intervalMs);
@@ -804,6 +814,9 @@ void ComputeEngineService::evaluateRule(
                           << " skipped=" << result.deviceWritesSkipped
                           << std::endl;
             }
+            if (!result.errors.empty()) {
+                graphErrorsThisScan_ = true;
+            }
             for (const auto& error : result.errors) {
                 std::cerr << "graph EMS node failed"
                           << " rule=" << safeRuleCode(rule)
@@ -811,6 +824,7 @@ void ComputeEngineService::evaluateRule(
                           << std::endl;
             }
         } catch (const std::exception& ex) {
+            graphErrorsThisScan_ = true;
             std::cerr << "graph EMS rule failed"
                       << " rule=" << safeRuleCode(rule)
                       << " error=" << ex.what()
@@ -830,7 +844,10 @@ void ComputeEngineService::evaluateRule(
             state.quality = it->second.quality;
             state.value = it->second.value;
             state.ts = it->second.ts;
-            state.valid = it->second.quality == 1 && !it->second.stale;
+            const bool futureSample = config_.inputMaxFutureSkewMs > 0 && it->second.expireAt != 0 &&
+                it->second.ts > nowMs && it->second.ts - nowMs > config_.inputMaxFutureSkewMs;
+            state.valid = it->second.quality == 1 && !it->second.stale &&
+                std::isfinite(it->second.value) && !futureSample;
         }
         inputs[input.name] = state;
     }
@@ -934,14 +951,39 @@ void ComputeEngineService::preloadGraphEmsEngine(const ComputeRuleConfig& rule) 
     const auto stateFile = rule.script.graphStateFile.empty()
         ? std::string("/opt/modbus-gateway/data/graph_ems_state_") + filesystemSafeName(key) + ".json"
         : rule.script.graphStateFile;
+    // Short TTL for graph outputs: a node that stops updating must not keep an old power target
+    // "fresh" for defaultOutputTtlMs (10 min). Never shorter than 3 evaluation intervals so that
+    // nodes reading their own previous output keep working between runs.
+    // Only interval rules have a bounded time between runs; change-triggered rules may sit idle for
+    // long periods, so they keep defaultOutputTtlMs (their outputs must not expire between changes).
+    const bool intervalTrigger = rule.trigger.type.empty() || rule.trigger.type == "interval";
+    const auto evaluationIntervalMs = static_cast<std::int64_t>(std::max(
+        std::max(1, config_.scanIntervalMs),
+        intervalTrigger ? rule.trigger.intervalMs : rule.trigger.minIntervalMs
+    ));
+    const auto graphTtlMs = config_.graphOutputTtlMs > 0 && intervalTrigger
+        ? std::max<std::int64_t>(config_.graphOutputTtlMs, 3 * evaluationIntervalMs)
+        : config_.defaultOutputTtlMs;
+    if (!intervalTrigger && config_.graphOutputTtlMs > 0) {
+        std::cerr << "graph EMS rule=" << key << " trigger=" << rule.trigger.type
+                  << " is not interval-driven; short graphOutputTtlMs is not applied (output TTL="
+                  << graphTtlMs << " ms). Use an interval trigger for PCS setpoint graphs." << std::endl;
+    }
     state->engine.reset(new GraphEmsEngine(
         state->config,
         router_,
-        config_.defaultOutputTtlMs,
+        graphTtlMs,
         stateFile,
         rule.script.graphProfile,
         key
     ));
+    GraphEmsEngineOptions options;
+    options.restoreSetpointOutputs = config_.graphRestoreSetpointOutputs;
+    options.maxInputFutureSkewMs = config_.inputMaxFutureSkewMs;
+    options.rateLimitMaxGapMs = config_.graphRateLimitMaxGapMs > 0
+        ? std::max<std::int64_t>(config_.graphRateLimitMaxGapMs, 2 * evaluationIntervalMs)
+        : 0;
+    state->engine->setOptions(options);
     graphEmsStates_[key] = std::move(state);
 }
 

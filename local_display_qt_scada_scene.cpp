@@ -1766,6 +1766,13 @@ ScadaRuntimeWindow::ScadaRuntimeWindow(
     timer_ = new QTimer(this);
     QObject::connect(timer_, &QTimer::timeout, this, [this]() {
         const auto now = nowMs();
+        // Project reload and session expiry rebuild (delete) the screen views. While a modal
+        // dialog is open (PCS/setpoint confirmation, login) a view is still executing it, so
+        // only refresh values and defer the rebuild until the dialog has closed.
+        if (QApplication::activeModalWidget() != nullptr) {
+            refreshAll(now);
+            return;
+        }
         if (autoReload_ && now - lastReloadCheckMs_ >= 1000) {
             lastReloadCheckMs_ = now;
             const auto revision = projectRevision();

@@ -1,11 +1,14 @@
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/writeback_service.hpp"
 
+#include <chrono>
 #include <cmath>
 #include "edge_gateway/filesystem_compat.hpp"
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <map>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -61,6 +64,11 @@ struct Api {
 };
 Api& api() { static Api value; return value; }
 
+std::int64_t wallClockMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 struct Db {
     sqlite3* handle = nullptr;
     explicit Db(const std::string& path, bool write) {
@@ -79,7 +87,21 @@ struct Db {
                 sql("CREATE TABLE IF NOT EXISTS control_dedup_v1("
                     "machine TEXT NOT NULL,meter TEXT NOT NULL,cmd TEXT NOT NULL,"
                     "semantic TEXT NOT NULL,wire TEXT NOT NULL,state INTEGER NOT NULL,"
-                    "result TEXT NOT NULL,PRIMARY KEY(machine,cmd)) WITHOUT ROWID;");
+                    "result TEXT NOT NULL,created_ms INTEGER NOT NULL DEFAULT 0,"
+                    "PRIMARY KEY(machine,cmd)) WITHOUT ROWID;");
+                // Ledgers created before retention support lack created_ms;
+                // the duplicate-column error on current ledgers is expected.
+                const bool migrated = a.exec(handle,
+                    "ALTER TABLE control_dedup_v1 ADD COLUMN created_ms INTEGER NOT NULL DEFAULT 0;",
+                    nullptr, nullptr, nullptr) == 0;
+                if (migrated) {
+                    // One-time backfill: legacy receipts get a full retention window.
+                    const auto backfill = "UPDATE control_dedup_v1 SET created_ms=" +
+                        std::to_string(wallClockMs()) + " WHERE created_ms=0;";
+                    sql(backfill.c_str());
+                }
+                sql("CREATE INDEX IF NOT EXISTS control_dedup_v1_state_created "
+                    "ON control_dedup_v1(state,created_ms);");
             }
         } catch (...) { a.close(handle); handle = nullptr; throw; }
     }
@@ -164,14 +186,54 @@ WritebackResultRecord unknown(WritebackResultRecord result, const std::string& m
     result.message = message;
     return result;
 }
+std::size_t rowCount(Db& db) {
+    Statement count(db, "SELECT count(*) FROM control_dedup_v1;");
+    if (!count.row()) throw std::runtime_error("control dedup count failed");
+    return static_cast<std::size_t>(std::stoull(count.text(0)));
+}
+// Only finalized receipts (state 2) are ever removed; reserved or unknown
+// outcomes (state 0/1) are kept so they can never be redispatched.
+// Age-based pruning runs at most once a minute per ledger and process; bind()
+// still prunes immediately whenever the ledger is close to capacity.
+constexpr std::int64_t kPruneIntervalMs = 60000;
+bool pruneDue(const std::string& path, std::int64_t now) {
+    static std::mutex mutex;
+    static std::map<std::string, std::int64_t> lastPrune;
+    std::lock_guard<std::mutex> lock(mutex);
+    auto& last = lastPrune[path];
+    if (last != 0 && now >= last && now - last < kPruneIntervalMs) return false;
+    last = now;
+    return true;
+}
+void pruneFinished(Db& db, std::int64_t now, std::int64_t retentionMs, std::int64_t minEvictAgeMs,
+                   std::size_t capacity) {
+    if (retentionMs > 0) {
+        Statement expired(db, "DELETE FROM control_dedup_v1 WHERE state=2 AND created_ms<?;",
+                          {std::to_string(now - retentionMs)});
+        expired.row();
+    }
+    const auto count = rowCount(db);
+    if (count < capacity) return;
+    // Still full: evict the oldest finalized receipts that are old enough that a
+    // legitimate redelivery is no longer expected (about 1% headroom).
+    const auto evict = count - capacity + 1 + capacity / 100;
+    const auto cutoff = std::to_string(now - minEvictAgeMs);
+    Statement oldest(db,
+        "DELETE FROM control_dedup_v1 WHERE state=2 AND created_ms<? AND created_ms<=COALESCE(("
+        "SELECT created_ms FROM control_dedup_v1 WHERE state=2 AND created_ms<? "
+        "ORDER BY created_ms LIMIT 1 OFFSET ?),?);",
+        {cutoff, cutoff, std::to_string(evict - 1), cutoff});
+    oldest.row();
+}
 void bounded(const std::string& text, std::size_t max) {
     if (text.empty() || text.size() > max || text.find('\0') != std::string::npos)
         throw std::invalid_argument("control dedup identity/source is empty or too long");
 }
 }
 
-ControlDedupStore::ControlDedupStore(std::string path, std::size_t capacity)
-    : path_(std::move(path)), capacity_(capacity) {
+ControlDedupStore::ControlDedupStore(std::string path, std::size_t capacity, std::int64_t retentionMs,
+                                     std::int64_t minEvictAgeMs)
+    : path_(std::move(path)), capacity_(capacity), retentionMs_(retentionMs), minEvictAgeMs_(minEvictAgeMs) {
     if (!edge_gateway::filesystem::path(path_).is_absolute() || capacity_ == 0 || capacity_ > 100000)
         throw std::invalid_argument("control dedup requires an absolute persistent path and capacity 1..100000");
 }
@@ -197,11 +259,18 @@ Optional<WritebackResultRecord> ControlDedupStore::bind(const std::string& machi
     Transaction tx(db);
     const auto row = read(db, machine, meter, c.cmdId);
     if (row) { auto result = inspect(*row); tx.commit(); return result; }
-    Statement count(db, "SELECT count(*) FROM control_dedup_v1;");
-    if (!count.row() || std::stoull(count.text(0)) >= capacity_)
+    const auto now = wallClockMs();
+    auto count = rowCount(db);
+    if (count >= capacity_ - capacity_ / 10 || pruneDue(path_, now)) {
+        pruneFinished(db, now, retentionMs_, minEvictAgeMs_, capacity_);
+        count = rowCount(db);
+    }
+    if (count >= capacity_)
         throw std::runtime_error("control dedup capacity exhausted; new operation rejected");
-    Statement insert(db, "INSERT INTO control_dedup_v1 VALUES(?,?,?,?,?,0,?);",
-                     {machine, meter, c.cmdId, semantics(c, false), semantics(c, true), encode(beginWritebackResult(c, 0))});
+    Statement insert(db, "INSERT INTO control_dedup_v1(machine,meter,cmd,semantic,wire,state,result,created_ms) "
+                         "VALUES(?,?,?,?,?,0,?,?);",
+                     {machine, meter, c.cmdId, semantics(c, false), semantics(c, true), encode(beginWritebackResult(c, 0)),
+                      std::to_string(now)});
     insert.row();
     tx.commit();
     return NullOpt;

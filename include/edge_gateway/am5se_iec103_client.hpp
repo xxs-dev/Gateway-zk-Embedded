@@ -50,6 +50,13 @@ private:
     std::vector<IecDataValue> performGeneralInterrogation(int timeoutMs);
     std::vector<std::uint8_t> pullComtradeFile(int fan, int fileType, int timeoutMs);
     bool nextFrameCountBit();
+    // Sends an FCB-carrying request; on response timeout retransmits the
+    // identical frame (same FCB) before resetting the link (IEC 60870-5-2).
+    std::vector<std::vector<std::uint8_t>> exchangeWithFrameCount(
+        const std::function<std::vector<std::uint8_t>(bool)>& build,
+        int timeoutMs,
+        int maxFrames = 1
+    );
     void disconnect();
     void closeListener();
 

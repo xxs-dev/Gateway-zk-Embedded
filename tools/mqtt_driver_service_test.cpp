@@ -2249,6 +2249,7 @@ void testHighPriorityCommandRequestCreatesPriorityControlLease() {
     fixture.driverConfig.priorityControlLeaseFile = "/tmp/mqtt_driver_service_command_lease.json";
     fixture.driverConfig.priorityControlLeaseTtlMs = 30000;
     fixture.driverConfig.controlResultWaitTimeoutMs = 0;
+    fixture.driverConfig.allowRemoteHighPriority = true;
     std::remove(fixture.driverConfig.priorityControlLeaseFile.c_str());
     fixture.service.reset(new MqttDriverService(
         fixture.mqttConfig,
@@ -2270,6 +2271,43 @@ void testHighPriorityCommandRequestCreatesPriorityControlLease() {
     require(pending.size() == 1, "command should enqueue pending write");
     require(pending.front().cmdId == "CMD_LEASE", "pending write cmdId mismatch");
     require(pending.front().highPriority, "pending write should be marked high priority");
+    cleanupFixture(fixture);
+}
+
+void testRemoteCommandIngressSafetyDefaults() {
+    auto fixture = makeFixture("command_ingress_safety", 10000, true);
+    const std::int64_t now = 1770000070000LL;
+    const auto lastReply = [&]() { return fixture.publisher->commandReplies.back(); };
+    const auto send = [&](const std::string& payload, bool retained) {
+        auto message = commandRequest(payload);
+        message.retained = retained;
+        fixture.publisher->incoming.push_back(message);
+        fixture.service->runScanOnce(now);
+    };
+
+    send("{\"cmdId\":\"HP_DENIED\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7,\"highPriority\":true}", false);
+    require(!lastReply().success && lastReply().message.find("high-priority") != std::string::npos,
+            "remote high priority must be rejected by default");
+    send("{\"cmdId\":\"RETAINED\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7}", true);
+    require(!lastReply().success && lastReply().message.find("retained") != std::string::npos,
+            "retained command must be rejected by default");
+    send("{\"cmdId\":\"STALE\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7,\"ts\":" +
+         std::to_string(now - 3600000) + "}", false);
+    require(!lastReply().success && lastReply().message.find("skew") != std::string::npos,
+            "stale command ts must be rejected");
+    send("{\"cmdId\":\"DUP\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7,\"value\":8}", false);
+    require(!lastReply().success, "duplicate root field must be rejected");
+    send("{\"cmdId\":\"NESTED\",\"machineCode\":\"GW_TEST\",\"meta\":{\"index\":1002},\"index\":1.5,\"value\":7}", false);
+    require(!lastReply().success, "fractional index must be rejected and nested keys must not shadow");
+    require(fixture.store->peekPendingWriteCommands().empty(), "rejected ingress must not enqueue writes");
+    // Legacy shapes: a non-boolean priority level is ignored (never high
+    // priority) and ts may be a decimal string in epoch seconds.
+    send("{\"cmdId\":\"LEGACY_OK\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7,\"priority\":\"P1\",\"ts\":\"" +
+         std::to_string(now / 1000) + "\"}", false);
+    const auto pending = fixture.store->peekPendingWriteCommands();
+    require(pending.size() == 1 && pending.front().cmdId == "LEGACY_OK" && !pending.front().highPriority,
+            "legacy priority level and string seconds ts must be accepted as a normal command");
+    require(pending.front().ts == (now / 1000) * 1000, "seconds ts must be normalized to milliseconds");
     cleanupFixture(fixture);
 }
 
@@ -2346,6 +2384,16 @@ void testAgcAvcCommandMailboxCommitsLatestWithoutWriteback() {
     require(fixture.publisher->commandReplies.size() == 1, "AGC/AVC mailbox should reply immediately");
     require(fixture.publisher->commandReplies.front().success, "AGC/AVC mailbox reply should be successful");
     require(fixture.publisher->commandReplies.front().stage == "mailbox-committed", "AGC/AVC mailbox reply stage mismatch");
+    // Dispatch bursts well beyond the device-write limit (20/10 s) must not be
+    // throttled or deduplicated: the mailbox carries its own sequence.
+    for (int i = 0; i < 30; ++i) {
+        fixture.publisher->incoming.push_back(commandRequest(
+            "{\"cmdId\":\"AGC_SHADOW_1_720010\",\"machineCode\":\"GW_TEST\",\"meterCode\":\"AGC_AVC_CORE\",\"pointCode\":\"agc_dispatch_p\",\"index\":720010,\"value\":" +
+            std::to_string(30 + i) + ",\"source\":\"gateway-desktop-agc-avc-shadow-test\"}"
+        ));
+        fixture.service->runScanOnce(1770000060100LL + i * 100);
+        require(fixture.publisher->commandReplies.back().success, "AGC/AVC mailbox burst must not be rate limited");
+    }
     cleanupFixture(fixture);
 }
 
@@ -2653,6 +2701,7 @@ int main(int argc, char** argv) {
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
         testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
+        testRemoteCommandIngressSafetyDefaults();
         testCommandRequestRejectedDuringActivePriorityControl();
         testAgcAvcCommandMailboxCommitsLatestWithoutWriteback();
         testHealthReportContainsDetailedMetrics();

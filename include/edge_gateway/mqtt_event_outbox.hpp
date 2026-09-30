@@ -176,6 +176,10 @@ public:
     );
     void cleanupIfDue(std::int64_t nowMs,
         MaintenanceClock::time_point now = MaintenanceClock::now());
+    // Reject new legacy enqueues when the database filesystem would keep less than this
+    // many free bytes (0 disables). Default kDefaultMinFreeBytes.
+    static constexpr std::uint64_t kDefaultMinFreeBytes = 8ULL * 1024 * 1024;
+    void setMinFreeBytes(std::uint64_t bytes) { minFreeBytes_ = bytes; }
     StorageSettings storageSettings() const;
 
 private:
@@ -211,6 +215,9 @@ private:
         const std::string& targetId = std::string()
     );
     std::size_t pendingBytes(const std::string& targetId = std::string());
+    std::uint64_t usedDatabaseBytes();
+    void pruneSentRowsToBudget();
+    void checkFreeSpaceAdmission(std::uint64_t incomingBytes) const;
     std::size_t prunePendingRows(
         const std::string& targetId,
         std::size_t targetBytes,
@@ -228,6 +235,7 @@ private:
     int cleanupIntervalHours_;
     std::size_t replayBatchSize_;
     std::size_t maxDiskBytes_;
+    std::uint64_t minFreeBytes_ = kDefaultMinFreeBytes;
     StorageProfile storageProfile_;
     AccessMode accessMode_;
     MaintenanceClock::time_point nextCleanup_{};

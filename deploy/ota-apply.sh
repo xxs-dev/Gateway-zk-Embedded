@@ -50,7 +50,27 @@ cleanup_applying_marker() {
   fi
 }
 
-trap cleanup_applying_marker EXIT HUP INT TERM
+LIVE_CHANGE_STARTED=0
+JOB_DIRS_CREATED=0
+
+on_exit() {
+  status=$?
+  # Failed before touching the live runtime: drop the job dirs so the same
+  # jobId can be retried (it was never recorded in applied_jobs.txt).
+  if [ "$LIVE_CHANGE_STARTED" != "1" ] && [ -n "${IN_PROGRESS_FILE:-}" ] &&
+     grep -qx "pid=$$" "$IN_PROGRESS_FILE" 2>/dev/null; then
+    LIVE_CHANGE_STARTED=1
+  fi
+  if [ "$status" -ne 0 ] && [ "$JOB_DIRS_CREATED" = "1" ] && [ "$LIVE_CHANGE_STARTED" != "1" ]; then
+    rm -rf -- "${WORK_DIR:?}" "${JOB_BACKUP_DIR:?}" 2>/dev/null || true
+  fi
+  cleanup_applying_marker
+}
+
+trap on_exit EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -z "$ARTIFACT_PATH" ] || [ -z "$VERSION" ] || [ -z "$JOB_ID" ] || [ -z "$BACKUP_DIR" ] || [ -z "$STAGING_DIR" ]; then
   echo "[ota-apply] usage: ota-apply.sh <artifactPath> <version> <jobId> <backupDir> <stagingDir>" >&2
@@ -136,6 +156,8 @@ if archive_kind == "tar":
                 fail(f"path escapes staging directory: {member.name}")
             if member.issym() or member.islnk() or member.isdev():
                 fail(f"unsupported archive entry type: {member.name}")
+            if member.mode & 0o6000:
+                fail(f"setuid/setgid archive entry: {member.name}")
             if member.isfile():
                 accept_size(member.size)
 elif archive_kind == "zip":
@@ -148,6 +170,8 @@ elif archive_kind == "zip":
             mode = (info.external_attr >> 16) & 0o170000
             if mode in (stat.S_IFLNK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFIFO, stat.S_IFSOCK):
                 fail(f"unsupported archive entry type: {info.filename}")
+            if (info.external_attr >> 16) & 0o6000:
+                fail(f"setuid/setgid archive entry: {info.filename}")
             if not info.is_dir():
                 accept_size(info.file_size)
 else:
@@ -159,6 +183,16 @@ require_safe_id "jobId" "$JOB_ID"
 require_safe_id "version" "$VERSION"
 require_safe_dir "backupDir" "$BACKUP_DIR"
 require_safe_dir "stagingDir" "$STAGING_DIR"
+# The previous job's restart/health-verification sequence must finish first:
+# its automatic rollback would otherwise interleave with this apply.
+if [ -f "$WATCHDOG_APPLYING_FILE" ]; then
+  previous_kind="$(sed -n 's/^kind=//p' "$WATCHDOG_APPLYING_FILE" | sed -n '1p')"
+  previous_pid="$(sed -n 's/^pid=//p' "$WATCHDOG_APPLYING_FILE" | sed -n '1p')"
+  if [ "$previous_kind" = "ota-restart" ] && [ -n "$previous_pid" ] && kill -0 "$previous_pid" 2>/dev/null; then
+    echo "[ota-apply] previous OTA restart/health verification (pid $previous_pid) still running; retry later" >&2
+    exit 6
+  fi
+fi
 write_applying_marker
 
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -192,10 +226,134 @@ case "$JOB_BACKUP_DIR" in
     ;;
 esac
 
+APPLIED_JOBS_FILE="$STAGING_DIR/applied_jobs.txt"
+IN_PROGRESS_FILE="$STAGING_DIR/ota-in-progress"
+
+# Durable (fsynced file + directory) write/append/remove helpers. The
+# in-progress marker lives outside /run so an interrupted apply is detected at
+# the next boot (gateway-ota-recover.service -> ota-rollback.sh).
+durable_file() {
+  python3 - "$@" <<'PY'
+import os
+import sys
+
+action, path = sys.argv[1:3]
+directory = os.path.dirname(path) or "."
+if action == "remove":
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+else:
+    data = sys.argv[3]
+    if action == "append":
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+    else:
+        temporary = path + ".tmp." + str(os.getpid())
+        with open(temporary, "w", encoding="utf-8") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, path)
+fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+}
+
+clear_in_progress_marker() {
+  durable_file remove "$IN_PROGRESS_FILE"
+}
+
+# Keep only the newest OTA_RETENTION_JOBS job directories in staging/backup.
+prune_old_jobs() {
+  keep="${OTA_RETENTION_JOBS:-3}"
+  case "$keep" in ""|*[!0-9]*) keep=3 ;; esac
+  [ "$keep" -ge 1 ] || keep=1
+  for prune_root in "$STAGING_DIR" "$BACKUP_DIR"; do
+    count=1
+    # shellcheck disable=SC2012
+    ls -1dt "$prune_root"/*/ 2>/dev/null | while IFS= read -r job_dir; do
+      job_dir="${job_dir%/}"
+      job_name="$(basename "$job_dir")"
+      case "$job_name" in
+        ""|.|..|*..*|*[!A-Za-z0-9._-]*) continue ;;
+      esac
+      [ "$job_name" = "$JOB_ID" ] && continue
+      count=$((count + 1))
+      if [ "$count" -gt "$keep" ]; then
+        rm -rf -- "$job_dir" && echo "[$TIMESTAMP] [ota-apply] pruned old job dir $job_dir" >> "$LOG_FILE"
+      fi
+    done
+  done
+}
+
 mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
-rm -rf "$WORK_DIR"
-rm -rf "$JOB_BACKUP_DIR"
+# A jobId is single-use: re-applying it would overwrite its own rollback backup
+# with the already-new files, turning a later rollback into a no-op.
+if [ -e "$WORK_DIR" ] || [ -e "$JOB_BACKUP_DIR" ] ||
+   { [ -f "$APPLIED_JOBS_FILE" ] && grep -qxF -- "$JOB_ID" "$APPLIED_JOBS_FILE"; }; then
+  echo "[$TIMESTAMP] [ota-apply] jobId already processed; refusing to re-apply: $JOB_ID" | tee -a "$LOG_FILE" >&2
+  exit 5
+fi
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ -f "$IN_PROGRESS_FILE" ]; then
+  marker_boot="$(sed -n 's/^boot_id=//p' "$IN_PROGRESS_FILE" | sed -n '1p')"
+  marker_pid="$(sed -n 's/^pid=//p' "$IN_PROGRESS_FILE" | sed -n '1p')"
+  if [ "$marker_boot" = "$(watchdog_boot_id)" ] && [ -n "$marker_pid" ] && kill -0 "$marker_pid" 2>/dev/null; then
+    echo "[$TIMESTAMP] [ota-apply] another OTA apply (pid $marker_pid) is still running" | tee -a "$LOG_FILE" >&2
+    exit 5
+  fi
+  # Stale marker (earlier boot or dead apply): recover that job first. Run it
+  # in its own transient unit so restarting mqtt-driver@ cannot kill it.
+  echo "[$TIMESTAMP] [ota-apply] recovering interrupted OTA before jobId=$JOB_ID" | tee -a "$LOG_FILE" >&2
+  RECOVER_UNIT="ota-recover-${JOB_ID}-$$"
+  if command -v systemd-run >/dev/null 2>&1 &&
+     systemd-run --unit="$RECOVER_UNIT" --wait --collect --quiet \
+       --setenv=OTA_RECOVER_CALLER_PID="$$" --setenv=WATCHDOG_RUN_DIR="$WATCHDOG_RUN_DIR" \
+       /bin/sh "$SCRIPT_DIR/ota-rollback.sh" --recover-interrupted "$STAGING_DIR" >> "$LOG_FILE" 2>&1; then
+    :
+  elif [ -f "$IN_PROGRESS_FILE" ]; then
+    OTA_RECOVER_CALLER_PID="$$" sh "$SCRIPT_DIR/ota-rollback.sh" --recover-interrupted "$STAGING_DIR" >> "$LOG_FILE" 2>&1 || true
+  fi
+  if [ -f "$IN_PROGRESS_FILE" ]; then
+    echo "[$TIMESTAMP] [ota-apply] interrupted OTA recovery failed; operator action required: $IN_PROGRESS_FILE" | tee -a "$LOG_FILE" >&2
+    exit 5
+  fi
+  # ota-rollback.sh removes the watchdog marker on exit; re-assert ours.
+  write_applying_marker
+fi
 mkdir -p "$WORK_DIR" "$JOB_BACKUP_DIR"
+JOB_DIRS_CREATED=1
+
+# Written immediately before the first change to the live runtime; removed only
+# after the state file is complete. ota-rollback.sh clears it after a rollback.
+# The jobId is burned (applied_jobs.txt) only from this point on.
+in_progress_text() {
+  printf 'jobId=%s\nversion=%s\nartifact=%s\nbackupRoot=%s\nstagingDir=%s\npid=%s\nboot_id=%s\n' \
+    "$JOB_ID" "$VERSION" "$ARTIFACT_PATH" "$BACKUP_DIR" "$STAGING_DIR" "$$" "$(watchdog_boot_id)"
+}
+
+# Snapshot the pre-OTA version markers so ota-rollback.sh can restore them.
+snapshot_previous_state() {
+  mkdir -p "$JOB_BACKUP_DIR/previous_state"
+  [ ! -f "$STATE_FILE" ] || cp -p "$STATE_FILE" "$JOB_BACKUP_DIR/previous_state/current_version.txt"
+  [ ! -f "$STAGING_DIR/applied_version.txt" ] || cp -p "$STAGING_DIR/applied_version.txt" "$JOB_BACKUP_DIR/previous_version.txt"
+}
+
+write_in_progress_marker() {
+  LIVE_CHANGE_STARTED=1
+  snapshot_previous_state
+  durable_file append "$APPLIED_JOBS_FILE" "$JOB_ID
+"
+  durable_file write "$IN_PROGRESS_FILE" "$(in_progress_text)
+"
+}
 
 echo "[$TIMESTAMP] [ota-apply] start jobId=$JOB_ID version=$VERSION artifact=$ARTIFACT_PATH" | tee -a "$LOG_FILE"
 
@@ -238,6 +396,7 @@ case "$ARTIFACT_NAME" in
     [ -f "$IDENTITY_FILE" ] || { echo "[$TIMESTAMP] [ota-apply] device identity is missing" >&2; exit 4; }
     MACHINE_CODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("machineCode", ""))' "$IDENTITY_FILE")"
     [ -n "$MACHINE_CODE" ] || { echo "[$TIMESTAMP] [ota-apply] machineCode is empty" >&2; exit 4; }
+    write_in_progress_marker
     "$INSTALLER" \
       --package "$WORK_DIR/$ARTIFACT_NAME" \
       --machine-code "$MACHINE_CODE" \
@@ -256,6 +415,8 @@ case "$ARTIFACT_NAME" in
       cat "$SCADA_INSTALL_STATE"
     } > "$STATE_FILE"
     echo "$VERSION" > "$STAGING_DIR/applied_version.txt"
+    clear_in_progress_marker
+    prune_old_jobs
     echo "[$TIMESTAMP] [ota-apply] SCADA success jobId=$JOB_ID version=$VERSION" | tee -a "$LOG_FILE"
     exit 0
     ;;
@@ -275,6 +436,11 @@ if [ -f "$MANIFEST_PATH" ]; then
   RESTART_FILE="$WORK_DIR/restart_services.txt"
   SYSTEMD_RELOAD_FILE="$WORK_DIR/systemd_reload_required"
   CHMOD_FILE="$WORK_DIR/chmod_targets.txt"
+  snapshot_previous_state
+  # The manifest step records the jobId and writes the in-progress marker itself,
+  # after validating every entry and immediately before the first live change.
+  OTA_JOB_ID="$JOB_ID" OTA_APPLIED_JOBS_FILE="$APPLIED_JOBS_FILE" OTA_IN_PROGRESS_FILE="$IN_PROGRESS_FILE" \
+  OTA_IN_PROGRESS_TEXT="$(in_progress_text)" \
   python3 - "$MANIFEST_PATH" "$JOB_BACKUP_DIR" "$LOG_FILE" "$RESTART_FILE" "$SYSTEMD_RELOAD_FILE" "$CHMOD_FILE" <<'PY'
 import json
 import glob
@@ -345,6 +511,7 @@ allowed_systemd_targets = {
     "/etc/default/gateway-health-watchdog",
     "/etc/systemd/system/gateway-services.service",
     "/etc/systemd/system/gateway-health-watchdog.service",
+    "/etc/systemd/system/gateway-ota-recover.service",
     "/etc/systemd/system/modbus-rtu@.service",
     "/etc/systemd/system/dlt645-driver@.service",
     "/etc/systemd/system/dio-driver@.service",
@@ -362,6 +529,10 @@ allowed_systemd_targets = {
     "/etc/systemd/system/system-monitor@.service",
     "/etc/systemd/system/mqtt-tls-tunnel@.service",
 }
+
+# Units that only act at boot must be enabled when an OTA installs them.
+ENABLE_ON_INSTALL = {"/etc/systemd/system/gateway-ota-recover.service"}
+enable_units = []
 
 allowed_exact_services = (
     "gateway-services.service",
@@ -416,6 +587,45 @@ def needs_gateway_services_restart(dst):
         return True
     return False
 
+# Effective defaults mirror OtaConfig in include/edge_gateway/models.hpp.
+OTA_FIXED_KEYS = {
+    "applyScript": "/opt/modbus-gateway/bin/ota-apply.sh",
+    "rollbackScript": "/opt/modbus-gateway/bin/ota-rollback.sh",
+    "signaturePublicKeyPath": "/etc/modbus-gateway/ota.pub",
+}
+OTA_MUST_STAY_ON = {"checksumRequired": True, "requireSignature": True}
+OTA_MUST_STAY_OFF = {"allowInsecureHttp": False}
+
+def load_ota_section(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            document = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    section = document.get("ota") if isinstance(document, dict) else None
+    return section if isinstance(section, dict) else {}
+
+def check_ota_policy(src, dst):
+    # A package may tighten OTA security (enable signatures/checksums, disable
+    # plain http) but must not weaken it, move the verification key, or point
+    # ota.applyScript/rollbackScript at a script it ships itself.
+    normalized = os.path.abspath(dst)
+    if not (normalized.startswith("/opt/modbus-gateway/config/") and normalized.endswith(".json")):
+        return
+    new_section = load_ota_section(src)
+    if new_section is None:
+        return
+    old_section = (load_ota_section(dst) if os.path.exists(dst) else {}) or {}
+    for key, default in OTA_FIXED_KEYS.items():
+        if new_section.get(key, default) != old_section.get(key, default):
+            raise SystemExit(f"OTA package may not change ota.{key} in {dst}; use offline provisioning")
+    for key, default in OTA_MUST_STAY_ON.items():
+        if new_section.get(key, default) is not True and old_section.get(key, default) is True:
+            raise SystemExit(f"OTA package may not disable ota.{key} in {dst}; use offline provisioning")
+    for key, default in OTA_MUST_STAY_OFF.items():
+        if new_section.get(key, default) is not False and old_section.get(key, default) is False:
+            raise SystemExit(f"OTA package may not enable ota.{key} in {dst}; use offline provisioning")
+
 def sha256_file(path):
     import hashlib
     digest = hashlib.sha256()
@@ -435,6 +645,20 @@ def verify_manifest_checksum(item, src):
     if actual != expected:
         raise SystemExit(f"manifest checksum mismatch for {item.get('path', '')}")
 
+def target_mode(src, dst):
+    # Never inherit setuid/setgid/group-/world-writable bits from the package
+    # (Windows/WSL builds are often 0777). Executables (bin/, or an exec bit on
+    # the source or the file being replaced, e.g. ky-ems/KY-EMS) get 0755.
+    if dst.endswith(".key"):
+        return 0o600
+    if dst.startswith("/opt/modbus-gateway/bin/"):
+        return 0o755
+    if os.stat(src).st_mode & 0o111:
+        return 0o755
+    if os.path.exists(dst) and os.stat(dst).st_mode & 0o111:
+        return 0o755
+    return 0o644
+
 def atomic_copy2(src, dst, item=None):
     destination_dir = os.path.dirname(dst)
     fd, temporary_path = tempfile.mkstemp(
@@ -443,7 +667,8 @@ def atomic_copy2(src, dst, item=None):
     )
     os.close(fd)
     try:
-        shutil.copy2(src, temporary_path)
+        shutil.copyfile(src, temporary_path)
+        os.chmod(temporary_path, target_mode(src, dst))
         if item is not None:
             verify_manifest_checksum(item, temporary_path)
         with open(temporary_path, "rb") as fh:
@@ -468,6 +693,40 @@ def is_safe_service_name(value):
     if any(ch not in allowed_chars for ch in value):
         return False
     return value in allowed_exact_services or any(value.startswith(prefix) for prefix in allowed_service_prefixes)
+
+# Validate every entry before the first change to the live runtime.
+for item in manifest.get("files", []):
+    pre_src = os.path.abspath(os.path.join(root_dir, item["path"]))
+    pre_dst = os.path.abspath(item["target"])
+    if not safe_child_path(pre_src, root_dir) or not os.path.isfile(pre_src):
+        raise SystemExit(f"unsafe or missing manifest source: {item.get('path', '')}")
+    if not is_safe_target(pre_dst):
+        raise SystemExit(f"unsafe manifest target: {pre_dst}")
+    check_ota_policy(pre_src, pre_dst)
+
+def durable_write(path, text, append=False):
+    directory = os.path.dirname(path) or "."
+    if append:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+    else:
+        temporary = path + ".tmp." + str(os.getpid())
+        with open(temporary, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, path)
+    fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+# From here on the live runtime changes: burn the jobId and arm boot recovery.
+durable_write(os.environ["OTA_APPLIED_JOBS_FILE"], os.environ["OTA_JOB_ID"] + "\n", append=True)
+durable_write(os.environ["OTA_IN_PROGRESS_FILE"], os.environ["OTA_IN_PROGRESS_TEXT"] + "\n")
 
 for rule in manifest.get("cleanBeforeApply", []):
     target = os.path.abspath(rule.get("target", ""))
@@ -516,6 +775,8 @@ for item in manifest.get("files", []):
         need_gateway_services_restart = True
     if dst.startswith("/etc/systemd/system/") and dst.endswith(".service"):
         need_systemd_reload = True
+    if dst in ENABLE_ON_INSTALL:
+        enable_units.append(os.path.basename(dst))
     if dst.startswith("/opt/modbus-gateway/bin/"):
         chmod_targets.append(dst)
     log(f"[manifest-copy] {src} -> {dst}")
@@ -539,10 +800,25 @@ with open(restart_file, "w", encoding="utf-8") as fh:
 if need_systemd_reload:
     with open(systemd_reload_file, "w", encoding="utf-8") as fh:
         fh.write("1\n")
+with open(os.path.join(os.path.dirname(restart_file), "enable_units.txt"), "w", encoding="utf-8") as fh:
+    for unit in enable_units:
+        fh.write(unit + "\n")
 with open(chmod_file, "w", encoding="utf-8") as fh:
     for item in chmod_targets:
         fh.write(item + "\n")
 PY
+fi
+
+ENABLE_UNITS_FILE="$WORK_DIR/enable_units.txt"
+if [ -s "$ENABLE_UNITS_FILE" ] && command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] daemon-reload failed" >> "$LOG_FILE"
+  while IFS= read -r unit; do
+    case "$unit" in
+      gateway-ota-recover.service)
+        systemctl enable "$unit" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] enable failed $unit" >> "$LOG_FILE"
+        ;;
+    esac
+  done < "$ENABLE_UNITS_FILE"
 fi
 
 if [ -n "$CHMOD_FILE" ] && [ -f "$CHMOD_FILE" ]; then
@@ -560,22 +836,47 @@ fi
   echo "backupArtifact=$BACKUP_ARTIFACT"
   echo "workDir=$WORK_DIR"
   echo "appliedAt=$TIMESTAMP"
-} > "$STATE_FILE"
+} > "$STATE_FILE.tmp.$$"
+mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"
 
 echo "$VERSION" > "$STAGING_DIR/applied_version.txt"
+clear_in_progress_marker
+prune_old_jobs
 echo "[$TIMESTAMP] [ota-apply] success jobId=$JOB_ID version=$VERSION workDir=$WORK_DIR" | tee -a "$LOG_FILE"
 
 if command -v systemctl >/dev/null 2>&1 && [ -n "$RESTART_FILE" ] && [ -f "$RESTART_FILE" ]; then
   RESTART_LATER="$WORK_DIR/restart_later.sh"
+  SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+  ROLLBACK_SCRIPT="$SCRIPT_DIR/ota-rollback.sh"
+  GATEWAY_SERVICES_SCRIPT="$SCRIPT_DIR/gateway-services.sh"
+  HEALTH_FILE="$STAGING_DIR/health_${JOB_ID}.txt"
+  # Post-restart health gate: if restarted units are not active after the
+  # verify window, run ota-rollback.sh for this job. OTA_AUTO_ROLLBACK=0 opts out.
+  HEALTH_VERIFY_SEC="${OTA_HEALTH_VERIFY_SEC:-30}"
+  case "$HEALTH_VERIFY_SEC" in ""|*[!0-9]*) HEALTH_VERIFY_SEC=30 ;; esac
+  AUTO_ROLLBACK="${OTA_AUTO_ROLLBACK:-1}"
+  [ "$AUTO_ROLLBACK" = "0" ] || AUTO_ROLLBACK=1
   cat > "$RESTART_LATER" <<EOF
 #!/bin/sh
 WATCHDOG_RUN_DIR="$WATCHDOG_RUN_DIR"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_APPLYING_FILE"
 cleanup_own_applying_marker() {
   marker_pid=\$(sed -n 's/^pid=//p' "\$WATCHDOG_APPLYING_FILE" 2>/dev/null | sed -n '1p')
-  if [ "\$marker_pid" = "\$\$" ]; then
+  marker_kind=\$(sed -n 's/^kind=//p' "\$WATCHDOG_APPLYING_FILE" 2>/dev/null | sed -n '1p')
+  if [ "\$marker_pid" = "\$\$" ] || { [ -z "\$marker_pid" ] && [ "\$marker_kind" = "ota-restart" ]; }; then
     rm -f "\$WATCHDOG_APPLYING_FILE"
   fi
+}
+restarted=""
+# active/reloading, or still starting (but not crash-looping in auto-restart).
+unit_ok() {
+  unit_state=\$(systemctl show -p ActiveState --value "\$1" 2>/dev/null)
+  unit_sub=\$(systemctl show -p SubState --value "\$1" 2>/dev/null)
+  case "\$unit_state" in
+    active|reloading) return 0 ;;
+    activating) [ "\$unit_sub" != "auto-restart" ] && return 0 ;;
+  esac
+  return 1
 }
 trap cleanup_own_applying_marker EXIT HUP INT TERM
 sleep 2
@@ -596,15 +897,54 @@ while IFS= read -r service; do
     systemctl enable "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] enable failed \$service" >> "$LOG_FILE"
     echo "[$TIMESTAMP] [ota-apply] reloading or starting \$service" >> "$LOG_FILE"
     systemctl reload-or-restart "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] reload-or-restart failed \$service" >> "$LOG_FILE"
+    restarted="\$restarted \$service"
     continue
   fi
   echo "[$TIMESTAMP] [ota-apply] restarting \$service" >> "$LOG_FILE"
   systemctl restart "\$service" >> "$LOG_FILE" 2>&1 || echo "[$TIMESTAMP] [ota-apply] restart failed \$service" >> "$LOG_FILE"
+  restarted="\$restarted \$service"
 done < "$RESTART_FILE"
+if [ "$AUTO_ROLLBACK" = "1" ] && [ -n "\$restarted" ]; then
+  sleep $HEALTH_VERIFY_SEC
+  unhealthy=""
+  for service in \$restarted; do
+    # Display units are started --no-block and may legitimately wait for X.
+    case "\$service" in ky-ems.service|local-kiosk@*.service) continue ;; esac
+    unit_ok "\$service" || unhealthy="\$unhealthy \$service"
+    if [ "\$service" = "gateway-services.service" ] && [ -x "$GATEWAY_SERVICES_SCRIPT" ]; then
+      for unit in \$("$GATEWAY_SERVICES_SCRIPT" list 2>/dev/null); do
+        case "\$unit" in ""|\#*|ky-ems.service|local-kiosk@*.service) continue ;; esac
+        unit_ok "\$unit" || unhealthy="\$unhealthy \$unit"
+      done
+    fi
+  done
+  if [ -n "\$unhealthy" ]; then
+    echo "[$TIMESTAMP] [ota-apply] unhealthy after restart:\$unhealthy; rolling back jobId=$JOB_ID" >> "$LOG_FILE"
+    printf 'status=unhealthy\nunits=%s\n' "\$unhealthy" > "$HEALTH_FILE"
+    if OTA_ROLLBACK_REASON=unhealthy-after-restart sh "$ROLLBACK_SCRIPT" "$ARTIFACT_PATH" "$VERSION" "$JOB_ID" "$BACKUP_DIR" "$STAGING_DIR" >> "$LOG_FILE" 2>&1; then
+      printf 'rollback=succeeded\n' >> "$HEALTH_FILE"
+    else
+      printf 'rollback=failed\n' >> "$HEALTH_FILE"
+    fi
+  else
+    printf 'status=healthy\n' > "$HEALTH_FILE"
+  fi
+fi
 EOF
   chmod +x "$RESTART_LATER"
-  nohup sh "$RESTART_LATER" >/dev/null 2>&1 &
-  RESTART_PID=$!
+  RESTART_PID=""
+  # Run outside the caller's cgroup (MqttDriver's unit): restarting
+  # mqtt-driver@ must not SIGKILL the restart sequence halfway through.
+  RESTART_UNIT="ota-restart-${JOB_ID}-$$"
+  if command -v systemd-run >/dev/null 2>&1 &&
+     systemd-run --unit="$RESTART_UNIT" --collect --quiet /bin/sh "$RESTART_LATER" >/dev/null 2>&1; then
+    RESTART_PID="$(systemctl show -p MainPID --value "$RESTART_UNIT.service" 2>/dev/null || true)"
+    case "$RESTART_PID" in ""|0|*[!0-9]*) RESTART_PID="" ;; esac
+    echo "[$TIMESTAMP] [ota-apply] restart sequence started as $RESTART_UNIT.service" >> "$LOG_FILE"
+  else
+    nohup sh "$RESTART_LATER" >/dev/null 2>&1 &
+    RESTART_PID=$!
+  fi
   write_applying_marker_for ota-restart "$RESTART_PID"
   KEEP_APPLYING_MARKER=1
 fi

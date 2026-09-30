@@ -29,6 +29,11 @@ void PosixSerialPort::open() {
         return;
     }
 
+    // Resolve the baud rate before opening: an unsupported rate must not leave
+    // an open descriptor with unconfigured (canonical/echo) termios behind,
+    // which a later open() would silently reuse.
+    const auto baud = baudToTermios(options_.baudRate);
+
     fd_ = ::open(options_.device.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd_ < 0) {
         throw std::runtime_error("failed to open serial device: " + options_.device);
@@ -42,7 +47,6 @@ void PosixSerialPort::open() {
     }
 
     cfmakeraw(&tty);
-    const auto baud = baudToTermios(options_.baudRate);
     cfsetispeed(&tty, baud);
     cfsetospeed(&tty, baud);
 
@@ -71,6 +75,8 @@ void PosixSerialPort::open() {
         close();
         throw std::system_error(err, std::generic_category(), "tcsetattr failed");
     }
+    // Drop bytes received before the port was configured.
+    (void)tcflush(fd_, TCIFLUSH);
 }
 
 void PosixSerialPort::close() {

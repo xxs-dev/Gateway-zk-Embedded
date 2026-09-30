@@ -12,8 +12,10 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <iomanip>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -33,10 +35,14 @@
 #include "edge_gateway/scada_control_lease.hpp"
 #include "edge_gateway/scada_upper_computer_safety.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
+#include "edge_gateway/system_monitor_service.hpp"
+#include "edge_gateway/json_value.hpp"
 
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <dlfcn.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -813,14 +819,18 @@ std::string authStateJson(const AuthState& state) {
     return out.str();
 }
 
-std::string realtimePointsJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& meterCode) {
+std::string realtimePointsJson(
+    const SystemMonitorDirectMaintenanceConfig& config,
+    const std::string& meterCode,
+    bool writeScadaHeartbeat
+) {
     auto context = createRealtimeContext(config);
     const auto ts = nowMs();
     const auto machineCode = resolveMachineCode(config, context->appConfig);
     const auto values = meterCode.empty()
         ? context->router.getAllLatest(ts)
         : context->router.getLatestByMeter(machineCode, meterCode, ts);
-    if (config.scadaUpperComputerSafetyEnabled) {
+    if (config.scadaUpperComputerSafetyEnabled && writeScadaHeartbeat) {
         edge_gateway::ScadaUpperComputerSafetyMonitor::writeHeartbeat(
             config.scadaUpperComputerLeaseFile,
             machineCode,
@@ -944,10 +954,245 @@ void appendOtaStatus(const SystemMonitorDirectMaintenanceConfig& config, const e
            << "}\n";
 }
 
+// ---- Maintenance credential (per device, salted PBKDF2-HMAC-SHA256) ----------------------
+//
+// The wire protocol is unchanged: clients send passwordSha256 = hex(SHA-256(password)).
+// The device never stores that value; it stores PBKDF2-HMAC-SHA256(passwordSha256, salt).
+
+constexpr int kCredentialDefaultIterations = 120000;
+constexpr int kCredentialMinIterations = 10000;
+constexpr int kCredentialMaxIterations = 5000000;
+
+class MaintenanceCrypto {
+public:
+    static const MaintenanceCrypto& instance() {
+        static const MaintenanceCrypto crypto;
+        return crypto;
+    }
+
+    bool available() const {
+        return pbkdf2_ != nullptr && sha256Md_ != nullptr && sha256_ != nullptr;
+    }
+
+    bool pbkdf2(const std::string& secret, const std::string& salt, int iterations, std::string* output) const {
+        if (!available()) {
+            return false;
+        }
+        unsigned char derived[32] = {};
+        const auto* digest = sha256Md_();
+        if (digest == nullptr ||
+            pbkdf2_(secret.data(), static_cast<int>(secret.size()),
+                    reinterpret_cast<const unsigned char*>(salt.data()), static_cast<int>(salt.size()),
+                    iterations, digest, static_cast<int>(sizeof(derived)), derived) != 1) {
+            return false;
+        }
+        *output = std::string(reinterpret_cast<const char*>(derived), sizeof(derived));
+        return true;
+    }
+
+    bool sha256(const std::string& input, std::string* output) const {
+        if (!available()) {
+            return false;
+        }
+        unsigned char digest[32] = {};
+        if (sha256_(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest) == nullptr) {
+            return false;
+        }
+        *output = std::string(reinterpret_cast<const char*>(digest), sizeof(digest));
+        return true;
+    }
+
+private:
+    using Pbkdf2Function = int (*)(const char*, int, const unsigned char*, int, int, const void*, int, unsigned char*);
+    using DigestFunction = const void* (*)();
+    using Sha256Function = unsigned char* (*)(const unsigned char*, std::size_t, unsigned char*);
+
+    MaintenanceCrypto() {
+#ifndef _WIN32
+        // Same system libcrypto ABI families already dlopened by the MQTT TLS transport.
+        for (const auto* name : {"libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so"}) {
+            library_ = ::dlopen(name, RTLD_NOW | RTLD_LOCAL);
+            if (library_ == nullptr) {
+                continue;
+            }
+            pbkdf2_ = reinterpret_cast<Pbkdf2Function>(::dlsym(library_, "PKCS5_PBKDF2_HMAC"));
+            sha256Md_ = reinterpret_cast<DigestFunction>(::dlsym(library_, "EVP_sha256"));
+            sha256_ = reinterpret_cast<Sha256Function>(::dlsym(library_, "SHA256"));
+            if (available()) {
+                return;
+            }
+            ::dlclose(library_);
+            library_ = nullptr;
+            pbkdf2_ = nullptr;
+            sha256Md_ = nullptr;
+            sha256_ = nullptr;
+        }
+#endif
+    }
+
+    void* library_ = nullptr;
+    Pbkdf2Function pbkdf2_ = nullptr;
+    DigestFunction sha256Md_ = nullptr;
+    Sha256Function sha256_ = nullptr;
+};
+
+std::string toHex(const std::string& bytes) {
+    static const char* hex = "0123456789abcdef";
+    std::string out;
+    out.reserve(bytes.size() * 2);
+    for (const auto ch : bytes) {
+        const auto byte = static_cast<unsigned char>(ch);
+        out.push_back(hex[byte >> 4]);
+        out.push_back(hex[byte & 0x0f]);
+    }
+    return out;
+}
+
+bool fromHexString(const std::string& text, std::string* output) {
+    if (text.size() % 2 != 0) {
+        return false;
+    }
+    std::string bytes;
+    bytes.reserve(text.size() / 2);
+    for (std::size_t i = 0; i < text.size(); i += 2) {
+        const auto value = [](char ch) -> int {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+            return -1;
+        };
+        const int high = value(text[i]);
+        const int low = value(text[i + 1]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        bytes.push_back(static_cast<char>((high << 4) | low));
+    }
+    *output = std::move(bytes);
+    return true;
+}
+
+std::string normalizedPasswordSha256(const std::string& value) {
+    auto normalized = trim(value);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    std::string ignored;
+    return normalized.size() == 64 && fromHexString(normalized, &ignored) ? normalized : std::string();
+}
+
+struct StoredCredential {
+    int iterations = 0;
+    std::string salt;
+    std::string hashHex;
+};
+
+bool loadStoredCredential(const SystemMonitorDirectMaintenanceConfig& config, StoredCredential* credential) {
+    if (config.credentialFile.empty()) {
+        return false;
+    }
+    const auto text = readFile(config.credentialFile);
+    if (text.empty() || jsonString(text, "kdf") != "pbkdf2-hmac-sha256") {
+        return false;
+    }
+    StoredCredential loaded;
+    loaded.iterations = jsonInt(text, "iterations", 0);
+    loaded.hashHex = trim(jsonString(text, "hash"));
+    if (loaded.iterations < kCredentialMinIterations || loaded.iterations > kCredentialMaxIterations ||
+        loaded.hashHex.size() != 64 || !fromHexString(trim(jsonString(text, "salt")), &loaded.salt) ||
+        loaded.salt.size() < 16) {
+        return false;
+    }
+    *credential = std::move(loaded);
+    return true;
+}
+
+bool credentialProvisionedFor(const SystemMonitorDirectMaintenanceConfig& config) {
+    StoredCredential credential;
+    return loadStoredCredential(config, &credential) && MaintenanceCrypto::instance().available();
+}
+
+bool verifyPasswordSha256For(const SystemMonitorDirectMaintenanceConfig& config, const std::string& provided) {
+    const auto normalized = normalizedPasswordSha256(provided);
+    if (normalized.empty()) {
+        return false;
+    }
+    if (config.allowLegacyFixedPassword && constantTimeEquals(normalized, kFixedMaintenancePasswordSha256)) {
+        return true;
+    }
+    StoredCredential credential;
+    if (!loadStoredCredential(config, &credential)) {
+        return false;
+    }
+    std::string derived;
+    if (!MaintenanceCrypto::instance().pbkdf2(normalized, credential.salt, credential.iterations, &derived)) {
+        return false;
+    }
+    std::string expected = credential.hashHex;
+    std::transform(expected.begin(), expected.end(), expected.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return constantTimeEquals(toHex(derived), expected);
+}
+
+// Per-client lockout after repeated failures (the server loop is single threaded, the mutex
+// keeps the helpers safe for tests and future callers).
+struct AuthFailureState {
+    int failures = 0;
+    std::int64_t lockedUntilMs = 0;
+    std::int64_t lastFailureMs = 0;
+};
+
+std::mutex g_authFailuresMutex;
+std::map<std::string, AuthFailureState> g_authFailures;
+thread_local bool tl_requestAuthorized = false;
+
+bool clientLockedOut(const SystemMonitorDirectMaintenanceConfig& config, const std::string& clientKey, std::int64_t now) {
+    std::lock_guard<std::mutex> lock(g_authFailuresMutex);
+    const auto it = g_authFailures.find(clientKey);
+    if (it == g_authFailures.end()) {
+        return false;
+    }
+    if (it->second.lockedUntilMs > now) {
+        return true;
+    }
+    if (now - it->second.lastFailureMs > static_cast<std::int64_t>(config.authLockoutSec) * 1000) {
+        g_authFailures.erase(it);
+    }
+    return false;
+}
+
+void recordAuthResult(
+    const SystemMonitorDirectMaintenanceConfig& config,
+    const std::string& clientKey,
+    bool success,
+    std::int64_t now
+) {
+    std::lock_guard<std::mutex> lock(g_authFailuresMutex);
+    if (success) {
+        g_authFailures.erase(clientKey);
+        return;
+    }
+    if (g_authFailures.size() >= 1024 && g_authFailures.find(clientKey) == g_authFailures.end()) {
+        for (auto it = g_authFailures.begin(); it != g_authFailures.end();) {
+            it = it->second.lockedUntilMs > now ? std::next(it) : g_authFailures.erase(it);
+        }
+    }
+    auto& state = g_authFailures[clientKey];
+    state.lastFailureMs = now;
+    if (++state.failures >= std::max(1, config.maxAuthFailures)) {
+        state.failures = 0;
+        state.lockedUntilMs = now + static_cast<std::int64_t>(config.authLockoutSec) * 1000;
+        std::cerr << "SystemMonitor direct maintenance locked client " << clientKey
+                  << " for " << config.authLockoutSec << "s after repeated authentication failures" << std::endl;
+    }
+}
+
 bool maintenancePasswordAccepted(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
     (void)config;
-    const auto providedHash = trim(jsonString(body, "passwordSha256"));
-    return !providedHash.empty() && constantTimeEquals(providedHash, kFixedMaintenancePasswordSha256);
+    (void)body;
+    // Set by authorizeSensitiveRequest() for the request being handled.
+    return tl_requestAuthorized;
 }
 
 void collectConfigFilesFromAppConfig(std::vector<std::string>& files, const std::string& appConfigPath) {
@@ -1284,21 +1529,8 @@ void ensureDirectory(const std::string& path) {
 
 void writeTextFileAtomically(const std::string& path, const std::string& content) {
     ensureDirectory(parentDirectory(path));
-    const auto tempPath = path + ".tmp." + std::to_string(nowMs());
-    {
-        std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
-        if (!output.is_open()) {
-            throw std::runtime_error("failed to open temp file: " + tempPath);
-        }
-        output << content;
-        if (!output) {
-            throw std::runtime_error("failed to write temp file: " + tempPath);
-        }
-    }
-    if (std::rename(tempPath.c_str(), path.c_str()) != 0) {
-        std::remove(tempPath.c_str());
-        throw std::runtime_error("failed to replace file: " + path);
-    }
+    // Checked write + fsync + rename (a full disk must never truncate a live config).
+    edge_gateway::system_monitor_config_safety::writeFileAtomically(path, content, true);
 }
 
 std::string backupFileIfExistsWithPath(const std::string& path) {
@@ -1312,9 +1544,14 @@ std::string backupFileIfExistsWithPath(const std::string& path) {
         throw std::runtime_error("failed to create backup for: " + path);
     }
     output << input.rdbuf();
+    output.close();
     if (!output) {
         throw std::runtime_error("failed to write backup for: " + path);
     }
+    edge_gateway::system_monitor_config_safety::pruneBackups(
+        path,
+        edge_gateway::system_monitor_config_safety::kConfigBackupsToKeep
+    );
     return backupPath;
 }
 
@@ -1360,9 +1597,11 @@ void validateConfigContentForPath(const SystemMonitorDirectMaintenanceConfig& co
     const auto normalized = path;
     const auto name = baseNameOf(path);
     if (containsPathSegment(normalized, "/ky-ems/") && isKyEmsSnapshotFile(path)) {
+        edge_gateway::system_monitor_config_safety::validateKyEmsFile(path, content);
         return;
     }
     if (isRuntimeLogicSnapshotFile(path)) {
+        (void)edge_gateway::json::JsonParser(content, 64, 4000000).parse();
         const auto valuePos = skipWhitespace(content, 0);
         if (valuePos == std::string::npos || valuePos >= content.size() || content[valuePos] != '{') {
             throw std::runtime_error("runtime logic config must be a JSON object: " + path);
@@ -1390,9 +1629,14 @@ void validateConfigContentForPath(const SystemMonitorDirectMaintenanceConfig& co
         } else if (path == config.appConfigFile ||
                    path == config.otaAppConfigFile ||
                    containsPathSegment(normalized, "/apps/")) {
-            (void)edge_gateway::ConfigLoader::loadAppConfigFromFile(tempPath);
+            const auto candidate = edge_gateway::ConfigLoader::loadAppConfigFromFile(tempPath);
+            edge_gateway::system_monitor_config_safety::rejectRemoteCameraCommandChange(candidate, path);
         } else {
             (void)edge_gateway::ConfigLoader::loadFromText(content);
+            if (content.find("\"cameraService\"") != std::string::npos) {
+                const auto candidate = edge_gateway::ConfigLoader::loadAppConfigFromFile(tempPath);
+                edge_gateway::system_monitor_config_safety::rejectRemoteCameraCommandChange(candidate, path);
+            }
         }
     } catch (...) {
         std::remove(tempPath.c_str());
@@ -1890,15 +2134,19 @@ std::string configApplyJson(const SystemMonitorDirectMaintenanceConfig& config, 
             if (!isAllowedConfigPath(config, file.path)) {
                 throw std::runtime_error("path is not allowed");
             }
-            validateConfigContentForPath(config, file.path, file.content);
             const auto current = readFile(file.path);
-            changed = current != file.content;
+            // Secrets were redacted in the snapshot export; restore the on-disk values.
+            const auto content = file.encoding == "utf8"
+                ? edge_gateway::system_monitor_config_safety::restoreRedactedSecrets(file.content, current)
+                : file.content;
+            validateConfigContentForPath(config, file.path, content);
+            changed = current != content;
             if (changed) {
                 ++changedFiles;
             }
             if (!dryRun && changed) {
                 backupFileIfExists(file.path);
-                writeTextFileAtomically(file.path, file.content);
+                writeTextFileAtomically(file.path, content);
                 ++appliedFiles;
             }
         } catch (const std::exception& ex) {
@@ -2090,7 +2338,9 @@ std::string configSnapshotJson(const SystemMonitorDirectMaintenanceConfig& confi
                                (scope == "scada" && isScadaAssetFile(path, projectDirectory)))
             ? std::string("base64")
             : std::string("utf8");
-        const auto encodedContent = encoding == "base64" ? base64Encode(content) : content;
+        const auto encodedContent = encoding == "base64"
+            ? base64Encode(content)
+            : edge_gateway::system_monitor_config_safety::redactSecrets(content);
         if (emittedFiles > 0) {
             out << ",";
         }
@@ -2441,13 +2691,93 @@ std::string response(int code, const std::string& status, const std::string& bod
     return out.str();
 }
 
+std::string headerValue(const std::string& headers, const std::string& name) {
+    std::istringstream lines(headers);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const auto colon = line.find(':');
+        if (colon == std::string::npos) {
+            continue;
+        }
+        auto key = trim(line.substr(0, colon));
+        std::transform(key.begin(), key.end(), key.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (key == name) {
+            return trim(line.substr(colon + 1));
+        }
+    }
+    return std::string();
+}
+
+// Lockout, provisioning and credential check. Returns an empty string on success,
+// otherwise the complete HTTP error response.
+std::string authenticateRequest(
+    const SystemMonitorDirectMaintenanceConfig& config,
+    const std::string& providedPasswordSha256,
+    const std::string& clientKey
+) {
+    const auto now = nowMs();
+    if (clientLockedOut(config, clientKey, now)) {
+        return response(429, "Too Many Requests",
+            "{\"success\":false,\"message\":\"too many failed authentication attempts; retry later\"}");
+    }
+    const bool legacyAccepted = config.allowLegacyFixedPassword &&
+        constantTimeEquals(normalizedPasswordSha256(providedPasswordSha256), kFixedMaintenancePasswordSha256);
+    if (!legacyAccepted && !credentialProvisionedFor(config)) {
+        return response(503, "Service Unavailable",
+            "{\"success\":false,\"message\":\"maintenance credential is not provisioned (SystemMonitor --set-maintenance-password)\"}");
+    }
+    if (!verifyPasswordSha256For(config, providedPasswordSha256)) {
+        recordAuthResult(config, clientKey, false, now);
+        return response(401, "Unauthorized", "{\"success\":false,\"message\":\"invalid maintenance password\"}");
+    }
+    recordAuthResult(config, clientKey, true, now);
+    return std::string();
+}
+
+bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
+    if (method != "POST") {
+        return false;
+    }
+    static const char* const kSensitivePaths[] = {
+        "/api/v1/config/snapshot",
+        "/api/v1/control/batch",
+        "/api/v1/diag/execute",
+        "/api/v1/config/apply",
+        "/api/v1/config/delete",
+        "/api/v1/config/restore",
+        "/api/v1/ota/jobs"
+    };
+    for (const auto* candidate : kSensitivePaths) {
+        if (path == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string handleRequest(
     const SystemMonitorDirectMaintenanceConfig& config,
     const std::string& method,
     const std::string& path,
     const std::string& query,
-    const std::string& body
+    const std::string& headers,
+    const std::string& body,
+    const std::string& clientKey
 ) {
+    tl_requestAuthorized = false;
+    if (isSensitiveEndpoint(method, path)) {
+        const auto denied = authenticateRequest(config, jsonString(body, "passwordSha256"), clientKey);
+        if (!denied.empty()) {
+            return denied;
+        }
+        if (config.requireSensitiveApiEnabled && !loadAuthState(config).sensitiveApiEnabled) {
+            return response(403, "Forbidden",
+                "{\"success\":false,\"message\":\"sensitive maintenance API is disabled (authState.sensitiveApiEnabled=false)\"}");
+        }
+        tl_requestAuthorized = true;
+    }
     if (method == "GET" && path == "/api/v1/health") {
         return response(200, "OK", healthJson());
     }
@@ -2498,7 +2828,12 @@ std::string handleRequest(
     }
     if (method == "GET" && path == "/api/v1/realtime/points") {
         try {
-            return response(200, "OK", realtimePointsJson(config, queryValue(query, "meterCode")));
+            bool writeHeartbeat = true;
+            if (config.realtimeHeartbeatRequiresAuth) {
+                const auto provided = headerValue(headers, "x-maintenance-password-sha256");
+                writeHeartbeat = !provided.empty() && authenticateRequest(config, provided, clientKey).empty();
+            }
+            return response(200, "OK", realtimePointsJson(config, queryValue(query, "meterCode"), writeHeartbeat));
         } catch (const std::exception& ex) {
             return response(503, "Service Unavailable", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
         }
@@ -2528,11 +2863,13 @@ std::string handleRequest(
         }
     }
     if (method == "POST" && path == "/api/v1/auth/bootstrap-login") {
-        const auto providedHash = trim(jsonString(body, "passwordSha256"));
-        if (!providedHash.empty() && constantTimeEquals(providedHash, kFixedMaintenancePasswordSha256)) {
-            return response(200, "OK", "{\"success\":true,\"message\":\"bootstrap password accepted\",\"sensitiveApiEnabled\":false}");
+        const auto denied = authenticateRequest(config, jsonString(body, "passwordSha256"), clientKey);
+        if (!denied.empty()) {
+            return denied;
         }
-        return response(401, "Unauthorized", "{\"success\":false,\"message\":\"invalid bootstrap password\"}");
+        const bool sensitive = !config.requireSensitiveApiEnabled || loadAuthState(config).sensitiveApiEnabled;
+        return response(200, "OK", std::string("{\"success\":true,\"message\":\"maintenance password accepted\",\"sensitiveApiEnabled\":") +
+            (sensitive ? "true" : "false") + "}");
     }
     return response(404, "Not Found", "{\"success\":false,\"message\":\"endpoint not found\"}");
 }
@@ -2542,6 +2879,7 @@ bool parseRequest(
     std::string* method,
     std::string* path,
     std::string* query,
+    std::string* headers,
     std::string* body
 ) {
     const auto lineEnd = raw.find("\r\n");
@@ -2559,6 +2897,9 @@ bool parseRequest(
         query->clear();
     }
     const auto bodyPos = raw.find("\r\n\r\n");
+    *headers = bodyPos == std::string::npos || bodyPos <= lineEnd
+        ? std::string()
+        : raw.substr(lineEnd + 2, bodyPos - lineEnd - 2);
     *body = bodyPos == std::string::npos ? std::string() : raw.substr(bodyPos + 4);
     return !method->empty() && !path->empty();
 }
@@ -2594,26 +2935,42 @@ std::size_t parseContentLength(const std::string& raw) {
     return 0;
 }
 
-std::string readHttpRequest(int client) {
+std::string readHttpRequest(int client, const SystemMonitorDirectMaintenanceConfig& config) {
     std::string raw;
 #ifndef _WIN32
+    const auto maxRequestBytes = std::min(kMaxHttpRequestBytes, config.maxRequestBytes);
+    // One overall deadline per request: slow senders can no longer hold the single-threaded
+    // server indefinitely by trickling bytes under the per-recv timeout.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(config.requestTimeoutMs);
     char buffer[4096];
     while (true) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            throw std::runtime_error("http request timed out");
+        }
         const auto readCount = ::recv(client, buffer, sizeof(buffer), 0);
         if (readCount <= 0) {
             break;
         }
         raw.append(buffer, buffer + readCount);
-        if (raw.size() > kMaxHttpRequestBytes) {
+        if (raw.size() > maxRequestBytes) {
             throw std::runtime_error("http request is too large");
         }
         const auto bodyPos = raw.find("\r\n\r\n");
         if (bodyPos == std::string::npos) {
+            if (raw.size() > config.maxHeaderBytes) {
+                throw std::runtime_error("http request header is too large");
+            }
             continue;
         }
+        if (bodyPos > config.maxHeaderBytes) {
+            throw std::runtime_error("http request header is too large");
+        }
         const auto contentLength = parseContentLength(raw);
+        if (contentLength > maxRequestBytes) {
+            throw std::runtime_error("http request body is too large");
+        }
         const auto expectedSize = bodyPos + 4 + contentLength;
-        if (expectedSize > kMaxHttpRequestBytes) {
+        if (expectedSize > maxRequestBytes) {
             throw std::runtime_error("http request body is too large");
         }
         if (raw.size() >= expectedSize) {
@@ -2622,6 +2979,7 @@ std::string readHttpRequest(int client) {
     }
 #else
     (void)client;
+    (void)config;
 #endif
     return raw;
 }
@@ -2697,7 +3055,7 @@ bool parseClientCidr(const std::string& value, std::uint32_t* network, std::uint
 
 bool isClientAllowed(const SystemMonitorDirectMaintenanceConfig& config, const sockaddr_in& clientAddr) {
     if (config.allowedClientCidrs.empty()) {
-        return true;
+        return config.allowAnyClient;
     }
 
     const auto client = ntohl(clientAddr.sin_addr.s_addr);
@@ -2725,6 +3083,13 @@ std::string sockaddrToString(const sockaddr_in& addr) {
 void validateServerConfig(const SystemMonitorDirectMaintenanceConfig& config) {
     if (config.listenHosts.empty()) {
         throw std::runtime_error("listenHosts cannot be empty");
+    }
+    if (config.allowedClientCidrs.empty() && !config.allowAnyClient) {
+        throw std::runtime_error(
+            "direct maintenance NOT started: systemMonitor.directMaintenance.allowedClientCidrs is empty. "
+            "Remedy: list the maintenance subnet(s), e.g. \"allowedClientCidrs\": [\"192.168.1.0/24\"], "
+            "or (not recommended) set \"allowAnyClient\": true to accept every client"
+        );
     }
     for (const auto& cidr : config.allowedClientCidrs) {
         std::uint32_t network = 0;
@@ -2780,6 +3145,12 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
     return 2;
 #else
     validateServerConfig(config);
+    if (!config.allowLegacyFixedPassword && !credentialProvisionedFor(config)) {
+        std::cerr << "SystemMonitor direct maintenance: no maintenance credential provisioned at "
+                  << config.credentialFile
+                  << "; sensitive endpoints stay disabled until `SystemMonitor --set-maintenance-password` is run"
+                  << std::endl;
+    }
     std::vector<ListenSocket> servers;
     for (const auto& host : config.listenHosts) {
         servers.push_back(openListenSocket(host, config.listenPort));
@@ -2830,7 +3201,7 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
             }
 
             timeval clientTimeout{};
-            clientTimeout.tv_sec = 10;
+            clientTimeout.tv_sec = std::min(10, std::max(1, config.requestTimeoutMs / 1000));
             clientTimeout.tv_usec = 0;
             ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &clientTimeout, sizeof(clientTimeout));
             ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &clientTimeout, sizeof(clientTimeout));
@@ -2851,12 +3222,13 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
             std::string method;
             std::string path;
             std::string query;
+            std::string headers;
             std::string body;
             std::string out;
             try {
-                const auto raw = readHttpRequest(client);
-                if (parseRequest(raw, &method, &path, &query, &body)) {
-                    out = handleRequest(config, method, path, query, body);
+                const auto raw = readHttpRequest(client, config);
+                if (parseRequest(raw, &method, &path, &query, &headers, &body)) {
+                    out = handleRequest(config, method, path, query, headers, body, sockaddrToString(clientAddr));
                 } else {
                     out = response(400, "Bad Request", "{\"success\":false,\"message\":\"invalid request\"}");
                 }
@@ -2901,6 +3273,107 @@ void requestStop() {
     g_running = false;
 }
 
+bool credentialProvisioned(const SystemMonitorConfig::DirectMaintenanceConfig& config) {
+    return credentialProvisionedFor(config);
+}
+
+bool verifyPasswordSha256(
+    const SystemMonitorConfig::DirectMaintenanceConfig& config,
+    const std::string& passwordSha256
+) {
+    return verifyPasswordSha256For(config, passwordSha256);
+}
+
+std::string passwordSha256Hex(const std::string& password) {
+    std::string digest;
+    if (!MaintenanceCrypto::instance().sha256(password, &digest)) {
+        return std::string();
+    }
+    return toHex(digest);
+}
+
+bool provisionCredential(
+    const SystemMonitorConfig::DirectMaintenanceConfig& config,
+    const std::string& password,
+    std::string* error
+) {
+    const auto fail = [&](const std::string& message) {
+        if (error != nullptr) {
+            *error = message;
+        }
+        return false;
+    };
+    if (config.credentialFile.empty()) {
+        return fail("directMaintenance.credentialFile is empty");
+    }
+    if (password.size() < 8) {
+        return fail("maintenance password must contain at least 8 characters");
+    }
+    const auto& crypto = MaintenanceCrypto::instance();
+    if (!crypto.available()) {
+        return fail("libcrypto with PKCS5_PBKDF2_HMAC is not available");
+    }
+    const auto passwordSha256 = passwordSha256Hex(password);
+    std::string salt(16, '\0');
+    {
+        std::ifstream random("/dev/urandom", std::ios::in | std::ios::binary);
+        if (!random.read(&salt[0], static_cast<std::streamsize>(salt.size()))) {
+            return fail("cannot read /dev/urandom");
+        }
+    }
+    std::string derived;
+    if (passwordSha256.empty() || !crypto.pbkdf2(passwordSha256, salt, kCredentialDefaultIterations, &derived)) {
+        return fail("PBKDF2 derivation failed");
+    }
+    std::ostringstream credential;
+    credential << "{\"schema\":\"edge-maintenance-credential-v1\""
+               << ",\"kdf\":\"pbkdf2-hmac-sha256\""
+               << ",\"input\":\"passwordSha256\""
+               << ",\"iterations\":" << kCredentialDefaultIterations
+               << ",\"salt\":\"" << toHex(salt) << "\""
+               << ",\"hash\":\"" << toHex(derived) << "\""
+               << ",\"updatedAtMs\":" << nowMs() << "}\n";
+    std::ostringstream authState;
+    authState << "{\"paired\":true,\"usingDefaultPassword\":false,\"bootstrapMode\":false"
+              << ",\"sensitiveApiEnabled\":true,\"updatedAtMs\":" << nowMs() << "}\n";
+    try {
+#ifndef _WIN32
+        const auto previousMask = ::umask(077);
+#endif
+        writeTextFileAtomically(config.credentialFile, credential.str());
+#ifndef _WIN32
+        (void)::chmod(config.credentialFile.c_str(), 0600);
+        ::umask(previousMask);
+#endif
+        if (!config.authStateFile.empty()) {
+            writeTextFileAtomically(config.authStateFile, authState.str());
+        }
+    } catch (const std::exception& ex) {
+        return fail(ex.what());
+    }
+    return true;
+}
+
+void validateListenerConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config) {
+#ifndef _WIN32
+    validateServerConfig(config);
+#else
+    (void)config;
+#endif
+}
+
+std::string handleHttpRequest(
+    const SystemMonitorConfig::DirectMaintenanceConfig& config,
+    const std::string& method,
+    const std::string& path,
+    const std::string& query,
+    const std::string& headers,
+    const std::string& body,
+    const std::string& clientKey
+) {
+    return handleRequest(config, method, path, query, headers, body, clientKey);
+}
+
 int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config) {
     try {
         if (!config.enabled) {
@@ -2910,7 +3383,7 @@ int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config) {
         g_running = true;
         return runServer(config);
     } catch (const std::exception& ex) {
-        std::cerr << "embedded SystemMonitor direct maintenance failed: " << ex.what() << std::endl;
+        std::cerr << "ERROR: embedded SystemMonitor direct maintenance failed: " << ex.what() << std::endl;
         return 1;
     }
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -55,6 +56,18 @@ struct GraphEmsConfig {
     static GraphEmsConfig loadLegacyV1ForMigration(const std::string& path);
 };
 
+// Runtime safety options supplied by the hosting service (ComputeEngine). Defaults are the
+// safe behaviour; each field is a configurable fallback for legacy sites.
+struct GraphEmsEngineOptions {
+    // Republish restored power-setpoint / BMS-limit outputs from the state file as good quality.
+    bool restoreSetpointOutputs = false;
+    // Inputs whose timestamp is further than this in the future (wall-clock step backwards) are
+    // treated as missing. Points that never expire (retained parameters) are exempt. <=0 disables.
+    std::int64_t maxInputFutureSkewMs = 1000;
+    // Upper bound for the elapsed time a rateLimit node may convert into one output step.
+    std::int64_t rateLimitMaxGapMs = 2000;
+};
+
 struct GraphEmsRunResult {
     std::size_t latestWrites = 0;
     std::size_t deviceWrites = 0;
@@ -76,6 +89,7 @@ public:
 
     GraphEmsRunResult runOnce(std::int64_t nowMs);
     GraphEmsRunResult runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites);
+    void setOptions(const GraphEmsEngineOptions& options) { options_ = options; }
 
 private:
     struct PointSnapshot {
@@ -84,17 +98,20 @@ private:
         std::int64_t ts = 0;
         bool stale = true;
         Optional<ClusterWriteAuthorization> clusterAuthorization;
+        std::int64_t expireAt = 0;
     };
     void observeClusterInput(const Optional<PointSnapshot>& point) const;
     Optional<PointSnapshot> latestPoint(std::uint32_t index, std::int64_t nowMs) const;
     Optional<double> latestValue(std::uint32_t index, std::int64_t nowMs) const;
-    CommandSubmitResult set(std::uint32_t index, double value, std::int64_t nowMs);
+    // ttlMs > 0 overrides the (short) default output TTL, e.g. for minute-cadence statistics.
+    CommandSubmitResult set(std::uint32_t index, double value, std::int64_t nowMs, std::int64_t ttlMs = 0);
     bool profileEnabled(const std::string& key, bool defaultValue) const;
     int profileInt(const std::string& key, int defaultValue) const;
     bool shouldRunNode(const GraphEmsNodeConfig& node) const;
     void restoreState(std::int64_t nowMs);
     void saveState(std::int64_t nowMs);
     std::vector<std::uint32_t> stateOutputIndexes() const;
+    std::set<std::uint32_t> setpointOutputIndexes() const;
     bool runMeterAverage(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runDerivedLoad(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runBmsDerived(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
@@ -145,6 +162,7 @@ private:
     );
 
     GraphEmsConfig config_;
+    GraphEmsEngineOptions options_;
     PointStoreRouter& router_;
     std::int64_t defaultTtlMs_ = 600000;
     std::string stateFile_;
@@ -211,6 +229,8 @@ private:
     };
     std::unordered_map<std::string, SequenceState> sequenceStates_;
     std::unordered_map<std::string, bool> gridReserveCharging_;
+    // pcsPowerSolve fail-safe log throttling: node id -> (last reported fault set, last log time).
+    std::unordered_map<std::string, std::pair<std::string, std::int64_t>> limitFaultLogs_;
 };
 
 }  // namespace edge_gateway

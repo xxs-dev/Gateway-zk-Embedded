@@ -60,6 +60,18 @@ double decodeBcdLittleEndian(const std::vector<std::uint8_t>& bytes, double scal
     return negative ? -value : value;
 }
 
+// DL/T 645-2007 signed quantities (power, current, power factor): bit 7 of
+// the most significant byte is the sign, the remaining bits are BCD digits.
+double decodeSignedBcdLittleEndian(std::vector<std::uint8_t> bytes, double scale) {
+    if (bytes.empty()) {
+        return 0.0;
+    }
+    const bool negative = (bytes.back() & 0x80U) != 0;
+    bytes.back() = static_cast<std::uint8_t>(bytes.back() & 0x7FU);
+    const auto magnitude = decodeBcdLittleEndian(bytes, scale);
+    return negative ? -magnitude : magnitude;
+}
+
 double decodeUnsignedLittleEndian(const std::vector<std::uint8_t>& bytes) {
     if (bytes.size() > sizeof(std::uint64_t)) {
         throw std::runtime_error("DLT645 unsigned payload exceeds 64 bits");
@@ -325,6 +337,23 @@ void Dlt645Codec::validateWriteResponse(
     }
 }
 
+void Dlt645Codec::validateReadResponseAddress(
+    const std::vector<std::uint8_t>& frame,
+    const std::string& meterAddress
+) {
+    if (frame.size() < 12U || frame.front() != 0x68 || frame[7] != 0x68) {
+        throw std::runtime_error("DLT645 response frame marker invalid");
+    }
+    const auto expectedAddress = encodeAddress(normalizeAddress(meterAddress));
+    if (!std::equal(expectedAddress.begin(), expectedAddress.end(), frame.begin() + 1)) {
+        throw std::runtime_error("DLT645 response address mismatch");
+    }
+    const auto control = frame[8];
+    if (control != 0x91 && control != 0xB1 && control != 0xD1) {
+        throw std::runtime_error("DLT645 read response control code invalid");
+    }
+}
+
 std::vector<std::uint8_t> Dlt645Codec::decodeFrameData(
     const std::vector<std::uint8_t>& frame,
     const std::vector<std::uint8_t>& expectedDataId
@@ -412,6 +441,13 @@ DecodedValue Dlt645Codec::decodeReadResponse(
         } else {
             decoded.value = decodeUnsignedLittleEndian(valueBytes) * point.read.scale + point.read.offset;
         }
+        std::ostringstream text;
+        text << decoded.value;
+        decoded.text = text.str();
+        return decoded;
+    }
+    if (point.read.dataType == "dlt645_bcd_signed") {
+        decoded.value = decodeSignedBcdLittleEndian(valueBytes, point.read.scale) + point.read.offset;
         std::ostringstream text;
         text << decoded.value;
         decoded.text = text.str();

@@ -200,7 +200,7 @@ private:
             if (frame == std::vector<std::uint8_t>{0x68, 0x04, 0x07, 0x00, 0x00, 0x00}) {
                 sendAll(clientFd_, {0x68, 0x04, 0x0B, 0x00, 0x00, 0x00});
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                sendAll(clientFd_, buildSinglePointFrame(config_, serverSendSeq_++, 1, 3, 1001, true));
+                sendAll(clientFd_, buildSinglePointFrame(config_, serverSendSeq_++, serverRecvSeq_, 3, 1001, true));
                 continue;
             }
             if (frame == std::vector<std::uint8_t>{0x68, 0x04, 0x43, 0x00, 0x00, 0x00}) {
@@ -210,6 +210,8 @@ private:
             if (!IecCodec::isIec104IFrame(frame)) {
                 continue;
             }
+            // Our N(R) = next client N(S) we expect, i.e. last received + 1.
+            serverRecvSeq_ = static_cast<std::uint16_t>((IecCodec::iec104SendSequence(frame) + 1) & 0x7FFF);
             const auto asdu = IecCodec::iec104AsduPayload(frame);
             if (asdu.empty()) {
                 continue;
@@ -222,17 +224,19 @@ private:
                 } else {
                     sawExecute_.store(true);
                 }
+                const int ioa = asdu[6] | (asdu[7] << 8) | (asdu[8] << 16);
                 auto confirm = asdu;
-                confirm[2] = 7;
+                // IOA 3002 is interlocked: the station rejects it (ACT_CON, P/N=1).
+                confirm[2] = ioa == 3002 ? 0x47 : 7;
                 sendIFrame(confirm);
-                if (!select) {
+                if (!select && ioa != 3002) {
                     auto done = asdu;
                     done[2] = 10;
                     sendIFrame(done);
                 }
             } else if (asdu[0] == 100) {
                 sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
-                sendAll(clientFd_, buildSinglePointFrame(config_, serverSendSeq_++, IecCodec::iec104SendSequence(frame) + 1, 20, 1001, true));
+                sendAll(clientFd_, buildSinglePointFrame(config_, serverSendSeq_++, serverRecvSeq_, 20, 1001, true));
             } else if (asdu[0] == 103) {
                 sendSFrame(IecCodec::iec104SendSequence(frame) + 1);
                 sawClockSync_.store(true);
@@ -276,8 +280,9 @@ private:
         const auto sendSeq = static_cast<std::uint16_t>(serverSendSeq_++ << 1);
         frame.push_back(static_cast<std::uint8_t>(sendSeq & 0xFF));
         frame.push_back(static_cast<std::uint8_t>((sendSeq >> 8) & 0xFF));
-        frame.push_back(0x02);
-        frame.push_back(0x00);
+        const auto recvSeq = static_cast<std::uint16_t>(serverRecvSeq_ << 1);
+        frame.push_back(static_cast<std::uint8_t>(recvSeq & 0xFF));
+        frame.push_back(static_cast<std::uint8_t>((recvSeq >> 8) & 0xFF));
         frame.insert(frame.end(), asdu.begin(), asdu.end());
         sendAll(clientFd_, frame);
     }
@@ -291,6 +296,7 @@ private:
     int clientFd_ = -1;
     int port_ = 0;
     std::uint16_t serverSendSeq_ = 0;
+    std::uint16_t serverRecvSeq_ = 0;
     std::atomic<bool> running_{false};
     std::atomic<bool> sawSelect_{false};
     std::atomic<bool> sawExecute_{false};
@@ -418,6 +424,17 @@ int main() {
 
         const auto result = client.writeByPoint(command, 1.0, "CMD_TEST", "MACHINE", "METER", 1234);
         requireTrue(result.success, "IEC104 command should succeed: " + result.message);
+
+        auto rejected = command;
+        rejected.index = 3;
+        rejected.pointCode = "interlocked_close";
+        rejected.address = 3002;
+        rejected.write.iec.ioa = 3002;
+        rejected.write.iec.selectBeforeExecute = false;
+        const auto negative = client.writeByPoint(rejected, 1.0, "CMD_NEG", "MACHINE", "METER", 1235);
+        requireTrue(!negative.success, "IEC104 negative ACT_CON must be reported as failure");
+        requireTrue(negative.message.find("negative") != std::string::npos,
+            "IEC104 negative confirmation message: " + negative.message);
         client.synchronizeClock(1234567890);
         const auto parameterResult = client.writeParameter(5001, 112, 12.5, 0x01, 3000);
         requireTrue(parameterResult.success, "IEC104 parameter write should succeed: " + parameterResult.message);

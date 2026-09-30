@@ -45,6 +45,26 @@ int main() {
     requireTrue(decoded.values.size() == 1, "IEC104 ASDU value count");
     requireTrue(decoded.values.front().ioa == 2001, "IEC104 IOA");
     requireNear(decoded.values.front().value, 12.5, "IEC104 float value");
+    requireTrue(decoded.values.front().quality == 1, "IEC104 good QDS should keep good quality");
+
+    // QDS IV bit (0x80) must mark the value invalid.
+    auto invalidAsdu = asdu;
+    invalidAsdu.back() = 0x80;
+    const auto invalidDecoded = IecCodec::decodeAsdu(invalidAsdu, config);
+    requireTrue(invalidDecoded.values.front().quality == 0, "IEC104 QDS IV must mark value invalid");
+
+    // Negative ACT_CON (COT 0x47) keeps cause 7 but sets the P/N flag.
+    const std::vector<std::uint8_t> negativeConfirm = {
+        45, 1,
+        0x47, 0,
+        1, 0,
+        0xB9, 0x0B, 0x00,
+        0x01
+    };
+    const auto negativeDecoded = IecCodec::decodeAsdu(negativeConfirm, config);
+    requireTrue(negativeDecoded.cause == 7 && negativeDecoded.negative, "IEC104 COT P/N bit must be decoded");
+    requireTrue(!negativeDecoded.values.empty() && negativeDecoded.values.front().negative,
+        "IEC104 negative flag must propagate to control echo values");
 
     PointDefinition point;
     point.address = 2001;

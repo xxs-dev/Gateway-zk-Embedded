@@ -47,6 +47,13 @@ int main() {
         require(session.authorizedForScreen("Control-Dido", 200000), "activity did not extend the session");
         session.logout();
         require(!session.authorizedForScreen("Control-Dido", 200000), "logout did not revoke access");
+
+        for (int attempt = 0; attempt < 5; ++attempt) {
+            require(!session.authenticate("operator", "wrong", 300000, &message), "invalid password was accepted");
+        }
+        require(!session.authenticate("operator", "secret", 300000, &message), "login was not locked after repeated failures");
+        require(!session.authenticate("operator", "secret", 329999, &message), "lockout ended too early");
+        require(session.authenticate("operator", "secret", 330000, &message), "login stayed locked after the lockout");
         std::cout << "local_display_qt_access_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

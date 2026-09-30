@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <memory>
@@ -87,11 +88,21 @@ private:
     void bufferValues(const std::vector<IecDataValue>& values);
     std::vector<IecDataValue> drainBufferedValuesLocked();
     bool waitForIec104Start(int timeoutMs);
-    bool waitForControlConfirmation(const PointDefinition& point, double value, int expectedCause, int timeoutMs);
+    // expectedSelect: 1 = select (S/E=1) echo, 0 = execute echo, -1 = do not check.
+    // Throws on a matching negative confirmation (COT P/N bit set).
+    bool waitForControlConfirmation(const PointDefinition& point, double value, int expectedCause, int timeoutMs, int expectedSelect = -1);
+    void clearControlConfirmations(const PointDefinition& point);
     bool waitForParameterConfirmation(int ioa, int typeId, int expectedCause, int timeoutMs, IecParameterValue* value = nullptr);
+    void clearParameterConfirmations(int ioa, int typeId);
+    // Returns false (and changes nothing) when N(R) acknowledges frames that
+    // were never sent, i.e. it lies outside [last acknowledged, V(S)].
+    bool noteRemoteAcknowledgeLocked(std::uint16_t receiveSequence);
+    bool t1SupervisionExpired(std::int64_t nowMsValue);
+    bool interrogationDue(std::int64_t nowMsValue);
     std::vector<IecFileSegment> waitForFileSegments(int nameOfFile, int timeoutMs);
     std::vector<std::vector<std::uint8_t>> drainIec104Frames(int timeoutMs, int maxFrames);
-    std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames);
+    // *sawLinkResponse: any valid FT1.2 answer (variable, fixed or E5) arrived.
+    std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames, bool* sawLinkResponse = nullptr);
 
     std::string protocolType_;
     TcpTransportConfig tcp_;
@@ -101,7 +112,17 @@ private:
     std::uint16_t receiveSequence_ = 0;
     std::uint16_t remoteReceiveSequence_ = 0;
     bool iec104Started_ = false;
+    // rxBuffer_ is only touched while holding rxMutex_ (by the thread that
+    // drains frames). Other threads request a reset through rxResetRequested_.
     std::vector<std::uint8_t> rxBuffer_;
+    std::mutex rxMutex_;
+    std::atomic<bool> rxResetRequested_{false};
+    // Serialises I-frame senders so N(S) is allocated in wire order.
+    std::mutex iFrameMutex_;
+    // Send time of every unacknowledged I-frame (t1 supervision).
+    std::deque<std::pair<std::uint16_t, std::int64_t>> unackedIFrames_;
+    std::int64_t testFrPendingSinceMs_ = 0;
+    std::int64_t lastInterrogationMs_ = 0;
     std::atomic<bool> receiveRunning_{false};
     std::atomic<bool> connected_{false};
     std::thread receiveThread_;
@@ -129,7 +150,8 @@ public:
 private:
     void ensurePortOpen();
     void sendAll(const std::vector<std::uint8_t>& bytes);
-    std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames);
+    // *sawLinkResponse: any valid FT1.2 answer (variable, fixed or E5) arrived.
+    std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames, bool* sawLinkResponse = nullptr);
 
     std::string protocolType_;
     std::shared_ptr<ISerialPort> serialPort_;

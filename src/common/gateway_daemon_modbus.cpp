@@ -1,6 +1,8 @@
 #include "edge_gateway/gateway_daemon.hpp"
 
+#include <chrono>
 #include <memory>
+#include <string>
 #include <stdexcept>
 #include <utility>
 
@@ -48,9 +50,25 @@ GatewayDaemon::GatewayDaemon(
         std::shared_ptr<ModbusNorthboundServer> server(
             new ModbusNorthboundServer(config_, store_)
         );
-        auxiliaryService_ = [server](bool start) {
+        auxiliaryService_ = [this, server](bool start) {
             if (start) {
                 server->start();
+                const auto refusal = server->startError();
+                if (!refusal.empty()) {
+                    // Surface the refusal on the daemon status channel, not only stderr.
+                    std::string escaped;
+                    for (const auto ch : refusal) {
+                        if (ch == '"' || ch == '\\') {
+                            escaped.push_back('\\');
+                        }
+                        escaped.push_back(ch);
+                    }
+                    publishStatusEvent(
+                        "northbound-refused",
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count(),
+                        std::string(R"("message":")") + escaped + "\"");
+                }
             } else {
                 server->stop();
             }

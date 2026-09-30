@@ -31,15 +31,32 @@ std::string bytesToHex(const std::vector<std::uint8_t>& bytes) {
 }
 
 void trimToFrameStart(std::vector<std::uint8_t>& bytes) {
-    const auto it = std::find(bytes.begin(), bytes.end(), 0x68);
-    if (it == bytes.end()) {
-        if (bytes.size() > 32) {
-            bytes.clear();
+    while (true) {
+        const auto it = std::find(bytes.begin(), bytes.end(), 0x68);
+        if (it == bytes.end()) {
+            if (bytes.size() > 32) {
+                bytes.clear();
+            }
+            return;
+        }
+        if (it != bytes.begin()) {
+            bytes.erase(bytes.begin(), it);
+        }
+        // A stray 0x68 that is not followed by the second start byte must not
+        // block resynchronisation on the real frame behind it.
+        if (bytes.size() >= 8 && bytes[7] != 0x68) {
+            bytes.erase(bytes.begin());
+            continue;
         }
         return;
     }
-    if (it != bytes.begin()) {
-        bytes.erase(bytes.begin(), it);
+}
+
+void drainStaleInput(edge_gateway::ISerialPort& serialPort) {
+    for (int i = 0; i < 16; ++i) {
+        if (serialPort.read(256, 0).empty()) {
+            return;
+        }
     }
 }
 
@@ -69,7 +86,9 @@ std::vector<std::uint8_t> Dlt645Client::readData(const std::string& meterAddress
     std::lock_guard<std::mutex> lock(transactionMutex_);
     const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
     const auto frame = Dlt645Codec::buildReadFrame(normalizedAddress, dataIdHex);
-    return exchange(normalizedAddress, dataIdHex, frame, false);
+    auto response = exchange(normalizedAddress, dataIdHex, frame, false);
+    Dlt645Codec::validateReadResponseAddress(response, normalizedAddress);
+    return response;
 }
 
 void Dlt645Client::writeData(
@@ -117,6 +136,9 @@ std::vector<std::uint8_t> Dlt645Client::exchange(
                   << std::endl;
     }
     waitForFrameInterval(normalizedAddress);
+    // Discard late answers to an earlier (timed-out) request so they cannot be
+    // taken as the response to this one.
+    drainStaleInput(*serialPort_);
     const auto writeStartedAt = std::chrono::steady_clock::now();
     serialPort_->write(wireFrame);
     lastRequestWriteAtByMeter_[normalizedAddress] = writeStartedAt;

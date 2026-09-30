@@ -18,6 +18,7 @@ public:
     void setDirection(int gpio, const std::string& direction) override;
     bool readValue(int gpio) override;
     void writeValue(int gpio, bool high) override;
+    void setOutputDirection(int gpio, bool initialHigh) override;
 
 private:
     std::string gpioPath(int gpio, const std::string& file) const;

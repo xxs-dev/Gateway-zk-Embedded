@@ -57,6 +57,9 @@ private:
     std::unique_ptr<ScadaProject> project_;
     std::int64_t lastReloadAtMs_ = 0;
     std::int64_t activatedAtMs_ = 0;
+    // Last wall/monotonic sample pair, used to detect wall-clock steps.
+    std::int64_t lastWallMs_ = 0;
+    std::int64_t lastSteadyMs_ = 0;
     std::string signature_;
     bool completed_ = false;
     std::unordered_set<std::string> acceptedActions_;

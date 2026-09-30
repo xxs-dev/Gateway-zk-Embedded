@@ -165,12 +165,17 @@ std::uint64_t MqttRealtimeRingBuffer::contiguousFreeAtEnd(const Header& header) 
 }
 
 void MqttRealtimeRingBuffer::writeWrapMarker(Header* header) {
-    std::fstream file(filePath_.c_str(), std::ios::binary | std::ios::in | std::ios::out);
     RecordHeader marker {};
     marker.magic = kWrapMagic;
     marker.totalLen = static_cast<std::uint32_t>(fileSizeBytes_ - header->writeOffset);
-    file.seekp(static_cast<std::streamoff>(header->writeOffset));
-    file.write(reinterpret_cast<const char*>(&marker), sizeof(marker));
+    // A full marker would run past the fixed file size (and the next start
+    // would then reinitialize the whole ring). The reader treats a tail shorter
+    // than a record header as padding, so only write markers that fit.
+    if (marker.totalLen >= sizeof(RecordHeader)) {
+        std::fstream file(filePath_.c_str(), std::ios::binary | std::ios::in | std::ios::out);
+        file.seekp(static_cast<std::streamoff>(header->writeOffset));
+        file.write(reinterpret_cast<const char*>(&marker), sizeof(marker));
+    }
     header->usedBytes += marker.totalLen;
     header->writeOffset = dataBegin();
 }
@@ -180,6 +185,12 @@ void MqttRealtimeRingBuffer::dropOldest(Header* header) {
         header->readOffset = dataBegin();
         header->writeOffset = dataBegin();
         header->usedBytes = 0;
+        return;
+    }
+    if (fileSizeBytes_ - header->readOffset < sizeof(RecordHeader) && header->readOffset < fileSizeBytes_) {
+        // Tail padding left by a short wrap marker.
+        header->usedBytes -= std::min<std::uint64_t>(header->usedBytes, fileSizeBytes_ - header->readOffset);
+        header->readOffset = dataBegin();
         return;
     }
     std::fstream file(filePath_.c_str(), std::ios::binary | std::ios::in);
@@ -245,6 +256,9 @@ bool MqttRealtimeRingBuffer::readRecord(const Header& header, std::string* topic
     if (header.recordCount == 0 || header.usedBytes == 0) {
         return false;
     }
+    if (header.readOffset >= fileSizeBytes_ || fileSizeBytes_ - header.readOffset < sizeof(RecordHeader)) {
+        return false;
+    }
     std::ifstream file(filePath_.c_str(), std::ios::binary);
     RecordHeader record {};
     file.seekg(static_cast<std::streamoff>(header.readOffset));
@@ -256,7 +270,11 @@ bool MqttRealtimeRingBuffer::readRecord(const Header& header, std::string* topic
     if (record.magic == kWrapMagic) {
         return false;
     }
-    if (record.magic != kRecordMagic || record.topicLen + record.payloadLen + sizeof(RecordHeader) != record.totalLen) {
+    // Widen before adding: corrupt 32-bit lengths must not wrap into a match
+    // and trigger a multi-gigabyte allocation.
+    if (record.magic != kRecordMagic ||
+        static_cast<std::uint64_t>(record.topicLen) + record.payloadLen + sizeof(RecordHeader) != record.totalLen ||
+        record.totalLen > maxMessageBytes_) {
         return false;
     }
     topic->assign(record.topicLen, '\0');

@@ -1037,6 +1037,94 @@ private:
     std::thread thread_;
 };
 
+void testSubscriberSubAckAndOversizedPublish() {
+    for (int scenario = 0; scenario < 2; ++scenario) {
+        const int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+        require(listenFd >= 0, "scripted broker socket failed");
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        require(bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "scripted broker bind failed");
+        socklen_t len = sizeof(addr);
+        require(getsockname(listenFd, reinterpret_cast<sockaddr*>(&addr), &len) == 0, "scripted broker name failed");
+        require(listen(listenFd, 2) == 0, "scripted broker listen failed");
+        std::vector<std::uint16_t> acked;
+        std::thread broker([&]() {
+            const int fd = accept(listenFd, nullptr, nullptr);
+            if (fd < 0) return;
+            try {
+                (void)readMqttPacket(fd);
+                const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
+                send(fd, connAck, sizeof(connAck), 0);
+                const auto subscribe = readMqttPacket(fd);
+                std::size_t idOffset = 1;
+                while ((subscribe[idOffset++] & 0x80) != 0) {}
+                // Scenario 0: command topic (first) denied. Scenario 1: only the
+                // optional OTA topic (second) denied, which must not stop ingress.
+                const std::uint8_t subAck[] = {0x90, 0x04, subscribe[idOffset], subscribe[idOffset + 1],
+                    static_cast<std::uint8_t>(scenario == 0 ? 0x80 : 0x01), 0x80};
+                send(fd, subAck, sizeof(subAck), 0);
+                if (scenario == 1) {
+                    const auto qos1 = [](std::vector<std::uint8_t> packet, std::uint16_t id) {
+                        // Rebuild as QoS1 with a packet identifier after the topic.
+                        std::size_t cursor = 1;
+                        while ((packet[cursor++] & 0x80) != 0) {}
+                        const auto topicLength = (static_cast<std::size_t>(packet[cursor]) << 8) | packet[cursor + 1];
+                        std::vector<std::uint8_t> body(packet.begin() + static_cast<std::ptrdiff_t>(cursor), packet.end());
+                        body.insert(body.begin() + static_cast<std::ptrdiff_t>(2 + topicLength),
+                            {static_cast<std::uint8_t>(id >> 8), static_cast<std::uint8_t>(id & 0xFF)});
+                        std::vector<std::uint8_t> out{0x32};
+                        appendRemainingLength(out, body.size());
+                        out.insert(out.end(), body.begin(), body.end());
+                        return out;
+                    };
+                    auto burst = qos1(publishPacket("edge/command/request/GW_SUB", std::string(600 * 1024, 'x')), 7);
+                    const auto good = qos1(publishPacket("edge/command/request/GW_SUB", "{\"cmdId\":\"OK\"}"), 8);
+                    burst.insert(burst.end(), good.begin(), good.end());
+                    std::size_t sent = 0;
+                    while (sent < burst.size()) {
+                        const auto rc = send(fd, burst.data() + sent, burst.size() - sent, 0);
+                        if (rc <= 0) break;
+                        sent += static_cast<std::size_t>(rc);
+                    }
+                    for (int i = 0; i < 2; ++i) acked.push_back(ackPacketId(readMqttPacket(fd)));
+                }
+            } catch (...) {
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            close(fd);
+        });
+        edge_gateway::MqttConfig config;
+        config.broker = std::string("tcp://127.0.0.1:") + std::to_string(ntohs(addr.sin_port));
+        config.clientId = "GW_SUB";
+        config.topicMachineCode = "GW_SUB";
+        config.commandRequestTopic = "edge/command/request";
+        config.offlineBufferEnabled = false;
+        config.connectTimeoutMs = 2000;
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        if (scenario == 0) {
+            bool rejected = false;
+            try { publisher.pollIncoming(0); }
+            catch (const std::exception& ex) { rejected = std::string(ex.what()).find("rejected") != std::string::npos; }
+            require(rejected, "rejected command topic SUBACK must fail the subscription");
+        } else {
+            std::vector<edge_gateway::MqttIncomingMessage> messages;
+            for (int attempt = 0; attempt < 50 && messages.empty(); ++attempt) {
+                auto batch = publisher.pollIncoming(100);
+                messages.insert(messages.end(), batch.begin(), batch.end());
+            }
+            require(messages.size() == 1 && messages[0].payload == "{\"cmdId\":\"OK\"}",
+                    "oversized publish must be drained without dropping the next command");
+        }
+        broker.join();
+        close(listenFd);
+        if (scenario == 1) {
+            require(acked.size() == 2 && acked[0] == 7 && acked[1] == 8,
+                    "oversized and normal QoS1 publishes must both be acknowledged");
+        }
+    }
+}
+
 void testClosedTxConnectionReconnectsBeforeNextPublish() {
     ReconnectMqttBroker broker;
     edge_gateway::MqttConfig config;
@@ -1796,6 +1884,7 @@ int main() {
     testFullTelemetryTopicScopingMode();
     testNonFinitePointValuesProduceValidJson();
     testClosedTxConnectionReconnectsBeforeNextPublish();
+    testSubscriberSubAckAndOversizedPublish();
     testUnreachableBrokerHonorsConnectTimeout();
     testReliablePublishRejectsWrongPacketId();
     testReliablePublishRejectsMqtt5FailureReason();

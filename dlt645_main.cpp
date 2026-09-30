@@ -135,6 +135,10 @@ int main(int argc, char* argv[]) {
     );
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+#ifdef SIGPIPE
+    // A peer resetting a TCP connection must fail the send, not kill the driver.
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     daemon.start();
     const auto runtimeMeterCount = config.meters.empty() ? 1 : config.meters.size();

@@ -9,6 +9,7 @@ ExecStart=/opt/modbus-gateway/bin/gateway-network-failover.sh run
 Restart=on-failure
 RestartSec=5
 User=root
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target

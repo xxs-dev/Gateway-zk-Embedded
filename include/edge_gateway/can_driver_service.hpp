@@ -53,6 +53,7 @@ private:
         PointDefinition point;
         std::int64_t lastSeenTs = 0;
         bool stalePublished = false;
+        bool decodeErrorLogged = false;
     };
 
     void initializeRuntimeDevices();
@@ -72,7 +73,8 @@ private:
     void flushImmediatePersistentSamples();
     bool priorityControlBlocked(std::int64_t nowMs) const;
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
-    void publishPointValue(const RuntimeDevice& device, const PointDefinition& point, const DecodedValue& decoded, std::int64_t ts);
+    void publishPointValue(const RuntimeDevice& device, const PointDefinition& point, const DecodedValue& decoded, std::int64_t ts,
+        int quality = 1, const std::string& qualityMsg = "ok");
     void publishOnlinePoint(RuntimeDevice& device, bool online, std::int64_t ts);
     void updatePointStaleness(std::int64_t nowMs);
     bool frameBelongsToDevice(const RuntimeDevice& device, std::uint32_t frameId, bool extended) const;
@@ -91,6 +93,9 @@ private:
     std::atomic<std::uint64_t> flushedImmediatePersistentGeneration_{0};
     std::mutex persistentFlushMutex_;
     mutable std::mutex socketMutex_;
+    // Last payload written per (frameId, extended) so a write of one signal
+    // does not zero the other signals sharing that frame. Guarded by socketMutex_.
+    std::unordered_map<std::uint64_t, std::vector<std::uint8_t>> writtenFramePayloads_;
     int socketFd_ = -1;
     std::int64_t lastInterfaceCheckMs_ = 0;
     std::thread receiveThread_;

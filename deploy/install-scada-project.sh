@@ -319,3 +319,38 @@ fi
 cleanup
 trap - EXIT INT TERM
 echo "SCADA release activated: $RELEASE"
+
+# Bound disk use: keep the active release, the previous one (rollback target)
+# and the newest others up to SCADA_KEEP_RELEASES; keep the newest config backups.
+prune_scada_history() {
+    keep="${SCADA_KEEP_RELEASES:-3}"
+    case "$keep" in ""|*[!0-9]*) keep=3 ;; esac
+    [ "$keep" -ge 2 ] || keep=2
+    count=0
+    release_real="$(readlink -f "$RELEASE" 2>/dev/null || printf '%s' "$RELEASE")"
+    active_real="$(readlink -f "$SCADA_ROOT/current" 2>/dev/null || true)"
+    # shellcheck disable=SC2012
+    ls -1dt "$SCADA_ROOT/releases"/*/ 2>/dev/null | while IFS= read -r release_dir; do
+        release_dir="${release_dir%/}"
+        case "$(basename "$release_dir")" in .*) continue ;; esac
+        count=$((count + 1))
+        # Compare canonical paths: SCADA_ROOT may itself contain symlinks.
+        release_dir_real="$(readlink -f "$release_dir" 2>/dev/null || printf '%s' "$release_dir")"
+        [ "$release_dir_real" = "$release_real" ] && continue
+        [ "$release_dir_real" = "$active_real" ] && continue
+        [ -n "$OLD_TARGET_RESOLVED" ] && [ "$release_dir_real" = "$OLD_TARGET_RESOLVED" ] && continue
+        if [ "$count" -gt "$keep" ]; then
+            rm -rf -- "$release_dir" && echo "pruned old SCADA release: $release_dir"
+        fi
+    done
+    backup_keep="${SCADA_KEEP_CONFIG_BACKUPS:-5}"
+    case "$backup_keep" in ""|*[!0-9]*) backup_keep=5 ;; esac
+    # shellcheck disable=SC2012
+    ls -1t "$SCADA_ROOT/backup"/monitor-service-*.json 2>/dev/null | sed "1,${backup_keep}d" | while IFS= read -r old_backup; do
+        [ "$old_backup" = "$CONFIG_BACKUP" ] && continue
+        rm -f -- "$old_backup"
+    done
+}
+if [ "$DRY_RUN" -eq 0 ]; then
+    prune_scada_history || echo "SCADA history pruning failed (activation kept)" >&2
+fi

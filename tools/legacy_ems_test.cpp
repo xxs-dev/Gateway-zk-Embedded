@@ -1551,6 +1551,16 @@ int main() {
             0.0001,
             "restarted rate limit rise mismatch"
         );
+        // A 10 s gap (stale input/skipped cycles) must not be converted into one unramped step:
+        // the elapsed time is capped at rateLimitMaxGapMs (default 2000 ms -> max +20 at 10/s).
+        genericSeedEngine.set(700036, 50.0, 617600);
+        restartedRateLimitEngine.runOnce(617600);
+        requireNear(
+            genericRouter.getLatestByIndex(700037, 617600)->value,
+            -5.0,
+            0.0001,
+            "rate limit gap must be capped instead of jumping to the target"
+        );
 
         writeTextFile(
             "graph_ems_dynamic_rate_limit_test.json",
@@ -2220,6 +2230,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "outPaDsIndex": 615,
         "outPbDsIndex": 616,
         "outPcDsIndex": 617,
@@ -2412,6 +2423,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "paOutput": 627,
         "pbOutput": 628,
         "pcOutput": 629,
@@ -2640,6 +2652,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "paOutput": 627,
         "pbOutput": 628,
         "pcOutput": 629,
@@ -2668,6 +2681,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "paOutput": 627,
         "pbOutput": 628,
         "pcOutput": 629,
@@ -3006,6 +3020,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "paOutput": 627,
         "pbOutput": 628,
         "pcOutput": 629,
@@ -3083,6 +3098,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "outP3CdIndex": 613,
         "outP3FdIndex": 614,
         "pMaxIndex": 535,
@@ -3173,6 +3189,7 @@ int main() {
       "type": "pcsPowerSolve",
       "enabled": true,
       "params": {
+        "failSafeOnMissingLimits": false,
         "outP3CdIndex": 613,
         "outP3FdIndex": 614,
         "pMaxIndex": 535,
@@ -3301,6 +3318,9 @@ int main() {
         cycleSeedEngine.set(161, 100.0, 1200);
         cycleSeedEngine.set(162, 5.0, 1200);
         cycleSeedEngine.set(1570, 97.0, 1200);
+        // BMS charge/discharge allowances are routed on this site; the fail-safe default requires them.
+        cycleSeedEngine.set(1552, 100.0, 1200);
+        cycleSeedEngine.set(1553, 100.0, 1200);
         edge_gateway::GraphEmsEngine cycleEngine(
             edge_gateway::GraphEmsConfig::loadLegacyV1ForMigration("graph_ems_charge_discharge_cycle_test.json"),
             cycleRouter,
@@ -3348,6 +3368,31 @@ int main() {
             const auto phaseOut = cycleRouter.getLatestByIndex(index, 1230);
             require(static_cast<bool>(phaseOut), "cycle next discharge PCS phase output missing");
             requireNear(phaseOut->value, -10.0, 0.0001, "cycle next discharge output mismatch");
+        }
+
+        // A negative BMS discharge allowance (sign convention) must block discharge, never flip it to charge.
+        cycleSeedEngine.set(1553, -50.0, 1235);
+        cycleEngine.runOnce(1235);
+        for (const auto index : {627U, 628U, 629U}) {
+            const auto phaseOut = cycleRouter.getLatestByIndex(index, 1235);
+            require(static_cast<bool>(phaseOut), "cycle negative-allowance PCS phase output missing");
+            requireNear(phaseOut->value, 0.0, 0.0001, "negative discharge allowance must zero discharge, not invert it");
+        }
+        cycleSeedEngine.set(1553, 100.0, 1236);
+
+        // Routed SOC that goes bad-quality: the setpoint must fail safe to 0 instead of skipping the SOC gate.
+        edge_gateway::PointValue badSoc;
+        badSoc.index = 1570;
+        badSoc.value = 50.0;
+        badSoc.quality = 0;
+        badSoc.ts = 1240;
+        badSoc.expireAt = 1240 + 600000;
+        cycleRouter.putLatestByIndex(badSoc);
+        cycleEngine.runOnce(1240);
+        for (const auto index : {627U, 628U, 629U, 630U, 631U, 632U}) {
+            const auto phaseOut = cycleRouter.getLatestByIndex(index, 1240);
+            require(static_cast<bool>(phaseOut), "cycle bad-SOC PCS output missing");
+            requireNear(phaseOut->value, 0.0, 0.0001, "unknown SOC must force PCS power targets to 0");
         }
 
         writeTextFile(
@@ -3633,14 +3678,45 @@ int main() {
             graphStateFile
         );
         graphStateReaderEngine.runOnce(1230);
-        const std::uint32_t restoredIndexes[] = {615, 616, 617, 618, 627, 628, 629, 630, 631, 632, 8, 10, 18, 20, 24};
+        const std::uint32_t restoredIndexes[] = {8, 10, 18, 20, 24};
         for (const auto index : restoredIndexes) {
             const auto restored = graphStateReaderRouter.getLatestByIndex(index, 1230);
             require(static_cast<bool>(restored), "graph EMS state restore missing index " + std::to_string(index));
         }
-        requireNear(graphStateReaderRouter.getLatestByIndex(615, 1230)->value, 5.0, 0.0001, "restored OUT_PA_DS mismatch");
-        requireNear(graphStateReaderRouter.getLatestByIndex(627, 1230)->value, 5.0, 0.0001, "restored PCS_PA_OUT mismatch");
+        // Power setpoints are never republished from the state file by default: they must be
+        // recomputed from live inputs (here: missing SOC/limits -> fail-safe 0).
+        for (const auto index : {615U, 616U, 617U, 618U}) {
+            require(!graphStateReaderRouter.getLatestByIndex(index, 1230),
+                    "graph EMS state restore must not republish setpoint index " + std::to_string(index));
+        }
+        requireNear(graphStateReaderRouter.getLatestByIndex(627, 1230)->value, 0.0, 0.0001,
+                    "PCS_PA_OUT must be recomputed (fail-safe), not restored");
         require(graphStateReaderRouter.peekPendingWrites(1).empty(), "graph EMS state restore should not submit device writes");
+        {
+            const auto legacyRestoreConfig = buildIsolatedTestDeviceConfig("legacy_ems_test_store_graph_state_legacy_restore");
+            edge_gateway::PointStoreRouter legacyRestoreRouter;
+            cleanupStoreSegment(legacyRestoreConfig.memoryStore);
+            edge_gateway::MemoryPointStore legacyRestoreStore(legacyRestoreConfig.memoryStore);
+            legacyRestoreRouter.addStore(legacyRestoreConfig.memoryStore.sharedMemoryName, legacyRestoreStore);
+            legacyRestoreRouter.addRoutesFromDeviceConfigs(
+                {legacyRestoreConfig},
+                legacyRestoreConfig.memoryStore.sharedMemoryName
+            );
+            edge_gateway::GraphEmsEngine legacyRestoreEngine(
+                graphStateConfig,
+                legacyRestoreRouter,
+                600000,
+                graphStateFile,
+                {{"stateSaveIntervalMs", "600000"}}
+            );
+            edge_gateway::GraphEmsEngineOptions legacyRestoreOptions;
+            legacyRestoreOptions.restoreSetpointOutputs = true;
+            legacyRestoreEngine.setOptions(legacyRestoreOptions);
+            legacyRestoreEngine.runOnce(1231);
+            const auto restoredDs = legacyRestoreRouter.getLatestByIndex(615, 1231);
+            require(static_cast<bool>(restoredDs), "restoreSetpointOutputs=true should restore OUT_PA_DS");
+            requireNear(restoredDs->value, 5.0, 0.0001, "legacy restored OUT_PA_DS mismatch");
+        }
 
         const std::string corruptStateFile = "graph_ems_corrupt_state_test.json";
         writeTextFile(corruptStateFile, "{invalid-json");

@@ -320,6 +320,16 @@ std::vector<std::uint8_t> buildIec104IFrame(
     return frame;
 }
 
+void applyQualityBits(IecDataValue& value, std::uint8_t descriptor, bool counterSequence) {
+    // SIQ/DIQ/QDS: IV=0x80, NT=0x40. Binary counter sequence byte: IV=0x80.
+    const bool invalid = (descriptor & 0x80U) != 0;
+    const bool notTopical = !counterSequence && (descriptor & 0x40U) != 0;
+    if (invalid || notTopical) {
+        value.quality = 0;
+        value.qualityMsg = invalid ? "IEC quality descriptor IV (invalid)" : "IEC quality descriptor NT (not topical)";
+    }
+}
+
 IecDataValue decodeInformationObject(
     const std::vector<std::uint8_t>& bytes,
     std::size_t payloadOffset,
@@ -345,12 +355,14 @@ IecDataValue decodeInformationObject(
         case 30:
             value.value = (bytes[payloadOffset] & 0x01U) != 0 ? 1.0 : 0.0;
             value.text = value.value > 0.0 ? "on" : "off";
+            applyQualityBits(value, bytes[payloadOffset], false);
             break;
         case 3:
         case 4:
         case 31:
             value.value = static_cast<double>(bytes[payloadOffset] & 0x03U);
             value.text = std::to_string(static_cast<int>(value.value));
+            applyQualityBits(value, bytes[payloadOffset], false);
             break;
         case 5:
         case 6:
@@ -363,30 +375,39 @@ IecDataValue decodeInformationObject(
         case 33:
             value.value = static_cast<double>(readInt32Le(bytes, payloadOffset));
             value.text = std::to_string(value.value);
+            applyQualityBits(value, bytes[payloadOffset + 4], false);
             break;
         case 9:
         case 10:
         case 34:
             value.value = static_cast<double>(readInt16Le(bytes, payloadOffset)) / 32768.0;
             value.text = std::to_string(value.value);
+            applyQualityBits(value, bytes[payloadOffset + 2], false);
             break;
         case 11:
         case 12:
         case 35:
             value.value = static_cast<double>(readInt16Le(bytes, payloadOffset));
             value.text = std::to_string(value.value);
+            applyQualityBits(value, bytes[payloadOffset + 2], false);
             break;
         case 13:
         case 14:
         case 36:
             value.value = static_cast<double>(readFloatLe(bytes, payloadOffset));
             value.text = std::to_string(value.value);
+            applyQualityBits(value, bytes[payloadOffset + 4], false);
+            if (!std::isfinite(value.value)) {
+                value.quality = 0;
+                value.qualityMsg = "IEC short float is not finite";
+            }
             break;
         case 15:
         case 16:
         case 37:
             value.value = static_cast<double>(readInt32Le(bytes, payloadOffset));
             value.text = std::to_string(value.value);
+            applyQualityBits(value, bytes[payloadOffset + 4], true);
             break;
         case 20:
             value.value = static_cast<double>(bytes[payloadOffset]);
@@ -399,22 +420,27 @@ IecDataValue decodeInformationObject(
         case 45:
             value.value = (bytes[payloadOffset] & 0x01U) != 0 ? 1.0 : 0.0;
             value.text = value.value > 0.0 ? "on" : "off";
+            value.commandQualifier = bytes[payloadOffset];
             break;
         case 46:
             value.value = static_cast<double>(bytes[payloadOffset] & 0x03U);
             value.text = std::to_string(static_cast<int>(value.value));
+            value.commandQualifier = bytes[payloadOffset];
             break;
         case 48:
             value.value = static_cast<double>(readInt16Le(bytes, payloadOffset)) / 32768.0;
             value.text = std::to_string(value.value);
+            value.commandQualifier = bytes[payloadOffset + 2];
             break;
         case 49:
             value.value = static_cast<double>(readInt16Le(bytes, payloadOffset));
             value.text = std::to_string(value.value);
+            value.commandQualifier = bytes[payloadOffset + 2];
             break;
         case 50:
             value.value = static_cast<double>(readFloatLe(bytes, payloadOffset));
             value.text = std::to_string(value.value);
+            value.commandQualifier = bytes[payloadOffset + 4];
             break;
         default:
             throw std::runtime_error("unsupported IEC ASDU typeId: " + std::to_string(typeId));
@@ -745,6 +771,32 @@ std::vector<std::uint8_t> IecCodec::buildIec104ControlCommand(
             throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
     }
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+}
+
+double IecCodec::expectedControlEchoValue(const PointDefinition& point, double requestedValue) {
+    const int typeId = commandTypeOf(point);
+    const double scale = std::abs(point.write.scale) > 1e-12 ? point.write.scale : 1.0;
+    const double rawValue = (requestedValue - point.write.offset) / scale;
+    switch (typeId) {
+        case 45:
+            return std::abs(requestedValue) > 1e-9 ? 1.0 : 0.0;
+        case 46:
+            return static_cast<double>(static_cast<int>(std::round(requestedValue)) & 0x03);
+        case 48: {
+            int raw = static_cast<int>(std::round(rawValue * 32768.0));
+            raw = std::max(-32768, std::min(32767, raw));
+            return static_cast<double>(raw) / 32768.0;
+        }
+        case 49: {
+            int raw = static_cast<int>(std::round(rawValue));
+            raw = std::max(-32768, std::min(32767, raw));
+            return static_cast<double>(raw);
+        }
+        case 50:
+            return static_cast<double>(static_cast<float>(rawValue));
+        default:
+            throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
+    }
 }
 
 std::vector<std::uint8_t> IecCodec::buildIec104ParameterCommand(
@@ -1155,7 +1207,10 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     const auto count = static_cast<int>(vsq & 0x7FU);
     const bool sequential = (vsq & 0x80U) != 0;
     std::size_t offset = 2;
-    result.cause = readLe(asdu, offset, config.cotSize) & 0x3F;
+    const int rawCause = readLe(asdu, offset, config.cotSize);
+    result.cause = rawCause & 0x3F;
+    result.negative = (rawCause & 0x40) != 0;
+    result.test = (rawCause & 0x80) != 0;
     offset += static_cast<std::size_t>(config.cotSize);
     result.commonAddress = readLe(asdu, offset, config.caSize);
     offset += static_cast<std::size_t>(config.caSize);
@@ -1170,6 +1225,7 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
             offset += static_cast<std::size_t>(config.ioaSize);
             const auto begin = offset;
             result.parameters.push_back(decodeParameterObject(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
+            result.parameters.back().negative = result.negative;
             offset = begin + (result.typeId == 112 ? 5 : result.typeId == 113 ? 1 : 3);
             if (offset > asdu.size()) {
                 break;
@@ -1238,6 +1294,10 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
         }
     }
     (void)hasCp56Time;
+    for (auto& value : result.values) {
+        value.negative = result.negative;
+        value.test = result.test;
+    }
     return result;
 }
 

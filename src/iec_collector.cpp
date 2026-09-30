@@ -18,6 +18,14 @@ std::int64_t currentTimeMs() {
     ).count();
 }
 
+// Propagate the device's own quality descriptor (IV/NT) to the published value.
+void applyDeviceQuality(PointValue& value, const IecDataValue& dataValue) {
+    if (dataValue.quality == 0) {
+        value.quality = 0;
+        value.qualityMsg = dataValue.qualityMsg.empty() ? "IEC device reported invalid quality" : dataValue.qualityMsg;
+    }
+}
+
 }  // namespace
 
 IecCollector::IecCollector(
@@ -50,6 +58,7 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
             }
             const auto decoded = IecCodec::decodePointValue(point, dataValue);
             auto value = buildPointValue(point, decoded, currentTimeMs());
+            applyDeviceQuality(value, dataValue);
             lastReadMs_[point.index] = nowMs;
             lastValueUpdateMs_[point.index] = nowMs;
             updatedByPush[point.index] = true;
@@ -100,6 +109,7 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
         if (match != dataValues.rend()) {
             const auto decoded = IecCodec::decodePointValue(point, *match);
             value = buildPointValue(point, decoded, pointNowMs);
+            applyDeviceQuality(value, *match);
             hasSuccessfulRead = true;
         } else if (pollSucceeded) {
             // IEC polls are incremental: one successful class response may omit

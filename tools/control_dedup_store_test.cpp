@@ -129,6 +129,29 @@ int main() {
             require(reopened.dispatch("machine", "meter", command, 11, execute).stage == "writeback-timeout" && calls == before,
                     "both crash windows must retain unknown without redispatch");
         }
+        {
+            // Finalized receipts expire so a busy site cannot exhaust capacity forever.
+            const auto retainedPath = directory.file("retention.db");
+            ControlDedupStore shortLived(retainedPath, 2, 1, 1);
+            PendingWriteCommand rotating{"rot-0", 1001, 1, "mqtt", 1, 1};
+            for (int i = 0; i < 4; ++i) {
+                rotating.cmdId = "rot-" + std::to_string(i);
+                require(!shortLived.bind("machine", "meter", rotating), "expired receipts must free capacity");
+                const auto done = shortLived.dispatch("machine", "meter", rotating, 20, [&] {
+                    auto r = beginWritebackResult(rotating, 20);
+                    completeWritebackResult(r, true, "ok", "writeback-succeeded", 21); return r;
+                });
+                require(done.success, "rotating dispatch must finalize");
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            rotating.cmdId = "pending-a"; shortLived.bind("machine", "meter", rotating);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            rotating.cmdId = "pending-b"; shortLived.bind("machine", "meter", rotating);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            rotating.cmdId = "pending-c"; bool full = false;
+            try { shortLived.bind("machine", "meter", rotating); } catch (...) { full = true; }
+            require(full, "unfinished reservations must never be pruned");
+        }
         std::cout << "control_dedup_store_test passed\n";
     } catch (const std::exception& ex) {
         std::cerr << ex.what() << '\n';

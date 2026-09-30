@@ -83,6 +83,12 @@ struct BrokerEndpoint {
     int port = 1883;
 };
 
+bool brokerRequestsTls(const MqttConfig& config) {
+    const auto schemePos = config.broker.find("://");
+    const auto scheme = schemePos == std::string::npos ? std::string() : config.broker.substr(0, schemePos);
+    return config.tls.enabled || scheme == "ssl" || scheme == "tls" || scheme == "mqtts";
+}
+
 BrokerEndpoint parseBroker(const std::string& broker) {
     BrokerEndpoint endpoint;
     auto address = broker;
@@ -500,6 +506,11 @@ std::vector<MqttIncomingMessage> MosquittoMqttDriverPublisher::pollIncoming(int)
 
 void MosquittoMqttDriverPublisher::publishJson(const std::string& topic, const std::string& payload) {
     std::lock_guard<std::mutex> lock(mutex_);
+    // This backend never calls mosquitto_tls_set(); refuse rather than sending
+    // credentials and data in plaintext to a broker configured for TLS.
+    if (brokerRequestsTls(config_)) {
+        throw std::runtime_error("mosquitto publisher does not support TLS; use the builtin MQTT publisher");
+    }
     auto* client = impl_->create(config_.clientId.c_str(), config_.cleanSession, nullptr);
     if (client == nullptr) {
         throw std::runtime_error("mosquitto_new failed");

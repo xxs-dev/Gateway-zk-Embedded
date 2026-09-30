@@ -380,6 +380,34 @@ void verifyPreviousVersionIsRejectedWithoutReinitializing() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
 }
 
+void verifyCrashedOwnerWithFutureHeartbeatDoesNotBlockRestart() {
+    const std::string storeName = "gateway_memory_crashed_owner_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
+    const auto child = fork();
+    require(child >= 0, "failed to fork crashed owner child");
+    if (child == 0) {
+        try {
+            auto* store = new edge_gateway::MemoryPointStore(storeName);
+            store->registerPoint("GW_TEST", "METER_TEST", buildPoint());
+            // Wall clock later stepped back by an hour: the stamp now lies in the future.
+            const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            store->heartbeatRegisteredPoints(now + 3600000);
+            _exit(0);  // Crash: never release claims.
+        } catch (...) {
+            _exit(1);
+        }
+    }
+    int status = 0;
+    require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+        "crashed owner child failed");
+    {
+        edge_gateway::MemoryPointStore restarted(storeName);
+        restarted.registerPoint("GW_TEST", "METER_TEST", buildPoint());
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName, true);
+}
+
 void verifyRobustMutexRecoversAfterOwnerDeath() {
     const std::string storeName = "gateway_memory_robust_mutex_test";
     const std::string posixName = "/" + storeName;
@@ -392,6 +420,15 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
         store.registerPoint("GW_TEST", "METER_TEST", point);
         store.putLatest(buildValue(1000));
         require(store.getStats().latestCount == 1, "robust mutex test should start with one latest value");
+        edge_gateway::PendingWriteCommand pending;
+        pending.cmdId = "pending-before-owner-death";
+        pending.index = point.index;
+        pending.value = 7.0;
+        pending.source = "test";
+        pending.ts = 1000;
+        pending.acceptedAt = 1000;
+        store.submitWriteCommand(pending);
+        const auto before = store.getStats();
 
         int readyPipe[2] = {-1, -1};
         require(pipe(readyPipe) == 0, "failed to create robust mutex test pipe");
@@ -438,6 +475,17 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
         const auto stats = store.getStats();
         require(stats.latestCount == 0, "owner-death recovery should discard possibly partial shared state");
         require(!store.getLatestByIndex(point.index, 1000), "owner-death recovery should discard stale latest values");
+        require(stats.pendingWriteCount == 0, "owner-death recovery should discard pending writes");
+        require(stats.writeSequence >= before.writeSequence &&
+                stats.pointUpdateSequence >= before.pointUpdateSequence &&
+                stats.persistentSequence >= before.persistentSequence,
+            "owner-death recovery must keep sequence counters monotonic");
+        const auto discarded = store.getWritebackResult(pending.cmdId);
+        require(discarded && !discarded->success && discarded->stage == "owner-died",
+            "a pending write discarded by owner-death recovery must get a failed receipt");
+        store.putLatest(buildValue(2000));
+        require(store.getStats().pointUpdateSequence > before.pointUpdateSequence,
+            "post-recovery sequences must continue after the pre-recovery values");
     }
 
     unsetenv("GATEWAY_SHARED_MUTEX_LOCK_TIMEOUT_SEC");
@@ -463,6 +511,7 @@ int main(int argc, char** argv) {
         verifyConfiguredCurrentVersionIsUsedForNewSegment();
         verifyPreviousVersionIsRejectedWithoutReinitializing();
         verifyRobustMutexRecoversAfterOwnerDeath();
+        verifyCrashedOwnerWithFutureHeartbeatDoesNotBlockRestart();
 #endif
         std::cout << "memory_point_store_lifecycle_test passed" << std::endl;
         return 0;

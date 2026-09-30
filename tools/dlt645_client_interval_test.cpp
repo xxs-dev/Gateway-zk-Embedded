@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -102,7 +103,10 @@ public:
         if (*(frameStart + 8) == 0x14) {
             chunks_.push_back(writeResponse(bytes, rejectWrites_));
         } else if (respondToReads_) {
-            const auto address = writes_.size() == 2 ? "000000000002" : "000000000001";
+            // Answer from the addressed meter unless a foreign answer is forced.
+            const auto address = foreignResponseAddress_.empty()
+                ? requestAddress(frameStart)
+                : foreignResponseAddress_;
             chunks_.push_back(readResponse(address, readDataId_, readPayload_));
         }
     }
@@ -151,6 +155,21 @@ public:
         respondToReads_ = value;
     }
 
+    void answerFromAddress(const std::string& address) {
+        foreignResponseAddress_ = address;
+    }
+
+    static std::string requestAddress(std::vector<std::uint8_t>::const_iterator frameStart) {
+        static constexpr char kHex[] = "0123456789ABCDEF";
+        std::string address;
+        for (int i = 6; i >= 1; --i) {
+            const auto byte = *(frameStart + i);
+            address.push_back(kHex[(byte >> 4) & 0x0F]);
+            address.push_back(kHex[byte & 0x0F]);
+        }
+        return address;
+    }
+
 private:
     bool open_ = false;
     std::vector<std::vector<std::uint8_t>> writes_;
@@ -160,6 +179,7 @@ private:
     bool respondToReads_ = true;
     std::string readDataId_ = "00010000";
     std::vector<std::uint8_t> readPayload_ = {0x00, 0x00};
+    std::string foreignResponseAddress_;
 };
 
 edge_gateway::PointDefinition dlt645BitPoint(
@@ -375,6 +395,43 @@ void verifyBinaryAndBitfieldDecoding() {
     require(clearBit.value == 0.0, "DLT645 clear event bit extraction mismatch");
 }
 
+void verifySignedBcdDecoding() {
+    edge_gateway::PointDefinition point;
+    point.read.dlt645Di = "02030000";
+    point.read.dlt645ByteCount = 3;
+    point.read.scale = 0.0001;
+    point.read.dataType = "dlt645_bcd_signed";
+    // -0.1234 kW: bit7 of the MSB is the sign (DL/T 645-2007).
+    const auto negative = edge_gateway::Dlt645Codec::decodeReadResponse(
+        readResponse("20", point.read.dlt645Di, {0x34, 0x12, 0x80}), point);
+    require(std::abs(negative.value + 0.1234) < 1e-9, "DLT645 signed BCD negative decode mismatch");
+    const auto positive = edge_gateway::Dlt645Codec::decodeReadResponse(
+        readResponse("20", point.read.dlt645Di, {0x34, 0x12, 0x05}), point);
+    require(std::abs(positive.value - 5.1234) < 1e-9, "DLT645 signed BCD positive decode mismatch");
+
+    // Existing unsigned dlt645_bcd behaviour is unchanged: MSB digit 8 is a digit.
+    point.read.dataType = "dlt645_bcd";
+    const auto unsignedValue = edge_gateway::Dlt645Codec::decodeReadResponse(
+        readResponse("20", point.read.dlt645Di, {0x34, 0x12, 0x80}), point);
+    require(std::abs(unsignedValue.value - 80.1234) < 1e-9, "DLT645 unsigned BCD decode must stay unchanged");
+}
+
+void verifyForeignMeterResponseIsRejected() {
+    edge_gateway::SerialPortOptions options;
+    options.device = "test";
+    options.timeoutMs = 50;
+    auto serial = std::make_shared<ImmediateDlt645SerialPort>();
+    serial->answerFromAddress("000000000021");
+    edge_gateway::Dlt645Client client(serial, options);
+    bool rejected = false;
+    try {
+        (void)client.readData("20", "02010100");
+    } catch (const std::runtime_error& ex) {
+        rejected = std::string(ex.what()).find("address mismatch") != std::string::npos;
+    }
+    require(rejected, "DLT645 read response from another meter address must be rejected");
+}
+
 void verifyWriteFrameAndPayloadEncoding() {
     edge_gateway::WriteSpec scheduled;
     scheduled.dataType = "dlt645_scheduled_control";
@@ -459,6 +516,8 @@ int main() {
         verifyFrameIntervalIsScopedToMeterAddress();
         verifyConfiguredWakeupPreambleIsSent();
         verifyBinaryAndBitfieldDecoding();
+        verifySignedBcdDecoding();
+        verifyForeignMeterResponseIsRejected();
         verifyWriteFrameAndPayloadEncoding();
         verifyWriteResponseAndPasswordRedaction();
         verifyCollectorCachesSuccessfulReadPerDataId();

@@ -31,6 +31,12 @@ private:
     edge_gateway::ScadaLocalAccess configuration_;
     std::string username_;
     std::int64_t expiresAtMs_ = 0;
+    // Brute-force protection: after kMaxFailedAttempts failures login is locked,
+    // starting at 30 s and doubling per lockout (max 32 min).
+    static constexpr int kMaxFailedAttempts = 5;
+    int failedAttempts_ = 0;
+    int lockoutRound_ = 0;
+    std::int64_t lockedUntilMs_ = 0;
 };
 
 bool requestScadaLocalLogin(

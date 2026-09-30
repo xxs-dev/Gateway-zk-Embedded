@@ -291,6 +291,20 @@ void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
                 "safety override should bypass stale ownership at device write"
             );
             require(client->writeCount(1) == 1, "safety override must reach the field device exactly once");
+
+            edge_gateway::PendingWriteCommand stale;
+            stale.cmdId = "CMD_EXPIRED_IN_QUEUE";
+            stale.index = 1001;
+            stale.value = 9;
+            stale.source = "compute-engine";
+            stale.ts = 3003;
+            stale.acceptedAt = 3003;
+            store.submitWriteCommand(stale);
+            daemon.processWritebackOnce(3003 + deviceConfig.memoryStore.pendingWriteMaxAgeMs + 1);
+            const auto staleResult = store.getWritebackResult(stale.cmdId);
+            require(staleResult && !staleResult->success && staleResult->stage == "expired",
+                "a queued write older than pendingWriteMaxAgeMs must fail with stage expired");
+            require(client->writeCount(1) == 1, "an expired write must never reach the field device");
         }
     } catch (...) {
         std::remove(ownershipFile.c_str());

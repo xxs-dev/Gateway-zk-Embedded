@@ -242,7 +242,7 @@ void SqliteAlarmWriter::writeEvents(const std::vector<AlarmEvent>& events) {
         }
         for (const auto& event : events) {
             if (g_sqlite3_bind_text(stmt.get(), 1, event.eventId.c_str(), -1, nullptr) != kSqliteOk ||
-                g_sqlite3_bind_int(stmt.get(), 2, static_cast<int>(event.index)) != kSqliteOk ||
+                g_sqlite3_bind_int64(stmt.get(), 2, static_cast<long long>(event.index)) != kSqliteOk ||
                 g_sqlite3_bind_int64(stmt.get(), 3, static_cast<long long>(event.ts)) != kSqliteOk ||
                 g_sqlite3_bind_text(stmt.get(), 4, event.alarmType.c_str(), -1, nullptr) != kSqliteOk ||
                 g_sqlite3_bind_int(stmt.get(), 5, event.active ? 1 : 0) != kSqliteOk ||
@@ -405,14 +405,8 @@ void SqliteAlarmWriter::closeDatabase() {
 }
 
 void SqliteAlarmWriter::unloadLibrary() {
-    if (libraryHandle_ == nullptr) {
-        return;
-    }
-#ifdef _WIN32
-    FreeLibrary(static_cast<HMODULE>(libraryHandle_));
-#else
-    dlclose(libraryHandle_);
-#endif
+    // The g_sqlite3_* function pointers are shared by every instance in this process; keep
+    // the module loaded until exit so another live writer never calls into unmapped code.
     libraryHandle_ = nullptr;
 }
 

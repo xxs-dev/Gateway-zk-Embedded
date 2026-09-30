@@ -107,6 +107,8 @@ private:
     std::uint64_t outputsWrittenTotal_ = 0;
     std::int64_t healthStartedAtMs_ = 0;
     std::int64_t lastHealthPublishMs_ = 0;
+    // Set by evaluateRule when a graph rule reported node errors during the current scan.
+    bool graphErrorsThisScan_ = false;
 };
 
 }  // namespace edge_gateway

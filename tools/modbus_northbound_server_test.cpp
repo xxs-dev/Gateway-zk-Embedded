@@ -100,10 +100,30 @@ void verifyMappedHoldingRegisterRead() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void verifyUnrestrictedWildcardBindIsRefused() {
+    const std::string storeName = "gateway_modbus_northbound_server_refuse_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.northboundServer.bindHost = "0.0.0.0";
+        config.northboundServer.allowedClientCidrs.clear();
+        config.northboundServer.allowUnrestrictedClients = false;
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        edge_gateway::ModbusNorthboundServer server(config, store);
+        server.start();
+        require(!server.isRunning(), "wildcard bind without allowedClientCidrs must be refused by default");
+        require(server.startError().find("allowUnrestrictedClients") != std::string::npos,
+            "northbound refusal must report the config remedy");
+        server.stop();
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
     try {
+        verifyUnrestrictedWildcardBindIsRefused();
         verifyMappedHoldingRegisterRead();
         std::cout << "modbus_northbound_server_test passed" << std::endl;
         return 0;

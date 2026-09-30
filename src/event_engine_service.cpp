@@ -37,6 +37,9 @@ std::string escapeJson(const std::string& value) {
     return escaped;
 }
 
+constexpr std::size_t kMaxPendingAlarmPersistence = 10000;
+constexpr std::size_t kAlarmPersistenceChunk = 256;
+
 void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
     int remaining = std::max(0, intervalMs);
     while (running.load() && remaining > 0) {
@@ -641,6 +644,13 @@ std::string EventEngineService::encodeChangePayload(
     return out.str();
 }
 
+bool EventEngineService::isEvaluableValue(const StoredPointValue& value) const {
+    // Invalid measurements (e.g. a compute failure publishing 0 with quality 0) must neither
+    // raise nor clear an alarm; the IPC path applies the same gate in evaluateIpcValue.
+    return eventConfig_.evaluateInvalidValues ||
+        (!value.stale && value.quality == 1 && std::isfinite(value.value));
+}
+
 void EventEngineService::evaluateValues(const std::vector<StoredPointValue>& values, std::int64_t nowMs) {
     if (values.empty()) {
         return;
@@ -730,6 +740,9 @@ void EventEngineService::processAlarms(
     std::unordered_map<std::string, const AlarmBinding*> dirtyBindings;
 
     for (const auto& value : values) {
+        if (!isEvaluableValue(value)) {
+            continue;
+        }
         const auto bindings = alarmBindingsByIndex_.find(value.index);
         if (bindings == alarmBindingsByIndex_.end()) {
             continue;
@@ -802,6 +815,16 @@ void EventEngineService::processAlarms(
             persistentEvents.begin(),
             persistentEvents.end()
         );
+        // Bound memory while the history database is unavailable; drop the oldest.
+        if (pendingAlarmPersistence_.size() > kMaxPendingAlarmPersistence) {
+            const auto overflow = pendingAlarmPersistence_.size() - kMaxPendingAlarmPersistence;
+            pendingAlarmPersistence_.erase(pendingAlarmPersistence_.begin(),
+                pendingAlarmPersistence_.begin() + static_cast<std::ptrdiff_t>(overflow));
+            std::cerr << "event engine alarm persistence backlog full; dropped oldest count="
+                      << overflow << std::endl;
+            publishStatusEvent("alarm-persist-dropped", nowMs,
+                std::string(R"("count":)") + std::to_string(overflow));
+        }
         flushPendingAlarmPersistence(nowMs);
     }
 
@@ -838,9 +861,18 @@ void EventEngineService::flushPendingAlarmPersistence(std::int64_t nowMs) {
         (nextAlarmPersistenceAttemptMs_ > 0 && nowMs < nextAlarmPersistenceAttemptMs_)) {
         return;
     }
+    std::size_t persisted = 0;
     try {
-        alarmWriter_->writeEvents(pendingAlarmPersistence_);
-        const auto persisted = pendingAlarmPersistence_.size();
+        // Chunked writes: the storage admission estimate grows with batch size, so an
+        // ever-growing all-or-nothing batch could be rejected forever.
+        while (persisted < pendingAlarmPersistence_.size()) {
+            const auto end = std::min(pendingAlarmPersistence_.size(), persisted + kAlarmPersistenceChunk);
+            const std::vector<AlarmEvent> chunk(
+                pendingAlarmPersistence_.begin() + static_cast<std::ptrdiff_t>(persisted),
+                pendingAlarmPersistence_.begin() + static_cast<std::ptrdiff_t>(end));
+            alarmWriter_->writeEvents(chunk);
+            persisted = end;
+        }
         pendingAlarmPersistence_.clear();
         nextAlarmPersistenceAttemptMs_ = 0;
         publishStatusEvent(
@@ -849,6 +881,8 @@ void EventEngineService::flushPendingAlarmPersistence(std::int64_t nowMs) {
             std::string(R"("count":)") + std::to_string(persisted)
         );
     } catch (const std::exception& ex) {
+        pendingAlarmPersistence_.erase(pendingAlarmPersistence_.begin(),
+            pendingAlarmPersistence_.begin() + static_cast<std::ptrdiff_t>(persisted));
         nextAlarmPersistenceAttemptMs_ = nowMs + 1000;
         std::cerr << "event engine alarm persistence failed error=" << ex.what() << std::endl;
         publishStatusEvent(
@@ -872,6 +906,9 @@ void EventEngineService::processChanges(const std::vector<StoredPointValue>& val
     std::size_t transitionCount = 0;
 
     for (const auto& value : values) {
+        if (!isEvaluableValue(value)) {
+            continue;
+        }
         const auto route = router_.routeByIndex(value.index);
         if (!route || !route->reportOnChange) {
             continue;

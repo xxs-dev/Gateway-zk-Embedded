@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -130,6 +131,21 @@ ScadaSafetyEvaluation ScadaUpperComputerSafetyMonitor::runOnce(std::int64_t nowM
         result.message = "SCADA upper-computer safety monitor is disabled";
         return result;
     }
+    const auto steadyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+    const auto tolerance = static_cast<std::int64_t>(config_.clockStepToleranceMs);
+    if (tolerance > 0 && lastWallMs_ != 0) {
+        const auto skew = (nowMs - lastWallMs_) - (steadyMs - lastSteadyMs_);
+        if (skew > tolerance || skew < -tolerance) {
+            // Wall clock was stepped (NTP/RTC). Re-arm the grace period rather than
+            // treating the step as an upper-computer outage.
+            activatedAtMs_ = nowMs;
+            lastReloadAtMs_ = 0;
+        }
+    }
+    lastWallMs_ = nowMs;
+    lastSteadyMs_ = steadyMs;
     try {
         reloadProject(nowMs);
     } catch (const std::exception& ex) {
@@ -158,7 +174,12 @@ ScadaSafetyEvaluation ScadaUpperComputerSafetyMonitor::runOnce(std::int64_t nowM
     }
 
     result.active = true;
-    const auto heartbeat = readHeartbeat();
+    auto heartbeat = readHeartbeat();
+    if (tolerance > 0 && heartbeat > nowMs) {
+        // Slightly future-stamped heartbeats come from small clock adjustments;
+        // anything further ahead is not trustworthy.
+        heartbeat = heartbeat - nowMs <= tolerance ? nowMs : 0;
+    }
     const auto effectiveHeartbeat = std::max(heartbeat, activatedAtMs_);
     result.heartbeatFresh = effectiveHeartbeat > 0 && nowMs >= effectiveHeartbeat &&
         nowMs - effectiveHeartbeat <= project_->topology.offlineTimeoutMs;
@@ -225,7 +246,8 @@ ScadaSafetyEvaluation ScadaUpperComputerSafetyMonitor::runOnce(std::int64_t nowM
 }
 
 void ScadaUpperComputerSafetyMonitor::reloadProject(std::int64_t nowMs) {
-    if (lastReloadAtMs_ != 0 && nowMs - lastReloadAtMs_ < config_.reloadIntervalMs) return;
+    if (lastReloadAtMs_ != 0 && nowMs >= lastReloadAtMs_ &&
+        nowMs - lastReloadAtMs_ < config_.reloadIntervalMs) return;
     lastReloadAtMs_ = nowMs;
     const auto loaded = ScadaProjectLoader::loadFromDirectory(config_.projectDirectory);
     const auto nextSignature = projectSignature(loaded);

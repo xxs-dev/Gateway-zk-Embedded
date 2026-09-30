@@ -440,6 +440,11 @@ void PointStoreRouter::addRoutesFromDeviceConfigs(
 ) {
     std::string commonDedupPath;
     for (const auto& config : deviceConfigs) {
+        if (config.memoryStore.allowDuplicateIndexAcrossSegments) {
+            allowDuplicateIndexAcrossSegments_ = true;
+        }
+    }
+    for (const auto& config : deviceConfigs) {
         const auto path = normalizedAbsolutePath(edge_gateway::filesystem::path(config.memoryStore.controlDedupPath));
         if (!path.is_absolute()) throw std::invalid_argument("controlDedupPath must be absolute");
         if (!commonDedupPath.empty() && commonDedupPath != path.string())
@@ -739,6 +744,11 @@ void PointStoreRouter::checkClusterCommand(const PendingWriteCommand& command) c
 }
 
 CommandSubmitResult PointStoreRouter::submitWriteCommand(const PendingWriteCommand& command) {
+    if (ambiguousIndexes_.count(command.index) != 0) {
+        CommandSubmitResult result;
+        result.message = "command index is ambiguous across shared memory segments";
+        return result;
+    }
     const auto route = routeByIndex(command.index);
     if (!route) {
         CommandSubmitResult result;
@@ -754,7 +764,8 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
 ) {
     CommandSubmitResult result;
     result.route = route;
-    const auto commandTime = command.ts > 0 ? command.ts : command.acceptedAt;
+    // Authorize against the gateway's acceptance time, never a client-supplied ts.
+    const auto commandTime = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
     auto routedCommand = command;
     if (powerControlOwnership_) {
         const auto authorization = powerControlOwnership_->authorize(
@@ -889,12 +900,17 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
             result.message = "write command group contains duplicate index";
             return result;
         }
+        if (ambiguousIndexes_.count(command.index) != 0) {
+            result.message = "command index is ambiguous across shared memory segments: " +
+                std::to_string(command.index);
+            return result;
+        }
         const auto route = routeByIndex(command.index);
         if (!route) {
             result.message = "command index not found: " + std::to_string(command.index);
             return result;
         }
-        const auto commandTime = command.ts > 0 ? command.ts : command.acceptedAt;
+        const auto commandTime = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
         auto routedCommand = command;
         if (powerControlOwnership_) {
             const auto authorization = powerControlOwnership_->authorize(
@@ -958,6 +974,10 @@ CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCom
         result.message = "cluster command cannot be converted into a scalar mailbox";
         return result;
     }
+    if (ambiguousIndexes_.count(command.index) != 0) {
+        result.message = "command mailbox index is ambiguous across shared memory segments";
+        return result;
+    }
     const auto route = routeByIndex(command.index);
     if (!route) {
         result.message = "command mailbox index not found";
@@ -966,6 +986,11 @@ CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCom
     result.route = *route;
     if (!route->commandMailbox) {
         result.message = "target is not an AGC/AVC command mailbox point";
+        return result;
+    }
+    const auto validationError = validateEmsVirtualParameter(*route, command.value);
+    if (!validationError.empty()) {
+        result.message = validationError;
         return result;
     }
     auto* store = storeForRoute(*route);
@@ -983,7 +1008,8 @@ CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCom
     value.quality = 1;
     value.qualityMsg = command.source.empty() ? "command-mailbox" : command.source;
     value.ts = command.ts > 0 ? command.ts : command.acceptedAt;
-    value.expireAt = value.ts + 600000;
+    // Freshness is anchored to the gateway acceptance time, not the client ts.
+    value.expireAt = (command.acceptedAt > 0 ? command.acceptedAt : value.ts) + 600000;
     try {
         store->putLatest(value);
     } catch (const std::exception& ex) {
@@ -1172,12 +1198,10 @@ void PointStoreRouter::addRoute(const PointStoreRoute& route) {
     if (route.index == 0) {
         throw std::invalid_argument("route index must be non-zero");
     }
-    const auto location = routesByLocation_.emplace(
-        routeLocationKey(route.sharedMemoryName, route.index),
-        route
-    );
-    if (!location.second) {
-        const auto& existing = location.first->second;
+    const auto locationKey = routeLocationKey(route.sharedMemoryName, route.index);
+    const auto existingLocation = routesByLocation_.find(locationKey);
+    if (existingLocation != routesByLocation_.end()) {
+        const auto& existing = existingLocation->second;
         throw std::invalid_argument(
             "duplicate point route location=" + route.sharedMemoryName +
             " index=" + std::to_string(route.index) +
@@ -1185,8 +1209,30 @@ void PointStoreRouter::addRoute(const PointStoreRoute& route) {
             " incoming=" + route.machineCode + "/" + route.meterCode + "/" + route.pointCode
         );
     }
+    const auto existingIndex = routes_.find(route.index);
+    if (existingIndex != routes_.end()) {
+        // Index-only APIs (writes, event attribution) would silently resolve to the first
+        // segment and control/attribute the wrong device.
+        if (!allowDuplicateIndexAcrossSegments_) {
+            const auto& existing = existingIndex->second;
+            throw std::invalid_argument(
+                "duplicate point index across shared memory segments index=" + std::to_string(route.index) +
+                " existing=" + existing.sharedMemoryName + ":" + existing.machineCode + "/" +
+                existing.meterCode + "/" + existing.pointCode +
+                " incoming=" + route.sharedMemoryName + ":" + route.machineCode + "/" +
+                route.meterCode + "/" + route.pointCode +
+                "; point indexes must be globally unique (legacy: memoryStore.allowDuplicateIndexAcrossSegments=true)"
+            );
+        }
+        ambiguousIndexes_.insert(route.index);
+    }
+    const auto location = routesByLocation_.emplace(locationKey, route);
     routes_.emplace(route.index, route);
     restoreEmsVirtualParameter(location.first->second);
+}
+
+void PointStoreRouter::setAllowDuplicateIndexAcrossSegments(bool allow) {
+    allowDuplicateIndexAcrossSegments_ = allow;
 }
 
 void PointStoreRouter::setPowerControlOwnershipFile(const std::string& path, const std::string& owner) {

@@ -275,8 +275,8 @@ std::vector<IecDataValue> Am5seIec103Client::poll() {
 std::vector<Iec103DisturbanceRecord> Am5seIec103Client::listDisturbanceRecords(int timeoutMs) {
     std::lock_guard<std::mutex> lock(operationMutex_);
     ensureConnected();
-    exchange(
-        IecCodec::buildIec103RecordingDirectoryFrame(config_, nextFrameCountBit()),
+    exchangeWithFrameCount(
+        [this](bool fcb) { return IecCodec::buildIec103RecordingDirectoryFrame(config_, fcb); },
         timeoutMs,
         1);
 
@@ -597,7 +597,11 @@ void Am5seIec103Client::sendAll(const std::vector<std::uint8_t>& bytes) {
             static_cast<SocketHandle>(socket_),
             bytes.data() + sent,
             bytes.size() - sent,
+#ifdef MSG_NOSIGNAL
+            MSG_NOSIGNAL);
+#else
             0);
+#endif
 #endif
         if (result <= 0) {
             disconnect();
@@ -703,8 +707,8 @@ std::vector<std::vector<std::uint8_t>> Am5seIec103Client::requestClassData(
     int dataClass,
     int timeoutMs
 ) {
-    return exchange(
-        IecCodec::buildIec103ClassRequestFrame(config_, dataClass, nextFrameCountBit()),
+    return exchangeWithFrameCount(
+        [this, dataClass](bool fcb) { return IecCodec::buildIec103ClassRequestFrame(config_, dataClass, fcb); },
         timeoutMs,
         1);
 }
@@ -757,8 +761,10 @@ std::vector<std::uint8_t> Am5seIec103Client::pullComtradeFile(
 ) {
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(std::max(1, timeoutMs));
-    exchange(
-        IecCodec::buildIec103ComtradeFileCallFrame(config_, fan, fileType, nextFrameCountBit()),
+    exchangeWithFrameCount(
+        [this, fan, fileType](bool fcb) {
+            return IecCodec::buildIec103ComtradeFileCallFrame(config_, fan, fileType, fcb);
+        },
         timeoutMs,
         1);
     Iec103ComtradeAssembler assembler(config_.recordingMaxFileBytes);
@@ -793,6 +799,30 @@ std::vector<std::uint8_t> Am5seIec103Client::pullComtradeFile(
 bool Am5seIec103Client::nextFrameCountBit() {
     frameCountBit_ = !frameCountBit_;
     return frameCountBit_;
+}
+
+std::vector<std::vector<std::uint8_t>> Am5seIec103Client::exchangeWithFrameCount(
+    const std::function<std::vector<std::uint8_t>(bool)>& build,
+    int timeoutMs,
+    int maxFrames
+) {
+    // IEC 60870-5-2: after a response timeout the primary station repeats the
+    // identical frame (same FCB), so a relay whose answer was lost resends its
+    // buffered response (e.g. a class 1 trip event) instead of discarding it.
+    constexpr int kRetransmissions = 2;
+    const auto request = build(nextFrameCountBit());
+    for (int attempt = 0; attempt <= kRetransmissions; ++attempt) {
+        // Transport errors (send/recv failure) disconnect and propagate; the
+        // FCB state is reset on reconnect, so it is not rolled back here.
+        sendAll(request);
+        auto frames = readFrames(timeoutMs, maxFrames);
+        if (!frames.empty()) {
+            return frames;
+        }
+    }
+    // Repeated timeouts: re-initialise the link (reset also resets the FCB).
+    linkInitialized_ = false;
+    throw std::runtime_error("AM5SE IEC103 response timeout");
 }
 
 void Am5seIec103Client::disconnect() {

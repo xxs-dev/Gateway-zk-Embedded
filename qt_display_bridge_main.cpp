@@ -457,17 +457,39 @@ public:
         }
     }
 
-    void initialize() {
+    // `mode` is the permission of the legacy segment (default 0600). Any process that can
+    // write it can inject device write commands, so looser existing segments are tightened
+    // and segments owned by another non-root user are refused.
+    void initialize(int mode) {
         const auto size = sizeof(LegacySharedMemory);
         bool created = false;
-        shmid_ = shmget(kLegacyShmKey, size, IPC_CREAT | IPC_EXCL | 0666);
+        shmid_ = shmget(kLegacyShmKey, size, IPC_CREAT | IPC_EXCL | mode);
         if (shmid_ >= 0) {
             created = true;
         } else if (errno == EEXIST) {
-            shmid_ = shmget(kLegacyShmKey, size, 0666);
+            shmid_ = shmget(kLegacyShmKey, size, mode);
         }
         if (shmid_ < 0) {
             throw std::runtime_error("shmget failed: " + std::string(std::strerror(errno)));
+        }
+        shmid_ds info {};
+        if (shmctl(shmid_, IPC_STAT, &info) != 0) {
+            throw std::runtime_error("shmctl(IPC_STAT) failed: " + std::string(std::strerror(errno)));
+        }
+        const auto self = geteuid();
+        if (info.shm_perm.uid != self && info.shm_perm.uid != 0) {
+            throw std::runtime_error("legacy shared memory is owned by another user (uid=" +
+                std::to_string(info.shm_perm.uid) + "); refusing to use it");
+        }
+        const auto currentMode = static_cast<int>(info.shm_perm.mode & 0777);
+        if ((currentMode & ~mode) != 0) {
+            info.shm_perm.mode = static_cast<decltype(info.shm_perm.mode)>(currentMode & mode);
+            if (shmctl(shmid_, IPC_SET, &info) != 0) {
+                throw std::runtime_error("legacy shared memory permissions are too open and cannot be tightened: " +
+                    std::string(std::strerror(errno)));
+            }
+            std::cerr << "qt display bridge tightened legacy shared memory mode from 0"
+                      << std::oct << currentMode << " to 0" << (currentMode & mode) << std::dec << std::endl;
         }
 
         void* attached = shmat(shmid_, nullptr, 0);
@@ -491,6 +513,24 @@ public:
         }
         pthread_rwlock_wrlock(&shm_->rwlocks[lockIndex]);
         shm_->data[physicalIndex] = value;
+        pthread_rwlock_unlock(&shm_->rwlocks[lockIndex]);
+    }
+
+    // Refresh a display value unless the HMI has an undrained write pending for this index;
+    // overwriting it would make the next drain submit the readback instead of the operator value.
+    void refresh(int physicalIndex, double value) {
+        if (shm_ == nullptr || physicalIndex < 0 || physicalIndex >= kLegacyShmWordSize) {
+            return;
+        }
+        const int lockIndex = physicalIndex / kLegacyShmDataPerLock;
+        if (lockIndex < 0 || lockIndex >= kLegacyShmLockCount) {
+            return;
+        }
+        const auto bit = 1U << static_cast<unsigned>(physicalIndex % 32);
+        pthread_rwlock_wrlock(&shm_->rwlocks[lockIndex]);
+        if ((static_cast<std::uint32_t>(shm_->dataIndexFlag[physicalIndex / 32].load()) & bit) == 0) {
+            shm_->data[physicalIndex] = value;
+        }
         pthread_rwlock_unlock(&shm_->rwlocks[lockIndex]);
     }
 
@@ -712,6 +752,7 @@ void printUsage(const char* argv0) {
         << " --app-config <app.json>"
         << " [--var-list /root/VarList.xml]"
         << " [--interval-ms 1000]"
+        << " [--shm-mode 0600|0660|0666]"
         << " [--once]"
         << " [--dump]"
         << std::endl;
@@ -728,7 +769,19 @@ int main(int argc, char* argv[]) {
 
     const auto appConfigPath = getOption(args, "--app-config", "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json");
     const auto varListPath = getOption(args, "--var-list", "/root/VarList.xml");
-    const auto intervalMs = std::max(100, std::stoi(getOption(args, "--interval-ms", "1000")));
+    int intervalMs = 1000;
+    int shmMode = 0600;
+    try {
+        intervalMs = std::max(100, std::stoi(getOption(args, "--interval-ms", "1000")));
+        shmMode = std::stoi(getOption(args, "--shm-mode", "0600"), nullptr, 8);
+    } catch (const std::exception&) {
+        std::cerr << "qt display bridge: invalid --interval-ms or --shm-mode" << std::endl;
+        return 2;
+    }
+    if (shmMode != 0600 && shmMode != 0660 && shmMode != 0666) {
+        std::cerr << "qt display bridge: --shm-mode must be 0600, 0660 or 0666 (legacy)" << std::endl;
+        return 2;
+    }
     const bool once = hasOption(args, "--once");
     const bool dump = hasOption(args, "--dump");
 
@@ -743,7 +796,7 @@ int main(int argc, char* argv[]) {
         writeVarList(varListPath, mappings);
 
         LegacyQramWriter writer;
-        writer.initialize();
+        writer.initialize(shmMode);
         // 丢弃上一次进程遗留的写标志，避免服务重启时误下发旧命令。
         writer.clearWriteFlags();
 
@@ -763,7 +816,7 @@ int main(int argc, char* argv[]) {
             );
             for (const auto& mapping : mappings) {
                 const auto value = resolveMappingValue(mapping, context->router, ts);
-                writer.write(mapping.physicalIndex, value);
+                writer.refresh(mapping.physicalIndex, value);
             }
 
             if (dump || iteration == 0) {

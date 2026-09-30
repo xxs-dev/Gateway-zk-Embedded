@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "edge_gateway/compat.hpp"
@@ -69,6 +70,10 @@ public:
         const std::string& machineCode
     );
     void addRoute(const PointStoreRoute& route);
+    // Legacy escape hatch (memoryStore.allowDuplicateIndexAcrossSegments): permit the same
+    // index in different shared memory segments. Index-only command APIs then reject the
+    // ambiguous index instead of silently routing it to the first segment.
+    void setAllowDuplicateIndexAcrossSegments(bool allow);
     void setPowerControlOwnershipFile(const std::string& path, const std::string& owner);
     void setEmsVirtualParameterDirectory(const std::string& directory);
     void setEmsClusterConfig(const EmsClusterConfig& config);
@@ -168,6 +173,8 @@ private:
     std::unordered_map<std::uint32_t, PointStoreRoute> routes_;
     std::unordered_map<std::string, PointStoreRoute> routesByLocation_;
     std::uint32_t nextDerivedIndex_ = 900000000U;
+    bool allowDuplicateIndexAcrossSegments_ = false;
+    std::unordered_set<std::uint32_t> ambiguousIndexes_;
     std::unique_ptr<PowerControlOwnership> powerControlOwnership_;
     EmsClusterConfig emsClusterConfig_;
     std::unique_ptr<ClusterWriteGuard> clusterWriteGuard_;

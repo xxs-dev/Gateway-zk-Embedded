@@ -17,12 +17,14 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
 #else
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -36,6 +38,10 @@ namespace {
 
 using namespace memory_layout;
 
+std::int64_t currentTimeMs();
+void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord& result);
+std::string readString(const char* source, std::size_t size);
+
 #ifndef _WIN32
 static_assert(offsetof(SharedStoreLayout, header) == 0, "shared store header must remain the first layout field");
 
@@ -46,10 +52,37 @@ SharedStoreLayout* layoutFromMutex(pthread_mutex_t* mutex) noexcept {
 
 void resetSharedStorePayloadAfterOwnerDeath(SharedStoreLayout* layout) noexcept {
     auto& header = layout->header;
-    header.writeSequence = 0;
-    header.writebackResultSequence = 0;
-    header.persistentSequence = 0;
-    header.pointUpdateSequence = 0;
+    // Accepted commands are discarded (they may be torn); give each a terminal failed receipt
+    // instead of letting callers time out without an answer.
+    std::vector<WritebackResultRecord> discarded;
+    if (hasValidRingCursors(header)) {
+        try {
+            const auto now = currentTimeMs();
+            for (auto head = header.pendingWriteHead; head != header.pendingWriteTail &&
+                     discarded.size() < kMaxWritebackResultSlots - 1;
+                 head = (head + 1) % kMaxPendingWriteSlots) {
+                const auto& slot = layout->pendingWrites[head];
+                if (!slot.occupied) continue;
+                WritebackResultRecord result;
+                result.cmdId = readString(slot.cmdId, kCmdIdSize);
+                if (result.cmdId.empty()) continue;
+                result.index = slot.index;
+                result.value = slot.value;
+                result.success = false;
+                result.message = "discarded after shared store owner death; not executed";
+                result.stage = "owner-died";
+                result.requestedAt = slot.ts;
+                result.acceptedAt = slot.acceptedAt;
+                result.completedAt = now;
+                result.highPriority = slot.highPriority != 0;
+                discarded.push_back(std::move(result));
+            }
+        } catch (...) {
+            discarded.clear();
+        }
+    }
+    // Sequence counters stay monotonic: consumers acknowledge "through sequence N", so
+    // rewinding them would let an in-flight acknowledgement consume post-recovery samples.
     header.latestCount = 0;
     header.pendingWriteHead = 0;
     header.pendingWriteTail = 0;
@@ -67,6 +100,9 @@ void resetSharedStorePayloadAfterOwnerDeath(SharedStoreLayout* layout) noexcept 
     std::memset(layout->owners, 0, sizeof(layout->owners));
     std::memset(layout->claims, 0, sizeof(layout->claims));
     layout->clusterAuthority = SharedClusterAuthoritySnapshot{};
+    for (const auto& result : discarded) {
+        pushWritebackResult(layout, result);
+    }
 }
 #endif
 
@@ -91,10 +127,16 @@ class SharedLockGuard {
 public:
     explicit SharedLockGuard(pthread_mutex_t* mutex) : mutex_(mutex) {
         timespec deadline{};
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 30))
+        // A monotonic deadline is immune to NTP/RTC steps (spurious timeouts or unbounded waits).
+        clock_gettime(CLOCK_MONOTONIC, &deadline);
+        deadline.tv_sec += sharedMutexLockTimeoutSec();
+        const auto rc = pthread_mutex_clocklock(mutex_, CLOCK_MONOTONIC, &deadline);
+#else
         clock_gettime(CLOCK_REALTIME, &deadline);
         deadline.tv_sec += sharedMutexLockTimeoutSec();
-
         const auto rc = pthread_mutex_timedlock(mutex_, &deadline);
+#endif
         if (rc == EOWNERDEAD) {
             const auto consistentRc = pthread_mutex_consistent(mutex_);
             if (consistentRc != 0) {
@@ -116,6 +158,12 @@ public:
         }
         if (rc != 0) {
             throw std::runtime_error("failed to lock shared memory mutex");
+        }
+        if (!hasValidRingCursors(layoutFromMutex(mutex_)->header)) {
+            pthread_mutex_unlock(mutex_);
+            throw std::runtime_error(
+                "shared memory header cursors are corrupted; rebuild the shared memory segment"
+            );
         }
     }
 
@@ -224,8 +272,34 @@ SharedClaimSlot* allocateClaimSlot(SharedStoreLayout* layout, std::uint32_t inde
     throw std::runtime_error("shared claim registry is full");
 }
 
+// Heartbeats are wall-clock stamps from other processes; allow for lock waits and skew only.
+constexpr std::int64_t kOwnerFutureHeartbeatToleranceMs = 5000;
+
+bool ownerProcessIsGone(const SharedOwnerSlot& slot) {
+#ifdef _WIN32
+    (void)slot;
+    return false;
+#else
+    // ownerSource_ is "pid-<pid>"; parse it without any ABI change. Only ESRCH proves death,
+    // and our own PID is never judged (several store instances may share one process).
+    const auto source = readString(slot.source, kSourceSize);
+    if (source.size() <= 4 || source.compare(0, 4, "pid-") != 0 ||
+        source.find_first_not_of("0123456789", 4) != std::string::npos || source.size() > 14) {
+        return false;
+    }
+    const auto pid = std::strtoll(source.c_str() + 4, nullptr, 10);
+    if (pid <= 0 || pid > 0x7fffffffLL || static_cast<pid_t>(pid) == getpid()) {
+        return false;
+    }
+    return ::kill(static_cast<pid_t>(pid), 0) != 0 && errno == ESRCH;
+#endif
+}
+
 bool isOwnerAlive(const SharedOwnerSlot& slot, std::int64_t nowMs) {
-    return slot.occupied && slot.heartbeatMs > 0 && (nowMs - slot.heartbeatMs) <= kOwnerLeaseMs;
+    // A heartbeat far in the future (wall clock stepped backwards) must not keep a dead
+    // owner's claims alive until the clock catches up.
+    return slot.occupied && slot.heartbeatMs > 0 && (nowMs - slot.heartbeatMs) <= kOwnerLeaseMs &&
+        slot.heartbeatMs <= nowMs + kOwnerFutureHeartbeatToleranceMs && !ownerProcessIsGone(slot);
 }
 
 void cleanupStaleOwnersAndClaims(SharedStoreLayout* layout, std::int64_t nowMs) {
@@ -425,6 +499,7 @@ std::vector<PendingWriteCommand> drainPendingWrites(
 ) {
     std::vector<PendingWriteCommand> result;
     std::vector<SharedPendingWriteSlot> retained;
+    std::vector<SharedPendingWriteSlot> malformed;
     auto head = layout->header.pendingWriteHead;
     while (head != layout->header.pendingWriteTail) {
         auto& slot = layout->pendingWrites[head];
@@ -439,6 +514,16 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                 (!requiredCmdId->empty() && slotCmdId == *requiredCmdId && slot.highPriority != 0);
             const bool underLimit = limit == 0 || result.size() < limit;
             if (allowed && requiredCommand && underLimit) {
+                Optional<ClusterWriteAuthorization> authorization;
+                try {
+                    authorization = decodeAuthorization(slot.clusterAuthorization);
+                } catch (const std::exception&) {
+                    // Drop a malformed slot with a terminal receipt; retaining it would make
+                    // every later drain throw and wedge the whole control queue.
+                    malformed.push_back(slot);
+                    head = (head + 1) % kMaxPendingWriteSlots;
+                    continue;
+                }
                 result.push_back(PendingWriteCommand{
                     slotCmdId,
                     slot.index,
@@ -449,7 +534,7 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     slot.highPriority != 0,
                     slot.controlGeneration,
                     layout->header.version >= 10 && slot.reserved[0] == 1,
-                    decodeAuthorization(slot.clusterAuthorization)
+                    authorization
                 });
             } else {
                 retained.push_back(slot);
@@ -468,6 +553,21 @@ std::vector<PendingWriteCommand> drainPendingWrites(
         layout->header.pendingWriteTail =
             (layout->header.pendingWriteTail + 1) % kMaxPendingWriteSlots;
     }
+    for (const auto& slot : malformed) {
+        WritebackResultRecord rejected;
+        rejected.cmdId = readString(slot.cmdId, kCmdIdSize);
+        if (rejected.cmdId.empty()) continue;
+        rejected.index = slot.index;
+        rejected.value = slot.value;
+        rejected.success = false;
+        rejected.message = "malformed cluster authorization in shared pending write; not executed";
+        rejected.stage = "malformed-rejected";
+        rejected.requestedAt = slot.ts;
+        rejected.acceptedAt = slot.acceptedAt;
+        rejected.completedAt = currentTimeMs();
+        rejected.highPriority = slot.highPriority != 0;
+        pushWritebackResult(layout, rejected);
+    }
     return result;
 }
 
@@ -480,7 +580,16 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
         }
 
         const auto& slot = layout->pendingWrites[head];
-        if (slot.occupied) {
+        Optional<ClusterWriteAuthorization> authorization;
+        bool decodable = slot.occupied != 0;
+        if (decodable) {
+            try {
+                authorization = decodeAuthorization(slot.clusterAuthorization);
+            } catch (const std::exception&) {
+                decodable = false;  // The next drain rejects it with a terminal receipt.
+            }
+        }
+        if (decodable) {
             result.push_back(PendingWriteCommand{
                 readString(slot.cmdId, kCmdIdSize),
                 slot.index,
@@ -491,7 +600,7 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 slot.highPriority != 0,
                 slot.controlGeneration,
                 layout->header.version >= 10 && slot.reserved[0] == 1,
-                decodeAuthorization(slot.clusterAuthorization)
+                authorization
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;
@@ -888,7 +997,16 @@ MemoryPointStore::MemoryPointStore(
     }
 
     auto* layout = layoutFrom(sharedView_);
-    if (needsInitialization) {
+    // A creator killed between ftruncate and publishing the magic leaves an all-zero header.
+    // Nobody can have attached to it (attach requires the magic) and the file lock is held,
+    // so finish the initialization instead of failing every process forever. A version
+    // stamp (e.g. an unfinished offline migration target) is never initialized silently.
+    const auto& probe = layout->header;
+    const bool abandonedInitialization = !needsInitialization &&
+        openMode != MemoryStoreOpenMode::OpenExisting &&
+        probe.magic == 0 && probe.version == 0 && probe.latestCount == 0 &&
+        probe.writeSequence == 0 && probe.persistentSequence == 0 && probe.pointUpdateSequence == 0;
+    if (needsInitialization || abandonedInitialization) {
         std::memset(layout, 0, sizeof(SharedStoreLayout));
         try {
             initializePosixMutex(layout->header.mutex);
@@ -908,8 +1026,14 @@ MemoryPointStore::MemoryPointStore(
         close(fd);
         mappingHandle_ = nullptr;
         throw std::runtime_error("shared memory version mismatch, rebuild all processes and restart");
+    } else if (!hasValidRingCursors(layout->header)) {
+        munmap(sharedView_, sizeof(SharedStoreLayout));
+        sharedView_ = nullptr;
+        close(fd);
+        mappingHandle_ = nullptr;
+        throw std::runtime_error("shared memory header cursors are corrupted: " + segmentName_);
     }
-    {
+    try {
         SharedLockGuard sharedLock(&layout->header.mutex);
         latestSlotByIndex_.clear();
         latestSlotByIndex_.reserve(layout->header.latestCount);
@@ -918,6 +1042,12 @@ MemoryPointStore::MemoryPointStore(
                 latestSlotByIndex_[layout->latest[i].index] = i;
             }
         }
+    } catch (...) {
+        munmap(sharedView_, sizeof(SharedStoreLayout));
+        sharedView_ = nullptr;
+        close(fd);
+        mappingHandle_ = nullptr;
+        throw;
     }
 #endif
 }
@@ -1062,7 +1192,8 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
 
     auto* newLayout = layoutFrom(newView);
     if (newLayout->header.magic != kSharedStoreMagic ||
-        !isCompatibleSharedStoreVersion(newLayout->header.version)) {
+        !isCompatibleSharedStoreVersion(newLayout->header.version) ||
+        !hasValidRingCursors(newLayout->header)) {
         munmap(newView, sizeof(SharedStoreLayout));
         close(currentFd);
         throw std::runtime_error("shared memory version mismatch while refreshing mapping");
@@ -1655,6 +1786,12 @@ std::vector<PointLeaseStatus> MemoryPointStore::getAllLeaseStatus(std::int64_t n
     auto* layout2 = layoutFrom(sharedView_);
     cleanupStaleOwnersAndClaims(layout2, nowMs);
 
+    std::unordered_set<std::uint64_t> aliveOwners;
+    for (const auto& owner : layout2->owners) {
+        if (isOwnerAlive(owner, nowMs)) {
+            aliveOwners.insert(owner.ownerId);
+        }
+    }
     std::unordered_map<std::uint32_t, PointLeaseStatus> merged;
     for (const auto& slot : layout2->latest) {
         if (!slot.occupied) {
@@ -1670,11 +1807,8 @@ std::vector<PointLeaseStatus> MemoryPointStore::getAllLeaseStatus(std::int64_t n
         item.index = claim.index;
         ++item.ownerCount;
         item.lastClaimTs = std::max(item.lastClaimTs, claim.heartbeatMs);
-        for (const auto& owner : layout2->owners) {
-            if (owner.occupied && owner.ownerId == claim.ownerId && isOwnerAlive(owner, nowMs)) {
-                item.hasActiveOwner = true;
-                break;
-            }
+        if (aliveOwners.count(claim.ownerId) != 0) {
+            item.hasActiveOwner = true;
         }
     }
 
@@ -1989,6 +2123,9 @@ std::vector<PointUpdateRecord> MemoryPointStore::drainPointUpdates(std::size_t l
 }
 
 void MemoryPointStore::heartbeatRegisteredPoints(std::int64_t nowMs) {
+    // Periodic writer path: follow a replaced segment so this owner's claims and later
+    // writes land where readers look (hot putLatest keeps its single mapping).
+    ensureCurrentMapping();
     ReadLock lock(mutex_);
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
@@ -2035,6 +2172,7 @@ void MemoryPointStore::heartbeatRegisteredPoints(std::int64_t nowMs) {
 
 void MemoryPointStore::removeExpired(std::int64_t nowMs) {
     WriteLock lock(mutex_);
+    refreshCurrentMappingLocked();
 #ifdef _WIN32
     SharedLockGuard sharedLock(mutexHandle_);
 #else

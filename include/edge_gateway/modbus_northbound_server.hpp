@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <memory>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -24,6 +26,9 @@ public:
     void start();
     void stop();
     bool isRunning() const;
+    // Non-empty when the last start() was refused (e.g. unrestricted wildcard
+    // bind); contains the config remedy.
+    std::string startError() const;
     int boundPort() const;
 
 private:
@@ -49,7 +54,13 @@ private:
     void buildMappings();
     void addPointMapping(const PointDefinition& point);
     void acceptLoop();
-    void handleClient(std::intptr_t clientSocket, std::string clientAddress);
+    void handleClient(
+        std::intptr_t clientSocket,
+        std::string clientAddress,
+        std::shared_ptr<std::atomic<bool>> done
+    );
+    void reapFinishedClientsLocked();
+    bool isUnrestrictedWildcardBind() const;
     std::vector<std::uint8_t> handleRequest(
         std::uint8_t unitId,
         const std::vector<std::uint8_t>& pdu
@@ -70,7 +81,13 @@ private:
     std::vector<std::uint16_t> zeroRegistersForMapping(const Mapping& mapping) const;
     std::uint16_t encodeBitForMapping(const Mapping& mapping, std::int64_t nowMs) const;
     void sendAll(std::intptr_t socket, const std::vector<std::uint8_t>& bytes) const;
-    bool readExact(std::intptr_t socket, std::vector<std::uint8_t>& bytes, std::size_t size) const;
+    // Reads exactly size bytes before deadline; false on EOF, error, timeout or stop.
+    bool readExact(
+        std::intptr_t socket,
+        std::vector<std::uint8_t>& bytes,
+        std::size_t size,
+        std::chrono::steady_clock::time_point deadline
+    ) const;
     bool isClientAllowed(const std::string& clientAddress) const;
     void closeListenSocket();
 
@@ -81,7 +98,12 @@ private:
     std::atomic<int> activeClients_{0};
     std::intptr_t listenSocket_ = -1;
     mutable std::mutex clientsMutex_;
-    std::vector<std::thread> clientThreads_;
+    struct ClientThread {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
+    std::vector<ClientThread> clientThreads_;
+    std::string startError_;
     std::thread acceptThread_;
     std::atomic<int> boundPort_{0};
 };

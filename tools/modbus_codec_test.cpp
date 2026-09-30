@@ -49,5 +49,16 @@ int main() {
     bitPoint.read.bit = 3;
     requireNear(ModbusCodec::decodeReadValue({8}, bitPoint).value, 1.0,
                 "register bit decoding must remain unchanged");
+
+    edge_gateway::PointDefinition int16Write;
+    int16Write.write.enable = true;
+    int16Write.write.dataType = "int16";
+    require(ModbusCodec::validateWriteValue(32767.0, int16Write).ok, "int16 max must be writable");
+    require(!ModbusCodec::validateWriteValue(40000.0, int16Write).ok, "int16 overflow must be rejected, not wrapped");
+    auto uint16Write = int16Write;
+    uint16Write.write.dataType = "uint16";
+    require(!ModbusCodec::validateWriteValue(-1.0, uint16Write).ok, "negative uint16 must be rejected");
+    uint16Write.write.scale = 0.1;
+    require(!ModbusCodec::validateWriteValue(7000.0, uint16Write).ok, "scaled raw overflow must be rejected");
     return 0;
 }

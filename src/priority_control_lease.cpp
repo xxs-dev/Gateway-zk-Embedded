@@ -150,6 +150,34 @@ void ensureDirectory(const std::string& dir) {
 #endif
 }
 
+#ifndef _WIN32
+// acquire() replaces the lease by rename(); release() must not unlink a lease
+// installed after it read the old one. Both serialize on a sidecar lock file
+// whose inode never changes.
+class LeaseFileLock {
+public:
+    explicit LeaseFileLock(const std::string& leasePath) {
+        fd_ = open((leasePath + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0664);
+        if (fd_ >= 0 && flock(fd_, LOCK_EX) != 0) {
+            close(fd_);
+            fd_ = -1;
+        }
+    }
+    ~LeaseFileLock() {
+        if (fd_ >= 0) {
+            flock(fd_, LOCK_UN);
+            close(fd_);
+        }
+    }
+    bool locked() const { return fd_ >= 0; }
+    LeaseFileLock(const LeaseFileLock&) = delete;
+    LeaseFileLock& operator=(const LeaseFileLock&) = delete;
+
+private:
+    int fd_ = -1;
+};
+#endif
+
 }  // namespace
 
 PriorityControlLease::PriorityControlLease(std::string path, std::string owner)
@@ -204,6 +232,12 @@ void PriorityControlLease::acquire(
         return;
     }
     ensureDirectory(directoryOf(path_));
+#ifndef _WIN32
+    LeaseFileLock lock(path_);
+    if (!lock.locked()) {
+        throw std::runtime_error("failed to lock priority control lease");
+    }
+#endif
     const auto tempPath = path_ + ".tmp";
     std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::trunc | std::ios::binary);
     if (!output) {
@@ -232,30 +266,19 @@ void PriorityControlLease::release(const std::string& cmdId) const {
         return;
     }
 #ifndef _WIN32
-    const int fd = open(path_.c_str(), O_RDWR);
-    if (fd < 0) {
-        return;
-    }
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-        close(fd);
+    LeaseFileLock lock(path_);
+    if (!lock.locked()) {
         return;
     }
     if (!cmdId.empty()) {
-        char buf[16 * 1024];
-        const auto n = read(fd, buf, sizeof(buf) - 1);
-        if (n > 0) {
-            buf[n] = '\0';
-            const std::string text(buf, static_cast<std::size_t>(n));
-            if (extractStringField(text, "cmdId") != cmdId) {
-                flock(fd, LOCK_UN);
-                close(fd);
-                return;
-            }
+        // Re-read by path under the lock so a lease installed by another
+        // command is never removed on behalf of this one.
+        const auto text = readTextFile(path_, 16 * 1024);
+        if (!text.empty() && extractStringField(text, "cmdId") != cmdId) {
+            return;
         }
     }
     unlink(path_.c_str());
-    flock(fd, LOCK_UN);
-    close(fd);
 #else
     if (!cmdId.empty()) {
         const auto text = readTextFile(path_, 16 * 1024);

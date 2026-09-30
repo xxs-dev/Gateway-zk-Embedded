@@ -568,6 +568,13 @@ MqttEventOutbox::FanoutEnqueueResult MqttEventOutbox::enqueueBatchAndStates(
     }
 
     auto* db = static_cast<sqlite3*>(checkedDatabase());
+    if (manageTransaction) {
+        // Legacy writer: keep a filesystem reserve (the IPC store has its own capacity gate).
+        std::uint64_t incoming = 4096;
+        for (const auto& event : events) incoming += event.topic.size() + event.payload.size() + 256;
+        incoming += states.size() * 512;
+        checkFreeSpaceAdmission(incoming);
+    }
     const char* eventSql =
         "INSERT OR IGNORE INTO mqtt_event_outbox("
         "event_id, target_id, event_type, topic, payload, event_ts, event_month, created_at, sent) "
@@ -2023,6 +2030,78 @@ std::size_t MqttEventOutbox::prunePendingRows(
     return removed;
 }
 
+std::uint64_t MqttEventOutbox::usedDatabaseBytes() {
+    auto* db = static_cast<sqlite3*>(checkedDatabase());
+    const auto scalar = [db](const char* sql) -> std::int64_t {
+        sqlite3_stmt* stmt = nullptr;
+        if (prepareWithRetry(db, sql, &stmt) != kSqliteOk) {
+            if (stmt != nullptr) g_finalize(stmt);
+            throw std::runtime_error(sqliteError(db));
+        }
+        const auto rc = stepWithRetry(stmt);
+        const std::int64_t value = rc == kSqliteRow ? static_cast<std::int64_t>(g_column_int64(stmt, 0)) : 0;
+        g_finalize(stmt);
+        if (rc != kSqliteRow) throw std::runtime_error(sqliteError(db));
+        return value;
+    };
+    const auto pages = scalar("PRAGMA page_count;");
+    const auto freePages = scalar("PRAGMA freelist_count;");
+    const auto pageSize = scalar("PRAGMA page_size;");
+    if (pages <= freePages || pageSize <= 0) return 0;
+    return static_cast<std::uint64_t>(pages - freePages) * static_cast<std::uint64_t>(pageSize);
+}
+
+void MqttEventOutbox::pruneSentRowsToBudget() {
+    // maxDiskBytes bounds live database pages, not only pending payload: delivered rows kept
+    // for the retention window would otherwise grow the file far past the budget. Delivered
+    // rows go first (oldest first); IPC stores keep them as immutable dedup identities.
+    auto* db = static_cast<sqlite3*>(checkedDatabase());
+    sqlite3_stmt* stmt = nullptr;
+    if (prepareWithRetry(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_store_identity';",
+            &stmt) != kSqliteOk) {
+        if (stmt != nullptr) g_finalize(stmt);
+        throw std::runtime_error(sqliteError(db));
+    }
+    const auto identity = stepWithRetry(stmt);
+    g_finalize(stmt);
+    if (identity == kSqliteRow) return;
+    if (identity != kSqliteDone) throw std::runtime_error(sqliteError(db));
+    for (int round = 0; round < 16 && usedDatabaseBytes() > maxDiskBytes_; ++round) {
+        stmt = nullptr;
+        const char* sql = "DELETE FROM mqtt_event_outbox WHERE id IN ("
+            "SELECT id FROM mqtt_event_outbox WHERE sent=1 ORDER BY event_ts,id LIMIT 512);";
+        if (prepareWithRetry(db, sql, &stmt) != kSqliteOk) {
+            if (stmt != nullptr) g_finalize(stmt);
+            throw std::runtime_error(sqliteError(db));
+        }
+        const auto rc = stepWithRetry(stmt);
+        g_finalize(stmt);
+        if (rc != kSqliteDone) throw std::runtime_error(sqliteError(db));
+        if (g_changes(db) == 0) break;
+    }
+}
+
+void MqttEventOutbox::checkFreeSpaceAdmission(std::uint64_t incomingBytes) const {
+#ifndef _WIN32
+    if (minFreeBytes_ == 0) return;
+    const auto slash = dbPath_.find_last_of('/');
+    const auto directory = slash == std::string::npos ? std::string(".") :
+        (slash == 0 ? std::string("/") : dbPath_.substr(0, slash));
+    struct statvfs space{};
+    if (statvfs(directory.c_str(), &space) != 0) {
+        throw std::runtime_error("cannot inspect mqtt event outbox filesystem: " + directory);
+    }
+    const auto unit = static_cast<std::uint64_t>(space.f_frsize ? space.f_frsize : space.f_bsize);
+    const auto available = static_cast<std::uint64_t>(space.f_bavail) * unit;
+    if (incomingBytes > available || available - incomingBytes < minFreeBytes_) {
+        throw std::runtime_error("mqtt event outbox storage admission rejected: available=" +
+            std::to_string(available) + " required_free=" + std::to_string(minFreeBytes_));
+    }
+#else
+    (void)incomingBytes;
+#endif
+}
+
 void MqttEventOutbox::enforceDiskLimit(
     const std::vector<std::int64_t>& protectedIds,
     const std::string& targetId
@@ -2031,6 +2110,7 @@ void MqttEventOutbox::enforceDiskLimit(
         return;
     }
     const auto targetBytes = maxDiskBytes_ > 4096 ? maxDiskBytes_ - 4096 : maxDiskBytes_;
+    pruneSentRowsToBudget();
     (void)prunePendingRows(targetId, targetBytes, protectedIds);
     if (pendingBytes(targetId) > targetBytes) {
         throw TargetCapacityError(

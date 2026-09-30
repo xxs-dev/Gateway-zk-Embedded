@@ -123,9 +123,10 @@ run_ssh() {
       echo "sshpass is required for password login to $target; install sshpass or configure SSH key auth" >&2
       return 127
     fi
-    SSHPASS="$password" sshpass -e ssh $ssh_base_opts -p "$port" "$target" "$command"
+    # </dev/null: ssh must not swallow the rest of the devices CSV on stdin.
+    SSHPASS="$password" sshpass -e ssh $ssh_base_opts -p "$port" "$target" "$command" </dev/null
   else
-    ssh $ssh_base_opts -p "$port" "$target" "$command"
+    ssh $ssh_base_opts -p "$port" "$target" "$command" </dev/null
   fi
 }
 
@@ -236,11 +237,17 @@ while IFS=, read -r host port user password machine_code mqtt_broker mqtt_userna
   fi
 
   echo "== init $host as $machine_code =="
-  if run_ssh "$host" "$port" "$user" "$password" "rm -rf $(shell_quote "$REMOTE_DIR") && mkdir -p $(shell_quote "$REMOTE_DIR")" &&
+  # Secrets (MQTT password, enrollment token) travel in a 0600 env file, never
+  # on the remote command line where any local user could read them via ps.
+  env_file=$(mktemp "${TMPDIR:-/tmp}/gateway-init-env.XXXXXX")
+  chmod 600 "$env_file"
+  build_remote_env "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" "$tls_platform_url" "$tls_token" "$tls_validity_days" "$runtime_mode" "$tls_generate_root_ca" "$tls_ca_validity_days" "$tls_ca_subject" > "$env_file"
+  if run_ssh "$host" "$port" "$user" "$password" "rm -rf $(shell_quote "$REMOTE_DIR") && mkdir -p $(shell_quote "$REMOTE_DIR") && chmod 700 $(shell_quote "$REMOTE_DIR")" &&
      run_scp "$host" "$port" "$user" "$password" "$PACKAGE" "$REMOTE_DIR/gateway-factory-defaults.tar.gz" &&
-     run_scp "$host" "$port" "$user" "$password" "$SCRIPT_DIR/production-init.sh" "$REMOTE_DIR/production-init.sh"; then
-    remote_env=$(build_remote_env "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" "$tls_platform_url" "$tls_token" "$tls_validity_days" "$runtime_mode" "$tls_generate_root_ca" "$tls_ca_validity_days" "$tls_ca_subject")
-    remote_cmd="cd $(shell_quote "$REMOTE_DIR") && chmod +x production-init.sh && $remote_env INIT_PACKAGE=$(shell_quote "$REMOTE_DIR/gateway-factory-defaults.tar.gz") sh ./production-init.sh"
+     run_scp "$host" "$port" "$user" "$password" "$SCRIPT_DIR/production-init.sh" "$REMOTE_DIR/production-init.sh" &&
+     run_scp "$host" "$port" "$user" "$password" "$env_file" "$REMOTE_DIR/init.env"; then
+    rm -f "$env_file"
+    remote_cmd="cd $(shell_quote "$REMOTE_DIR") && chmod +x production-init.sh && chmod 600 init.env && set -a && . ./init.env && set +a && rm -f init.env && INIT_PACKAGE=$(shell_quote "$REMOTE_DIR/gateway-factory-defaults.tar.gz") sh ./production-init.sh"
     if run_ssh "$host" "$port" "$user" "$password" "$remote_cmd"; then
       ok_count=$((ok_count + 1))
       echo "init ok: $host"
@@ -249,6 +256,7 @@ while IFS=, read -r host port user password machine_code mqtt_broker mqtt_userna
       echo "init failed: $host" >&2
     fi
   else
+    rm -f "$env_file"
     fail_count=$((fail_count + 1))
     echo "upload failed: $host" >&2
   fi

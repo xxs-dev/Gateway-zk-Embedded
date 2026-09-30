@@ -423,6 +423,23 @@ AgcAvcCycleOutput AgcAvcService::tick(std::int64_t nowMs) {
     for (const auto& value : snapshot) {
         values[value.index] = value;
     }
+    if (config_.inputMaxFutureSkewMs > 0) {
+        // A measurement stamped in the future means the wall clock stepped backwards; its age
+        // check would pass for the whole step. Command mailbox points carry the dispatcher's
+        // timestamp and are validated through commandTimestamp instead.
+        const std::unordered_set<std::uint32_t> commandIndexes = {
+            config_.agc.target.index, config_.agc.commandSequence.index, config_.agc.commandTimestamp.index,
+            config_.avc.mode.index, config_.avc.targetQ.index, config_.avc.targetVoltage.index,
+            config_.avc.targetPowerFactor.index
+        };
+        for (auto& entry : values) {
+            auto& value = entry.second;
+            if (commandIndexes.count(entry.first) == 0 && value.ts > nowMs &&
+                value.ts - nowMs > config_.inputMaxFutureSkewMs) {
+                value.stale = true;
+            }
+        }
+    }
 
     AgcAvcCycleInput input;
     input.nowMs = nowMs;
@@ -595,6 +612,13 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
     bool successObserved = false;
     for (auto it = pendingWrites_.begin(); it != pendingWrites_.end();) {
         const auto result = pointBus_.readWriteResult(it->second.route, it->second.cmdId);
+        if (it->second.bestEffortZero && (result || nowMs - it->second.submittedAtMs >= config_.writeResultTimeoutMs)) {
+            if (!result || !result->success) {
+                lastSubmittedValue_.erase(it->first);  // retry after the interval, never count as a failure
+            }
+            it = pendingWrites_.erase(it);
+            continue;
+        }
         if (result) {
             if (result->success) {
                 successObserved = true;
@@ -701,9 +725,13 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
     for (std::size_t i = 0; i < output.pcs.size() && i < config_.pcs.size(); ++i) {
         const auto& assignment = output.pcs[i];
         const auto& pcs = config_.pcs[i];
-        if (!assignment.available) {
+        // An enabled but unavailable PCS (offline, stale SOC, not ready) must not keep its last
+        // setpoint: keep commanding the safe state 0 on a best-effort basis.
+        const bool zeroOnly = !assignment.available;
+        if (zeroOnly && !(config_.zeroUnavailablePcs && pcs.enabled)) {
             continue;
         }
+        const auto minIntervalMs = zeroOnly ? std::max(pcs.minWriteIntervalMs, 1000) : pcs.minWriteIntervalMs;
         const auto submitTargets = [&](
             const std::vector<AgcAvcPointRefConfig>& targets,
             double total,
@@ -729,7 +757,7 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                 if (lastValue != lastSubmittedValue_.end() && std::abs(lastValue->second - value) < deadband) {
                     continue;
                 }
-                if (lastAt != lastSubmittedAtMs_.end() && nowMs - lastAt->second < pcs.minWriteIntervalMs) {
+                if (lastAt != lastSubmittedAtMs_.end() && nowMs - lastAt->second < minIntervalMs) {
                     continue;
                 }
                 PendingWriteCommand command;
@@ -749,21 +777,22 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                         i,
                         reactive,
                         total,
-                        nowMs
+                        nowMs,
+                        zeroOnly
                     };
                 }
             }
         };
         submitTargets(
             pcs.points.activeTargets,
-            assignment.targetPkw,
+            zeroOnly ? 0.0 : assignment.targetPkw,
             std::max(0.0, pcs.writeDeadbandKw),
             pcs.ratedActivePowerKw.commissionedLimit,
             false
         );
         submitTargets(
             pcs.points.reactiveTargets,
-            assignment.targetQkvar,
+            zeroOnly ? 0.0 : assignment.targetQkvar,
             std::max(0.0, pcs.writeDeadbandKvar),
             pcs.ratedApparentPowerKva.commissionedLimit,
             true

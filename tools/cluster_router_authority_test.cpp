@@ -33,7 +33,11 @@ int main() {
         command.value = 0;
         command.highPriority = true;
         command.source = "graph-ems";
-        require(!router.submitWriteCommand(command).accepted, "router must reject untagged protected zero/priority command");
+        require(router.submitWriteCommand(command).accepted, "untagged 0 kW safe-state write must always reach the PCS");
+        device.drainPendingWriteCommands();
+        command.value = 5;
+        require(!router.submitWriteCommand(command).accepted, "router must reject untagged protected non-zero/priority command");
+        command.value = 0;
         ClusterWriteAuthorization token;
         token.kernelBootId = localKernelBootId();
         token.authorityEpoch = newClusterAuthorityEpoch();

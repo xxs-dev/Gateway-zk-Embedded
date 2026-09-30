@@ -7,6 +7,7 @@ StartLimitBurst=10
 [Service]
 Type=simple
 User=root
+NoNewPrivileges=yes
 WorkingDirectory=/opt/modbus-gateway
 ExecStart=/opt/modbus-gateway/bin/EventEngine --app-config /opt/modbus-gateway/config/runtime/apps/%i.json
 Restart=always

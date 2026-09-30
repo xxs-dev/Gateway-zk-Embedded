@@ -159,11 +159,41 @@ double applyScale(double raw, double scale, double offset) {
     return raw * scale + offset;
 }
 
-std::uint64_t toRawInteger(double value, double scale, double offset) {
+std::uint64_t toRawInteger(
+    double value,
+    double scale,
+    double offset,
+    const std::string& dataType,
+    int bitLength,
+    bool signedSignal
+) {
     if (std::abs(scale) < 1e-12) {
         throw std::invalid_argument("CAN write scale must not be zero");
     }
-    return static_cast<std::uint64_t>(std::llround((value - offset) / scale));
+    const auto raw = std::round((value - offset) / scale);
+    if (!std::isfinite(raw)) {
+        throw std::invalid_argument("CAN write value is not finite");
+    }
+    if (bitLength < 64) {
+        // Reject values the signal cannot hold instead of silently truncating
+        // them to the low bits (e.g. 70000 into a 16-bit setpoint).
+        const auto type = normalizeType(dataType);
+        const bool signedType = signedSignal ||
+            type == "int8" || type == "int16" || type == "int32" || type == "int64";
+        const bool unsignedType = type == "uint8" || type == "uint16" || type == "uint32" ||
+            type == "uint64" || type == "byte";
+        const auto unsignedMax = std::ldexp(1.0, bitLength) - 1.0;
+        const auto signedMin = -std::ldexp(1.0, bitLength - 1);
+        const auto signedMax = std::ldexp(1.0, bitLength - 1) - 1.0;
+        const auto minValue = unsignedType && !signedType ? 0.0 : signedMin;
+        const auto maxValue = signedType ? signedMax : unsignedMax;
+        if (raw < minValue || raw > maxValue) {
+            throw std::out_of_range("CAN write value out of range for " + std::to_string(bitLength) + "-bit signal");
+        }
+    } else if (std::abs(raw) >= 9.2e18) {
+        throw std::out_of_range("CAN write value out of range for 64-bit signal");
+    }
+    return static_cast<std::uint64_t>(static_cast<std::int64_t>(raw));
 }
 
 }  // namespace
@@ -212,17 +242,32 @@ DecodedValue CanSignalCodec::decode(const std::vector<std::uint8_t>& payload, co
         const auto raw32 = static_cast<std::uint32_t>(raw);
         float value = 0.0F;
         std::memcpy(&value, &raw32, sizeof(value));
+        if (!std::isfinite(value)) {
+            throw std::runtime_error("CAN float32 signal is not finite (NaN/Inf)");
+        }
         result.value = applyScale(static_cast<double>(value), spec.scale, spec.offset);
     } else if (type == "int8" || type == "int16" || type == "int32" || type == "int64" || spec.signedFlag) {
         result.value = applyScale(static_cast<double>(signExtend(raw, bitLength)), spec.scale, spec.offset);
     } else {
         result.value = applyScale(static_cast<double>(raw), spec.scale, spec.offset);
     }
+    if (!std::isfinite(result.value)) {
+        throw std::runtime_error("CAN decoded signal value is not finite");
+    }
     result.text = std::to_string(result.value);
     return result;
 }
 
 CanEncodedFrame CanSignalCodec::encode(double value, const WriteSpec& spec) {
+    return encode(value, spec, std::vector<std::uint8_t>());
+}
+
+CanEncodedFrame CanSignalCodec::encode(
+    double value,
+    const WriteSpec& spec,
+    const std::vector<std::uint8_t>& basePayload,
+    bool signedSignal
+) {
     CanEncodedFrame frame;
     frame.frameId = parseFrameId(spec.can.frameId);
     frame.extended = spec.can.extended;
@@ -231,7 +276,11 @@ CanEncodedFrame CanSignalCodec::encode(double value, const WriteSpec& spec) {
     if (dlc > 64) {
         throw std::invalid_argument("CAN dlc must be <= 64");
     }
-    frame.payload.assign(static_cast<std::size_t>(dlc), 0);
+    if (basePayload.size() == static_cast<std::size_t>(dlc)) {
+        frame.payload = basePayload;
+    } else {
+        frame.payload.assign(static_cast<std::size_t>(dlc), 0);
+    }
 
     const auto bitLength = signalBitLength(spec.can, spec.dataType);
     validateSignalBounds(frame.payload, spec.can, bitLength);
@@ -240,14 +289,21 @@ CanEncodedFrame CanSignalCodec::encode(double value, const WriteSpec& spec) {
         if (bitLength != 32) {
             throw std::invalid_argument("float32 CAN write requires 32 bits");
         }
+        if (std::abs(spec.scale) < 1e-12) {
+            throw std::invalid_argument("CAN write scale must not be zero");
+        }
         const auto scaled = static_cast<float>((value - spec.offset) / spec.scale);
+        if (!std::isfinite(scaled)) {
+            throw std::invalid_argument("CAN float32 write value is not finite");
+        }
         std::uint32_t raw32 = 0;
         std::memcpy(&raw32, &scaled, sizeof(raw32));
         writeUnsignedBits(frame.payload, spec.can, bitLength, raw32);
     } else if (type == "bool" || type == "bit") {
         writeUnsignedBits(frame.payload, spec.can, bitLength, value == 0.0 ? 0 : 1);
     } else {
-        writeUnsignedBits(frame.payload, spec.can, bitLength, toRawInteger(value, spec.scale, spec.offset));
+        writeUnsignedBits(frame.payload, spec.can, bitLength,
+            toRawInteger(value, spec.scale, spec.offset, spec.dataType, bitLength, signedSignal));
     }
     return frame;
 }

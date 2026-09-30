@@ -19,6 +19,16 @@ struct IecDataValue {
     double value = 0.0;
     std::string text;
     std::string rawHex;
+    // COT P/N bit (0x40): negative confirmation from the controlled station.
+    bool negative = false;
+    // COT T bit (0x80): test transmission.
+    bool test = false;
+    // 1 = good; 0 = the device flagged the value invalid / not topical
+    // (IV/NT bits of SIQ/DIQ/QDS).
+    int quality = 1;
+    std::string qualityMsg;
+    // Command echo only: raw qualifier byte (SCO/DCO/QOS) incl. S/E bit.
+    int commandQualifier = -1;
 };
 
 struct IecParameterValue {
@@ -29,6 +39,7 @@ struct IecParameterValue {
     int qualifier = 0;
     double value = 0.0;
     std::string rawHex;
+    bool negative = false;
 };
 
 struct IecProtectionEvent {
@@ -98,6 +109,8 @@ private:
 struct IecAsdu {
     int typeId = 0;
     int cause = 0;
+    bool negative = false;
+    bool test = false;
     int commonAddress = 0;
     std::vector<IecDataValue> values;
     std::vector<IecParameterValue> parameters;
@@ -131,6 +144,9 @@ public:
         bool select,
         bool cancel = false
     );
+    // Value the controlled station is expected to echo in the ACT_CON/ACT_TERM
+    // of a command built by buildIec104ControlCommand (same raw quantisation).
+    static double expectedControlEchoValue(const PointDefinition& point, double requestedValue);
     static std::vector<std::uint8_t> buildIec104ParameterCommand(
         const IecProtocolConfig& config,
         int ioa,

@@ -1,6 +1,52 @@
 #!/bin/sh
 set -eu
 
+# Boot-time recovery (gateway-ota-recover.service): if ota-apply.sh left a
+# durable in-progress marker behind (power loss / crash while changing the live
+# runtime), roll that job back before gateway-services.service starts.
+if [ "${1:-}" = "--recover-interrupted" ]; then
+  RECOVER_STAGING="${2:-/opt/modbus-gateway/ota/staging}"
+  # --no-restart: boot-time use (before gateway-services.service starts the
+  # runtime). Without it (ota-apply.sh at runtime) the job's services restart.
+  RECOVER_SKIP_RESTART=0
+  [ "${3:-}" = "--no-restart" ] && RECOVER_SKIP_RESTART=1
+  RECOVER_MARKER="$RECOVER_STAGING/ota-in-progress"
+  [ -f "$RECOVER_MARKER" ] || exit 0
+  recover_field() {
+    sed -n "s/^$1=//p" "$RECOVER_MARKER" | sed -n '1p'
+  }
+  recover_boot=""
+  [ -r /proc/sys/kernel/random/boot_id ] && recover_boot="$(sed -n '1p' /proc/sys/kernel/random/boot_id)"
+  marker_pid="$(recover_field pid)"
+  if [ "$(recover_field boot_id)" = "$recover_boot" ] && [ -n "$marker_pid" ] && kill -0 "$marker_pid" 2>/dev/null; then
+    echo "[ota-rollback] OTA apply pid $marker_pid is still running; nothing to recover" >&2
+    exit 0
+  fi
+  applying_file="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}/applying"
+  applying_pid="$(sed -n 's/^pid=//p' "$applying_file" 2>/dev/null | sed -n '1p')"
+  applying_kind="$(sed -n 's/^kind=//p' "$applying_file" 2>/dev/null | sed -n '1p')"
+  case "$applying_kind" in
+    ota-apply|ota-rollback)
+      # ota-apply.sh itself asks for recovery; its own marker is not a conflict.
+      if [ -n "$applying_pid" ] && [ "$applying_pid" != "${OTA_RECOVER_CALLER_PID:-}" ] &&
+         kill -0 "$applying_pid" 2>/dev/null; then
+        echo "[ota-rollback] $applying_kind pid $applying_pid is active; nothing to recover" >&2
+        exit 0
+      fi
+      ;;
+  esac
+  if [ "$(recover_field stagingDir)" != "$RECOVER_STAGING" ]; then
+    echo "[ota-rollback] in-progress marker staging dir mismatch: $RECOVER_MARKER" >&2
+    exit 1
+  fi
+  echo "[ota-rollback] recovering interrupted OTA jobId=$(recover_field jobId)" >&2
+  OTA_ROLLBACK_SKIP_RESTART="$RECOVER_SKIP_RESTART"
+  export OTA_ROLLBACK_SKIP_RESTART
+  exec /bin/sh "$0" "$(recover_field artifact)" "$(recover_field version)" "$(recover_field jobId)" \
+    "$(recover_field backupRoot)" "$RECOVER_STAGING"
+fi
+SKIP_RESTART="${OTA_ROLLBACK_SKIP_RESTART:-0}"
+
 ARTIFACT_PATH="${1:-}"
 VERSION="${2:-}"
 JOB_ID="${3:-}"
@@ -114,11 +160,27 @@ REQUEST_WORK_DIR="$WORK_DIR"
 
 mkdir -p "$BACKUP_DIR" "$STAGING_DIR"
 
+IN_PROGRESS_FILE="$STAGING_DIR/ota-in-progress"
+clear_in_progress_marker() {
+  [ -f "$IN_PROGRESS_FILE" ] || return 0
+  marker_job="$(sed -n 's/^jobId=//p' "$IN_PROGRESS_FILE" | sed -n '1p')"
+  [ "$marker_job" = "$JOB_ID" ] || return 0
+  rm -f "$IN_PROGRESS_FILE"
+  python3 -c 'import os,sys; fd=os.open(sys.argv[1], os.O_RDONLY); os.fsync(fd); os.close(fd)' "$STAGING_DIR" 2>/dev/null || sync
+}
+
+# Structured record in the same upgrade_history.log the edge service writes.
+history_record() {
+  printf '%s000,result=%s,jobId=%s,fromVersion=%s,reason=%s\n' "$(date +%s)" "$1" "$JOB_ID" "$VERSION" \
+    "${OTA_ROLLBACK_REASON:-apply-failed}" >> "$LOG_FILE" 2>/dev/null || true
+}
+
 finish_rollback() {
   result=$?
   trap - EXIT HUP INT TERM
   set +e
   if [ "$result" -ne 0 ]; then
+    history_record rollback-failed
     printf 'reason=ota-rollback-failed\njobId=%s\n' "$JOB_ID" > "$WATCHDOG_RUN_DIR/manual-stop"
     printf 'status=failed\njobId=%s\n' "$JOB_ID" >> "$ROLLBACK_MARK"
     echo "[$TIMESTAMP] [ota-rollback] failed; keep runtime stopped jobId=$JOB_ID" | tee -a "$LOG_FILE" >&2
@@ -184,7 +246,8 @@ rollback_scada() {
     return 1
   fi
 
-  if [ -n "$scada_service" ] && command -v systemctl >/dev/null 2>&1; then
+  # Boot recovery runs before gateway-services.service; never wait on units here.
+  if [ -n "$scada_service" ] && [ "$SKIP_RESTART" != "1" ] && command -v systemctl >/dev/null 2>&1; then
     if ! systemctl restart "$scada_service" || ! systemctl is-active --quiet "$scada_service"; then
       ln -sfn "releases/$(basename "$current_target")" "$scada_root/current.restore"
       mv -Tf "$scada_root/current.restore" "$scada_root/current"
@@ -220,6 +283,7 @@ rollback_scada() {
     echo "scadaPreviousTarget=$previous_target"
   } > "$ROLLBACK_MARK"
   echo "[$TIMESTAMP] [ota-rollback] SCADA success jobId=$JOB_ID activeVersion=$previous_version" | tee -a "$LOG_FILE"
+  history_record rollback
 }
 
 if [ -f "$REQUEST_WORK_DIR/package-type.txt" ] && grep -qx 'packageType=scada' "$REQUEST_WORK_DIR/package-type.txt"; then
@@ -233,9 +297,11 @@ if [ -f "$REQUEST_WORK_DIR/package-type.txt" ] && grep -qx 'packageType=scada' "
       echo "message=installer failed before activation state was written; installer rollback already handled"
     } > "$ROLLBACK_MARK"
     echo "[$TIMESTAMP] [ota-rollback] SCADA installer already restored the previous release" | tee -a "$LOG_FILE"
+    clear_in_progress_marker
     exit 0
   fi
   rollback_scada "$SCADA_INSTALL_STATE"
+  clear_in_progress_marker
   exit 0
 fi
 
@@ -322,7 +388,9 @@ with open(restore_list, "w", encoding="utf-8") as fh:
 PY
 fi
 
-if [ -s "$RESTART_FILE" ]; then
+if [ "$SKIP_RESTART" = "1" ] && [ -s "$RESTART_FILE" ]; then
+  echo "[$TIMESTAMP] [ota-rollback] boot recovery: services start later via gateway-services.service" | tee -a "$LOG_FILE"
+elif [ -s "$RESTART_FILE" ]; then
   command -v systemctl >/dev/null 2>&1 || { echo "[ota-rollback] systemctl required for requested service recovery" >&2; exit 1; }
   need_gateway_services_restart=0
   if [ -f "$RESTORE_LIST" ] && grep -qE -e '-> /opt/modbus-gateway/config/runtime/tls/|-> /etc/systemd/system/mqtt-tls-tunnel@\.service$' "$RESTORE_LIST"; then
@@ -361,6 +429,13 @@ fi
 if [ -f "$RESTORE_BACKUP_DIR/previous_version.txt" ]; then
   cp "$RESTORE_BACKUP_DIR/previous_version.txt" "$STAGING_DIR/applied_version.txt"
 fi
+# Restore the pre-OTA version marker so the edge service (previousVersion,
+# jobId checks) and operators see the version that is actually running.
+if [ -f "$RESTORE_BACKUP_DIR/previous_state/current_version.txt" ]; then
+  cp -p "$RESTORE_BACKUP_DIR/previous_state/current_version.txt" "$STATE_FILE.tmp.$$"
+  printf 'rolledBackJobId=%s\nrolledBackAt=%s\n' "$JOB_ID" "$TIMESTAMP" >> "$STATE_FILE.tmp.$$"
+  mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"
+fi
 
 {
   echo "status=succeeded"
@@ -372,5 +447,7 @@ fi
   echo "restoreList=$RESTORE_LIST"
 } >> "$ROLLBACK_MARK"
 
+clear_in_progress_marker
+history_record rollback
 echo "[$TIMESTAMP] [ota-rollback] success jobId=$JOB_ID" | tee -a "$LOG_FILE"
 exit 0

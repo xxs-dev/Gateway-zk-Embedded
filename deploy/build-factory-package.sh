@@ -10,12 +10,18 @@ COMPONENT_VERSION="${COMPONENT_VERSION:-1.0}"
 EDGE_TOOLCHAIN_ID="${EDGE_TOOLCHAIN_ID:-unknown}"
 EDGE_PACKAGE_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-0}"
+# Public half of the OTA signing key (see doc/评审/OTA签名说明.md); shipped as
+# ota/ota.pub and installed to /etc/modbus-gateway/ota.pub by install-factory-config.sh.
+OTA_SIGNING_PUBKEY="${OTA_SIGNING_PUBKEY:-}"
 TMP_DIR="${TMPDIR:-/tmp}/gateway-factory-defaults.$$"
 OUT_TMP=""
 
 usage() {
   cat >&2 <<'EOF'
-Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT]
+Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT] [--ota-pubkey FILE]
+
+  --ota-pubkey FILE  OTA signature public key (PEM) to ship; env OTA_SIGNING_PUBKEY.
+                     Without it, devices reject every OTA until ota.pub is provisioned.
 
 Profiles:
   base     Package SystemMonitor, MqttDriver, MqttForwarder and pointctl.
@@ -42,6 +48,11 @@ while [ "$#" -gt 0 ]; do
     --out)
       [ "$#" -ge 2 ] || { echo "--out requires a value" >&2; exit 2; }
       OUT="$2"
+      shift 2
+      ;;
+    --ota-pubkey)
+      [ "$#" -ge 2 ] || { echo "--ota-pubkey requires a value" >&2; exit 2; }
+      OTA_SIGNING_PUBKEY="$2"
       shift 2
       ;;
     -h|--help)
@@ -317,8 +328,26 @@ if [ -d "$ROOT_DIR/deploy" ]; then
     name=$(basename "$file")
     [ "$name" = "agc-avc@.service" ] && continue
     [ "$name" = "build-agc-avc-runtime-package.sh" ] && continue
+    # Operator inventories (SSH/MQTT passwords, enrollment tokens) and key
+    # material must never be shipped to devices.
+    case "$name" in
+      devices.example.csv) ;;
+      *.csv|*.key|*.pem|*.p12|*.pfx|*.env|*.secret|*secret*|*.bak|*.orig) continue ;;
+    esac
     [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
   done
+fi
+if [ -n "$OTA_SIGNING_PUBKEY" ]; then
+  [ -f "$OTA_SIGNING_PUBKEY" ] || { echo "OTA public key not found: $OTA_SIGNING_PUBKEY" >&2; exit 2; }
+  if grep -q 'PRIVATE KEY' "$OTA_SIGNING_PUBKEY" || ! grep -q -- '-----BEGIN PUBLIC KEY-----' "$OTA_SIGNING_PUBKEY"; then
+    echo "--ota-pubkey must be a PEM public key (never the signing private key): $OTA_SIGNING_PUBKEY" >&2
+    exit 2
+  fi
+  mkdir -p "$TMP_DIR/gateway-factory-defaults/ota"
+  cp "$OTA_SIGNING_PUBKEY" "$TMP_DIR/gateway-factory-defaults/ota/ota.pub"
+  chmod 0644 "$TMP_DIR/gateway-factory-defaults/ota/ota.pub"
+else
+  echo "WARNING: no --ota-pubkey/OTA_SIGNING_PUBKEY given; devices will reject all OTA jobs (ota.requireSignature=true) until /etc/modbus-gateway/ota.pub is provisioned" >&2
 fi
 if [ -d "$COMPONENT_BUILD_DIR" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/build-aarch64"
@@ -399,6 +428,11 @@ tar -C "$TMP_DIR" -czf "$PACKAGE_ARCHIVE" gateway-factory-defaults
 tar -tzf "$PACKAGE_ARCHIVE" >/dev/null
 if tar -tzf "$PACKAGE_ARCHIVE" | grep -Eiq '(^|/)direct[-_]?agent([^/]*)$'; then
   echo "retired standalone maintenance agent was found in generated factory package" >&2
+  exit 2
+fi
+if tar -tzf "$PACKAGE_ARCHIVE" | grep -Ei '(^|/)(devices\.csv|[^/]*\.(key|p12|pfx)|[^/]*secret[^/]*)$' | grep -v '/devices\.example\.csv$' | grep -q .; then
+  echo "operator secrets (devices.csv / private keys / secrets) were found in generated factory package:" >&2
+  tar -tzf "$PACKAGE_ARCHIVE" | grep -Ei '(^|/)(devices\.csv|[^/]*\.(key|p12|pfx)|[^/]*secret[^/]*)$' >&2
   exit 2
 fi
 

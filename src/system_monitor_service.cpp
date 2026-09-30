@@ -1,5 +1,6 @@
 #include "edge_gateway/system_monitor_service.hpp"
 
+#include "edge_gateway/json_value.hpp"
 #include "edge_gateway/json_value_writer.hpp"
 #include "edge_gateway/system_monitor_points.hpp"
 
@@ -7,12 +8,15 @@
 #include <cctype>
 #include <chrono>
 #include <cerrno>
+#include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -24,6 +28,8 @@
 #endif
 #ifndef _WIN32
 #include <fcntl.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/statvfs.h>
 #include <termios.h>
@@ -41,6 +47,10 @@ constexpr std::size_t kMaxConfigPullFileBytes = 5 * 1024 * 1024;
 constexpr std::size_t kMaxConfigPullTotalBytes = 48 * 1024 * 1024;
 constexpr std::size_t kMaxConfigPullReplyBytes = 96 * 1024 * 1024;
 constexpr std::size_t kMaxConfigApplyFiles = 512;
+constexpr std::size_t kMaxMonitorLeases = 256;
+constexpr std::size_t kMaxPendingConfigApplies = 4;
+constexpr std::size_t kMaxPendingConfigApplyBytes = 64U * 1024U * 1024U;
+constexpr std::int64_t kPendingConfigApplyTtlMs = 120000;
 
 struct ConfigApplyFile {
     std::string path;
@@ -81,20 +91,26 @@ public:
         return false;
     }
 
+    // Untrusted MQTT numbers: out-of-range double->integer casts are undefined behaviour,
+    // so non-finite values are ignored and the rest saturate to the target range.
     bool tryGetInt(const char* key, int* out) const {
         double value = 0.0;
-        if (!tryGetDouble(key, &value)) {
+        if (!tryGetDouble(key, &value) || !std::isfinite(value)) {
             return false;
         }
+        value = std::max(static_cast<double>(std::numeric_limits<int>::min()),
+                         std::min(static_cast<double>(std::numeric_limits<int>::max()), value));
         *out = static_cast<int>(value);
         return true;
     }
 
     bool tryGetInt64(const char* key, std::int64_t* out) const {
         double value = 0.0;
-        if (!tryGetDouble(key, &value)) {
+        if (!tryGetDouble(key, &value) || !std::isfinite(value)) {
             return false;
         }
+        // 2^63 is exactly representable; stay strictly below it.
+        value = std::max(-9223372036854775808.0, std::min(9223372036854774784.0, value));
         *out = static_cast<std::int64_t>(value);
         return true;
     }
@@ -447,23 +463,11 @@ void ensureDirectory(const std::string& path) {
     }
 }
 
-void writeTextFileAtomically(const std::string& path, const std::string& content) {
+void writeTextFileAtomically(const std::string& path, const std::string& content, bool durable = true) {
     ensureDirectory(parentDirectory(path));
-    const auto tempPath = path + ".tmp";
-    {
-        std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
-        if (!output) {
-            throw std::runtime_error("failed to open temp file: " + tempPath);
-        }
-        output << content;
-        if (!output) {
-            throw std::runtime_error("failed to write temp file: " + tempPath);
-        }
-    }
-    if (std::rename(tempPath.c_str(), path.c_str()) != 0) {
-        std::remove(tempPath.c_str());
-        throw std::runtime_error("failed to replace file: " + path);
-    }
+    // Checked write + fsync before rename: a full disk or power loss must never leave a
+    // truncated config in place of a valid one.
+    system_monitor_config_safety::writeFileAtomically(path, content, durable);
 }
 
 std::uint64_t fileSizeBytes(const std::string& path) {
@@ -1314,9 +1318,11 @@ bool containsPathSegment(std::string path, const std::string& segment) {
 void validateConfigContentForPath(const std::string& path, const std::string& content) {
     const auto name = baseName(path);
     if (containsPathSegment(path, "/ky-ems/") && isKyEmsSnapshotFile(path)) {
+        system_monitor_config_safety::validateKyEmsFile(path, content);
         return;
     }
     if (isRuntimeLogicSnapshotFile(path)) {
+        (void)json::JsonParser(content, 64, 4000000).parse();
         const auto valuePos = skipJsonWhitespace(content, 0);
         if (valuePos == std::string::npos || valuePos >= content.size() || content[valuePos] != '{') {
             throw std::runtime_error("runtime logic config must be a JSON object: " + path);
@@ -1342,9 +1348,14 @@ void validateConfigContentForPath(const std::string& path, const std::string& co
         if (name == "device_identity.json") {
             (void)ConfigLoader::loadDeviceIdentityFromFile(tempPath);
         } else if (containsPathSegment(path, "/apps/")) {
-            (void)ConfigLoader::loadAppConfigFromFile(tempPath);
+            const auto candidate = ConfigLoader::loadAppConfigFromFile(tempPath);
+            system_monitor_config_safety::rejectRemoteCameraCommandChange(candidate, path);
         } else {
             (void)ConfigLoader::loadFromText(content);
+            if (content.find("\"cameraService\"") != std::string::npos) {
+                const auto candidate = ConfigLoader::loadAppConfigFromFile(tempPath);
+                system_monitor_config_safety::rejectRemoteCameraCommandChange(candidate, path);
+            }
         }
     } catch (...) {
         std::remove(tempPath.c_str());
@@ -1364,9 +1375,11 @@ std::string backupFileIfExistsWithPath(const std::string& path) {
         throw std::runtime_error("failed to create backup for: " + path);
     }
     output << input.rdbuf();
+    output.close();
     if (!output) {
         throw std::runtime_error("failed to write backup for: " + path);
     }
+    system_monitor_config_safety::pruneBackups(path, system_monitor_config_safety::kConfigBackupsToKeep);
     return backupPath;
 }
 
@@ -1479,11 +1492,34 @@ std::string dnsServers() {
     return joined.str();
 }
 
-std::vector<std::string> discoverModemDevices(const std::vector<std::string>& patterns) {
+std::string canonicalDevicePath(const std::string& path) {
+#ifndef _WIN32
+    char resolved[PATH_MAX] = {};
+    if (::realpath(path.c_str(), resolved) != nullptr) {
+        return resolved;
+    }
+#endif
+    return path;
+}
+
+std::vector<std::string> discoverModemDevices(
+    const std::vector<std::string>& patterns,
+    const std::vector<std::string>& excludedDevices
+) {
     std::vector<std::string> devices;
+    std::set<std::string> excluded;
+    for (const auto& item : excludedDevices) {
+        if (!item.empty()) {
+            excluded.insert(canonicalDevicePath(item));
+        }
+    }
+    const auto isExcluded = [&](const std::string& path) {
+        return excluded.count(canonicalDevicePath(path)) != 0;
+    };
     for (const auto& pattern : patterns) {
         if (pattern.find('*') == std::string::npos) {
-            if (pathExists(pattern) && std::find(devices.begin(), devices.end(), pattern) == devices.end()) {
+            if (pathExists(pattern) && !isExcluded(pattern) &&
+                std::find(devices.begin(), devices.end(), pattern) == devices.end()) {
                 devices.push_back(pattern);
             }
             continue;
@@ -1495,7 +1531,7 @@ std::vector<std::string> discoverModemDevices(const std::vector<std::string>& pa
                 continue;
             }
             const auto full = dir + "/" + name;
-            if (std::find(devices.begin(), devices.end(), full) == devices.end()) {
+            if (!isExcluded(full) && std::find(devices.begin(), devices.end(), full) == devices.end()) {
                 devices.push_back(full);
             }
         }
@@ -1581,15 +1617,33 @@ std::string atCommand(const std::string& device, int baudRate, const std::string
     (void)timeoutMs;
     return std::string();
 #else
-    const int fd = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    // Never touch a port another process holds: pppd/ModemManager lock files, flock(2)
+    // holders and TIOCEXCL owners are skipped, and the original termios is restored.
+    const auto slash = device.find_last_of('/');
+    const auto deviceName = slash == std::string::npos ? device : device.substr(slash + 1);
+    if (pathExists("/var/lock/LCK.." + deviceName) || pathExists("/run/lock/LCK.." + deviceName)) {
+        return std::string();
+    }
+    const int fd = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
         return std::string();
     }
-    termios tty {};
-    if (tcgetattr(fd, &tty) != 0) {
+    if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
         ::close(fd);
         return std::string();
     }
+    termios original {};
+    if (tcgetattr(fd, &original) != 0) {
+        ::close(fd);
+        return std::string();
+    }
+    (void)::ioctl(fd, TIOCEXCL);
+    const auto closePort = [&]() {
+        (void)tcsetattr(fd, TCSANOW, &original);
+        (void)::ioctl(fd, TIOCNXCL);
+        ::close(fd);
+    };
+    termios tty = original;
     cfmakeraw(&tty);
     const auto baud = baudToTermiosSpeed(baudRate);
     cfsetispeed(&tty, baud);
@@ -1601,15 +1655,15 @@ std::string atCommand(const std::string& device, int baudRate, const std::string
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        ::close(fd);
+        closePort();
         return std::string();
     }
-    tcflush(fd, TCIOFLUSH);
+    tcflush(fd, TCIFLUSH);
 
     const std::string request = command + "\r";
     const auto written = ::write(fd, request.data(), request.size());
     if (written < 0 || static_cast<std::size_t>(written) != request.size()) {
-        ::close(fd);
+        closePort();
         return std::string();
     }
     tcdrain(fd);
@@ -1639,7 +1693,7 @@ std::string atCommand(const std::string& device, int baudRate, const std::string
             break;
         }
     }
-    ::close(fd);
+    closePort();
     return response;
 #endif
 }
@@ -1823,6 +1877,429 @@ void applyMmcliOutput(const std::string& output, CellularStatus* status) {
 
 }  // namespace
 
+namespace system_monitor_config_safety {
+
+namespace {
+
+bool isSecretJsonKey(std::string key) {
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    static const char* const kSecretKeys[] = {
+        "password", "passwd", "pwd", "token", "secret", "apikey", "accesskey", "secretkey",
+        "privatekey", "keypassword", "clientsecret", "passwordsha256", "salt", "authtoken",
+        "accesstoken", "refreshtoken"
+    };
+    for (const auto* candidate : kSecretKeys) {
+        if (key == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::size_t endOfJsonString(const std::string& text, std::size_t pos) {
+    ++pos;
+    while (pos < text.size()) {
+        const char ch = text[pos++];
+        if (ch == '"') {
+            return pos;
+        }
+        if (ch == '\\' && pos < text.size()) {
+            ++pos;
+        }
+    }
+    return std::string::npos;
+}
+
+// Walks JSON-ish text and lets `replace(key, rawValue, occurrence)` rewrite the raw (quoted)
+// string value of every secret key. Non-JSON text passes through unchanged.
+template <typename Replace>
+std::string transformSecretValues(const std::string& text, Replace replace) {
+    std::string out;
+    out.reserve(text.size());
+    std::map<std::string, std::size_t> occurrences;
+    std::string pendingKey;
+    bool keyCandidate = false;
+    bool expectValue = false;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        const char ch = text[pos];
+        if (ch == '"') {
+            const auto end = endOfJsonString(text, pos);
+            if (end == std::string::npos) {
+                out.append(text, pos, std::string::npos);
+                break;
+            }
+            const auto raw = text.substr(pos, end - pos);
+            if (expectValue) {
+                expectValue = false;
+                if (isSecretJsonKey(pendingKey)) {
+                    out += replace(pendingKey, raw, occurrences[pendingKey]++);
+                } else {
+                    out += raw;
+                }
+                keyCandidate = false;
+            } else {
+                out += raw;
+                pendingKey = raw.substr(1, raw.size() - 2);
+                keyCandidate = true;
+            }
+            pos = end;
+            continue;
+        }
+        if (ch == ':' && keyCandidate) {
+            expectValue = true;
+            keyCandidate = false;
+        } else if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
+            if (expectValue && isSecretJsonKey(pendingKey)) {
+                ++occurrences[pendingKey];  // non-string secret value still counts as an occurrence
+            }
+            expectValue = false;
+            keyCandidate = false;
+        }
+        out.push_back(ch);
+        ++pos;
+    }
+    return out;
+}
+
+std::string lowerExtension(const std::string& path) {
+    const auto slash = path.find_last_of("/\\");
+    const auto dot = path.find_last_of('.');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) {
+        return std::string();
+    }
+    auto ext = path.substr(dot);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return ext;
+}
+
+}  // namespace
+
+std::string redactSecrets(const std::string& jsonText) {
+    const std::string marker = std::string("\"") + kRedactedSecret + "\"";
+    return transformSecretValues(jsonText, [&](const std::string&, const std::string& raw, std::size_t) {
+        return raw.size() > 2 ? marker : raw;
+    });
+}
+
+namespace {
+
+std::string quoteJsonString(const std::string& value) {
+    static const char* hex = "0123456789abcdef";
+    std::string out = "\"";
+    for (const auto ch : value) {
+        const auto byte = static_cast<unsigned char>(ch);
+        switch (ch) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (byte < 0x20) {
+                    out += "\\u00";
+                    out.push_back(hex[byte >> 4]);
+                    out.push_back(hex[byte & 0x0f]);
+                } else {
+                    out.push_back(ch);
+                }
+                break;
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
+// Array elements are addressed by a stable identifier member when every element of the
+// array has a distinct one (cameraCode, meterCode, ...), otherwise by index.
+std::vector<std::string> arraySegments(const json::JsonValue& array) {
+    static const char* const kIdentifierKeys[] = {
+        "cameraCode", "meterCode", "pointCode", "deviceCode", "nodeId", "ruleCode",
+        "code", "id", "name", "username", "key"
+    };
+    const auto& values = array.asArray().values;
+    for (const auto* identifier : kIdentifierKeys) {
+        std::vector<std::string> segments;
+        std::set<std::string> seen;
+        for (const auto& element : values) {
+            const auto* member = element && element->isObject() ? element->find(identifier) : nullptr;
+            std::string id;
+            if (member != nullptr && member->isString()) {
+                id = member->asString();
+            } else if (member != nullptr && member->isNumber()) {
+                std::ostringstream text;
+                text << member->asNumber();
+                id = text.str();
+            }
+            if (id.empty() || !seen.insert(id).second) {
+                break;
+            }
+            segments.push_back(std::string("[") + identifier + "=" + id + "]");
+        }
+        if (!values.empty() && segments.size() == values.size()) {
+            return segments;
+        }
+    }
+    std::vector<std::string> segments;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        segments.push_back("[" + std::to_string(i) + "]");
+    }
+    return segments;
+}
+
+// Secret-key members in document order, each with its JSON path.
+void collectSecretMembers(
+    const json::JsonValue& node,
+    const std::string& path,
+    std::vector<std::pair<std::string, const json::JsonValue*>>& out
+) {
+    if (node.isObject()) {
+        for (const auto& member : node.asObject().values) {
+            if (!member.value) {
+                continue;
+            }
+            const auto childPath = path + "." + member.key;
+            if (isSecretJsonKey(member.key)) {
+                out.emplace_back(childPath, member.value.get());
+            }
+            collectSecretMembers(*member.value, childPath, out);
+        }
+    } else if (node.isArray()) {
+        const auto segments = arraySegments(node);
+        const auto& values = node.asArray().values;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (values[i]) {
+                collectSecretMembers(*values[i], path + segments[i], out);
+            }
+        }
+    }
+}
+
+}  // namespace
+
+std::string restoreRedactedSecrets(const std::string& incoming, const std::string& current) {
+    const std::string marker = std::string("\"") + kRedactedSecret + "\"";
+    if (incoming.find(marker) == std::string::npos) {
+        return incoming;
+    }
+    json::JsonValue incomingTree;
+    json::JsonValue currentTree;
+    try {
+        incomingTree = json::JsonParser(incoming, 64, 4000000).parse();
+    } catch (const std::exception& ex) {
+        throw std::runtime_error(std::string("config with redacted secrets is not valid JSON: ") + ex.what());
+    }
+    try {
+        currentTree = json::JsonParser(current, 64, 4000000).parse();
+    } catch (const std::exception&) {
+        throw std::runtime_error("redacted secrets cannot be restored: the on-disk file is missing or not valid JSON");
+    }
+    std::vector<std::pair<std::string, const json::JsonValue*>> incomingSecrets;
+    std::vector<std::pair<std::string, const json::JsonValue*>> currentSecrets;
+    collectSecretMembers(incomingTree, "$", incomingSecrets);
+    collectSecretMembers(currentTree, "$", currentSecrets);
+    std::map<std::string, const json::JsonValue*> currentByPath;
+    for (const auto& item : currentSecrets) {
+        currentByPath.emplace(item.first, item.second);
+    }
+    // Replacement for every placeholder, in document order, resolved by JSON path.
+    std::vector<std::string> replacements;
+    for (const auto& item : incomingSecrets) {
+        if (!item.second->isString() || item.second->asString() != kRedactedSecret) {
+            continue;
+        }
+        const auto match = currentByPath.find(item.first);
+        if (match == currentByPath.end() || !match->second->isString() ||
+            match->second->asString() == kRedactedSecret) {
+            throw std::runtime_error("redacted secret " + item.first +
+                " has no matching value in the on-disk file; send the real value instead of __REDACTED__");
+        }
+        replacements.push_back(quoteJsonString(match->second->asString()));
+    }
+    std::size_t next = 0;
+    const auto restored = transformSecretValues(incoming, [&](const std::string&, const std::string& raw, std::size_t) {
+        if (raw != marker) {
+            return raw;
+        }
+        if (next >= replacements.size()) {
+            throw std::runtime_error("redacted secret placeholders could not be matched to JSON paths");
+        }
+        return replacements[next++];
+    });
+    if (next != replacements.size()) {
+        throw std::runtime_error("redacted secret placeholders could not be matched to JSON paths");
+    }
+    return restored;
+}
+
+void validateKyEmsFile(const std::string& path, const std::string& content) {
+    const auto ext = lowerExtension(path);
+    static const char* const kBinaryExtensions[] = {
+        ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".ico", ".ttf", ".otf"
+    };
+    for (const auto* candidate : kBinaryExtensions) {
+        if (ext == candidate) {
+            return;
+        }
+    }
+    if (ext == ".json") {
+        (void)json::JsonParser(content, 64, 1000000).parse();
+        return;
+    }
+    if (ext == ".ui" || ext == ".qrc" || ext == ".xml" || ext == ".svg") {
+        std::size_t pos = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0;
+        while (pos < content.size() && std::isspace(static_cast<unsigned char>(content[pos])) != 0) {
+            ++pos;
+        }
+        if (pos >= content.size() || content[pos] != '<') {
+            throw std::runtime_error("KY-EMS XML file is malformed: " + path);
+        }
+        if (content.find("<!ENTITY") != std::string::npos || content.find("<!DOCTYPE") != std::string::npos ||
+            content.find('\0') != std::string::npos) {
+            throw std::runtime_error("KY-EMS XML file contains DTD/entity declarations: " + path);
+        }
+        return;
+    }
+    if (ext == ".csv") {
+        if (content.find('\0') != std::string::npos) {
+            throw std::runtime_error("KY-EMS CSV file contains binary data: " + path);
+        }
+        return;
+    }
+    throw std::runtime_error("unsupported KY-EMS file type: " + path);
+}
+
+void rejectRemoteCameraCommandChange(const AppConfig& candidate, const std::string& currentPath) {
+    bool usesCustomCommand = candidate.cameraService.allowCustomCommand;
+    for (const auto& camera : candidate.cameraService.cameras) {
+        usesCustomCommand = usesCustomCommand || !camera.command.empty();
+    }
+    if (!usesCustomCommand) {
+        return;
+    }
+    AppConfig current;
+    try {
+        current = ConfigLoader::loadAppConfigFromFile(currentPath);
+    } catch (const std::exception&) {
+        throw std::runtime_error("custom camera command cannot be introduced by remote config apply: " + currentPath);
+    }
+    if (candidate.cameraService.allowCustomCommand && !current.cameraService.allowCustomCommand) {
+        throw std::runtime_error("cameraService.allowCustomCommand cannot be enabled by remote config apply");
+    }
+    for (const auto& camera : candidate.cameraService.cameras) {
+        if (camera.command.empty()) {
+            continue;
+        }
+        const auto existing = std::find_if(
+            current.cameraService.cameras.begin(),
+            current.cameraService.cameras.end(),
+            [&](const CameraConfig& item) { return item.cameraCode == camera.cameraCode; }
+        );
+        if (existing == current.cameraService.cameras.end() || existing->command != camera.command) {
+            throw std::runtime_error(
+                "custom camera command cannot be introduced or changed by remote config apply: " + camera.cameraCode
+            );
+        }
+    }
+}
+
+void writeFileAtomically(const std::string& path, const std::string& content, bool durable) {
+    static std::atomic<unsigned long> sequence{0};
+    const auto tempPath = path + ".tmp." + std::to_string(currentTimeMs()) + "." + std::to_string(++sequence);
+#ifndef _WIN32
+    mode_t mode = 0644;
+    struct stat existing {};
+    if (::stat(path.c_str(), &existing) == 0 && S_ISREG(existing.st_mode)) {
+        mode = existing.st_mode & 07777;
+    }
+    const int fd = ::open(tempPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
+    if (fd < 0) {
+        throw std::runtime_error("failed to open temp file: " + tempPath);
+    }
+    std::size_t written = 0;
+    while (written < content.size()) {
+        const auto rc = ::write(fd, content.data() + written, content.size() - written);
+        if (rc < 0 && errno == EINTR) {
+            continue;
+        }
+        if (rc <= 0) {
+            ::close(fd);
+            std::remove(tempPath.c_str());
+            throw std::runtime_error("failed to write temp file: " + tempPath);
+        }
+        written += static_cast<std::size_t>(rc);
+    }
+    if ((durable && ::fsync(fd) != 0) || ::close(fd) != 0) {
+        std::remove(tempPath.c_str());
+        throw std::runtime_error("failed to flush temp file: " + tempPath);
+    }
+#else
+    {
+        std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+        output << content;
+        output.close();
+        if (!output) {
+            std::remove(tempPath.c_str());
+            throw std::runtime_error("failed to write temp file: " + tempPath);
+        }
+    }
+#endif
+    if (std::rename(tempPath.c_str(), path.c_str()) != 0) {
+        std::remove(tempPath.c_str());
+        throw std::runtime_error("failed to replace file: " + path);
+    }
+#ifndef _WIN32
+    if (durable) {
+        const auto slash = path.find_last_of('/');
+        const auto directory = slash == std::string::npos ? std::string(".") : (slash == 0 ? std::string("/") : path.substr(0, slash));
+        const int dirFd = ::open(directory.c_str(), O_RDONLY | O_CLOEXEC);
+        if (dirFd >= 0) {
+            (void)::fsync(dirFd);
+            ::close(dirFd);
+        }
+    }
+#endif
+}
+
+void pruneBackups(const std::string& path, std::size_t keep) {
+#ifndef _WIN32
+    const auto slash = path.find_last_of('/');
+    const auto directory = slash == std::string::npos ? std::string(".") : (slash == 0 ? std::string("/") : path.substr(0, slash));
+    const auto prefix = (slash == std::string::npos ? path : path.substr(slash + 1)) + ".bak.";
+    std::vector<std::string> backups;
+    DIR* handle = ::opendir(directory.c_str());
+    if (handle == nullptr) {
+        return;
+    }
+    while (auto* entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name.size() > prefix.size() && name.compare(0, prefix.size(), prefix) == 0) {
+            backups.push_back(name);
+        }
+    }
+    ::closedir(handle);
+    if (backups.size() <= keep) {
+        return;
+    }
+    // Suffix is a millisecond timestamp: order numerically, oldest first.
+    std::sort(backups.begin(), backups.end(), [](const std::string& a, const std::string& b) {
+        return a.size() != b.size() ? a.size() < b.size() : a < b;
+    });
+    for (std::size_t i = 0; i + keep < backups.size(); ++i) {
+        std::remove((directory + "/" + backups[i]).c_str());
+    }
+#else
+    (void)path;
+    (void)keep;
+#endif
+}
+
+}  // namespace system_monitor_config_safety
+
 SustainedThresholdTransition SustainedThresholdAlert::update(
     double value,
     double triggerThreshold,
@@ -1947,6 +2424,16 @@ bool SystemMonitorService::isRunning() const {
 }
 
 void SystemMonitorService::runOnce(std::int64_t nowMs) {
+    // Drop expired monitor leases and abandoned chunked config applies (bounded state).
+    for (auto it = leases_.begin(); it != leases_.end();) {
+        it = it->second.expireAtMs <= nowMs ? leases_.erase(it) : std::next(it);
+    }
+    for (auto it = pendingConfigApplyChunks_.begin(); it != pendingConfigApplyChunks_.end();) {
+        const auto age = nowMs - it->second.lastUpdateMs;
+        it = (age > kPendingConfigApplyTtlMs || age < -kPendingConfigApplyTtlMs)
+            ? pendingConfigApplyChunks_.erase(it)
+            : std::next(it);
+    }
     processIncomingMessages(nowMs);
     if (scadaSafetyMonitor_) {
         const auto safety = scadaSafetyMonitor_->runOnce(nowMs);
@@ -2133,7 +2620,12 @@ void SystemMonitorService::handleMonitorRequest(const std::string& payload, std:
     if (action == "unsubscribe") {
         leases_.erase(sessionId);
     } else {
-        if (monitorConfig_.scadaUpperComputerSafety.enabled) {
+        if (leases_.find(sessionId) == leases_.end() && leases_.size() >= kMaxMonitorLeases) {
+            throw std::runtime_error("too many active monitor sessions");
+        }
+        const auto& heartbeatPrefix = monitorConfig_.scadaUpperComputerSafety.heartbeatSessionPrefix;
+        if (monitorConfig_.scadaUpperComputerSafety.enabled &&
+            (heartbeatPrefix.empty() || sessionId.compare(0, heartbeatPrefix.size(), heartbeatPrefix) == 0)) {
             ScadaUpperComputerSafetyMonitor::writeHeartbeat(
                 monitorConfig_.scadaUpperComputerSafety.leaseFile,
                 machineCode_,
@@ -2276,7 +2768,7 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
             R"(","scope":")" + escapeJson(scope) +
             R"(","resend":)" + (resend ? "true" : "false") +
             R"(,"missingChunkCount":)" + std::to_string(missingChunks.size()) +
-            R"(","fileCount":)" + std::to_string(configFiles_.size())
+            R"(,"fileCount":)" + std::to_string(configFiles_.size())
     );
 }
 
@@ -2409,7 +2901,9 @@ std::string SystemMonitorService::buildConfigPullReply(
                                (scope == "scada" && isScadaAssetFile(path, projectDirectory)))
             ? std::string("base64")
             : std::string("utf8");
-        const auto encodedContent = encoding == "base64" ? base64Encode(content) : content;
+        const auto encodedContent = encoding == "base64"
+            ? base64Encode(content)
+            : (monitorConfig_.configPullRedactSecrets ? system_monitor_config_safety::redactSecrets(content) : content);
         if (emittedFiles > 0) {
             reply << ",";
         }
@@ -2469,15 +2963,19 @@ std::string SystemMonitorService::buildConfigApplyReply(const std::string& paylo
             if (!isAllowedConfigPath(allowedConfigFiles, file.path)) {
                 throw std::runtime_error("path is not allowed");
             }
-            validateConfigContentForPath(file.path, file.content);
             const auto current = readFileText(file.path);
-            changed = current != file.content;
+            // Secrets were redacted in config pull; put the on-disk values back.
+            const auto content = file.encoding == "utf8"
+                ? system_monitor_config_safety::restoreRedactedSecrets(file.content, current)
+                : file.content;
+            validateConfigContentForPath(file.path, content);
+            changed = current != content;
             if (changed) {
                 ++changedFiles;
             }
             if (!dryRun && changed) {
                 backupFileIfExists(file.path);
-                writeTextFileAtomically(file.path, file.content);
+                writeTextFileAtomically(file.path, content);
                 ++appliedFiles;
             }
         } catch (const std::exception& ex) {
@@ -2691,7 +3189,10 @@ SystemMonitorService::Sample::CellularStatus SystemMonitorService::collectCellul
     }
 
     try {
-        const auto modemDevices = discoverModemDevices(monitorConfig_.cellular.modemDevicePatterns);
+        const auto modemDevices = discoverModemDevices(
+            monitorConfig_.cellular.modemDevicePatterns,
+            monitorConfig_.cellular.excludedDevices
+        );
         if (!modemDevices.empty()) {
             status.present = true;
             status.modemDevice = modemDevices.front();
@@ -3025,6 +3526,20 @@ std::string SystemMonitorService::acceptConfigApplyChunk(
     }
 
     const auto decoded = fromHex(payloadHex);
+    if (pendingConfigApplyChunks_.find(requestId) == pendingConfigApplyChunks_.end() &&
+        pendingConfigApplyChunks_.size() >= kMaxPendingConfigApplies) {
+        throw std::runtime_error("too many concurrent chunked config apply requests");
+    }
+    std::size_t pendingBytes = decoded.size();
+    for (const auto& entry : pendingConfigApplyChunks_) {
+        for (const auto& chunk : entry.second.chunks) {
+            pendingBytes += chunk.size();
+        }
+    }
+    if (pendingBytes > kMaxPendingConfigApplyBytes) {
+        pendingConfigApplyChunks_.erase(requestId);
+        throw std::runtime_error("chunked config apply exceeds the pending byte budget");
+    }
     auto& pending = pendingConfigApplyChunks_[requestId];
     if (pending.chunkCount == 0) {
         pending.chunkCount = chunkCount;
@@ -3121,7 +3636,7 @@ void SystemMonitorService::writeRealtimeMeterLeases(std::int64_t nowMs) const {
         payload << "\"" << escapeJson(meters[i]) << "\"";
     }
     payload << "]}";
-    writeTextFileAtomically(monitorConfig_.realtimeMeterLeaseFile, payload.str());
+    writeTextFileAtomically(monitorConfig_.realtimeMeterLeaseFile, payload.str(), false);
 }
 
 void SystemMonitorService::publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson) const {

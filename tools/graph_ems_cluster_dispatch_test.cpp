@@ -286,6 +286,59 @@ void testPowerConstraintFailsClosedForInvalidStateInputs(const std::string& suff
     }
 }
 
+void testPowerConstraintNegativeTotalLimitNeverFlipsSign(const std::string& suffix) {
+    const std::vector<std::uint32_t> activeInputs = {726100, 726101, 726102};
+    const std::vector<std::uint32_t> reactiveInputs = {726103, 726104, 726105};
+    const std::vector<std::uint32_t> activeOutputs = {726110, 726111, 726112};
+    const std::vector<std::uint32_t> reactiveOutputs = {726113, 726114, 726115};
+    constexpr std::uint32_t positiveTotalLimit = 726120;
+    constexpr std::int64_t nowMs = 10000;
+    const auto sharedMemoryName = "graph_ems_negative_limit_" + suffix;
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
+    try {
+        edge_gateway::MemoryStoreConfig memoryConfig;
+        memoryConfig.sharedMemoryName = sharedMemoryName;
+        memoryConfig.maxLatestPoints = 32;
+        memoryConfig.maxPendingWrites = 8;
+        memoryConfig.maxPersistentSamples = 8;
+        edge_gateway::MemoryPointStore store(memoryConfig);
+        edge_gateway::PointStoreRouter router;
+        router.addStore(sharedMemoryName, store);
+        for (const auto& group : {activeInputs, reactiveInputs, activeOutputs, reactiveOutputs}) {
+            for (const auto index : group) addRoute(router, index, sharedMemoryName);
+        }
+        addRoute(router, positiveTotalLimit, sharedMemoryName);
+
+        edge_gateway::GraphEmsNodeConfig constraint;
+        constraint.id = "charge-limit";
+        constraint.type = "powerConstraint";
+        constraint.params = {{"positiveTotalLimitIndex", std::to_string(positiveTotalLimit)}};
+        setIndexArray(constraint, "activeInputIndexes", activeInputs);
+        setIndexArray(constraint, "reactiveInputIndexes", reactiveInputs);
+        setIndexArray(constraint, "activeOutputIndexes", activeOutputs);
+        setIndexArray(constraint, "reactiveOutputIndexes", reactiveOutputs);
+        edge_gateway::GraphEmsConfig config;
+        config.graphCode = "negative-limit-test";
+        config.nodes.push_back(constraint);
+
+        for (std::size_t phase = 0; phase < activeInputs.size(); ++phase) {
+            put(router, activeInputs[phase], 10.0, nowMs);
+            put(router, reactiveInputs[phase], 0.0, nowMs);
+        }
+        // A BMS reporting its charge allowance with a negative sign means "no charge", not "discharge".
+        put(router, positiveTotalLimit, -20.0, nowMs);
+        edge_gateway::GraphEmsEngine engine(config, router, 1000);
+        requireNoErrors(engine.runOnce(nowMs));
+        for (const auto output : activeOutputs) {
+            requireNear(latest(router, output, nowMs), 0.0, "negative charge allowance must not flip charge into discharge");
+        }
+    } catch (...) {
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
+        throw;
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);
+}
+
 void testRestoredControlOutputKeepsOriginalTimestamp(const std::string& suffix) {
     constexpr std::uint32_t conditionIndex = 727000;
     constexpr std::uint32_t restoredOutputIndex = 727001;
@@ -468,6 +521,17 @@ int main() {
                 "clamped result must be preserved"
             );
             require(router.peekPendingWrites().empty(), "clusterDispatch must not submit device writes");
+            {
+                // Explicit sign mapping: commandSign=-1 inverts active power only.
+                auto inverted = graphConfig(true);
+                inverted.nodes[0].params["commandSign"] = "-1";
+                edge_gateway::GraphEmsEngine invertedEngine(inverted, router, 10000);
+                requireNoErrors(invertedEngine.runOnce(1100));
+                requireNear(latest(router, kActiveOutputs[0], 1100), -12.5, "commandSign=-1 must invert active phase A");
+                requireNear(latest(router, kReactiveOutputs[2], 1100), -1.0, "commandSign must not touch reactive power");
+                requireNoErrors(engine.runOnce(1100));
+                requireNear(latest(router, kActiveOutputs[0], 1100), 12.5, "default commandSign keeps pass-through");
+            }
 
             seedDispatch(
                 router,
@@ -529,6 +593,7 @@ int main() {
         }
         testValidationRejectsWrongPhaseCount(invalidGraphPath);
         testPowerConstraintFailsClosedForInvalidStateInputs(suffix);
+        testPowerConstraintNegativeTotalLimitNeverFlipsSign(suffix);
         testRestoredControlOutputKeepsOriginalTimestamp(suffix);
         testLegacyPcsWritebackPreservesFractionalPower(suffix);
         edge_gateway::MemoryPointStore::cleanupOrphanedSegment(sharedMemoryName);

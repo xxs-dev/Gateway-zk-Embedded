@@ -315,7 +315,21 @@ public:
                 }
                 continue;
             }
-            std::thread(&LocalDisplayServer::handleClient, this, clientFd).detach();
+            // Bound concurrent clients (each holds a thread; SSE streams live long) and never
+            // let a silent client block its thread forever.
+            if (activeClients_.load() >= kMaxActiveClients) {
+                ::close(clientFd);
+                continue;
+            }
+            timeval timeout{};
+            timeout.tv_sec = 10;
+            ::setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            ::setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+            ++activeClients_;
+            std::thread([this, clientFd]() {
+                handleClient(clientFd);
+                --activeClients_;
+            }).detach();
         }
         ::close(listenFd_);
         listenFd_ = -1;
@@ -900,6 +914,8 @@ tr.stale td{color:var(--warn)}tr.bad td{color:var(--bad)}@media(max-width:900px)
     edge_gateway::PointStoreRouter& router_;
     std::unordered_map<std::uint32_t, PointMeta> pointMeta_;
     std::atomic<std::uint64_t> sequence_{0};
+    static constexpr int kMaxActiveClients = 32;
+    std::atomic<int> activeClients_{0};
     int listenFd_ = -1;
 };
 

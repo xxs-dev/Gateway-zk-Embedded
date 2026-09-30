@@ -17,6 +17,19 @@ enum class MemoryStoreOpenMode {
     OpenExisting
 };
 
+// True when a queued write is older than maxAgeMs (by acceptedAt, else ts) or stamped more
+// than maxAgeMs in the future (clock stepped back). maxAgeMs <= 0 or no timestamp: never.
+inline bool isPendingWriteExpired(const PendingWriteCommand& command, std::int64_t nowMs, std::int64_t maxAgeMs) {
+    if (maxAgeMs <= 0) {
+        return false;
+    }
+    const auto base = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
+    if (base <= 0) {
+        return false;
+    }
+    return nowMs - base > maxAgeMs || base - nowMs > maxAgeMs;
+}
+
 class MemoryPointStore {
 public:
     explicit MemoryPointStore(

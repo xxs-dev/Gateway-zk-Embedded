@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDialog>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -188,10 +189,11 @@ private:
         std::string message;
         const auto username = username_->text().trimmed().toStdString();
         auto passwordBytes = password_->text().toUtf8();
+        // Use the submit time, not the dialog-open time, for lockout and session expiry.
         const auto accepted = session_.authenticate(
             username,
             passwordBytes.toStdString(),
-            nowMs_,
+            std::max<std::int64_t>(nowMs_, QDateTime::currentMSecsSinceEpoch()),
             &message
         );
         passwordBytes.fill('\0');
@@ -248,6 +250,10 @@ bool ScadaLocalAccessSession::authenticate(
     std::int64_t nowMs,
     std::string* message
 ) {
+    if (nowMs < lockedUntilMs_) {
+        if (message != nullptr) *message = "登录失败次数过多，请稍后再试";
+        return false;
+    }
     const auto user = std::find_if(
         configuration_.users.begin(),
         configuration_.users.end(),
@@ -260,9 +266,17 @@ bool ScadaLocalAccessSession::authenticate(
         ? QByteArray(64, '0')
         : QByteArray::fromStdString(user->passwordSha256);
     if (user == configuration_.users.end() || !constantTimeEqual(actual, expected)) {
+        if (++failedAttempts_ >= kMaxFailedAttempts) {
+            failedAttempts_ = 0;
+            lockoutRound_ = std::min(lockoutRound_ + 1, 7);
+            lockedUntilMs_ = nowMs + (static_cast<std::int64_t>(30000) << (lockoutRound_ - 1));
+        }
         if (message != nullptr) *message = "账号或密码错误";
         return false;
     }
+    failedAttempts_ = 0;
+    lockoutRound_ = 0;
+    lockedUntilMs_ = 0;
     username_ = user->username;
     expiresAtMs_ = nowMs + static_cast<std::int64_t>(configuration_.sessionTimeoutSeconds) * 1000;
     if (message != nullptr) *message = "登录成功";

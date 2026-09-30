@@ -34,6 +34,7 @@ struct SerialPortOptions {
     int frameIntervalMs = 0;
     int readRetryCount = 1;
     int wakeupBytes = 0;
+    bool localEcho = false;
 };
 
 }  // namespace edge_gateway

@@ -367,16 +367,27 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
 std::size_t GatewayDaemon::flushPersistentOnce() {
     std::lock_guard<std::mutex> lock(persistentFlushMutex_);
     const auto immediateGeneration = store_.immediatePersistentGeneration();
-    const auto samples = store_.peekPersistentSamples();
-    sqliteWriter_.writeSamples(samples);
-    if (!samples.empty()) {
+    // Bounded batches: an all-or-nothing flush of a full ring can exceed the storage
+    // admission estimate forever, and a partial success must still be acknowledged.
+    const auto batchSize = std::max<std::size_t>(1, config_.memoryStore.persistFlushBatchSize);
+    std::size_t flushed = 0;
+    for (std::size_t batch = 0; batch < 64; ++batch) {
+        const auto samples = store_.peekPersistentSamples(batchSize);
+        if (samples.empty()) {
+            break;
+        }
+        sqliteWriter_.writeSamples(samples);
         store_.acknowledgePersistentSamples(samples.back().sequence);
+        flushed += samples.size();
+        if (samples.size() < batchSize) {
+            break;
+        }
     }
-    if (!samples.empty()) {
+    if (flushed > 0) {
         publishStatusEvent(
             "persist-flushed",
             nowMs(),
-            std::string(R"("count":)") + std::to_string(samples.size())
+            std::string(R"("count":)") + std::to_string(flushed)
         );
     }
     const auto dropped = store_.consumePersistentDropCount();
@@ -392,7 +403,7 @@ std::size_t GatewayDaemon::flushPersistentOnce() {
         );
     }
     flushedImmediatePersistentGeneration_.store(immediateGeneration, std::memory_order_release);
-    return samples.size();
+    return flushed;
 }
 
 void GatewayDaemon::flushImmediatePersistentSamples() {
@@ -418,9 +429,44 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
         config_.memoryStore.writebackBatchSize
     );
     std::size_t processed = 0;
+    const auto maxAgeMs = config_.memoryStore.pendingWriteMaxAgeMs;
     for (const auto& command : commands) {
         const auto startedAt = nowMs();
         auto writebackResult = beginWritebackResult(command, startedAt);
+        if (isPendingWriteExpired(command, nowMsValue, maxAgeMs)) {
+            // Never execute a stale setpoint late (e.g. queued while this daemon was down).
+            const auto message = "pending write expired before execution (memoryStore.pendingWriteMaxAgeMs=" +
+                std::to_string(maxAgeMs) + ")";
+            const auto expire = [&] {
+                auto receipt = beginWritebackResult(command, startedAt);
+                completeWritebackResult(receipt, false, message, "expired", nowMs());
+                return receipt;
+            };
+            const auto device = indexToRuntimeDevice_.find(command.index);
+            if (command.durableControl && device != indexToRuntimeDevice_.end()) {
+                try {
+                    ControlDedupStore dedup(config_.memoryStore.controlDedupPath);
+                    const auto& runtimeDevice = runtimeDevices_[device->second];
+                    writebackResult = dedup.dispatch(runtimeDevice.config.machineCode,
+                        runtimeDevice.config.meterCode, command, startedAt, expire);
+                } catch (const std::exception& ex) {
+                    completeWritebackResult(writebackResult, false, ex.what(), "expired", nowMs());
+                }
+            } else {
+                writebackResult = expire();
+            }
+            store_.recordWritebackResult(writebackResult);
+            publishStatusEvent(
+                "writeback-expired",
+                nowMsValue,
+                std::string(R"("index":)") + std::to_string(command.index) +
+                    R"(,"cmdId":")" + escapeJson(command.cmdId) + R"(")"
+            );
+            if (command.highPriority) {
+                priorityControlLease_.release(command.cmdId);
+            }
+            continue;
+        }
         const auto authorization = powerControlOwnership_.authorize(
             command.index,
             command.source,

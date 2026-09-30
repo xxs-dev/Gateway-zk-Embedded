@@ -444,6 +444,9 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
         noteBusActivity();
         std::vector<std::uint8_t> buffer;
         std::vector<std::uint8_t> rawReceived;
+        // Bytes of our own request still expected back from an echoing
+        // transceiver (transport.localEcho).
+        std::size_t echoRemaining = options_.localEcho ? frame.size() : 0U;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
         while (std::chrono::steady_clock::now() < deadline) {
             const auto now = std::chrono::steady_clock::now();
@@ -459,9 +462,22 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
                 continue;
             }
 
-            rawReceived.insert(rawReceived.end(), chunk.begin(), chunk.end());
-            buffer.insert(buffer.end(), chunk.begin(), chunk.end());
             noteBusActivity();
+            std::size_t skip = 0;
+            while (echoRemaining > 0 && skip < chunk.size() &&
+                   chunk[skip] == frame[frame.size() - echoRemaining]) {
+                ++skip;
+                --echoRemaining;
+            }
+            if (skip < chunk.size()) {
+                // Anything that does not continue the echo is the reply.
+                echoRemaining = 0;
+            }
+            rawReceived.insert(rawReceived.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip), chunk.end());
+            buffer.insert(buffer.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip), chunk.end());
+            if (buffer.empty()) {
+                continue;
+            }
             if (tryExtractResponseFrame(
                     buffer,
                     static_cast<std::uint8_t>(slave),

@@ -148,6 +148,12 @@ private:
         std::string topic;
         std::string payload;
     };
+    struct ReconnectBackoff {
+        std::int64_t nextAttemptMs = 0;
+        int delayMs = 0;
+    };
+    void checkReconnectBackoff(const ReconnectBackoff& backoff) const;
+    void recordConnectResult(ReconnectBackoff& backoff, bool success) const;
 
     MqttConfig config_;
     MqttPublisherMode mode_ = MqttPublisherMode::Bidirectional;
@@ -161,6 +167,10 @@ private:
     std::uint16_t nextPacketId_ = 1;
     std::uint64_t packetIdGeneration_ = 0, txPacketIdGeneration_ = 0;
     std::int64_t lastSubscriberActivityMs_ = 0;
+    std::int64_t lastSubscriberTxMs_ = 0;
+    std::int64_t subscriberPingSentMs_ = 0;
+    ReconnectBackoff txBackoff_;
+    ReconnectBackoff rxBackoff_;
     std::vector<OfflineMessage> offlineMessages_;
     std::int64_t lastOfflineFlushMs_ = 0;
     bool replayingOffline_ = false;

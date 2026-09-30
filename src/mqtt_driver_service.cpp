@@ -351,29 +351,142 @@ private:
     const std::string& text_;
 };
 
+// Commands drive physical setpoints: parse them with the strict JSON parser and
+// read only root-level fields. Nested objects cannot shadow root fields and
+// duplicate root keys are rejected instead of silently picking one.
+constexpr std::size_t kMaxCommandPayloadBytes = 64 * 1024;
+
+const json::JsonValue* commandField(const json::JsonValue& root, const char* key) {
+    return root.find(key);
+}
+
+bool commandString(const json::JsonValue& root, const char* key, std::string* out) {
+    const auto* item = commandField(root, key);
+    if (item == nullptr || item->isNull()) {
+        return false;
+    }
+    if (!item->isString()) {
+        throw std::invalid_argument(std::string("command ") + key + " must be a string");
+    }
+    *out = item->asString();
+    return true;
+}
+
+bool commandBool(const json::JsonValue& root, const char* key, bool* out) {
+    const auto* item = commandField(root, key);
+    if (item == nullptr || item->isNull()) {
+        return false;
+    }
+    if (item->isBool()) {
+        *out = item->asBool();
+        return true;
+    }
+    if (item->isNumber()) {
+        *out = item->asNumber() != 0.0;
+        return true;
+    }
+    if (item->isString()) {
+        auto text = item->asString();
+        std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (text == "true" || text == "1" || text == "yes" || text == "high") {
+            *out = true;
+            return true;
+        }
+        if (text == "false" || text == "0" || text == "no" || text == "normal") {
+            *out = false;
+            return true;
+        }
+    }
+    throw std::invalid_argument(std::string("command ") + key + " must be a boolean");
+}
+
+// Legacy aliases carry arbitrary priority levels ("P1", 3, ...). Only a real
+// JSON boolean is interpreted; anything else is ignored and never grants
+// high priority.
+bool commandAliasBool(const json::JsonValue& root, const char* key, bool* out) {
+    const auto* item = commandField(root, key);
+    if (item == nullptr || !item->isBool()) {
+        return false;
+    }
+    *out = item->asBool();
+    return true;
+}
+
 MqttCommandRequest parseCommandRequest(const std::string& payload) {
-    FlatJsonReader json(payload);
+    if (payload.size() > kMaxCommandPayloadBytes) {
+        throw std::invalid_argument("command payload too large");
+    }
+    json::JsonValue root;
+    try {
+        root = json::JsonParser(payload, 16, 4096).parse();
+    } catch (const std::exception& ex) {
+        throw std::invalid_argument(std::string("command payload is not valid JSON: ") + ex.what());
+    }
+    if (!root.isObject()) {
+        throw std::invalid_argument("command payload must be a JSON object");
+    }
+    std::unordered_set<std::string> keys;
+    for (const auto& member : root.asObject().values) {
+        if (!keys.insert(member.key).second) {
+            throw std::invalid_argument("command payload contains duplicate field " + member.key);
+        }
+    }
+
     MqttCommandRequest request;
-    if (!json.tryGetString("cmdId", &request.cmdId) || request.cmdId.empty()) {
+    if (!commandString(root, "cmdId", &request.cmdId) || request.cmdId.empty()) {
         throw std::invalid_argument("command cmdId is required");
     }
-    json.tryGetString("machineCode", &request.machineCode);
-    json.tryGetString("meterCode", &request.meterCode);
-    json.tryGetString("pointCode", &request.pointCode);
-    if (!json.tryGetUInt32("index", &request.index) || request.index == 0) {
+    commandString(root, "machineCode", &request.machineCode);
+    commandString(root, "meterCode", &request.meterCode);
+    commandString(root, "pointCode", &request.pointCode);
+    const auto* index = commandField(root, "index");
+    if (index == nullptr || !index->isNumber()) {
         throw std::invalid_argument("command index is required");
     }
-    if (!json.tryGetDouble("value", &request.value)) {
+    const auto indexValue = index->asNumber();
+    if (!std::isfinite(indexValue) || std::floor(indexValue) != indexValue ||
+        indexValue < 1.0 || indexValue > 4294967295.0) {
+        throw std::invalid_argument("command index must be an integer in 1..4294967295");
+    }
+    request.index = static_cast<std::uint32_t>(indexValue);
+    const auto* value = commandField(root, "value");
+    if (value == nullptr || !value->isNumber() || !std::isfinite(value->asNumber())) {
         throw std::invalid_argument("command value is required");
     }
-    if (!json.tryGetString("source", &request.source) || request.source.empty()) {
+    request.value = value->asNumber();
+    if (!commandString(root, "source", &request.source) || request.source.empty()) {
         request.source = "mqtt";
     }
-    json.tryGetInt64("ts", &request.ts);
+    if (const auto* ts = commandField(root, "ts")) {
+        if (!ts->isNull()) {
+            double number = -1.0;
+            if (ts->isNumber()) {
+                number = ts->asNumber();
+            } else if (ts->isString()) {
+                // Legacy platforms send ts as a decimal string.
+                const auto& text = ts->asString();
+                if (!text.empty() && text.size() <= 16 &&
+                    text.find_first_not_of("0123456789") == std::string::npos) {
+                    number = static_cast<double>(std::stoll(text));
+                }
+            }
+            if (!std::isfinite(number) || number < 0.0 || number > 9007199254740991.0) {
+                throw std::invalid_argument("command ts must be a non-negative millisecond timestamp");
+            }
+            // Values below 1e11 cannot be epoch milliseconds after 1973: treat
+            // them as epoch seconds.
+            if (number > 0.0 && number < 1e11) {
+                number *= 1000.0;
+            }
+            request.ts = static_cast<std::int64_t>(number);
+        }
+    }
     bool highPriority = false;
-    if (json.tryGetBool("highPriority", &highPriority) ||
-        json.tryGetBool("priority", &highPriority) ||
-        json.tryGetBool("priorityControl", &highPriority)) {
+    if (commandBool(root, "highPriority", &highPriority) ||
+        commandAliasBool(root, "priority", &highPriority) ||
+        commandAliasBool(root, "priorityControl", &highPriority)) {
         request.highPriority = highPriority;
     }
     return request;
@@ -395,6 +508,7 @@ OtaRequest parseOtaRequest(const std::string& payload) {
     json.tryGetUInt64("size", &request.size);
     json.tryGetString("upgradeMode", &request.upgradeMode);
     json.tryGetInt64("ts", &request.ts);
+    json.tryGetString("signature", &request.signature);
     return request;
 }
 
@@ -1640,17 +1754,26 @@ void MqttDriverService::processIncomingMessages(std::int64_t nowMs, int timeoutM
     try {
         messages = publisher_->pollIncoming(std::max(0, timeoutMs));
     } catch (const std::exception& ex) {
-        publishStatusEvent(
-            "mqtt-subscribe-unavailable",
-            nowMs,
-            std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
-        );
+        // Report the outage once per transition; a status event per scan
+        // would flood the offline buffer during a long broker outage.
+        if (!subscribeUnavailable_) {
+            subscribeUnavailable_ = true;
+            publishStatusEvent(
+                "mqtt-subscribe-unavailable",
+                nowMs,
+                std::string(R"("message":")") + escapeJson(ex.what()) + R"(")"
+            );
+        }
         return;
+    }
+    if (subscribeUnavailable_) {
+        subscribeUnavailable_ = false;
+        publishStatusEvent("mqtt-subscribe-restored", nowMs, std::string());
     }
     for (const auto& message : messages) {
         try {
             if (message.type == MqttIncomingType::CommandRequest) {
-                handleCommandRequest(message.payload, nowMs);
+                handleCommandRequest(message.payload, nowMs, message.retained);
             } else if (message.type == MqttIncomingType::OtaRequest) {
                 handleOtaRequest(message.payload, nowMs);
             } else if (message.type == MqttIncomingType::RealtimeRequest) {
@@ -2046,6 +2169,23 @@ void MqttDriverService::replayLoop() {
     drainIpcEvents();
 }
 
+bool MqttDriverService::admitMailboxCommand(const std::string& meterCode, std::int64_t nowMs) {
+    if (driverConfig_.mailboxRateLimitPerWindow <= 0) {
+        return true;
+    }
+    const int windowMs = std::max(1, driverConfig_.commandRateWindowMs);
+    std::lock_guard<std::mutex> lock(commandRateMutex_);
+    auto& window = mailboxWindowByMeter_[meterCode];
+    while (!window.empty() && nowMs - window.front() > windowMs) {
+        window.pop_front();
+    }
+    if (window.size() >= static_cast<std::size_t>(driverConfig_.mailboxRateLimitPerWindow)) {
+        return false;
+    }
+    window.push_back(nowMs);
+    return true;
+}
+
 bool MqttDriverService::admitCommand(
     const std::string& meterCode,
     const std::string& cmdId,
@@ -2083,7 +2223,7 @@ bool MqttDriverService::admitCommand(
     return true;
 }
 
-void MqttDriverService::handleCommandRequest(const std::string& payload, std::int64_t nowMs) {
+void MqttDriverService::handleCommandRequest(const std::string& payload, std::int64_t nowMs, bool retained) {
     MqttCommandReply reply;
     reply.ts = nowMs;
 
@@ -2097,6 +2237,23 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         reply.highPriority = request.highPriority;
         if (request.machineCode.empty()) {
             throw std::invalid_argument("machineCode is required");
+        }
+        if (retained && driverConfig_.rejectRetainedCommands) {
+            throw std::invalid_argument("retained control commands are rejected");
+        }
+        if (request.ts <= 0 && driverConfig_.requireCommandTimestamp) {
+            throw std::invalid_argument("command ts is required");
+        }
+        if (request.ts > 0 && driverConfig_.commandMaxSkewMs > 0) {
+            const auto skew = request.ts > nowMs ? request.ts - nowMs : nowMs - request.ts;
+            if (skew > driverConfig_.commandMaxSkewMs) {
+                throw std::invalid_argument("command ts is outside the accepted clock skew window");
+            }
+        }
+        if (request.highPriority && !driverConfig_.allowRemoteHighPriority) {
+            // highPriority bypasses power-control ownership arbitration; it
+            // must be explicitly enabled for remote (MQTT) ingress.
+            throw std::invalid_argument("high-priority control is not permitted over MQTT");
         }
         if (scadaSafetyConfig_.enabled && request.source.rfind("scada-windows:", 0) == 0) {
             std::string leaseMessage;
@@ -2138,6 +2295,11 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             }
             if (request.highPriority) {
                 throw std::invalid_argument("AGC/AVC command mailbox does not accept high-priority device writes");
+            }
+            // The mailbox carries its own dispatch sequence, so no cmdId dedup;
+            // it gets a separate, generous flood limit instead of the device-write one.
+            if (!admitMailboxCommand(route.meterCode, nowMs)) {
+                throw std::invalid_argument("AGC/AVC mailbox rate limit exceeded");
             }
             PendingWriteCommand mailboxCommand;
             mailboxCommand.cmdId = request.cmdId;

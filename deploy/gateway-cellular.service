@@ -11,6 +11,7 @@ ExecStart=/opt/modbus-gateway/bin/gateway-cellular.sh run
 Restart=always
 RestartSec=5
 User=root
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target

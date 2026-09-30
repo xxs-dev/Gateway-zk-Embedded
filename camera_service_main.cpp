@@ -246,6 +246,12 @@ std::string buildFfmpegCommand(
     const edge_gateway::CameraConfig& camera
 ) {
     if (!camera.command.empty()) {
+        // A custom command runs through /bin/sh; only allowed when explicitly enabled.
+        if (!serviceConfig.allowCustomCommand) {
+            throw std::invalid_argument(
+                "camera custom command is disabled (set cameraService.allowCustomCommand=true): " + camera.cameraCode
+            );
+        }
         return camera.command;
     }
 
@@ -307,9 +313,12 @@ public:
             return false;
         }
         if (pid == 0) {
+            // Own process group so stop() also terminates ffmpeg/pipelines started by sh.
+            (void)setpgid(0, 0);
             execl("/bin/sh", "sh", "-c", command.c_str(), static_cast<char*>(nullptr));
             _exit(127);
         }
+        (void)setpgid(pid, pid);
         pid_ = pid;
         return true;
 #endif
@@ -344,14 +353,20 @@ public:
         if (pid_ <= 0) {
             return;
         }
-        kill(pid_, SIGTERM);
+        const pid_t group = pid_;
+        if (kill(-group, SIGTERM) != 0) {
+            kill(group, SIGTERM);
+        }
         for (int i = 0; i < 20; ++i) {
             if (!running()) {
+                (void)kill(-group, SIGKILL);  // reap any remaining pipeline members
                 return;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        kill(pid_, SIGKILL);
+        if (kill(-group, SIGKILL) != 0) {
+            kill(group, SIGKILL);
+        }
         while (running()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
@@ -486,7 +501,7 @@ public:
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+int runCameraService(int argc, char* argv[]) {
     using namespace edge_gateway;
 
     std::string appConfigPath = "config/runtime/apps/camera-service.json";
@@ -706,4 +721,13 @@ int main(int argc, char* argv[]) {
 
     std::cout << "camera service stopped" << std::endl;
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    try {
+        return runCameraService(argc, argv);
+    } catch (const std::exception& ex) {
+        std::cerr << "camera service failed: " << ex.what() << std::endl;
+        return 1;
+    }
 }

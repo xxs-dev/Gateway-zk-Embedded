@@ -415,6 +415,51 @@ void testShadowServiceDoesNotWrite() {
         require(writeBus.submitted.size() == 2, "real mode should submit active and reactive targets");
     }
     std::remove(ownershipPath.c_str());
+
+    // An enabled PCS that becomes unavailable (stale/bad SOC) must be driven to 0, not left at
+    // its last setpoint.
+    config.writeResultTimeoutMs = 100;
+    FakePointBus zeroBus = bus;
+    zeroBus.published.clear();
+    zeroBus.submitted.clear();
+    {
+        AgcAvcService zeroService(config, zeroBus);
+        zeroService.tick(now + 1);
+        require(zeroBus.submitted.size() == 2, "initial active/reactive targets should be submitted");
+        const auto firstActive = zeroBus.submitted[0].value;
+        require(std::abs(firstActive) > 1e-6, "initial active target should be non-zero");
+        for (auto& entry : zeroBus.values) {
+            if (entry.first != 5 && entry.first != 6) entry.second.ts = now + 1190;
+        }
+        zeroBus.values[11].quality = 0;
+        zeroBus.submitted.clear();
+        zeroService.tick(now + 1200);
+        bool zeroActive = false;
+        bool zeroReactive = false;
+        for (const auto& command : zeroBus.submitted) {
+            if (command.index == 16 && command.value == 0.0) zeroActive = true;
+            if (command.index == 17 && command.value == 0.0) zeroReactive = true;
+        }
+        require(zeroActive && zeroReactive, "unavailable PCS must receive 0 kW/kvar safe-state targets");
+    }
+    std::remove(ownershipPath.c_str());
+    std::remove((ownershipPath + ".lock").c_str());
+}
+
+void testRampGapIsCapped() {
+    auto config = baseConfig();
+    config.cycleMs = 200;
+    config.agc.riseKwPerSec = 10.0;
+    config.pcs[0].riseKwPerSec = 1000.0;
+    edge_gateway::AgcAvcController controller(config);
+    auto first = baseInput(60000);
+    first.command.targetPkw = 0.0;
+    controller.step(first);
+    auto later = baseInput(70000);  // 10 s stall / forward clock step
+    later.command.targetPkw = 80.0;
+    const auto output = controller.step(later);
+    // Gap capped at rateLimitMaxGapMs (1000 ms): at most 10 kW, not 80 kW in one step.
+    requireNear(output.effectiveTargetPkw, 10.0, 0.001, "a long cycle gap must not bypass the ramp");
 }
 
 void testPowerControlOwnership() {
@@ -830,6 +875,7 @@ int main() {
         testExpiredCommand();
         testMinimumStablePowerAndSocDerating();
         testAvcRunsAtConfiguredCadence();
+        testRampGapIsCapped();
         testCommandMailboxRoute();
         testShadowServiceDoesNotWrite();
         testPowerControlOwnership();

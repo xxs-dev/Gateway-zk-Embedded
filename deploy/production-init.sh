@@ -69,6 +69,7 @@ Options:
   --tls-key-source FILE           Win-signed client private key source file uploaded by the client
   --tls-platform-url URL          Platform base URL for TLS enrollment
   --tls-token TOKEN               TLS enrollment token
+  --ota-pubkey FILE               OTA signature public key (PEM); default: ota/ota.pub from the package
   --tls-validity-days DAYS        Requested client certificate validity days
   --tls-force-key                 Regenerate client private key during enrollment
   --tls-generate-root-ca          Generate local bootstrap root CA before enrollment
@@ -208,6 +209,12 @@ while [ "$#" -gt 0 ]; do
     --tls-platform-url)
       [ "$#" -ge 2 ] || { echo "--tls-platform-url requires a value" >&2; exit 2; }
       INIT_TLS_PLATFORM_URL="$2"
+      shift 2
+      ;;
+    --ota-pubkey)
+      [ "$#" -ge 2 ] || { echo "--ota-pubkey requires a value" >&2; exit 2; }
+      OTA_SIGNING_PUBKEY="$2"
+      export OTA_SIGNING_PUBKEY
       shift 2
       ;;
     --tls-token)
@@ -699,11 +706,10 @@ install_win_signed_tls_bundle() {
   require_file "$INIT_TLS_KEY_SOURCE" "Win-signed TLS private key source"
 
   mkdir -p "$(dirname "$INIT_MQTT_CA_FILE")" "$(dirname "$INIT_MQTT_CERT_FILE")" "$(dirname "$INIT_MQTT_KEY_FILE")"
-  cp "$INIT_TLS_CA_SOURCE" "$INIT_MQTT_CA_FILE"
-  cp "$INIT_TLS_CERT_SOURCE" "$INIT_MQTT_CERT_FILE"
-  cp "$INIT_TLS_KEY_SOURCE" "$INIT_MQTT_KEY_FILE"
-  chmod 644 "$INIT_MQTT_CA_FILE" "$INIT_MQTT_CERT_FILE" 2>/dev/null || true
-  chmod 600 "$INIT_MQTT_KEY_FILE" 2>/dev/null || true
+  install -m 0644 "$INIT_TLS_CA_SOURCE" "$INIT_MQTT_CA_FILE"
+  install -m 0644 "$INIT_TLS_CERT_SOURCE" "$INIT_MQTT_CERT_FILE"
+  # Create the private key with 0600 from the start (no world-readable window).
+  install -m 0600 "$INIT_TLS_KEY_SOURCE" "$INIT_MQTT_KEY_FILE"
   rm -f "$INIT_TLS_CA_SOURCE" "$INIT_TLS_CERT_SOURCE" "$INIT_TLS_KEY_SOURCE" 2>/dev/null || true
   echo "windows signed tls ca: $INIT_MQTT_CA_FILE"
   echo "windows signed tls certificate: $INIT_MQTT_CERT_FILE"

@@ -97,6 +97,43 @@ void testRuleBudgetUsesRoundRobinFairness() {
     MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void testWallClockStepBackDoesNotFreezeRules() {
+    const std::string storeName = "compute_engine_service_clock_step_test";
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+    MemoryStoreConfig storeConfig;
+    storeConfig.sharedMemoryName = storeName;
+    storeConfig.maxLatestPoints = 8;
+    std::unique_ptr<MemoryPointStore> store(new MemoryPointStore(storeConfig));
+    PointStoreRouter router;
+    router.addStore(storeName, *store);
+    PointStoreRoute route;
+    route.index = 640001;
+    route.sourceIndex = route.index;
+    route.machineCode = "GW_COMPUTE_CLOCK_TEST";
+    route.meterCode = "COMPUTE_CLOCK_TEST";
+    route.pointCode = "clock_output";
+    route.sharedMemoryName = storeName;
+    router.addRoute(route);
+
+    ComputeEngineConfig config;
+    config.enabled = true;
+    auto rule = makeConstantRule("clock_rule", 640001, 3.0);
+    rule.trigger.intervalMs = 1000;
+    config.rules = {rule};
+    ComputeEngineService service(config, router);
+    service.runOnce(3600000);
+    // Wall clock steps back by ~1 h: the rule must keep running, not wait for the old timestamp.
+    service.runOnce(10000);
+    const auto value = router.getLatestByIndex(640001, 10000);
+    require(static_cast<bool>(value) && value->ts == 10000,
+        "a backward wall-clock step must not freeze interval rules");
+    service.runOnce(10500);
+    require(router.getLatestByIndex(640001, 10500)->ts == 10000, "interval must still be honoured after re-anchoring");
+
+    store.reset();
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 void testHealthReportContainsDetailedMetrics() {
     const std::string storeName = "compute_engine_service_health_test";
     const std::string healthFile = "/tmp/compute_engine_service_health_test.json";
@@ -157,6 +194,7 @@ void testHealthReportContainsDetailedMetrics() {
 int main() {
     try {
         testRuleBudgetUsesRoundRobinFairness();
+        testWallClockStepBackDoesNotFreezeRules();
         testHealthReportContainsDetailedMetrics();
         std::cout << "compute_engine_service_test passed" << std::endl;
         return 0;

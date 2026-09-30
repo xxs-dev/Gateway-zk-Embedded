@@ -16,6 +16,10 @@ GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
 FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
 CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
 CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-/CN=KYXN Gateway Local Root CA/O=KYXN/OU=edge-gateway}"
+# Enrollment sends the token and receives the MQTT trust anchor: https only
+# unless explicitly overridden for a lab.
+ALLOW_INSECURE_HTTP="${INIT_TLS_ALLOW_INSECURE_HTTP:-0}"
+PLATFORM_CA_FILE="${INIT_TLS_PLATFORM_CA_FILE:-}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -35,6 +39,8 @@ Options:
   --ca-subject SUBJECT      Local bootstrap root CA subject
   --update-local-app        Update mqtt.tls caFile/certFile/keyFile in local app config
   --restart                 Restart gateway-services.service after successful enrollment
+  --platform-ca FILE        CA bundle used to verify the platform https certificate
+  --allow-insecure-http     Allow an http:// platform URL (lab only; token sent in clear)
   -h, --help                Show this help
 
 Without --platform-url and --token, the script only creates client.key and client.csr.
@@ -94,6 +100,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --update-local-app)
       UPDATE_LOCAL_APP=1
+      shift
+      ;;
+    --platform-ca)
+      PLATFORM_CA_FILE="${2:-}"
+      shift 2
+      ;;
+    --allow-insecure-http)
+      ALLOW_INSECURE_HTTP=1
       shift
       ;;
     -h|--help)
@@ -196,16 +210,35 @@ if [ -z "$PLATFORM_URL" ] || [ -z "$ENROLLMENT_TOKEN" ]; then
   echo "--platform-url and --token must be provided together" >&2
   exit 2
 fi
+case "$PLATFORM_URL" in
+  https://*) ;;
+  http://*)
+    if ! truthy "$ALLOW_INSECURE_HTTP"; then
+      echo "refusing http:// platform URL; use https or --allow-insecure-http (lab only)" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "unsupported platform URL scheme: $PLATFORM_URL" >&2
+    exit 2
+    ;;
+esac
+if [ -n "$PLATFORM_CA_FILE" ] && [ ! -r "$PLATFORM_CA_FILE" ]; then
+  echo "platform CA file is not readable: $PLATFORM_CA_FILE" >&2
+  exit 2
+fi
 
-python3 - "$PLATFORM_URL" "$ENROLLMENT_TOKEN" "$MACHINE_CODE" "$CSR_FILE" "$CERT_FILE" "$CA_FILE" "$KEY_FILE" "$APP_CONFIG" "$VALIDITY_DAYS" "$UPDATE_LOCAL_APP" <<'PY'
+python3 - "$PLATFORM_URL" "$ENROLLMENT_TOKEN" "$MACHINE_CODE" "$CSR_FILE" "$CERT_FILE" "$CA_FILE" "$KEY_FILE" "$APP_CONFIG" "$VALIDITY_DAYS" "$UPDATE_LOCAL_APP" "$PLATFORM_CA_FILE" <<'PY'
 import glob
 import json
 import os
+import ssl
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 
-platform_url, token, machine_code, csr_file, cert_file, ca_file, key_file, app_config, validity_days, update_local_app = sys.argv[1:11]
+platform_url, token, machine_code, csr_file, cert_file, ca_file, key_file, app_config, validity_days, update_local_app, platform_ca = sys.argv[1:12]
 with open(csr_file, "r", encoding="utf-8") as fh:
     csr_pem = fh.read()
 
@@ -230,8 +263,9 @@ request = urllib.request.Request(
     },
     method="POST",
 )
+context = ssl.create_default_context(cafile=platform_ca or None)
 try:
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30, context=context) as response:
         body = response.read().decode("utf-8")
 except urllib.error.HTTPError as exc:
     body = exc.read().decode("utf-8", errors="replace")
@@ -241,13 +275,31 @@ result = json.loads(body)
 if not result.get("success"):
     raise SystemExit("platform sign request failed: " + json.dumps(result, ensure_ascii=False))
 
+def require_pem(name, value):
+    text = str(value or "")
+    if "-----BEGIN CERTIFICATE-----" not in text or "-----END CERTIFICATE-----" not in text:
+        raise SystemExit(f"platform sign response has no valid {name}")
+    return text
+
+def atomic_write(path, text):
+    directory = os.path.dirname(path) or "."
+    fd, temporary = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+certificate_pem = require_pem("certificatePem", result.get("certificatePem"))
+ca_pem = require_pem("caPem", result.get("caPem"))
 os.makedirs(os.path.dirname(cert_file), exist_ok=True)
-with open(cert_file, "w", encoding="utf-8") as fh:
-    fh.write(result.get("certificatePem", ""))
-with open(ca_file, "w", encoding="utf-8") as fh:
-    fh.write(result.get("caPem", ""))
-os.chmod(cert_file, 0o644)
-os.chmod(ca_file, 0o644)
+atomic_write(cert_file, certificate_pem)
+atomic_write(ca_file, ca_pem)
 
 if update_local_app == "1":
     app_dir = os.path.dirname(app_config)

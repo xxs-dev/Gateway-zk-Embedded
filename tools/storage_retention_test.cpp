@@ -211,6 +211,16 @@ void criticalCapacityProtection() {
             "capacity enforcement or expiry deleted an unconfirmed critical event");
     }
 }
+void deliveredRowsRespectDiskBudget() {
+    Database db;
+    MqttEventOutbox box(db.path, "", 12, 24, 100, 256 * 1024);
+    const std::string payload(4000, 'p');
+    for (int i = 0; i < 200; ++i) box.markSent(box.enqueue("change", "t", payload, kNow - 1000 + i), kNow);
+    const auto pending = box.enqueue("change", "t", payload, kNow);
+    require(pending > 0 && box.pendingCount() == 1, "budget pruning must keep the new pending event");
+    require(db.rows("mqtt_event_outbox") < 100,
+        "delivered rows must be pruned oldest-first once live pages exceed maxDiskBytes");
+}
 void idleProductionMaintenance() {
     Database alarms;
     Database events;
@@ -232,6 +242,7 @@ int main() {
         std::cout << "query-plan assertion fixtures passed" << std::endl;
         alarmRetention(); alarmBatchesAndFailure(); outboxRetention();
         outboxBatchesFailureAndIpcGuard(); criticalCapacityProtection(); idleProductionMaintenance();
+        deliveredRowsRespectDiskBudget();
         std::cout << "storage retention: 6 groups PASS\n";
         return 0;
     } catch (const std::exception& ex) {

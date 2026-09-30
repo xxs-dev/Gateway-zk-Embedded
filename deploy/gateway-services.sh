@@ -542,7 +542,7 @@ start_one_unit() {
 }
 
 start_units() {
-  units_file="${TMPDIR:-/tmp}/gateway-services-desired.$$"
+  units_file=$(mktemp "${TMPDIR:-/tmp}/gateway-services-desired.XXXXXX") || return 1
   if ! listed_units > "$units_file"; then
     rm -f "$units_file"
     return 1
@@ -576,27 +576,33 @@ run_with_apply_marker() {
   mark_manual_stop
   begin_configuration_apply
   trap 'finish_configuration_apply' EXIT HUP INT TERM
+  # start_units uses the global "result"; keep ours separate (POSIX sh has no
+  # locals). Under set -e a bare failing call would exit here and make the result
+  # handling below dead code; collect it explicitly instead. A point-store guard
+  # failure (reset_point_store_segments) still aborts before any start.
+  apply_result=0
   case "$action" in
     apply)
       if [ -e "$BASE_DIR/data/runtime-upgrade-stop" ] || [ -L "$BASE_DIR/data/runtime-upgrade-stop" ]; then
         reset_point_store_segments
-        start_units
+        start_units || apply_result=$?
       else
-        stop_units
+        stop_units || { echo "[gateway-services] stopping previous units failed" >&2; apply_result=1; }
         reset_point_store_segments
-        start_units
+        start_units || apply_result=$?
       fi
       ;;
     start)
       reset_point_store_segments
-      start_units
+      start_units || apply_result=$?
       ;;
   esac
-  result=$?
-  [ "$result" -ne 0 ] || clear_manual_stop
+  # Any failure keeps the manual-stop marker so the watchdog does not fight a
+  # half-applied configuration; an operator must re-run apply.
+  [ "$apply_result" -ne 0 ] || clear_manual_stop
   finish_configuration_apply
   trap - EXIT HUP INT TERM
-  return "$result"
+  return "$apply_result"
 }
 
 case "${1:-apply}" in

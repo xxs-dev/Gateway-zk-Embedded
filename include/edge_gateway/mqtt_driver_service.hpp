@@ -121,8 +121,9 @@ private:
     void publishDueRealtimeSessions(std::int64_t nowMs);
     void processPendingCommandReplies(std::int64_t nowMs);
     int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
-    void handleCommandRequest(const std::string& payload, std::int64_t nowMs);
+    void handleCommandRequest(const std::string& payload, std::int64_t nowMs, bool retained = false);
     bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs, bool durableControl);
+    bool admitMailboxCommand(const std::string& meterCode, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
     void processRealtimeRequest(const std::string& payload, std::int64_t nowMs, bool& admitted);
@@ -185,6 +186,7 @@ private:
     std::string eventLastError_;
     std::int64_t lastEventDelegationPublishMs_ = 0;
     std::int64_t lastOtaReplayAttemptMs_ = 0;
+    bool subscribeUnavailable_ = false;
     std::int64_t otaReplayFirstSuccessMs_ = 0;
     int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
@@ -196,6 +198,7 @@ private:
     std::deque<PendingCommandReply> pendingCommandReplies_;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
+    std::unordered_map<std::string, std::deque<std::int64_t>> mailboxWindowByMeter_;
     std::unordered_map<std::string, std::int64_t> recentCommandIds_;
     AgcAvcCommandMailboxRuntime agcAvcCommandMailbox_;
     std::atomic<bool> running_{false};

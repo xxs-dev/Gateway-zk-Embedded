@@ -257,12 +257,36 @@ void verifySameIndexAcrossIndependentStores() {
         storeA.registerDevicePoints({deviceA});
         storeB.registerDevicePoints({deviceB});
 
+        {
+            // Secure default: one index in two segments would make index-only APIs misroute.
+            edge_gateway::PointStoreRouter strictRouter;
+            strictRouter.addStore(storeAName, storeA);
+            strictRouter.addStore(storeBName, storeB);
+            bool duplicateRejected = false;
+            try {
+                strictRouter.addRoutesFromDeviceConfigs({deviceA, deviceB}, storeAName);
+            } catch (const std::invalid_argument& ex) {
+                duplicateRejected = std::string(ex.what()).find("duplicate point index across shared memory segments") !=
+                    std::string::npos;
+            }
+            require(duplicateRejected, "same index across segments must be rejected by default");
+        }
+        deviceA.memoryStore.allowDuplicateIndexAcrossSegments = true;
+        deviceB.memoryStore.allowDuplicateIndexAcrossSegments = true;
         edge_gateway::PointStoreRouter router;
         router.addStore(storeAName, storeA);
         router.addStore(storeBName, storeB);
         router.addRoutesFromDeviceConfigs({deviceA, deviceB}, storeAName);
         require(static_cast<bool>(router.routeByLocation(storeAName, 100)), "store A route is missing");
         require(static_cast<bool>(router.routeByLocation(storeBName, 100)), "store B route is missing");
+        {
+            edge_gateway::PendingWriteCommand ambiguous;
+            ambiguous.cmdId = "ambiguous-index";
+            ambiguous.index = 100;
+            ambiguous.value = 1.0;
+            require(!router.submitWriteCommand(ambiguous).accepted,
+                "index-only command to an index shared by two segments must be rejected");
+        }
 
         edge_gateway::PointValue valueA;
         valueA.index = 100;

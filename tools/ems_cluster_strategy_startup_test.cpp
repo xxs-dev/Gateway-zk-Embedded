@@ -369,8 +369,16 @@ void startup(bool testRecovery = false) {
     rejected = false;
     try { send(queued[0]); } catch (const std::exception&) { rejected = true; }
     require(rejected && actuator.size() == 1, "delayed drain after a stalled coordinator must not reach actuator");
-    require(!controlEngine.runOnce(wall + 30).errors.empty() && store.peekPendingWriteCommands().empty(),
-            "fresh wall timestamps must not refresh expired Graph command authority");
+    controlEngine.runOnce(wall + 30);
+    const auto expiredQueue = store.peekPendingWriteCommands();
+    // Expired authority: the graph falls back to the safe state. Only an untagged 0 kW command may be
+    // queued (allowZeroWriteWithoutAuthority); the old command authority is never refreshed.
+    require(expiredQueue.size() == 1 && expiredQueue[0].value == 0.0 && !expiredQueue[0].clusterAuthorization,
+            "fresh wall timestamps must not refresh expired Graph command authority; only a 0 kW safe-state write is allowed");
+    auto legacyScope = config;
+    legacyScope.allowZeroWriteWithoutAuthority = false;
+    require(clusterAuthorizationRequired(legacyScope, expiredQueue[0]),
+            "legacy mode must still require authority for the zero command");
 }
 }
 int main() {

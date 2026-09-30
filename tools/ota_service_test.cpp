@@ -131,6 +131,7 @@ void checksumTests() {
     OtaConfig config;
     config.enabled = true;
     config.checksumRequired = true;
+    config.requireSignature = false;
     config.downloadDir = directory.path + "/downloads";
     // A regular file blocks staging even if a broken preflight accepts the request.
     config.stagingDir = artifactPath;
@@ -474,6 +475,8 @@ int main(int argc, char** argv) {
     config.enabled = true;
     config.downloadDir = "/tmp/gateway-ota-test";
     config.packageType = "tar.gz";
+    config.requireSignature = false;
+    config.allowInsecureHttp = true;
     OtaService service(config);
 
     OtaRequest ok;
@@ -514,6 +517,35 @@ int main(int argc, char** argv) {
     localTraversal.artifactUrl = "../gateway.tar.gz";
     requireRejected(service, localTraversal, "invalid ota artifactUrl");
 
+    // Secure defaults: unsigned jobs and plain http sources are refused.
+    OtaConfig secureConfig;
+    secureConfig.enabled = true;
+    secureConfig.downloadDir = "/tmp/gateway-ota-secure/downloads";
+    secureConfig.stagingDir = "/tmp/gateway-ota-secure/staging";
+    secureConfig.backupDir = "/tmp/gateway-ota-secure/backup";
+    require(secureConfig.requireSignature && !secureConfig.allowInsecureHttp, "ota secure defaults changed");
+    OtaService secureService(secureConfig);
+    auto unsignedJob = ok;
+    unsignedJob.artifactUrl = "https://127.0.0.1:8443/gateway.tar.gz";
+    requireRejected(secureService, unsignedJob, "ota signature is required");
+    auto signedHttp = ok;
+    signedHttp.signature = "AAAA";
+    requireRejected(secureService, signedHttp, "insecure http ota artifactUrl is disabled");
+    auto badSignature = unsignedJob;
+    badSignature.signature = "not base64!";
+    requireRejected(secureService, badSignature, "invalid ota signature encoding");
+    {
+        bool rejectedUnsigned = false;
+        OtaReply unsignedReply;
+        OtaStatus unsignedStatus;
+        try {
+            secureService.execute(unsignedJob, "GW_TEST", 1770000000000LL, &unsignedReply, &unsignedStatus, nullptr);
+        } catch (const std::exception& ex) {
+            rejectedUnsigned = std::string(ex.what()) == "ota signature is required";
+        }
+        require(rejectedUnsigned && !unsignedReply.accepted, "missing signature must be rejected before acceptance");
+    }
+
     OtaConfig markerConfig;
     markerConfig.enabled = true;
     markerConfig.downloadDir = "/tmp/gateway-ota-marker/downloads";
@@ -522,6 +554,7 @@ int main(int argc, char** argv) {
     markerConfig.applyScript = "/tmp/gateway-ota-marker/apply-ok.sh";
     markerConfig.rollbackScript.clear();
     markerConfig.checksumRequired = false;
+    markerConfig.requireSignature = false;
     markerConfig.currentVersion = "1.0.0";
     markerConfig.packageType = "tar.gz";
     markerConfig.minFreeBytes = 0;
@@ -545,6 +578,13 @@ int main(int argc, char** argv) {
     require(containsText(markerPath, "jobId=JOB_MARKER_001"), "version marker should include jobId");
     require(containsText(markerPath, "backupDir=/tmp/gateway-ota-marker/backup/JOB_MARKER_001"), "version marker should include job backup dir");
     require(containsText(markerPath, "workDir=/tmp/gateway-ota-marker/staging/JOB_MARKER_001"), "version marker should include work dir");
+    require(containsText(markerPath, "previousVersion=1.0.0") && containsText(markerPath, "currentVersion=2.0.0"),
+        "version marker should record previous/current version");
+    {
+        std::string replayError;
+        require(!markerService.validateRequest(markerRequest, &replayError) &&
+            replayError == "ota jobId already processed", "completed ota jobId must not be re-applied");
+    }
 
     OtaConfig scadaConfig = markerConfig;
     scadaConfig.downloadDir = "/tmp/gateway-ota-scada/downloads";
@@ -581,6 +621,7 @@ int main(int argc, char** argv) {
     mismatchConfig.applyScript = "/tmp/gateway-ota-mismatch/apply-ok.sh";
     mismatchConfig.rollbackScript.clear();
     mismatchConfig.checksumRequired = false;
+    mismatchConfig.requireSignature = false;
     mismatchConfig.packageType = "tar.gz";
     mismatchConfig.minFreeBytes = 0;
     OtaService mismatchService(mismatchConfig);
@@ -616,6 +657,7 @@ int main(int argc, char** argv) {
     retentionConfig.applyScript = "/tmp/gateway-ota-retention/apply-ok.sh";
     retentionConfig.rollbackScript.clear();
     retentionConfig.checksumRequired = false;
+    retentionConfig.requireSignature = false;
     retentionConfig.retentionCount = 2;
     retentionConfig.packageType = "tar.gz";
     retentionConfig.minFreeBytes = 0;
@@ -643,6 +685,67 @@ int main(int argc, char** argv) {
     require(!std::ifstream("/tmp/gateway-ota-retention/downloads/1.2.0.tar.gz").good(), "oldest artifact should be removed by retention");
     require(std::ifstream("/tmp/gateway-ota-retention/downloads/1.10.0.tar.gz").good(), "current artifact should be retained");
     require(std::ifstream("/tmp/gateway-ota-retention/downloads/1.3.0.tar.gz").good(), "newer artifact should be retained");
+
+#ifndef _WIN32
+    // End-to-end signature check with a throwaway P-256 key (skipped without openssl).
+    if (std::system("openssl version >/dev/null 2>&1") == 0) {
+        const std::string root = "/tmp/gateway-ota-signed";
+        std::system(("rm -rf " + root + " && mkdir -p " + root).c_str());
+        require(std::system(("openssl ecparam -name prime256v1 -genkey -noout -out " + root + "/sign.key 2>/dev/null && "
+            "openssl ec -in " + root + "/sign.key -pubout -out " + root + "/ota.pub 2>/dev/null").c_str()) == 0,
+            "cannot create test signing key");
+        OtaConfig signedConfig = markerConfig;
+        signedConfig.downloadDir = root + "/downloads";
+        signedConfig.stagingDir = root + "/staging";
+        signedConfig.backupDir = root + "/backup";
+        signedConfig.applyScript = root + "/apply-ok.sh";
+        signedConfig.requireSignature = true;
+        signedConfig.signaturePublicKeyPath = root + "/ota.pub";
+        OtaService signedService(signedConfig);
+        OtaRequest signedRequest;
+        signedRequest.jobId = "JOB_SIGNED_001";
+        signedRequest.machineCode = "GW_TEST";
+        signedRequest.version = "4.0.0";
+        signedRequest.artifactUrl = root + "/source.tar.gz";
+        signedRequest.sha256 = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5";
+        signedRequest.size = 7;
+        {
+            std::ofstream artifact(signedRequest.artifactUrl.c_str(), std::ios::binary | std::ios::trunc);
+            artifact << "payload";
+            std::ofstream script(signedConfig.applyScript.c_str(), std::ios::trunc);
+            script << "#!/bin/sh\nexit 0\n";
+            std::ofstream descriptor((root + "/descriptor.txt").c_str(), std::ios::binary | std::ios::trunc);
+            descriptor << OtaService::signatureDescriptor(signedRequest, "GW_TEST");
+        }
+        require(std::system(("openssl dgst -sha256 -sign " + root + "/sign.key -out " + root + "/sig.bin " +
+            root + "/descriptor.txt && openssl base64 -A -in " + root + "/sig.bin -out " + root + "/sig.b64").c_str()) == 0,
+            "cannot sign test descriptor");
+        signedRequest.signature = readFile(root + "/sig.b64");
+        while (!signedRequest.signature.empty() &&
+            (signedRequest.signature.back() == '\n' || signedRequest.signature.back() == '\r')) {
+            signedRequest.signature.pop_back();
+        }
+        auto tampered = signedRequest;
+        tampered.jobId = "JOB_SIGNED_TAMPERED";
+        tampered.version = "9.9.9";
+        bool rejectedTampered = false;
+        try {
+            OtaReply tamperedReply;
+            OtaStatus tamperedStatus;
+            signedService.execute(tampered, "GW_TEST", 1770000000000LL, &tamperedReply, &tamperedStatus, nullptr);
+        } catch (const std::exception& ex) {
+            rejectedTampered = std::string(ex.what()) == "ota signature verification failed";
+        }
+        require(rejectedTampered, "tampered signed descriptor must be rejected");
+        require(!std::ifstream((root + "/downloads/9.9.9.tar.gz").c_str()).good(),
+            "tampered job must be rejected before download");
+        OtaReply signedReply;
+        OtaStatus signedStatus;
+        signedService.execute(signedRequest, "GW_TEST", 1770000000000LL, &signedReply, &signedStatus, nullptr);
+        require(signedStatus.stage == "completed", "valid signed ota should complete");
+        std::cout << "ota signature verification passed" << std::endl;
+    }
+#endif
 
     std::cout << "ota_service_test passed" << std::endl;
     return 0;

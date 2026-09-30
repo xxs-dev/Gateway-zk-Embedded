@@ -174,7 +174,7 @@ void SqliteSampleWriter::writeSamples(const std::vector<PersistentPointSample>& 
             throw std::runtime_error(sqliteError(db));
         }
         for (const auto& sample : samples) {
-            if (g_sqlite3_bind_int(stmt.get(), 1, static_cast<int>(sample.index)) != kSqliteOk ||
+            if (g_sqlite3_bind_int64(stmt.get(), 1, static_cast<long long>(sample.index)) != kSqliteOk ||
                 g_sqlite3_bind_int64(stmt.get(), 2, static_cast<long long>(sample.ts)) != kSqliteOk ||
                 g_sqlite3_bind_double(stmt.get(), 3, sample.value) != kSqliteOk) {
                 throw std::runtime_error(sqliteError(db));
@@ -323,14 +323,8 @@ void SqliteSampleWriter::closeDatabase() {
 }
 
 void SqliteSampleWriter::unloadLibrary() {
-    if (libraryHandle_ == nullptr) {
-        return;
-    }
-#ifdef _WIN32
-    FreeLibrary(static_cast<HMODULE>(libraryHandle_));
-#else
-    dlclose(libraryHandle_);
-#endif
+    // The g_sqlite3_* function pointers are shared by every instance in this process; keep
+    // the module loaded until exit so another live writer never calls into unmapped code.
     libraryHandle_ = nullptr;
 }
 

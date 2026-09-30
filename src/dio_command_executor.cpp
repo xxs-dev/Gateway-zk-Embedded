@@ -97,8 +97,7 @@ void DioCommandExecutor::dispatchLocalDioWrite(
     const auto logicalHigh = value > 0.0;
     const auto gpioHigh = point.read.activeHigh ? logicalHigh : !logicalHigh;
     gpioPort_->exportGpio(point.read.gpio);
-    gpioPort_->setDirection(point.read.gpio, "out");
-    gpioPort_->writeValue(point.read.gpio, gpioHigh);
+    gpioPort_->setOutputDirection(point.read.gpio, gpioHigh);
 
     if (point.write.verifyAfterWrite && point.write.verifyByRead) {
         if (point.write.verifyDelayMs > 0) {

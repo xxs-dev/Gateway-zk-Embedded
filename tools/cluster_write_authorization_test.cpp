@@ -45,7 +45,16 @@ int main() {
         command.value = 0;
         require(!clusterAuthorizationValid(config, command, snapshot, auth.kernelBootId, 1500), "zero and priority do not bypass expiry");
         command.clusterAuthorization = NullOpt;
+        require(!clusterAuthorizationRequired(config, command), "untagged 0 kW safe-state write to a control target needs no authority");
+        config.allowZeroWriteWithoutAuthority = false;
+        require(clusterAuthorizationRequired(config, command), "legacy mode: protected zero needs metadata");
+        config.allowZeroWriteWithoutAuthority = true;
+        command.value = 18;
         require(clusterAuthorizationRequired(config, command), "protected graph output needs metadata");
+        command.value = 0;
+        command.index = 4321;
+        require(!clusterAuthorizationRequired(config, command), "an index outside the control scope stays on the ordinary ownership policy");
+        command.index = 1234;
         config.controlTargetIndexes.clear();
         require(clusterAuthorizationRequired(config, command), "empty control scope is all-stop, not all-allow");
         command.source = "mqtt-forwarder";

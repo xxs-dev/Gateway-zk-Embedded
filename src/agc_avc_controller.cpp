@@ -165,9 +165,14 @@ AgcAvcCycleOutput AgcAvcController::step(const AgcAvcCycleInput& input) {
         ? static_cast<double>(input.nowMs - input.command.issuedAtMs)
         : std::numeric_limits<double>::infinity();
 
-    const double dtSec = lastCycleMs_ > 0 && input.nowMs > lastCycleMs_
+    double dtSec = lastCycleMs_ > 0 && input.nowMs > lastCycleMs_
         ? static_cast<double>(input.nowMs - lastCycleMs_) / 1000.0
         : static_cast<double>(std::max(1, config_.cycleMs)) / 1000.0;
+    // A stalled cycle or a forward clock step must not turn into one unramped step.
+    if (config_.rateLimitMaxGapMs > 0) {
+        const auto maxGapMs = std::max(config_.rateLimitMaxGapMs, 2 * std::max(1, config_.cycleMs));
+        dtSec = std::min(dtSec, static_cast<double>(maxGapMs) / 1000.0);
+    }
     lastCycleMs_ = input.nowMs;
 
     const auto setZeroAssignments = [&](bool immediate) {

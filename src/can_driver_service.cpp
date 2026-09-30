@@ -555,7 +555,28 @@ std::size_t CanDriverService::processReceiveOnce(int timeoutMs) {
         if (!CanSignalCodec::frameMatches(frameId, extended, point.read.can)) {
             continue;
         }
-        const auto decoded = CanSignalCodec::decode(payload, point.read);
+        DecodedValue decoded;
+        try {
+            decoded = CanSignalCodec::decode(payload, point.read);
+        } catch (const std::exception& ex) {
+            // One malformed/short frame or bad signal must not stop decoding of
+            // the other signals (and must not stall the receive loop).
+            if (!runtimePoint.decodeErrorLogged) {
+                std::cerr << "CAN signal decode failed"
+                          << " pointCode=" << point.pointCode
+                          << " frameId=" << frameId
+                          << " payloadBytes=" << payload.size()
+                          << " error=" << ex.what()
+                          << std::endl;
+                runtimePoint.decodeErrorLogged = true;
+            }
+            DecodedValue failed;
+            failed.text = ex.what();
+            publishPointValue(runtimeDevices_[runtimePoint.deviceIndex], point, failed, ts, 0, ex.what());
+            runtimePoint.stalePublished = true;
+            continue;
+        }
+        runtimePoint.decodeErrorLogged = false;
         runtimePoint.lastSeenTs = ts;
         runtimePoint.stalePublished = false;
         publishPointValue(runtimeDevices_[runtimePoint.deviceIndex], point, decoded, ts);
@@ -705,13 +726,23 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
 std::size_t CanDriverService::flushPersistentOnce() {
     std::lock_guard<std::mutex> lock(persistentFlushMutex_);
     const auto immediateGeneration = store_.immediatePersistentGeneration();
-    const auto samples = store_.peekPersistentSamples();
-    sqliteWriter_.writeSamples(samples);
-    if (!samples.empty()) {
+    // Bounded batches (see GatewayDaemon::flushPersistentOnce).
+    const auto batchSize = std::max<std::size_t>(1, config_.memoryStore.persistFlushBatchSize);
+    std::size_t flushed = 0;
+    for (std::size_t batch = 0; batch < 64; ++batch) {
+        const auto samples = store_.peekPersistentSamples(batchSize);
+        if (samples.empty()) {
+            break;
+        }
+        sqliteWriter_.writeSamples(samples);
         store_.acknowledgePersistentSamples(samples.back().sequence);
+        flushed += samples.size();
+        if (samples.size() < batchSize) {
+            break;
+        }
     }
     flushedImmediatePersistentGeneration_.store(immediateGeneration, std::memory_order_release);
-    return samples.size();
+    return flushed;
 }
 
 void CanDriverService::flushImmediatePersistentSamples() {
@@ -790,7 +821,17 @@ void CanDriverService::runStartupWrites() {
 }
 
 bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) {
-    const auto encoded = CanSignalCodec::encode(value, point.write);
+    const auto frameKey = (static_cast<std::uint64_t>(CanSignalCodec::parseFrameId(point.write.can.frameId)) << 1) |
+        (point.write.can.extended ? 1U : 0U);
+    std::vector<std::uint8_t> basePayload;
+    if (config_.protocol.can.preserveFrameSignals) {
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        const auto shadow = writtenFramePayloads_.find(frameKey);
+        if (shadow != writtenFramePayloads_.end()) {
+            basePayload = shadow->second;
+        }
+    }
+    const auto encoded = CanSignalCodec::encode(value, point.write, basePayload, point.read.signedFlag);
 #ifndef _WIN32
     if (usesUdpTestTransport(config_.protocol.can)) {
         VirtualCanFrame frame;
@@ -821,6 +862,7 @@ bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) 
             ) != static_cast<ssize_t>(bytes.size())) {
             throw std::runtime_error("failed to send virtual CAN UDP datagram");
         }
+        writtenFramePayloads_[frameKey] = encoded.payload;
         return true;
     }
     if (!config_.protocol.can.fdEnabled && encoded.payload.size() > CAN_MAX_DLEN) {
@@ -836,6 +878,7 @@ bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) 
         if (write(socketFd_, &frame, sizeof(frame)) != CANFD_MTU) {
             throw std::runtime_error("failed to send CAN-FD frame");
         }
+        writtenFramePayloads_[frameKey] = encoded.payload;
     } else {
         can_frame frame{};
         frame.can_id = encoded.frameId | (encoded.extended ? CAN_EFF_FLAG : 0U);
@@ -847,6 +890,7 @@ bool CanDriverService::sendCanWrite(const PointDefinition& point, double value) 
         if (write(socketFd_, &frame, sizeof(frame)) != CAN_MTU) {
             throw std::runtime_error("failed to send CAN frame");
         }
+        writtenFramePayloads_[frameKey] = encoded.payload;
     }
 #else
     throw std::runtime_error("SocketCAN is not supported on Windows");
@@ -1027,7 +1071,9 @@ void CanDriverService::publishPointValue(
     const RuntimeDevice& device,
     const PointDefinition& point,
     const DecodedValue& decoded,
-    std::int64_t ts
+    std::int64_t ts,
+    int quality,
+    const std::string& qualityMsg
 ) {
     PointValue latest;
     latest.index = point.index;
@@ -1040,8 +1086,8 @@ void CanDriverService::publishPointValue(
     latest.value = decoded.value;
     latest.text = decoded.text;
     latest.rawHex = decoded.rawHex;
-    latest.quality = 1;
-    latest.qualityMsg = "ok";
+    latest.quality = quality;
+    latest.qualityMsg = qualityMsg;
     latest.ts = ts;
     latest.expireAt = ts + point.read.cachePolicy.ttlMs;
     latest.function = 0;

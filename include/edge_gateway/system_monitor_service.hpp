@@ -16,6 +16,29 @@
 
 namespace edge_gateway {
 
+// Safety helpers shared by the MQTT config channel and the direct maintenance API.
+namespace system_monitor_config_safety {
+
+constexpr const char* kRedactedSecret = "__REDACTED__";
+
+// Replaces non-empty JSON string values of secret keys (password, token, ...) with kRedactedSecret.
+std::string redactSecrets(const std::string& jsonText);
+// Replaces kRedactedSecret markers in `incoming` with the matching secret of `current`
+// (same key, same occurrence). Throws when a marker cannot be resolved.
+std::string restoreRedactedSecrets(const std::string& incoming, const std::string& current);
+// KY-EMS runtime files: only known asset/text extensions; JSON/XML content is checked.
+void validateKyEmsFile(const std::string& path, const std::string& content);
+// Remote config apply may never enable cameraService.allowCustomCommand or introduce/change
+// a cameras[].command compared with the app config currently on disk at `currentPath`.
+void rejectRemoteCameraCommandChange(const AppConfig& candidate, const std::string& currentPath);
+// Write via temp file + fsync + rename (+ directory fsync when `durable`).
+void writeFileAtomically(const std::string& path, const std::string& content, bool durable = true);
+// Keep only the newest `keep` "<path>.bak.<ts>" backups.
+void pruneBackups(const std::string& path, std::size_t keep);
+constexpr std::size_t kConfigBackupsToKeep = 10;
+
+}  // namespace system_monitor_config_safety
+
 enum class SustainedThresholdTransition {
     None,
     Triggered,

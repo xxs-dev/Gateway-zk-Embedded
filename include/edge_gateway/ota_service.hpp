@@ -41,6 +41,9 @@ public:
         OtaStatus* status,
         const std::function<void(const OtaStatus&)>& publishStatus
     ) const;
+    // Canonical "edge-ota-v1" descriptor covered by OtaRequest::signature
+    // (see doc/评审/OTA签名说明.md). machineCode is the target gateway.
+    static std::string signatureDescriptor(const OtaRequest& request, const std::string& machineCode);
 
 private:
     friend struct OtaServiceTestAccess;
@@ -49,8 +52,14 @@ private:
     std::string resolveArtifactSource(const OtaRequest& request) const;
     std::string buildMinioArtifactUrl(const OtaRequest& request) const;
     void ensureDirectory(const std::string& path) const;
-    void writeVersionMarker(const OtaRequest& request, const std::string& artifactPath) const;
-    void appendUpgradeRecord(const OtaRequest& request, const std::string& artifactPath, std::int64_t ts) const;
+    void writeVersionMarker(const OtaRequest& request, const std::string& artifactPath,
+                            const std::string& previousVersion) const;
+    void appendUpgradeRecord(const OtaRequest& request, const std::string& artifactPath,
+                             const std::string& previousVersion, std::int64_t ts) const;
+    std::string readInstalledVersion() const;
+    void ensureJobNotProcessed(const OtaRequest& request) const;
+    void ensureTransportAllowed(const std::string& source) const;
+    void verifySignature(const OtaRequest& request, const std::string& machineCode) const;
     void appendFailureRecord(
         const OtaRequest& request,
         const std::string& stage,

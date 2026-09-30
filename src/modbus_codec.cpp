@@ -329,6 +329,30 @@ WriteValidationResult ModbusCodec::validateWriteValue(
         }
     }
 
+    // Reject values the register type cannot represent instead of letting the
+    // integer cast wrap (e.g. 40000 on int16 would be written as -25536).
+    if (!std::isfinite(businessValue)) {
+        return {false, "value must be finite"};
+    }
+    const auto& type = point.write.dataType;
+    if (type != "bit" && type != "bool") {
+        if (std::abs(point.write.scale) < std::numeric_limits<double>::epsilon()) {
+            return {false, "write.scale must not be zero"};
+        }
+        const auto raw = (businessValue - point.write.offset) / point.write.scale;
+        const auto outside = [raw](double low, double high) {
+            return !std::isfinite(raw) || raw <= low - 0.5 || raw >= high + 0.5;
+        };
+        if ((type == "uint16" && outside(0.0, 65535.0)) ||
+            (type == "int16" && outside(-32768.0, 32767.0)) ||
+            (type == "uint32" && outside(0.0, 4294967295.0)) ||
+            (type == "int32" && outside(-2147483648.0, 2147483647.0)) ||
+            (type == "float32" && (!std::isfinite(raw) ||
+                std::abs(raw) > static_cast<double>(std::numeric_limits<float>::max())))) {
+            return {false, "value out of range for write.dataType " + type};
+        }
+    }
+
     return {true, "ok"};
 }
 

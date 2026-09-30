@@ -17,6 +17,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -390,7 +391,11 @@ void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
         return;
     }
 
-    QDialog dialog(this);
+    // Heap dialog + guards: if this control is destroyed while the dialog runs, exec()
+    // returns and nothing is written through a dangling object.
+    QPointer<PcsPhasePowerControl> self(this);
+    QPointer<QDialog> dialogGuard(new QDialog(this));
+    QDialog& dialog = *dialogGuard;
     dialog.setObjectName(QStringLiteral("pcsWriteConfirmDialog"));
     dialog.setWindowTitle(QString::fromUtf8("确认 PCS 三相功率写入"));
     dialog.setModal(true);
@@ -455,7 +460,10 @@ void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     layout->addWidget(buttons);
-    if (dialog.exec() != QDialog::Accepted) return;
+    const bool accepted = dialog.exec() == QDialog::Accepted;
+    if (!self) return;
+    delete dialogGuard.data();
+    if (!accepted) return;
     submitWrite(kind, plan);
 }
 

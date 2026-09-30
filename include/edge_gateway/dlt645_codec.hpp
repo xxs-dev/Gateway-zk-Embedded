@@ -38,6 +38,13 @@ public:
         const PointDefinition& point
     );
 
+    // Rejects a read response that is not a C=91H/B1H/D1H reply from the
+    // addressed meter (e.g. a late answer from another meter on the bus).
+    static void validateReadResponseAddress(
+        const std::vector<std::uint8_t>& frame,
+        const std::string& meterAddress
+    );
+
     static std::string normalizeAddress(const std::string& meterAddress);
     static std::vector<std::uint8_t> parseDataId(const std::string& dataIdHex);
     static std::vector<std::uint8_t> decodeFrameData(

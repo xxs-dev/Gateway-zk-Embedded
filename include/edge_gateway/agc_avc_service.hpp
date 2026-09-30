@@ -71,6 +71,9 @@ private:
         bool reactive = false;
         double target = 0.0;
         std::int64_t submittedAtMs = 0;
+        // Safe-state zero sent to an unavailable PCS: failures are retried but do not count
+        // towards maxConsecutiveWriteFailures, and no feedback is expected.
+        bool bestEffortZero = false;
     };
 
     struct PendingFeedbackObservation {

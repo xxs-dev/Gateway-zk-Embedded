@@ -70,6 +70,41 @@ int main() {
     require(encoded.payload.size() == 8, "encoded dlc should be 8");
     require(encoded.payload[2] == 0x00 && encoded.payload[3] == 0xC8, "uint16 big endian encode failed");
 
+    // Other signals of the same frame are preserved when a base payload is given.
+    const std::vector<std::uint8_t> shadow{0xAA, 0x55, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44};
+    const auto merged = CanSignalCodec::encode(100.0, writeSpec, shadow);
+    require(merged.payload[0] == 0xAA && merged.payload[1] == 0x55 && merged.payload[7] == 0x44,
+        "CAN write must preserve other signals from the base payload");
+    require(merged.payload[2] == 0x00 && merged.payload[3] == 0xC8, "CAN merged write encode failed");
+
+    bool rangeRejected = false;
+    try {
+        (void)CanSignalCodec::encode(70000.0, writeSpec);  // raw 140000 > 0xFFFF
+    } catch (const std::out_of_range&) {
+        rangeRejected = true;
+    }
+    require(rangeRejected, "CAN write outside the signal bit range must be rejected, not truncated");
+
+    // A uint16 signal flagged signed on the read side keeps accepting negative
+    // (two's complement) setpoints.
+    auto signedWrite = writeSpec;
+    signedWrite.scale = 1.0;
+    const auto negativeSetpoint = CanSignalCodec::encode(-100.0, signedWrite, std::vector<std::uint8_t>(), true);
+    require(negativeSetpoint.payload[2] == 0xFF && negativeSetpoint.payload[3] == 0x9C,
+        "signed CAN write must encode two's complement");
+
+    ReadSpec floatSignal;
+    floatSignal.dataType = "float32";
+    floatSignal.can.byteOffset = 0;
+    floatSignal.can.bitLength = 32;
+    bool nanRejected = false;
+    try {
+        (void)CanSignalCodec::decode(std::vector<std::uint8_t>{0x00, 0x00, 0xC0, 0x7F}, floatSignal);
+    } catch (const std::runtime_error&) {
+        nanRejected = true;
+    }
+    require(nanRejected, "CAN float32 NaN must not be published as a value");
+
     VirtualCanFrame virtualFrame;
     virtualFrame.frameId = 0x18FF50E5U;
     virtualFrame.extended = true;

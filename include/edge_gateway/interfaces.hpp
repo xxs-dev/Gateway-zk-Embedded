@@ -60,6 +60,12 @@ public:
     virtual void setDirection(int gpio, const std::string& direction) = 0;
     virtual bool readValue(int gpio) = 0;
     virtual void writeValue(int gpio, bool high) = 0;
+    // Configure gpio as an output that starts at initialHigh without an
+    // intermediate low pulse. Default: plain "out" followed by the value.
+    virtual void setOutputDirection(int gpio, bool initialHigh) {
+        setDirection(gpio, "out");
+        writeValue(gpio, initialHigh);
+    }
 };
 
 class IMqttPublisher {

@@ -206,9 +206,56 @@ void verifyHeartbeatExtendsLease() {
 
 }  // namespace
 
+void verifyWallClockStepDoesNotTrip() {
+    const auto root = std::string("/tmp/gateway-scada-safety-step-") + std::to_string(std::rand());
+    const auto project = root + "/project";
+    const auto lease = root + "/run/lease.json";
+    const std::string storeName = "gateway_scada_safety_step_test";
+    removeTree(root);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    makeDirectory(root);
+    createProject(project, storeName);
+    try {
+        edge_gateway::MemoryStoreConfig storeConfig;
+        storeConfig.sharedMemoryName = storeName;
+        storeConfig.maxLatestPoints = 16;
+        edge_gateway::MemoryPointStore store(storeConfig);
+        const auto device = deviceConfig(storeName);
+        store.registerDevicePoints({device});
+
+        edge_gateway::PointStoreRouter router;
+        router.addStore(storeName, store);
+        router.addRoutesFromDeviceConfigs({device}, storeName);
+
+        edge_gateway::SystemMonitorConfig::ScadaUpperComputerSafetyConfig config;
+        config.enabled = true;
+        config.projectDirectory = project;
+        config.leaseFile = lease;
+        config.reloadIntervalMs = 1000;
+        config.priorityControlLeaseFile = root + "/run/priority-control.json";
+        config.clockStepToleranceMs = 10000;
+        edge_gateway::ScadaUpperComputerSafetyMonitor monitor(config, "COMM202600999", router);
+
+        require(monitor.runOnce(1000).heartbeatFresh, "activation grace period should be fresh");
+        // Wall clock jumps 10 minutes forward while (almost) no monotonic time elapsed.
+        const auto stepped = monitor.runOnce(601000);
+        require(stepped.heartbeatFresh && !stepped.triggered, "a wall-clock step must re-arm, not trip, the offline action");
+        require(store.peekPendingWriteCommands().empty(), "clock step queued an offline safety action");
+        const auto expired = monitor.runOnce(602001);
+        require(expired.triggered, "a real outage after the re-armed grace period must still trip");
+    } catch (...) {
+        removeTree(root);
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+        throw;
+    }
+    removeTree(root);
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 int main() {
     try {
         verifyTimeoutTriggersExplicitActionOnce();
+        verifyWallClockStepDoesNotTrip();
         verifyHeartbeatExtendsLease();
         std::cout << "scada_upper_computer_safety_test passed" << std::endl;
         return 0;

@@ -362,6 +362,9 @@ struct OtaRequest {
     std::uint64_t size = 0;
     std::string upgradeMode;
     std::int64_t ts = 0;
+    // Base64 signature over the canonical descriptor documented in
+    // doc/评审/OTA签名说明.md (edge-ota-v1).
+    std::string signature;
 };
 
 struct OtaReply {
@@ -422,6 +425,10 @@ struct SerialTransportConfig {
     int frameIntervalMs = -1;
     int readRetryCount = 1;
     int wakeupBytes = 0;
+    // RS-485 transceiver echoes transmitted bytes back to RX. When true the
+    // Modbus RTU client discards the echo of its own request, so an FC05/FC06
+    // echo can never be mistaken for the slave's reply. Default false.
+    bool localEcho = false;
 };
 
 struct TcpTransportConfig {
@@ -449,6 +456,11 @@ struct CanProtocolConfig {
     int udpListenPort = 19011;
     std::string udpPeerAddress = "127.0.0.1";
     int udpPeerPort = 19012;
+    // When true, a write of one signal starts from the last payload written to
+    // the same frame so other signals keep their commanded values. Default
+    // false (legacy): every write starts from an all-zero payload, which never
+    // re-asserts one-shot bits (start/reset/clear-fault) of other signals.
+    bool preserveFrameSignals = false;
 };
 
 struct IecProtocolConfig {
@@ -467,6 +479,10 @@ struct IecProtocolConfig {
     int idleReadTimeoutMs = 50;
     int maxPollFrames = 64;
     bool pollOnCollect = true;
+    // Minimum spacing between IEC104 general interrogations sent by poll().
+    // 0 keeps the legacy behaviour (a GI on every collect poll); a GI is
+    // always sent after (re)connect.
+    int interrogationIntervalMs = 0;
     bool balanced = false;
     int t0Ms = 30000;
     int t1Ms = 15000;
@@ -618,6 +634,14 @@ struct MemoryStoreConfig {
     int persistFlushIntervalMs = 60000;
     int writebackIntervalMs = 500;
     std::size_t writebackBatchSize = 100;
+    // Queued writes older than this (by acceptedAt, else ts) are rejected with stage "expired"
+    // instead of being executed late, e.g. after a collector restart. 0 disables the check.
+    std::int64_t pendingWriteMaxAgeMs = 10000;
+    // Legacy: allow one point index in several shared memory segments (location-addressed
+    // routes only; index-only commands to such an index are rejected). Default: reject.
+    bool allowDuplicateIndexAcrossSegments = false;
+    // Upper bound for one point-history flush batch (peek/write/ack).
+    std::size_t persistFlushBatchSize = 1000;
 };
 
 struct PointHistoryConfig {
@@ -636,6 +660,12 @@ struct NorthboundServerConfig {
     int maxReadRegisters = 125;
     int maxReadBits = 2000;
     std::vector<std::string> allowedClientCidrs;
+    // Idle time allowed between requests on an open connection. A request, once
+    // its first byte arrived, must complete within requestTimeoutMs.
+    int idleTimeoutMs = 60000;
+    // Secure default: a wildcard bindHost (0.0.0.0 / :: / empty) without an
+    // allowedClientCidrs list is refused unless this is explicitly true.
+    bool allowUnrestrictedClients = false;
 };
 
 struct MemoryStoreStats {
@@ -727,6 +757,9 @@ struct MqttConfig {
     bool cleanSession = true;
     int keepAliveSec = 60;
     int connectTimeoutMs = 1000;
+    // Exponential reconnect backoff after a failed broker connect; 0 disables.
+    int reconnectBackoffMinMs = 1000;
+    int reconnectBackoffMaxMs = 30000;
     int sessionExpirySec = 0;
     MqttTlsConfig tls;
     bool offlineBufferEnabled = true;
@@ -749,6 +782,8 @@ struct MqttConfig {
     int eventOutboxCleanupIntervalHours = 24;
     std::size_t eventOutboxReplayBatchSize = 100;
     std::size_t eventOutboxMaxDiskBytes = 32 * 1024 * 1024;
+    // Filesystem reserve kept free by the legacy outbox writer (0 disables).
+    std::uint64_t eventOutboxMinFreeBytes = 8ULL * 1024 * 1024;
     std::size_t maxPayloadBytes = 163840;
 };
 
@@ -862,6 +897,17 @@ struct MqttDriverConfig {
     int commandRateMaxPerWindow = 20;
     int commandDedupTtlMs = 60000;
     int controlResultWaitTimeoutMs = 5000;
+    // Remote command ingress safety (secure defaults; each can be relaxed for
+    // legacy platforms). highPriority bypasses power-control ownership, so it
+    // must be explicitly allowed for MQTT.
+    bool allowRemoteHighPriority = false;
+    bool rejectRetainedCommands = true;
+    // Maximum |now - ts| for a command carrying ts; 0 disables the check.
+    int commandMaxSkewMs = 300000;
+    // When true, commands without a positive ts are rejected.
+    bool requireCommandTimestamp = false;
+    // AGC/AVC mailbox commands per commandRateWindowMs per meterCode; 0 = unlimited.
+    int mailboxRateLimitPerWindow = 1000;
     std::string healthFile;
     int healthPublishIntervalMs = 1000;
     std::size_t healthWindowCycles = 300;
@@ -899,6 +945,9 @@ struct EventEngineConfig {
     std::size_t updateDrainBatchSize = 4096;
     std::string publishMode = "direct_mqtt";
     std::string mqttClientIdSuffix = "event_engine";
+    // Legacy behaviour: evaluate alarms/changes on stale or bad-quality values. Default false
+    // (invalid measurements can neither raise nor clear an alarm).
+    bool evaluateInvalidValues = false;
 };
 
 struct ComputeInputConfig {
@@ -955,6 +1004,21 @@ struct ComputeEngineConfig {
     std::size_t maxRuleEvalPerScan = 1000;
     int badQuality = 0;
     std::int64_t defaultOutputTtlMs = 600000;
+    // Graph EMS internal outputs (power-setpoint chain) expire after
+    // max(graphOutputTtlMs, 3 x the rule's evaluation interval), so a node that stops updating
+    // (missing BMS/meter input, exception) can hold an old target for seconds, not 10 minutes.
+    // 0 = legacy behaviour (defaultOutputTtlMs).
+    std::int64_t graphOutputTtlMs = 5000;
+    // Legacy: republish restored power-setpoint / BMS-limit outputs from the graph state file.
+    bool graphRestoreSetpointOutputs = false;
+    // Inputs stamped further than this in the future (wall-clock stepped back) are treated as
+    // missing by graph and expression rules. <= 0 disables.
+    std::int64_t inputMaxFutureSkewMs = 1000;
+    // Upper bound for the time gap one graph rateLimit step may use (effective value is at least
+    // 2 x the rule interval). 0 = unbounded (legacy).
+    std::int64_t graphRateLimitMaxGapMs = 2000;
+    // Graph node errors count as failed cycles in the health file (used for cluster leadership).
+    bool graphNodeErrorsUnhealthy = true;
     std::size_t maxWritesPerScan = 100;
     std::string healthFile = "/opt/modbus-gateway/run/compute-engine-health.json";
     int healthPublishIntervalMs = 1000;
@@ -1140,6 +1204,14 @@ struct AgcAvcConfig {
     int resumeDelayMs = 2000;
     int writeResultTimeoutMs = 5000;
     int maxConsecutiveWriteFailures = 3;
+    // Keep commanding 0 kW/kvar to an enabled PCS that is unavailable (offline, stale SOC,
+    // not ready) instead of leaving its last setpoint active. false = legacy (stop writing).
+    bool zeroUnavailablePcs = true;
+    // Upper bound for the time gap one ramp step may use (effective >= 2 x cycleMs); <= 0 = unbounded.
+    int rateLimitMaxGapMs = 1000;
+    // Measurement samples stamped further than this in the future (clock stepped back) are
+    // treated as unusable; command mailbox points are exempt. <= 0 disables.
+    int inputMaxFutureSkewMs = 1000;
     std::string signConvention = "positiveDischarge";
     std::string reactiveSignConvention = "positiveInductive";
     std::string pqPriority = "activePowerFirst";
@@ -1191,6 +1263,10 @@ struct EmsClusterConfig {
     int capabilityTtlMs = 3000;
     int stationTargetTtlMs = 3000;
     bool zeroTargetOnLoss = true;
+    // A 0 kW/kvar write to a configured controlTargetIndexes entry never needs cluster authority,
+    // so a follower that lost its lease can still drive the PCS to the safe state. false = legacy
+    // (every graph-ems write to a control target requires a live authority).
+    bool allowZeroWriteWithoutAuthority = true;
     std::string virtualSharedMemoryName = "ems_cluster_store";
     std::uint32_t virtualPointBaseIndex = 724000;
     std::string factoryAddress = "192.168.3.250";
@@ -1227,6 +1303,12 @@ struct OtaConfig {
     std::string applyScript = "/opt/modbus-gateway/bin/ota-apply.sh";
     std::string rollbackScript = "/opt/modbus-gateway/bin/ota-rollback.sh";
     bool checksumRequired = true;
+    // Secure by default: every OTA job must carry a valid signature made with
+    // the key whose public half is at signaturePublicKeyPath.
+    bool requireSignature = true;
+    std::string signaturePublicKeyPath = "/etc/modbus-gateway/ota.pub";
+    // Plain http:// artifact sources are refused unless explicitly allowed.
+    bool allowInsecureHttp = false;
     bool autoReboot = true;
     int retentionCount = 3;
     int statusReportIntervalSec = 5;
@@ -1258,6 +1340,14 @@ struct SystemMonitorConfig {
         int reloadIntervalMs = 5000;
         std::string priorityControlLeaseFile;
         int priorityControlLeaseTtlMs = 30000;
+        // When non-empty, only MQTT monitor subscriptions whose sessionId starts
+        // with this prefix refresh the upper-computer heartbeat. Empty = legacy
+        // (any subscription refreshes it; see doc: set this in production).
+        std::string heartbeatSessionPrefix;
+        // A wall-clock step larger than this (compared with the monotonic clock)
+        // re-arms the offline grace period instead of tripping the offline
+        // safety action. 0 disables step detection (legacy).
+        int clockStepToleranceMs = 10000;
     };
 
     struct CellularConfig {
@@ -1275,14 +1365,13 @@ struct SystemMonitorConfig {
             "rmnet*",
             "wwp*"
         };
-        std::vector<std::string> modemDevicePatterns = {
-            "/dev/ttyUSB2",
-            "/dev/ttyUSB1",
-            "/dev/ttyUSB0",
-            "/dev/ttyUSB3",
-            "/dev/ttyUSB*",
-            "/dev/cdc-wdm*"
-        };
+        // AT probing opens, reconfigures and writes to each device. Secure
+        // default: no probing; configure the modem AT port explicitly
+        // (e.g. ["/dev/ttyUSB2"]). Legacy default was every /dev/ttyUSB*.
+        std::vector<std::string> modemDevicePatterns;
+        // Devices never probed (serial ports of configured field interfaces are
+        // appended automatically by SystemMonitor).
+        std::vector<std::string> excludedDevices;
     };
 
     struct DirectMaintenanceConfig {
@@ -1301,6 +1390,26 @@ struct SystemMonitorConfig {
         std::string scadaUpperComputerProjectDirectory = "/opt/modbus-gateway/scada/current";
         bool scadaUpperComputerSafetyEnabled = false;
         int maxRealtimePoints = 2000;
+        // Per-device credential (salted PBKDF2-HMAC-SHA256 of the client
+        // passwordSha256), provisioned with `SystemMonitor --set-maintenance-password`.
+        std::string credentialFile = "/opt/modbus-gateway/config/runtime/monitor-direct-maintenance-credential.json";
+        // Legacy: also accept the firmware-wide fixed password hash. Default false.
+        bool allowLegacyFixedPassword = false;
+        // Legacy: an empty allowedClientCidrs list accepts every client. Default false (refuse to start).
+        bool allowAnyClient = false;
+        // Sensitive endpoints additionally require authState.sensitiveApiEnabled=true.
+        bool requireSensitiveApiEnabled = true;
+        // Per-client-IP lockout after repeated authentication failures.
+        int maxAuthFailures = 5;
+        int authLockoutSec = 300;
+        // Request limits (legacy: 96 MiB, no overall deadline).
+        std::size_t maxRequestBytes = 16U * 1024U * 1024U;
+        std::size_t maxHeaderBytes = 16U * 1024U;
+        int requestTimeoutMs = 15000;
+        // When true, GET /api/v1/realtime/points refreshes the SCADA upper-computer
+        // heartbeat only with a valid X-Maintenance-Password-Sha256 header.
+        // Default false keeps the legacy unauthenticated heartbeat.
+        bool realtimeHeartbeatRequiresAuth = false;
     };
 
     struct RecordingTransferConfig {
@@ -1328,6 +1437,9 @@ struct SystemMonitorConfig {
     bool diagEnabled = true;
     std::size_t maxDiagOutputBytes = 16 * 1024;
     std::size_t configPullChunkBytes = 128 * 1024;
+    // Config pull replaces secret JSON string values (password, token, ...) with
+    // "__REDACTED__"; config apply restores them from the file on disk.
+    bool configPullRedactSecrets = true;
     std::string realtimeMeterLeaseFile = "/opt/modbus-gateway/run/realtime-meter-leases.json";
     std::vector<std::string> allowedCommands = {
         "uptime",
@@ -1524,6 +1636,10 @@ struct CameraServiceConfig {
     std::string sharedMemoryName = "gateway_point_store";
     std::string statusTopic = "edge/camera/status";
     std::string eventTopic = "edge/camera/event";
+    // cameras[].command runs through /bin/sh as the service user. Default false:
+    // a non-empty command is refused by CameraService, and remote config apply can
+    // never introduce or change one.
+    bool allowCustomCommand = false;
     CameraMediaConfig media;
     std::vector<CameraConfig> cameras;
 };

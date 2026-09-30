@@ -987,6 +987,44 @@ install_file_if_exists "$SOURCE_ROOT/config/generic-scada-widgets.json" "$GATEWA
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 
+# OTA signature trust anchor. Lives outside /opt/modbus-gateway so an OTA
+# package can never replace it.
+OTA_PUBKEY_TARGET="${OTA_PUBKEY_TARGET:-/etc/modbus-gateway/ota.pub}"
+install_ota_public_key() {
+  pubkey_src="${OTA_SIGNING_PUBKEY:-}"
+  if [ -z "$pubkey_src" ]; then
+    pubkey_src=$(pick_existing_file \
+      "${PACKAGE_ROOT:+$PACKAGE_ROOT/ota/ota.pub}" \
+      "${SOURCE_ROOT:+$SOURCE_ROOT/ota/ota.pub}" \
+      "$DEFAULT_SOURCE_ROOT/ota/ota.pub" || true)
+  fi
+  if [ -n "$pubkey_src" ]; then
+    [ -f "$pubkey_src" ] || { echo "OTA public key not found: $pubkey_src" >&2; exit 2; }
+    if grep -q 'PRIVATE KEY' "$pubkey_src" || ! grep -q -- '-----BEGIN PUBLIC KEY-----' "$pubkey_src"; then
+      echo "OTA public key is not a PEM public key: $pubkey_src" >&2
+      exit 2
+    fi
+    if [ -f "$OTA_PUBKEY_TARGET" ] && ! cmp -s "$pubkey_src" "$OTA_PUBKEY_TARGET"; then
+      echo "WARNING: replacing existing OTA public key $OTA_PUBKEY_TARGET" >&2
+    fi
+    mkdir -p "$(dirname "$OTA_PUBKEY_TARGET")"
+    install -m 0644 "$pubkey_src" "$OTA_PUBKEY_TARGET"
+    chown root:root "$OTA_PUBKEY_TARGET" 2>/dev/null || true
+    echo "ota signature public key installed: $OTA_PUBKEY_TARGET"
+  elif [ -f "$OTA_PUBKEY_TARGET" ]; then
+    echo "ota signature public key kept: $OTA_PUBKEY_TARGET"
+  else
+    echo "################################################################" >&2
+    echo "WARNING: no OTA signature public key installed ($OTA_PUBKEY_TARGET)." >&2
+    echo "WARNING: ota.requireSignature=true, so this gateway REJECTS ALL OTA jobs" >&2
+    echo "WARNING: until the key is provisioned (OTA_SIGNING_PUBKEY=/path/ota.pub)." >&2
+    echo "################################################################" >&2
+  fi
+}
+if [ "$INSTALL_SYSTEMD" = "1" ]; then
+  install_ota_public_key
+fi
+
 EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
 EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
 EXISTING_MQTT_BROKER=$(json_mqtt_value "$EXISTING_MQTT_FILE" "broker" || true)
@@ -1096,6 +1134,7 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   SYSTEMD_MANAGER_REEXEC_REQUIRED=0
   install_required_deploy_file "gateway-services.service" "/etc/systemd/system/gateway-services.service"
   install_required_deploy_file "gateway-health-watchdog.service" "/etc/systemd/system/gateway-health-watchdog.service"
+  install_deploy_file_if_exists "gateway-ota-recover.service" "/etc/systemd/system/gateway-ota-recover.service"
   if [ ! -f /etc/default/gateway-health-watchdog ]; then
     install_required_deploy_file "gateway-health-watchdog.default" "/etc/default/gateway-health-watchdog"
   fi
@@ -1132,6 +1171,9 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   fi
   systemctl enable gateway-services.service >/dev/null 2>&1 || true
   systemctl enable gateway-health-watchdog.service >/dev/null 2>&1 || true
+  if [ -f /etc/systemd/system/gateway-ota-recover.service ]; then
+    systemctl enable gateway-ota-recover.service >/dev/null 2>&1 || true
+  fi
 fi
 
 if [ "$START_SERVICES" = "1" ] && [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then

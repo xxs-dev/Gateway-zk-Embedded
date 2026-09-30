@@ -89,7 +89,7 @@ std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(const 
     std::string lastError = "unknown";
     for (int attempt = 1; attempt <= 10; ++attempt) {
         try {
-            return std::unique_ptr<edge_gateway::MqttEventOutbox>(new edge_gateway::MqttEventOutbox(
+            std::unique_ptr<edge_gateway::MqttEventOutbox> outbox(new edge_gateway::MqttEventOutbox(
                 config.eventOutboxSqlitePath,
                 config.eventOutboxSqliteLibraryPath,
                 config.eventOutboxRetentionMonths,
@@ -100,6 +100,8 @@ std::unique_ptr<edge_gateway::MqttEventOutbox> createEventOutboxWithRetry(const 
                 edge_gateway::MqttEventOutbox::AccessMode::ReadWrite,
                 config.eventOutboxRetentionDays
             ));
+            outbox->setMinFreeBytes(config.eventOutboxMinFreeBytes);
+            return outbox;
         } catch (const std::exception& ex) {
             lastError = ex.what();
             std::cerr << "event engine outbox open retry"

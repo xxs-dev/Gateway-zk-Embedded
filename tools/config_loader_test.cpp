@@ -334,6 +334,8 @@ void verifyNorthboundConfig() {
     require(config.northboundServer.bindHost == "127.0.0.1", "northbound bind host should parse");
     require(config.northboundServer.port == 1502, "northbound port should parse");
     require(config.northboundServer.allowedClientCidrs.size() == 1, "northbound cidr list should parse");
+    require(!config.northboundServer.allowUnrestrictedClients, "northbound unrestricted clients must default to false");
+    require(config.northboundServer.idleTimeoutMs == 60000, "northbound idleTimeoutMs should default to 60000");
     require(config.points.size() == 1, "northbound point should parse");
     require(config.points.front().northbound.enabled, "northbound mapping should parse");
     require(config.points.front().northbound.readFunction == 4, "northbound area should infer function 4");
@@ -1711,6 +1713,79 @@ void verifyEventStoreBackendConfig() {
 
 }  // namespace
 
+void verifyMonitorDisplaySafetyConfig() {
+    using namespace edge_gateway;
+    const auto loadApp = [](const std::string& json) {
+        const auto path = tempPath();
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        output << json;
+        output.close();
+        try {
+            auto config = ConfigLoader::loadAppConfigFromFile(path);
+            std::remove(path.c_str());
+            return config;
+        } catch (...) {
+            std::remove(path.c_str());
+            throw;
+        }
+    };
+    const auto throws = [&](const std::string& json) {
+        try {
+            (void)loadApp(json);
+        } catch (const std::exception&) {
+            return true;
+        }
+        return false;
+    };
+
+    bool deepRejected = false;
+    try {
+        (void)ConfigLoader::loadFromText(std::string(200000, '['));
+    } catch (const std::exception&) {
+        deepRejected = true;
+    }
+    require(deepRejected, "deeply nested device config JSON must be rejected");
+    require(throws(std::string(200000, '[')), "deeply nested app config JSON must be rejected");
+
+    const SystemMonitorConfig defaults;
+    require(defaults.cellular.modemDevicePatterns.empty(), "AT modem probing must be opt-in by default");
+    require(!defaults.directMaintenance.allowLegacyFixedPassword, "legacy maintenance password must be off by default");
+    require(!defaults.directMaintenance.allowAnyClient, "maintenance must require a client allowlist by default");
+    require(defaults.directMaintenance.requireSensitiveApiEnabled, "sensitive maintenance API must require pairing");
+    require(defaults.configPullRedactSecrets, "config pull must redact secrets by default");
+    require(!CameraServiceConfig().allowCustomCommand, "camera custom commands must be off by default");
+
+    const auto app = loadApp(R"({
+        "systemMonitor": {
+            "maxDiagOutputBytes": 0,
+            "minIntervalMs": 0,
+            "scadaUpperComputerSafety": {"heartbeatSessionPrefix": "scada-upper:", "clockStepToleranceMs": 5000},
+            "cellular": {"modemDevicePatterns": ["/dev/ttyUSB2"], "excludedDevices": ["/dev/ttyUSB0"]},
+            "directMaintenance": {"enabled": true, "credentialFile": "/tmp/cred.json", "maxAuthFailures": 3,
+                                   "allowAnyClient": true, "realtimeHeartbeatRequiresAuth": true}
+        },
+        "cameraService": {"allowCustomCommand": true, "cameras": [{"cameraCode": "C1", "command": "ffmpeg"}]}
+    })");
+    require(app.systemMonitor.maxDiagOutputBytes == 256U, "maxDiagOutputBytes=0 must stay bounded");
+    require(app.systemMonitor.minIntervalMs == 50, "minIntervalMs must be bounded");
+    require(app.systemMonitor.scadaUpperComputerSafety.heartbeatSessionPrefix == "scada-upper:", "heartbeat prefix should parse");
+    require(app.systemMonitor.scadaUpperComputerSafety.clockStepToleranceMs == 5000, "clock step tolerance should parse");
+    require(app.systemMonitor.cellular.modemDevicePatterns.size() == 1, "explicit modem device should parse");
+    require(app.systemMonitor.cellular.excludedDevices.size() == 1, "excluded devices should parse");
+    require(app.systemMonitor.directMaintenance.credentialFile == "/tmp/cred.json", "credential file should parse");
+    require(app.systemMonitor.directMaintenance.maxAuthFailures == 3, "maxAuthFailures should parse");
+    require(app.systemMonitor.directMaintenance.allowAnyClient, "allowAnyClient should parse");
+    require(app.systemMonitor.directMaintenance.realtimeHeartbeatRequiresAuth, "realtimeHeartbeatRequiresAuth should parse");
+    require(app.cameraService.allowCustomCommand, "allowCustomCommand should parse");
+
+    require(throws(R"({"cameraService": {"cameras": [{"cameraCode": "C1"}, {"cameraCode": "C1"}]}})"),
+            "duplicate cameraCode must be rejected");
+    require(throws(R"({"systemMonitor": {"directMaintenance": {"listenPort": 70000}}})"),
+            "out-of-range maintenance listenPort must be rejected");
+    require(throws(R"({"systemMonitor": {"defaultIntervalMs": 1e20}})"),
+            "out-of-range integer config values must be rejected");
+}
+
 int main() {
     using namespace edge_gateway;
 
@@ -1794,6 +1869,7 @@ int main() {
     verifyEmsClusterProductionSafetyValidation();
     verifyMqttForwardDefaultsAndValidation();
     verifyEventStoreBackendConfig();
+    verifyMonitorDisplaySafetyConfig();
 
     std::cout << "config_loader_test passed" << std::endl;
     return 0;
