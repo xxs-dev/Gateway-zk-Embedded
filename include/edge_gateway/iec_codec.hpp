@@ -23,6 +23,8 @@ struct IecDataValue {
     bool negative = false;
     // COT T bit (0x80): test transmission.
     bool test = false;
+    // VTI T bit on step-position information objects (types 5/6/32).
+    bool transient = false;
     // 1 = good; 0 = the device flagged the value invalid / not topical
     // (IV/NT bits of SIQ/DIQ/QDS).
     int quality = 1;

@@ -22,6 +22,50 @@ void requireNear(double actual, double expected, const std::string& message) {
     }
 }
 
+void verifyStepPositionAsdus(const edge_gateway::IecProtocolConfig& config) {
+    using edge_gateway::IecCodec;
+    const std::vector<std::uint8_t> untimed = {
+        5, 0x82, 3, 0, 1, 0, 1, 0, 0,
+        0xC0, 0x80, 0x3F, 0x00
+    };
+    const auto steps = IecCodec::decodeAsdu(untimed, config);
+    requireTrue(steps.values.size() == 2, "IEC104 step payload must be two bytes per object");
+    requireNear(steps.values[0].value, -64.0, "IEC104 signed seven-bit negative step");
+    requireTrue(steps.values[0].transient && steps.values[0].quality == 0,
+                "IEC104 VTI transient and QDS IV must decode independently");
+    requireNear(steps.values[1].value, 63.0, "IEC104 positive step");
+    requireTrue(!steps.values[1].transient && steps.values[1].quality == 1,
+                "IEC104 good step quality must remain good");
+
+    const std::vector<std::uint8_t> cp24 = {
+        6, 1, 3, 0, 1, 0, 2, 0, 0,
+        0x7F, 0x40, 0, 0, 0
+    };
+    const auto timedShort = IecCodec::decodeAsdu(cp24, config);
+    requireTrue(timedShort.values.size() == 1, "IEC104 CP24 step payload length");
+    requireNear(timedShort.values[0].value, -1.0, "IEC104 CP24 negative step");
+    requireTrue(timedShort.values[0].quality == 0 && !timedShort.values[0].transient,
+                "IEC104 CP24 QDS NT must propagate");
+
+    const std::vector<std::uint8_t> cp56 = {
+        32, 1, 3, 0, 1, 0, 3, 0, 0,
+        0xBF, 0x00, 0, 0, 0, 0, 1, 1, 26
+    };
+    const auto timedLong = IecCodec::decodeAsdu(cp56, config);
+    requireTrue(timedLong.values.size() == 1, "IEC104 CP56 step payload length");
+    requireNear(timedLong.values[0].value, 63.0, "IEC104 CP56 positive step");
+    requireTrue(timedLong.values[0].transient && timedLong.values[0].quality == 1,
+                "IEC104 CP56 transient must not replace good QDS");
+
+    for (auto frame : {untimed, cp24, cp56}) {
+        frame.pop_back();
+        bool rejected = false;
+        try { (void)IecCodec::decodeAsdu(frame, config); }
+        catch (const std::runtime_error&) { rejected = true; }
+        requireTrue(rejected, "truncated IEC104 step object must be rejected");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -32,6 +76,7 @@ int main() {
     config.caSize = 2;
     config.ioaSize = 3;
     config.commonAddress = 1;
+    verifyStepPositionAsdus(config);
 
     const std::vector<std::uint8_t> asdu = {
         13, 1,

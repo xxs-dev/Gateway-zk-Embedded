@@ -113,11 +113,47 @@ void verifyIncrementalPollKeepsOtherClassValue() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+class InvalidStepClient final : public edge_gateway::IecClient {
+public:
+    std::vector<edge_gateway::IecDataValue> poll() override {
+        auto step = value(5, 141, -1.0);
+        step.quality = 0;
+        step.qualityMsg = "IEC quality descriptor IV (invalid)";
+        return {step};
+    }
+};
+
+void verifyStepQualityPropagatesToStore() {
+    const std::string storeName = "gateway_iec_step_quality_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        edge_gateway::DeviceConfig config;
+        config.machineCode = "GW_IEC_STEP_TEST";
+        config.meterCode = "IEC_STEP_TEST";
+        config.protocol.type = "iec104";
+        config.memoryStore.sharedMemoryName = storeName;
+        config.memoryStore.maxLatestPoints = 8;
+        config.memoryStore.maxPendingWrites = 4;
+        config.memoryStore.maxPersistentSamples = 4;
+        config.memoryStore.sqlitePath.clear();
+        config.points = {point(433003, "step_141", 5, 141)};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<InvalidStepClient>();
+        edge_gateway::IecCollector collector(config, store, client);
+        const auto collected = collector.collectOnce(1000);
+        const auto stored = store.getLatestByIndex(433003, 1000);
+        require(collected.values.size() == 1 && stored && stored->value == -1.0 && stored->quality == 0,
+                "IEC step value and IV quality must reach point storage together");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
     try {
         verifyIncrementalPollKeepsOtherClassValue();
+        verifyStepQualityPropagatesToStore();
         std::cout << "IEC collector incremental response test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

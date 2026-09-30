@@ -59,8 +59,8 @@ std::size_t typePayloadSize(int typeId) {
         case 2: return 4;   // M_SP_TA_1
         case 3: return 1;   // M_DP_NA_1
         case 4: return 4;   // M_DP_TA_1
-        case 5: return 3;   // M_ST_NA_1
-        case 6: return 6;   // M_ST_TA_1
+        case 5: return 2;   // M_ST_NA_1: VTI + QDS
+        case 6: return 5;   // M_ST_TA_1: VTI + QDS + CP24Time2a
         case 7: return 5;   // M_BO_NA_1
         case 8: return 8;   // M_BO_TA_1
         case 9: return 3;   // M_ME_NA_1
@@ -78,7 +78,7 @@ std::size_t typePayloadSize(int typeId) {
         case 21: return 2;  // M_ME_ND_1
         case 30: return 8;  // M_SP_TB_1
         case 31: return 8;  // M_DP_TB_1
-        case 32: return 10; // M_ST_TB_1
+        case 32: return 9;  // M_ST_TB_1: VTI + QDS + CP56Time2a
         case 33: return 12; // M_BO_TB_1
         case 34: return 10; // M_ME_TD_1
         case 35: return 10; // M_ME_TE_1
@@ -366,10 +366,16 @@ IecDataValue decodeInformationObject(
             break;
         case 5:
         case 6:
-        case 32:
-            value.value = static_cast<double>(readInt16Le(bytes, payloadOffset));
+        case 32: {
+            const auto vti = bytes[payloadOffset];
+            int step = vti & 0x7FU;
+            if ((step & 0x40) != 0) step -= 0x80;
+            value.value = static_cast<double>(step);
             value.text = std::to_string(value.value);
+            value.transient = (vti & 0x80U) != 0;
+            applyQualityBits(value, bytes[payloadOffset + 1], false);
             break;
+        }
         case 7:
         case 8:
         case 33:
@@ -1216,6 +1222,7 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     offset += static_cast<std::size_t>(config.caSize);
 
     const auto payloadSize = typePayloadSize(result.typeId);
+    const bool stepPosition = result.typeId == 5 || result.typeId == 6 || result.typeId == 32;
     if (isParameterType(result.typeId)) {
         for (int i = 0; i < count; ++i) {
             if (offset + static_cast<std::size_t>(config.ioaSize) > asdu.size()) {
@@ -1269,6 +1276,7 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
         offset += static_cast<std::size_t>(config.ioaSize);
         for (int i = 0; i < count; ++i) {
             if (offset + payloadSize > asdu.size()) {
+                if (stepPosition) throw std::runtime_error("IEC step-position object is truncated");
                 break;
             }
             if (isProtectionType(result.typeId)) {
@@ -1281,6 +1289,7 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     } else {
         for (int i = 0; i < count; ++i) {
             if (offset + static_cast<std::size_t>(config.ioaSize) + payloadSize > asdu.size()) {
+                if (stepPosition) throw std::runtime_error("IEC step-position object is truncated");
                 break;
             }
             const int ioa = readLe(asdu, offset, config.ioaSize);
