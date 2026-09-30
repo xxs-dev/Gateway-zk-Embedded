@@ -94,6 +94,15 @@ assert value["status"] == "failed", value
 assert value["rollback"] == "succeeded", value
 assert value["jobId"] == "FAIL_JOB", value
 PY
+python3 - "$ROOT/staging/rollback_FAIL_JOB_proof.txt" "$ROOT/staging/FAIL_JOB/health_pending.txt" <<'PY'
+import sys
+with open(sys.argv[1], encoding="ascii") as source:
+    proof = source.read()
+with open(sys.argv[2], encoding="ascii") as source:
+    pending = dict(line.rstrip("\n").split("=", 1) for line in source)
+assert proof == (f"jobId=FAIL_JOB\nversion=health-test\ntoken={pending['token']}\n"
+                 "status=succeeded\n"), proof
+PY
 test "$(cat "$INSTALL/config/ota-health-test.txt")" = old
 test "$(cat "$ROOT/staging/applied_version.txt")" = old
 test "$(sed -n 's/^version=//p' "$ROOT/staging/current_version.txt")" = old

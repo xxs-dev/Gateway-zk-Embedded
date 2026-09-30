@@ -71,7 +71,8 @@ private:
         bool rollbackSucceeded,
         std::int64_t ts
     ) const;
-    bool tryRollback(const OtaRequest& request, const std::string& artifactPath) const;
+    bool tryRollback(const OtaRequest& request, const std::string& artifactPath,
+                     const std::string& token) const;
     void cleanupOldArtifacts(const std::string& keepFileName) const;
     std::string statusJournalPath() const;
     void appendPendingStatus(OtaStatus& status) const;

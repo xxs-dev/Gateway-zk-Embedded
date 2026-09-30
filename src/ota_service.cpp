@@ -1142,7 +1142,8 @@ OtaHealthResult decodeHealthResult(const std::string& bytes, const PendingOtaJob
     if (result.ts <= 0 ||
         !((result.status == "healthy" && result.rollback == "none") ||
           (result.status == "failed" &&
-           (result.rollback == "succeeded" || result.rollback == "failed" || result.rollback == "skipped"))))
+           (result.rollback == "succeeded" || result.rollback == "failed" ||
+            result.rollback == "skipped" || result.rollback == "unchanged"))))
         throw std::runtime_error("invalid OTA health terminal result");
     return result;
 }
@@ -1186,6 +1187,17 @@ void OtaService::ensureNoUnresolvedJob() const {
             throw std::runtime_error("invalid OTA job intent path");
         if (!hasValidFinal(config_.stagingDir, job))
             throw std::runtime_error("previous OTA job has no verified terminal result");
+        const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
+        const auto final = readPendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"));
+        if (final == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=completed\n" &&
+            !pathExists(healthPath)) continue;
+        if (fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096)
+            throw std::runtime_error("previous OTA job has no verified safe result");
+        const auto health = decodeHealthResult(readPendingJournal(healthPath), job);
+        if ((final.find("status=completed\n") != std::string::npos) != (health.status == "healthy"))
+            throw std::runtime_error("OTA terminal status conflicts with health result");
+        if (health.status == "failed" && health.rollback != "succeeded" && health.rollback != "unchanged")
+            throw std::runtime_error("previous OTA rollback is unresolved");
     }
 }
 
@@ -1217,7 +1229,8 @@ void OtaService::reconcilePendingJobs() const {
         terminal.stage = health.status == "healthy" ? "completed" : "failed";
         terminal.progress = health.status == "healthy" ? 100 : 0;
         terminal.message = health.status == "healthy" ? "upgrade completed after health verification" :
-            "restart or health check failed; rollback " + health.rollback;
+            health.rollback == "unchanged" ? "OTA rejected before runtime change" :
+            "OTA failed; rollback " + health.rollback;
         terminal.ts = health.ts;
         terminal.occurrenceId = job.token;
         const auto historyPath = joinPath(config_.stagingDir, "upgrade_history.log");
@@ -1238,7 +1251,8 @@ void OtaService::reconcilePendingJobs() const {
                 appendUpgradeRecord(request, job.artifactPath, job.previousVersion, health.ts);
         } else if (!recorded("failure")) {
             appendFailureRecord(request, "health", terminal.message,
-                                health.rollback != "skipped", health.rollback == "succeeded", health.ts);
+                health.rollback == "succeeded" || health.rollback == "failed",
+                health.rollback == "succeeded", health.ts);
         }
         appendPendingStatus(terminal);
         replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"),
@@ -1266,7 +1280,8 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
                 status.stage = health.status == "healthy" ? "completed" : "failed";
                 status.progress = health.status == "healthy" ? 100 : 0;
                 status.message = health.status == "healthy" ? "upgrade completed after health verification" :
-                    "restart or health check failed; rollback " + health.rollback;
+                    health.rollback == "unchanged" ? "OTA rejected before runtime change" :
+                    "OTA failed; rollback " + health.rollback;
                 status.ts = health.ts;
             } else {
                 const auto final = readPendingJournal(joinPath(config_.stagingDir,
@@ -1348,6 +1363,8 @@ void OtaService::execute(
     const auto artifactPath = resolveArtifactPath(request);
     const auto previousVersion = readInstalledVersion();
     const auto startedAt = currentTimeMs();
+    bool intentPersisted = false;
+    std::string ownToken;
     try {
         // The signed descriptor binds jobId/machineCode/version/sha256/size, so it
         // is checked before anything is downloaded; the sha256 check below then
@@ -1372,26 +1389,116 @@ void OtaService::execute(
 
         const PendingOtaJob pending{request.jobId, machineCode, request.version, artifactPath,
                                     previousVersion, newStatusOccurrence()};
+        ownToken = pending.token;
         {
             PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+            ensureJobNotProcessed(request);
             ensureNoUnresolvedJob();
+            replacePendingJournal(pendingJobPath(config_.stagingDir, request.jobId), encodePendingJob(pending));
+            intentPersisted = true;
             replacePendingJournal(joinPath(config_.stagingDir, "ota_active_job.txt"),
                 "jobId=" + pending.jobId + "\ntoken=" + pending.token + "\n");
-            replacePendingJournal(pendingJobPath(config_.stagingDir, request.jobId), encodePendingJob(pending));
         }
         reportStage(status, "applying", 100, "running apply script", currentTimeMs(), publishStatus);
         runScript(config_.applyScript, request, artifactPath, pending.token);
     } catch (const std::exception& ex) {
         const auto failedStage = status->stage.empty() ? std::string("unknown") : status->stage;
         bool rollbackAttempted = false;
+        bool rollbackProcessSucceeded = false;
         bool rollbackSucceeded = false;
-        if (status->stage == "applying") {
-            rollbackAttempted = true;
-            reportStage(status, "rollback", 100, "running rollback script", currentTimeMs(), publishStatus);
-            rollbackSucceeded = tryRollback(request, artifactPath);
+        bool finalized = false;
+        bool safeEvidence = false;
+        bool needRollback = false;
+        try {
+            if (intentPersisted) {
+                {
+                    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+                    const auto pending = decodePendingJob(readPendingJournal(
+                        pendingJobPath(config_.stagingDir, request.jobId)));
+                    if (pending.jobId == request.jobId && pending.version == request.version &&
+                        pending.machineCode == machineCode && pending.token == ownToken &&
+                        isActiveJob(config_.stagingDir, pending)) {
+                        const auto healthPath = joinPath(config_.stagingDir, "health_" + request.jobId + ".txt");
+                        if (pathExists(healthPath)) {
+                            const auto health = decodeHealthResult(readPendingJournal(healthPath), pending);
+                            rollbackSucceeded = health.status == "failed" && health.rollback == "succeeded";
+                            safeEvidence = health.status == "failed" &&
+                                (health.rollback == "unchanged" || health.rollback == "succeeded");
+                        } else {
+                            const auto appliedJobs = readPendingJournal(joinPath(config_.stagingDir, "applied_jobs.txt"));
+                            const auto burned = ("\n" + appliedJobs).find("\n" + request.jobId + "\n") != std::string::npos;
+                            const auto proofPath = joinPath(config_.stagingDir, "rollback_" + request.jobId + "_proof.txt");
+                            const auto expectedProof = "jobId=" + request.jobId + "\nversion=" + request.version +
+                                "\ntoken=" + ownToken + "\nstatus=succeeded\n";
+                            const auto proof = readPendingJournal(proofPath);
+                            const auto inProgress = readPendingJournal(joinPath(config_.stagingDir, "ota-in-progress"));
+                            const auto ownsInProgress = inProgress.find("jobId=" + request.jobId + "\n") == 0 &&
+                                inProgress.find("version=" + request.version + "\n") != std::string::npos &&
+                                inProgress.find("stagingDir=" + config_.stagingDir + "\n") != std::string::npos;
+                            if (burned && proof == expectedProof &&
+                                !pathExists(joinPath(config_.stagingDir, "ota-in-progress"))) {
+                                rollbackSucceeded = true;
+                            } else if (burned && ownsInProgress && !pathExists(proofPath) &&
+                                       !pathExists(joinPath(joinPath(config_.stagingDir, request.jobId),
+                                                            "health_pending.txt")) &&
+                                       !pathExists(joinPath(config_.stagingDir, "rollback_" + request.jobId + ".txt"))) {
+                                needRollback = true;
+                            }
+                        }
+                    }
+                }
+                if (needRollback) {
+                    rollbackAttempted = true;
+                    rollbackProcessSucceeded = tryRollback(request, artifactPath, ownToken);
+                }
+                if (rollbackSucceeded || rollbackProcessSucceeded) {
+                    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+                    const auto pending = decodePendingJob(readPendingJournal(
+                        pendingJobPath(config_.stagingDir, request.jobId)));
+                    const auto proof = readPendingJournal(joinPath(config_.stagingDir,
+                        "rollback_" + request.jobId + "_proof.txt"));
+                    if (pending.jobId == request.jobId && pending.version == request.version &&
+                        pending.machineCode == machineCode && pending.token == ownToken &&
+                        isActiveJob(config_.stagingDir, pending) &&
+                        proof == "jobId=" + request.jobId + "\nversion=" + request.version +
+                                 "\ntoken=" + ownToken + "\nstatus=succeeded\n" &&
+                        !pathExists(joinPath(config_.stagingDir, "ota-in-progress")) &&
+                        !pathExists(joinPath(config_.stagingDir, "health_" + request.jobId + ".txt"))) {
+                        rollbackSucceeded = true;
+                        replacePendingJournal(joinPath(config_.stagingDir, "health_" + request.jobId + ".txt"),
+                            "{\"format\":\"ota-health-v1\",\"jobId\":" + pendingJsonString(pending.jobId) +
+                            ",\"version\":" + pendingJsonString(pending.version) +
+                            ",\"token\":" + pendingJsonString(pending.token) +
+                            ",\"status\":\"failed\",\"rollback\":\"succeeded\",\"ts\":\"" +
+                            std::to_string(currentTimeMs()) + "\"}\n");
+                        safeEvidence = true;
+                    }
+                }
+                if (safeEvidence) reconcilePendingJobs();
+                PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+                const auto pending = decodePendingJob(readPendingJournal(
+                    pendingJobPath(config_.stagingDir, request.jobId)));
+                if (pending.jobId == request.jobId && pending.version == request.version &&
+                    pending.machineCode == machineCode && pending.token == ownToken &&
+                    isActiveJob(config_.stagingDir, pending) && hasValidFinal(config_.stagingDir, pending)) {
+                    const auto health = decodeHealthResult(readPendingJournal(
+                        joinPath(config_.stagingDir, "health_" + request.jobId + ".txt")), pending);
+                    finalized = health.status == "failed" &&
+                        (health.rollback == "unchanged" || health.rollback == "succeeded");
+                }
+            }
+        } catch (const std::exception&) {
+            // Uncertain or damaged evidence keeps the intent unresolved.
         }
-        appendFailureRecord(request, failedStage, ex.what(), rollbackAttempted, rollbackSucceeded, currentTimeMs());
-        reportStage(status, "failed", 0, ex.what(), currentTimeMs(), publishStatus);
+        if (finalized) {
+            status->stage = "failed";
+            status->progress = 0;
+            status->message = ex.what();
+            status->ts = currentTimeMs();
+        } else {
+            appendFailureRecord(request, failedStage, ex.what(), rollbackAttempted, rollbackSucceeded, currentTimeMs());
+            reportStage(status, "failed", 0, ex.what(), currentTimeMs(), publishStatus);
+        }
         throw;
     }
 
@@ -1567,7 +1674,8 @@ void OtaService::ensureJobNotProcessed(const OtaRequest& request) const {
     // Job IDs are single-use once the apply stage has started: re-applying the
     // same job would overwrite its rollback backup with the new files.
     struct stat info {};
-    if (stat(joinPath(config_.backupDir, request.jobId).c_str(), &info) == 0 ||
+    if (stat(pendingJobPath(config_.stagingDir, request.jobId).c_str(), &info) == 0 ||
+        stat(joinPath(config_.backupDir, request.jobId).c_str(), &info) == 0 ||
         stat(joinPath(config_.stagingDir, request.jobId).c_str(), &info) == 0) {
         throw std::runtime_error("ota jobId already processed");
     }
@@ -1695,11 +1803,12 @@ void OtaService::appendFailureRecord(
            << "\n";
 }
 
-bool OtaService::tryRollback(const OtaRequest& request, const std::string& artifactPath) const {
+bool OtaService::tryRollback(const OtaRequest& request, const std::string& artifactPath,
+                             const std::string& token) const {
     if (config_.rollbackScript.empty()) {
         return false;
     }
-    const auto rollbackCommand = buildScriptCommand(config_.rollbackScript, request, artifactPath);
+    const auto rollbackCommand = buildScriptCommand(config_.rollbackScript, request, artifactPath, token);
     return commandStatusSucceeded(runShellCommandWithTimeout(rollbackCommand, config_.upgradeTimeoutSec));
 }
 

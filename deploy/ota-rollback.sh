@@ -58,6 +58,7 @@ VERSION="${2:-}"
 JOB_ID="${3:-}"
 BACKUP_DIR="${4:-}"
 STAGING_DIR="${5:-}"
+OTA_JOB_TOKEN="${6:-}"
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
 
@@ -150,6 +151,7 @@ safe_service_name() {
 
 require_safe_id "jobId" "$JOB_ID"
 require_safe_id "version" "$VERSION"
+[ -z "$OTA_JOB_TOKEN" ] || require_safe_id "health token" "$OTA_JOB_TOKEN"
 require_safe_dir "backupDir" "$BACKUP_DIR"
 require_safe_dir "stagingDir" "$STAGING_DIR"
 write_applying_marker
@@ -173,6 +175,32 @@ clear_in_progress_marker() {
   [ "$marker_job" = "$JOB_ID" ] || return 0
   rm -f "$IN_PROGRESS_FILE"
   python3 -c 'import os,sys; fd=os.open(sys.argv[1], os.O_RDONLY); os.fsync(fd); os.close(fd)' "$STAGING_DIR" 2>/dev/null || sync
+}
+
+write_rollback_proof() {
+  [ -n "$OTA_JOB_TOKEN" ] || return 0
+  python3 - "$STAGING_DIR" "$JOB_ID" "$VERSION" "$OTA_JOB_TOKEN" <<'PY'
+import os
+import sys
+
+staging, job, version, token = sys.argv[1:]
+target = os.path.join(staging, f"rollback_{job}_proof.txt")
+temporary = target + ".tmp." + str(os.getpid())
+try:
+    with open(temporary, "x", encoding="ascii") as output:
+        output.write(f"jobId={job}\nversion={version}\ntoken={token}\nstatus=succeeded\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.link(temporary, target)
+    directory = os.open(staging, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
 }
 
 # Structured record in the same upgrade_history.log the edge service writes.
@@ -308,6 +336,7 @@ if [ -f "$REQUEST_WORK_DIR/package-type.txt" ] && grep -qx 'packageType=scada' "
   fi
   rollback_scada "$SCADA_INSTALL_STATE"
   clear_in_progress_marker
+  write_rollback_proof
   exit 0
 fi
 
@@ -454,6 +483,7 @@ fi
 } >> "$ROLLBACK_MARK"
 
 clear_in_progress_marker
+write_rollback_proof
 history_record rollback
 echo "[$TIMESTAMP] [ota-rollback] success jobId=$JOB_ID" | tee -a "$LOG_FILE"
 exit 0

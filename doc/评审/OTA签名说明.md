@@ -31,7 +31,7 @@ size=<size，十进制；未下发为 0>
 说明：
 
 - 取值与 MQTT 请求中的同名字段完全一致（`sha256` 统一转小写）；`artifactUrl` 不参与签名，便于使用预签名 URL，包体完整性由已签名的 `sha256` 保证。
-- `jobId` 在设备上一次性使用：进入 apply 阶段后（或已成功完成）再次下发同一 `jobId` 会被拒绝（`ota jobId already processed`）。重试请换新的 `jobId` 并重新签名。
+- `jobId` 在设备上一次性使用：任务意图 `ota_job_<jobId>.json` 落盘后，同一 `jobId` 不得重放，即使脚本在修改运行时之前拒绝。仅在确认原任务已安全终结（未改动或回滚成功）后，才可用新 `jobId` 重新签名并下发；未知/回滚失败会阻断新任务。MQTT 或 Direct 查询不到状态不等于设备没有任务意图，不得据此盲重发。
 - `machineCode` 参与签名，签名只对目标网关有效。
 
 ## 3. 生成密钥（离线签名机执行，私钥不得进入设备或代码仓库）
@@ -88,18 +88,18 @@ MQTT 请求示例（`size`/`sha256`/`version`/`packageType` 必须与描述串�
 
 ## 6. 相关运维行为（ota-apply.sh / ota-rollback.sh）
 
-- `jobId` 一次性：`ota/staging/applied_jobs.txt` 记录进入 apply 的任务，已存在的 `staging/<jobId>`、`backup/<jobId>` 或成功记录都会拒绝重放。
+- `jobId` 一次性：`ota/staging/ota_job_<jobId>.json` 在调用脚本前占用任务意图；`applied_jobs.txt` 另记录进入运行时修改阶段的任务。已有意图、任务目录或成功记录都会拒绝同 `jobId` 重放。
 - 断电保护：修改运行时前写入并 fsync `ota/staging/ota-in-progress`，完成后删除；开机由 `gateway-ota-recover.service`
   （`Before=gateway-services.service`）调用 `ota-rollback.sh --recover-interrupted` 回滚未完成任务（开机恢复不重启服务）。
   标记存在时新的 OTA 会被拒绝，需先完成恢复。
 - 重启后健康检查：重启序列通过 `systemd-run` 独立运行，等待 `OTA_HEALTH_VERIFY_SEC`（默认 30 秒）后检查被重启单元（含
   `gateway-services.sh list` 中的单元）是否 active，不健康时自动执行 `ota-rollback.sh`，结果写入 `ota/staging/health_<jobId>.txt`。
-  `OTA_AUTO_ROLLBACK=0` 可关闭（需通过 mqtt-driver 单元 drop-in 设置环境变量）。注意：边端在健康检查前已上报 `completed`。
+  `OTA_AUTO_ROLLBACK=0` 可关闭（需通过 mqtt-driver 单元 drop-in 设置环境变量）。健康检查前保持 `applying`，验证后才形成持久终态。
 - 容量：`staging`/`backup` 仅保留最近 `OTA_RETENTION_JOBS`（默认 3）个任务目录；SCADA 仅保留当前、上一版及最近 `SCADA_KEEP_RELEASES`（默认 3）个发布。
 - OTA 包只能收紧、不能放松 OTA 安全配置：可以把 `requireSignature`/`checksumRequired` 设为 `true`、把 `allowInsecureHttp` 设为 `false`；
   不能关闭签名/校验、不能开启 http、不能修改 `signaturePublicKeyPath`、`applyScript`、`rollbackScript`（未写时按默认值比较）。
-- 仅在修改运行时之前才记录 `jobId`；在此之前失败（包校验失败、清单非法等）会删除该任务的 staging/backup 目录，允许用同一 `jobId` 重试。
+- 脚本在修改运行时之前失败会清理该任务的 staging/backup 目录；若任务意图已落盘，仍保留意图并写入同 token 的 `failed/unchanged` 结果，不允许用同一 `jobId` 重试。意图落盘前失败的重试也必须先核对设备状态，不能仅凭一次查询缺席推断可重发。
 - 发现残留的 `ota-in-progress` 标记且其 apply 进程已不存在（或属于上一次开机）时，新的 OTA 会先通过 `systemd-run --wait`
   执行 `ota-rollback.sh --recover-interrupted` 完成恢复再继续；恢复失败才拒绝。OTA 安装 `gateway-ota-recover.service` 时会自动 `enable`。
-- 健康检查中 `activating`（非 `auto-restart`）视为正常，`ky-ems`/`local-kiosk@` 不参与判定；回滚结果写入
+- 健康检查窗口结束时被检查单元须处于 `active` 或 `reloading`；持续 `activating` 不通过，`ky-ems`/`local-kiosk@` 不参与判定。回滚结果写入
   `upgrade_history.log`（`result=rollback|rollback-failed`），并恢复升级前的 `current_version.txt`/`applied_version.txt`。

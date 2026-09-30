@@ -5,7 +5,9 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -216,6 +218,217 @@ void verifyDurableHealthReconciliation() {
     }
     removeEventStoreTestTree(root);
 }
+
+void verifySynchronousRejectionIsTerminal() {
+    char pattern[] = "/tmp/ota-sync-rejection-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create synchronous OTA fixture");
+    const std::string root = created;
+    try {
+        edge_gateway::OtaConfig config;
+        config.enabled = true;
+        config.downloadDir = root + "/downloads";
+        config.stagingDir = root + "/staging";
+        config.backupDir = root + "/backup";
+        config.applyScript = root + "/apply.sh";
+        config.rollbackScript.clear();
+        config.checksumRequired = false;
+        config.requireSignature = false;
+        config.currentVersion = "1.0.0";
+        config.packageType = "tar.gz";
+        config.minFreeBytes = 0;
+        { std::ofstream artifact(root + "/source.tar.gz"); artifact << "payload"; }
+        { std::ofstream script(config.applyScript);
+          script << "#!/bin/sh\n"
+                    "[ \"$3\" != NEXT_JOB ] || exit 0\n"
+                    "printf '{\"format\":\"ota-health-v1\",\"jobId\":\"%s\",\"version\":\"%s\",\"token\":\"%s\",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"2000\"}\\n' \"$3\" \"$2\" \"$6\" > \"$5/health_$3.txt\"\n"
+                    "exit 4\n"; }
+        edge_gateway::OtaRequest first;
+        first.jobId = "SYNC_REJECTED";
+        first.version = "2.0.0";
+        first.artifactUrl = root + "/source.tar.gz";
+        edge_gateway::OtaReply reply;
+        edge_gateway::OtaStatus status;
+        try { edge_gateway::OtaService(config).execute(first, "GW_TEST", 1000, &reply, &status, nullptr); }
+        catch (const std::exception&) {}
+        require(status.stage == "failed", "synchronous rejection must fail first job");
+        edge_gateway::OtaRequest next = first;
+        next.jobId = "NEXT_JOB";
+        std::string rejection;
+        require(edge_gateway::OtaService(config).validateRequest(next, &rejection),
+                "proved unchanged rejection must allow a new job");
+        require(!edge_gateway::OtaService(config).validateRequest(first, &rejection),
+                "original job intent must not be replayed");
+        edge_gateway::OtaService replay(config);
+        replay.loadPendingStatuses();
+        replay.clearPendingStatuses();
+        const auto appConfigPath = root + "/app.json";
+        { std::ofstream app(appConfigPath);
+          app << "{\"ota\":{\"stagingDir\":\"" << config.stagingDir << "\"}}\n"; }
+        edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig direct;
+        direct.otaAppConfigFile = appConfigPath;
+        direct.otaStatusFile = root + "/direct-status.jsonl";
+        const auto directReply = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+        require(directReply.find("\"jobId\":\"SYNC_REJECTED\"") != std::string::npos &&
+                directReply.find("\"stage\":\"failed\"") != std::string::npos,
+                "Direct must show durable synchronous failure after MQTT journal clear");
+        edge_gateway::OtaService(config).execute(next, "GW_TEST", 3000, &reply, &status, nullptr);
+        require(status.stage == "completed", "new job must run after proved unchanged rejection");
+    } catch (...) {
+        removeEventStoreTestTree(root);
+        throw;
+    }
+    removeEventStoreTestTree(root);
+}
+
+void verifySynchronousSuccessAndSameJobRace() {
+    char pattern[] = "/tmp/ota-sync-success-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create synchronous success fixture");
+    const std::string root = created;
+    try {
+        edge_gateway::OtaConfig config;
+        config.enabled = true;
+        config.downloadDir = root + "/downloads";
+        config.stagingDir = root + "/staging";
+        config.backupDir = root + "/backup";
+        config.applyScript = root + "/apply.sh";
+        config.rollbackScript.clear();
+        config.checksumRequired = false;
+        config.requireSignature = false;
+        config.currentVersion = "1.0.0";
+        config.packageType = "tar.gz";
+        config.minFreeBytes = 0;
+        { std::ofstream artifact(root + "/source.tar.gz"); artifact << "payload"; }
+        { std::ofstream script(config.applyScript); script << "#!/bin/sh\nexit 0\n"; }
+        edge_gateway::OtaRequest request;
+        request.jobId = "SHARED_JOB";
+        request.version = "2.0.0";
+        request.artifactUrl = root + "/source.tar.gz";
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool delayed = false;
+        bool release = false;
+        bool rejected = false;
+        std::thread second([&] {
+            edge_gateway::OtaReply reply;
+            edge_gateway::OtaStatus status;
+            try {
+                edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status,
+                    [&](const edge_gateway::OtaStatus& event) {
+                        if (event.stage != "accepted") return;
+                        std::unique_lock<std::mutex> guard(mutex);
+                        delayed = true;
+                        changed.notify_all();
+                        changed.wait(guard, [&] { return release; });
+                    });
+            } catch (const std::exception&) { rejected = true; }
+        });
+        {
+            std::unique_lock<std::mutex> guard(mutex);
+            changed.wait(guard, [&] { return delayed; });
+        }
+        edge_gateway::OtaReply reply;
+        edge_gateway::OtaStatus status;
+        std::exception_ptr firstError;
+        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 2000, &reply, &status, nullptr); }
+        catch (...) { firstError = std::current_exception(); }
+        const auto intentPath = config.stagingDir + "/ota_job_SHARED_JOB.json";
+        const auto originalIntent = readFile(intentPath);
+        {
+            std::lock_guard<std::mutex> guard(mutex);
+            release = true;
+        }
+        changed.notify_all();
+        second.join();
+        if (firstError) std::rethrow_exception(firstError);
+        require(status.stage == "completed", "synchronous success must complete");
+        require(rejected && readFile(intentPath) == originalIntent,
+                "delayed duplicate must not replace a completed job intent");
+        request.jobId = "NEXT_SUCCESS";
+        request.version = "3.0.0";
+        edge_gateway::OtaService(config).execute(request, "GW_TEST", 3000, &reply, &status, nullptr);
+        require(status.stage == "completed", "synchronous success must allow next job");
+    } catch (...) {
+        removeEventStoreTestTree(root);
+        throw;
+    }
+    removeEventStoreTestTree(root);
+}
+
+void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper) {
+    char pattern[] = "/tmp/ota-sync-rollback-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create synchronous rollback fixture");
+    const std::string root = created;
+    try {
+        edge_gateway::OtaConfig config;
+        config.enabled = true;
+        config.downloadDir = root + "/downloads";
+        config.stagingDir = root + "/staging";
+        config.backupDir = root + "/backup";
+        config.applyScript = root + "/apply.sh";
+        config.rollbackScript = root + "/rollback.sh";
+        config.checksumRequired = false;
+        config.requireSignature = false;
+        config.currentVersion = "1.0.0";
+        config.packageType = "tar.gz";
+        config.minFreeBytes = 0;
+        { std::ofstream artifact(root + "/source.tar.gz"); artifact << "payload"; }
+        { std::ofstream runtime(root + "/runtime.txt"); runtime << "old\n"; }
+        { std::ofstream script(config.applyScript);
+          script << "#!/bin/sh\nprintf '%s\\n' \"$3\" > \"$5/applied_jobs.txt\"\n"
+                    "printf 'jobId=%s\\nversion=%s\\nstagingDir=%s\\n' \"$3\" \"$2\" \"$5\" > \"$5/ota-in-progress\"\n"
+                    "printf 'new\\n' > '" << root << "/runtime.txt'\n";
+          if (pendingHelper) script << "mkdir -p \"$5/$3\"\nprintf 'jobId=%s\\nversion=%s\\ntoken=%s\\n' \"$3\" \"$2\" \"$6\" > \"$5/$3/health_pending.txt\"\n";
+          script << "exit 4\n"; }
+        { std::ofstream script(config.rollbackScript);
+          script << "#!/bin/sh\nprintf 'called\\n' >> '" << root << "/rollback-calls.txt'\n";
+          if (succeed) {
+              script << "printf 'old\\n' > '" << root << "/runtime.txt'\nrm \"$5/ota-in-progress\"\n"
+                        "printf 'jobId=%s\\nversion=%s\\ntoken=%s\\nstatus=succeeded\\n' \"$3\" \"$2\" "
+                     << (wrongToken ? "wrong-token" : "\"$6\"") << " > \"$5/rollback_$3_proof.txt\"\nexit 0\n";
+          } else {
+              script << "printf 'status=succeeded\\nstatus=failed\\n' > \"$5/rollback_$3.txt\"\nexit 1\n";
+          }
+        }
+        edge_gateway::OtaRequest request;
+        request.jobId = "CHANGED_JOB";
+        request.version = "2.0.0";
+        request.artifactUrl = root + "/source.tar.gz";
+        edge_gateway::OtaReply reply;
+        edge_gateway::OtaStatus status;
+        try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr); }
+        catch (const std::exception&) {}
+        require(status.stage == "failed", "changed synchronous failure must report failed");
+        require(readFile(root + "/runtime.txt") == (succeed && !pendingHelper ? "old\n" : "new\n"),
+                "rollback fixture runtime mismatch");
+        require(readFile(root + "/rollback-calls.txt").empty() == pendingHelper,
+                "pending helper must retain rollback ownership");
+        edge_gateway::OtaRequest next = request;
+        next.jobId = "NEXT_JOB";
+        std::string rejection;
+        require(edge_gateway::OtaService(config).validateRequest(next, &rejection) ==
+                (succeed && !wrongToken && !pendingHelper),
+                "only matching proved rollback may allow next job");
+        require(!edge_gateway::OtaService(config).validateRequest(request, &rejection),
+                "changed original job must never replay");
+        require(!readFile(config.stagingDir + "/ota_final_CHANGED_JOB.txt").empty() ==
+                (succeed && !wrongToken && !pendingHelper),
+                "rollback terminal marker must require matching proof");
+        if (wrongToken) {
+            const auto history = readFile(config.stagingDir + "/upgrade_history.log");
+            require(history.find("rollbackSucceeded=false") != std::string::npos &&
+                    history.find("rollbackSucceeded=true") == std::string::npos,
+                    "wrong token must not be reported as a successful rollback");
+        }
+    } catch (...) {
+        removeEventStoreTestTree(root);
+        throw;
+    }
+    removeEventStoreTestTree(root);
+}
 #endif
 
 }  // namespace
@@ -224,6 +437,12 @@ int main() {
     try {
 #ifndef _WIN32
         verifyDurableHealthReconciliation();
+        verifySynchronousRejectionIsTerminal();
+        verifySynchronousSuccessAndSameJobRace();
+        verifySynchronousRollback(true, false, false);
+        verifySynchronousRollback(true, true, false);
+        verifySynchronousRollback(false, false, false);
+        verifySynchronousRollback(true, false, true);
 #endif
         std::cout << "ota final-state test passed\n";
         return 0;

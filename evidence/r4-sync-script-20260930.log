@@ -1,0 +1,6 @@
+[2026-09-30 17:59:56] [ota-apply] start jobId=INVALID_MANIFEST version=2.0.0 artifact=/tmp/ota-sync-failure.Dl6zDf/invalid.tar.gz
+runtime upgrade refused: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+INVALID_MANIFEST: unchanged proof accepted
+[ota-apply] required health result helper is missing
+MISSING_HELPER: unchanged proof accepted
+ota sync-failure script test passed

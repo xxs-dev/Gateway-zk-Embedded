@@ -55,16 +55,70 @@ LIVE_CHANGE_STARTED=0
 JOB_DIRS_CREATED=0
 ACTIVE_REGISTERED=0
 
+record_unchanged_failure() {
+  python3 - "$STAGING_DIR" "$JOB_ID" "$VERSION" "$OTA_JOB_TOKEN" <<'PY'
+import fcntl
+import json
+import os
+import sys
+import time
+
+staging, job, version, token = sys.argv[1:]
+if not all((job, version, token)):
+    raise SystemExit("missing OTA job identity")
+lock = os.open(os.path.join(staging, "ota_state.lock"), os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+fcntl.flock(lock, fcntl.LOCK_EX)
+with open(os.path.join(staging, "ota_active_job.txt"), "rb") as source:
+    active = source.read(257)
+if active != f"jobId={job}\ntoken={token}\n".encode("ascii"):
+    raise SystemExit("OTA active job changed")
+with open(os.path.join(staging, f"ota_job_{job}.json"), encoding="utf-8") as source:
+    intent = json.load(source)
+if (intent.get("format") != "ota-job-v1" or intent.get("jobId") != job or
+    intent.get("version") != version or intent.get("token") != token):
+    raise SystemExit("OTA intent changed")
+if os.path.exists(os.path.join(staging, "ota-in-progress")):
+    raise SystemExit("OTA runtime change may have started")
+try:
+    with open(os.path.join(staging, "applied_jobs.txt"), encoding="utf-8") as source:
+        if job in source.read().splitlines():
+            raise SystemExit("OTA jobId already burned")
+except FileNotFoundError:
+    pass
+record = dict(format="ota-health-v1", jobId=job, version=version, token=token,
+              status="failed", rollback="unchanged", ts=str(int(time.time() * 1000)))
+target = os.path.join(staging, f"health_{job}.txt")
+temporary = target + ".tmp." + str(os.getpid())
+try:
+    with open(temporary, "x", encoding="utf-8") as output:
+        output.write(json.dumps(record, separators=(",", ":")) + "\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.link(temporary, target)
+    directory = os.open(staging, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+
 on_exit() {
   status=$?
-  # Failed before touching the live runtime: drop the job dirs so the same
-  # jobId can be retried (it was never recorded in applied_jobs.txt).
+  # Failed before touching the live runtime: drop disposable job dirs. The
+  # service intent still burns this jobId even when applied_jobs.txt does not.
   if [ "$LIVE_CHANGE_STARTED" != "1" ] && [ -n "${IN_PROGRESS_FILE:-}" ] &&
      grep -qx "pid=$$" "$IN_PROGRESS_FILE" 2>/dev/null; then
     LIVE_CHANGE_STARTED=1
   fi
   if [ "$status" -ne 0 ] && [ "$JOB_DIRS_CREATED" = "1" ] && [ "$LIVE_CHANGE_STARTED" != "1" ]; then
     rm -rf -- "${WORK_DIR:?}" "${JOB_BACKUP_DIR:?}" 2>/dev/null || true
+  fi
+  if [ "$status" -ne 0 ] && [ "$LIVE_CHANGE_STARTED" != "1" ]; then
+    record_unchanged_failure || echo "[ota-apply] unchanged result not proven; job remains unresolved" >&2
   fi
   if [ "$status" -ne 0 ] && [ "$ACTIVE_REGISTERED" = "1" ] && [ "$LIVE_CHANGE_STARTED" != "1" ]; then
     python3 "$SCRIPT_DIR/ota-health-result.py" --cancel "$STAGING_DIR" "$JOB_ID" "$OTA_JOB_TOKEN" || true
@@ -938,7 +992,7 @@ if [ -n "\$restarted" ]; then
   if [ -n "\$unhealthy" ] || [ "\$restart_failed" = "1" ]; then
     echo "[$TIMESTAMP] [ota-apply] unhealthy after restart:\$unhealthy; rolling back jobId=$JOB_ID" >> "$LOG_FILE"
     if [ "$AUTO_ROLLBACK" = "1" ]; then
-      if OTA_ROLLBACK_REASON=unhealthy-after-restart sh "$ROLLBACK_SCRIPT" "$ARTIFACT_PATH" "$VERSION" "$JOB_ID" "$BACKUP_DIR" "$STAGING_DIR" >> "$LOG_FILE" 2>&1; then
+      if OTA_ROLLBACK_REASON=unhealthy-after-restart sh "$ROLLBACK_SCRIPT" "$ARTIFACT_PATH" "$VERSION" "$JOB_ID" "$BACKUP_DIR" "$STAGING_DIR" "$OTA_JOB_TOKEN" >> "$LOG_FILE" 2>&1; then
         python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" failed succeeded
       else
         python3 "$SCRIPT_DIR/ota-health-result.py" "$STAGING_DIR" "$JOB_ID" "$VERSION" failed failed

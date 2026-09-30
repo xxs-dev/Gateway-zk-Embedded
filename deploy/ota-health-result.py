@@ -39,10 +39,23 @@ def active_job(staging, job, token, cancel=False):
         final = os.path.join(staging, "ota_final_" + previous_job + ".txt")
         health = os.path.join(staging, "health_" + previous_job + ".txt")
         if os.path.exists(os.path.join(staging, "ota_job_" + previous_job + ".json")):
+            with open(os.path.join(staging, "ota_job_" + previous_job + ".json"), encoding="utf-8") as source:
+                intent = json.load(source)
+            if (intent.get("format") != "ota-job-v1" or intent.get("jobId") != previous_job or
+                intent.get("token") != previous_token or not intent.get("version")):
+                raise ValueError("previous OTA intent is invalid")
             with open(final, "rb") as source:
                 terminal = source.read(257)
-            if terminal not in (("jobId=" + previous_job + "\ntoken=" + previous_token + "\nstatus=" + status + "\n").encode("ascii")
-                                for status in ("completed", "failed")):
+            completed = ("jobId=" + previous_job + "\ntoken=" + previous_token + "\nstatus=completed\n").encode("ascii")
+            failed = ("jobId=" + previous_job + "\ntoken=" + previous_token + "\nstatus=failed\n").encode("ascii")
+            if terminal == failed:
+                with open(health, "rb") as source:
+                    result = json.loads(source.read(4097))
+                if (result.get("jobId") != previous_job or result.get("version") != intent["version"] or
+                    result.get("token") != previous_token or
+                    result.get("status") != "failed" or result.get("rollback") not in ("succeeded", "unchanged")):
+                    raise ValueError("previous OTA rollback is unresolved")
+            elif terminal != completed:
                 raise ValueError("previous OTA job is unresolved")
         else:
             with open(health, "rb") as source:
@@ -97,6 +110,13 @@ def main():
             fields[key] = value
     if fields.get("jobId") != job or fields.get("version") != version or not fields.get("token"):
         raise ValueError("health identity mismatch")
+    intent_path = os.path.join(staging, "ota_job_" + job + ".json")
+    if os.path.exists(intent_path):
+        with open(intent_path, encoding="utf-8") as source:
+            intent = json.load(source)
+        if (intent.get("format") != "ota-job-v1" or intent.get("jobId") != job or
+            intent.get("version") != version or intent.get("token") != fields["token"]):
+            raise ValueError("health does not match OTA intent")
     active_path = os.path.join(staging, "ota_active_job.txt")
     if os.path.exists(active_path):
         with open(active_path, "rb") as source:
@@ -104,6 +124,8 @@ def main():
         expected = ("jobId=" + job + "\ntoken=" + fields["token"] + "\n").encode("ascii")
         if active != expected:
             raise ValueError("health result is not for active OTA job")
+    else:
+        raise ValueError("OTA active job marker is missing")
     state = None
     if status == "healthy":
         with open(os.path.join(staging, job, "applied_state_pending.txt"), encoding="utf-8") as source:
