@@ -170,30 +170,23 @@ std::uint64_t toRawInteger(
     if (std::abs(scale) < 1e-12) {
         throw std::invalid_argument("CAN write scale must not be zero");
     }
-    const auto raw = std::round((value - offset) / scale);
-    if (!std::isfinite(raw)) {
+    const auto unrounded = (value - offset) / scale;
+    if (!std::isfinite(unrounded)) {
         throw std::invalid_argument("CAN write value is not finite");
     }
-    if (bitLength < 64) {
-        // Reject values the signal cannot hold instead of silently truncating
-        // them to the low bits (e.g. 70000 into a 16-bit setpoint).
-        const auto type = normalizeType(dataType);
-        const bool signedType = signedSignal ||
-            type == "int8" || type == "int16" || type == "int32" || type == "int64";
-        const bool unsignedType = type == "uint8" || type == "uint16" || type == "uint32" ||
-            type == "uint64" || type == "byte";
-        const auto unsignedMax = std::ldexp(1.0, bitLength) - 1.0;
-        const auto signedMin = -std::ldexp(1.0, bitLength - 1);
-        const auto signedMax = std::ldexp(1.0, bitLength - 1) - 1.0;
-        const auto minValue = unsignedType && !signedType ? 0.0 : signedMin;
-        const auto maxValue = signedType ? signedMax : unsignedMax;
-        if (raw < minValue || raw > maxValue) {
-            throw std::out_of_range("CAN write value out of range for " + std::to_string(bitLength) + "-bit signal");
-        }
-    } else if (std::abs(raw) >= 9.2e18) {
-        throw std::out_of_range("CAN write value out of range for 64-bit signal");
+    const auto raw = std::round(unrounded);
+    const auto type = normalizeType(dataType);
+    const bool signedType = signedSignal ||
+        type == "int8" || type == "int16" || type == "int32" || type == "int64";
+    const bool unsignedType = type == "uint8" || type == "uint16" || type == "uint32" ||
+        type == "uint64" || type == "byte";
+    const auto minValue = unsignedType && !signedType ? 0.0 : -std::ldexp(1.0, bitLength - 1);
+    const auto maxExclusive = std::ldexp(1.0, signedType ? bitLength - 1 : bitLength);
+    if ((unsignedType && !signedType && unrounded < 0.0) || raw < minValue || raw >= maxExclusive) {
+        throw std::out_of_range("CAN write value out of range for " + std::to_string(bitLength) + "-bit signal");
     }
-    return static_cast<std::uint64_t>(static_cast<std::int64_t>(raw));
+    return raw < 0.0 ? static_cast<std::uint64_t>(static_cast<std::int64_t>(raw))
+                     : static_cast<std::uint64_t>(raw);
 }
 
 }  // namespace
@@ -268,6 +261,9 @@ CanEncodedFrame CanSignalCodec::encode(
     const std::vector<std::uint8_t>& basePayload,
     bool signedSignal
 ) {
+    if (!std::isfinite(value) || !std::isfinite(spec.scale) || !std::isfinite(spec.offset)) {
+        throw std::invalid_argument("CAN write value or scaling is not finite");
+    }
     CanEncodedFrame frame;
     frame.frameId = parseFrameId(spec.can.frameId);
     frame.extended = spec.can.extended;

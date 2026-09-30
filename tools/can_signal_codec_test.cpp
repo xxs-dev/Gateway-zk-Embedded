@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -25,10 +26,95 @@ void requireNear(double actual, double expected, double tolerance, const char* m
     }
 }
 
+void verifyIntegerWriteBounds() {
+    using edge_gateway::CanSignalCodec;
+    edge_gateway::WriteSpec spec;
+    spec.enable = true;
+    spec.can.frameId = "0x123";
+    spec.can.dlc = 8;
+    for (const int bits : {8, 16, 32, 64}) {
+        spec.can.bitLength = bits;
+        spec.dataType = "uint64";
+        spec.scale = 1.0;
+        spec.offset = 0.0;
+        bool rejected = false;
+        try { (void)CanSignalCodec::encode(-1.0, spec); }
+        catch (const std::out_of_range&) { rejected = true; }
+        require(rejected, "negative unsigned CAN setpoint must be rejected at every width");
+        rejected = false;
+        try { (void)CanSignalCodec::encode(std::ldexp(1.0, bits), spec); }
+        catch (const std::out_of_range&) { rejected = true; }
+        require(rejected, "unsigned CAN upper exclusive bound must be rejected");
+        const auto unsignedTop = CanSignalCodec::encode(
+            bits == 64 ? std::nextafter(std::ldexp(1.0, bits), 0.0)
+                       : std::ldexp(1.0, bits) - 1.0, spec);
+        if (bits == 64) {
+            require(unsignedTop.payload[0] == 0x00 && unsignedTop.payload[1] == 0xF8 &&
+                    unsignedTop.payload[7] == 0xFF,
+                    "64-bit unsigned upper representable value must encode without signed conversion");
+        }
+
+        spec.dataType = "int64";
+        const auto signedBottom = CanSignalCodec::encode(-std::ldexp(1.0, bits - 1), spec);
+        require(signedBottom.payload[(bits - 1) / 8] == 0x80,
+                "signed CAN lower boundary must encode as two's complement");
+        rejected = false;
+        try {
+            (void)CanSignalCodec::encode(bits == 64
+                ? std::nextafter(-std::ldexp(1.0, bits - 1), -std::numeric_limits<double>::infinity())
+                : -std::ldexp(1.0, bits - 1) - 1.0, spec);
+        } catch (const std::out_of_range&) { rejected = true; }
+        require(rejected, "signed CAN lower out-of-range value must be rejected");
+        (void)CanSignalCodec::encode(bits == 64 ? std::nextafter(std::ldexp(1.0, bits - 1), 0.0)
+                                                : std::ldexp(1.0, bits - 1) - 1.0, spec);
+        rejected = false;
+        try { (void)CanSignalCodec::encode(std::ldexp(1.0, bits - 1), spec); }
+        catch (const std::out_of_range&) { rejected = true; }
+        require(rejected, "signed CAN upper exclusive bound must be rejected");
+    }
+    spec.dataType = "uint8";
+    spec.can.bitLength = 8;
+    spec.scale = 0.5;
+    spec.offset = 10.0;
+    const auto scaled = CanSignalCodec::encode(137.5, spec);
+    require(scaled.payload[0] == 0xFF, "scaled unsigned upper boundary must encode exactly");
+    bool rejected = false;
+    try { (void)CanSignalCodec::encode(138.0, spec); }
+    catch (const std::out_of_range&) { rejected = true; }
+    require(rejected, "scaled unsigned overrange must be rejected");
+    for (const double invalid : {std::numeric_limits<double>::infinity(),
+                                 -std::numeric_limits<double>::infinity(),
+                                 std::numeric_limits<double>::quiet_NaN()}) {
+        rejected = false;
+        try { (void)CanSignalCodec::encode(invalid, spec); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected, "nonfinite CAN setpoint must be rejected");
+    }
+    spec.dataType = "bool";
+    rejected = false;
+    try { (void)CanSignalCodec::encode(std::numeric_limits<double>::quiet_NaN(), spec); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "nonfinite CAN boolean setpoint must be rejected");
+    spec.dataType = "uint8";
+    spec.scale = std::numeric_limits<double>::infinity();
+    rejected = false;
+    try { (void)CanSignalCodec::encode(1.0, spec); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "nonfinite CAN scale must be rejected");
+    spec.scale = 1.0;
+    spec.offset = std::numeric_limits<double>::quiet_NaN();
+    rejected = false;
+    try { (void)CanSignalCodec::encode(1.0, spec); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "nonfinite CAN offset must be rejected");
+}
+
 }  // namespace
 
 int main() {
     using namespace edge_gateway;
+
+    verifyIntegerWriteBounds();
 
     ReadSpec littleEndian;
     littleEndian.dataType = "uint16";
