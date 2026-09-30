@@ -493,6 +493,75 @@ void verifyDurableHealthReconciliation() {
     removeEventStoreTestTree(root);
 }
 
+void verifyLegacyMarkerAdmission() {
+    for (const auto& variant : {"legacy", "empty", "directory", "dangling-link", "loop-link"}) {
+        char pattern[] = "/tmp/ota-legacy-marker-XXXXXX";
+        const char* created = mkdtemp(pattern);
+        require(created != nullptr, "cannot create legacy marker fixture");
+        const std::string root = created;
+        try {
+            edge_gateway::OtaConfig config;
+            config.enabled = true;
+            config.downloadDir = root + "/downloads";
+            config.stagingDir = root + "/staging";
+            config.backupDir = root + "/backup";
+            config.applyScript = root + "/apply.sh";
+            config.rollbackScript = root + "/rollback.sh";
+            config.checksumRequired = false;
+            config.requireSignature = false;
+            config.packageType = "tar.gz";
+            config.minFreeBytes = 0;
+            require(mkdir(config.stagingDir.c_str(), 0755) == 0, "cannot create marker staging");
+            writeFixtureFile(root + "/source.tar.gz", "payload");
+            writeFixtureFile(config.applyScript,
+                "#!/bin/sh\nprintf 'called\\n' >> '" + root + "/apply-calls'\nexit 0\n");
+            writeFixtureFile(config.rollbackScript,
+                "#!/bin/sh\nprintf 'called\\n' >> '" + root + "/rollback-calls'\nexit 0\n");
+            const auto marker = config.stagingDir + "/ota-in-progress";
+            const std::string kind = variant;
+            const std::string legacy = "jobId=OLD_JOB\nversion=1.0.0\nstagingDir=" + config.stagingDir + "\n";
+            if (kind == "directory") require(mkdir(marker.c_str(), 0755) == 0, "cannot create marker directory");
+            else if (kind == "dangling-link" || kind == "loop-link")
+                require(symlink(kind == "loop-link" ? "ota-in-progress" : "missing", marker.c_str()) == 0,
+                        "cannot create marker symlink");
+            else writeFixtureFile(marker, kind == "empty" ? "" : legacy);
+
+            edge_gateway::OtaRequest request;
+            request.jobId = "NEW_JOB";
+            request.version = "2.0.0";
+            request.artifactUrl = root + "/source.tar.gz";
+            edge_gateway::OtaReply reply;
+            edge_gateway::OtaStatus status;
+            bool rejected = false;
+            try { edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr); }
+            catch (const std::exception&) { rejected = true; }
+            struct stat info{};
+            const auto intent = config.stagingDir + "/ota_job_NEW_JOB.json";
+            require(lstat(intent.c_str(), &info) != 0 && errno == ENOENT,
+                    "legacy marker rejection must not persist a new intent");
+            require(rejected, "legacy marker must reject actual execute");
+            require(lstat(marker.c_str(), &info) == 0, "rejection must preserve existing marker");
+            if (kind == "legacy") require(readFile(marker) == legacy, "legacy marker bytes changed");
+            require(readFile(root + "/apply-calls").empty() && readFile(root + "/rollback-calls").empty(),
+                    "new request must not apply or roll back the old job");
+            std::cout << "legacy marker " << kind << ": rejected without intent; marker retained\n";
+
+            // Only the fixture simulates completion of the existing recovery.
+            require((kind == "directory" ? rmdir(marker.c_str()) : unlink(marker.c_str())) == 0,
+                    "cannot simulate old recovery completing");
+            edge_gateway::OtaService(config).execute(request, "GW_TEST", 2000, &reply, &status, nullptr);
+            require(status.stage == "completed" && readFile(root + "/apply-calls") == "called\n",
+                    "same new job must actually execute after old recovery removes marker");
+            require(!readFile(intent).empty(), "recovered admission must persist its own intent");
+            std::cout << "legacy marker " << kind << ": new job actually completed after simulated recovery\n";
+        } catch (...) {
+            removeEventStoreTestTree(root);
+            throw;
+        }
+        removeEventStoreTestTree(root);
+    }
+}
+
 void verifySynchronousRejectionIsTerminal() {
     char pattern[] = "/tmp/ota-sync-rejection-XXXXXX";
     const char* created = mkdtemp(pattern);
@@ -741,6 +810,7 @@ int main(int argc, char** argv) {
             verifyOfficialEarlyFailure(argv[2], argv[3]);
             return 0;
         }
+        verifyLegacyMarkerAdmission();
         verifyDurableHealthReconciliation();
         verifyLifecycleEvidenceGuards();
         verifyIntentForkLease();

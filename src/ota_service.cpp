@@ -164,13 +164,19 @@ private:
     int fd_ = -1;
 };
 
+#endif
+
 bool strictlyAbsent(const std::string& path) {
+#ifdef _WIN32
+    if (GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES) return false;
+    if (GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+#else
     struct stat info{};
     if (lstat(path.c_str(), &info) == 0) return false;
     if (errno == ENOENT) return true;
+#endif
     throw std::runtime_error("cannot inspect OTA recovery evidence");
 }
-#endif
 
 std::string newStatusOccurrence() {
     unsigned char bytes[16];
@@ -1521,6 +1527,8 @@ void OtaService::execute(
             PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
             ensureJobNotProcessed(request);
             ensureNoUnresolvedJob();
+            if (!strictlyAbsent(joinPath(config_.stagingDir, "ota-in-progress")))
+                throw std::runtime_error("previous OTA in-progress marker requires recovery");
             replacePendingJournal(pendingJobPath(config_.stagingDir, request.jobId), encodePendingJob(pending));
             intentPersisted = true;
             replacePendingJournal(joinPath(config_.stagingDir, "ota_active_job.txt"),
