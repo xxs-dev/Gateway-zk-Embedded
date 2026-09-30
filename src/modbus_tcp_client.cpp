@@ -5,7 +5,6 @@
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -323,13 +322,17 @@ void ModbusTcpClient::endPriorityWrite() {
 void ModbusTcpClient::enterTransaction() {
     std::unique_lock<std::mutex> lock(transactionMutex_);
     const bool priorityContext = priorityContextDepth_ > 0;
-    transactionCv_.wait(lock, [&] {
-        if (activeTransactions_ != 0) {
-            return false;
+    for (;;) {
+        transactionCv_.wait(lock, [&] {
+            return activeTransactions_ == 0 && (priorityContext || pendingPriorityWrites_ == 0);
+        });
+        if (std::chrono::steady_clock::now() < nextRequestAt_) {
+            transactionCv_.wait_until(lock, nextRequestAt_);
+            continue;
         }
-        return priorityContext || pendingPriorityWrites_ == 0;
-    });
-    activeTransactions_ = 1;
+        activeTransactions_ = 1;
+        return;
+    }
 }
 
 void ModbusTcpClient::leaveTransaction() {
@@ -445,7 +448,6 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
         throw std::invalid_argument("unit id must be in range 0..255");
     }
     ensureConnected();
-    std::this_thread::sleep_until(nextRequestAt_);
     nextRequestAt_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(requestGapMs_);
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(config_.timeoutMs);

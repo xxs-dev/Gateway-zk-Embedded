@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <atomic>
 #include <chrono>
 #include <exception>
 #include <iostream>
@@ -247,6 +248,7 @@ void verifyRequestGapAndPriorityExpiry() {
             close(connection);
             const auto reconnected = accept(listener, nullptr, nullptr);
             require(reconnected >= 0, "gap test reconnect after guarded refusal failed");
+            setsockopt(reconnected, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
             const auto request = readExactFd(reconnected, 12);
             requestStarts.push_back(std::chrono::steady_clock::now());
             require(request[7] == 0x03, "expired priority write reached TCP peer");
@@ -301,6 +303,79 @@ void verifyRequestGapAndPriorityExpiry() {
         const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             requestStarts[i] - requestStarts[i - 1]).count();
         require(gapMs >= 150, "TCP request starts must honor requestGapMs");
+    }
+}
+
+void verifyPriorityWritePreemptsReadWaitingForGap() {
+    std::uint16_t port = 0;
+    const auto listener = createLoopbackListener(port);
+    std::exception_ptr serverFailure;
+    std::vector<std::uint8_t> functions;
+    std::vector<std::chrono::steady_clock::time_point> starts;
+    std::thread server([&] {
+        try {
+            const auto connection = accept(listener, nullptr, nullptr);
+            require(connection >= 0, "priority gap test accept failed");
+            timeval timeout{};
+            timeout.tv_sec = 3;
+            setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            for (int i = 0; i < 3; ++i) {
+                const auto request = readExactFd(connection, 12);
+                starts.push_back(std::chrono::steady_clock::now());
+                functions.push_back(request[7]);
+                if (request[7] == 0x06) {
+                    sendAllFd(connection, request);
+                } else if (request[7] == 0x03) {
+                    const auto transaction = static_cast<std::uint16_t>((request[0] << 8) | request[1]);
+                    sendAllFd(connection, readResponseFor(request, transaction, i == 0 ? 1 : 3));
+                } else {
+                    throw std::runtime_error("unexpected TCP function in priority gap test");
+                }
+            }
+            close(connection);
+        } catch (...) { serverFailure = std::current_exception(); }
+    });
+
+    edge_gateway::TcpTransportConfig config;
+    config.host = "127.0.0.1";
+    config.port = port;
+    config.connectTimeoutMs = 500;
+    config.timeoutMs = 1000;
+    edge_gateway::ModbusTcpClient client(config, 125, 800);
+    std::exception_ptr readerFailure;
+    std::exception_ptr writeFailure;
+    std::atomic<bool> readerStarted{false};
+    require(client.readHoldingRegisters(1, 0, 1).front() == 1, "first priority gap read");
+    std::thread reader([&] {
+        readerStarted = true;
+        try { require(client.readHoldingRegisters(1, 1, 1).front() == 3, "queued gap read"); }
+        catch (...) { readerFailure = std::current_exception(); }
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (!readerStarted && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    const auto queuedAt = std::chrono::steady_clock::now();
+    bool guardedAfterGap = false;
+    try {
+        client.writeSingleRegister(1, 2, 4, [&] {
+            guardedAfterGap = std::chrono::steady_clock::now() - queuedAt >= std::chrono::milliseconds(600);
+        });
+    } catch (...) { writeFailure = std::current_exception(); }
+    reader.join();
+    server.join();
+    close(listener);
+    if (serverFailure) std::rethrow_exception(serverFailure);
+    if (readerFailure) std::rethrow_exception(readerFailure);
+    if (writeFailure) std::rethrow_exception(writeFailure);
+    require(guardedAfterGap, "priority write guard must run after device request gap");
+    require(functions == std::vector<std::uint8_t>({0x03, 0x06, 0x03}),
+            "priority write must precede ordinary read already waiting for gap");
+    require(starts.size() == 3, "priority gap test must observe three requests");
+    for (std::size_t i = 1; i < starts.size(); ++i) {
+        require(starts[i] - starts[i - 1] >= std::chrono::milliseconds(600),
+                "priority and ordinary requests must retain the configured device gap");
     }
 }
 
@@ -423,6 +498,7 @@ int main() {
 #ifndef _WIN32
         verifyTransactionMismatchDisconnectsAndRecovers();
         verifyRequestGapAndPriorityExpiry();
+        verifyPriorityWritePreemptsReadWaitingForGap();
         verifyPeerResetDoesNotTerminateClientProcess();
         verifyPartialResponseUsesOneTransactionDeadline();
 #endif
