@@ -2102,10 +2102,10 @@ void OtaService::downloadExternalArtifact(
         "if command -v curl >/dev/null 2>&1; then "
         "curl -L --fail --silent --show-error --proto \"$4\" --proto-redir \"$4\" ${5:+--max-filesize} ${5:+\"$5\"} "
         "--connect-timeout 15 --max-time \"$3\" -o \"$1\" -- \"$2\"; "
-        "elif command -v wget >/dev/null 2>&1; then "
+        "elif [ \"$6\" = 1 ] && command -v wget >/dev/null 2>&1; then "
         "wget -q -T 15 -O \"$1\" -- \"$2\"; "
         "else "
-        "echo \"curl/wget not found\" >&2; exit 127; "
+        "echo \"curl required for secure OTA download (wget fallback requires allowInsecureHttp)\" >&2; exit 127; "
         "fi";
 
     const pid_t pid = fork();
@@ -2116,10 +2116,11 @@ void OtaService::downloadExternalArtifact(
         setsid();
         const std::string timeoutText = std::to_string(std::max(1, config_.upgradeTimeoutSec));
         const std::string protocols = config_.allowInsecureHttp ? "=http,https" : "=https";
+        const std::string allowWget = config_.allowInsecureHttp ? "1" : "0";
         const std::uint64_t sizeLimit = config_.maxArtifactBytes > 0 ? config_.maxArtifactBytes : request.size;
         const std::string maxFileSize = sizeLimit > 0 ? std::to_string(sizeLimit) : std::string();
         execl("/bin/sh", "sh", "-c", script, "sh", targetPath.c_str(), source.c_str(), timeoutText.c_str(),
-            protocols.c_str(), maxFileSize.c_str(), static_cast<char*>(nullptr));
+            protocols.c_str(), maxFileSize.c_str(), allowWget.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }
 

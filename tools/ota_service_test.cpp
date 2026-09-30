@@ -15,6 +15,7 @@
 #ifndef _WIN32
 #include "event_store_test_files.hpp"
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -79,6 +80,79 @@ bool containsText(const std::string& path, const std::string& expected) {
     const std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     return content.find(expected) != std::string::npos;
 }
+
+#ifndef _WIN32
+void verifyHttpsDownloaderSelection() {
+    char pattern[] = "/tmp/ota-downloader-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create downloader fixture");
+    const std::string root = created;
+    struct PathGuard {
+        std::string old;
+        ~PathGuard() { setenv("PATH", old.c_str(), 1); }
+    } pathGuard{std::getenv("PATH") ? std::getenv("PATH") : ""};
+    try {
+        edge_gateway::OtaConfig config;
+        config.enabled = true;
+        config.requireSignature = false;
+        config.checksumRequired = false;
+        config.minFreeBytes = 0;
+        config.downloadRetryCount = 1;
+        config.downloadDir = root + "/downloads";
+        config.stagingDir = root + "/staging";
+        config.backupDir = root + "/backup";
+        config.applyScript = root + "/apply.sh";
+        { std::ofstream script(config.applyScript); script << "#!/bin/sh\nexit 0\n"; }
+        config.rollbackScript.clear();
+        config.packageType = "tar.gz";
+        edge_gateway::OtaRequest request;
+        request.jobId = "SECURE_NO_CURL";
+        request.version = "1.0";
+        request.artifactUrl = "https://example.invalid/package";
+        request.size = 7;
+        const auto wget = root + "/wget";
+        { std::ofstream script(wget);
+          script << "#!/bin/sh\nprintf called > '" << root << "/wget-called'\n"
+                    "while [ $# -gt 0 ]; do if [ \"$1\" = -O ]; then shift; printf payload > \"$1\"; exit 0; fi; shift; done\nexit 1\n"; }
+        chmod(wget.c_str(), 0755);
+        require(symlink("/bin/sh", (root + "/sh").c_str()) == 0, "cannot isolate shell PATH");
+        setenv("PATH", root.c_str(), 1);
+        bool rejected = false;
+        try {
+            edge_gateway::OtaReply reply;
+            edge_gateway::OtaStatus status;
+            edge_gateway::OtaService(config).execute(request, "GW_TEST", 1000, &reply, &status, nullptr);
+        } catch (const std::exception&) { rejected = true; }
+        require(rejected && !containsText(root + "/wget-called", "called"),
+                "secure HTTPS must not fall back to wget");
+
+        const auto curl = root + "/curl";
+        { std::ofstream script(curl);
+          script << "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" << root << "/curl-args'\n"
+                    "while [ $# -gt 0 ]; do if [ \"$1\" = -o ]; then shift; printf payload > \"$1\"; exit 0; fi; shift; done\nexit 1\n"; }
+        chmod(curl.c_str(), 0755);
+        request.jobId = "SECURE_CURL";
+        request.version = "2.0";
+        edge_gateway::OtaReply reply;
+        edge_gateway::OtaStatus status;
+        edge_gateway::OtaService(config).execute(request, "GW_TEST", 2000, &reply, &status, nullptr);
+        require(status.stage == "completed" && containsText(root + "/curl-args", "--proto-redir\n=https\n"),
+                "secure HTTPS must constrain curl redirects");
+
+        require(std::remove(curl.c_str()) == 0, "cannot remove fake curl");
+        config.allowInsecureHttp = true;
+        request.jobId = "EXPLICIT_WGET";
+        request.version = "3.0";
+        edge_gateway::OtaService(config).execute(request, "GW_TEST", 3000, &reply, &status, nullptr);
+        require(status.stage == "completed" && containsText(root + "/wget-called", "called"),
+                "explicit insecure mode must retain wget fallback");
+    } catch (...) {
+        removeEventStoreTestTree(root);
+        throw;
+    }
+    removeEventStoreTestTree(root);
+}
+#endif
 
 edge_gateway::OtaStatus specialStatus() {
     edge_gateway::OtaStatus status;
@@ -747,6 +821,7 @@ int main(int argc, char** argv) {
     }
 #endif
 
+    verifyHttpsDownloaderSelection();
     std::cout << "ota_service_test passed" << std::endl;
     return 0;
 #endif

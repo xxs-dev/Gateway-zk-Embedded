@@ -1,7 +1,10 @@
 #include <cstdio>
+#include <chrono>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
@@ -79,6 +82,47 @@ void verifyMaintenanceCredential() {
     require(startsWith(dm::handleHttpRequest(config, "POST", "/api/v1/config/delete", "", "", goodBody, "10.0.0.3"),
                        "HTTP/1.1 429"),
             "client must be locked out after repeated failures");
+
+    config.otaAppConfigFile = root + "-app.json";
+    config.identityConfigFile = root + "-identity.json";
+    config.otaStatusFile = root + "-ota-status.jsonl";
+    { std::ofstream app(config.otaAppConfigFile);
+      app << "{\"ota\":{\"enabled\":true,\"requireSignature\":true,\"checksumRequired\":true,"
+             "\"downloadDir\":\"" << root << "-downloads\",\"stagingDir\":\"" << root
+          << "-staging\",\"backupDir\":\"" << root << "-backup\",\"signaturePublicKeyPath\":\""
+          << root << "-missing.pub\"}}\n"; }
+    { std::ofstream identity(config.identityConfigFile); identity << "{\"machineCode\":\"GW_TEST\"}\n"; }
+    const auto base = std::string("{\"passwordSha256\":\"") + good +
+        "\",\"packageType\":\"config\",\"artifactUrl\":\"" + root +
+        "-payload.tar.gz\",\"version\":\"1.0\",\"sha256\":\"" + std::string(64, '0') +
+        "\",\"size\":7";
+    const auto unsignedReply = dm::handleHttpRequest(config, "POST", "/api/v1/ota/jobs", "", "",
+        base + ",\"jobId\":\"SIGNED_EXPLICIT\"}", "10.0.0.5");
+    require(startsWith(unsignedReply, "HTTP/1.1 400") &&
+            unsignedReply.find("ota signature is required") != std::string::npos,
+            "Direct must reject missing OTA signature");
+    const auto missingId = dm::handleHttpRequest(config, "POST", "/api/v1/ota/jobs", "", "",
+        base + ",\"signature\":\"AAAA\"}", "10.0.0.5");
+    require(startsWith(missingId, "HTTP/1.1 400") &&
+            missingId.find("invalid ota jobId") != std::string::npos,
+            "Direct must not invent an ID for a signed request");
+    const auto signedReply = dm::handleHttpRequest(config, "POST", "/api/v1/ota/jobs", "", "",
+        base + ",\"signature\":\"AAAA\",\"jobId\":\"SIGNED_EXPLICIT\"}", "10.0.0.5");
+    require(startsWith(signedReply, "HTTP/1.1 202") &&
+            signedReply.find("\"jobId\":\"SIGNED_EXPLICIT\"") != std::string::npos,
+            "Direct must forward signed request with unchanged job ID");
+    bool asyncFinished = false;
+    for (int i = 0; i < 200; ++i) {
+        std::ifstream input(config.otaStatusFile);
+        const std::string statuses((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        if (statuses.find("\"jobId\":\"SIGNED_EXPLICIT\"") != std::string::npos &&
+            statuses.find("\"stage\":\"failed\"") != std::string::npos) { asyncFinished = true; break; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(asyncFinished, "Direct signed request worker did not finish locally");
+    std::remove(config.otaAppConfigFile.c_str());
+    std::remove(config.identityConfigFile.c_str());
+    std::remove(config.otaStatusFile.c_str());
 
     std::remove(config.authStateFile.c_str());
     require(startsWith(dm::handleHttpRequest(config, "POST", "/api/v1/config/delete", "", "", goodBody, "10.0.0.4"),

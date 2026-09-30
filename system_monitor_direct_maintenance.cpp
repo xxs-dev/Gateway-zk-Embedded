@@ -910,7 +910,9 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
 
 edge_gateway::OtaRequest parseOtaRequest(const std::string& body) {
     edge_gateway::OtaRequest request;
-    request.jobId = jsonString(body, "jobId", "DIRECT_OTA_" + std::to_string(nowMs()));
+    request.signature = jsonString(body, "signature");
+    request.jobId = jsonString(body, "jobId", request.signature.empty() ?
+        "DIRECT_OTA_" + std::to_string(nowMs()) : "");
     request.packageType = jsonString(body, "packageType", "full");
     request.artifactUrl = jsonString(body, "artifactUrl");
     request.version = jsonString(body, "version");

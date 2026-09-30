@@ -4,6 +4,9 @@
 `ota.signaturePublicKeyPath`（默认 `/etc/modbus-gateway/ota.pub`）验证，否则任务在下载前被拒绝（`ota signature is required` /
 `ota signature verification failed`）。签名任务同时强制要求 `sha256`，下载后仍按 `sha256` 校验包体。
 
+Direct 维护 OTA 也转交同一 `signature` 字段；签名任务必须显式提供已签名的 `jobId`，边端不会自动补造。
+安全 HTTPS 下载依赖 `curl` 的 `--proto`/`--proto-redir` 限制；缺少 curl 时明确失败，不回退到可经重定向降级 HTTP 的 wget。仅显式设置 `ota.allowInsecureHttp=true` 才保留 wget fallback。
+
 ## 1. 算法
 
 - `openssl dgst -sha256` 签名/验签，支持 ECDSA P-256（推荐）或 RSA ≥ 3072 位公钥（PEM）。
