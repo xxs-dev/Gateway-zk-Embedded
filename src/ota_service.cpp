@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <random>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -1157,6 +1158,9 @@ struct PendingOtaJob {
     std::string previousVersion;
     std::string token;
     std::string lifecycle;
+    std::string artifactSha256;
+    std::uint64_t artifactSize = 0;
+    std::uint64_t leaseDev = 0, leaseInode = 0;
 };
 
 std::string pendingJobPath(const std::string& stagingDir, const std::string& jobId) {
@@ -1170,7 +1174,12 @@ std::string encodePendingJob(const PendingOtaJob& job) {
         ",\"artifactPath\":" + pendingJsonString(job.artifactPath) +
         ",\"previousVersion\":" + pendingJsonString(job.previousVersion) +
         ",\"token\":" + pendingJsonString(job.token) +
-        (job.lifecycle.empty() ? "" : ",\"lifecycle\":" + pendingJsonString(job.lifecycle)) + "}\n";
+        (job.lifecycle.empty() ? "" : ",\"lifecycle\":" + pendingJsonString(job.lifecycle)) +
+        (job.lifecycle != "systemd-handoff-v1" ? "" :
+            ",\"artifactSha256\":" + pendingJsonString(job.artifactSha256) +
+            ",\"artifactSize\":" + pendingJsonString(std::to_string(job.artifactSize)) +
+            ",\"leaseDev\":" + pendingJsonString(std::to_string(job.leaseDev)) +
+            ",\"leaseInode\":" + pendingJsonString(std::to_string(job.leaseInode))) + "}\n";
 }
 
 PendingOtaJob decodePendingJob(const std::string& bytes) {
@@ -1188,8 +1197,16 @@ PendingOtaJob decodePendingJob(const std::string& bytes) {
     job.token = pendingField(document, "token");
     if (document.find("lifecycle")) {
         job.lifecycle = pendingField(document, "lifecycle");
-        if (job.lifecycle != "inherited-flock-v1")
+        if (job.lifecycle != "inherited-flock-v1" && job.lifecycle != "systemd-handoff-v1")
             throw std::runtime_error("unsupported OTA lifecycle protocol");
+        if (job.lifecycle == "systemd-handoff-v1") {
+            job.artifactSha256 = pendingField(document, "artifactSha256");
+            job.artifactSize = pendingInteger<std::uint64_t>(pendingField(document, "artifactSize"));
+            job.leaseDev = pendingInteger<std::uint64_t>(pendingField(document, "leaseDev"));
+            job.leaseInode = pendingInteger<std::uint64_t>(pendingField(document, "leaseInode"));
+            if (!isSafeSha256(job.artifactSha256) || job.artifactSha256.empty() || !job.artifactSize)
+                throw std::runtime_error("invalid runtime handoff artifact binding");
+        }
     }
     if (!isSafeOtaId(job.jobId) || !isSafeOtaId(job.version) || job.machineCode.empty() ||
         job.token.size() != 36 || job.artifactPath.empty())
@@ -1322,6 +1339,42 @@ bool isActiveJob(const std::string& stagingDir, const PendingOtaJob& job) {
     return readPendingJournal(path) == "jobId=" + job.jobId + "\ntoken=" + job.token + "\n";
 }
 
+bool hasHandoffCancellation(const std::string& stagingDir, const PendingOtaJob& job) {
+    const auto path = joinPath(stagingDir, "ota_handoff_" + job.jobId + ".json");
+    if (strictlyAbsent(path) || fileSizeBytes(path) > 16384) return false;
+#ifndef _WIN32
+    struct stat info{};
+    if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != 0 ||
+        info.st_nlink != 1 || (info.st_mode & 0022)) return false;
+#endif
+    const auto bytes = readPendingJournal(path);
+    if (bytes.empty() || bytes.back() != '\n') return false;
+    const auto record = json::JsonParser(bytes, 6, 96).parse();
+    const auto* mutation = record.find("runtimeMayChange");
+    const auto* proof = record.find("cancelProof");
+    if (pendingField(record, "format") != "ota-handoff-v1" || pendingField(record, "jobId") != job.jobId ||
+        pendingField(record, "token") != job.token || pendingField(record, "version") != job.version ||
+        pendingField(record, "phase") != "CANCELLED" || !mutation || !mutation->isBool() || mutation->asBool() ||
+        !proof || !proof->isObject()) return false;
+    for (const auto* object : {&record, proof}) {
+        std::set<std::string> names;
+        for (const auto& member : object->asObject().values)
+            if (!names.insert(member.key).second) return false;
+    }
+    const auto* noWriter = proof->find("noWriter");
+    if (!(noWriter && noWriter->isBool() && noWriter->asBool() &&
+        pendingField(*proof, "unit") == "ota-runtime-" + job.jobId + "-" + job.token + ".service" &&
+        pendingField(*proof, "mainPid") == "0" && pendingField(*proof, "job") == "")) return false;
+    const auto healthPath = joinPath(stagingDir, "health_" + job.jobId + ".txt");
+    if (strictlyAbsent(healthPath) || fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096)
+        return false;
+    const auto health = decodeHealthResult(readPendingJournal(healthPath), job);
+    if (health.status != "failed" || health.rollback != "unchanged") return false;
+    const auto finalPath = joinPath(stagingDir, "ota_final_" + job.jobId + ".txt");
+    return strictlyAbsent(finalPath) || (fileSizeBytes(finalPath) <= 256 &&
+        readPendingJournal(finalPath) == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=failed\n");
+}
+
 std::vector<std::string> pendingJobFiles(const std::string& stagingDir) {
     std::vector<std::string> files;
     for (const auto& path : listFilesInDirectory(stagingDir)) {
@@ -1401,6 +1454,8 @@ void OtaService::ensureNoUnresolvedJob() const {
             throw std::runtime_error("previous successful OTA requires finalization reconciliation");
         if (!hasValidFinal(config_.stagingDir, job))
             throw std::runtime_error("previous OTA job has no verified terminal result");
+        if (job.lifecycle == "systemd-handoff-v1" && !hasHandoffCancellation(config_.stagingDir, job))
+            throw std::runtime_error("runtime handoff is unresolved");
         const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
         const auto final = readPendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"));
         if (final == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=completed\n" &&
@@ -1417,6 +1472,7 @@ void OtaService::ensureNoUnresolvedJob() const {
 
 void OtaService::reconcilePendingJobs() const {
     ensureDirectory(config_.stagingDir);
+    // Scan/Direct query call here: only bounded records, never systemd/process waits.
     PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
     for (const auto& path : pendingJobFiles(config_.stagingDir)) {
         PendingOtaJob job;
@@ -1429,6 +1485,8 @@ void OtaService::reconcilePendingJobs() const {
         try {
             if (fileSizeBytes(path) > 4096) continue;
             job = decodePendingJob(readPendingJournal(path));
+            if (job.lifecycle == "systemd-handoff-v1" &&
+                !hasHandoffCancellation(config_.stagingDir, job)) continue;
             if (path != pendingJobPath(config_.stagingDir, job.jobId)) continue;
             bool synchronousEvidence = false;
             reconciliationNeeded = needsFinalizationReconciliation(config_.stagingDir, job, &synchronousEvidence);
@@ -1538,6 +1596,7 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
         try {
             if (fileSizeBytes(path) > 4096) continue;
             const auto job = decodePendingJob(readPendingJournal(path));
+            if (job.lifecycle == "systemd-handoff-v1" && !hasHandoffCancellation(config_.stagingDir, job)) continue;
             if (path != pendingJobPath(config_.stagingDir, job.jobId) ||
                 needsFinalizationReconciliation(config_.stagingDir, job) ||
                 !hasValidFinal(config_.stagingDir, job)) continue;
@@ -1607,6 +1666,7 @@ void OtaService::execute(
     if (reply == nullptr || status == nullptr) {
         throw std::invalid_argument("ota reply/status is required");
     }
+    const bool runtimeHandoff = fileNameOf(config_.applyScript) == "offline-runtime-upgrade.py";
 #ifndef _WIN32
     std::unique_ptr<JobLifecycleLock> applyLease;
 #endif
@@ -1614,6 +1674,12 @@ void OtaService::execute(
         rejectDuplicateRequest(request.jobId);
         if (!config_.enabled) throw std::runtime_error("ota is disabled");
         validateOtaRequestFields(request, config_);
+        if (runtimeHandoff && (request.packageType != "full" || !config_.requireSignature ||
+                              !config_.checksumRequired || request.size == 0))
+            throw std::runtime_error("runtime handoff requires a signed, sized full artifact");
+#ifdef _WIN32
+        if (runtimeHandoff) throw std::runtime_error("runtime handoff requires Linux systemd");
+#endif
         validateOtaSize(config_, request.size);
         ensureDirectory(config_.downloadDir);
         ensureDirectory(config_.stagingDir);
@@ -1683,6 +1749,15 @@ void OtaService::execute(
                                                        config_.upgradeTimeoutSec)))
             throw std::runtime_error("official OTA requires python3 before intent");
         pending.lifecycle = "inherited-flock-v1";
+        if (runtimeHandoff) {
+            pending.lifecycle = "systemd-handoff-v1";
+            pending.artifactSha256 = toLower(request.sha256);
+            pending.artifactSize = request.size;
+            struct stat leaseInfo{};
+            if (fstat(applyLease->fd(), &leaseInfo) != 0) throw std::runtime_error("cannot bind donor lease identity");
+            pending.leaseDev = leaseInfo.st_dev;
+            pending.leaseInode = leaseInfo.st_ino;
+        }
 #endif
         {
             PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
@@ -1709,12 +1784,44 @@ void OtaService::execute(
                   -1
 #endif
         );
+        if (runtimeHandoff) {
+#ifndef _WIN32
+            // READY is durable. Closing the donor lease enables only the independent owner.
+            applyLease.reset();
+            const auto helper = config_.applyScript.substr(0, config_.applyScript.find_last_of('/') + 1) + "ota-health-result.py";
+            // execute already runs on the existing OTA worker, not the telemetry scan.
+            if (commandStatusSucceeded(runArgvWithTimeout({"/usr/bin/python3", "-B", helper,
+                    "--handoff-finish", config_.stagingDir, request.jobId, ownToken}, 40))) {
+                reconcilePendingJobs();
+                for (const auto& final : loadFinalStatuses()) {
+                    if (final.jobId == request.jobId && final.occurrenceId == ownToken) { *status = final; break; }
+                }
+            }
+#endif
+            return; // Never enter the synchronous success tail during a handoff gap.
+        }
     } catch (const std::exception& ex) {
         const auto* rejection = dynamic_cast<const OtaRequestRejected*>(&ex);
         if (rejection && rejection->reason() == OtaRejectionReason::Duplicate) throw;
 #ifndef _WIN32
         if (intentPersisted) applyLease.reset();
 #endif
+        if (runtimeHandoff && intentPersisted) {
+            // An uncertain dispatch is not failure/unchanged proof or permission for legacy rollback.
+            status->stage = "applying";
+            status->message = "runtime handoff unresolved; query original job";
+#ifndef _WIN32
+            const auto helper = config_.applyScript.substr(0, config_.applyScript.find_last_of('/') + 1) + "ota-health-result.py";
+            if (commandStatusSucceeded(runArgvWithTimeout({"/usr/bin/python3", "-B", helper,
+                    "--handoff-recover", config_.stagingDir, request.jobId, ownToken}, 30))) {
+                reconcilePendingJobs();
+                for (const auto& final : loadFinalStatuses()) {
+                    if (final.jobId == request.jobId && final.occurrenceId == ownToken) { *status = final; break; }
+                }
+            }
+#endif
+            return;
+        }
         const auto failedStage = status->stage.empty() ? std::string("unknown") : status->stage;
         bool rollbackAttempted = false;
         bool rollbackProcessSucceeded = false;
@@ -2722,7 +2829,10 @@ void OtaService::runScript(
         throw std::runtime_error("ota apply script is empty");
     }
 
-    const auto command = buildScriptCommand(scriptPath, request, artifactPath, token) +
+    const auto command = fileNameOf(scriptPath) == "offline-runtime-upgrade.py" ?
+        "/usr/bin/python3 -B " + quoteArg(scriptPath.substr(0, scriptPath.find_last_of('/') + 1) + "ota-health-result.py") +
+        " --handoff " + quoteArg(config_.stagingDir) + " " + quoteArg(request.jobId) + " " + quoteArg(token) +
+        " 9 " + quoteArg(scriptPath) : buildScriptCommand(scriptPath, request, artifactPath, token) +
         (lifecycleFd >= 0 ? " 9" : "");
     if (!commandStatusSucceeded(runShellCommandWithTimeout(command, config_.upgradeTimeoutSec, lifecycleFd))) {
         throw std::runtime_error("ota apply script failed");

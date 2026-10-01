@@ -1,0 +1,252 @@
+finalization order: initial-final=committed no false failed/reapply
+synchronous audit tail final: metadata recovered, apply once, no health fabricated
+finalization final: initial-final=unknown no false failed/reapply
+synchronous audit tail version: metadata recovered, apply once, no health fabricated
+finalization version: initial-final=unknown no false failed/reapply
+synchronous audit tail applied-version: metadata recovered, apply once, no health fabricated
+finalization applied-version: initial-final=unknown no false failed/reapply
+synchronous audit tail history: metadata recovered, apply once, no health fabricated
+finalization history: initial-final=unknown no false failed/reapply
+finalization intent: initial-final=unknown no false failed/reapply
+finalization identity: initial-final=unknown no false failed/reapply
+finalization active: initial-final=unknown no false failed/reapply
+finalization state: initial-final=unknown no false failed/reapply
+OTA reconciliation audit NOT durable; jobId=FINAL_JOB token=f480f04f-ed3e-497b-af3e-efbd9d46c74f finalState=unknown phase=final-marker; stderr is best effort only
+finalization audit: initial-final=unknown no false failed/reapply
+finalization journal: initial-final=committed no false failed/reapply
+ota status publish failed stage=completed error=fixture notification fault https://secret.invalid/token
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+finalization callback: initial-final=committed no false failed/reapply
+finalization crash: initial-final=committed no false failed/reapply
+finalization existing-final: initial-final=committed no false failed/reapply
+finalization existing-final-new-active: initial-final=committed no false failed/reapply
+finalization health-final: recovered via matched health only
+finalization health-final: initial-final=unknown no false failed/reapply
+finalization health-version: recovered via matched health only
+finalization health-version: initial-final=unknown no false failed/reapply
+finalization health-journal: initial-final=committed no false failed/reapply
+synchronous audit tail directory-sync: metadata recovered, apply once, no health fabricated
+finalization directory-sync: initial-final=unknown no false failed/reapply
+sync evidence version: metadata-only recovery
+sync evidence history: metadata-only recovery
+sync evidence artifact-retention: metadata-only recovery
+sync evidence final-marker: metadata-only recovery
+sync evidence matching-final: metadata-only recovery
+sync evidence retry-version: metadata-only recovery
+sync evidence retry-final: metadata-only recovery
+sync evidence retry-audit: metadata-only recovery
+sync evidence retry-journal: metadata-only recovery
+sync evidence early-health-reconciliation: blocked unchanged
+sync evidence early-state-lock: blocked unchanged
+sync evidence early-intent: blocked unchanged
+sync evidence early-pending-health: blocked unchanged
+sync evidence early-terminal-journal: blocked unchanged
+sync evidence early-audit-update: blocked unchanged
+sync evidence wrong-format: blocked unchanged
+sync evidence wrong-reason: blocked unchanged
+sync evidence wrong-evidence: blocked unchanged
+sync evidence wrong-state: blocked unchanged
+sync evidence wrong-jobId: blocked unchanged
+sync evidence wrong-token: blocked unchanged
+sync evidence wrong-version: blocked unchanged
+sync evidence wrong-ts: blocked unchanged
+sync evidence typed-phase: blocked unchanged
+sync evidence missing-evidence: blocked unchanged
+sync evidence duplicate-evidence: blocked unchanged
+sync evidence duplicate-phase: blocked unchanged
+sync evidence duplicate-token: blocked unchanged
+sync evidence duplicate-phase-nine: blocked unchanged
+sync evidence truncated: blocked unchanged
+sync evidence missing-lock: blocked unchanged
+sync evidence live-lock: blocked unchanged
+sync evidence old-intent: blocked unchanged
+sync evidence wrong-active: blocked unchanged
+sync evidence health: blocked unchanged
+sync evidence pending: blocked unchanged
+sync evidence marker: blocked unchanged
+sync evidence health-link: blocked unchanged
+sync evidence pending-link: blocked unchanged
+sync evidence marker-link: blocked unchanged
+sync evidence pending-inspection-error: blocked unchanged
+sync evidence damaged-final: blocked unchanged
+sync evidence wrong-final: blocked unchanged
+sync evidence failed-final: blocked unchanged
+sync evidence failed-final-health: blocked unchanged
+sync evidence final-link: blocked unchanged
+replay isolation reconcile start: escaped=0 full=6 realtime=3
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+mqtt OTA replay deferred phase=reconcile retryAfterMs=20000
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+replay isolation reconcile scan: escaped=0 full=120 realtime=120
+replay isolation reconcile: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+replay isolation reconcile-audit start: escaped=0 full=6 realtime=3
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=20000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+replay isolation reconcile-audit scan: escaped=0 full=120 realtime=120
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt OTA replay deferred phase=journal-read retryAfterMs=10000
+replay isolation reconcile-audit: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+replay isolation read start: escaped=0 full=6 realtime=3
+mqtt OTA replay deferred phase=journal-read retryAfterMs=10000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=20000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=30000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=30000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=30000
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+replay isolation read scan: escaped=0 full=120 realtime=120
+replay isolation read: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+replay isolation audit start: escaped=0 full=6 realtime=3
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+replay isolation audit scan: escaped=0 full=120 realtime=120
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+replay isolation audit: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+mqtt OTA replay deferred phase=publish retryAfterMs=10000
+replay isolation publish start: escaped=0 full=6 realtime=3
+mqtt OTA replay deferred phase=publish retryAfterMs=10000
+mqtt OTA replay deferred phase=publish retryAfterMs=20000
+mqtt OTA replay deferred phase=publish retryAfterMs=30000
+mqtt OTA replay deferred phase=publish retryAfterMs=30000
+mqtt OTA replay deferred phase=publish retryAfterMs=30000
+mqtt OTA replay deferred phase=journal-clear retryAfterMs=10000
+replay isolation publish scan: escaped=0 full=120 realtime=120
+replay isolation publish: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+mqtt OTA replay deferred phase=journal-clear retryAfterMs=10000
+mqtt OTA replay deferred phase=journal-clear retryAfterMs=10000
+replay isolation clear scan: escaped=0 full=120 realtime=120
+replay isolation clear: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+Direct OTA metadata: escaped=0
+Direct OTA metadata: existing items/finals retained, explicit degradation, recovered
+Direct OTA state: escaped=0
+Direct OTA state: existing items/finals retained, explicit degradation, recovered
+Direct OTA config: escaped=0
+Direct OTA config: existing items/finals retained, explicit degradation, recovered
+OTA root identity/type/duplicate-key and safe-integer boundaries passed
+pre-intent failed callback reentry: Duplicate; real download failure persisted once
+mqtt ota request queued jobId=SHARED
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=0 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=0 in-flight/history suppressed; different invalid ID replied
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=Direct invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+mqtt ota publication failed: injected accepted reply failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt status event publish failed event=ota-completed error=injected audit publication failure
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt status event publish failed event=ota-rejected error=injected audit publication failure
+mqtt ota request queued jobId=AFTER_AUDIT_FAILURE
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt ota job returned jobId=AFTER_AUDIT_FAILURE stage=completed message=upgrade completed
+mqtt status event publish failed event=ota-completed error=injected audit publication failure
+duplicate ingress: owner=MQTT invalid=1 in-flight/history suppressed; different invalid ID replied
+mqtt ota request queued jobId=SHARED
+direct OTA worker error jobId=LATE_DIRECT error=previous OTA writer is still running
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+mqtt ota request rejected jobId= error=duplicate OTA root field
+mqtt ota request rejected jobId=OTHER error=invalid ota sha256
+mqtt ota request rejected jobId=DIFFERENT_BUSY error=previous OTA writer is still running
+mqtt ota job returned jobId=SHARED stage=completed message=upgrade completed
+mqtt ota request rejected jobId=SHARED error=ota jobId already processed
+duplicate ingress: owner=MQTT invalid=0 in-flight/history suppressed; different invalid ID replied
+Direct post-accepted distinct-job refusal: own durable failed; original task completed
+legacy marker legacy: rejected without intent; marker retained
+legacy marker legacy: new job actually completed after simulated recovery
+legacy marker empty: rejected without intent; marker retained
+legacy marker empty: new job actually completed after simulated recovery
+legacy marker directory: rejected without intent; marker retained
+legacy marker directory: new job actually completed after simulated recovery
+legacy marker dangling-link: rejected without intent; marker retained
+legacy marker dangling-link: new job actually completed after simulated recovery
+legacy marker loop-link: rejected without intent; marker retained
+legacy marker loop-link: new job actually completed after simulated recovery
+lifecycle evidence prepared: recovered
+lifecycle evidence missing-barrier: blocked
+lifecycle evidence damaged-barrier: blocked
+lifecycle evidence wrong-token: blocked
+lifecycle evidence changed-barrier: blocked
+lifecycle evidence pending-health: blocked
+lifecycle evidence burned: blocked
+lifecycle evidence damaged-applied: blocked
+lifecycle evidence unreadable-applied: blocked
+lifecycle evidence marker: blocked
+lifecycle evidence missing-lock: blocked
+lifecycle evidence old-intent: blocked
+lifecycle evidence damaged-health: blocked
+intent-to-fork: held before fork, parent CLOEXEC; unregistered custom failure blocked
+parent exit, live child, health=0: blocked until child closes inherited lease
+parent exit, live child, health=1: blocked until child closes inherited lease
+parent timeout, live child, health=1: blocked until child closes inherited lease
+same-ID pre-intent lease: invalid duplicate typed; no publication/history; owner completed
+rollback in progress: next actual execute rejected
+ota final-state test passed

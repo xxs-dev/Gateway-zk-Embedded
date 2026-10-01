@@ -1824,6 +1824,12 @@ def activate(args):
 
 
 def main():
+    if len(sys.argv) == 5 and sys.argv[1] == 'ota-owner':
+        spec = importlib.util.spec_from_file_location('ota_health', str(Path(__file__).with_name('ota-health-result.py')))
+        health = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(health)
+        health.RuntimeHandoff(Path(sys.argv[2]), sys.argv[3], sys.argv[4]).own()
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('apply', 'recover', 'observe', 'activate'))
     parser.add_argument('--approval', type=Path)

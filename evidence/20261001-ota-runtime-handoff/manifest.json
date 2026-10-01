@@ -1,0 +1,71 @@
+{
+  "stage": "pre-stop-independent-owner-local-only",
+  "date": "2026-10-01",
+  "parentCommit": "3c04fe85a32a582a2db4c6e3e5cfa268d0f45997",
+  "branch": "fix/edge-review-r1-20260930",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "workingSha256": "2eaa36df78af29105e936b8bb45b60f0036e9f38b6735c011b23750c90107be0",
+      "workingBytes": 52462,
+      "gitLfSha256": "bf05f27a93b57756907c3f33ba2e2ac7eadae4b64d8344ca898bba9381493037",
+      "gitLfBytes": 51591
+    },
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "workingSha256": "52d557abc32ab18fd4dd39808f813556eb1d366baf3c1cadf76ba3b2ddc3a334",
+      "workingBytes": 112179,
+      "gitLfSha256": "52d557abc32ab18fd4dd39808f813556eb1d366baf3c1cadf76ba3b2ddc3a334",
+      "gitLfBytes": 112179
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "workingSha256": "cbb0b5d1c94777c6978b0a33d7b0a1a193dfdf620bf0da9829df351169b2f289",
+      "workingBytes": 39900,
+      "gitLfSha256": "cbb0b5d1c94777c6978b0a33d7b0a1a193dfdf620bf0da9829df351169b2f289",
+      "gitLfBytes": 39900
+    },
+    {
+      "path": "src/ota_service.cpp",
+      "workingSha256": "5fa44bd8bb829cb2697f0418f780bed6f3c4f51f0d9cc21a2db79160a3e74ba7",
+      "workingBytes": 123184,
+      "gitLfSha256": "ff76ef2401e709c9a7858734238f8317c549cb342b0745ece84ca348964fa375",
+      "gitLfBytes": 121275
+    },
+    {
+      "path": "tools/ota_final_state_test.cpp",
+      "workingSha256": "1195b82efe21ae15bfe02bec525b2e0c00c56415f14ebb9290abbbf33ee0ba9c",
+      "workingBytes": 51155,
+      "gitLfSha256": "1195b82efe21ae15bfe02bec525b2e0c00c56415f14ebb9290abbbf33ee0ba9c",
+      "gitLfBytes": 51155
+    },
+    {
+      "path": "tools/ota_replay_isolation_test.hpp",
+      "workingSha256": "c3b5e11cb3b9b3b3f396dfa027e7f1519916ad2559dc4ef55469e3fda6417c2d",
+      "workingBytes": 20150,
+      "gitLfSha256": "c3b5e11cb3b9b3b3f396dfa027e7f1519916ad2559dc4ef55469e3fda6417c2d",
+      "gitLfBytes": 20150
+    },
+    {
+      "path": "tools/ota_runtime_handoff_test.py",
+      "workingSha256": "67548d978a28543e938cebfae5ab1628c1492bdc685c02d34f777493cd4cbd85",
+      "workingBytes": 31556,
+      "gitLfSha256": "67548d978a28543e938cebfae5ab1628c1492bdc685c02d34f777493cd4cbd85",
+      "gitLfBytes": 31556
+    },
+    {
+      "path": "tools/ota_runtime_handoff_service_test.cpp",
+      "workingSha256": "f72fcf03080a78d412be476c91495c34acd31f69818bb0c5997cd3fa600ff76d",
+      "workingBytes": 4992,
+      "gitLfSha256": "f72fcf03080a78d412be476c91495c34acd31f69818bb0c5997cd3fa600ff76d",
+      "gitLfBytes": 4992
+    }
+  ],
+  "workingByteHashesAreTested": true,
+  "gitLfHashesCheckedAgainstIndexBeforeCommit": true,
+  "deviceDeployment": false,
+  "productionBaselineImplemented": false,
+  "runtimeInstallationImplemented": false,
+  "ordinaryRuntimeElfOtaRulesChanged": false,
+  "productionAccepted": false
+}

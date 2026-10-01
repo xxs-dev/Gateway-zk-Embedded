@@ -1,0 +1,27 @@
+UpdateCTestConfiguration  from :/var/tmp/edge-review-r1-20260930-build/DartConfiguration.tcl
+Parse Config file:/var/tmp/edge-review-r1-20260930-build/DartConfiguration.tcl
+Test project /var/tmp/edge-review-r1-20260930-build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 85
+    Start 85: ota_handoff_availability
+
+85: Test command: /var/tmp/edge-review-r1-20260930-build/ota_final_state_test "--handoff-availability"
+85: Working Directory: /var/tmp/edge-review-r1-20260930-build
+85: Test timeout computed to be: 30
+85: SKIP: handoff availability requires root-owned private fixtures
+1/1 Test #85: ota_handoff_availability .........***Skipped   0.00 sec
+
+The following tests passed:
+	ota_handoff_availability
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.00 sec
+
+The following tests did not run:
+	 85 - ota_handoff_availability (Skipped)

@@ -1,0 +1,2 @@
+replay isolation handoff scan: escaped=0 full=120 realtime=120
+actual MQTT scans and Direct GET: 20 final + one pending; no helper launch; bounded PASS

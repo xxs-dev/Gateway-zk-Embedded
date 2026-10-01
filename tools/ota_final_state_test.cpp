@@ -868,6 +868,14 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
 int main(int argc, char** argv) {
     try {
 #ifndef _WIN32
+        if (argc == 2 && std::string(argv[1]) == "--handoff-availability") {
+            if (geteuid() != 0) {
+                std::cout << "SKIP: handoff availability requires root-owned private fixtures\n";
+                return 77;
+            }
+            verifyRuntimeHandoffAvailability();
+            return 0;
+        }
         if (argc == 4 && std::string(argv[1]) == "--replay-isolation") {
             verifyOtaReplayIsolation(argv[2], std::string(argv[3]) == "start");
             return 0;

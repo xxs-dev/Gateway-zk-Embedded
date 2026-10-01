@@ -46,6 +46,32 @@ void seedReplayHealthFault(const std::string& staging) {
     require(mkdir((staging + "/current_version.txt").c_str(), 0700) == 0, "cannot inject reconciliation write fault");
 }
 
+void seedRuntimeHandoffQueries(edge_gateway::OtaConfig& config, const std::string& root) {
+    config.applyScript = root + "/offline-runtime-upgrade.py";
+    writeFixtureFile(root + "/ota-health-result.py", "import pathlib,time\npathlib.Path('" + root +
+        "/helper-called').write_text('unexpected')\ntime.sleep(3)\n");
+    for (int i = 0; i < 21; ++i) {
+        const auto job = i == 20 ? "PENDING" : "CLOSED_" + std::to_string(i);
+        const std::string token = "00000000-0000-4000-8000-000000000002";
+        writeFixtureFile(config.stagingDir + "/ota_job_" + job + ".json",
+            "{\"format\":\"ota-job-v1\",\"jobId\":\"" + job + "\",\"machineCode\":\"GW_TEST\","
+            "\"version\":\"2.0\",\"artifactPath\":\"/private-fixture.tar.gz\",\"previousVersion\":\"1.0\","
+            "\"token\":\"" + token + "\",\"lifecycle\":\"systemd-handoff-v1\","
+            "\"artifactSha256\":\"" + std::string(64, 'a') + "\",\"artifactSize\":\"1\",\"leaseDev\":\"0\",\"leaseInode\":\"1\"}\n");
+        writeFixtureFile(config.stagingDir + "/ota_job_" + job + ".lock", "");
+        if (i == 20) continue;
+        writeFixtureFile(config.stagingDir + "/ota_handoff_" + job + ".json",
+            "{\"format\":\"ota-handoff-v1\",\"jobId\":\"" + job + "\",\"version\":\"2.0\",\"token\":\"" + token +
+            "\",\"phase\":\"CANCELLED\",\"runtimeMayChange\":false,\"cancelProof\":{\"noWriter\":true,\"mainPid\":\"0\","
+            "\"job\":\"\",\"unit\":\"ota-runtime-" + job + "-" + token + ".service\"}}\n");
+        writeFixtureFile(config.stagingDir + "/health_" + job + ".txt",
+            "{\"format\":\"ota-health-v1\",\"jobId\":\"" + job + "\",\"version\":\"2.0\",\"token\":\"" + token +
+            "\",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"1000\"}\n");
+        writeFixtureFile(config.stagingDir + "/ota_final_" + job + ".txt", "jobId=" + job + "\ntoken=" + token + "\nstatus=failed\n");
+    }
+    writeFixtureFile(config.stagingDir + "/ota_active_job.txt", "jobId=PENDING\ntoken=00000000-0000-4000-8000-000000000002\n");
+}
+
 void verifyOtaReplayIsolation(const std::string& fault, bool startWorker) {
     char pattern[] = "/tmp/ota-replay-isolation-XXXXXX";
     const char* created = mkdtemp(pattern);
@@ -53,8 +79,9 @@ void verifyOtaReplayIsolation(const std::string& fault, bool startWorker) {
     const std::string root = created;
     const auto shm = root.substr(5);
     try {
-        const auto config = lifecycleConfig(root);
+        auto config = lifecycleConfig(root);
         require(mkdir(config.stagingDir.c_str(), 0700) == 0, "cannot create replay staging");
+        if (fault == "handoff") seedRuntimeHandoffQueries(config, root);
         const bool reconcileFault = fault == "reconcile" || fault == "reconcile-audit";
         if (reconcileFault) seedReplayHealthFault(config.stagingDir);
         const auto journal = config.stagingDir + "/ota_status_pending.log";
@@ -108,6 +135,7 @@ void verifyOtaReplayIsolation(const std::string& fault, bool startWorker) {
         edge_gateway::MqttDriverService service(mqtt, driver, {device}, router, publisher, nullptr,
             std::unique_ptr<edge_gateway::OtaService>(new edge_gateway::OtaService(config)));
         int escaped = 0;
+        const auto started = std::chrono::steady_clock::now();
         if (startWorker) {
             try { service.start(); } catch (const std::exception&) { ++escaped; }
             for (int i = 0; escaped == 0 && i < 100 && publisher->realtime < 3; ++i)
@@ -123,11 +151,18 @@ void verifyOtaReplayIsolation(const std::string& fault, bool startWorker) {
                   << ": escaped=" << escaped << " full=" << publisher->full << " realtime=" << publisher->realtime << '\n';
         require(escaped == 0 && publisher->full >= 3 && publisher->realtime >= 3,
             "OTA fault must not interrupt actual start or continuous full/realtime scans");
+        if (fault == "handoff") {
+            require(std::chrono::steady_clock::now() - started < std::chrono::seconds(2),
+                "completed/pending handoffs must not wait for the blocking owner helper on telemetry path");
+            require(readFile(root + "/helper-called").empty() &&
+                readFile(config.stagingDir + "/ota_final_PENDING.txt").empty(),
+                "scan must neither launch owner helper nor fabricate pending final");
+        }
         const auto health = edge_gateway::json::JsonParser(readFile(driver.healthFile)).parse();
         require(health.find("scanFailedCycles")->asNumber() == 0, "OTA replay failure must not mark main scan failed");
         require(publisher->failedStatuses("RECOVER") == 0 && publisher->negativeReplies("RECOVER") == 0,
             "replay isolation cannot fabricate task failure");
-        if (!startWorker) {
+        if (!startWorker && fault != "handoff") {
             if (reconcileFault || fault == "read" || fault == "publish") {
                 require(publisher->replayAudits == 5, "persistent replay failure needs bounded backoff, not per-scan audit/I/O");
                 if (reconcileFault) require(!readFile(config.stagingDir + "/ota_reconcile_RECOVER.json").empty() &&
@@ -236,4 +271,33 @@ void verifyOtaReplayIsolationCases() {
     }
     verifyOtaReplayIsolation("clear", false);
     for (const std::string fault : {"metadata", "state", "config"}) verifyDirectOtaReplayIsolation(fault);
+}
+
+void verifyRuntimeHandoffAvailability() {
+    verifyOtaReplayIsolation("handoff", false);
+    char pattern[] = "/tmp/ota-handoff-direct-XXXXXX";
+    const std::string root = mkdtemp(pattern);
+    try {
+        auto config = lifecycleConfig(root);
+        require(mkdir(config.stagingDir.c_str(), 0700) == 0, "cannot create handoff query staging");
+        seedRuntimeHandoffQueries(config, root);
+        edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig direct;
+        direct.otaAppConfigFile = root + "/app.json";
+        direct.otaStatusFile = root + "/status.jsonl";
+        writeFixtureFile(direct.otaAppConfigFile, "{\"ota\":{\"stagingDir\":\"" + config.stagingDir +
+            "\",\"applyScript\":\"" + config.applyScript + "\"}}\n");
+        const auto started = std::chrono::steady_clock::now();
+        for (int i = 0; i < 3; ++i) {
+            const auto reply = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+                direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+            require(reply.find("HTTP/1.1 200") == 0 && reply.find("CLOSED_19") != std::string::npos,
+                "Direct query must preserve durable historical finals");
+        }
+        require(std::chrono::steady_clock::now() - started < std::chrono::seconds(1),
+            "Direct query cannot run blocking recovery helper");
+        require(readFile(root + "/helper-called").empty() && readFile(config.stagingDir + "/ota_final_PENDING.txt").empty(),
+            "query cannot launch helper, apply or manufacture pending outcome");
+        std::cout << "actual MQTT scans and Direct GET: 20 final + one pending; no helper launch; bounded PASS\n";
+    } catch (...) { removeEventStoreTestTree(root); throw; }
+    removeEventStoreTestTree(root);
 }

@@ -1,0 +1,7 @@
+-- Configuring done (2.3s)
+-- Generating done (0.5s)
+-- Build files have been written to: /var/tmp/edge-review-r1-20260930-build
+[ 95%] Built target edge_gateway
+[ 95%] Building CXX object CMakeFiles/ota_final_state_test.dir/tools/ota_final_state_test.cpp.o
+[ 95%] Linking CXX executable ota_final_state_test
+[100%] Built target ota_final_state_test

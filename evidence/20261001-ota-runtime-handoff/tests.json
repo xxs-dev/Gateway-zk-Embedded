@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-01",
+  "environment": "local WSL; root private test roots; actual systemd/unified cgroup v2",
+  "finalResults": [
+    {
+      "command": "cmake --build /var/tmp/edge-review-r1-20260930-build --target ota_runtime_handoff_service_test ota_final_state_test ota_service_test -j2",
+      "exitCode": 0,
+      "log": "build.log"
+    },
+    {
+      "command": "OTA_HANDOFF_BINARY=/var/tmp/edge-review-r1-20260930-build/ota_runtime_handoff_service_test python3 -B /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools/ota_runtime_handoff_test.py -v",
+      "tests": 26,
+      "unittestSeconds": 3.411,
+      "exitCode": 0,
+      "log": "handoff-tests.log"
+    },
+    {
+      "command": "/var/tmp/edge-review-r1-20260930-build/ota_final_state_test --handoff-availability",
+      "exitCode": 0,
+      "log": "availability.log",
+      "full": 120,
+      "realtime": 120,
+      "directQueries": 3,
+      "historicalFinals": 20,
+      "pending": 1,
+      "telemetryAssertionMaxSeconds": 2,
+      "directAssertionMaxSeconds": 1
+    },
+    {
+      "command": "/var/tmp/edge-review-r1-20260930-build/ota_final_state_test",
+      "exitCode": 0,
+      "log": "legacy-final-state.log",
+      "note": "Before the final new-protocol-only parser hardening. No legacy behavior edits followed."
+    },
+    {
+      "command": "/var/tmp/edge-review-r1-20260930-build/ota_service_test",
+      "exitCode": 0,
+      "note": "Checksum/pending/legacy/signature/secure-default regressions; before final new-protocol-only parser hardening."
+    },
+    {
+      "command": "ast.parse offline-runtime-upgrade.py and ota-health-result.py feature_version=(3,6)",
+      "exitCode": 0,
+      "note": "Grammar only, actual interpreter compatibility is not established by this."
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    },
+    {
+      "command": "systemctl list-units --all --plain --no-legend ota-runtime-*.service",
+      "exitCode": 0,
+      "units": []
+    },
+    {
+      "command": "pgrep -af '[/]offline-runtime-upgrade.py ota-owner'",
+      "exitCode": 1,
+      "note": "Expected no-match, not a test failure"
+    },
+    {
+      "command": "cmake --build /var/tmp/edge-review-r1-20260930-build --target ota_final_state_test -j2",
+      "exitCode": 0,
+      "log": "build-root-hook.log",
+      "note": "Last CTest privilege-registration fix; library/product helper bytes unchanged."
+    },
+    {
+      "command": "ctest --test-dir /var/tmp/edge-review-r1-20260930-build -R '^ota_handoff_availability$' -V",
+      "uid": 0,
+      "exitCode": 0,
+      "result": "PASS",
+      "seconds": 0.1,
+      "log": "ctest-root.log"
+    },
+    {
+      "command": "ctest --test-dir /var/tmp/edge-review-r1-20260930-build -R '^ota_handoff_availability$' -V",
+      "uid": 1000,
+      "exitCode": 0,
+      "result": "SKIP_NOT_PASS",
+      "log": "ctest-nonroot.log"
+    },
+    {
+      "command": "subprocess.run ota_final_state_test --handoff-availability as default WSL user",
+      "uid": 1000,
+      "nativeExitCode": 77,
+      "assertionProcessExitCode": 0,
+      "note": "Direct wsl.exe invocation mapped nonzero exit to1; Python child metadata proves native77. No product uid check weakened."
+    }
+  ],
+  "developmentResults": [
+    {
+      "type": "inherited-draft-checkpoint",
+      "tests": 14,
+      "exitCode": 0,
+      "unittestSeconds": 2.383,
+      "note": "Earlier v2-only draft; does not cover subsequently added negatives/hybrid."
+    },
+    {
+      "type": "product-red",
+      "tests": 19,
+      "exitCode": 1,
+      "failures": 3,
+      "harnessErrors": 1,
+      "skipped": 1,
+      "unittestSeconds": 2.346,
+      "note": "Membership, dangling cgroup root, conflicting final negatives failed; unloaded transient stop exit5 was a fixture error."
+    },
+    {
+      "type": "product-red",
+      "tests": 1,
+      "exitCode": 1,
+      "unittestSeconds": 0.204,
+      "note": "After correcting fixture exit5 handling, new-boot/mount-change recovery failed at old dev/inode comparison."
+    },
+    {
+      "type": "product-red",
+      "tests": 1,
+      "exitCode": 1,
+      "unittestSeconds": 0.458,
+      "note": "Native cancelled handoff accepted conflicting healthy decision."
+    },
+    {
+      "type": "intermediate-green",
+      "tests": 22,
+      "exitCode": 0,
+      "unittestSeconds": 3.153,
+      "note": "Before hybrid scope update; not final 26-case coverage."
+    },
+    {
+      "type": "product-red",
+      "tests": 2,
+      "exitCode": 1,
+      "errors": 3,
+      "unittestSeconds": 0.041,
+      "note": "Both board hybrid fixtures refused by v2-only draft."
+    },
+    {
+      "type": "product-red",
+      "tests": 1,
+      "exitCode": 1,
+      "unittestSeconds": 0.168,
+      "note": "os.walk suppressed scan error and produced cancellation decision."
+    },
+    {
+      "type": "product-red",
+      "tests": 1,
+      "exitCode": 1,
+      "unittestSeconds": 0.483,
+      "note": "Native incomplete/ambiguous cancellation proof accepted."
+    },
+    {
+      "type": "build-error",
+      "exitCode": 1,
+      "note": "Missing <set> include in duplicate-field check; corrected, final build exit0."
+    },
+    {
+      "type": "stale-binary-run-not-acceptance",
+      "tests": 26,
+      "exitCode": 1,
+      "unittestSeconds": 3.508,
+      "note": "Executor continued after preceding build failure. Old binary failed new proof negative; final successful rebuild and 26-case run replace this result."
+    },
+    {
+      "type": "coordinator-test-registration-red",
+      "exitCode": 1,
+      "note": "Nonroot root-owned-proof fixture refused durable finals; corrected by explicit privileged-test skip77/CTest SKIP_RETURN_CODE, not by relaxing product ownership."
+    }
+  ],
+  "boundaries": {
+    "actualSystemdHandoff": "WSL v2 only",
+    "hybrid": "Private filesystem/controller-layout substitutes based on both coordinator board snapshots; no hybrid transient unit execution",
+    "reboot": "Simulated boot and mount identity changes; no real reboot",
+    "artifact": "Valid RSA signature with local file copy, not HTTPS",
+    "runtimeMutation": false,
+    "newDeviceConnections": 0,
+    "brokerConnections": 0
+  }
+}
