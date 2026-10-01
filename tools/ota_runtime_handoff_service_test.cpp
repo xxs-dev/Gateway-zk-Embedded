@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <sys/stat.h>
 
 int main(int argc, char** argv) {
     try {
@@ -82,7 +83,62 @@ int main(int argc, char** argv) {
         std::ofstream(finalPath) << originalFinal;
         if (service.loadFinalStatuses().size() != 1)
             throw std::runtime_error("exact failed/unchanged decision must remain readable");
+        // Production owner completion is a distinct bound proof, never CANCELLED.
+        // These are private durable journal fixtures, not an actual runtime install.
+        const auto jsonString = [](const std::string& value) {
+            std::string escaped = "\"";
+            for (const auto c : value) {
+                if (c == '\n') escaped += "\\n";
+                else if (c == '\"' || c == '\\') { escaped += '\\'; escaped += c; }
+                else escaped += c;
+            }
+            return escaped + "\"";
+        };
+        for (const bool healthy : {true, false}) {
+            auto productionConfig = config;
+            productionConfig.stagingDir = root + (healthy ? "/promoted-journals" : "/recovered-journals");
+            if (mkdir(productionConfig.stagingDir.c_str(), 0700)) throw std::runtime_error("cannot create production fixture");
+            const auto staging = productionConfig.stagingDir;
+            const std::string job = "PRODUCTION_FINISHED", tx = "OTA_" + std::string(32, 'a');
+            const std::string result = healthy ? "healthy" : "failed", rollback = healthy ? "none" : "succeeded";
+            const auto healthBytes = "{\"format\":\"ota-health-v1\",\"jobId\":\"" + job + "\",\"version\":\"1.1\",\"token\":\"" + token +
+                "\",\"status\":\"" + result + "\",\"rollback\":\"" + rollback + "\",\"ts\":\"1000\"}\n";
+            std::ofstream(staging + "/ota_job_" + job + ".lock");
+            chmod((staging + "/ota_job_" + job + ".lock").c_str(), 0600);
+            std::ofstream(staging + "/ota_job_" + job + ".json") <<
+                "{\"format\":\"ota-job-v1\",\"jobId\":\"" << job << "\",\"machineCode\":\"LOCAL_ONLY\",\"version\":\"1.1\","
+                "\"previousVersion\":\"1.0\",\"artifactPath\":\"/fixture.tar.gz\",\"token\":\"" << token << "\","
+                "\"lifecycle\":\"systemd-handoff-v1\",\"artifactSha256\":\"" << std::string(64, 'a') <<
+                "\",\"artifactSize\":\"1\",\"leaseDev\":\"0\",\"leaseInode\":\"1\"}\n";
+            std::ofstream(staging + "/ota_active_job.txt") << "jobId=" << job << "\ntoken=" << token << "\n";
+            std::ofstream(staging + "/health_" + job + ".txt") << healthBytes;
+            const auto record = "{\"format\":\"ota-handoff-v1\",\"jobId\":\"" + job + "\",\"version\":\"1.1\",\"token\":\"" + token +
+                "\",\"phase\":\"OWNER_FINISHED\",\"runtimeMayChange\":true,\"productionTransaction\":\"" + tx +
+                "\",\"completionProof\":{\"status\":\"" + result + "\",\"rollback\":\"" + rollback + "\",\"transaction\":\"" + tx +
+                "\",\"healthSha256\":\"" + std::string(64, 'a') + "\",\"healthRecord\":" + jsonString(healthBytes) + "}}\n";
+            const auto handoff = staging + "/ota_handoff_" + job + ".json";
+            std::ofstream(handoff) << record;
+            edge_gateway::OtaService production(productionConfig);
+            production.reconcilePendingJobs();
+            auto statuses = production.loadFinalStatuses();
+            if (statuses.size() != 1 || statuses[0].stage != (healthy ? "completed" : "failed"))
+                throw std::runtime_error("production completion/recovery proof did not reconcile original job");
+            auto damaged = record;
+            const auto bound = damaged.find("\"healthRecord\":");
+            damaged.replace(bound, damaged.size() - bound, "\"healthRecord\":\"mismatched\"}}\n");
+            std::ofstream(handoff) << damaged;
+            if (!production.loadFinalStatuses().empty())
+                throw std::runtime_error("production accepted unbound health bytes");
+            std::ofstream(handoff) << record;
+            bool productionDuplicate = false;
+            try { production.rejectDuplicateRequest(job); }
+            catch (const edge_gateway::OtaRequestRejected& error) {
+                productionDuplicate = error.reason() == edge_gateway::OtaRejectionReason::Duplicate;
+            }
+            if (!productionDuplicate) throw std::runtime_error("production terminal job is not consumed");
+        }
         std::cout << "C++ execute -> real systemd owner -> baseline deny -> cancellation -> durable final PASS\n";
+        std::cout << "C++ production completed/recovered durable proof, conflicting health and duplicate PASS (journal fixture)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

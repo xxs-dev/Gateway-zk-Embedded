@@ -1,0 +1,17 @@
+{
+  "format": "sealed-historical-active-projection-v1",
+  "boards": [
+    {
+      "stateFile": "core-999-r2-active-0-state.json",
+      "stateSha256": "e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46",
+      "activatedUnits": ["gateway-services.service", "modbus-rtu@device_modbusRTU_2_readonly.service", "mqtt-driver@mqtt-service.service", "system-monitor@monitor-service.service"],
+      "activeAllowedUnits": ["gateway-services.service", "modbus-rtu@device_modbusRTU_2_readonly.service", "mqtt-driver@mqtt-service.service", "system-monitor@monitor-service.service"]
+    },
+    {
+      "stateFile": "core-998-r2-active-0-state.json",
+      "stateSha256": "98db8658fbcd15a8697d053c15fdf4774ce0214266c560e3014266dfd74312aa",
+      "activatedUnits": ["gateway-services.service", "system-monitor@monitor-service.service"],
+      "activeAllowedUnits": ["gateway-services.service", "system-monitor@monitor-service.service"]
+    }
+  ]
+}

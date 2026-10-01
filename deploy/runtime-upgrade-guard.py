@@ -64,6 +64,347 @@ CORE_PROGRAMS = frozenset(('ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver
 CORE_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh', 'ota-apply.sh',
                 'ota-rollback.sh', 'ota-health-result.py', 'production-smoke-test.sh')
 POINT_STORE_SIZES = {10: 15174272, 11: 15667032}
+PRODUCTION_DIR = 'runtime-production'
+PRODUCTION_UNIT = re.compile(r'(?:(?:modbus-rtu|dlt645-driver|dio-driver|can-driver|iec-driver|compute-engine|agc-avc|ems-cluster|event-engine|local-display|local-display-qt|local-kiosk|system-monitor|camera-service|mqtt-tls-tunnel|mqtt-driver|mqtt-forwarder)@[A-Za-z0-9_.:-]*|gateway-services|gateway-health-watchdog|qt-display-bridge|ky-ems)\.service\Z')
+PRODUCTION_READERS = {A_RTU_UNIT: 'bin/ModbusRtu', A_MQTT_UNIT: 'bin/MqttDriver',
+                      MONITOR_UNIT: 'bin/SystemMonitor'}
+PRODUCTION_HELPERS = frozenset(('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
+                                'gateway-services.sh', 'ota-health-result.py', 'ota-rollback.sh'))
+SYSTEMD_ROOTS = ('/etc/systemd/system', '/run/systemd/system', '/usr/local/lib/systemd/system',
+                '/usr/lib/systemd/system', '/lib/systemd/system', '/etc/systemd/system.control',
+                '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator',
+                '/run/systemd/generator.early', '/run/systemd/generator.late')
+PRODUCTION_RECOVERY_UNIT = 'gateway-ota-recover.service'
+
+
+def production_json(path):
+    def unique(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('duplicate production JSON field: ' + key)
+            result[key] = value
+        return result
+    source = exact_file(path)
+    if source.stat().st_uid != 0 or source.stat().st_mode & 0o022 or source.stat().st_size > 1024 * 1024:
+        raise ValueError('untrusted production record: ' + str(path))
+    return json.loads(source.read_text(), object_pairs_hook=unique)
+
+
+def production_pin(path):
+    source = exact_file(path)
+    value = source.stat()
+    if value.st_uid != 0 or value.st_mode & 0o022:
+        raise ValueError('untrusted production file: ' + str(path))
+    return dict(sha256=sha(source), mode=stat.S_IMODE(value.st_mode), bytes=value.st_size)
+
+
+def production_files(home):
+    result = {}
+    for directory in (home / 'bin', home / 'ky-ems'):
+        if directory.is_symlink():
+            raise ValueError('symlink production runtime directory')
+        if not directory.exists():
+            continue
+        for source in directory.rglob('*'):
+            if source.is_symlink() or not source.is_dir() and not source.is_file():
+                raise ValueError('nonregular production runtime file')
+            if source.is_file():
+                result[str(source.relative_to(home))] = production_pin(source)
+    return result
+
+
+def production_unit_files(units):
+    names = set(units)
+    names.update(u.split('@')[0] + '@.service' for u in units if '@' in u)
+    directories = {'service.d'} | {u + '.d' for u in names}
+    for unit in names:
+        prefix = unit.split('@')[0]
+        directories.update(prefix[:i + 1] + '.service.d' for i, c in enumerate(prefix) if c == '-')
+    found = {}
+    for root in SYSTEMD_ROOTS:
+        base = Path(root)
+        # Ubuntu's /lib -> /usr/lib alias is not an extra inventory. Resolve
+        # ONLY this standard alias; unit/drop-in symlinks remain rejected.
+        if root == '/lib/systemd/system' and base.resolve() == Path('/usr/lib/systemd/system').resolve():
+            continue
+        if not base.exists():
+            continue
+        for path in base.iterdir():
+            if path.name == PRODUCTION_RECOVERY_UNIT:
+                found[str(path)] = production_pin(path)
+            elif PRODUCTION_UNIT.fullmatch(path.name):
+                if path.name not in names:
+                    raise ValueError('production unit inventory incomplete: ' + path.name)
+                found[str(path)] = production_pin(path)
+            elif path.name == PRODUCTION_RECOVERY_UNIT + '.d':
+                raise ValueError('production recovery owner override refused')
+            elif path.name in directories or (path.name.endswith('.service.d') and
+                    PRODUCTION_UNIT.fullmatch(path.name[:-2])):
+                if path.name not in directories or path.is_symlink() or not path.is_dir():
+                    raise ValueError('unknown production override directory')
+                for child in path.iterdir():
+                    if not child.name.endswith('.conf'):
+                        raise ValueError('uncovered production override file')
+                    found[str(child)] = production_pin(child)
+    return found
+
+
+def production_units_present(units):
+    for action in ('list-units', 'list-unit-files'):
+        result = subprocess.run(['systemctl', action, '--all', '--no-legend', '--no-pager', '--plain'],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=45)
+        if result.returncode:
+            raise ValueError('cannot inventory production participants')
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if fields and PRODUCTION_UNIT.fullmatch(fields[0]) and fields[0] not in units:
+                raise ValueError('uncovered production participant: ' + fields[0])
+
+
+def _production_schema(baseline, home):
+    required = {'format', 'baselineId', 'generation', 'parentSha256', 'gatewayHome', 'machineCode',
+                'architecture', 'pointStoreAbi', 'pointStoreSize', 'clusterProtocol', 'controlEnabled',
+                'files', 'configSha256', 'units', 'allowedUnits', 'unitFiles', 'gates', 'segments',
+                'retiredSources', 'historical', 'bootId', 'release', 'trust', 'healthPolicy'}
+    if (not isinstance(baseline, dict) or set(baseline) != required or baseline['format'] != 'runtime-baseline-v1' or
+            baseline['gatewayHome'] != str(home) or home != Path('/opt/modbus-gateway') or
+            baseline['architecture'] != 'aarch64' or baseline['pointStoreAbi'] != 11 or
+            baseline['pointStoreSize'] != POINT_STORE_SIZES[11] or baseline['clusterProtocol'] != 2 or
+            baseline['controlEnabled'] is not False or type(baseline['generation']) is not int or
+            baseline['generation'] < 1 or not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', baseline['baselineId']) or
+            baseline['parentSha256'] is not None and not re.fullmatch('[0-9a-f]{64}', baseline['parentSha256'])):
+        raise ValueError('invalid production baseline schema/ABI')
+    units, allowed = baseline['units'], baseline['allowedUnits']
+    if (not isinstance(units, list) or len(set(units)) != len(units) or
+            not all(PRODUCTION_UNIT.fullmatch(u) for u in units) or
+            not isinstance(allowed, list) or len(set(allowed)) != len(allowed) or
+            'gateway-services.service' not in allowed or not set(allowed) <= set(units) or
+            not set(allowed) <= set(PRODUCTION_READERS) | {'gateway-services.service', 'gateway-health-watchdog.service'} or
+            not set(allowed) & set(PRODUCTION_READERS)):
+        raise ValueError('production reader-only participant scope invalid')
+    files = baseline['files']
+    if (not isinstance(files, dict) or not {'bin/runtime-upgrade-guard.py', 'bin/gateway-services.sh'} <= set(files) or
+            any(not isinstance(path, str) or not re.fullmatch(r'(?:bin|ky-ems)/[A-Za-z0-9_./-]+', path) or
+                any(p in ('', '.', '..') for p in path.split('/')) for path in files)):
+        raise ValueError('production paired runtime inventory invalid')
+    for inventory in (files, baseline['unitFiles']):
+        for pin in inventory.values():
+            if (not isinstance(pin, dict) or set(pin) != {'sha256', 'mode', 'bytes'} or
+                    not isinstance(pin['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', pin['sha256']) or
+                    type(pin['mode']) is not int or pin['mode'] & ~0o755 or pin['mode'] & 0o022 or
+                    type(pin['bytes']) is not int or not 0 <= pin['bytes'] <= 128 * 1024 * 1024):
+                raise ValueError('invalid production file pin')
+    if (not isinstance(baseline['configSha256'], dict) or not baseline['configSha256'] or
+            any(not isinstance(p, str) or p.startswith('/') or any(v in ('', '.', '..') for v in p.split('/')) or
+                not isinstance(pin, str) or not re.fullmatch('[0-9a-f]{64}', pin)
+                for p, pin in baseline['configSha256'].items()) or
+            not isinstance(baseline['historical'], dict) or not baseline['historical'] or
+            not isinstance(baseline['retiredSources'], dict) or
+            not isinstance(baseline['release'], str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,128}', baseline['release']) or
+            not isinstance(baseline['bootId'], str) or not baseline['bootId'] or
+            not isinstance(baseline['machineCode'], str) or not baseline['machineCode']):
+        raise ValueError('production config/provenance schema invalid')
+    for path, pin in baseline['historical'].items():
+        if not isinstance(path, str) or not Path(path).is_absolute() or not isinstance(pin, dict) or set(pin) != {'sha256', 'mode', 'bytes'}:
+            raise ValueError('production historical pin invalid')
+    for name, meta in baseline['retiredSources'].items():
+        if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,127}', name) or
+                not isinstance(meta, dict) or set(meta) != {'dev', 'ino'} or
+                type(meta['dev']) is not int or type(meta['ino']) is not int or meta['ino'] <= 0):
+            raise ValueError('production retired source identity invalid')
+    if (set(baseline['gates']) != set(units) or
+            len(set(baseline['gates'].values())) != len(units) or
+            any(path not in baseline['unitFiles'] or
+                not path.startswith(str(Path('/etc/systemd/system') / (unit + '.d')) + '/90-offline-') or
+                not path.endswith('.conf') for unit, path in baseline['gates'].items())):
+        raise ValueError('production gate ownership incomplete')
+    segments = baseline['segments']
+    if (not isinstance(segments, list) or not segments or
+            any(set(s) != {'name', 'dev', 'ino'} or not re.fullmatch(r'[A-Za-z0-9_-]{1,127}', s['name']) or
+                type(s['dev']) is not int or type(s['ino']) is not int or s['ino'] <= 0 for s in segments) or
+            len({s['name'] for s in segments}) != len(segments)):
+        raise ValueError('production SHM inventory invalid')
+    if {s['name'] for s in segments} & set(baseline['retiredSources']):
+        raise ValueError('production retired and current SHM roles overlap')
+    trust = baseline['trust']
+    if (set(trust) != {'requireSignature', 'checksumRequired', 'allowInsecureHttp', 'publicKeySha256', 'httpsOrigins'} or
+            trust['requireSignature'] is not True or trust['checksumRequired'] is not True or
+            trust['allowInsecureHttp'] is not False or not re.fullmatch('[0-9a-f]{64}', trust['publicKeySha256']) or
+            not isinstance(trust['httpsOrigins'], list) or not trust['httpsOrigins'] or
+            any(not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', o) for o in trust['httpsOrigins'])):
+        raise ValueError('production trust policy invalid')
+    policy = baseline['healthPolicy']
+    if (not isinstance(policy, dict) or set(policy) != {'stableSeconds', 'url', 'timeoutSeconds'} or
+            type(policy['stableSeconds']) is not int or not 2 <= policy['stableSeconds'] <= 120 or
+            type(policy['timeoutSeconds']) is not int or not 1 <= policy['timeoutSeconds'] <= 10 or
+            not isinstance(policy['url'], str) or
+            not re.fullmatch(r'http://127\.0\.0\.1:[0-9]{1,5}/[A-Za-z0-9_/.-]*', policy['url'])):
+        raise ValueError('production health endpoint policy invalid')
+
+
+def production_schema(baseline, home):
+    try:
+        _production_schema(baseline, home)
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ValueError('malformed production baseline field/type') from error
+
+
+def production_effective(baseline):
+    for unit in baseline['units']:
+        if unit.endswith('@.service'):
+            continue
+        fragment = systemctl_value(unit, 'FragmentPath')
+        if fragment.startswith('/lib/systemd/system/') and Path('/lib/systemd/system').resolve() == Path('/usr/lib/systemd/system').resolve():
+            fragment = str(Path(fragment).resolve())
+        if not fragment:
+            if (unit in baseline['allowedUnits'] or systemctl_value(unit, 'LoadState') != 'not-found' or
+                    systemctl_value(unit, 'ActiveState') != 'inactive' or systemctl_value(unit, 'MainPID') != '0'):
+                raise ValueError('production missing participant is not safely absent')
+            continue
+        if (fragment not in baseline['unitFiles'] or systemctl_value(unit, 'LoadState') != 'loaded' or
+                systemctl_value(unit, 'NeedDaemonReload') != 'no'):
+            raise ValueError('production effective unit fragment differs from inventory')
+        names = {unit, unit.split('@')[0] + '@.service'} if '@' in unit else {unit}
+        dirs = {u + '.d' for u in names} | {'service.d'}
+        prefix = unit.split('@')[0]
+        dirs.update(prefix[:i + 1] + '.service.d' for i, c in enumerate(prefix) if c == '-')
+        expected = {p for p in baseline['unitFiles'] if Path(p).parent.name in dirs}
+        drops = set()
+        for p in systemctl_value(unit, 'DropInPaths').split():
+            if p.startswith('/lib/systemd/system/') and Path('/lib/systemd/system').resolve() == Path('/usr/lib/systemd/system').resolve():
+                p = str(Path(p).resolve())
+            drops.add(p)
+        if drops != expected:
+            raise ValueError('production effective overrides differ from inventory')
+
+
+def production_architecture(path):
+    with exact_file(path).open('rb') as stream:
+        header = stream.read(20)
+    if header[:4] == b'\x7fELF' and (len(header) < 20 or header[4:6] != b'\x02\x01' or
+            struct.unpack_from('<H', header, 18)[0] != 183):
+        raise ValueError('production runtime ELF architecture mismatch')
+
+
+def production_verify(home, baseline, files=True, units=True, segments=True):
+    production_schema(baseline, home)
+    if production_pin(Path('/etc/modbus-gateway/ota.pub'))['sha256'] != baseline['trust']['publicKeySha256']:
+        raise ValueError('production signature public-key fingerprint drift')
+    config = home / 'config/runtime'
+    actual = {}
+    names = set()
+    for p in config.rglob('*'):
+        if p.is_symlink():
+            raise ValueError('symlink production configuration')
+        if p.is_file():
+            actual[str(p.relative_to(config))] = sha(exact_file(p))
+            if p.suffix == '.json':
+                names.update(configured_names(production_json(p)))
+    if actual != baseline['configSha256'] or production_json(config / 'device_identity.json').get('machineCode') != baseline['machineCode']:
+        raise ValueError('production configuration/identity drift')
+    if not names <= {s['name'] for s in baseline['segments']} or names & set(baseline['retiredSources']):
+        raise ValueError('production implicit/custom SHM coverage incomplete')
+    # Historical records remain immutable proof, never a second live authority.
+    for path, pin in baseline['historical'].items():
+        if production_pin(Path(path)) != pin:
+            raise ValueError('production historical lineage drift: ' + path)
+    for name, meta in baseline['retiredSources'].items():
+        path = Path('/dev/shm') / name
+        if path.exists() or path.is_symlink():
+            s = exact_file(path).stat()
+            if (baseline['bootId'] != Path('/proc/sys/kernel/random/boot_id').read_text().strip() or
+                    {'dev': s.st_dev, 'ino': s.st_ino} != meta):
+                raise ValueError('retired source recreated or replaced')
+    no_old_mappings(baseline['retiredSources'], include_fds=True)
+    if files and production_files(home) != baseline['files']:
+        raise ValueError('production paired runtime drift')
+    if files:
+        for relative in baseline['files']:
+            production_architecture(home / relative)
+    if units:
+        production_units_present(baseline['units'])
+        if production_unit_files(baseline['units']) != baseline['unitFiles']:
+            raise ValueError('production unit/override drift')
+        production_effective(baseline)
+    if segments:
+        boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        for segment in baseline['segments']:
+            path = Path('/dev/shm') / segment['name']
+            point_store_abi(path, 11)
+            value = path.stat()
+            if boot != baseline['bootId']:
+                # Native creation order must be proved separately before reboot adoption.
+                raise ValueError('production new-boot SHM creation is not yet provisioned')
+            if (value.st_dev, value.st_ino) != (segment['dev'], segment['ino']):
+                raise ValueError('production v11 segment identity changed')
+
+
+def production_context(home):
+    root = home / 'data' / PRODUCTION_DIR
+    pending = root / 'pending.json'
+    pointer = production_json(root / 'current.json')
+    if not isinstance(pointer, dict) or set(pointer) != {'baselineId', 'sha256', 'healthSha256', 'transaction'}:
+        raise ValueError('invalid production baseline pointer')
+    if (not isinstance(pointer['baselineId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', pointer['baselineId']) or
+            not isinstance(pointer['transaction'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', pointer['transaction']) or
+            any(not isinstance(pointer[k], str) or not re.fullmatch('[0-9a-f]{64}', pointer[k]) for k in ('sha256', 'healthSha256'))):
+        raise ValueError('invalid production baseline ID')
+    record = root / 'baselines' / (pointer['baselineId'] + '.json')
+    if sha(exact_file(record)) != pointer['sha256']:
+        raise ValueError('production baseline digest changed')
+    baseline = production_json(record)
+    if baseline.get('baselineId') != pointer['baselineId']:
+        raise ValueError('production baseline name mismatch')
+    transaction = root / 'transactions' / pointer['transaction']
+    decision = production_json(transaction / 'health.json')
+    if sha(transaction / 'health.json') != pointer['healthSha256'] or decision.get('baselineSha256') != pointer['sha256'] or decision.get('status') != 'healthy':
+        raise ValueError('production promotion health proof missing')
+    if pending.exists() or pending.is_symlink():
+        state = production_json(transaction / 'state.json')
+        ref = production_json(pending)
+        if ref != {'transaction': pointer['transaction'], 'approvalSha256': state['approvalSha256']} or state['phase'] not in ('PROMOTING', 'COMPLETED', 'RECOVERED'):
+            raise ValueError('unresolved production install inhibits startup')
+    production_verify(home, baseline)
+    return baseline
+
+
+def production_unit(home, unit):
+    root = home / 'data' / PRODUCTION_DIR
+    pending = root / 'pending.json'
+    if pending.exists() or pending.is_symlink():
+        ref = production_json(pending)
+        if (not isinstance(ref, dict) or set(ref) != {'transaction', 'approvalSha256'} or
+                not isinstance(ref['transaction'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', ref['transaction']) or
+                not isinstance(ref['approvalSha256'], str) or not re.fullmatch('[0-9a-f]{64}', ref['approvalSha256'])):
+            raise ValueError('invalid production transaction')
+        transaction = root / 'transactions' / ref['transaction']
+        state = production_json(transaction / 'state.json')
+        if state['approvalSha256'] != ref['approvalSha256']:
+            raise ValueError('production pending approval changed')
+        approval_path = transaction / 'approval.json'
+        if sha(exact_file(approval_path)) != ref['approvalSha256']:
+            raise ValueError('production provisional approval digest changed')
+        approval = production_json(approval_path)
+        if state['phase'] in ('STARTING', 'RECOVERING_START'):
+            baseline = production_json(transaction / ('candidate.json' if state['phase'] == 'STARTING' else 'previous.json'))
+            if sha(transaction / ('candidate.json' if state['phase'] == 'STARTING' else 'previous.json')) != state['startingBaselineSha256']:
+                raise ValueError('production provisional baseline changed')
+            if baseline != approval['candidate' if state['phase'] == 'STARTING' else 'previous']:
+                raise ValueError('production provisional baseline is not approved')
+            production_verify(home, baseline)
+        else:
+            baseline = production_context(home)
+    else:
+        baseline = production_context(home)
+    if unit not in baseline['allowedUnits']:
+        raise ValueError('production controller/unapproved participant inhibited: ' + unit)
+    return baseline
+
+
+def production_present(home):
+    root = home / 'data' / PRODUCTION_DIR
+    return any((root / name).exists() or (root / name).is_symlink() for name in ('current.json', 'pending.json'))
 
 
 def core_absent_qt(home):
@@ -704,6 +1045,9 @@ def no_old_mappings(names, include_fds=False):
 
 
 def activated_unit(home, unit):
+    if production_present(home):
+        production_unit(home, unit)
+        return
     active, state, approval, readers, allowed = active_context(home)
     if unit not in allowed:
         raise ValueError('unit not approved for control-disabled activation: ' + unit)
@@ -945,6 +1289,9 @@ def configured_names(value, disabled_ems=False):
 
 
 def startup(home):
+    if production_present(home):
+        production_unit(home, 'gateway-services.service')
+        return
     marker = home / 'data/runtime-upgrade-stop'
     if marker.exists() or marker.is_symlink():
         activated_unit(home, 'gateway-services.service')
@@ -967,11 +1314,19 @@ def startup(home):
 
 
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == 'production-unit':
+        production_unit(Path(sys.argv[2]), sys.argv[3])
+        return
     if len(sys.argv) == 4 and sys.argv[1] == 'denied-unit':
         raise ValueError('unit remains inhibited by offline activation: ' + sys.argv[3])
     if len(sys.argv) == 4 and sys.argv[1] == 'activated-unit':
         activated_unit(Path(sys.argv[2]), sys.argv[3])
     elif len(sys.argv) == 3 and sys.argv[1] == 'activated-list':
+        home = Path(sys.argv[2])
+        if production_present(home):
+            baseline = production_unit(home, 'gateway-services.service')
+            print('\n'.join(u for u in baseline['allowedUnits'] if u in PRODUCTION_READERS))
+            return
         _, _, _, readers, _ = active_context(Path(sys.argv[2]))
         print('\n'.join(readers))
     elif len(sys.argv) == 3 and sys.argv[1] in ('ota', 'rollback', 'factory', 'startup'):

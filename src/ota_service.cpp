@@ -1339,7 +1339,7 @@ bool isActiveJob(const std::string& stagingDir, const PendingOtaJob& job) {
     return readPendingJournal(path) == "jobId=" + job.jobId + "\ntoken=" + job.token + "\n";
 }
 
-bool hasHandoffCancellation(const std::string& stagingDir, const PendingOtaJob& job) {
+bool hasHandoffResolution(const std::string& stagingDir, const PendingOtaJob& job) {
     const auto path = joinPath(stagingDir, "ota_handoff_" + job.jobId + ".json");
     if (strictlyAbsent(path) || fileSizeBytes(path) > 16384) return false;
 #ifndef _WIN32
@@ -1351,10 +1351,12 @@ bool hasHandoffCancellation(const std::string& stagingDir, const PendingOtaJob& 
     if (bytes.empty() || bytes.back() != '\n') return false;
     const auto record = json::JsonParser(bytes, 6, 96).parse();
     const auto* mutation = record.find("runtimeMayChange");
-    const auto* proof = record.find("cancelProof");
+    const bool installed = pendingField(record, "phase") == "OWNER_FINISHED";
+    const auto* proof = record.find(installed ? "completionProof" : "cancelProof");
     if (pendingField(record, "format") != "ota-handoff-v1" || pendingField(record, "jobId") != job.jobId ||
         pendingField(record, "token") != job.token || pendingField(record, "version") != job.version ||
-        pendingField(record, "phase") != "CANCELLED" || !mutation || !mutation->isBool() || mutation->asBool() ||
+        (!installed && pendingField(record, "phase") != "CANCELLED") || !mutation || !mutation->isBool() ||
+        mutation->asBool() != installed ||
         !proof || !proof->isObject()) return false;
     for (const auto* object : {&record, proof}) {
         std::set<std::string> names;
@@ -1362,17 +1364,29 @@ bool hasHandoffCancellation(const std::string& stagingDir, const PendingOtaJob& 
             if (!names.insert(member.key).second) return false;
     }
     const auto* noWriter = proof->find("noWriter");
-    if (!(noWriter && noWriter->isBool() && noWriter->asBool() &&
+    if (!installed && !(noWriter && noWriter->isBool() && noWriter->asBool() &&
         pendingField(*proof, "unit") == "ota-runtime-" + job.jobId + "-" + job.token + ".service" &&
         pendingField(*proof, "mainPid") == "0" && pendingField(*proof, "job") == "")) return false;
     const auto healthPath = joinPath(stagingDir, "health_" + job.jobId + ".txt");
     if (strictlyAbsent(healthPath) || fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096)
         return false;
-    const auto health = decodeHealthResult(readPendingJournal(healthPath), job);
-    if (health.status != "failed" || health.rollback != "unchanged") return false;
+    const auto healthBytes = readPendingJournal(healthPath);
+    const auto health = decodeHealthResult(healthBytes, job);
+    if (installed) {
+        const auto tx = pendingField(*proof, "transaction");
+        if (proof->asObject().values.size() != 5 || tx.size() != 36 || tx.compare(0, 4, "OTA_") != 0 ||
+            !std::all_of(tx.begin() + 4, tx.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }) ||
+            tx != pendingField(record, "productionTransaction") ||
+            !isSafeSha256(pendingField(*proof, "healthSha256")) ||
+            pendingField(*proof, "healthRecord") != healthBytes ||
+            pendingField(*proof, "status") != health.status || pendingField(*proof, "rollback") != health.rollback ||
+            !((health.status == "healthy" && health.rollback == "none") ||
+              (health.status == "failed" && health.rollback == "succeeded"))) return false;
+    } else if (health.status != "failed" || health.rollback != "unchanged") return false;
     const auto finalPath = joinPath(stagingDir, "ota_final_" + job.jobId + ".txt");
+    const auto terminal = health.status == "healthy" ? "completed" : "failed";
     return strictlyAbsent(finalPath) || (fileSizeBytes(finalPath) <= 256 &&
-        readPendingJournal(finalPath) == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=failed\n");
+        readPendingJournal(finalPath) == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + terminal + "\n");
 }
 
 std::vector<std::string> pendingJobFiles(const std::string& stagingDir) {
@@ -1454,7 +1468,7 @@ void OtaService::ensureNoUnresolvedJob() const {
             throw std::runtime_error("previous successful OTA requires finalization reconciliation");
         if (!hasValidFinal(config_.stagingDir, job))
             throw std::runtime_error("previous OTA job has no verified terminal result");
-        if (job.lifecycle == "systemd-handoff-v1" && !hasHandoffCancellation(config_.stagingDir, job))
+        if (job.lifecycle == "systemd-handoff-v1" && !hasHandoffResolution(config_.stagingDir, job))
             throw std::runtime_error("runtime handoff is unresolved");
         const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
         const auto final = readPendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"));
@@ -1486,7 +1500,7 @@ void OtaService::reconcilePendingJobs() const {
             if (fileSizeBytes(path) > 4096) continue;
             job = decodePendingJob(readPendingJournal(path));
             if (job.lifecycle == "systemd-handoff-v1" &&
-                !hasHandoffCancellation(config_.stagingDir, job)) continue;
+                !hasHandoffResolution(config_.stagingDir, job)) continue;
             if (path != pendingJobPath(config_.stagingDir, job.jobId)) continue;
             bool synchronousEvidence = false;
             reconciliationNeeded = needsFinalizationReconciliation(config_.stagingDir, job, &synchronousEvidence);
@@ -1596,7 +1610,7 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
         try {
             if (fileSizeBytes(path) > 4096) continue;
             const auto job = decodePendingJob(readPendingJournal(path));
-            if (job.lifecycle == "systemd-handoff-v1" && !hasHandoffCancellation(config_.stagingDir, job)) continue;
+            if (job.lifecycle == "systemd-handoff-v1" && !hasHandoffResolution(config_.stagingDir, job)) continue;
             if (path != pendingJobPath(config_.stagingDir, job.jobId) ||
                 needsFinalizationReconciliation(config_.stagingDir, job) ||
                 !hasValidFinal(config_.stagingDir, job)) continue;

@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import time
+import importlib.util
 
 
 def active_job(staging, job, token, cancel=False):
@@ -95,7 +96,7 @@ def sync_dir(path):
 
 
 class RuntimeHandoff:
-    """Job-local handoff only. This stage never admits a runtime installation."""
+    """Job-local independent owner; mutation requires proved production admission."""
     def __init__(self, staging, job, token):
         self.root = Path(staging)
         if (os.geteuid() != 0 or not self.root.is_absolute() or
@@ -250,9 +251,11 @@ class RuntimeHandoff:
         if (value.get('format') != 'ota-handoff-v1' or value.get('jobId') != self.job or
                 value.get('token') != self.token or value.get('unit') != self.unit or
                 value.get('intentSha256') != hashlib.sha256(self.file_bytes(self.intent_path)).hexdigest() or
-                value.get('version') != intent['version'] or value.get('runtimeMayChange') is not False or
+                value.get('version') != intent['version'] or type(value.get('runtimeMayChange')) is not bool or
                 value.get('phase') not in ('HANDOFF_PENDING', 'OWNER_READY', 'OWNER_OWNED',
-                                          'OWNER_BLOCKED', 'CANCEL_REQUESTED', 'CANCELLED')):
+                                          'OWNER_BLOCKED', 'CANCEL_REQUESTED', 'CANCELLED',
+                                          'OWNER_INSTALLING', 'OWNER_FINISHED') or
+                value['runtimeMayChange'] != (value['phase'] in ('OWNER_INSTALLING', 'OWNER_FINISHED'))):
             raise ValueError('runtime handoff record mismatch')
         return value
 
@@ -485,7 +488,7 @@ class RuntimeHandoff:
             # The worker takes the mutex only after exec; no readiness wait here.
             self.command('/usr/bin/systemd-run', '--quiet', '--unit=' + self.unit,
                          '--property=Restart=no', '--property=KillMode=control-group',
-                         '--property=TimeoutStopSec=5s', '--property=RuntimeMaxSec=30s',
+                         '--property=TimeoutStopSec=5s', '--property=RuntimeMaxSec=900s',
                          '/usr/bin/python3', '-B', str(stage / 'offline-runtime-upgrade.py'),
                          'ota-owner', str(self.root), self.job, self.token)
         # Neither ota_state nor the job mutex is held across handshake waits.
@@ -500,7 +503,7 @@ class RuntimeHandoff:
             time.sleep(0.02)
         raise ValueError('runtime owner readiness timeout')
 
-    def own(self):
+    def own(self, install=None):
         with self.mutex():
             record = self.read()
             if record['phase'] != 'HANDOFF_PENDING' or record['bootId'] != self.boot():
@@ -528,8 +531,20 @@ class RuntimeHandoff:
                         self.verify_inputs(record)
                         record['phase'] = 'OWNER_OWNED'
                         self.save(record)
-                        # Production baseline admission is deliberately not implemented yet.
-                        record.update(phase='OWNER_BLOCKED', reason='production runtime baseline not implemented')
+                    # Keep the job lease, release the short journal mutex BEFORE
+                    # taking the offline lock or stopping any parent daemon.
+                    if install is not None:
+                        try:
+                            install(self, record)
+                            return
+                        except BaseException:
+                            with self.mutex():
+                                fresh = self.read()
+                                if fresh['runtimeMayChange']:
+                                    raise  # mutation is unresolved, never failed/unchanged
+                                record = fresh
+                    with self.mutex():
+                        record.update(phase='OWNER_BLOCKED', reason='production runtime baseline admission unavailable or rejected')
                         self.save(record)
                     return
             except BlockingIOError:
@@ -539,6 +554,8 @@ class RuntimeHandoff:
     def cancel(self):
         with self.mutex():
             record = self.read()
+            if record['runtimeMayChange']:
+                raise ValueError('production runtime mutation requires official lifecycle recovery')
             if record['phase'] != 'CANCELLED':
                 props = self.verify_owner(record, live=False)
                 if not record.get('owner') and props['MainPID'] != '0':
@@ -627,13 +644,44 @@ class RuntimeHandoff:
                                    phase='CANCEL_REQUESTED', runtimeMayChange=False,
                                    intentSha256=hashlib.sha256(self.file_bytes(self.intent_path)).hexdigest(),
                                    leaseIdentity=dict(dev=info.st_dev, inode=info.st_ino), cgroupMount=self.cgroup_mount()))
+        if self.path.exists() or self.path.is_symlink():
+            with self.mutex():
+                record = self.read()
+                if record['phase'] == 'OWNER_FINISHED':
+                    return
+                mutated = record['runtimeMayChange']
+            if mutated:
+                with self.lease():
+                    with self.mutex():
+                        record = self.read()
+                        if record['phase'] == 'OWNER_FINISHED':
+                            return
+                        props = self.verify_owner(record, live=False)
+                        if props['ActiveState'] not in ('inactive', 'failed') or props['MainPID'] != '0' or props['Job']:
+                            raise ValueError('production recovery requires positive stopped owner proof')
+                        self.no_unit_tasks(record)
+                        self.verify_inputs(record)
+                        entry = self.production_entry(record)
+                    entry.production_ota_resume(self, record)
+                return
         self.cancel()
+
+    def production_entry(self, record):
+        # Original staged code, never the now-replaced live helper or arbitrary
+        # manifest-provided hook. verify_inputs already checked all three pins.
+        path = Path(record['entry']) / 'offline-runtime-upgrade.py'
+        spec = importlib.util.spec_from_file_location('ota_pinned_production_recovery', str(path))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
     def finish(self):
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             with self.mutex():
                 record = self.read()
+                if record['phase'] in ('OWNER_INSTALLING', 'OWNER_FINISHED'):
+                    return  # asynchronous owner holds the lease; no cancellation or polling hot path
                 if (record['phase'] in ('OWNER_BLOCKED', 'CANCEL_REQUESTED', 'CANCELLED') or
                         record['bootId'] != self.boot() or time.monotonic() >= record['deadlineUptime']):
                     break

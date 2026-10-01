@@ -14,6 +14,9 @@ import subprocess
 import sys
 import time
 import uuid
+import copy
+import contextlib
+import tarfile
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('upgrade_guard', str(Path(__file__).with_name('runtime-upgrade-guard.py')))
@@ -1823,15 +1826,800 @@ def activate(args):
     print('ACTIVATED_CONTROL_DISABLED: pinned readers only; all other units fenced; no physical control')
 
 
+@contextlib.contextmanager
+def production_lock():
+    path = Path('/run/gateway-offline-runtime.lock')
+    regular(path)
+    fd = os.open(str(path), os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        before = os.fstat(fd)
+        require(before.st_uid == 0 and before.st_size == 0 and stat.S_IMODE(before.st_mode) == 0o600,
+                'production requires existing root-owned offline lock')
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        named = path.stat()
+        require((before.st_dev, before.st_ino) == (named.st_dev, named.st_ino), 'production lock replaced')
+        yield
+    finally:
+        os.close(fd)
+
+
+def production_gate(home, unit):
+    # %n covers a template's concrete instance without making every instance eligible.
+    return ('[Unit]\nRequires=gateway-ota-recover.service\nAfter=gateway-ota-recover.service\n'
+            '[Service]\nExecStartPre=/usr/bin/python3 ' + str(home / 'bin/runtime-upgrade-guard.py') +
+            ' production-unit ' + str(home) + ' %n\n').encode()
+
+
+def production_inhibit(home):
+    return ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
+
+
+def production_copy(source, destination, pin, new=False, temporary=None):
+    """Bounded, fsynced paired-file copy; no file-sized recovery heap."""
+    source = regular(source)
+    require(not any(p.is_symlink() for p in (destination,) + tuple(destination.parents)), 'symlink copy destination')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not new and destination.exists():
+        regular(destination)
+    temporary = destination if new else temporary
+    require(temporary is not None and (new or temporary.parent == destination.parent and
+            temporary.name.startswith('.' + destination.name + '.production-')),
+            'production copy requires transaction-owned staging name')
+    before = source.stat()
+    with source.open('rb') as src:
+        opened = os.fstat(src.fileno())
+        identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        require(identity(before) == identity(opened), 'production copy source changed before open')
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, pin['mode'])
+        value, count = hashlib.sha256(), 0
+        with os.fdopen(fd, 'wb') as out:
+            for data in iter(lambda: src.read(65536), b''):
+                count += len(data)
+                require(count <= pin['bytes'], 'production copy exceeds approved size')
+                value.update(data)
+                out.write(data)
+            require(count == pin['bytes'] and value.hexdigest() == pin['sha256'] and
+                    identity(os.fstat(src.fileno())) == identity(opened) and identity(source.stat()) == identity(opened),
+                    'production copy source bytes/identity changed')
+            os.fchmod(out.fileno(), pin['mode'])
+            out.flush()
+            os.fsync(out.fileno())
+    if not new:
+        os.replace(str(temporary), str(destination))
+    sync_dir(destination.parent)
+
+
+def production_owner_proof():
+    lock = regular(Path('/run/gateway-offline-runtime.lock')).stat()
+    pid = str(os.getpid())
+    ticks = regular(Path('/proc') / pid / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+    return dict(pid=pid, startTicks=ticks, bootId=regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip(),
+                lockDev=lock.st_dev, lockInode=lock.st_ino)
+
+
+def production_locked_owner(state):
+    proof = state['ownerProof']
+    if proof['bootId'] != regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip():
+        return False
+    try:
+        ticks = regular(Path('/proc') / proof['pid'] / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+    except FileNotFoundError:
+        return False
+    if ticks != proof['startTicks']:
+        return False
+    lock = regular(Path('/run/gateway-offline-runtime.lock')).stat()
+    require((lock.st_dev, lock.st_ino) == (proof['lockDev'], proof['lockInode']), 'production owner lock replaced')
+    matches = 0
+    for line in regular(Path('/proc/locks')).read_text().splitlines():
+        fields = line.split()
+        if len(fields) >= 6 and fields[1:5] == ['FLOCK', 'ADVISORY', 'WRITE', proof['pid']]:
+            major, minor, inode = fields[5].split(':')
+            if (int(major, 16), int(minor, 16), int(inode)) == (os.major(lock.st_dev), os.minor(lock.st_dev), lock.st_ino):
+                matches += 1
+    return matches == 1
+
+
+class ProductionRuntime:
+    """Approved same-ABI file lifecycle; never copy, unlink or rewind live SHM.
+
+    Baseline inventory is independent of CORE node IDs. The initial startup
+    policy admits only known non-control readers; broader configured business
+    roles require their own reviewed admission/health policies, not core pins.
+    """
+    def __init__(self, home):
+        self.home = home
+        self.root = home / 'data' / guard.PRODUCTION_DIR
+
+    def record(self, path, value):
+        write_new(path, (json.dumps(value, sort_keys=True) + '\n').encode())
+
+    def state(self, transaction, value):
+        save(transaction / 'state.json', value)
+
+    def verify_legacy(self, approval):
+        legacy = approval['legacy']
+        require(set(legacy) == {'verifierPath', 'verifierSha256', 'activeSha256', 'stateSha256',
+                               'approvalSha256', 'readySha256'}, 'invalid historical adoption proof')
+        verifier = regular(Path(legacy['verifierPath']))
+        require(digest(verifier) == legacy['verifierSha256'] and verifier.stat().st_uid == 0 and
+                not verifier.stat().st_mode & 0o022, 'historical verifier changed')
+        active_path = self.home / 'data' / guard.ACTIVATION_FILE
+        active = checked_json(active_path, legacy['activeSha256'])
+        require(active['stateSha256'] == legacy['stateSha256'] and
+                active['approvalSha256'] == legacy['approvalSha256'] and
+                active['readySha256'] == legacy['readySha256'], 'historical authority mismatch')
+        state_dir = Path(active['stateDir'])
+        state = checked_json(state_dir / 'state.json', legacy['stateSha256'])
+        old_approval = checked_json(state_dir / 'approval.json', legacy['approvalSha256'])
+        checked_json(state_dir / 'activation-ready.json', legacy['readySha256'])
+        snapshot = approval['previous']
+        mandatory = {str(active_path), str(self.home / 'data/runtime-upgrade-stop'), str(verifier)}
+        mandatory.update(str(p) for p in state_dir.rglob('*') if p.is_file() or p.is_symlink())
+        require(mandatory <= set(snapshot['historical']) and
+                all(guard.production_pin(Path(p)) == snapshot['historical'][p] for p in mandatory),
+                'adoption must bind complete historical state/backups and sentinel')
+        require(set(snapshot['units']) == set(old_approval['units']) and
+                {s['name'] for s in snapshot['segments']} == {s['target'] for s in state['segments']} and
+                set(snapshot['retiredSources']) == {s['source'] for s in state['segments']},
+                'adoption participants/retained v11/source roles differ from legacy proof')
+        for unit in active['allowedUnits']:
+            result = subprocess.run(['/usr/bin/python3', str(verifier), 'activated-unit', str(self.home), unit],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+            require(result.returncode == 0, 'pinned legacy activation verifier rejected ' + unit)
+        return active
+
+    def inputs(self, args, adoption):
+        approval = checked_json(args.approval, args.approval_sha256)
+        require(guard.production_json(args.approval) == approval, 'ambiguous production approval')
+        required = {'format', 'transaction', 'expiresAtUnix', 'gatewayHome', 'machineCode', 'candidate',
+                    'parentSha256', 'previous', 'legacy', 'operation'}
+        require(set(approval) == required and approval['format'] == 'runtime-provisioning-v1' and
+                approval['operation'] == ('adopt' if adoption else 'install') and
+                approval['gatewayHome'] == str(self.home) and
+                re.fullmatch(r'[A-Za-z0-9_-]{1,63}', approval['transaction']) and
+                type(approval['expiresAtUnix']) is int and time.time() < approval['expiresAtUnix'],
+                'invalid/expired production approval')
+        transaction = self.root / 'transactions' / approval['transaction']
+        require(not transaction.exists() and not transaction.is_symlink() and
+                not (self.root / 'pending.json').exists() and not (self.root / 'pending.json').is_symlink(),
+                'production transaction consumed or pending')
+        candidate, previous = approval['candidate'], approval['previous']
+        guard.production_schema(candidate, self.home)
+        require(candidate['machineCode'] == approval['machineCode'] and
+                candidate['parentSha256'] == approval['parentSha256'], 'production candidate parent/identity mismatch')
+        require(os.uname().machine == candidate['architecture'], 'production architecture mismatch')
+        if adoption:
+            require(approval['parentSha256'] is None and candidate['generation'] == 1 and
+                    not (self.root / 'current.json').exists() and not (self.root / 'current.json').is_symlink(),
+                    'production adoption requires no baseline')
+            active = self.verify_legacy(approval)
+            require(previous['allowedUnits'] == active['allowedUnits'], 'adoption prior service scope mismatch')
+        else:
+            require(approval['legacy'] is None, 'installation cannot re-adopt historical authority')
+            current = guard.production_context(self.home)
+            pointer = guard.production_json(self.root / 'current.json')
+            require(current == previous and pointer['sha256'] == approval['parentSha256'] and
+                    candidate['generation'] == current['generation'] + 1, 'production baseline parent mismatch')
+        # Provisioning config writes and authority/participant expansion are deliberately
+        # outside this first same-ABI slice. Inventory itself includes ALL participants.
+        for key in ('gatewayHome', 'machineCode', 'architecture', 'pointStoreAbi', 'pointStoreSize',
+                    'clusterProtocol', 'controlEnabled', 'configSha256', 'units', 'allowedUnits',
+                    'gates', 'segments', 'retiredSources', 'historical', 'bootId', 'trust', 'healthPolicy'):
+            require(candidate[key] == previous[key], 'same-ABI preservation mismatch: ' + key)
+        introduced = set(candidate['files']) - set(previous['files'])
+        require((not introduced or adoption and introduced <= {'bin/' + n for n in guard.PRODUCTION_HELPERS}) and
+                set(previous['files']) <= set(candidate['files']) and
+                set(candidate['unitFiles']) == set(previous['unitFiles']), 'paired inventory expansion is not approved')
+        for path in introduced:
+            require(not (self.home / path).exists() and not (self.home / path).is_symlink(),
+                    'unexpected introduced production helper')
+        for unit, path in candidate['gates'].items():
+            body = production_gate(self.home, unit)
+            require(candidate['unitFiles'][path] == dict(sha256=hashlib.sha256(body).hexdigest(), mode=0o644, bytes=len(body)),
+                    'production gate must be exact owned guard action')
+        for path in set(previous['unitFiles']) - set(previous['gates'].values()):
+            if path == str(Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT):
+                require(candidate['unitFiles'][path] == (guard.production_pin(Path(__file__).with_name(guard.PRODUCTION_RECOVERY_UNIT))
+                        if adoption else previous['unitFiles'][path]),
+                        'production boot recovery unit is not the reviewed paired entry')
+            else:
+                require(candidate['unitFiles'][path] == previous['unitFiles'][path], 'non-gate unit write refused')
+        boot_unit = str(Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT)
+        require(boot_unit in candidate['unitFiles'] and candidate['unitFiles'][boot_unit] ==
+                (guard.production_pin(Path(__file__).with_name(guard.PRODUCTION_RECOVERY_UNIT)) if adoption else previous['unitFiles'][boot_unit]),
+                'production baseline requires installed paired boot recovery')
+        guard.production_verify(self.home, previous)
+        for name in ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'):
+            pin = candidate['files']['bin/' + name]
+            require(digest(Path(__file__).with_name(name)) == pin['sha256'], 'production paired helper not staged: ' + name)
+        payload = args.payload.absolute()
+        require(not payload.is_symlink() and payload.is_dir(), 'production payload directory required')
+        require(not any(p.is_symlink() for p in payload.rglob('*')), 'symlink production payload')
+        actual = {str(p.relative_to(payload)) for p in payload.rglob('*') if not p.is_dir()}
+        require(actual == set(candidate['files']), 'production payload inventory mismatch')
+        for path, pin in candidate['files'].items():
+            require(guard.production_pin(payload / path) == pin, 'production payload pin mismatch: ' + path)
+            guard.production_architecture(payload / path)
+        total = sum(pin['bytes'] for pin in previous['files'].values()) + sum(pin['bytes'] for pin in candidate['files'].values())
+        require(total <= 512 * 1024 * 1024 and os.statvfs(self.home).f_bavail * os.statvfs(self.home).f_frsize >= total + 64 * 1024 * 1024,
+                'insufficient production backup/install disk')
+        activation_capacity_preflight(candidate['allowedUnits'], 'production-before-intent')
+        require(time.time() < approval['expiresAtUnix'], 'production install window expired')
+        return approval, transaction
+
+    def stop(self, baseline):
+        concrete = [u for u in baseline['units'] if not u.endswith('@.service')]
+        rows = batch_stop_results(concrete)
+        require(all(r['stopOk'] and r['activeState'] in ('inactive', 'failed') and r['mainPid'] == '0' for r in rows),
+                'production participant stop unconfirmed')
+        no_processes(self.home, [])
+        no_mappings([s['name'] for s in baseline['segments']] + list(baseline['retiredSources']), include_fds=True)
+
+    def backup(self, transaction, approval):
+        previous = approval['previous']
+        for index, (path, pin) in enumerate(sorted(previous['files'].items())):
+            require(guard.production_pin(self.home / path) == pin, 'stopped production file drift')
+            production_copy(self.home / path, transaction / 'files' / str(index), pin, new=True)
+            require(digest(transaction / 'files' / str(index)) == pin['sha256'], 'production backup verification failed')
+        path = str(Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT)
+        production_copy(Path(path), transaction / 'boot-unit', previous['unitFiles'][path], new=True)
+        self.record(transaction / 'backups-complete.json', {'approvalSha256': digest(transaction / 'approval.json')})
+
+    def fence(self, transaction, state, previous):
+        # Archive ALL owned gates before the first live gate write. The stop sentinel
+        # is retained; its exact old bytes are part of the immutable lineage proof.
+        require(regular(self.home / 'data/runtime-upgrade-stop').stat().st_size > 0,
+                'production adoption requires the preserved stop sentinel')
+        for index, (unit, path) in enumerate(sorted(previous['gates'].items())):
+            require(guard.production_pin(Path(path)) == previous['unitFiles'][path], 'production gate drift before fence')
+            write_new(transaction / 'gates' / str(index), regular(Path(path)).read_bytes(), 0o644)
+        self.record(transaction / 'gates-complete.json', {'approvalSha256': state['approvalSha256']})
+        state['phase'] = 'FENCING'
+        self.state(transaction, state)
+        for unit, path in previous['gates'].items():
+            replace(Path(path), production_inhibit(self.home), 0o644)
+        systemctl('daemon-reload')
+
+    def convert_gates(self, transaction, baseline):
+        for unit, path in baseline['gates'].items():
+            replace(Path(path), production_gate(self.home, unit), 0o644)
+        systemctl('daemon-reload')
+
+    def copy_name(self, transaction, path, phase):
+        destination = self.home / path
+        return destination.with_name('.' + destination.name + '.production-' + transaction.name + '-' + phase)
+
+    def copy_ownership(self, transaction, approval):
+        owners = {}
+        for phase, baseline in (('install', approval['candidate']), ('recover', approval['previous'])):
+            for path, pin in baseline['files'].items():
+                temp = self.copy_name(transaction, path, phase)
+                require(not temp.exists() and not temp.is_symlink(), 'production staging namespace occupied')
+                owners[str(temp)] = {'path': path, 'phase': phase, 'pin': pin}
+        self.record(transaction / 'copy-owners.json', owners)
+
+    def archive_copies(self, transaction, approval):
+        owners = guard.production_json(transaction / 'copy-owners.json')
+        expected = {str(self.copy_name(transaction, path, phase)): {'path': path, 'phase': phase, 'pin': pin}
+                    for phase, baseline in (('install', approval['candidate']), ('recover', approval['previous']))
+                    for path, pin in baseline['files'].items()}
+        require(owners == expected, 'production staging ownership journal drift')
+        for index, (name, owner) in enumerate(sorted(owners.items())):
+            temp = Path(name)
+            if not temp.exists() and not temp.is_symlink():
+                continue
+            pin = guard.production_pin(temp)
+            require(pin['bytes'] <= owner['pin']['bytes'] and pin['mode'] == owner['pin']['mode'],
+                    'interrupted copy type/size/mode differs from owned intent')
+            retained = transaction / 'interrupted-copies' / (str(index) + '-' + uuid.uuid4().hex)
+            retained.parent.mkdir(mode=0o700, exist_ok=True)
+            os.rename(str(temp), str(retained))
+            sync_dir(temp.parent)
+            sync_dir(retained.parent)
+
+    def install(self, args, adoption=False):
+        approval, transaction = self.inputs(args, adoption)
+        previous, candidate = approval['previous'], approval['candidate']
+        # Revalidate while the offline lock is held, before publishing any intent.
+        guard.production_verify(self.home, previous)
+        # Approval identity is the externally pinned RAW bytes, not our JSON formatting.
+        write_new(transaction / 'approval.json', regular(args.approval).read_bytes())
+        require(digest(transaction / 'approval.json') == args.approval_sha256, 'production approval changed during staging')
+        self.record(transaction / 'previous.json', previous)
+        self.record(transaction / 'candidate.json', candidate)
+        self.copy_ownership(transaction, approval)
+        if not adoption:
+            write_new(transaction / 'previous-pointer.json', regular(self.root / 'current.json').read_bytes())
+        state = {'format': 'runtime-install-v1', 'transaction': approval['transaction'],
+                 'approvalSha256': args.approval_sha256, 'adoption': adoption, 'phase': 'INTENT',
+                 'candidateSha256': digest(transaction / 'candidate.json'), 'previousSha256': digest(transaction / 'previous.json'),
+                 'ownerProof': production_owner_proof()}
+        self.state(transaction, state)
+        self.record(self.root / 'pending.json', {'transaction': approval['transaction'], 'approvalSha256': args.approval_sha256})
+        try:
+            self.fence(transaction, state, previous)
+            self.stop(previous)
+            guard.production_verify(self.home, previous, units=False)
+            self.backup(transaction, approval)
+            state['phase'] = 'INSTALLING'
+            self.state(transaction, state)
+            self.convert_gates(transaction, candidate)
+            require(time.time() < approval['expiresAtUnix'], 'production install window expired after stop')
+            for path, pin in candidate['files'].items():
+                require(guard.production_pin(args.payload / path) == pin, 'staged production file drift')
+                production_copy(args.payload / path, self.home / path, pin,
+                                temporary=self.copy_name(transaction, path, 'install'))
+            boot_unit = Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT
+            if adoption:
+                replace(boot_unit, regular(Path(__file__).with_name(guard.PRODUCTION_RECOVERY_UNIT)).read_bytes(), 0o644)
+            systemctl('daemon-reload')
+            guard.production_verify(self.home, candidate)
+            self.start(transaction, state, candidate, 'STARTING')
+            health = self.health(candidate)
+            health.update(baselineSha256=state['candidateSha256'], transaction=approval['transaction'], status='healthy')
+            self.record(transaction / 'health.json', health)
+            self.promote(transaction, state, candidate)
+        except BaseException:
+            # Promotion is the commit point. A terminal-journal failure must never
+            # roll back a durably proved healthy pointer, even if its fsync returned uncertain.
+            if self.promoted(transaction, state):
+                raise
+            state['phase'] = 'FAILED_PENDING_RECOVERY'
+            self.state(transaction, state)
+            raise
+        return transaction
+
+    def start(self, transaction, state, baseline, phase):
+        guard.production_verify(self.home, baseline)
+        activation_capacity_preflight(baseline['allowedUnits'], 'production-before-start')
+        state.update(phase=phase, startingBaselineSha256=(state['candidateSha256'] if phase == 'STARTING' else state['previousSha256']),
+                     ownerProof=production_owner_proof())
+        self.state(transaction, state)
+        # Readers first; launcher and watchdog may only see a complete provisional baseline.
+        ordered = [u for u in baseline['allowedUnits'] if u in guard.PRODUCTION_READERS]
+        ordered += [u for u in ('gateway-services.service', 'gateway-health-watchdog.service') if u in baseline['allowedUnits']]
+        for unit in ordered:
+            guard.production_unit(self.home, unit)
+            systemctl('start', unit)
+            systemctl('is-active', '--quiet', unit)
+
+    def health(self, baseline):
+        def sample():
+            guard.production_verify(self.home, baseline)
+            readers = {}
+            expected = {}
+            for unit in baseline['allowedUnits']:
+                if unit not in guard.PRODUCTION_READERS:
+                    continue
+                require(guard.systemctl_value(unit, 'ActiveState') == 'active' and
+                        guard.systemctl_value(unit, 'SubState') == 'running', 'production reader unhealthy')
+                pid = guard.systemctl_value(unit, 'MainPID')
+                require(pid.isdigit() and int(pid) > 1 and pid not in expected, 'production reader PID invalid/duplicate')
+                executable = self.home / guard.PRODUCTION_READERS[unit]
+                proc = Path('/proc') / pid
+                require(os.readlink(str(proc / 'exe')) == str(executable) and
+                        guard.sha(proc / 'exe') == baseline['files'][guard.PRODUCTION_READERS[unit]]['sha256'],
+                        'production actual executable mismatch')
+                text = regular(proc / 'maps').read_text()
+                mapped = set()
+                for line in text.splitlines():
+                    fields = line.split()
+                    if len(fields) >= 6 and fields[5].startswith('/dev/shm/'):
+                        require(not line.rstrip().endswith(' (deleted)'), 'deleted production mapping')
+                        name = fields[5].split('/')[-1]
+                        segment = next((s for s in baseline['segments'] if s['name'] == name), None)
+                        require(segment is not None and int(fields[4]) == segment['ino'] and
+                                fields[3] == '%02x:%02x' % (os.major(segment['dev']), os.minor(segment['dev'])),
+                                'production actual SHM mapping mismatch')
+                        mapped.add(name)
+                require(mapped, 'production reader has no approved v11 mapping')
+                readers[unit] = {'pid': pid, 'restarts': guard.systemctl_value(unit, 'NRestarts'),
+                                 'startTicks': regular(proc / 'stat').read_text().rsplit(')', 1)[1].split()[19],
+                                 'mappedSegments': sorted(mapped)}
+                expected[pid] = str(executable)
+            for entry in Path('/proc').iterdir():
+                if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                    continue
+                try:
+                    exe = os.readlink(str(entry / 'exe'))
+                except FileNotFoundError:
+                    continue
+                if Path(exe[:-10] if exe.endswith(' (deleted)') else exe).name in guard.RUNTIME_BINARIES:
+                    require(expected.get(entry.name) == exe, 'production unapproved/duplicate runtime process')
+            for unit in set(baseline['units']) - set(baseline['allowedUnits']):
+                if not unit.endswith('@.service'):
+                    require(guard.systemctl_value(unit, 'ActiveState') in ('inactive', 'failed') and
+                            guard.systemctl_value(unit, 'MainPID') == '0', 'production excluded participant running')
+            return readers
+        before = sample()
+        policy = baseline['healthPolicy']
+        # --disable must be first: no ~/.curlrc. One fixed GET, no redirects,
+        # proxy/environment/config/client-file options or caller-supplied argv.
+        command = ['/usr/bin/curl', '--disable', '--noproxy', '*', '--proto', '=http',
+                   '--max-time', str(policy['timeoutSeconds']), '--fail', '--silent', '--show-error',
+                   '--', policy['url']]
+        response = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=15,
+                                  env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+        require(response.returncode == 0, 'production endpoint health failed')
+        time.sleep(baseline['healthPolicy']['stableSeconds'])
+        after = sample()
+        require(before == after, 'production PID/restarts/mapping stability failed')
+        return {'format': 'runtime-health-v1', 'readers': after, 'bootId': baseline['bootId'],
+                'configSha256': baseline['configSha256']}
+
+    def promoted(self, transaction, state):
+        path = self.root / 'current.json'
+        if not path.exists() and not path.is_symlink():
+            return False
+        pointer = guard.production_json(path)
+        return pointer.get('sha256') == state['candidateSha256'] and pointer.get('transaction') == state['transaction']
+
+    def promote(self, transaction, state, candidate):
+        health = guard.production_json(transaction / 'health.json')
+        require(health['status'] == 'healthy' and health['baselineSha256'] == state['candidateSha256'],
+                'production promotion missing bound health')
+        record = self.root / 'baselines' / (candidate['baselineId'] + '.json')
+        if not record.exists():
+            write_new(record, regular(transaction / 'candidate.json').read_bytes(), 0o444)
+        require(digest(record) == state['candidateSha256'], 'immutable production baseline conflicts')
+        state['phase'] = 'PROMOTING'
+        self.state(transaction, state)
+        replace(self.root / 'current.json', (json.dumps({'baselineId': candidate['baselineId'],
+                'sha256': state['candidateSha256'], 'healthSha256': digest(transaction / 'health.json'),
+                'transaction': state['transaction']}, sort_keys=True) + '\n').encode())
+        sync_dir(self.root)
+        state['phase'] = 'COMPLETED'
+        self.state(transaction, state)
+        self.clear_pending(state)
+
+    def clear_pending(self, state):
+        path = self.root / 'pending.json'
+        if path.exists() or path.is_symlink():
+            require(guard.production_json(path) == {'transaction': state['transaction'], 'approvalSha256': state['approvalSha256']},
+                    'production pending pointer changed')
+            path.unlink()
+            sync_dir(path.parent)
+
+    def recover(self, transaction, approval_sha, start=True):
+        try:
+            return self.restore(transaction, approval_sha, start)
+        except BaseException:
+            # Best-effort exact refence, never overwrite an unrecognized gate.
+            approval = checked_json(transaction / 'approval.json', approval_sha)
+            state = guard.production_json(transaction / 'state.json')
+            if not self.promoted(transaction, state):
+                for unit, path in approval['previous']['gates'].items():
+                    body = production_inhibit(self.home)
+                    inhibited = dict(sha256=hashlib.sha256(body).hexdigest(), mode=0o644, bytes=len(body))
+                    require(guard.production_pin(Path(path)) in (approval['previous']['unitFiles'][path],
+                            approval['candidate']['unitFiles'][path], inhibited), 'foreign recovery gate; refuse overwrite')
+                for path in approval['previous']['gates'].values():
+                    replace(Path(path), production_inhibit(self.home), 0o644)
+                systemctl('daemon-reload')
+                self.stop(approval['previous'])
+                state['phase'] = 'RECOVERY_FAILED_STOPPED'
+                self.state(transaction, state)
+            raise
+
+    def restore(self, transaction, approval_sha, start=True):
+        approval = checked_json(transaction / 'approval.json', approval_sha)
+        state = guard.production_json(transaction / 'state.json')
+        require(state['approvalSha256'] == approval_sha and
+                transaction == self.root / 'transactions' / state['transaction'] and
+                digest(transaction / 'previous.json') == state['previousSha256'] and
+                digest(transaction / 'candidate.json') == state['candidateSha256'], 'production recovery lineage changed')
+        previous, candidate = approval['previous'], approval['candidate']
+        require(guard.production_json(transaction / 'previous.json') == previous and
+                guard.production_json(transaction / 'candidate.json') == candidate, 'production recovery baseline mismatch')
+        if self.promoted(transaction, state):
+            guard.production_context(self.home)
+            self.promote(transaction, state, candidate)
+            return 'COMPLETED'
+        require(state['phase'] not in ('COMPLETED', 'RECOVERED'), 'production terminal transaction is consumed')
+        # Unresolved pending authority blocks every provisional gate during recovery.
+        state['phase'] = 'RECOVERING_STOP'
+        self.state(transaction, state)
+        self.stop(previous)
+        guard.production_verify(self.home, previous, files=False, units=False)
+        self.archive_copies(transaction, approval)
+        actual = guard.production_files(self.home)
+        require(set(approval['previous']['files']) <= set(actual) <= set(approval['candidate']['files']) and
+                all(pin in (previous['files'].get(path), candidate['files'].get(path)) for path, pin in actual.items()),
+                'unowned production runtime file during recovery')
+        gates_complete = transaction / 'gates-complete.json'
+        if gates_complete.exists():
+            require(guard.production_json(gates_complete) == {'approvalSha256': approval_sha}, 'production gate receipt drift')
+            body = production_inhibit(self.home)
+            inhibited = dict(sha256=hashlib.sha256(body).hexdigest(), mode=0o644, bytes=len(body))
+            for index, (unit, path) in enumerate(sorted(previous['gates'].items())):
+                require(guard.production_pin(transaction / 'gates' / str(index)) == previous['unitFiles'][path] and
+                        guard.production_pin(Path(path)) in (previous['unitFiles'][path], candidate['unitFiles'][path], inhibited),
+                        'production restore gate/backup drift')
+        complete = transaction / 'backups-complete.json'
+        if not complete.exists():
+            # Before verified backups no live file/gate writes were authorized.
+            guard.production_verify(self.home, previous, units=False)
+        else:
+            require(guard.production_json(complete) == {'approvalSha256': approval_sha}, 'production backup receipt changed')
+            for index, (path, old) in enumerate(sorted(previous['files'].items())):
+                backup = transaction / 'files' / str(index)
+                require(guard.production_pin(backup) == old and
+                        guard.production_pin(self.home / path) in (old, candidate['files'][path]),
+                        'production restore file/backup drift')
+            for path in set(candidate['files']) - set(previous['files']):
+                live = self.home / path
+                require(not live.is_symlink() and (not live.exists() or guard.production_pin(live) == candidate['files'][path]),
+                        'introduced production helper drift')
+            boot_unit = Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT
+            require(guard.production_pin(transaction / 'boot-unit') == previous['unitFiles'][str(boot_unit)] and
+                    guard.production_pin(boot_unit) in (previous['unitFiles'][str(boot_unit)], candidate['unitFiles'][str(boot_unit)]),
+                    'production boot recovery backup/file drift')
+            for index, (path, pin) in enumerate(sorted(previous['files'].items())):
+                production_copy(transaction / 'files' / str(index), self.home / path, pin,
+                                temporary=self.copy_name(transaction, path, 'recover'))
+            for path in set(candidate['files']) - set(previous['files']):
+                live = self.home / path
+                if live.exists():
+                    live.unlink()
+                    sync_dir(live.parent)
+            replace(boot_unit, regular(transaction / 'boot-unit').read_bytes(), previous['unitFiles'][str(boot_unit)]['mode'])
+        if gates_complete.exists():
+            for index, (unit, path) in enumerate(sorted(previous['gates'].items())):
+                replace(Path(path), regular(transaction / 'gates' / str(index)).read_bytes(), 0o644)
+            systemctl('daemon-reload')
+        guard.production_verify(self.home, previous)
+        if state['adoption']:
+            self.verify_legacy(approval)
+            # Preserve legacy authority, records and owned gates byte-for-byte.
+            if start:
+                activation_capacity_preflight(previous['allowedUnits'], 'production-legacy-recovery-start')
+                for unit in previous['allowedUnits']:
+                    systemctl('start', unit)
+                self.health(previous)
+        else:
+            pointer = guard.production_json(transaction / 'previous-pointer.json')
+            require(pointer['sha256'] == approval['parentSha256'], 'production prior pointer changed')
+            replace(self.root / 'current.json', regular(transaction / 'previous-pointer.json').read_bytes())
+            if start:
+                self.start(transaction, state, previous, 'RECOVERING_START')
+                self.health(previous)
+        state['phase'] = 'RECOVERED' if start else 'RECOVERED_STOPPED'
+        if not start:
+            for path in previous['gates'].values():
+                replace(Path(path), production_inhibit(self.home), 0o644)
+            systemctl('daemon-reload')
+        self.state(transaction, state)
+        if start:
+            self.clear_pending(state)
+        return state['phase']
+
+
+def production_adopt(args):
+    approval = checked_json(args.approval, args.approval_sha256)
+    return ProductionRuntime(Path(approval['gatewayHome'])).install(args, adoption=True)
+
+
+def production_install(args):
+    approval = checked_json(args.approval, args.approval_sha256)
+    return ProductionRuntime(Path(approval['gatewayHome'])).install(args)
+
+
+def production_recover(args):
+    approval = checked_json(args.state / 'approval.json', args.approval_sha256)
+    return ProductionRuntime(Path(approval['gatewayHome'])).recover(args.state, args.approval_sha256,
+                                                                   start=not args.no_restart)
+
+
+def production_boot(args):
+    home = args.home
+    runtime = ProductionRuntime(home)
+    pending = runtime.root / 'pending.json'
+    if pending.exists() or pending.is_symlink():
+        ref = guard.production_json(pending)
+        require(isinstance(ref, dict) and set(ref) == {'transaction', 'approvalSha256'} and
+                isinstance(ref['transaction'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,63}', ref['transaction']) and
+                isinstance(ref['approvalSha256'], str) and re.fullmatch('[0-9a-f]{64}', ref['approvalSha256']),
+                'production boot pending pointer invalid')
+        state = guard.production_json(runtime.root / 'transactions' / ref['transaction'] / 'state.json')
+        require(state.get('approvalSha256') == ref['approvalSha256'], 'production boot approval mismatch')
+        if state['phase'] in ('STARTING', 'RECOVERING_START') and production_locked_owner(state):
+            # Starting a reader may start its Requires= recovery oneshot. A
+            # proved live same-boot lock owner is NOT an interrupted transaction.
+            guard.production_unit(home, 'gateway-services.service')
+            return
+    staging = home / 'ota/staging'
+    # The job journal may still be unresolved AFTER pending was cleared by
+    # promotion/recovery. Resolve it before consulting the baseline pointer.
+    if staging.exists():
+        spec = importlib.util.spec_from_file_location('production_ota_health', str(Path(__file__).with_name('ota-health-result.py')))
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        records = list(staging.glob('ota_handoff_*.json'))
+        require(len(records) <= 128, 'production boot handoff inventory exceeds bound')
+        for path in records:
+            record = guard.production_json(path)
+            if record.get('runtimeMayChange') is True and record.get('phase') != 'OWNER_FINISHED':
+                helper.RuntimeHandoff(staging, record['jobId'], record['token']).recover()
+    pending = runtime.root / 'pending.json'
+    if pending.exists() or pending.is_symlink():
+        ref = guard.production_json(pending)
+        require(isinstance(ref, dict) and set(ref) == {'transaction', 'approvalSha256'} and
+                isinstance(ref['transaction'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,63}', ref['transaction']) and
+                isinstance(ref['approvalSha256'], str) and re.fullmatch('[0-9a-f]{64}', ref['approvalSha256']),
+                'production boot pending pointer invalid')
+        with production_lock():
+            runtime.recover(runtime.root / 'transactions' / ref['transaction'], ref['approvalSha256'], start=False)
+    current = runtime.root / 'current.json'
+    if current.exists() or current.is_symlink():
+        # Missing/new-boot SHM deliberately blocks BEFORE launcher until a native
+        # creator ordering is provisioned; no Python files or raw queue restoration.
+        with production_lock():
+            guard.production_context(home)
+
+
+def production_ota_owner(protocol, record):
+    """Consume a signed/checksummed artifact only after independent lease handoff.
+
+    The OtaService intent is written only after outer RSA/SHA256/size validation.
+    No ordinary-manifest guard bypass: this is the distinct proved baseline path.
+    """
+    intent = protocol.intent()
+    home = protocol.root.parent.parent
+    runtime = ProductionRuntime(home)
+    with production_lock():
+        baseline = guard.production_context(home)
+        require(baseline['machineCode'] == intent['machineCode'], 'runtime OTA device/baseline mismatch')
+        pointer = guard.production_json(runtime.root / 'current.json')
+        artifact = regular(Path(intent['artifactPath']))
+        require(protocol.artifact_hash(artifact, int(intent['artifactSize'])) == intent['artifactSha256'],
+                'runtime OTA artifact changed after owner acquisition')
+        work = protocol.root / ('runtime-payload-' + protocol.job)
+        require(not work.exists() and not work.is_symlink(), 'runtime OTA work path consumed')
+        with tarfile.open(str(artifact), 'r:gz') as archive:
+            members = archive.getmembers()
+            require(len(members) <= 512 and all(m.isfile() and not m.issym() and not m.islnk() and
+                    m.size <= 128 * 1024 * 1024 for m in members) and
+                    len({m.name for m in members}) == len(members), 'runtime release archive type/inventory invalid')
+            metadata = [m for m in members if m.name == 'runtime-manifest.json']
+            require(len(metadata) == 1 and metadata[0].size <= 1024 * 1024, 'runtime manifest missing/oversized')
+            # Use the same duplicate-field/ownership parser as persistent records.
+            raw = archive.extractfile(metadata[0]).read()
+            work.mkdir(mode=0o700)
+            write_new(work / 'runtime-manifest.json', raw)
+            manifest = guard.production_json(work / 'runtime-manifest.json')
+            require(set(manifest) == {'format', 'version', 'packageType', 'fromAbi', 'toAbi', 'clusterProtocol',
+                                     'architecture', 'parents', 'expiresAtUnix', 'files'} and
+                    manifest['format'] == 'runtime-release-v1' and manifest['version'] == intent['version'] and
+                    manifest['packageType'] == 'full' and manifest['fromAbi'] == manifest['toAbi'] == 11 and
+                    manifest['clusterProtocol'] == 2 and manifest['architecture'] == 'aarch64' and
+                    isinstance(manifest['parents'], list) and pointer['sha256'] in manifest['parents'] and
+                    type(manifest['expiresAtUnix']) is int and time.time() < manifest['expiresAtUnix'],
+                    'runtime release incompatible/expired')
+            candidate = copy.deepcopy(baseline)
+            transaction_id = 'OTA_' + hashlib.sha256((protocol.job + protocol.token).encode()).hexdigest()[:32]
+            candidate.update(baselineId=transaction_id, generation=baseline['generation'] + 1,
+                             parentSha256=pointer['sha256'], release=manifest['version'], files=manifest['files'])
+            guard.production_schema(candidate, home)
+            require(set(candidate['files']) == set(baseline['files']) and
+                    {m.name for m in members} == {'runtime-manifest.json'} | set(candidate['files']) and
+                    sum(m.size for m in members) <= 512 * 1024 * 1024, 'runtime package write set differs from baseline')
+            payload = work / 'payload'
+            for member in members:
+                if member.name == 'runtime-manifest.json':
+                    continue
+                pin = candidate['files'][member.name]
+                require(member.size == pin['bytes'], 'runtime member size mismatch')
+                dest = payload / member.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, pin['mode'])
+                with archive.extractfile(member) as source, os.fdopen(fd, 'wb') as output:
+                    value, count = hashlib.sha256(), 0
+                    for chunk in iter(lambda: source.read(65536), b''):
+                        value.update(chunk); count += len(chunk); output.write(chunk)
+                    require(count == pin['bytes'] and value.hexdigest() == pin['sha256'], 'runtime member hash mismatch')
+                    output.flush(); os.fsync(output.fileno())
+                    os.fchmod(output.fileno(), pin['mode'])
+            sync_dir(work)
+        approval = dict(format='runtime-provisioning-v1', transaction=transaction_id, operation='install',
+                        expiresAtUnix=manifest['expiresAtUnix'], gatewayHome=str(home), machineCode=intent['machineCode'],
+                        parentSha256=pointer['sha256'], previous=baseline, candidate=candidate, legacy=None)
+        path = work / 'approval.json'
+        runtime.record(path, approval)
+        args = argparse.Namespace(approval=path, approval_sha256=digest(path), payload=payload)
+        # Admission is rerun inside install. Persist the mutation barrier before
+        # the first intent/fence so donor cancellation can never claim unchanged.
+        runtime.inputs(args, adoption=False)
+        with protocol.mutex():
+            fresh = protocol.read()
+            require(fresh['phase'] == 'OWNER_OWNED', 'runtime ownership changed before install')
+            fresh.update(phase='OWNER_INSTALLING', runtimeMayChange=True, productionTransaction=transaction_id,
+                         productionApprovalSha256=args.approval_sha256, gatewayHome=str(home))
+            protocol.save(fresh)
+        transaction = runtime.root / 'transactions' / transaction_id
+        try:
+            runtime.install(args)
+            status, rollback = 'healthy', 'none'
+        except BaseException:
+            if not (transaction / 'state.json').exists():
+                raise  # barrier is conservative: unresolved, never an unchanged shortcut
+            result = runtime.recover(transaction, args.approval_sha256)
+            status, rollback = ('healthy', 'none') if result == 'COMPLETED' else ('failed', 'succeeded')
+        production_ota_finish(protocol, transaction_id, status, rollback)
+
+
+def production_ota_finish(protocol, transaction_id, status, rollback):
+        intent = protocol.intent()
+        runtime = ProductionRuntime(protocol.root.parent.parent)
+        decision = dict(format='ota-health-v1', jobId=protocol.job, token=protocol.token, version=intent['version'],
+                        status=status, rollback=rollback, ts=str(int(time.time() * 1000)))
+        health_path = protocol.root / ('health_' + protocol.job + '.txt')
+        with protocol.lock('ota_state.lock', wait=2):
+            if health_path.exists() or health_path.is_symlink():
+                old = guard.production_json(health_path)
+                require(all(old.get(k) == v for k, v in decision.items() if k != 'ts'), 'runtime final health conflict')
+            else:
+                runtime.record(health_path, decision)
+            if status == 'healthy':
+                replace(protocol.root / 'current_version.txt', ('jobId=' + protocol.job + '\nversion=' + intent['version'] + '\n').encode())
+                replace(protocol.root / 'applied_version.txt', (intent['version'] + '\n').encode())
+        with protocol.mutex():
+            fresh = protocol.read()
+            fresh.update(phase='OWNER_FINISHED', completionProof=dict(status=status, rollback=rollback,
+                         healthSha256=digest(health_path), transaction=transaction_id,
+                         healthRecord=regular(health_path).read_text()))
+            protocol.save(fresh)
+
+
+def production_ota_resume(protocol, record):
+    # Called with the ORIGINAL job lease, positive dead-owner/no-cgroup-task
+    # proof, and pinned staged helper bytes. Never extract, download or install.
+    home = protocol.root.parent.parent
+    require(record.get('gatewayHome') == str(home) and
+            isinstance(record.get('productionTransaction'), str) and
+            re.fullmatch(r'OTA_[0-9a-f]{32}', record['productionTransaction']) and
+            isinstance(record.get('productionApprovalSha256'), str) and
+            re.fullmatch('[0-9a-f]{64}', record['productionApprovalSha256']), 'runtime recovery job lineage invalid')
+    runtime = ProductionRuntime(home)
+    transaction_id = record['productionTransaction']
+    transaction = runtime.root / 'transactions' / transaction_id
+    with production_lock():
+        state_path = transaction / 'state.json'
+        if not state_path.exists() and not state_path.is_symlink():
+            approval_path = protocol.root / ('runtime-payload-' + protocol.job) / 'approval.json'
+            approval = checked_json(approval_path, record['productionApprovalSha256'])
+            require(approval['transaction'] == transaction_id and approval['machineCode'] == protocol.intent()['machineCode'] and
+                    not (runtime.root / 'pending.json').exists() and not (runtime.root / 'pending.json').is_symlink() and
+                    guard.production_context(home) == approval['previous'], 'pre-intent runtime unchanged proof failed')
+            runtime.health(approval['previous'])
+            result = 'RECOVERED'
+        else:
+            state = guard.production_json(state_path)
+            approval = checked_json(transaction / 'approval.json', record['productionApprovalSha256'])
+            if state['phase'] == 'RECOVERED':
+                require(guard.production_context(home) == approval['previous'], 'runtime recovered baseline drift')
+                runtime.health(approval['previous'])
+                result = 'RECOVERED'
+            else:
+                result = runtime.recover(transaction, record['productionApprovalSha256'])
+        status, rollback = ('healthy', 'none') if result == 'COMPLETED' else ('failed', 'succeeded')
+        production_ota_finish(protocol, transaction_id, status, rollback)
+
+
 def main():
     if len(sys.argv) == 5 and sys.argv[1] == 'ota-owner':
         spec = importlib.util.spec_from_file_location('ota_health', str(Path(__file__).with_name('ota-health-result.py')))
         health = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(health)
-        health.RuntimeHandoff(Path(sys.argv[2]), sys.argv[3], sys.argv[4]).own()
+        health.RuntimeHandoff(Path(sys.argv[2]), sys.argv[3], sys.argv[4]).own(production_ota_owner)
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == 'production-boot':
+        require(os.geteuid() == 0, 'production boot recovery requires root')
+        # Each job acquires lease BEFORE offline lock; baseline-only work follows.
+        production_boot(argparse.Namespace(home=Path(sys.argv[2])))
         return
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('apply', 'recover', 'observe', 'activate'))
+    parser.add_argument('action', choices=('apply', 'recover', 'observe', 'activate',
+                                         'production-adopt', 'production-install', 'production-recover'))
     parser.add_argument('--approval', type=Path)
     parser.add_argument('--approval-sha256', required=True)
     parser.add_argument('--manifest', type=Path)
@@ -1839,8 +2627,13 @@ def main():
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--ready', type=Path)
     parser.add_argument('--ready-sha256')
+    parser.add_argument('--no-restart', action='store_true')
     args = parser.parse_args()
     require(os.geteuid() == 0, 'root in host PID/mount namespace required')
+    if args.action.startswith('production-'):
+        with production_lock():
+            globals()[args.action.replace('-', '_')](args)
+        return
     if args.action == 'apply':
         require(args.approval and args.manifest and args.payload, 'apply requires approval, manifest and payload')
         args.payload = args.payload.absolute()

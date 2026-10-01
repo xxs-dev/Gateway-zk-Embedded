@@ -1,0 +1,65 @@
+{
+  "format": "local-production-checkpoint-v1",
+  "date": "2026-10-01",
+  "parentCommit": "3057a94a14655a73771dc3efb8890ff42bc3ff82",
+  "branch": "fix/edge-review-r1-20260930",
+  "scope": "LOCAL_ONLY; intermediate source checkpoint, not release or deployment approval",
+  "deploymentAuthorized": false,
+  "fullyValidated": false,
+  "inputHashKind": "worktree raw bytes; Git LF blob differs only for src/ota_service.cpp",
+  "gitBlobOverrides": {
+    "src/ota_service.cpp": {"bytes": 122365, "sha256": "be9674502b4e0833b4eaa226559942c93ae75314af8862405ad79c94a6ea77c1"}
+  },
+  "changedInputs": {
+    "deploy/offline-runtime-upgrade.py": {"bytes": 162974, "sha256": "a98003c25559024b6ec5cc5990ef6927cf81ebb1cc7836e899f80b2e070792f1"},
+    "deploy/runtime-upgrade-guard.py": {"bytes": 83157, "sha256": "00f8715707a23aa2104244f51fcc7b1de31b708bdf6106ab4aaedc30d8ab65e2"},
+    "deploy/ota-health-result.py": {"bytes": 42618, "sha256": "835e36c3ac3185a9cb0651d80ad2bad62ed3d12f6d9646eb3cd4c6ac79c8a98d"},
+    "deploy/gateway-ota-recover.service": {"bytes": 845, "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"},
+    "src/ota_service.cpp": {"bytes": 124274, "sha256": "dd9e77b629882708406d255d638c3fedd580ed2c1c41df372e1c7d09232a84af"},
+    "tools/ota_runtime_handoff_service_test.cpp": {"bytes": 9210, "sha256": "6a6c3203a812c5bcfae713fef9ff5d6a5d26c192d873c41d65731bd6fd0258ab"},
+    "tools/production_runtime_baseline_test.py": {"bytes": 43558, "sha256": "6c03bb0bd6411383cf3523e262f09a053b0d5e75255f21827c65406cf6a2bec0"},
+    "tools/fixtures/production-historical-r2-allowlists.json": {"bytes": 949, "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"}
+  },
+  "unchangedFixtureDependencies": {
+    "deploy/gateway-services.sh": {"bytes": 21858, "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"},
+    "deploy/ota-rollback.sh": {"bytes": 18983, "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"}
+  },
+  "staticChecks": {"python38GrammarFiles": 4, "exitCode": 0, "gitDiffCheckExitCode": 0},
+  "independentPriorCheckpointEvidence": {
+    "path": "coordinator/docs/audits/evidence/20261001-device-acceptance/production-terminal-recovery-independent.json",
+    "sha256": "25172ae2971ef627b5c1fc100d9f281087bc9c828269e5f221593e67092b159b",
+    "tests": 2,
+    "result": "PASS on recorded prior source hashes; not rerun or attributed to this entire checkpoint",
+    "promotionWindows": 4,
+    "scope": "private durable journals/leases, mocked service/proc/SHM/network/dead-owner boundary; not RSA/HTTPS/OS reboot"
+  },
+  "unreturnedSession": {
+    "sessionId": 47230,
+    "windowsPids": [80652, 65848],
+    "startedAtLocal": "2026-10-01T22:49:12+08:00",
+    "command": "wsl -u root -- python3 -B -m unittest discover -s /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/tools -p production_runtime_baseline_test.py -k rollback_completed -k boot_hook -k boot_oneshot -k dangling -k mismatched -v",
+    "stdoutReceived": false,
+    "exitCode": null,
+    "result": "UNVERIFIED; original handle preserved, no duplicate execution, no global WSL shutdown",
+    "sourceLoadPointKnown": false
+  },
+  "pendingFocusedTests": [
+    "test_failed_rollback_completed_then_owner_final_crash_resumes_original_job",
+    "test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending",
+    "test_boot_oneshot_during_start_requires_positive_live_offline_owner",
+    "test_dangling_production_pointer_cannot_fall_back_to_legacy_authority",
+    "test_mismatched_effective_dropin_or_fragment_denies_before_intent",
+    "test_payload_wrong_elf_architecture_denies_before_any_intent",
+    "test_boot_malformed_pending_ref_denies_before_recovery_or_mutation",
+    "test_process_death_mid_copy_is_recovered_without_ignoring_inventory (Python 3.8-compatible wait-status assertion)"
+  ],
+  "otherMissingValidation": [
+    "Affected existing core40 and historical21 on this checkpoint",
+    "Native final-state regression against the modified C++ resolution branch",
+    "Fixed Python 3.8/AArch64 interpreter execution",
+    "Native approved pointctl ABI11 new-boot creation, capacity, ordering and durable per-boot identities",
+    "Full configured business participant admission/health beyond initial reader-safe startup",
+    "Production AArch64 C++ paired artifacts and two-board deployment/normal reboot",
+    "Real RSA/HTTPS signed runtime OTA, original-job terminal query/duplicate and failed recovery"
+  ]
+}

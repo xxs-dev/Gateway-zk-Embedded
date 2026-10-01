@@ -2,12 +2,15 @@
 Description=Gateway interrupted OTA recovery
 After=local-fs.target
 Before=gateway-services.service gateway-health-watchdog.service
-ConditionPathExists=/opt/modbus-gateway/ota/staging/ota-in-progress
+ConditionPathExists=|/opt/modbus-gateway/ota/staging/ota-in-progress
+ConditionPathExists=|/opt/modbus-gateway/data/runtime-production/current.json
+ConditionPathExists=|/opt/modbus-gateway/data/runtime-production/pending.json
 
 [Service]
 Type=oneshot
 User=root
 ExecStart=/bin/sh /opt/modbus-gateway/bin/ota-rollback.sh --recover-interrupted /opt/modbus-gateway/ota/staging --no-restart
+ExecStart=/usr/bin/python3 -B /opt/modbus-gateway/bin/offline-runtime-upgrade.py production-boot /opt/modbus-gateway
 TimeoutStartSec=900
 NoNewPrivileges=yes
 StandardOutput=journal
