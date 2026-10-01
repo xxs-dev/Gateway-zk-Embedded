@@ -1,0 +1,79 @@
+test_alias_mapping_is_rejected_by_actual_identity (__main__.BootQuiescenceTest.test_alias_mapping_is_rejected_by_actual_identity) ... ERROR
+test_approved_missing_new_boot_roles_scan_without_mutation (__main__.BootQuiescenceTest.test_approved_missing_new_boot_roles_scan_without_mutation) ... ok
+test_deleted_fd_name_refuses_even_if_fd_stat_would_fail (__main__.BootQuiescenceTest.test_deleted_fd_name_refuses_even_if_fd_stat_would_fail) ... ok
+test_deleted_target_and_retired_name_mappings_refuse_when_paths_absent (__main__.BootQuiescenceTest.test_deleted_target_and_retired_name_mappings_refuse_when_paths_absent) ... ok
+test_existing_symlink_hardlink_and_wrong_mode_fail_closed (__main__.BootQuiescenceTest.test_existing_symlink_hardlink_and_wrong_mode_fail_closed) ... ERROR
+test_lock_and_approval_required_and_completed_role_cannot_vanish (__main__.BootQuiescenceTest.test_lock_and_approval_required_and_completed_role_cannot_vanish) ... ERROR
+test_owned_progress_and_complete_roles_validate_identity_and_abi (__main__.BootQuiescenceTest.test_owned_progress_and_complete_roles_validate_identity_and_abi) ... ERROR
+test_permission_unknown_visibility_and_malformed_maps_fail_closed (__main__.BootQuiescenceTest.test_permission_unknown_visibility_and_malformed_maps_fail_closed) ... ok
+test_same_boot_and_legacy_missing_roles_remain_strict (__main__.BootQuiescenceTest.test_same_boot_and_legacy_missing_roles_remain_strict) ... ok
+test_unowned_target_and_recreated_retired_source_refuse (__main__.BootQuiescenceTest.test_unowned_target_and_recreated_retired_source_refuse) ... ok
+test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder (__main__.BootQuiescenceTest.test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder) ... ERROR
+
+======================================================================
+ERROR: test_alias_mapping_is_rejected_by_actual_identity (__main__.BootQuiescenceTest.test_alias_mapping_is_rejected_by_actual_identity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 463, in test_alias_mapping_is_rejected_by_actual_identity
+    (os.major(s.st_dev), os.minor(s.st_dev), s.st_ino))
+     ^^^^^^^^
+AttributeError: module 'os' has no attribute 'major'
+
+======================================================================
+ERROR: test_existing_symlink_hardlink_and_wrong_mode_fail_closed (__main__.BootQuiescenceTest.test_existing_symlink_hardlink_and_wrong_mode_fail_closed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 442, in test_existing_symlink_hardlink_and_wrong_mode_fail_closed
+    with self.assertRaisesRegex(ValueError, 'symlink'): self.check()
+                                                        ~~~~~~~~~~^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 401, in check
+    def check(self, creating=True): self.ns['production_no_mappings'](self.home, self.baseline, creating=creating)
+                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\ota-health-result.py", line 776, in production_no_mappings
+    with self.lock('ota_state.lock', wait=2):
+           ^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'major'
+
+======================================================================
+ERROR: test_lock_and_approval_required_and_completed_role_cannot_vanish (__main__.BootQuiescenceTest.test_lock_and_approval_required_and_completed_role_cannot_vanish)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 490, in test_lock_and_approval_required_and_completed_role_cannot_vanish
+    with self.assertRaisesRegex(ValueError, 'completed native boot target vanished'): self.check(creating=False)
+                                                                                      ~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 401, in check
+    def check(self, creating=True): self.ns['production_no_mappings'](self.home, self.baseline, creating=creating)
+                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\ota-health-result.py", line 776, in production_no_mappings
+    with self.lock('ota_state.lock', wait=2):
+           ^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'major'
+
+======================================================================
+ERROR: test_owned_progress_and_complete_roles_validate_identity_and_abi (__main__.BootQuiescenceTest.test_owned_progress_and_complete_roles_validate_identity_and_abi)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 431, in test_owned_progress_and_complete_roles_validate_identity_and_abi
+    p = self.target(completed=False); before = self.snapshot(); self.check(); self.assertEqual(self.snapshot(), before)
+                                                                ~~~~~~~~~~^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 401, in check
+    def check(self, creating=True): self.ns['production_no_mappings'](self.home, self.baseline, creating=creating)
+                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\ota-health-result.py", line 798, in production_no_mappings
+    if temporary.exists():
+    ^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'major'
+
+======================================================================
+ERROR: test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder (__main__.BootQuiescenceTest.test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_publication_test.py", line 469, in test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder
+    (os.major(old['dev']), os.minor(old['dev']), old['ino']))
+     ^^^^^^^^
+AttributeError: module 'os' has no attribute 'major'
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.403s
+
+FAILED (errors=5)

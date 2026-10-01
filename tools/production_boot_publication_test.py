@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import tempfile
 import time
@@ -349,6 +350,171 @@ class IndexPublicationTest(unittest.TestCase):
                 getattr(self.owner, operation)(self.record)
                 self.assertIsInstance(json.loads(target.read_bytes()), dict)
                 if operation == 'index_unfinished': target.unlink()
+
+
+class BootQuiescenceTest(unittest.TestCase):
+    """Real scanner/private paths. Approval/boot lock/proof and Windows mode are substitutes."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='production-quiescence-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        def mapped(*parts):
+            text = '/'.join(str(p).replace('\\', '/') for p in parts)
+            if text == '/proc' or text.startswith('/proc/') or text == '/dev/shm' or text.startswith('/dev/shm/'):
+                return self.root / 'system' / text.lstrip('/')
+            return Path(*parts)
+        self.path = mapped
+        self.shm = mapped('/dev/shm'); self.shm.mkdir(parents=True)
+        self.proc = mapped('/proc/101'); self.proc.mkdir(parents=True)
+        (self.proc / 'maps').write_text(''); (self.proc / 'fd').mkdir()
+        boot = mapped('/proc/sys/kernel/random/boot_id'); boot.parent.mkdir(parents=True); boot.write_text('NEW_BOOT')
+        self.baseline = dict(bootId='OLD_BOOT', segments=[dict(name='live_v11', dev=1, ino=123)],
+                             retiredSources={'retired_v10': dict(dev=1, ino=124)})
+        self.approved = json.loads(json.dumps(self.baseline))
+        self.home = self.root / 'home'
+        self.intent = self.home / 'data/runtime-production/boots/NEW_BOOT-intent.json'
+        self.rows = []
+        self.locked = True
+        self.readlinks = {}
+        def require(condition, message):
+            if not condition: raise ValueError(message)
+        def schema(document, home): require(document == self.approved and home == self.home, 'unapproved role inventory')
+        def abi(path, version):
+            require(version == 11 and path.stat().st_size == 16 and path.read_bytes()[:8] == struct.pack('<II', 0x4d505354, 11), 'wrong ABI11')
+        api = types.SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
+        api.readlink = lambda path: self.readlinks[str(path)] if str(path) in self.readlinks else os.readlink(path)
+        modes = stat
+        if os.name != 'posix':
+            api.major, api.minor = lambda device: device, lambda device: 0
+            modes = types.SimpleNamespace(**{name: getattr(stat, name) for name in dir(stat)})
+            modes.S_IMODE = lambda value: 0o600 if stat.S_IMODE(value) == 0o666 else stat.S_IMODE(value)
+        tree = ast.parse((REPO / 'deploy/offline-runtime-upgrade.py').read_bytes())
+        functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and
+                     n.name in ('production_no_mappings', 'no_mappings', 'regular')]
+        self.ns = dict(Path=mapped, os=api, stat=modes, struct=struct, re=re, require=require,
+                       production_owner_proof=lambda: {}, production_locked_owner=lambda value: self.locked,
+                       guard=types.SimpleNamespace(PRODUCTION_DIR='runtime-production', production_schema=schema,
+                           production_segment_identities=lambda *args: self.rows,
+                           production_boot_record=lambda home, baseline, path, intent: json.loads(path.read_bytes()),
+                           point_store_abi=abi, POINT_STORE_SIZES={11:16}))
+        exec(compile(ast.Module(body=functions, type_ignores=[]), str(REPO / 'deploy/offline-runtime-upgrade.py'), 'exec'), self.ns)
+
+    def check(self, creating=True): self.ns['production_no_mappings'](self.home, self.baseline, creating=creating)
+
+    def target(self, completed=True):
+        path = self.shm / 'live_v11'; path.write_bytes(struct.pack('<II', 0x4d505354, 11) + b'\0' * 8); path.chmod(0o600)
+        info = path.stat(); row = dict(name='live_v11', dev=info.st_dev, ino=info.st_ino)
+        self.rows = [row]
+        self.intent.parent.mkdir(parents=True, exist_ok=True)
+        self.intent.write_text(json.dumps(dict(segments=[row] if completed else [], inProgress=None if completed else 'live_v11')))
+        return path
+
+    def snapshot(self):
+        return {str(p.relative_to(self.root)): (p.stat().st_ino, p.read_bytes()) for p in self.root.rglob('*') if p.is_file()}
+
+    def test_approved_missing_new_boot_roles_scan_without_mutation(self):
+        before = self.snapshot(); self.check(); self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.shm.joinpath('live_v11').exists()); self.assertFalse(self.intent.exists())
+
+    def test_same_boot_and_legacy_missing_roles_remain_strict(self):
+        self.path('/proc/sys/kernel/random/boot_id').write_text('OLD_BOOT')
+        with self.assertRaisesRegex(ValueError, 'single-link regular'): self.check()
+        with self.assertRaisesRegex(ValueError, 'single-link regular'):
+            self.ns['no_mappings'](['live_v11'], include_fds=True)
+
+    def test_unowned_target_and_recreated_retired_source_refuse(self):
+        p = self.shm / 'live_v11'; p.write_bytes(b''); p.chmod(0o600)
+        with self.assertRaisesRegex(ValueError, 'unowned'): self.check()
+        p.unlink(); (self.shm / 'retired_v10').write_bytes(b'old')
+        with self.assertRaisesRegex(ValueError, 'retired source recreated'): self.check()
+
+    def test_owned_progress_and_complete_roles_validate_identity_and_abi(self):
+        p = self.target(completed=False); before = self.snapshot(); self.check(); self.assertEqual(self.snapshot(), before)
+        self.target(); self.check(creating=False)
+        self.rows[0]['ino'] += 1
+        with self.assertRaisesRegex(ValueError, 'identity drift'): self.check(creating=False)
+        self.rows[0]['ino'] -= 1; p.write_bytes(b'x' * 16)
+        with self.assertRaisesRegex(ValueError, 'ABI11'): self.check(creating=False)
+
+    def test_existing_symlink_hardlink_and_wrong_mode_fail_closed(self):
+        p = self.target()
+        original = Path.is_symlink
+        with mock.patch.object(Path, 'is_symlink', lambda path: path == p or original(path)):
+            with self.assertRaisesRegex(ValueError, 'symlink'): self.check()
+        alias = self.shm / 'alias'; os.link(p, alias)
+        with self.assertRaisesRegex(ValueError, 'single-link'): self.check()
+        alias.unlink(); p.chmod(0o400)
+        try:
+            with self.assertRaisesRegex(ValueError, 'ownership/type'): self.check()
+        finally: p.chmod(0o600)
+
+    def test_deleted_target_and_retired_name_mappings_refuse_when_paths_absent(self):
+        for name in ('live_v11', 'retired_v10'):
+            (self.proc / 'maps').write_text('1000-2000 rw-s 00000000 00:01 999 /dev/shm/' + name + ' (deleted)\n')
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'still mapped'): self.check()
+
+    def test_deleted_fd_name_refuses_even_if_fd_stat_would_fail(self):
+        fd = self.proc / 'fd/3'; fd.write_bytes(b'not a real proc fd')
+        self.readlinks[str(fd)] = '/dev/shm/live_v11 (deleted)'
+        original_stat, stat_attempts = Path.stat, []
+        def missing(path, *args, **kwargs):
+            if path == fd:
+                stat_attempts.append(path)
+                raise FileNotFoundError('private fd stat would fail')
+            return original_stat(path, *args, **kwargs)
+        with mock.patch.object(Path, 'stat', missing):
+            with self.assertRaisesRegex(ValueError, 'still open'): self.check()
+        self.assertEqual(stat_attempts, [], 'protected deleted name must reject before a disappearing fd stat')
+
+    def test_alias_mapping_is_rejected_by_actual_identity(self):
+        p = self.target(); s = p.stat()
+        (self.proc / 'maps').write_text('1000-2000 rw-s 00000000 %x:%x %d /alias/not-the-shm-name\n' %
+                                      (self.ns['os'].major(s.st_dev), self.ns['os'].minor(s.st_dev), s.st_ino))
+        with self.assertRaisesRegex(ValueError, 'still mapped'): self.check()
+        (self.proc / 'maps').write_text('')
+        fd = self.proc / 'fd/3'; fd.write_bytes(b'private descriptor substitute')
+        self.readlinks[str(fd)] = '/alias/not-the-shm-name'
+        original_stat = Path.stat
+        with mock.patch.object(Path, 'stat', lambda path, *a, **kw: s if path == fd else original_stat(path, *a, **kw)):
+            with self.assertRaisesRegex(ValueError, 'still open'): self.check()
+
+    def test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder(self):
+        old = self.baseline['segments'][0]
+        (self.proc / 'maps').write_text('1000-2000 rw-s 00000000 %x:%x %d /unrelated/new-boot-object\n' %
+                                      (self.ns['os'].major(old['dev']), self.ns['os'].minor(old['dev']), old['ino']))
+        before = self.snapshot(); self.check(); self.assertEqual(self.snapshot(), before)
+
+    def test_permission_unknown_visibility_and_malformed_maps_fail_closed(self):
+        original_lstat = Path.lstat
+        def denied_name(path, *args, **kwargs):
+            if path == self.shm / 'live_v11': raise PermissionError('unknown role presence')
+            return original_lstat(path, *args, **kwargs)
+        with mock.patch.object(Path, 'lstat', denied_name):
+            with self.assertRaises(PermissionError): self.check()
+        original_open = Path.open
+        def denied(path, *args, **kwargs):
+            if path == self.proc / 'maps': raise PermissionError('unknown maps permission')
+            return original_open(path, *args, **kwargs)
+        with mock.patch.object(Path, 'open', denied):
+            with self.assertRaises(PermissionError): self.check()
+        (self.proc / 'maps').unlink()
+        with self.assertRaisesRegex(ValueError, 'visibility unknown'): self.check()
+        (self.proc / 'maps').write_text('unparseable\n')
+        with self.assertRaisesRegex(ValueError, 'unparseable'): self.check()
+        (self.proc / 'maps').write_text('')
+        fd = self.proc / 'fd/3'; fd.write_bytes(b'private descriptor substitute')
+        with mock.patch.object(self.ns['os'], 'readlink', side_effect=PermissionError('unknown fd permission')):
+            with self.assertRaises(PermissionError): self.check()
+        fd.unlink(); (self.proc / 'fd').rmdir()
+        with self.assertRaisesRegex(ValueError, 'visibility unknown'): self.check()
+
+    def test_lock_and_approval_required_and_completed_role_cannot_vanish(self):
+        self.locked = False
+        with self.assertRaisesRegex(ValueError, 'lock ownership'): self.check()
+        self.locked = True; self.baseline['segments'][0]['name'] = 'unapproved'
+        with self.assertRaisesRegex(ValueError, 'unapproved role'): self.check()
+        self.baseline = json.loads(json.dumps(self.approved)); p = self.target(); p.unlink()
+        with self.assertRaisesRegex(ValueError, 'completed native boot target vanished'): self.check(creating=False)
 
 
 class FixtureShowContractTest(unittest.TestCase):

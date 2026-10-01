@@ -1,0 +1,16 @@
+test_alias_mapping_is_rejected_by_actual_identity (__main__.BootQuiescenceTest.test_alias_mapping_is_rejected_by_actual_identity) ... ok
+test_approved_missing_new_boot_roles_scan_without_mutation (__main__.BootQuiescenceTest.test_approved_missing_new_boot_roles_scan_without_mutation) ... ok
+test_deleted_fd_name_refuses_even_if_fd_stat_would_fail (__main__.BootQuiescenceTest.test_deleted_fd_name_refuses_even_if_fd_stat_would_fail) ... ok
+test_deleted_target_and_retired_name_mappings_refuse_when_paths_absent (__main__.BootQuiescenceTest.test_deleted_target_and_retired_name_mappings_refuse_when_paths_absent) ... ok
+test_existing_symlink_hardlink_and_wrong_mode_fail_closed (__main__.BootQuiescenceTest.test_existing_symlink_hardlink_and_wrong_mode_fail_closed) ... ok
+test_lock_and_approval_required_and_completed_role_cannot_vanish (__main__.BootQuiescenceTest.test_lock_and_approval_required_and_completed_role_cannot_vanish) ... ok
+test_owned_progress_and_complete_roles_validate_identity_and_abi (__main__.BootQuiescenceTest.test_owned_progress_and_complete_roles_validate_identity_and_abi) ... ok
+test_permission_unknown_visibility_and_malformed_maps_fail_closed (__main__.BootQuiescenceTest.test_permission_unknown_visibility_and_malformed_maps_fail_closed) ... ok
+test_same_boot_and_legacy_missing_roles_remain_strict (__main__.BootQuiescenceTest.test_same_boot_and_legacy_missing_roles_remain_strict) ... ok
+test_unowned_target_and_recreated_retired_source_refuse (__main__.BootQuiescenceTest.test_unowned_target_and_recreated_retired_source_refuse) ... ok
+test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder (__main__.BootQuiescenceTest.test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.392s
+
+OK

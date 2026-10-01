@@ -332,18 +332,32 @@ class NativeBootTest(unittest.TestCase):
                     child.setUp()
                     f = child.f
                     original_run, original_save = child.external, f.m.save
+                    injected, dispatched = [], []
                     def run(command, **kwargs):
                         result = original_run(command, **kwargs)
                         if command[0] == '/usr/bin/systemd-run':
-                            if window == 'timeout': raise subprocess.TimeoutExpired(command, 15)
-                            if window == 'nonzero': return subprocess.CompletedProcess(command, 1, b'', b'unknown result')
+                            dispatched.append(command)
+                            if window == 'timeout':
+                                injected.append(window)
+                                raise subprocess.TimeoutExpired(command, 15)
+                            if window == 'nonzero':
+                                injected.append(window)
+                                return subprocess.CompletedProcess(command, 1, b'', b'unknown result')
                         return result
                     def save(path, value):
                         if window == 'accepted-before-save' and value.get('phase') == 'DISPATCHED':
+                            injected.append(window)
                             raise OSError('injected accepted-before-save')
                         return original_save(path, value)
                     with mock.patch.object(f.m.subprocess, 'run', run), mock.patch.object(f.m, 'save', save):
-                        with self.assertRaises((OSError, ValueError, subprocess.TimeoutExpired)): child.boot()
+                        if window == 'timeout':
+                            with self.assertRaises(subprocess.TimeoutExpired): child.boot()
+                        elif window == 'nonzero':
+                            with self.assertRaisesRegex(ValueError, 'boot continuation dispatch uncertain/failed'): child.boot()
+                        else:
+                            with self.assertRaisesRegex(OSError, 'injected accepted-before-save'): child.boot()
+                    self.assertEqual(injected, [window], 'must hit the requested injection, not an earlier guard')
+                    self.assertEqual(len(dispatched), 1)
                     work_path = f.m.production_boot_work(f.runtime)
                     work_bytes = work_path.read_bytes()
                     work = f.g.production_json(work_path)

@@ -63,6 +63,8 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.write(mapped('/proc/sys/kernel/random/boot_id'), 'LOCAL_BOOT\n')
         self.write(mapped('/proc/meminfo'), 'MemAvailable: 2097152 kB\n')
         self.write(mapped('/proc') / str(os.getpid()) / 'stat', Path('/proc') .joinpath(str(os.getpid()), 'stat').read_bytes())
+        self.write(mapped('/proc') / str(os.getpid()) / 'maps', b'')
+        (mapped('/proc') / str(os.getpid()) / 'fd').mkdir(mode=0o700)
         self.write(mapped('/run/gateway-offline-runtime.lock'), b'', 0o600)
         self.write(mapped('/etc/modbus-gateway/ota.pub'), 'PRIVATE FIXTURE PUBLIC KEY PLACEHOLDER\n')
         self.write(self.home / 'config/runtime/device_identity.json', '{"machineCode":"FLEET_NODE_NOT_CORE"}\n')
@@ -159,6 +161,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.write(proc / 'maps', '1000-2000 rw-s 00000000 %02x:%02x %d /dev/shm/live_v11\n' %
                    (os.major(s.st_dev), os.minor(s.st_dev), s.st_ino))
         self.write(proc / 'stat', self.pid + ' (private-fixture) ' + ' '.join(['0'] * 19 + ['12345']))
+        (proc / 'fd').mkdir(mode=0o700, exist_ok=True)
 
     def property(self, unit, prop):
         if prop == 'ActiveState': return 'active' if unit in self.live else 'inactive'

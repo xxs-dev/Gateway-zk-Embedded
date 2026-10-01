@@ -1,0 +1,147 @@
+{
+  "format": "nativeboot-A3-local-checkpoint-v1",
+  "date": "2026-10-02",
+  "parentCommit": "58cf3de8472be1c99694f51d28653db7b9a64783",
+  "scope": "LOCAL_ONLY: approved-role new-boot quiescence repair and fixed A3 preparation; execution not authorized.",
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "bytes": 201410,
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35"
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "bytes": 45388,
+      "sha256": "7a59e5941c0468cef6ca0e99be54fe5e7a06fbf57728d2d72a5bce7a3017c185"
+    },
+    {
+      "path": "tools/production_boot_publication_test.py",
+      "bytes": 36269,
+      "sha256": "fa7c76d4d9bd2fbf81da8afb44d1a7c56cc0e44521de465b8faa9f3fb221a804"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "bytes": 26415,
+      "sha256": "e609dacfc379443f41c97b0daf8a407a62e8fa15d6c5e54272f275163e7f8cf5"
+    },
+    {
+      "path": "tools/production_boot_health_publication_test.py",
+      "bytes": 9336,
+      "sha256": "783598b80073769058cd25a08646b2d72852c84ed5abbfa67b1406d67eb9ec73"
+    },
+    {
+      "path": "deploy/gateway-services.sh",
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    {
+      "path": "deploy/ota-rollback.sh",
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    {
+      "path": "deploy/gateway-ota-recover.service",
+      "bytes": 845,
+      "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+    },
+    {
+      "path": "tools/fixtures/production-historical-r2-allowlists.json",
+      "bytes": 949,
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    }
+  ],
+  "fixtureInputBytes": 501298,
+  "cases": [
+    "production_native_boot_test.NativeBootTest.test_cleared_run_real_entry_creates_locked_boot_proof_before_readers",
+    "production_native_boot_test.NativeBootTest.test_interrupted_creator_reenters_original_intent_and_inode",
+    "production_native_boot_test.NativeBootTest.test_wrong_interrupted_header_is_not_truncated_or_replaced",
+    "production_native_boot_test.NativeBootTest.test_original_job_newboot_pending",
+    "production_native_boot_test.NativeBootTest.test_original_job_newboot_promoted",
+    "production_native_boot_test.NativeBootTest.test_original_job_newboot_rollback",
+    "production_native_boot_test.NativeBootTest.test_original_job_newboot_preintent",
+    "production_native_boot_test.NativeBootTest.test_postgate_worker_refuses_while_recovery_oneshot_activating",
+    "production_native_boot_test.NativeBootTest.test_reader_start_can_require_gate_without_deadlock_or_worker_replay",
+    "production_native_boot_test.NativeBootTest.test_failed_newboot_health_refences_and_official_worker_can_recover",
+    "production_native_boot_test.NativeBootTest.test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt",
+    "production_native_boot_test.NativeBootTest.test_no_handoff_runtime_newboot_promoted",
+    "production_native_boot_test.NativeBootTest.test_no_handoff_runtime_newboot_adoption_rollback",
+    "production_native_boot_test.NativeBootTest.test_uncertain_dispatch_original_finish_recovers_without_gate_resend",
+    "production_native_boot_test.NativeBootTest.test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call",
+    "production_native_boot_test.NativeBootTest.test_retired_recreated_or_unowned_target_refuses",
+    "production_native_boot_test.NativeBootTest.test_invalid_stats_never_publishes_ready_or_admits_reader",
+    "production_native_boot_test.NativeBootTest.test_not_tmpfs_or_held_lock_refuses_before_native_call",
+    "production_boot_publication_test.BootQuiescenceTest.test_approved_missing_new_boot_roles_scan_without_mutation",
+    "production_boot_publication_test.BootQuiescenceTest.test_same_boot_and_legacy_missing_roles_remain_strict",
+    "production_boot_publication_test.BootQuiescenceTest.test_unowned_target_and_recreated_retired_source_refuse",
+    "production_boot_publication_test.BootQuiescenceTest.test_owned_progress_and_complete_roles_validate_identity_and_abi",
+    "production_boot_publication_test.BootQuiescenceTest.test_existing_symlink_hardlink_and_wrong_mode_fail_closed",
+    "production_boot_publication_test.BootQuiescenceTest.test_deleted_target_and_retired_name_mappings_refuse_when_paths_absent",
+    "production_boot_publication_test.BootQuiescenceTest.test_deleted_fd_name_refuses_even_if_fd_stat_would_fail",
+    "production_boot_publication_test.BootQuiescenceTest.test_alias_mapping_is_rejected_by_actual_identity",
+    "production_boot_publication_test.BootQuiescenceTest.test_unrelated_new_object_reusing_historical_tuple_is_not_a_holder",
+    "production_boot_publication_test.BootQuiescenceTest.test_permission_unknown_visibility_and_malformed_maps_fail_closed",
+    "production_boot_publication_test.BootQuiescenceTest.test_lock_and_approval_required_and_completed_role_cannot_vanish",
+    "production_boot_publication_test.BootLockTest.test_same_boot_entry_missing_lock_succeeds_without_service_or_shm_mutation",
+    "production_runtime_baseline_test.ProductionRuntimeTest.test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending"
+  ],
+  "selection": {
+    "total": 31,
+    "A2NotPassed": 18,
+    "newQuiescence": 11,
+    "affectedSameBoot": 2,
+    "reason": "Only A2 failed unique selectors, new quiescence coverage, and two stop/shared-proc-fixture affected same-boot regressions. Excludes A2 fsync/show/dispatcher successes and unrelated A1 passes. The uncertain-dispatch selector has three subwindows, counted once."
+  },
+  "changedPaths": [
+    "deploy/offline-runtime-upgrade.py",
+    "tools/production_runtime_baseline_test.py",
+    "tools/production_boot_publication_test.py",
+    "tools/production_native_boot_test.py"
+  ],
+  "preserved": {
+    "A2ReceiptSha256": "25d055c1adf9ea50df945767b973909112cd623a8c780793f6fbba9683e79c7f",
+    "A2LogSha256": "ca8935d6b1edbb90d022733ebbadd0e5026b944893b8a8552e973c3d9cc0d39c",
+    "A1A2Unmodified": true
+  },
+  "localValidation": {
+    "command": "python -B tools/production_boot_publication_test.py BootQuiescenceTest -v",
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exitCode": 0,
+    "seconds": 0.392,
+    "boundary": "Windows actual helper/legacy methods AST with private paths. Schema/lock/ABI and POSIX mode/device/proc-link interfaces substituted; not Linux/native/systemd.",
+    "firstNewHarnessRun": "6 PASS/5 ERROR: Windows os.major/minor substitute and AST __file__ provenance absent. Preserved as harness setup failures, not product red.",
+    "python38GrammarExitCode": 0,
+    "diffCheckExitCode": 0,
+    "unchangedLegacyAST": [
+      "no_mappings",
+      "read_inputs",
+      "apply",
+      "recover",
+      "activate"
+    ]
+  },
+  "wsl": {
+    "sessionId": 47230,
+    "result": "unknown; not queried/restarted/duplicated this stage"
+  },
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "open": [
+    "31 selected Linux/Python3.8 private fixture cases at these pins not executed.",
+    "Official original-job/runtime new-boot finish remains unverified after A2 failure.",
+    "Actual pointctl ABI11/robust mutex, real systemd ordering and OS reboot unverified.",
+    "Real signed HTTPS OTA, full configured business qualification, new business ELF build and D1 factory pairing remain separate OPEN targets."
+  ]
+}

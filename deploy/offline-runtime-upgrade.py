@@ -746,6 +746,106 @@ def no_mappings(names, include_fds=False):
             continue
 
 
+def production_no_mappings(home, baseline, creating=False):
+    """Only a proved new boot admits absent approved roles; legacy scan is unchanged."""
+    guard.production_schema(baseline, home)
+    names = [s['name'] for s in baseline['segments']] + list(baseline['retiredSources'])
+    boot = regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip()
+    if boot == baseline['bootId']:
+        no_mappings(names, include_fds=True)
+        return
+    require(re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot) and
+            production_locked_owner({'ownerProof': production_owner_proof()}),
+            'new-boot quiescence requires positive offline lock ownership')
+    shm = Path('/dev/shm')
+    require(shm.is_dir() and not shm.is_symlink() and shm.resolve() == shm and shm.stat().st_uid == 0,
+            'new-boot SHM directory is not trusted')
+    shm_identity = (shm.stat().st_dev, shm.stat().st_ino)
+    progress = None
+    if creating:
+        path = home / 'data' / guard.PRODUCTION_DIR / 'boots' / (boot + '-intent.json')
+        record = guard.production_boot_record(home, baseline, path, intent=True) if path.exists() or path.is_symlink() else None
+        rows = record['segments'] if record else []
+        progress = record['inProgress'] if record else None
+    else:
+        rows = guard.production_segment_identities(home, baseline)
+    owned = {s['name']: (s['dev'], s['ino']) for s in rows}
+    # Historical inode tuples are not cross-boot identities. Only this boot's
+    # validated intent/proof and current objects can identify aliases; names
+    # (including deleted names) still protect every approved/retired role.
+    identities = {(os.major(s['dev']), os.minor(s['dev']), s['ino']) for s in rows}
+    observed = {}
+    def present(path):
+        try:
+            path.lstat()
+            return True
+        except (FileNotFoundError, ProcessLookupError):
+            return False
+    for name in names:
+        path = shm / name
+        if not present(path):
+            require(name not in owned, 'completed native boot target vanished: ' + name)
+            observed[name] = None
+            continue
+        require(name not in baseline['retiredSources'], 'retired source recreated on new boot: ' + name)
+        value = regular(path).stat()
+        require(value.st_uid == 0 and stat.S_IMODE(value.st_mode) == 0o600 and value.st_dev == shm.stat().st_dev,
+                'new-boot target ownership/type drift: ' + name)
+        require(name in owned or name == progress, 'unowned native boot target: ' + name)
+        if name in owned:
+            require((value.st_dev, value.st_ino) == owned[name], 'new-boot target identity drift: ' + name)
+            guard.point_store_abi(path, 11)
+        else:
+            with path.open('rb') as stream: header = stream.read(8)
+            require(value.st_size == 0 or value.st_size == guard.POINT_STORE_SIZES[11] and
+                    header in (b'\0' * 8, struct.pack('<II', 0x4d505354, 11)),
+                    'interrupted native target ABI/header changed')
+        observed[name] = (value.st_dev, value.st_ino)
+        identities.add((os.major(value.st_dev), os.minor(value.st_dev), value.st_ino))
+    paths = {'/dev/shm/' + name for name in names} | {str(shm / name) for name in names}
+    def held(identity, link):
+        name = link[:-10] if link.endswith(' (deleted)') else link
+        return identity in identities or name in paths
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            with (entry / 'maps').open() as stream:
+                for line in stream:
+                    fields = line.split(maxsplit=5)
+                    require(len(fields) in (5, 6), 'unparseable new-boot process maps')
+                    device = fields[3].split(':')
+                    require(len(device) == 2, 'unparseable new-boot mapping device')
+                    identity = (int(device[0], 16), int(device[1], 16), int(fields[4]))
+                    require(not held(identity, fields[5].strip() if len(fields) == 6 else ''),
+                            'new-boot SHM still mapped by pid ' + entry.name)
+            for fd in (entry / 'fd').iterdir():
+                try:
+                    link = os.readlink(str(fd))
+                    require(not held(None, link), 'new-boot SHM still open by pid ' + entry.name)
+                    value = fd.stat()
+                    require(not held((os.major(value.st_dev), os.minor(value.st_dev), value.st_ino), link),
+                            'new-boot SHM still open by pid ' + entry.name)
+                except (FileNotFoundError, ProcessLookupError):
+                    require(not present(fd), 'new-boot FD visibility unknown: ' + str(fd))
+        except (FileNotFoundError, ProcessLookupError):
+            require(not present(entry), 'new-boot process visibility unknown: ' + entry.name)
+    # Scan-by-name covers absent/deleted objects; scan-by-identity covers aliases.
+    # Admission never unlinks, recreates or silently skips an unknown namespace.
+    require(not shm.is_symlink() and (shm.stat().st_dev, shm.stat().st_ino) == shm_identity,
+            'new-boot SHM directory replaced during quiescence')
+    for name, before in observed.items():
+        path = shm / name
+        if before is None:
+            require(not present(path), 'new-boot SHM appeared during quiescence')
+        else:
+            value = regular(path).stat()
+            require((value.st_dev, value.st_ino) == before and value.st_uid == 0 and
+                    stat.S_IMODE(value.st_mode) == 0o600, 'new-boot SHM replaced during quiescence')
+            if name in owned:
+                guard.point_store_abi(path, 11)
+
+
 def read_inputs(args):
     approval = checked_json(args.approval, args.approval_sha256)
     core_apply_policy(approval)
@@ -1964,7 +2064,7 @@ class ProductionRuntime:
         require(0 < len(names) <= 128, 'native boot role count exceeds bound')
         units_stopped([u for u in baseline['units'] if not u.endswith('@.service')])
         no_processes(self.home, [])
-        no_mappings(names + list(baseline['retiredSources']), include_fds=True)
+        production_no_mappings(self.home, baseline, creating=True)
         shm = Path('/dev/shm')
         require(shm.is_dir() and not shm.is_symlink() and shm.resolve() == shm and shm.stat().st_uid == 0,
                 'native boot tmpfs directory is not trusted')
@@ -2066,7 +2166,7 @@ class ProductionRuntime:
             value = inspect(name, completed=True)
             require(before is None or (before.st_dev, before.st_ino) == (value.st_dev, value.st_ino),
                     'native target replaced during constructor')
-            no_mappings(names + list(baseline['retiredSources']), include_fds=True)
+            production_no_mappings(self.home, baseline, creating=True)
             intent['segments'].append(dict(name=name, dev=value.st_dev, ino=value.st_ino))
             intent.update(inProgress=None)
             save(intent_path, intent)
@@ -2217,7 +2317,7 @@ class ProductionRuntime:
         require(all(r['stopOk'] and r['activeState'] in ('inactive', 'failed') and r['mainPid'] == '0' for r in rows),
                 'production participant stop unconfirmed')
         no_processes(self.home, [])
-        no_mappings([s['name'] for s in baseline['segments']] + list(baseline['retiredSources']), include_fds=True)
+        production_no_mappings(self.home, baseline)
 
     def backup(self, transaction, approval):
         previous = approval['previous']
@@ -2744,7 +2844,7 @@ def production_boot_repair_gates(runtime, baseline):
     if changed:
         units_stopped([u for u in baseline['units'] if not u.endswith('@.service')])
         no_processes(runtime.home, [])
-        no_mappings([s['name'] for s in baseline['segments']] + list(baseline['retiredSources']), include_fds=True)
+        production_no_mappings(runtime.home, baseline)
         runtime.convert_gates(None, baseline)
 
 
