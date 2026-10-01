@@ -1,0 +1,221 @@
+{
+  "format": "nativeboot-23-A2-execution-summary-v1",
+  "date": "2026-10-02",
+  "sourceCommit": "fe5ffea6d10da67c4e3222cb912feb466794b881",
+  "runnerCommit": "8adb0577fadc68982a988c3f8591f9aac8cf0110",
+  "scopePath": "nativeboot-23-A2-execution-scope.md",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+  "root": "/tmp/gw-nativeboot-fe5ffea-23-A2",
+  "command": "python -B evidence/20261002-nativeboot-A2/execute-board-fixture.py --execute-approved",
+  "localExitCode": 1,
+  "remoteExitCode": 1,
+  "fixtureExitCode": 1,
+  "elapsedSeconds": 49.11286607407965,
+  "testSummary": {
+    "tests": 27,
+    "failures": 4,
+    "errors": 16,
+    "skipped": 0
+  },
+  "passedSelectors": [
+    "production_boot_publication_test.IndexPublicationTest.test_unfinished_file_fsync",
+    "production_boot_publication_test.IndexPublicationTest.test_retired_file_fsync",
+    "production_boot_publication_test.BootLockTest.test_same_boot_entry_missing_lock_succeeds_without_service_or_shm_mutation",
+    "production_boot_publication_test.FixtureShowContractTest.test_scalar_show_value_tracks_actual_fixture_unit_state",
+    "production_boot_publication_test.FixtureShowContractTest.test_batch_show_preserves_fields_and_unknown_grammar_refuses",
+    "production_boot_health_publication_test.BootDispatchPublicationTest.test_timeout_keeps_intent_without_gate_resend",
+    "production_boot_health_publication_test.BootDispatchPublicationTest.test_nonzero_keeps_intent_without_gate_resend",
+    "production_boot_health_publication_test.BootDispatchPublicationTest.test_accepted_then_save_failure_keeps_intent_without_gate_resend",
+    "production_runtime_baseline_test.ProductionRuntimeTest.test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending"
+  ],
+  "passedUniqueSelectors": 9,
+  "notPassedUniqueSelectors": 18,
+  "unittestFailureErrorEntries": 20,
+  "countNote": "16 errors include 3 subwindow errors in one selector; do not subtract 4+16 from 27 to calculate passing selectors.",
+  "receiptSha256": "25d055c1adf9ea50df945767b973909112cd623a8c780793f6fbba9683e79c7f",
+  "receiptBytes": 284219,
+  "fixtureLogSha256": "ca8935d6b1edbb90d022733ebbadd0e5026b944893b8a8552e973c3d9cc0d39c",
+  "fixtureLogBytes": 64113,
+  "verifiedInputs": 11,
+  "postInputHashesMatched": 11,
+  "baselineGroupsUnchanged": 16,
+  "baselineSamplesVerified": 4,
+  "baselineChanges": [],
+  "finalBaselineChanges": [],
+  "readers": [
+    {
+      "unit": "modbus-rtu@device_modbusRTU_2_readonly.service",
+      "properties": {
+        "MainPID": "475164",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+      "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0"
+    },
+    {
+      "unit": "mqtt-driver@mqtt-service.service",
+      "properties": {
+        "MainPID": "475219",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/MqttDriver",
+      "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6"
+    },
+    {
+      "unit": "system-monitor@monitor-service.service",
+      "properties": {
+        "MainPID": "475276",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+      "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1"
+    }
+  ],
+  "fixtureProcessGroup": 522067,
+  "remainingFixtureProcesses": [],
+  "workRemoved": false,
+  "workRetainedForFailure": true,
+  "finalBaselineIsAfterCleanupRemoval": false,
+  "sshClosed": true,
+  "realLifecycleCalled": false,
+  "timedOut": false,
+  "remoteRetry": false,
+  "otherTargetsExecuted": false,
+  "rootAndEvidenceRetained": true,
+  "failureCategories": {
+    "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file": 13,
+    "uncertain-dispatch subwindow never creates continuation; later resume read fails": 3,
+    "expected negative branch blocked by earlier absent SHM regular-file refusal": 4
+  },
+  "failedEntries": [
+    {
+      "kind": "ERROR",
+      "case": "test_cleared_run_real_entry_creates_locked_boot_proof_before_readers (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_cleared_run_real_entry_creates_locked_boot_proof_before_readers",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_interrupted_creator_reenters_original_intent_and_inode (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_interrupted_creator_reenters_original_intent_and_inode",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_wrong_interrupted_header_is_not_truncated_or_replaced (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_wrong_interrupted_header_is_not_truncated_or_replaced",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_pending (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_original_job_newboot_pending",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_promoted (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_original_job_newboot_promoted",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_rollback (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_original_job_newboot_rollback",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_preintent (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_original_job_newboot_preintent",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_postgate_worker_refuses_while_recovery_oneshot_activating (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_postgate_worker_refuses_while_recovery_oneshot_activating",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_reader_start_can_require_gate_without_deadlock_or_worker_replay (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_reader_start_can_require_gate_without_deadlock_or_worker_replay",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_failed_newboot_health_refences_and_official_worker_can_recover (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_failed_newboot_health_refences_and_official_worker_can_recover",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_no_handoff_runtime_newboot_promoted (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_no_handoff_runtime_newboot_promoted",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_no_handoff_runtime_newboot_adoption_rollback (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_no_handoff_runtime_newboot_adoption_rollback",
+      "initialCategory": "prepare_boot/no_mappings requires missing cleared private SHM to be a regular file"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_uncertain_dispatch_original_finish_recovers_without_gate_resend (production_native_boot_test.NativeBootTest) (window='timeout')",
+      "selector": "production_native_boot_test.NativeBootTest.test_uncertain_dispatch_original_finish_recovers_without_gate_resend",
+      "initialCategory": "uncertain-dispatch subwindow never creates continuation; later resume read fails"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_uncertain_dispatch_original_finish_recovers_without_gate_resend (production_native_boot_test.NativeBootTest) (window='nonzero')",
+      "selector": "production_native_boot_test.NativeBootTest.test_uncertain_dispatch_original_finish_recovers_without_gate_resend",
+      "initialCategory": "uncertain-dispatch subwindow never creates continuation; later resume read fails"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_uncertain_dispatch_original_finish_recovers_without_gate_resend (production_native_boot_test.NativeBootTest) (window='accepted-before-save')",
+      "selector": "production_native_boot_test.NativeBootTest.test_uncertain_dispatch_original_finish_recovers_without_gate_resend",
+      "initialCategory": "uncertain-dispatch subwindow never creates continuation; later resume read fails"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call",
+      "initialCategory": "expected negative branch blocked by earlier absent SHM regular-file refusal"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_retired_recreated_or_unowned_target_refuses (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_retired_recreated_or_unowned_target_refuses",
+      "initialCategory": "expected negative branch blocked by earlier absent SHM regular-file refusal"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_invalid_stats_never_publishes_ready_or_admits_reader (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_invalid_stats_never_publishes_ready_or_admits_reader",
+      "initialCategory": "expected negative branch blocked by earlier absent SHM regular-file refusal"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_not_tmpfs_or_held_lock_refuses_before_native_call (production_native_boot_test.NativeBootTest)",
+      "selector": "production_native_boot_test.NativeBootTest.test_not_tmpfs_or_held_lock_refuses_before_native_call",
+      "initialCategory": "expected negative branch blocked by earlier absent SHM regular-file refusal"
+    }
+  ],
+  "boundary": "Linux Python3.8/AArch64 private fixture with substituted constructor/systemd/proc/network. Official new-boot finish did not complete. Not business deployment/native ABI mutex/reboot/signed OTA; no code change or repair execution after failure."
+}
