@@ -1,0 +1,8 @@
+test_accepted_then_save_failure_keeps_intent_without_gate_resend (__main__.BootDispatchPublicationTest.test_accepted_then_save_failure_keeps_intent_without_gate_resend) ... ok
+test_nonzero_keeps_intent_without_gate_resend (__main__.BootDispatchPublicationTest.test_nonzero_keeps_intent_without_gate_resend) ... ok
+test_timeout_keeps_intent_without_gate_resend (__main__.BootDispatchPublicationTest.test_timeout_keeps_intent_without_gate_resend) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.114s
+
+OK

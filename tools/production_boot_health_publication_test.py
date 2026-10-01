@@ -3,6 +3,7 @@ import ast
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import types
 import unittest
@@ -89,6 +90,53 @@ class BootHealthPublicationTest(unittest.TestCase):
             self.assertEqual(first[0].read_bytes(), first_bytes)
             self.assertNotEqual(latest['healthRecord'], first[0].name)
             self.assertTrue(running[0])
+
+
+class BootDispatchPublicationTest(unittest.TestCase):
+    """Real dispatcher/private phase bytes; manager/trust/authority are substitutes."""
+    def interrupted(self, window):
+        tree = ast.parse(SOURCE.read_bytes())
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'production_boot_dispatch')
+        with tempfile.TemporaryDirectory(prefix='production-dispatch-') as directory:
+            root = Path(directory)
+            path = root / 'resume.json'
+            original = dict(phase='PREPARED', transaction='ORIGINAL_TX', approvalSha256='a' * 64,
+                            entryPath=str(root / 'entry'))
+            path.write_text(json.dumps(original))
+            calls = []
+            def require(condition, message):
+                if not condition: raise ValueError(message)
+            def publish(runtime, authority):
+                self.assertEqual(authority, {'transaction': 'ORIGINAL_TX', 'approvalSha256': 'a' * 64})
+                return path, json.loads(path.read_bytes())
+            def save(destination, value):
+                if window == 'accepted-before-save' and value['phase'] == 'DISPATCHED':
+                    raise OSError('injected accepted-before-save')
+                temporary = destination.with_name('owned-temporary.json')
+                temporary.write_text(json.dumps(value))
+                temporary.replace(destination)
+            def run(command, **kwargs):
+                self.assertEqual(json.loads(path.read_bytes())['phase'], 'DISPATCH_INTENT', 'durable intent precedes side effect')
+                calls.append(command)
+                if window == 'timeout': raise subprocess.TimeoutExpired(command, 15)
+                return subprocess.CompletedProcess(command, 1 if window == 'nonzero' else 0, b'', b'')
+            ns = dict(hashlib=hashlib, Path=Path, subprocess=types.SimpleNamespace(run=run, PIPE=subprocess.PIPE),
+                      require=require, regular=lambda p: p, production_boot_publish=publish, save=save)
+            exec(compile(ast.Module(body=[function], type_ignores=[]), str(SOURCE), 'exec'), ns)
+            runtime = types.SimpleNamespace(home=root)
+            authority = {'transaction': 'ORIGINAL_TX', 'approvalSha256': 'a' * 64}
+            with self.assertRaises((subprocess.TimeoutExpired, ValueError, OSError)):
+                ns['production_boot_dispatch'](runtime, authority)
+            pending = path.read_bytes()
+            self.assertEqual(json.loads(pending)['phase'], 'DISPATCH_INTENT')
+            self.assertEqual(json.loads(pending)['approvalSha256'], original['approvalSha256'])
+            ns['production_boot_dispatch'](runtime, authority)
+            self.assertEqual(len(calls), 1, 'unknown delivery must never trigger automatic resend')
+            self.assertEqual(path.read_bytes(), pending, 'gate reentry retains original intent without claiming completion')
+
+    def test_timeout_keeps_intent_without_gate_resend(self): self.interrupted('timeout')
+    def test_nonzero_keeps_intent_without_gate_resend(self): self.interrupted('nonzero')
+    def test_accepted_then_save_failure_keeps_intent_without_gate_resend(self): self.interrupted('accepted-before-save')
 
 
 if __name__ == '__main__':

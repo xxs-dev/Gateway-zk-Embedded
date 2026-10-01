@@ -6,6 +6,7 @@ pointctl ELF, robust mutex initialization, target hardware or OS/systemd reboot.
 import os
 import contextlib
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import struct
@@ -48,10 +49,17 @@ class NativeBootTest(unittest.TestCase):
         self.owner = None
         if self._testMethodName.startswith('test_original_job_'):
             self.make_interrupted_job(self._testMethodName.rsplit('_', 1)[1])
-        self.baseline = f.previous if adoption_rollback else f.g.production_context(f.home)
-        if adoption_rollback:
+        if self._testMethodName == 'test_original_job_newboot_pending':
+            record = self.owner.read()
+            self.source = f.runtime.root / 'transactions' / record['productionTransaction'] / 'previous.json'
+            self.baseline = f.g.production_json(self.source)
+            with self.assertRaisesRegex(ValueError, 'unresolved production install'):
+                f.g.production_context(f.home)
+        elif adoption_rollback:
+            self.baseline = f.previous
             self.source = self.adopted[0] / 'previous.json'
         else:
+            self.baseline = f.g.production_context(f.home)
             pointer = f.g.production_json(f.runtime.root / 'current.json')
             self.source = f.runtime.root / 'baselines' / (pointer['baselineId'] + '.json')
         self.source_bytes = self.source.read_bytes()
@@ -62,11 +70,13 @@ class NativeBootTest(unittest.TestCase):
         f.write(f.path('/proc/sys/kernel/random/boot_id'), 'NATIVE_BOOT_2\n')
         f.write(f.path('/proc/self/mountinfo'), '1 0 0:1 / /dev/shm rw - tmpfs shm rw\n')
         self.native_calls = []
+        self.prepare_calls = []
         self.failure = None
         self.patch = mock.patch.object(f.m.subprocess, 'run', self.external)
         self.patch.start(); self.addCleanup(self.patch.stop)
         self.original_prepare = f.m.ProductionRuntime.prepare_boot
         def prepare(runtime, *args, **kwargs):
+            self.prepare_calls.append(args)
             f.write(f.path('/proc/locks'), Path('/proc/locks').read_bytes())
             return self.original_prepare(runtime, *args, **kwargs)
         self.prepare_patch = mock.patch.object(f.m.ProductionRuntime, 'prepare_boot', prepare)
@@ -254,6 +264,7 @@ class NativeBootTest(unittest.TestCase):
         self.assertFalse(f.live, 'recovery oneshot must never wait for its own After readers')
         self.assertEqual(owner.read()['phase'], 'OWNER_INSTALLING')
         work = f.g.production_json(f.m.production_boot_work(f.runtime))
+        self.assertTrue(self.prepare_calls, 'must reach the real native preparation function, not fail in setup')
         self.assertEqual(work['kind'], 'job')
         self.assertEqual(work['jobId'], owner.job)
         self.assertEqual(work['approvalSha256'], record['productionApprovalSha256'])
@@ -312,6 +323,58 @@ class NativeBootTest(unittest.TestCase):
 
     def test_no_handoff_runtime_newboot_promoted(self): self.no_handoff_runtime_newboot('COMPLETED')
     def test_no_handoff_runtime_newboot_adoption_rollback(self): self.no_handoff_runtime_newboot('RECOVERED')
+
+    def test_uncertain_dispatch_original_finish_recovers_without_gate_resend(self):
+        for window in ('timeout', 'nonzero', 'accepted-before-save'):
+            with self.subTest(window=window):
+                child = NativeBootTest('test_no_handoff_runtime_newboot_promoted')
+                try:
+                    child.setUp()
+                    f = child.f
+                    original_run, original_save = child.external, f.m.save
+                    def run(command, **kwargs):
+                        result = original_run(command, **kwargs)
+                        if command[0] == '/usr/bin/systemd-run':
+                            if window == 'timeout': raise subprocess.TimeoutExpired(command, 15)
+                            if window == 'nonzero': return subprocess.CompletedProcess(command, 1, b'', b'unknown result')
+                        return result
+                    def save(path, value):
+                        if window == 'accepted-before-save' and value.get('phase') == 'DISPATCHED':
+                            raise OSError('injected accepted-before-save')
+                        return original_save(path, value)
+                    with mock.patch.object(f.m.subprocess, 'run', run), mock.patch.object(f.m, 'save', save):
+                        with self.assertRaises((OSError, ValueError, subprocess.TimeoutExpired)): child.boot()
+                    work_path = f.m.production_boot_work(f.runtime)
+                    work_bytes = work_path.read_bytes()
+                    work = f.g.production_json(work_path)
+                    self.assertEqual(work['phase'], 'DISPATCH_INTENT')
+                    self.assertEqual(work['kind'], 'runtime')
+                    child.boot()
+                    self.assertEqual(work_path.read_bytes(), work_bytes)
+                    self.assertFalse(f.live)
+                    start_count = sum(c[0] == 'start' for c in f.calls)
+                    for field, bad in (('phase', 'UNAUTHORIZED'), ('approvalSha256', '0' * 64)):
+                        invalid = dict(work); invalid[field] = bad
+                        f.write(work_path, json.dumps(invalid), 0o600)
+                        with self.assertRaises(ValueError): child.finish()
+                        self.assertFalse(f.live)
+                        self.assertEqual(sum(c[0] == 'start' for c in f.calls), start_count)
+                    f.write(work_path, work_bytes, 0o600)
+                    child.finish()
+                    self.assertEqual(f.live, set(f.allowed))
+                    done = f.g.production_json(work_path)
+                    self.assertEqual((done['phase'], done['startAttempt'], done['healthAttempt']), ('FINISHED', 1, 1))
+                    self.assertEqual(done['approvalSha256'], work['approvalSha256'])
+                    proof = f.m.checked_json(work_path.parent / done['healthRecord'], done['healthSha256'])
+                    self.assertEqual((proof['transaction'], proof['startAttempt'], proof['health']['bootId']),
+                                     (work['transaction'], 1, work['bootId']))
+                    finished_bytes = work_path.read_bytes()
+                    child.finish()
+                    self.assertEqual(work_path.read_bytes(), finished_bytes, 'healthy official reentry must not add an attempt')
+                    child.boot()
+                    self.assertEqual(len([c for c in f.calls if c[0] == '/usr/bin/systemd-run']), 1)
+                finally:
+                    child.doCleanups()
 
     def test_postgate_worker_refuses_while_recovery_oneshot_activating(self):
         self.boot()

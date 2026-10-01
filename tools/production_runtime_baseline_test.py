@@ -184,7 +184,12 @@ class ProductionRuntimeTest(unittest.TestCase):
             if proc.exists(): shutil.rmtree(proc)
             return ''
         if args[0] == 'show':
-            return '\n\n'.join('Id=%s\nActiveState=inactive\nMainPID=0' % u for u in args[2:])
+            if len(args) == 4 and args[1:3] == ('--property=ActiveState', '--value') and args[3] in self.units:
+                return self.property(args[3], 'ActiveState')
+            if len(args) >= 3 and args[1] == '--property=Id,ActiveState,MainPID' and all(u in self.units for u in args[2:]):
+                return '\n\n'.join('Id=%s\nActiveState=%s\nMainPID=%s' %
+                        (u, self.property(u, 'ActiveState'), self.property(u, 'MainPID')) for u in args[2:])
+            raise AssertionError('unexpected fixture show grammar: ' + str(args))
         if args[0] == 'start':
             if self.fail_start: raise ValueError('injected start failure')
             self.live.add(args[1])
@@ -664,8 +669,16 @@ class ProductionRuntimeTest(unittest.TestCase):
                 spec.loader = NamespaceLoader()
             return spec
         self.calls.clear()
+        original_stage = self.m.production_boot_stage_entry
+        def stage(runtime, authority):
+            # Capture the actual kernel flock table while the official caller holds
+            # its mapped private lock; never fabricate a positive owner row.
+            self.write(self.path('/proc/locks'), Path('/proc/locks').read_bytes())
+            self.assertTrue(self.m.production_locked_owner({'ownerProof': self.m.production_owner_proof()}))
+            return original_stage(runtime, authority)
         with mock.patch.object(self.m.importlib.util, 'spec_from_file_location', local_spec):
-            self.m.production_boot(types.SimpleNamespace(home=self.home))
+            with mock.patch.object(self.m, 'production_boot_stage_entry', stage):
+                self.m.production_boot(types.SimpleNamespace(home=self.home))
             self.assertEqual(owner.read()['phase'], 'OWNER_INSTALLING', 'gate cannot publish untested health')
             self.assertFalse(any(c[0] in ('stop', 'start') for c in self.calls))
             self.m.production_boot_finish(types.SimpleNamespace(home=self.home))

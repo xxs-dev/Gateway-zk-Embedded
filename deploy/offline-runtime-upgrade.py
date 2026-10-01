@@ -2593,7 +2593,7 @@ def production_boot_work_read(runtime, path):
             value.get('kind') in ('current', 'runtime', 'job') and
             isinstance(value.get('transaction'), str) and NAME.fullmatch(value['transaction']) and
             isinstance(value.get('approvalSha256'), str) and re.fullmatch('[0-9a-f]{64}', value['approvalSha256']) and
-            value.get('phase') in ('PREPARED', 'DISPATCHED', 'STARTING', 'FAILED_STOPPED', 'FINISHED') and
+            value.get('phase') in ('PREPARED', 'DISPATCH_INTENT', 'DISPATCHED', 'STARTING', 'FAILED_STOPPED', 'FINISHED') and
             isinstance(value.get('entryPins'), dict) and set(value['entryPins']) ==
             {'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'} and
             all(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) for pin in value['entryPins'].values()),
@@ -2713,6 +2713,11 @@ def production_boot_dispatch(runtime, authority):
                '--property=After=gateway-ota-recover.service', '--property=TimeoutStartSec=900s',
                '/usr/bin/python3', '-B', str(Path(value['entryPath']) / 'offline-runtime-upgrade.py'),
                'production-boot-finish', str(runtime.home)]
+    # Persist BEFORE systemd can observe the request. Any later exception has an
+    # unknown delivery outcome; only the original official finish may continue,
+    # never a gate-triggered resend or a fabricated healthy completion.
+    value['phase'] = 'DISPATCH_INTENT'
+    save(path, value)
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
                             env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
     require(result.returncode == 0 and len(result.stdout) <= 4096 and len(result.stderr) <= 4096,

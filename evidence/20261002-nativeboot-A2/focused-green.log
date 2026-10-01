@@ -1,0 +1,12 @@
+test_batch_show_preserves_fields_and_unknown_grammar_refuses (tools.production_boot_publication_test.FixtureShowContractTest.test_batch_show_preserves_fields_and_unknown_grammar_refuses) ... ok
+test_scalar_show_value_tracks_actual_fixture_unit_state (tools.production_boot_publication_test.FixtureShowContractTest.test_scalar_show_value_tracks_actual_fixture_unit_state) ... ok
+test_unfinished_file_fsync (tools.production_boot_publication_test.IndexPublicationTest.test_unfinished_file_fsync) ... ok
+test_retired_file_fsync (tools.production_boot_publication_test.IndexPublicationTest.test_retired_file_fsync) ... ok
+test_accepted_then_save_failure_keeps_intent_without_gate_resend (tools.production_boot_health_publication_test.BootDispatchPublicationTest.test_accepted_then_save_failure_keeps_intent_without_gate_resend) ... ok
+test_nonzero_keeps_intent_without_gate_resend (tools.production_boot_health_publication_test.BootDispatchPublicationTest.test_nonzero_keeps_intent_without_gate_resend) ... ok
+test_timeout_keeps_intent_without_gate_resend (tools.production_boot_health_publication_test.BootDispatchPublicationTest.test_timeout_keeps_intent_without_gate_resend) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.169s
+
+OK

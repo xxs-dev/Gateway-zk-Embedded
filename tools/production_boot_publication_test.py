@@ -109,6 +109,8 @@ class IndexPublicationTest(unittest.TestCase):
         native_fdopen = self.ns['os'].fdopen
         native_rename = self.ns['os'].rename
         fired = []
+        file_fsync_identity = []
+        directory_fsyncs = []
         class Writer:
             def __init__(self, fd, mode): self.stream = native_fdopen(fd, mode)
             def __enter__(self): return self
@@ -122,7 +124,12 @@ class IndexPublicationTest(unittest.TestCase):
             def flush(self): return self.stream.flush()
             def fileno(self): return self.stream.fileno()
         def fsync(fd):
-            if event == 'file-fsync' and not fired:
+            info = os.fstat(fd)
+            if stat.S_ISDIR(info.st_mode): directory_fsyncs.append((info.st_dev, info.st_ino))
+            temporary = self.temporary(target)
+            if event == 'file-fsync' and not fired and stat.S_ISREG(info.st_mode) and temporary.exists() and \
+                    (info.st_dev, info.st_ino) == (temporary.stat().st_dev, temporary.stat().st_ino):
+                file_fsync_identity.append((info.st_dev, info.st_ino))
                 fired.append(event)
                 raise OSError('injected file fsync')
             return os.fsync(fd)
@@ -143,6 +150,11 @@ class IndexPublicationTest(unittest.TestCase):
         with mock.patch.dict(self.ns, os=api, sync_dir=sync):
             with self.assertRaises(OSError): getattr(self.owner, operation)(self.record)
         self.assertEqual(fired, [event])
+        if event == 'file-fsync':
+            temporary = self.temporary(target)
+            self.assertEqual(file_fsync_identity, [(temporary.stat().st_dev, temporary.stat().st_ino)])
+            if os.name == 'posix':
+                self.assertTrue(directory_fsyncs, 'real parent-directory fsync must pass before the target-file fault')
         marker = self.root / 'runtime-unfinished' / (self.owner.job + '.json')
         if operation == 'retire_index': self.assertTrue(marker.exists(), 'pending must survive failed receipt publication')
         if event != 'directory-fsync': self.assertFalse(target.exists(), 'no partial final JSON')
@@ -339,6 +351,37 @@ class IndexPublicationTest(unittest.TestCase):
                 if operation == 'index_unfinished': target.unlink()
 
 
+class FixtureShowContractTest(unittest.TestCase):
+    """Execute the real fixture adapter without importing Linux-only lifecycle code."""
+    def setUp(self):
+        source = REPO / 'tools/production_runtime_baseline_test.py'
+        tree = ast.parse(source.read_bytes())
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ProductionRuntimeTest')
+        methods = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in ('systemctl', 'property')]
+        ns = dict(shutil=shutil)
+        exec(compile(ast.Module(body=methods, type_ignores=[]), str(source), 'exec'), ns)
+        monitor = 'system-monitor@monitor-service.service'
+        self.f = types.SimpleNamespace(calls=[], units=['gateway-services.service', monitor], live=set(),
+                                       pid='PRIVATE_PID', g=types.SimpleNamespace(MONITOR_UNIT=monitor))
+        self.f.property = types.MethodType(ns['property'], self.f)
+        self.f.systemctl = types.MethodType(ns['systemctl'], self.f)
+
+    def test_scalar_show_value_tracks_actual_fixture_unit_state(self):
+        f = self.f
+        self.assertEqual(f.systemctl('show', '--property=ActiveState', '--value', f.units[0]), 'inactive')
+        f.live.add(f.units[0])
+        self.assertEqual(f.systemctl('show', '--property=ActiveState', '--value', f.units[0]), 'active')
+
+    def test_batch_show_preserves_fields_and_unknown_grammar_refuses(self):
+        f = self.f
+        expected = '\n\n'.join('Id=%s\nActiveState=inactive\nMainPID=0' % unit for unit in f.units)
+        self.assertEqual(f.systemctl('show', '--property=Id,ActiveState,MainPID', *f.units), expected)
+        for args in (('show', '--property=ActiveState', '--value', 'foreign.service'),
+                     ('show', '--property=ActiveState', '--value', *f.units),
+                     ('show', '--property=Environment', '--value', f.units[0])):
+            with self.subTest(args=args), self.assertRaises(AssertionError): f.systemctl(*args)
+
+
 @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'geteuid') and os.geteuid() == 0,
                      'requires Linux root private boot fixture and kernel flock')
 class BootLockTest(unittest.TestCase):
@@ -374,10 +417,25 @@ class BootLockTest(unittest.TestCase):
         lock = self.f.path('/run/gateway-offline-runtime.lock')
         lock.unlink()
         self.f.calls.clear()
-        before = self.f.path('/dev/shm/live_v11').stat().st_ino
+        segments = [self.f.path('/dev/shm') / name for name in ('live_v11', 'retired_v10')]
+        def identity(path):
+            info = path.stat()
+            with path.open('rb') as stream: header = stream.read(8)
+            return info.st_dev, info.st_ino, info.st_size, header
+        before = [identity(p) for p in segments]
+        live = set(self.f.live)
+        pointer = self.f.runtime.root / 'current.json'
+        pointer_bytes = pointer.read_bytes()
+        configs = self.f.m.tree_hashes(self.f.home / 'config/runtime')
         self.boot_entry()
-        self.assertTrue(lock.exists()); self.assertEqual(self.f.calls, [])
-        self.assertEqual(self.f.path('/dev/shm/live_v11').stat().st_ino, before)
+        self.assertTrue(lock.exists())
+        inventory = [('systemctl', query, '--all', '--no-legend', '--no-pager', '--plain')
+                     for query in ('list-units', 'list-unit-files')]
+        self.assertEqual(self.f.calls, inventory * 2, 'only exact read-only inventory queries are allowed')
+        self.assertEqual(self.f.live, live)
+        self.assertEqual([identity(p) for p in segments], before)
+        self.assertEqual(pointer.read_bytes(), pointer_bytes)
+        self.assertEqual(self.f.m.tree_hashes(self.f.home / 'config/runtime'), configs)
 
     def test_creator_and_contender_do_not_truncate_or_share_flock(self):
         lock = self.f.path('/run/gateway-offline-runtime.lock')

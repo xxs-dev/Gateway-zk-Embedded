@@ -1,0 +1,71 @@
+test_accepted_then_save_failure_keeps_intent_without_gate_resend (dispatch_red.BootDispatchPublicationTest.test_accepted_then_save_failure_keeps_intent_without_gate_resend) ... FAIL
+test_nonzero_keeps_intent_without_gate_resend (dispatch_red.BootDispatchPublicationTest.test_nonzero_keeps_intent_without_gate_resend) ... FAIL
+test_timeout_keeps_intent_without_gate_resend (dispatch_red.BootDispatchPublicationTest.test_timeout_keeps_intent_without_gate_resend) ... FAIL
+
+======================================================================
+FAIL: test_accepted_then_save_failure_keeps_intent_without_gate_resend (dispatch_red.BootDispatchPublicationTest.test_accepted_then_save_failure_keeps_intent_without_gate_resend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 139, in test_accepted_then_save_failure_keeps_intent_without_gate_resend
+    def test_accepted_then_save_failure_keeps_intent_without_gate_resend(self): self.interrupted('accepted-before-save')
+                                                                                ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 129, in interrupted
+    ns['production_boot_dispatch'](runtime, authority)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\12193\AppData\Local\Temp\dispatch-red-8f7x6epa\offline.py", line 2716, in production_boot_dispatch
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+                            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 119, in run
+    self.assertEqual(json.loads(path.read_bytes())['phase'], 'DISPATCH_INTENT', 'durable intent precedes side effect')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'PREPARED' != 'DISPATCH_INTENT'
+- PREPARED
++ DISPATCH_INTENT
+ : durable intent precedes side effect
+
+======================================================================
+FAIL: test_nonzero_keeps_intent_without_gate_resend (dispatch_red.BootDispatchPublicationTest.test_nonzero_keeps_intent_without_gate_resend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 138, in test_nonzero_keeps_intent_without_gate_resend
+    def test_nonzero_keeps_intent_without_gate_resend(self): self.interrupted('nonzero')
+                                                             ~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 129, in interrupted
+    ns['production_boot_dispatch'](runtime, authority)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\12193\AppData\Local\Temp\dispatch-red-8f7x6epa\offline.py", line 2716, in production_boot_dispatch
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+                            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 119, in run
+    self.assertEqual(json.loads(path.read_bytes())['phase'], 'DISPATCH_INTENT', 'durable intent precedes side effect')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'PREPARED' != 'DISPATCH_INTENT'
+- PREPARED
++ DISPATCH_INTENT
+ : durable intent precedes side effect
+
+======================================================================
+FAIL: test_timeout_keeps_intent_without_gate_resend (dispatch_red.BootDispatchPublicationTest.test_timeout_keeps_intent_without_gate_resend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 137, in test_timeout_keeps_intent_without_gate_resend
+    def test_timeout_keeps_intent_without_gate_resend(self): self.interrupted('timeout')
+                                                             ~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 129, in interrupted
+    ns['production_boot_dispatch'](runtime, authority)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\12193\AppData\Local\Temp\dispatch-red-8f7x6epa\offline.py", line 2716, in production_boot_dispatch
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+                            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_boot_health_publication_test.py", line 119, in run
+    self.assertEqual(json.loads(path.read_bytes())['phase'], 'DISPATCH_INTENT', 'durable intent precedes side effect')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'PREPARED' != 'DISPATCH_INTENT'
+- PREPARED
++ DISPATCH_INTENT
+ : durable intent precedes side effect
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.119s
+
+FAILED (failures=3)

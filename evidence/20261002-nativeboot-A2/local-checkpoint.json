@@ -1,0 +1,160 @@
+{
+  "format": "nativeboot-A2-local-checkpoint-v1",
+  "date": "2026-10-02",
+  "parentCommit": "aee0934657d9160bd40cf1ad4a3f4bc5cbeb7799",
+  "scope": "LOCAL_ONLY: A1 fixture corrections and pre-dispatch durable intent; NOT remote authorization or complete production acceptance",
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "bytes": 195835,
+      "sha256": "470468e7c40683eb4ae725e17ba547afc03c71cbc5c8a1bbc9307eb97933786b"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35"
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "bytes": 45194,
+      "sha256": "a629d9220de82b1342a0e68bdc8e27d720556f25bbff068585a04fb7036f4107"
+    },
+    {
+      "path": "tools/production_boot_publication_test.py",
+      "bytes": 25607,
+      "sha256": "62c871dde0d021fc325be7a8ebe5a9bb4613eee194701ccda709379cbac6066c"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "bytes": 25560,
+      "sha256": "a5c104c0e17b9c6fc27ab03db85e864540f28976d0b5fa0ca2299fedb4c17289"
+    },
+    {
+      "path": "tools/production_boot_health_publication_test.py",
+      "bytes": 9336,
+      "sha256": "783598b80073769058cd25a08646b2d72852c84ed5abbfa67b1406d67eb9ec73"
+    },
+    {
+      "path": "deploy/gateway-services.sh",
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    {
+      "path": "deploy/ota-rollback.sh",
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    {
+      "path": "deploy/gateway-ota-recover.service",
+      "bytes": 845,
+      "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+    },
+    {
+      "path": "tools/fixtures/production-historical-r2-allowlists.json",
+      "bytes": 949,
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    }
+  ],
+  "fixtureInputBytes": 484012,
+  "changedPaths": [
+    "deploy/offline-runtime-upgrade.py",
+    "tools/production_runtime_baseline_test.py",
+    "tools/production_boot_publication_test.py",
+    "tools/production_native_boot_test.py",
+    "tools/production_boot_health_publication_test.py"
+  ],
+  "preserved": {
+    "A1ReceiptSha256": "d690df3e426dfa4a80acae110de2db8a069b64ba78cd8f7e637d30b8a831dcb5",
+    "A1RunnerSha256": "0341e2a0c306fa504703ea47c171b9262b3256ff4ff9e7ebb12e303b0dfc1d88"
+  },
+  "proposedLinuxSelections": {
+    "publication": [
+      "IndexPublicationTest.test_unfinished_file_fsync",
+      "IndexPublicationTest.test_retired_file_fsync",
+      "BootLockTest.test_same_boot_entry_missing_lock_succeeds_without_service_or_shm_mutation",
+      "FixtureShowContractTest.test_scalar_show_value_tracks_actual_fixture_unit_state",
+      "FixtureShowContractTest.test_batch_show_preserves_fields_and_unknown_grammar_refuses"
+    ],
+    "native": [
+      "NativeBootTest.test_cleared_run_real_entry_creates_locked_boot_proof_before_readers",
+      "NativeBootTest.test_interrupted_creator_reenters_original_intent_and_inode",
+      "NativeBootTest.test_wrong_interrupted_header_is_not_truncated_or_replaced",
+      "NativeBootTest.test_original_job_newboot_pending",
+      "NativeBootTest.test_original_job_newboot_promoted",
+      "NativeBootTest.test_original_job_newboot_rollback",
+      "NativeBootTest.test_original_job_newboot_preintent",
+      "NativeBootTest.test_postgate_worker_refuses_while_recovery_oneshot_activating",
+      "NativeBootTest.test_reader_start_can_require_gate_without_deadlock_or_worker_replay",
+      "NativeBootTest.test_failed_newboot_health_refences_and_official_worker_can_recover",
+      "NativeBootTest.test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt",
+      "NativeBootTest.test_no_handoff_runtime_newboot_promoted",
+      "NativeBootTest.test_no_handoff_runtime_newboot_adoption_rollback",
+      "NativeBootTest.test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call",
+      "NativeBootTest.test_retired_recreated_or_unowned_target_refuses",
+      "NativeBootTest.test_invalid_stats_never_publishes_ready_or_admits_reader",
+      "NativeBootTest.test_not_tmpfs_or_held_lock_refuses_before_native_call",
+      "NativeBootTest.test_uncertain_dispatch_original_finish_recovers_without_gate_resend"
+    ],
+    "health": [
+      "BootDispatchPublicationTest.test_timeout_keeps_intent_without_gate_resend",
+      "BootDispatchPublicationTest.test_nonzero_keeps_intent_without_gate_resend",
+      "BootDispatchPublicationTest.test_accepted_then_save_failure_keeps_intent_without_gate_resend"
+    ],
+    "affectedBaseline": [
+      "ProductionRuntimeTest.test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending"
+    ],
+    "total": 27
+  },
+  "selectionPolicy": "21 A1 failed/error cases plus 6 new selectors only. No rerun of the 23 already-passing A1 selectors. The native uncertain-dispatch selector has 3 windows, counted as one test.",
+  "localValidation": {
+    "fixtureShowRed": {
+      "tests": 2,
+      "failures": 4,
+      "exitCode": 1,
+      "boundary": "Windows AST actual fixture adapter, 3 subtest failures counted by unittest; not Linux"
+    },
+    "dispatcherRed": {
+      "sourceCommit": "e3739baa7a81dfafcd8e0c364cd1f5c92b5cbd75",
+      "tests": 3,
+      "failures": 3,
+      "exitCode": 1
+    },
+    "focusedFinal": {
+      "command": "python -B -m unittest -v tools.production_boot_publication_test.FixtureShowContractTest tools.production_boot_publication_test.IndexPublicationTest.test_unfinished_file_fsync tools.production_boot_publication_test.IndexPublicationTest.test_retired_file_fsync tools.production_boot_health_publication_test.BootDispatchPublicationTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "exitCode": 0,
+      "seconds": 0.169,
+      "boundary": "Windows actual fixture methods/dispatcher AST and private bytes; POSIX metadata/dirfsync/authority/service boundaries substituted. Not Linux official finish."
+    },
+    "python38GrammarExitCode": 0,
+    "diffCheckExitCode": 0,
+    "fullFinalLinuxPassed": false
+  },
+  "missingLinuxBoundary": [
+    "Corrected show adapter must reach actual units_stopped/prepare_boot and the previously blocked native/boot paths.",
+    "Directory-fsync must pass before the exact regular temporary-file fd receives the file-fsync fault; archive assertions stay intact.",
+    "Pending setup must reach new-boot recovery from transaction previous.json while public context remains inhibited.",
+    "Boot-tail lock proof uses the actual held private kernel flock snapshot.",
+    "No-handoff runtime uncertain dispatch must reach official finish, actual private reader start/health, strict phase/approval rejection, hash-bound FINISHED and no extra attempt on reentry."
+  ],
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "wsl": {
+    "sessionId": 47230,
+    "result": "unknown; not queried/restarted/duplicated this stage"
+  },
+  "open": [
+    "Target Linux Python3.8/flock/fork and official finish chain at these pins not tested.",
+    "Actual pointctl ABI11/robust mutex, real systemd ordering/OS reboot and signed HTTPS OTA remain unverified.",
+    "Historical legacy new-boot verifier compatibility remains independent; fixtures substitute it.",
+    "Full configured business/native qualification and D1 factory pairing remain OPEN."
+  ]
+}
