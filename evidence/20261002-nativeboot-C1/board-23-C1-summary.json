@@ -1,0 +1,449 @@
+{
+  "format": "nativeboot-C1-board-summary-v1",
+  "date": "2026-10-02",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "scope": {
+    "coordinatorCommit": "852481e",
+    "path": "docs/audits/evidence/20261001-device-acceptance/nativeboot-23-C1-execution-scope.md",
+    "newScopeAuthorized": true,
+    "consumed": true
+  },
+  "payloadCommit": "9e1fd55298ec503db46e9faffec55cb808798e3b",
+  "runnerCommit": "10ac2545515beb44d69d5a2c8ee518ca55c7942a",
+  "command": "python -B evidence/20261002-nativeboot-C1/execute-manager-fixture.py --execute-approved",
+  "executionCount": 1,
+  "exits": {
+    "preflight": 0,
+    "local": 0,
+    "remote": 0,
+    "child": 0
+  },
+  "childSeconds": 9.979988808045164,
+  "checks": [
+    {
+      "case": "manager-cgroup-binding",
+      "passed": true
+    },
+    {
+      "case": "gate-queues-readers-and-worker",
+      "passed": true
+    },
+    {
+      "case": "worker-after-gate",
+      "passed": true
+    },
+    {
+      "case": "reader-after-gate",
+      "passed": true
+    },
+    {
+      "case": "failed-gate-keeps-reader-closed",
+      "passed": true
+    },
+    {
+      "case": "real-guard-rejects-private-unadopted-home",
+      "passed": true
+    },
+    {
+      "case": "ready-while-donor-holds-lease",
+      "passed": true
+    },
+    {
+      "case": "owned-live-bindings-and-negative-identity",
+      "passed": true
+    },
+    {
+      "case": "donor-exit-transfers-original-lease",
+      "passed": true
+    },
+    {
+      "case": "uncertain-dispatch-no-replay-original-cancel",
+      "passed": true
+    }
+  ],
+  "receipt": {
+    "path": "board-23-C1-result.json",
+    "bytes": 513146,
+    "sha256": "1fb9953e14ce0d079d445367c7de4a0ef7d62fed2b7d41c90fd707743789a931",
+    "originalCRLFPreserved": true
+  },
+  "fixtureRawLog": {
+    "archiveMember": "fixture.log",
+    "bytes": 55955,
+    "sha256": "9cfe441df64f5c1d99fec7a973a9dde25ab160c9136497a7946b0015c04064e2",
+    "byteExactAgainstReceipt": true
+  },
+  "managerMount": {
+    "controller": "name=systemd",
+    "dev": 22,
+    "filesystem": "cgroup",
+    "hierarchyId": "1",
+    "inode": 1,
+    "path": "/sys/fs/cgroup/systemd"
+  },
+  "managerCommandCount": 66,
+  "managerCommandPids": [
+    534493,
+    534540,
+    534558,
+    534561,
+    534576
+  ],
+  "managerUnknownCommands": 0,
+  "nineDispatchCounts": {
+    "gw-native-c1-082071e-gate-ok.service": 1,
+    "gw-native-c1-082071e-reader-ok.service": 1,
+    "gateway-native-boot-e6b9efe1fa8e2e35f45a20d09b39259e.service": 1,
+    "gw-native-c1-082071e-gate-fail.service": 1,
+    "gw-native-c1-082071e-reader-fail.service": 1,
+    "gw-native-c1-082071e-reader-guard.service": 1,
+    "ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service": 1,
+    "ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service": 1,
+    "ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service": 1
+  },
+  "cleanupCommandCount": 33,
+  "unitCleanupProofs": [
+    {
+      "unit": "gw-native-c1-082071e-gate-ok.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ExecStart": "{ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 -I -B /tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py gate /tmp/gw-nativeboot-082071e-23-C1/audit/gate-ok ; ignore_errors=no ; start_time=[Fri 2026-10-02 05:08:01 CST] ; stop_time=[Fri 2026-10-02 05:08:02 CST] ; pid=534506 ; code=exited ; status=0 }",
+        "ControlGroup": "",
+        "Id": "gw-native-c1-082071e-gate-ok.service",
+        "LoadState": "loaded",
+        "ActiveState": "inactive",
+        "FragmentPath": "/run/systemd/transient/gw-native-c1-082071e-gate-ok.service",
+        "Job": "",
+        "Transient": "yes"
+      }
+    },
+    {
+      "unit": "gw-native-c1-082071e-reader-ok.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "gw-native-c1-082071e-reader-ok.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "gw-native-c1-082071e-gate-fail.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "gw-native-c1-082071e-gate-fail.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "gw-native-c1-082071e-reader-fail.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "gw-native-c1-082071e-reader-fail.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "gw-native-c1-082071e-reader-guard.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "gw-native-c1-082071e-reader-guard.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "gateway-native-boot-e6b9efe1fa8e2e35f45a20d09b39259e.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "gateway-native-boot-e6b9efe1fa8e2e35f45a20d09b39259e.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    },
+    {
+      "unit": "ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service",
+      "noCgroupTasks": true,
+      "properties": {
+        "MainPID": "0",
+        "ControlGroup": "",
+        "Id": "ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "FragmentPath": "",
+        "Job": "",
+        "Transient": "no"
+      }
+    }
+  ],
+  "group": 534493,
+  "remainingGroup": [],
+  "remainingManagerUnits": [],
+  "workRemoved": true,
+  "inputs": [
+    {
+      "path": "offline-runtime-upgrade.py",
+      "bytes": 201410,
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c",
+      "mode": 256
+    },
+    {
+      "path": "runtime-upgrade-guard.py",
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "mode": 256
+    },
+    {
+      "path": "ota-health-result.py",
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "mode": 256
+    },
+    {
+      "path": "manager-child.py",
+      "bytes": 25067,
+      "sha256": "1596c936446be22faf6afcf3ce9a4ed94cc79d7c1c3e3f08eb00102aebdcaf51",
+      "mode": 256
+    },
+    {
+      "path": "private-entry.py",
+      "bytes": 3509,
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "mode": 256
+    }
+  ],
+  "postInputHashes": {
+    "offline-runtime-upgrade.py": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c",
+    "runtime-upgrade-guard.py": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+    "ota-health-result.py": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+    "manager-child.py": "1596c936446be22faf6afcf3ce9a4ed94cc79d7c1c3e3f08eb00102aebdcaf51",
+    "private-entry.py": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10"
+  },
+  "businessBaseline": {
+    "samples": 4,
+    "groupsCompared": [
+      "machineCode",
+      "bootId",
+      "stateDir",
+      "stateSha256",
+      "approvalSha256",
+      "activeSha256",
+      "guardSha256",
+      "configSha256",
+      "markerSha256",
+      "readers",
+      "runtimeProcesses",
+      "segments",
+      "offlineLock",
+      "segmentIdentities",
+      "readerStartTicks",
+      "readerShmMaps"
+    ],
+    "parentNamespace": "mnt:[4026531840]",
+    "allComparedFieldsUnchanged": true,
+    "namespaceUnchanged": true,
+    "readers": [
+      {
+        "unit": "modbus-rtu@device_modbusRTU_2_readonly.service",
+        "properties": {
+          "MainPID": "475164",
+          "NRestarts": "0",
+          "ActiveState": "active",
+          "SubState": "running"
+        },
+        "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+        "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0"
+      },
+      {
+        "unit": "mqtt-driver@mqtt-service.service",
+        "properties": {
+          "MainPID": "475219",
+          "NRestarts": "0",
+          "ActiveState": "active",
+          "SubState": "running"
+        },
+        "exe": "/opt/modbus-gateway/bin/MqttDriver",
+        "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6"
+      },
+      {
+        "unit": "system-monitor@monitor-service.service",
+        "properties": {
+          "MainPID": "475276",
+          "NRestarts": "0",
+          "ActiveState": "active",
+          "SubState": "running"
+        },
+        "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+        "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1"
+      }
+    ],
+    "resourceReadings": "MemAvailable/freeBytes observational only; not required to be numerically constant."
+  },
+  "privateOwnerResults": [
+    {
+      "case": "owned-live-bindings-and-negative-identity",
+      "owner": {
+        "cgroup": "/system.slice/ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service",
+        "pid": 534540,
+        "startTicks": "119605387"
+      },
+      "donorPid": null,
+      "cancelPhase": "CANCELLED",
+      "health": {
+        "format": "ota-health-v1",
+        "jobId": "C1_082071E_HAND",
+        "rollback": "unchanged",
+        "status": "failed",
+        "token": "082071ee-0000-4000-8000-000000000001",
+        "ts": "1790888886447",
+        "version": "0.0-C1"
+      }
+    },
+    {
+      "case": "donor-exit-transfers-original-lease",
+      "owner": {
+        "cgroup": "/system.slice/ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service",
+        "pid": 534561,
+        "startTicks": "119605576"
+      },
+      "donorPid": 534558,
+      "cancelPhase": "CANCELLED",
+      "health": {
+        "format": "ota-health-v1",
+        "jobId": "C1_082071E_DONOR",
+        "rollback": "unchanged",
+        "status": "failed",
+        "token": "082071ee-0000-4000-8000-000000000001",
+        "ts": "1790888888103",
+        "version": "0.0-C1"
+      }
+    },
+    {
+      "case": "uncertain-dispatch-no-replay-original-cancel",
+      "owner": {
+        "cgroup": "/system.slice/ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service",
+        "pid": 534576,
+        "startTicks": "119605740"
+      },
+      "donorPid": null,
+      "cancelPhase": "CANCELLED",
+      "health": {
+        "format": "ota-health-v1",
+        "jobId": "C1_082071E_UNKNOWN",
+        "rollback": "unchanged",
+        "status": "failed",
+        "token": "082071ee-0000-4000-8000-000000000001",
+        "ts": "1790888889741",
+        "version": "0.0-C1"
+      }
+    }
+  ],
+  "realGuardRefusal": {
+    "ActiveState": "failed",
+    "After": "sysinit.target gw-native-c1-082071e-gate-ok.service basic.target system.slice systemd-journald.socket",
+    "ControlGroup": "",
+    "ExecMainStatus": "0",
+    "ExecStartPre": "{ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 -B /tmp/gw-nativeboot-082071e-23-C1/source/runtime-upgrade-guard.py production-unit /tmp/gw-nativeboot-082071e-23-C1/audit/unadopted gw-native-c1-082071e-reader-guard.service ; ignore_errors=no ; start_time=[Fri 2026-10-02 05:08:04 CST] ; stop_time=[Fri 2026-10-02 05:08:04 CST] ; pid=534531 ; code=exited ; status=2 }",
+    "Id": "gw-native-c1-082071e-reader-guard.service",
+    "InvocationID": "6296747556784d17b20da857e0233fac",
+    "Job": "",
+    "LoadState": "loaded",
+    "MainPID": "0",
+    "Requires": "gw-native-c1-082071e-gate-ok.service system.slice sysinit.target",
+    "Result": "exit-code",
+    "SubState": "failed"
+  },
+  "supplement": {
+    "operationCount": 1,
+    "remoteExitCode": 0,
+    "localExitCode": 0,
+    "seconds": 1.363685900112614,
+    "fileCount": 342,
+    "totalRawFileBytes": 1679821,
+    "archive": {
+      "path": "board-23-C1-raw.tar",
+      "bytes": 2365440,
+      "sha256": "5c8d0d5ebd56460266153aae1af499f46d03cc8b50c5b6bf1006db936cb42866"
+    },
+    "retrievalReceiptSha256": "696a697dd8e4ac7caa7a280956f304dffa64c2bc7c617ee1c0786b9befa0449c",
+    "remoteWrites": 0,
+    "nofollowAtAllDescriptorLevels": true,
+    "regularUid0SingleLinkOnly": true,
+    "indexMember": "EXPORT-INDEX.json is generated export metadata, not a pre-existing device file.",
+    "bounds": "512files/16MiB total/1MiB each/128directories/90s alarm,110s hard+5s grace,125s channel; no manager action."
+  },
+  "primarySshClosed": true,
+  "supplementSshClosed": true,
+  "retainedRoot": "/tmp/gw-nativeboot-082071e-23-C1",
+  "retained": "Read-only source, all private synthetic intents/handoff/terminal receipts and command/audit logs. Only initially-empty own work removed.",
+  "preparationFalseFields": "Original manifest executionAuthorized=false and plan remoteAuthorized=false preserved; new scope authorized this sole invocation.",
+  "adapters": "Private publisher/authority; two official gate-name references mapped to own gate; positive pre-reader/worker/install observations substituted. Original RuntimeHandoff logic and real manager/proc/flock/cgroup run; not full product boot/installation.",
+  "productChanged": false,
+  "businessChanged": false,
+  "otherDeviceAccessed": false,
+  "AorBRepeated": false,
+  "wsl47230": "unknown; untouched",
+  "notQualified": [
+    "Actual production boot authority/production_boot_finish/native OS reboot.",
+    "Current full configured business package installation, promotion or mutation rollback.",
+    "RSA/HTTPS/signature download/install E2E; synthetic artifact and observation install callback only.",
+    "Donor-before-READY, runtimeMayChange=true owner recovery and every crash/mutex window.",
+    "D1 factory raw-source/pair resolution, R10 diagnostics, full simulator/receiver outage/reconnect/main acquisition continuity and cross-end gates."
+  ]
+}

@@ -1,0 +1,3440 @@
+{
+  "root": "/tmp/gw-nativeboot-082071e-23-C1",
+  "host": "192.168.22.23",
+  "files": [
+    {
+      "bytes": 46,
+      "dev": 45829,
+      "inode": 409794,
+      "mode": 420,
+      "mtimeNs": 1790888886541954695,
+      "path": "audit/C1_082071E_DONOR/data/ota/artifact.bin",
+      "sha256": "10cbc98a7a70810554bb1380a7d734c65d616cd4d874d89c8b31dca36b2b166a",
+      "uid": 0
+    },
+    {
+      "bytes": 17,
+      "dev": 45829,
+      "inode": 409811,
+      "mode": 420,
+      "mtimeNs": 1790888887517935570,
+      "path": "audit/C1_082071E_DONOR/data/ota/donor-exit",
+      "sha256": "e7ea94cc706d62a82c1c09dbef4d3ad910562f5561fe9319d4b5ce38daf1c13e",
+      "uid": 0
+    },
+    {
+      "bytes": 6,
+      "dev": 45829,
+      "inode": 409809,
+      "mode": 420,
+      "mtimeNs": 1790888887497935962,
+      "path": "audit/C1_082071E_DONOR/data/ota/donor-ready",
+      "sha256": "ca97eb91742781aefad117c720713fa3b187328103f332e9bd6be2f4b0a57bf3",
+      "uid": 0
+    },
+    {
+      "bytes": 26701,
+      "dev": 45829,
+      "inode": 409812,
+      "mode": 420,
+      "mtimeNs": 1790888887561934707,
+      "path": "audit/C1_082071E_DONOR/data/ota/donor-result.json",
+      "sha256": "c5519990b81dd68dfd98e738bff22fe9d8de855cfeb105b399a16f480150058e",
+      "uid": 0
+    },
+    {
+      "bytes": 195,
+      "dev": 45829,
+      "inode": 409815,
+      "mode": 384,
+      "mtimeNs": 1790888888097924204,
+      "path": "audit/C1_082071E_DONOR/data/ota/health_C1_082071E_DONOR.txt",
+      "sha256": "0128bd070e645b8eb33c9d1d19c6a645346d62ce5a85e97c7f7483f4428911b6",
+      "uid": 0
+    },
+    {
+      "bytes": 66,
+      "dev": 45829,
+      "inode": 409798,
+      "mode": 420,
+      "mtimeNs": 1790888886545954617,
+      "path": "audit/C1_082071E_DONOR/data/ota/ota_active_job.txt",
+      "sha256": "b012844389280ad3f2a0e7fbaa1d8a22e9dc1a22731660d9acde9266db631692",
+      "uid": 0
+    },
+    {
+      "bytes": 1549,
+      "dev": 45829,
+      "inode": 409813,
+      "mode": 384,
+      "mtimeNs": 1790888888093924283,
+      "path": "audit/C1_082071E_DONOR/data/ota/ota_handoff_C1_082071E_DONOR.json",
+      "sha256": "aaaa83774d1e5fdd4058186a599f1a21e3b0310f66e3ede96f4a3e920bc3cc9e",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 409799,
+      "mode": 384,
+      "mtimeNs": 1790888886557954381,
+      "path": "audit/C1_082071E_DONOR/data/ota/ota_handoff_C1_082071E_DONOR.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 462,
+      "dev": 45829,
+      "inode": 409797,
+      "mode": 420,
+      "mtimeNs": 1790888886541954695,
+      "path": "audit/C1_082071E_DONOR/data/ota/ota_job_C1_082071E_DONOR.json",
+      "sha256": "1c468a689cc38faea412ae1dc4c6aa9497fbe4435582cbde67a604ed295c42aa",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 409796,
+      "mode": 384,
+      "mtimeNs": 1790888886541954695,
+      "path": "audit/C1_082071E_DONOR/data/ota/ota_job_C1_082071E_DONOR.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 409814,
+      "mode": 384,
+      "mtimeNs": 1790888888097924204,
+      "path": "audit/C1_082071E_DONOR/data/ota/ota_state.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 1406,
+      "dev": 45829,
+      "inode": 409810,
+      "mode": 420,
+      "mtimeNs": 1790888887685932278,
+      "path": "audit/C1_082071E_DONOR/data/ota/owned-observed.json",
+      "sha256": "0b00ea48c470728ebd7287af06a8350b1f61c15a4f3abaa75ae5da0a670da0a2",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 425997,
+      "mode": 256,
+      "mtimeNs": 1790888886657952422,
+      "path": "audit/C1_082071E_DONOR/data/ota/runtime-entry-C1_082071E_DONOR/offline-runtime-upgrade.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 425999,
+      "mode": 256,
+      "mtimeNs": 1790888886665952265,
+      "path": "audit/C1_082071E_DONOR/data/ota/runtime-entry-C1_082071E_DONOR/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 425998,
+      "mode": 256,
+      "mtimeNs": 1790888886661952343,
+      "path": "audit/C1_082071E_DONOR/data/ota/runtime-entry-C1_082071E_DONOR/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    },
+    {
+      "bytes": 419,
+      "dev": 45829,
+      "inode": 442375,
+      "mode": 256,
+      "mtimeNs": 1790888888105924047,
+      "path": "audit/C1_082071E_DONOR/data/ota/runtime-retired/C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.json",
+      "sha256": "d4c309baf0e57764a7923232ba9716c564446fecfa3e37aa6173197337758bed",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 417795,
+      "mode": 256,
+      "mtimeNs": 1790888886549954538,
+      "path": "audit/C1_082071E_DONOR/entry/offline-runtime-upgrade.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 417793,
+      "mode": 256,
+      "mtimeNs": 1790888886549954538,
+      "path": "audit/C1_082071E_DONOR/entry/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 417794,
+      "mode": 256,
+      "mtimeNs": 1790888886549954538,
+      "path": "audit/C1_082071E_DONOR/entry/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    },
+    {
+      "bytes": 46,
+      "dev": 45829,
+      "inode": 352257,
+      "mode": 420,
+      "mtimeNs": 1790888884677991221,
+      "path": "audit/C1_082071E_HAND/data/ota/artifact.bin",
+      "sha256": "10cbc98a7a70810554bb1380a7d734c65d616cd4d874d89c8b31dca36b2b166a",
+      "uid": 0
+    },
+    {
+      "bytes": 194,
+      "dev": 45829,
+      "inode": 352265,
+      "mode": 384,
+      "mtimeNs": 1790888886441956654,
+      "path": "audit/C1_082071E_HAND/data/ota/health_C1_082071E_HAND.txt",
+      "sha256": "73ff88910555725ec0ce7474279867e6e287b5f00e428d519b55cc63fed73f42",
+      "uid": 0
+    },
+    {
+      "bytes": 65,
+      "dev": 45829,
+      "inode": 352260,
+      "mode": 420,
+      "mtimeNs": 1790888884685991064,
+      "path": "audit/C1_082071E_HAND/data/ota/ota_active_job.txt",
+      "sha256": "edaadd9283b01ae2abc4afe6dbc3c2879c89e89a13d12e6c7d5912957da460b8",
+      "uid": 0
+    },
+    {
+      "bytes": 1542,
+      "dev": 45829,
+      "inode": 352262,
+      "mode": 384,
+      "mtimeNs": 1790888886437956733,
+      "path": "audit/C1_082071E_HAND/data/ota/ota_handoff_C1_082071E_HAND.json",
+      "sha256": "d7cf8ea9f4c15758e50bfe206bbb824d94c238c106a721b1c7983288d2dee0d0",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 352261,
+      "mode": 384,
+      "mtimeNs": 1790888884693990907,
+      "path": "audit/C1_082071E_HAND/data/ota/ota_handoff_C1_082071E_HAND.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 460,
+      "dev": 45829,
+      "inode": 352259,
+      "mode": 420,
+      "mtimeNs": 1790888884681991143,
+      "path": "audit/C1_082071E_HAND/data/ota/ota_job_C1_082071E_HAND.json",
+      "sha256": "ae148fcaa38fabccf1299f991d8b9b133a19d8f26ce07c68ef77b9549016b5e8",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 352258,
+      "mode": 384,
+      "mtimeNs": 1790888884681991143,
+      "path": "audit/C1_082071E_HAND/data/ota/ota_job_C1_082071E_HAND.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 352264,
+      "mode": 384,
+      "mtimeNs": 1790888886441956654,
+      "path": "audit/C1_082071E_HAND/data/ota/ota_state.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 1400,
+      "dev": 45829,
+      "inode": 352263,
+      "mode": 420,
+      "mtimeNs": 1790888885813968960,
+      "path": "audit/C1_082071E_HAND/data/ota/owned-observed.json",
+      "sha256": "06d8dab8405883d5310420e0b19db884d7f1dd3627ea7e97f1be1520a8ec3fe4",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 368641,
+      "mode": 256,
+      "mtimeNs": 1790888884773989340,
+      "path": "audit/C1_082071E_HAND/data/ota/runtime-entry-C1_082071E_HAND/offline-runtime-upgrade.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 368643,
+      "mode": 256,
+      "mtimeNs": 1790888884785989105,
+      "path": "audit/C1_082071E_HAND/data/ota/runtime-entry-C1_082071E_HAND/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 368642,
+      "mode": 256,
+      "mtimeNs": 1790888884781989183,
+      "path": "audit/C1_082071E_HAND/data/ota/runtime-entry-C1_082071E_HAND/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    },
+    {
+      "bytes": 418,
+      "dev": 45829,
+      "inode": 385031,
+      "mode": 256,
+      "mtimeNs": 1790888886449956498,
+      "path": "audit/C1_082071E_HAND/data/ota/runtime-retired/C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.json",
+      "sha256": "6db9301ebc4a16cfab65384a88dbd1c4987c97b8c7973866c5f1c6adde3ff38e",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 360460,
+      "mode": 256,
+      "mtimeNs": 1790888884689990986,
+      "path": "audit/C1_082071E_HAND/entry/offline-runtime-upgrade.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 360458,
+      "mode": 256,
+      "mtimeNs": 1790888884685991064,
+      "path": "audit/C1_082071E_HAND/entry/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 360459,
+      "mode": 256,
+      "mtimeNs": 1790888884689990986,
+      "path": "audit/C1_082071E_HAND/entry/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    },
+    {
+      "bytes": 46,
+      "dev": 45829,
+      "inode": 466948,
+      "mode": 420,
+      "mtimeNs": 1790888888201922166,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/artifact.bin",
+      "sha256": "10cbc98a7a70810554bb1380a7d734c65d616cd4d874d89c8b31dca36b2b166a",
+      "uid": 0
+    },
+    {
+      "bytes": 197,
+      "dev": 45829,
+      "inode": 466956,
+      "mode": 384,
+      "mtimeNs": 1790888889737892067,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/health_C1_082071E_UNKNOWN.txt",
+      "sha256": "f263df8027f8c29e8548944f7cb4cebc30bb8a0a71eb0d1eef8123f89f5eec20",
+      "uid": 0
+    },
+    {
+      "bytes": 68,
+      "dev": 45829,
+      "inode": 466951,
+      "mode": 420,
+      "mtimeNs": 1790888888205922088,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/ota_active_job.txt",
+      "sha256": "46c69882c4631ceb03fd1b3bbf8f556126e9d7487c40cfcc9b9bb985de317bdd",
+      "uid": 0
+    },
+    {
+      "bytes": 1563,
+      "dev": 45829,
+      "inode": 466953,
+      "mode": 384,
+      "mtimeNs": 1790888889729892224,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/ota_handoff_C1_082071E_UNKNOWN.json",
+      "sha256": "d605f936fbcdad23427560a0bf2090b726d41783599305c1eee017e30cd9c089",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 466952,
+      "mode": 384,
+      "mtimeNs": 1790888888213921931,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/ota_handoff_C1_082071E_UNKNOWN.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 466,
+      "dev": 45829,
+      "inode": 466950,
+      "mode": 420,
+      "mtimeNs": 1790888888201922166,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/ota_job_C1_082071E_UNKNOWN.json",
+      "sha256": "e5438f7090442e40a69f4913507f3bfe17fa52ee8693145de7cb66a128c522fd",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 466949,
+      "mode": 384,
+      "mtimeNs": 1790888888201922166,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/ota_job_C1_082071E_UNKNOWN.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 466955,
+      "mode": 384,
+      "mtimeNs": 1790888889737892067,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/ota_state.lock",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 1418,
+      "dev": 45829,
+      "inode": 466954,
+      "mode": 420,
+      "mtimeNs": 1790888889177903041,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/owned-observed.json",
+      "sha256": "b8302064a3c3009154c40487d0fdd4c1f7dc7551ed6e31f7cb03a85cdec3023b",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 483448,
+      "mode": 256,
+      "mtimeNs": 1790888888301920207,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/runtime-entry-C1_082071E_UNKNOWN/offline-runtime-upgrade.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 483450,
+      "mode": 256,
+      "mtimeNs": 1790888888309920050,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/runtime-entry-C1_082071E_UNKNOWN/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 483449,
+      "mode": 256,
+      "mtimeNs": 1790888888305920128,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/runtime-entry-C1_082071E_UNKNOWN/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    },
+    {
+      "bytes": 421,
+      "dev": 45829,
+      "inode": 499896,
+      "mode": 256,
+      "mtimeNs": 1790888889797890892,
+      "path": "audit/C1_082071E_UNKNOWN/data/ota/runtime-retired/C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.json",
+      "sha256": "1c25a1860929bd88db4f8c5fc2309ae33aad76def8e754678f57adbfc55374ba",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 475203,
+      "mode": 256,
+      "mtimeNs": 1790888888209922009,
+      "path": "audit/C1_082071E_UNKNOWN/entry/offline-runtime-upgrade.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 475200,
+      "mode": 256,
+      "mtimeNs": 1790888888209922009,
+      "path": "audit/C1_082071E_UNKNOWN/entry/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 475202,
+      "mode": 256,
+      "mtimeNs": 1790888888209922009,
+      "path": "audit/C1_082071E_UNKNOWN/entry/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 319489,
+      "mode": 420,
+      "mtimeNs": 1790888883694010503,
+      "path": "audit/gate-fail/gate-enter.json",
+      "sha256": "1923660ca94bf0751160bd7a4c94e8942f30b3a3908874b2017e556e7c2eda4e",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 319491,
+      "mode": 420,
+      "mtimeNs": 1790888883782008779,
+      "path": "audit/gate-fail/gate-exit.json",
+      "sha256": "6ae6d0d698fca1e527516131ef0286d4f832116b98bc4b12b10a78fd9071d8ea",
+      "uid": 0
+    },
+    {
+      "bytes": 35,
+      "dev": 45829,
+      "inode": 319490,
+      "mode": 420,
+      "mtimeNs": 1790888883758009249,
+      "path": "audit/gate-fail/gate-release",
+      "sha256": "3065091099b5a4f4b44c042efeff90aea969beb0384c6b78df470913a631605e",
+      "uid": 0
+    },
+    {
+      "bytes": 184,
+      "dev": 45829,
+      "inode": 311298,
+      "mode": 384,
+      "mtimeNs": 1790888881950044678,
+      "path": "audit/gate-ok/dispatch.json",
+      "sha256": "cbb43f6386b3129afe3c36756dce118e8583db99bb16c16c487fb0f4eeb5c216",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 311297,
+      "mode": 420,
+      "mtimeNs": 1790888881834046951,
+      "path": "audit/gate-ok/gate-enter.json",
+      "sha256": "fa41f4366138c230b64a82241918a8cbae815ac3ad3915e34a2f3d280fb9c43f",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 311300,
+      "mode": 420,
+      "mtimeNs": 1790888882114041464,
+      "path": "audit/gate-ok/gate-exit.json",
+      "sha256": "171f078f39ac41f127bd67396be2a9c2054a5750f8d8b52967e1e5787b0e850c",
+      "uid": 0
+    },
+    {
+      "bytes": 30,
+      "dev": 45829,
+      "inode": 311299,
+      "mode": 420,
+      "mtimeNs": 1790888882114041464,
+      "path": "audit/gate-ok/gate-release",
+      "sha256": "3c22669c0b0556b6bb46a44e2ecd2ad322b950019bb77603fa6cc7656e8493ad",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 311301,
+      "mode": 420,
+      "mtimeNs": 1790888882642031117,
+      "path": "audit/gate-ok/pre-reader.json",
+      "sha256": "eebe44c0e29a4f1322c66169c55dbd2a8b9791f6f993e432de31f7437078a9f0",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 311303,
+      "mode": 420,
+      "mtimeNs": 1790888883146021241,
+      "path": "audit/gate-ok/reader.json",
+      "sha256": "aacf33c3b4f6a6854bc2d2ebda987dde6564e0a34823593679a9c96ecb806bfd",
+      "uid": 0
+    },
+    {
+      "bytes": 41,
+      "dev": 45829,
+      "inode": 311302,
+      "mode": 420,
+      "mtimeNs": 1790888882678030412,
+      "path": "audit/gate-ok/worker.json",
+      "sha256": "a1d433b11af59b5fdfb58193a3b2b1969e27337a6a16e5ef453eac85cacba835",
+      "uid": 0
+    },
+    {
+      "bytes": 55955,
+      "dev": 45829,
+      "inode": 1761282,
+      "mode": 420,
+      "mtimeNs": 1790888890009886738,
+      "path": "fixture.log",
+      "sha256": "9cfe441df64f5c1d99fec7a973a9dde25ab160c9136497a7946b0015c04064e2",
+      "uid": 0
+    },
+    {
+      "bytes": 203,
+      "dev": 45829,
+      "inode": 303132,
+      "mode": 420,
+      "mtimeNs": 1790888881030062705,
+      "path": "manager-commands/000.log",
+      "sha256": "6ae8fdb23f2b22a7ef997433d7bdc04458b9cd4db3527ca0d13e0797c57c5621",
+      "uid": 0
+    },
+    {
+      "bytes": 258,
+      "dev": 45829,
+      "inode": 303131,
+      "mode": 420,
+      "mtimeNs": 1790888880998063333,
+      "path": "manager-commands/000.request.json",
+      "sha256": "f7d8fb14a66fa8cabc0ad6067eb78fbb9a930a861370924e068a24bae139f979",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303133,
+      "mode": 420,
+      "mtimeNs": 1790888881034062627,
+      "path": "manager-commands/000.response.json",
+      "sha256": "17eb91084a3741ddf5f37504fe3df05279070590fd8193a3a0c034e0e3ca1372",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303130,
+      "mode": 384,
+      "mtimeNs": 1790888880998063333,
+      "path": "manager-commands/000.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 205,
+      "dev": 45829,
+      "inode": 303136,
+      "mode": 420,
+      "mtimeNs": 1790888881070061922,
+      "path": "manager-commands/001.log",
+      "sha256": "9c80038236a26a7e64ae3255367ecb6510f680a4165d4e203b98c1d4fed686f7",
+      "uid": 0
+    },
+    {
+      "bytes": 260,
+      "dev": 45829,
+      "inode": 303135,
+      "mode": 420,
+      "mtimeNs": 1790888881038062549,
+      "path": "manager-commands/001.request.json",
+      "sha256": "10e45a6a4ee5ada17c4b35ed6c6abe4ecfe5f9e0e0e03ea4abf4d3f44b0813a6",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303137,
+      "mode": 420,
+      "mtimeNs": 1790888881074061843,
+      "path": "manager-commands/001.response.json",
+      "sha256": "d8a6379c46da04a0f23d4680f922d633603e28cecd2d86f2dbe6b44195aeb84a",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303134,
+      "mode": 384,
+      "mtimeNs": 1790888881038062549,
+      "path": "manager-commands/001.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 205,
+      "dev": 45829,
+      "inode": 303143,
+      "mode": 420,
+      "mtimeNs": 1790888881110061138,
+      "path": "manager-commands/002.log",
+      "sha256": "b93da1feda8ecc1cca43e4c715d43567e0a1733136473656812898f99d6aedf7",
+      "uid": 0
+    },
+    {
+      "bytes": 260,
+      "dev": 45829,
+      "inode": 303139,
+      "mode": 420,
+      "mtimeNs": 1790888881082061687,
+      "path": "manager-commands/002.request.json",
+      "sha256": "d7535f4a4f8eade685a84896e31c5b3d39c0e09968a727a8a105ee906217614a",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303144,
+      "mode": 420,
+      "mtimeNs": 1790888881114061059,
+      "path": "manager-commands/002.response.json",
+      "sha256": "42c93efa19ea86702d89d8af8b977adf698ef2a4727b1f079e0fa95acad4608e",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303138,
+      "mode": 384,
+      "mtimeNs": 1790888881078061765,
+      "path": "manager-commands/002.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 207,
+      "dev": 45829,
+      "inode": 303147,
+      "mode": 420,
+      "mtimeNs": 1790888881154060276,
+      "path": "manager-commands/003.log",
+      "sha256": "bf0831bb9825e8440bccf4da6efc209152af9cacb21147af5b5f4b7d22a15524",
+      "uid": 0
+    },
+    {
+      "bytes": 262,
+      "dev": 45829,
+      "inode": 303146,
+      "mode": 420,
+      "mtimeNs": 1790888881122060903,
+      "path": "manager-commands/003.request.json",
+      "sha256": "1e204f2b193b037a0fd86d6708ace99ccb2f0edc58ba4202d9b4d66e17cafb87",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303155,
+      "mode": 420,
+      "mtimeNs": 1790888881158060197,
+      "path": "manager-commands/003.response.json",
+      "sha256": "56ebf47ac5ca8fdaee6ddd624530dda4f820b5e9f7b7bef785f6da855dd62afc",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303145,
+      "mode": 384,
+      "mtimeNs": 1790888881122060903,
+      "path": "manager-commands/003.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 208,
+      "dev": 45829,
+      "inode": 303158,
+      "mode": 420,
+      "mtimeNs": 1790888881194059492,
+      "path": "manager-commands/004.log",
+      "sha256": "a851740940c31cab9730eb068dd342875ace87e87f3d4a8298c9c4d420873709",
+      "uid": 0
+    },
+    {
+      "bytes": 263,
+      "dev": 45829,
+      "inode": 303157,
+      "mode": 420,
+      "mtimeNs": 1790888881166060040,
+      "path": "manager-commands/004.request.json",
+      "sha256": "5daa3f6339af808658f8da13a8ab6508c678a8d96eea40265cefb3f4e65d5067",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303159,
+      "mode": 420,
+      "mtimeNs": 1790888881198059413,
+      "path": "manager-commands/004.response.json",
+      "sha256": "aca8003dd1adc132c1f5bcb67cbdd060c9050435ae9c99f31abd85ec9fb163cf",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303156,
+      "mode": 384,
+      "mtimeNs": 1790888881166060040,
+      "path": "manager-commands/004.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 227,
+      "dev": 45829,
+      "inode": 303162,
+      "mode": 420,
+      "mtimeNs": 1790888881238058630,
+      "path": "manager-commands/005.log",
+      "sha256": "d3b3da6a0b6d21b705821ff6f521e612e0568292182580607e55e698943ae95b",
+      "uid": 0
+    },
+    {
+      "bytes": 282,
+      "dev": 45829,
+      "inode": 303161,
+      "mode": 420,
+      "mtimeNs": 1790888881206059257,
+      "path": "manager-commands/005.request.json",
+      "sha256": "e1b7398f671bd907e4297b2a47f38d0eb3d7b703b609649be8e7d323c86d48e6",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303163,
+      "mode": 420,
+      "mtimeNs": 1790888881242058551,
+      "path": "manager-commands/005.response.json",
+      "sha256": "d20365f6a46ede78dd2d64ddb0d60abe2f96ca2dc3d24c04e564ec1df28c737f",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303160,
+      "mode": 384,
+      "mtimeNs": 1790888881206059257,
+      "path": "manager-commands/005.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 239,
+      "dev": 45829,
+      "inode": 303166,
+      "mode": 420,
+      "mtimeNs": 1790888881286057689,
+      "path": "manager-commands/006.log",
+      "sha256": "faef66199b839a9818bdf47d5d7639847d551b58ea9d9b2b985ee22c39f4234a",
+      "uid": 0
+    },
+    {
+      "bytes": 294,
+      "dev": 45829,
+      "inode": 303165,
+      "mode": 420,
+      "mtimeNs": 1790888881254058316,
+      "path": "manager-commands/006.request.json",
+      "sha256": "703af46d967bec0cba3fa5d053439c0011bd8e5784c407692ceb0584c21aef1b",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303167,
+      "mode": 420,
+      "mtimeNs": 1790888881286057689,
+      "path": "manager-commands/006.response.json",
+      "sha256": "1fec5db690d766526e5351c3bab19608ccebd4878919477b990d3d6435e78fe2",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303164,
+      "mode": 384,
+      "mtimeNs": 1790888881250058394,
+      "path": "manager-commands/006.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 240,
+      "dev": 45829,
+      "inode": 303170,
+      "mode": 420,
+      "mtimeNs": 1790888881334056748,
+      "path": "manager-commands/007.log",
+      "sha256": "d920fe2158397b23b991b3b71366e0e37e3c76c830d9aa9affc3af221a0feec0",
+      "uid": 0
+    },
+    {
+      "bytes": 295,
+      "dev": 45829,
+      "inode": 303169,
+      "mode": 420,
+      "mtimeNs": 1790888881298057454,
+      "path": "manager-commands/007.request.json",
+      "sha256": "794bbf4dcdc9943a0fce4190ab0f393fd3dd0e2f167174cea243e7565ee6cf57",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303171,
+      "mode": 420,
+      "mtimeNs": 1790888881334056748,
+      "path": "manager-commands/007.response.json",
+      "sha256": "6393483a01c6e6662e956b302576476d7422d0dd53fa25d1853bd9ac88262311",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303168,
+      "mode": 384,
+      "mtimeNs": 1790888881298057454,
+      "path": "manager-commands/007.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 242,
+      "dev": 45829,
+      "inode": 303174,
+      "mode": 420,
+      "mtimeNs": 1790888881378055886,
+      "path": "manager-commands/008.log",
+      "sha256": "4a7fa10a01dee7034096efdbd2e771a893b1bb2ffc31d2d638ae52c229be8b7d",
+      "uid": 0
+    },
+    {
+      "bytes": 297,
+      "dev": 45829,
+      "inode": 303173,
+      "mode": 420,
+      "mtimeNs": 1790888881346056513,
+      "path": "manager-commands/008.request.json",
+      "sha256": "56c7e2b0249ace91089c4538eca6427c87acacbfec2c48d4828d9cbab953df4e",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303175,
+      "mode": 420,
+      "mtimeNs": 1790888881378055886,
+      "path": "manager-commands/008.response.json",
+      "sha256": "bdeb73cc37556f33de5468acf9898c23c2ac0aecdb6eacca0600cd851d27c5c8",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303172,
+      "mode": 384,
+      "mtimeNs": 1790888881346056513,
+      "path": "manager-commands/008.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303179,
+      "mode": 420,
+      "mtimeNs": 1790888881446054554,
+      "path": "manager-commands/009.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 473,
+      "dev": 45829,
+      "inode": 303178,
+      "mode": 420,
+      "mtimeNs": 1790888881406055338,
+      "path": "manager-commands/009.request.json",
+      "sha256": "bad33cfd23f38be2d2555c33030cd08ea9a956973304fad6ee2960a153b4667e",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303180,
+      "mode": 420,
+      "mtimeNs": 1790888881454054397,
+      "path": "manager-commands/009.response.json",
+      "sha256": "8a4096246ed98d6ba003c93b922cd2675abe94fe09950ffc3fd3c75735e13b6f",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303177,
+      "mode": 384,
+      "mtimeNs": 1790888881406055338,
+      "path": "manager-commands/009.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303184,
+      "mode": 420,
+      "mtimeNs": 1790888881874046167,
+      "path": "manager-commands/010.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 760,
+      "dev": 45829,
+      "inode": 303183,
+      "mode": 420,
+      "mtimeNs": 1790888881834046951,
+      "path": "manager-commands/010.request.json",
+      "sha256": "69e91f6e404c44695d584eb93b42ad0b2df345b8b24edfb85e6929c89166560a",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303185,
+      "mode": 420,
+      "mtimeNs": 1790888881874046167,
+      "path": "manager-commands/010.response.json",
+      "sha256": "b891bec633573e902cb380958d72cdfed8ae59f4b2498347c60f744587a14023",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303182,
+      "mode": 384,
+      "mtimeNs": 1790888881834046951,
+      "path": "manager-commands/010.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303189,
+      "mode": 420,
+      "mtimeNs": 1790888881934044991,
+      "path": "manager-commands/011.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 494,
+      "dev": 45829,
+      "inode": 303188,
+      "mode": 420,
+      "mtimeNs": 1790888881902045618,
+      "path": "manager-commands/011.request.json",
+      "sha256": "2b0ccc96cad61a0426a09a621c7f143710a836521c5943676eb7c51406c5ccd0",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303190,
+      "mode": 420,
+      "mtimeNs": 1790888881938044913,
+      "path": "manager-commands/011.response.json",
+      "sha256": "6c87a965e597dc05f59ff12d083a3d91e9e5a164c224c0e99d10edb7ff8f14b5",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303187,
+      "mode": 384,
+      "mtimeNs": 1790888881902045618,
+      "path": "manager-commands/011.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 649,
+      "dev": 45829,
+      "inode": 303193,
+      "mode": 420,
+      "mtimeNs": 1790888881994043815,
+      "path": "manager-commands/012.log",
+      "sha256": "867feff29a13308e676f0b63ad45dc75d7978c252ee33d13af38259628e67a8f",
+      "uid": 0
+    },
+    {
+      "bytes": 261,
+      "dev": 45829,
+      "inode": 303192,
+      "mode": 420,
+      "mtimeNs": 1790888881958044521,
+      "path": "manager-commands/012.request.json",
+      "sha256": "f6018d4aa1f944bef28104c75b88087a0e3054636ffbb2116f0e67d4cd51fc1a",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303194,
+      "mode": 420,
+      "mtimeNs": 1790888881994043815,
+      "path": "manager-commands/012.response.json",
+      "sha256": "768afe5d535c9a1aff06660881457c627dea99a9d00a7edba3c065c4c286b431",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303191,
+      "mode": 384,
+      "mtimeNs": 1790888881954044599,
+      "path": "manager-commands/012.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 357,
+      "dev": 45829,
+      "inode": 303197,
+      "mode": 420,
+      "mtimeNs": 1790888882042042875,
+      "path": "manager-commands/013.log",
+      "sha256": "012b585cfb7a4cb1c8fd73b93c4d66226db04e74e2b9e25af60b080e48812fa6",
+      "uid": 0
+    },
+    {
+      "bytes": 283,
+      "dev": 45829,
+      "inode": 303196,
+      "mode": 420,
+      "mtimeNs": 1790888882010043502,
+      "path": "manager-commands/013.request.json",
+      "sha256": "ace4f261bd543cb61675f4e5b58427fa714f20221fda006482ac84d4bc1aacf1",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303198,
+      "mode": 420,
+      "mtimeNs": 1790888882046042796,
+      "path": "manager-commands/013.response.json",
+      "sha256": "61f36b4685c73597f304dceb2085048ada121ef700a5cc114fee654c142041a0",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303195,
+      "mode": 384,
+      "mtimeNs": 1790888882010043502,
+      "path": "manager-commands/013.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 386,
+      "dev": 45829,
+      "inode": 303201,
+      "mode": 420,
+      "mtimeNs": 1790888882094041856,
+      "path": "manager-commands/014.log",
+      "sha256": "851a36dd54395f5c6728a8c8440655dcac5f94eecd887b2f906e9eea33b0bb8c",
+      "uid": 0
+    },
+    {
+      "bytes": 259,
+      "dev": 45829,
+      "inode": 303200,
+      "mode": 420,
+      "mtimeNs": 1790888882062042483,
+      "path": "manager-commands/014.request.json",
+      "sha256": "34f337871b1939758fea6bae5c0253f047cd3192838aea86a5b20d378e153be1",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303202,
+      "mode": 420,
+      "mtimeNs": 1790888882098041777,
+      "path": "manager-commands/014.response.json",
+      "sha256": "5be326b2ab3cdb15548943c7c2fe502314f6c1ec7651eeab5d8b2536097a0c6e",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303199,
+      "mode": 384,
+      "mtimeNs": 1790888882062042483,
+      "path": "manager-commands/014.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 227,
+      "dev": 45829,
+      "inode": 303205,
+      "mode": 420,
+      "mtimeNs": 1790888883194020301,
+      "path": "manager-commands/015.log",
+      "sha256": "d3b3da6a0b6d21b705821ff6f521e612e0568292182580607e55e698943ae95b",
+      "uid": 0
+    },
+    {
+      "bytes": 283,
+      "dev": 45829,
+      "inode": 303204,
+      "mode": 420,
+      "mtimeNs": 1790888883162020928,
+      "path": "manager-commands/015.request.json",
+      "sha256": "cf6c5ed30b4ee810019f672e16e9b716e19ba40eabc49c951bfb38a5dd8f7b06",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303206,
+      "mode": 420,
+      "mtimeNs": 1790888883194020301,
+      "path": "manager-commands/015.response.json",
+      "sha256": "fa287470938d95e867b97d0b35af953ce5f59811cdbc053266c7a686b4040967",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303203,
+      "mode": 384,
+      "mtimeNs": 1790888883162020928,
+      "path": "manager-commands/015.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 792,
+      "dev": 45829,
+      "inode": 303209,
+      "mode": 420,
+      "mtimeNs": 1790888883246019282,
+      "path": "manager-commands/016.log",
+      "sha256": "93b9c869830f13f613896bfe6e9fd577a3d72c44be2d8b0e5b215546882478cd",
+      "uid": 0
+    },
+    {
+      "bytes": 261,
+      "dev": 45829,
+      "inode": 303208,
+      "mode": 420,
+      "mtimeNs": 1790888883218019830,
+      "path": "manager-commands/016.request.json",
+      "sha256": "a2bffe4d56836fb5ae241aad8eb20573ecd36b2b6f5a27271245350f80c42fe8",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303210,
+      "mode": 420,
+      "mtimeNs": 1790888883250019203,
+      "path": "manager-commands/016.response.json",
+      "sha256": "9e1633fa4e74e902e492debedd7c5c775f2785226356ffabae37a80a8fe7f278",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303207,
+      "mode": 384,
+      "mtimeNs": 1790888883218019830,
+      "path": "manager-commands/016.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303214,
+      "mode": 420,
+      "mtimeNs": 1790888883306018106,
+      "path": "manager-commands/017.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 478,
+      "dev": 45829,
+      "inode": 303213,
+      "mode": 420,
+      "mtimeNs": 1790888883274018733,
+      "path": "manager-commands/017.request.json",
+      "sha256": "7551e345e1a43bfa155975adea5867bd9322aed890c4f590af4a13db7241e908",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303215,
+      "mode": 420,
+      "mtimeNs": 1790888883310018028,
+      "path": "manager-commands/017.response.json",
+      "sha256": "0f2c0e18c60bde12c197627405e31198fc01c5f91284936e8524e674c452d62d",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303212,
+      "mode": 384,
+      "mtimeNs": 1790888883274018733,
+      "path": "manager-commands/017.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303219,
+      "mode": 420,
+      "mtimeNs": 1790888883738009641,
+      "path": "manager-commands/018.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 603,
+      "dev": 45829,
+      "inode": 303218,
+      "mode": 420,
+      "mtimeNs": 1790888883698010425,
+      "path": "manager-commands/018.request.json",
+      "sha256": "43966e7929ed9e739e131a6ca0acbff985336984c6230875ab9733ce545dc6c5",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303220,
+      "mode": 420,
+      "mtimeNs": 1790888883742009562,
+      "path": "manager-commands/018.response.json",
+      "sha256": "a69141f23a72fd17578aa0c74a0f2590ebc2ba44c05d61a963a69b57d56f23cd",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303217,
+      "mode": 384,
+      "mtimeNs": 1790888883698010425,
+      "path": "manager-commands/018.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 390,
+      "dev": 45829,
+      "inode": 303223,
+      "mode": 420,
+      "mtimeNs": 1790888883794008543,
+      "path": "manager-commands/019.log",
+      "sha256": "cd3ef56eb84bab6daf07589c6c7cbbd2838cdb843925f246e2ebc7082ac30123",
+      "uid": 0
+    },
+    {
+      "bytes": 261,
+      "dev": 45829,
+      "inode": 303222,
+      "mode": 420,
+      "mtimeNs": 1790888883762009170,
+      "path": "manager-commands/019.request.json",
+      "sha256": "a91426b90a753b500dc055170c61ae9a8a5a1616d93c4d69633da7becbf0d7f7",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303224,
+      "mode": 420,
+      "mtimeNs": 1790888883798008465,
+      "path": "manager-commands/019.response.json",
+      "sha256": "f9bb44cdcd09383fa100352249e3fb6695824f2e245ef7b2f58f42b151cded95",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303221,
+      "mode": 384,
+      "mtimeNs": 1790888883762009170,
+      "path": "manager-commands/019.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 390,
+      "dev": 45829,
+      "inode": 303227,
+      "mode": 420,
+      "mtimeNs": 1790888883870007054,
+      "path": "manager-commands/020.log",
+      "sha256": "cd3ef56eb84bab6daf07589c6c7cbbd2838cdb843925f246e2ebc7082ac30123",
+      "uid": 0
+    },
+    {
+      "bytes": 261,
+      "dev": 45829,
+      "inode": 303226,
+      "mode": 420,
+      "mtimeNs": 1790888883842007603,
+      "path": "manager-commands/020.request.json",
+      "sha256": "2710b8a2cff8aa177fdaf3ae8d0db83122fc9f5119def58483662e6f91fa67b0",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303228,
+      "mode": 420,
+      "mtimeNs": 1790888883874006976,
+      "path": "manager-commands/020.response.json",
+      "sha256": "fd40993b01c9cb7ee6e26eee2c0ab627badac106e6a4d0328519e8fad03959bf",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303225,
+      "mode": 384,
+      "mtimeNs": 1790888883842007603,
+      "path": "manager-commands/020.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 327,
+      "dev": 45829,
+      "inode": 303231,
+      "mode": 420,
+      "mtimeNs": 1790888883954005408,
+      "path": "manager-commands/021.log",
+      "sha256": "0db337161990c3988cc096046c175d09638ddf2caae87813aa4135ee49bd3c6e",
+      "uid": 0
+    },
+    {
+      "bytes": 261,
+      "dev": 45829,
+      "inode": 303230,
+      "mode": 420,
+      "mtimeNs": 1790888883918006114,
+      "path": "manager-commands/021.request.json",
+      "sha256": "8adc3b9e941664a966ca75549b2dcbfc0c25dacf92d8e4708f5baa5a25aa7e21",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303232,
+      "mode": 420,
+      "mtimeNs": 1790888883958005330,
+      "path": "manager-commands/021.response.json",
+      "sha256": "1dc2d2bcf3bae4685982402683092975b33525bf69e3393e91d220e276cbeb14",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303229,
+      "mode": 384,
+      "mtimeNs": 1790888883918006114,
+      "path": "manager-commands/021.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 207,
+      "dev": 45829,
+      "inode": 303235,
+      "mode": 420,
+      "mtimeNs": 1790888884010004311,
+      "path": "manager-commands/022.log",
+      "sha256": "bf0831bb9825e8440bccf4da6efc209152af9cacb21147af5b5f4b7d22a15524",
+      "uid": 0
+    },
+    {
+      "bytes": 263,
+      "dev": 45829,
+      "inode": 303234,
+      "mode": 420,
+      "mtimeNs": 1790888883978004938,
+      "path": "manager-commands/022.request.json",
+      "sha256": "bdcf4c2cd22e351d7d7f86024f8d97aab2e7ad31d3c597e4520f0c20841f980a",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303236,
+      "mode": 420,
+      "mtimeNs": 1790888884014004232,
+      "path": "manager-commands/022.response.json",
+      "sha256": "44c89081710d24e67cabedba85701e1e688f5e54dc03adb45424a6ea5e7d55f0",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303233,
+      "mode": 384,
+      "mtimeNs": 1790888883978004938,
+      "path": "manager-commands/022.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 207,
+      "dev": 45829,
+      "inode": 303239,
+      "mode": 420,
+      "mtimeNs": 1790888884070003135,
+      "path": "manager-commands/023.log",
+      "sha256": "bf0831bb9825e8440bccf4da6efc209152af9cacb21147af5b5f4b7d22a15524",
+      "uid": 0
+    },
+    {
+      "bytes": 263,
+      "dev": 45829,
+      "inode": 303238,
+      "mode": 420,
+      "mtimeNs": 1790888884034003841,
+      "path": "manager-commands/023.request.json",
+      "sha256": "251727bcb5ec490ced08d3c33fc7f12125db7b811a09ae2199e4f4cc7aae6fb7",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303240,
+      "mode": 420,
+      "mtimeNs": 1790888884070003135,
+      "path": "manager-commands/023.response.json",
+      "sha256": "a97d5f30e128653b94bcf2f000f3246ea7804849b3d1abb88f273848becd361c",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303237,
+      "mode": 384,
+      "mtimeNs": 1790888884034003841,
+      "path": "manager-commands/023.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 327,
+      "dev": 45829,
+      "inode": 303243,
+      "mode": 420,
+      "mtimeNs": 1790888884126002038,
+      "path": "manager-commands/024.log",
+      "sha256": "0db337161990c3988cc096046c175d09638ddf2caae87813aa4135ee49bd3c6e",
+      "uid": 0
+    },
+    {
+      "bytes": 261,
+      "dev": 45829,
+      "inode": 303242,
+      "mode": 420,
+      "mtimeNs": 1790888884098002586,
+      "path": "manager-commands/024.request.json",
+      "sha256": "9de6a875f75675c935f3a0b3085ff6fac9f57ca86d94124bffacda1a5104a100",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303244,
+      "mode": 420,
+      "mtimeNs": 1790888884130001959,
+      "path": "manager-commands/024.response.json",
+      "sha256": "95eebece1d4db1771a79a7f3c3da9cca08fb33c8298b81c44f9257e35d6f3820",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303241,
+      "mode": 384,
+      "mtimeNs": 1790888884098002586,
+      "path": "manager-commands/024.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303248,
+      "mode": 420,
+      "mtimeNs": 1790888884194000705,
+      "path": "manager-commands/025.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 819,
+      "dev": 45829,
+      "inode": 303247,
+      "mode": 420,
+      "mtimeNs": 1790888884158001411,
+      "path": "manager-commands/025.request.json",
+      "sha256": "d8595af0689049bf6af7480fbdd2af3376f0ab1a8ba6da1195f81186eaab6637",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303249,
+      "mode": 420,
+      "mtimeNs": 1790888884198000627,
+      "path": "manager-commands/025.response.json",
+      "sha256": "09dca81dec4acb099526c1d8efaebc9127db4057fc516d5fd7cfab05f2816f8c",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303246,
+      "mode": 384,
+      "mtimeNs": 1790888884154001489,
+      "path": "manager-commands/025.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 829,
+      "dev": 45829,
+      "inode": 303252,
+      "mode": 420,
+      "mtimeNs": 1790888884257999451,
+      "path": "manager-commands/026.log",
+      "sha256": "bbc2d5d35cdc67c406bfd2a21faaf083d29e17ef3fddcc4865600009b66ab26b",
+      "uid": 0
+    },
+    {
+      "bytes": 264,
+      "dev": 45829,
+      "inode": 303251,
+      "mode": 420,
+      "mtimeNs": 1790888884230000000,
+      "path": "manager-commands/026.request.json",
+      "sha256": "3feb5c15ddbeb2ee2ed9a2bfd138037b520e4cea0175d511aacc5368cbca86b6",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303253,
+      "mode": 420,
+      "mtimeNs": 1790888884261999373,
+      "path": "manager-commands/026.response.json",
+      "sha256": "d87f969e66460f56e14e323ebfe019647deb5655d9ca37ce12772f798bad5d06",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303250,
+      "mode": 384,
+      "mtimeNs": 1790888884226000078,
+      "path": "manager-commands/026.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 829,
+      "dev": 45829,
+      "inode": 303256,
+      "mode": 420,
+      "mtimeNs": 1790888884337997883,
+      "path": "manager-commands/027.log",
+      "sha256": "bbc2d5d35cdc67c406bfd2a21faaf083d29e17ef3fddcc4865600009b66ab26b",
+      "uid": 0
+    },
+    {
+      "bytes": 264,
+      "dev": 45829,
+      "inode": 303255,
+      "mode": 420,
+      "mtimeNs": 1790888884309998432,
+      "path": "manager-commands/027.request.json",
+      "sha256": "a8cef8279eb36f26f8164206b9db67d6fb774493cf8071f93b87f06838d35ea0",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303257,
+      "mode": 420,
+      "mtimeNs": 1790888884341997805,
+      "path": "manager-commands/027.response.json",
+      "sha256": "43b74343f00b6fb05213cb6d986d410dedd6b80de4a6e1bb958514aa8ffc0410",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303254,
+      "mode": 384,
+      "mtimeNs": 1790888884305998511,
+      "path": "manager-commands/027.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 829,
+      "dev": 45829,
+      "inode": 303260,
+      "mode": 420,
+      "mtimeNs": 1790888884417996316,
+      "path": "manager-commands/028.log",
+      "sha256": "bbc2d5d35cdc67c406bfd2a21faaf083d29e17ef3fddcc4865600009b66ab26b",
+      "uid": 0
+    },
+    {
+      "bytes": 264,
+      "dev": 45829,
+      "inode": 303259,
+      "mode": 420,
+      "mtimeNs": 1790888884389996864,
+      "path": "manager-commands/028.request.json",
+      "sha256": "3ff07faaecf9fe0ecabf60a7609ff52b4f47ac63a5dc731b898af86e08a79ba4",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303261,
+      "mode": 420,
+      "mtimeNs": 1790888884417996316,
+      "path": "manager-commands/028.response.json",
+      "sha256": "1277d6b55a7c50d02f00d35a24179baf2b710eb77d75d4814423f6628213c5d7",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303258,
+      "mode": 384,
+      "mtimeNs": 1790888884389996864,
+      "path": "manager-commands/028.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 829,
+      "dev": 45829,
+      "inode": 303264,
+      "mode": 420,
+      "mtimeNs": 1790888884497994748,
+      "path": "manager-commands/029.log",
+      "sha256": "bbc2d5d35cdc67c406bfd2a21faaf083d29e17ef3fddcc4865600009b66ab26b",
+      "uid": 0
+    },
+    {
+      "bytes": 264,
+      "dev": 45829,
+      "inode": 303263,
+      "mode": 420,
+      "mtimeNs": 1790888884465995375,
+      "path": "manager-commands/029.request.json",
+      "sha256": "9ed63adfe7904a6c5fe651c55674b8cd559e7010b572672b460a291d51743fad",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303265,
+      "mode": 420,
+      "mtimeNs": 1790888884497994748,
+      "path": "manager-commands/029.response.json",
+      "sha256": "b264c78d82334effb19933744e5bb355f1eef65bfdc5e86a8a5993944c9ae44c",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303262,
+      "mode": 384,
+      "mtimeNs": 1790888884465995375,
+      "path": "manager-commands/029.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 786,
+      "dev": 45829,
+      "inode": 303268,
+      "mode": 420,
+      "mtimeNs": 1790888884581993102,
+      "path": "manager-commands/030.log",
+      "sha256": "60d30967412461e6f6d95d929958cdbdfc707254bf08311f48f3ccf4b70a112d",
+      "uid": 0
+    },
+    {
+      "bytes": 264,
+      "dev": 45829,
+      "inode": 303267,
+      "mode": 420,
+      "mtimeNs": 1790888884549993729,
+      "path": "manager-commands/030.request.json",
+      "sha256": "de17534dc774e7543db521fd365ec21f817f5ca77809c2fd796847d7c8a34767",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303269,
+      "mode": 420,
+      "mtimeNs": 1790888884581993102,
+      "path": "manager-commands/030.response.json",
+      "sha256": "728aacad3b11aea7c7bfa051ec18728a2611ee3d6dc7c15ebd3e68a730d184b7",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303266,
+      "mode": 384,
+      "mtimeNs": 1790888884549993729,
+      "path": "manager-commands/030.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 786,
+      "dev": 45829,
+      "inode": 303272,
+      "mode": 420,
+      "mtimeNs": 1790888884645991848,
+      "path": "manager-commands/031.log",
+      "sha256": "60d30967412461e6f6d95d929958cdbdfc707254bf08311f48f3ccf4b70a112d",
+      "uid": 0
+    },
+    {
+      "bytes": 264,
+      "dev": 45829,
+      "inode": 303271,
+      "mode": 420,
+      "mtimeNs": 1790888884613992475,
+      "path": "manager-commands/031.request.json",
+      "sha256": "f93eba7fdbea63ab8a8c022f9a4ee7ff182127909e90bc6ba6675bf6684e06f1",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303273,
+      "mode": 420,
+      "mtimeNs": 1790888884649991770,
+      "path": "manager-commands/031.response.json",
+      "sha256": "14995441edf1b6849745f640e394177559b765d875d3f8518825f4262511c080",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303270,
+      "mode": 384,
+      "mtimeNs": 1790888884613992475,
+      "path": "manager-commands/031.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 187,
+      "dev": 45829,
+      "inode": 303627,
+      "mode": 420,
+      "mtimeNs": 1790888884737990045,
+      "path": "manager-commands/032.log",
+      "sha256": "40060eca37f7cc151b3139033bb96a9a449290838c1d2eec43a74880d469fe5a",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303282,
+      "mode": 420,
+      "mtimeNs": 1790888884705990672,
+      "path": "manager-commands/032.request.json",
+      "sha256": "a1e67ce4a0c6b3b9a91c1369240774776a02de30e7067b293b8e8e9b2753e7c3",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303638,
+      "mode": 420,
+      "mtimeNs": 1790888884741989967,
+      "path": "manager-commands/032.response.json",
+      "sha256": "de44a879aaa0b328fbfa7770aa2d46950a201853a25afe3d719f2d711126cd16",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303280,
+      "mode": 384,
+      "mtimeNs": 1790888884705990672,
+      "path": "manager-commands/032.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303662,
+      "mode": 420,
+      "mtimeNs": 1790888884849987851,
+      "path": "manager-commands/033.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 573,
+      "dev": 45829,
+      "inode": 303652,
+      "mode": 420,
+      "mtimeNs": 1790888884805988713,
+      "path": "manager-commands/033.request.json",
+      "sha256": "1d798af796839bdb3241934aded0de3e622cdc4b04f3f7cc3632f674190ceb7c",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303663,
+      "mode": 420,
+      "mtimeNs": 1790888884853987772,
+      "path": "manager-commands/033.response.json",
+      "sha256": "88a529f89cd4d542440ebaaa4dbec7c09648613fde38a7ea62fce3dd61acb7e7",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303651,
+      "mode": 384,
+      "mtimeNs": 1790888884805988713,
+      "path": "manager-commands/033.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303666,
+      "mode": 420,
+      "mtimeNs": 1790888885425976564,
+      "path": "manager-commands/034.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303665,
+      "mode": 420,
+      "mtimeNs": 1790888885393977191,
+      "path": "manager-commands/034.request.json",
+      "sha256": "3304ce51b66b0d83ec7f4d205514e4d9551a89309b35fe8f891c76c3e4911d71",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303667,
+      "mode": 420,
+      "mtimeNs": 1790888885429976485,
+      "path": "manager-commands/034.response.json",
+      "sha256": "fe254b2a821df2225b7e1bc8e3e7caf0ce45137035bd9e11288b3c492a1a41bb",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303664,
+      "mode": 384,
+      "mtimeNs": 1790888885393977191,
+      "path": "manager-commands/034.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303670,
+      "mode": 420,
+      "mtimeNs": 1790888885521974682,
+      "path": "manager-commands/035.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303669,
+      "mode": 420,
+      "mtimeNs": 1790888885489975309,
+      "path": "manager-commands/035.request.json",
+      "sha256": "ec9c8c63102bb00caece8785c084f1c1fa704ce6d464ed4a47d3ae461f277028",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303671,
+      "mode": 420,
+      "mtimeNs": 1790888885521974682,
+      "path": "manager-commands/035.response.json",
+      "sha256": "b4089b0c4277a46e40bc0f5dde09014c9870494c24f3619a7ae26484883ad24d",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303668,
+      "mode": 384,
+      "mtimeNs": 1790888885485975388,
+      "path": "manager-commands/035.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303674,
+      "mode": 420,
+      "mtimeNs": 1790888885601973115,
+      "path": "manager-commands/036.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303673,
+      "mode": 420,
+      "mtimeNs": 1790888885569973742,
+      "path": "manager-commands/036.request.json",
+      "sha256": "4000f943d2f411444eac176725eb3862460db6eb855826577e28b8f3625c6e7f",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303675,
+      "mode": 420,
+      "mtimeNs": 1790888885601973115,
+      "path": "manager-commands/036.response.json",
+      "sha256": "ed73d04c0c2651f9750a6ea2307d4238fc19636b136c1cd9b787b1fa0911a9ca",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303672,
+      "mode": 384,
+      "mtimeNs": 1790888885569973742,
+      "path": "manager-commands/036.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303678,
+      "mode": 420,
+      "mtimeNs": 1790888885681971547,
+      "path": "manager-commands/037.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303677,
+      "mode": 420,
+      "mtimeNs": 1790888885645972252,
+      "path": "manager-commands/037.request.json",
+      "sha256": "56043688deb73cdc1f178d6b31c8d55bc796aed1973c5f0091eeda6bc870ba88",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303679,
+      "mode": 420,
+      "mtimeNs": 1790888885681971547,
+      "path": "manager-commands/037.response.json",
+      "sha256": "496f11c66df8f6bbb4df8b98a2f1d051b6611b2f029dae43153b9a33d41721e3",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303676,
+      "mode": 384,
+      "mtimeNs": 1790888885645972252,
+      "path": "manager-commands/037.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303682,
+      "mode": 420,
+      "mtimeNs": 1790888885757970058,
+      "path": "manager-commands/038.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303681,
+      "mode": 420,
+      "mtimeNs": 1790888885729970606,
+      "path": "manager-commands/038.request.json",
+      "sha256": "315b078e4d495e90412c49b6125cc0ee659522a87f8e9c9af8f2f8b30c3b2787",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303683,
+      "mode": 420,
+      "mtimeNs": 1790888885761969979,
+      "path": "manager-commands/038.response.json",
+      "sha256": "bf691e65a6ae2efe25f9a89e6b473537274dd1c1ebcc4c83bbafb3c9585356c6",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303680,
+      "mode": 384,
+      "mtimeNs": 1790888885725970685,
+      "path": "manager-commands/038.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303686,
+      "mode": 420,
+      "mtimeNs": 1790888885861968020,
+      "path": "manager-commands/039.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303685,
+      "mode": 420,
+      "mtimeNs": 1790888885829968647,
+      "path": "manager-commands/039.request.json",
+      "sha256": "4ccdb4379cd4735c1954d18aef389dcccdb070dbb139f069629a2fe515044156",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303687,
+      "mode": 420,
+      "mtimeNs": 1790888885865967941,
+      "path": "manager-commands/039.response.json",
+      "sha256": "c23f5eefa52ee57d2ef84f1cac544c178ab30dd688de3fb2fde970de42b7a668",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303684,
+      "mode": 384,
+      "mtimeNs": 1790888885829968647,
+      "path": "manager-commands/039.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303690,
+      "mode": 420,
+      "mtimeNs": 1790888885953966217,
+      "path": "manager-commands/040.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303689,
+      "mode": 420,
+      "mtimeNs": 1790888885921966844,
+      "path": "manager-commands/040.request.json",
+      "sha256": "b0662af511a333dceacd01921e4dfd0f0ce8f2c03d86b994b87d27d181dc3bb2",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303691,
+      "mode": 420,
+      "mtimeNs": 1790888885957966139,
+      "path": "manager-commands/040.response.json",
+      "sha256": "6fbcb5ed2b0909cb858e503bb729851ce2c6b51527664997fb8ccbf83c3216da",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303688,
+      "mode": 384,
+      "mtimeNs": 1790888885921966844,
+      "path": "manager-commands/040.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303694,
+      "mode": 420,
+      "mtimeNs": 1790888886033964649,
+      "path": "manager-commands/041.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303693,
+      "mode": 420,
+      "mtimeNs": 1790888886001965276,
+      "path": "manager-commands/041.request.json",
+      "sha256": "0240cff2a3c770e8a30e52acee6e8da1bfaf17668b6b264eb7c55de08aca6572",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303695,
+      "mode": 420,
+      "mtimeNs": 1790888886037964571,
+      "path": "manager-commands/041.response.json",
+      "sha256": "a9beded98ee391a9da328ea87661eef6329237507c517c830eacd55c93885d5b",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303692,
+      "mode": 384,
+      "mtimeNs": 1790888885997965355,
+      "path": "manager-commands/041.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303698,
+      "mode": 420,
+      "mtimeNs": 1790888886117963003,
+      "path": "manager-commands/042.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303697,
+      "mode": 420,
+      "mtimeNs": 1790888886085963630,
+      "path": "manager-commands/042.request.json",
+      "sha256": "f65e3f0c0ffe1643c7ed35a30865b72827f1695229e0ca06de3d7e92b4376f71",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303699,
+      "mode": 420,
+      "mtimeNs": 1790888886117963003,
+      "path": "manager-commands/042.response.json",
+      "sha256": "bf80e60e79987b008b3dbdd6fd2d15bc7ac784f5fac92884b6298ae53ccfee0e",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303696,
+      "mode": 384,
+      "mtimeNs": 1790888886085963630,
+      "path": "manager-commands/042.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 305,
+      "dev": 45829,
+      "inode": 303702,
+      "mode": 420,
+      "mtimeNs": 1790888886205961279,
+      "path": "manager-commands/043.log",
+      "sha256": "59ba51631bcc7d60d188cc7df48f8df0dc75ec04ab1fd216c9106ecfbb2b1339",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303701,
+      "mode": 420,
+      "mtimeNs": 1790888886169961984,
+      "path": "manager-commands/043.request.json",
+      "sha256": "d93da13fe29356d69350c5463df6f05ff7a2837cbe0bde94ce1a6e4c45b3b745",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303703,
+      "mode": 420,
+      "mtimeNs": 1790888886209961201,
+      "path": "manager-commands/043.response.json",
+      "sha256": "3431b53b0a31fe5973684a4df4d411d63d35a4fb8d76c01efbc3dfab8c014884",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303700,
+      "mode": 384,
+      "mtimeNs": 1790888886169961984,
+      "path": "manager-commands/043.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303706,
+      "mode": 420,
+      "mtimeNs": 1790888886313959163,
+      "path": "manager-commands/044.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 145,
+      "dev": 45829,
+      "inode": 303705,
+      "mode": 420,
+      "mtimeNs": 1790888886269960025,
+      "path": "manager-commands/044.request.json",
+      "sha256": "5c9c887f6422f9446d53094c9a60af7fef4aa4cd3e4ee7260c8326d506d8b5b1",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303707,
+      "mode": 420,
+      "mtimeNs": 1790888886317959084,
+      "path": "manager-commands/044.response.json",
+      "sha256": "28c18e310b727d3ed098dd528fded8c6d7ec8ca49859caf5adc2df9d073ea21a",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303704,
+      "mode": 384,
+      "mtimeNs": 1790888886269960025,
+      "path": "manager-commands/044.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 187,
+      "dev": 45829,
+      "inode": 303710,
+      "mode": 420,
+      "mtimeNs": 1790888886385957752,
+      "path": "manager-commands/045.log",
+      "sha256": "40060eca37f7cc151b3139033bb96a9a449290838c1d2eec43a74880d469fe5a",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303709,
+      "mode": 420,
+      "mtimeNs": 1790888886357958300,
+      "path": "manager-commands/045.request.json",
+      "sha256": "3a63750de29e95d1f3a831e5fd8865d14b4064fd360e328e16e387569584faef",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303711,
+      "mode": 420,
+      "mtimeNs": 1790888886389957673,
+      "path": "manager-commands/045.response.json",
+      "sha256": "f9a6e0d7501f3358e73a5fd0fc27359f49a7fdf21d527394fd5fb253eea28503",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303708,
+      "mode": 384,
+      "mtimeNs": 1790888886357958300,
+      "path": "manager-commands/045.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 187,
+      "dev": 45829,
+      "inode": 303714,
+      "mode": 420,
+      "mtimeNs": 1790888886497955557,
+      "path": "manager-commands/046.log",
+      "sha256": "40060eca37f7cc151b3139033bb96a9a449290838c1d2eec43a74880d469fe5a",
+      "uid": 0
+    },
+    {
+      "bytes": 244,
+      "dev": 45829,
+      "inode": 303713,
+      "mode": 420,
+      "mtimeNs": 1790888886469956106,
+      "path": "manager-commands/046.request.json",
+      "sha256": "37f7fac0855b9df5cdd1409bb07e07940bbc61241bec38173ec6aff66d055752",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303715,
+      "mode": 420,
+      "mtimeNs": 1790888886501955479,
+      "path": "manager-commands/046.response.json",
+      "sha256": "e0f9462c986889f5afd8101a61b36a8c9222ddde13506be67cf488e0b9e0a31f",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303712,
+      "mode": 384,
+      "mtimeNs": 1790888886469956106,
+      "path": "manager-commands/046.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 188,
+      "dev": 45829,
+      "inode": 303718,
+      "mode": 420,
+      "mtimeNs": 1790888886605953441,
+      "path": "manager-commands/047.log",
+      "sha256": "12797d61193616c4d7d8c59254a0bfaf01a25682dd7643d3d7bfb5d247b8902a",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303717,
+      "mode": 420,
+      "mtimeNs": 1790888886573954068,
+      "path": "manager-commands/047.request.json",
+      "sha256": "0de9098379d92a9feaed2cace2589b744e45a2fb4f7a8d0d79879346210bf242",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303719,
+      "mode": 420,
+      "mtimeNs": 1790888886617953206,
+      "path": "manager-commands/047.response.json",
+      "sha256": "5de834491a10c463537a4497e513394b9a7697e04b541cb591c97b22adc6ce04",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303716,
+      "mode": 384,
+      "mtimeNs": 1790888886569954146,
+      "path": "manager-commands/047.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303723,
+      "mode": 420,
+      "mtimeNs": 1790888886737950854,
+      "path": "manager-commands/048.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 578,
+      "dev": 45829,
+      "inode": 303722,
+      "mode": 420,
+      "mtimeNs": 1790888886685951873,
+      "path": "manager-commands/048.request.json",
+      "sha256": "9a63ea711453abbd86efc6d11f6e9a6a0a58b7cc29986b6be9009732ecd339ea",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303724,
+      "mode": 420,
+      "mtimeNs": 1790888886741950776,
+      "path": "manager-commands/048.response.json",
+      "sha256": "60a713aff5e2c0b722505c0e278ddfe1e3f290d96ad3817305f769270140e163",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303721,
+      "mode": 384,
+      "mtimeNs": 1790888886685951873,
+      "path": "manager-commands/048.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 307,
+      "dev": 45829,
+      "inode": 303727,
+      "mode": 420,
+      "mtimeNs": 1790888887329939254,
+      "path": "manager-commands/049.log",
+      "sha256": "6e3447102b6312bb8e3be147beee2e861dc5a9db9a20518a66713e1f4a68f7d9",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303726,
+      "mode": 420,
+      "mtimeNs": 1790888887289940037,
+      "path": "manager-commands/049.request.json",
+      "sha256": "6585d080e6bd96c85473946991893ee3fd41852e27f4f0f16a2aa22fafcc21df",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303728,
+      "mode": 420,
+      "mtimeNs": 1790888887329939254,
+      "path": "manager-commands/049.response.json",
+      "sha256": "e842aa354be091e8d87e50f01d11f78a06c833356c7d816f9e8961cc99f69cac",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303725,
+      "mode": 384,
+      "mtimeNs": 1790888887289940037,
+      "path": "manager-commands/049.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 307,
+      "dev": 45829,
+      "inode": 303731,
+      "mode": 420,
+      "mtimeNs": 1790888887445936981,
+      "path": "manager-commands/050.log",
+      "sha256": "6e3447102b6312bb8e3be147beee2e861dc5a9db9a20518a66713e1f4a68f7d9",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303730,
+      "mode": 420,
+      "mtimeNs": 1790888887409937686,
+      "path": "manager-commands/050.request.json",
+      "sha256": "9427d85fe70e6120a26ace06b17239a7e600a52f0ceb9d9b3a253ceb586c2a62",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303732,
+      "mode": 420,
+      "mtimeNs": 1790888887445936981,
+      "path": "manager-commands/050.response.json",
+      "sha256": "ef4547a8188d154160b287719af9559cee055de61a6444c380906adbc4ba21bd",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303729,
+      "mode": 384,
+      "mtimeNs": 1790888887409937686,
+      "path": "manager-commands/050.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 307,
+      "dev": 45829,
+      "inode": 303735,
+      "mode": 420,
+      "mtimeNs": 1790888887625933453,
+      "path": "manager-commands/051.log",
+      "sha256": "6e3447102b6312bb8e3be147beee2e861dc5a9db9a20518a66713e1f4a68f7d9",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303734,
+      "mode": 420,
+      "mtimeNs": 1790888887593934080,
+      "path": "manager-commands/051.request.json",
+      "sha256": "0416fa26e3d3278f47da542bcca34d0e3c9ae1dc9de734fd9394e23df0c5f5c1",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303736,
+      "mode": 420,
+      "mtimeNs": 1790888887625933453,
+      "path": "manager-commands/051.response.json",
+      "sha256": "eb142e6509acb560d032c389f808605a710fda1180342ed820d86e3b1ac17737",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303733,
+      "mode": 384,
+      "mtimeNs": 1790888887589934159,
+      "path": "manager-commands/051.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 307,
+      "dev": 45829,
+      "inode": 303739,
+      "mode": 420,
+      "mtimeNs": 1790888887725931494,
+      "path": "manager-commands/052.log",
+      "sha256": "6e3447102b6312bb8e3be147beee2e861dc5a9db9a20518a66713e1f4a68f7d9",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303738,
+      "mode": 420,
+      "mtimeNs": 1790888887693932121,
+      "path": "manager-commands/052.request.json",
+      "sha256": "2f154944eeaf5ea39e64eb5cfa129577699fc33f22fa78da78da9c9cca67063b",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303740,
+      "mode": 420,
+      "mtimeNs": 1790888887729931415,
+      "path": "manager-commands/052.response.json",
+      "sha256": "43491bafa25063124aac722d5e3870e5f52eb53e26205f7a53b8c3e3072c8d71",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303737,
+      "mode": 384,
+      "mtimeNs": 1790888887693932121,
+      "path": "manager-commands/052.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 307,
+      "dev": 45829,
+      "inode": 303743,
+      "mode": 420,
+      "mtimeNs": 1790888887833929377,
+      "path": "manager-commands/053.log",
+      "sha256": "6e3447102b6312bb8e3be147beee2e861dc5a9db9a20518a66713e1f4a68f7d9",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303742,
+      "mode": 420,
+      "mtimeNs": 1790888887801930004,
+      "path": "manager-commands/053.request.json",
+      "sha256": "6b8d5951b8679690bbc489c63be4e1feef0b4436026a8a03cfb5e0ff48c69b5a",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303744,
+      "mode": 420,
+      "mtimeNs": 1790888887837929299,
+      "path": "manager-commands/053.response.json",
+      "sha256": "ce52a8ed84905deb92219ce1ddc0709b6a8d6d30644b7091dca67ec60f0ab0c0",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303741,
+      "mode": 384,
+      "mtimeNs": 1790888887801930004,
+      "path": "manager-commands/053.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303747,
+      "mode": 420,
+      "mtimeNs": 1790888887949927104,
+      "path": "manager-commands/054.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 146,
+      "dev": 45829,
+      "inode": 303746,
+      "mode": 420,
+      "mtimeNs": 1790888887897928123,
+      "path": "manager-commands/054.request.json",
+      "sha256": "feab933d89ef36ad155eb39416fda8b8fb9caf651a972300c6f64eaf5bbe9035",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303748,
+      "mode": 420,
+      "mtimeNs": 1790888887949927104,
+      "path": "manager-commands/054.response.json",
+      "sha256": "8a2b20d463f90c37df0e703570b72949cf1bc66ebea3f2790386653cf72ef703",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303745,
+      "mode": 384,
+      "mtimeNs": 1790888887897928123,
+      "path": "manager-commands/054.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 188,
+      "dev": 45829,
+      "inode": 303751,
+      "mode": 420,
+      "mtimeNs": 1790888888033925458,
+      "path": "manager-commands/055.log",
+      "sha256": "12797d61193616c4d7d8c59254a0bfaf01a25682dd7643d3d7bfb5d247b8902a",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303750,
+      "mode": 420,
+      "mtimeNs": 1790888888001926085,
+      "path": "manager-commands/055.request.json",
+      "sha256": "63e6c3a222ac4478360b75a1f4a45ec197c8fd07ec17f9135fc51207847497a7",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303752,
+      "mode": 420,
+      "mtimeNs": 1790888888037925380,
+      "path": "manager-commands/055.response.json",
+      "sha256": "7396fe2b8c534676342a840dc257df2726de31f52727db6d6ac7bcfd90457ca9",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303749,
+      "mode": 384,
+      "mtimeNs": 1790888888001926085,
+      "path": "manager-commands/055.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 188,
+      "dev": 45829,
+      "inode": 303755,
+      "mode": 420,
+      "mtimeNs": 1790888888153923107,
+      "path": "manager-commands/056.log",
+      "sha256": "12797d61193616c4d7d8c59254a0bfaf01a25682dd7643d3d7bfb5d247b8902a",
+      "uid": 0
+    },
+    {
+      "bytes": 245,
+      "dev": 45829,
+      "inode": 303754,
+      "mode": 420,
+      "mtimeNs": 1790888888121923734,
+      "path": "manager-commands/056.request.json",
+      "sha256": "b2d9f41f234e15f0271c293686ee602a7ac3f4ae05767bdd21c651a12c671e6b",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303756,
+      "mode": 420,
+      "mtimeNs": 1790888888153923107,
+      "path": "manager-commands/056.response.json",
+      "sha256": "35af7db07a2895a98fe434a6175db0c1a7271c4b482b44ce48d1a30337164a85",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303753,
+      "mode": 384,
+      "mtimeNs": 1790888888121923734,
+      "path": "manager-commands/056.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 190,
+      "dev": 45829,
+      "inode": 303759,
+      "mode": 420,
+      "mtimeNs": 1790888888257921069,
+      "path": "manager-commands/057.log",
+      "sha256": "48dc7f96b42a07881d2402a78d45d339c88bfc8b49182c8dc9cbf74e1ee05f44",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303758,
+      "mode": 420,
+      "mtimeNs": 1790888888225921696,
+      "path": "manager-commands/057.request.json",
+      "sha256": "d2a44d74eeb253f8967c84cfd0f13352c697b17c6fe388e6e1c0c6f8e5dd79e2",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303760,
+      "mode": 420,
+      "mtimeNs": 1790888888257921069,
+      "path": "manager-commands/057.response.json",
+      "sha256": "7405086c06b6d28cb843f76fdcaa3d9ade182d6127c9c2955ed4e27865004e6b",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303757,
+      "mode": 384,
+      "mtimeNs": 1790888888221921774,
+      "path": "manager-commands/057.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303764,
+      "mode": 420,
+      "mtimeNs": 1790888888377918717,
+      "path": "manager-commands/058.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 588,
+      "dev": 45829,
+      "inode": 303763,
+      "mode": 420,
+      "mtimeNs": 1790888888333919580,
+      "path": "manager-commands/058.request.json",
+      "sha256": "2e1218d268ae38104f634f886e202a50b64ce5489dbaf779dfa3303954945cc0",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303765,
+      "mode": 420,
+      "mtimeNs": 1790888888381918639,
+      "path": "manager-commands/058.response.json",
+      "sha256": "10818c42a206750a40d108fa69190ba465b79f265a317ac6a7814c43819fd2d1",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303762,
+      "mode": 384,
+      "mtimeNs": 1790888888333919580,
+      "path": "manager-commands/058.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 311,
+      "dev": 45829,
+      "inode": 303768,
+      "mode": 420,
+      "mtimeNs": 1790888888949907509,
+      "path": "manager-commands/059.log",
+      "sha256": "48f29333541fb173e413e45e7ed6620b3c5a89bb022fb443aae22cb73dd86902",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303767,
+      "mode": 420,
+      "mtimeNs": 1790888888909908293,
+      "path": "manager-commands/059.request.json",
+      "sha256": "abd0be8f4388058a402a48ffcb5ac22442a88380b1bab35d1d7b6a59d04de4a0",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303769,
+      "mode": 420,
+      "mtimeNs": 1790888888953907430,
+      "path": "manager-commands/059.response.json",
+      "sha256": "e17ec3cac14fb8c2bfcdd910b878424d22dee3392d557040f78550f725fd7c79",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303766,
+      "mode": 384,
+      "mtimeNs": 1790888888909908293,
+      "path": "manager-commands/059.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 311,
+      "dev": 45829,
+      "inode": 303772,
+      "mode": 420,
+      "mtimeNs": 1790888889053905471,
+      "path": "manager-commands/060.log",
+      "sha256": "48f29333541fb173e413e45e7ed6620b3c5a89bb022fb443aae22cb73dd86902",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303771,
+      "mode": 420,
+      "mtimeNs": 1790888889025906020,
+      "path": "manager-commands/060.request.json",
+      "sha256": "33dbc3a7a4988ad4f0ba0061c3702d4b9a23c9397729d51c7d3fb557c7312c56",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303773,
+      "mode": 420,
+      "mtimeNs": 1790888889105904452,
+      "path": "manager-commands/060.response.json",
+      "sha256": "63580d3897e5483d89b2bb161cf75524aed0eeebde0abea7fbd113ff9f286168",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303770,
+      "mode": 384,
+      "mtimeNs": 1790888889021906098,
+      "path": "manager-commands/060.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 311,
+      "dev": 45829,
+      "inode": 303776,
+      "mode": 420,
+      "mtimeNs": 1790888889233901944,
+      "path": "manager-commands/061.log",
+      "sha256": "48f29333541fb173e413e45e7ed6620b3c5a89bb022fb443aae22cb73dd86902",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303775,
+      "mode": 420,
+      "mtimeNs": 1790888889201902571,
+      "path": "manager-commands/061.request.json",
+      "sha256": "15b2633f574d14876d313736bec2f6dcb351ca51a210e93410bf4e94d3d2a952",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303777,
+      "mode": 420,
+      "mtimeNs": 1790888889237901865,
+      "path": "manager-commands/061.response.json",
+      "sha256": "0c52e643794b5eda2143233e473a54e85ed88ef41a6cbcdc337919d7f4d47c61",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303774,
+      "mode": 384,
+      "mtimeNs": 1790888889201902571,
+      "path": "manager-commands/061.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 311,
+      "dev": 45829,
+      "inode": 303809,
+      "mode": 420,
+      "mtimeNs": 1790888889405898573,
+      "path": "manager-commands/062.log",
+      "sha256": "48f29333541fb173e413e45e7ed6620b3c5a89bb022fb443aae22cb73dd86902",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303808,
+      "mode": 420,
+      "mtimeNs": 1790888889369899279,
+      "path": "manager-commands/062.request.json",
+      "sha256": "283baa33ac7ab977d9ae8b67907e0b6a48ba8e0eae6fe46e8307532c0dff56a2",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303810,
+      "mode": 420,
+      "mtimeNs": 1790888889405898573,
+      "path": "manager-commands/062.response.json",
+      "sha256": "1c2cbb2b7a61bc7252d2865d6c62648f6c092b3d18b0ddb2194f8991d841b44e",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303778,
+      "mode": 384,
+      "mtimeNs": 1790888889369899279,
+      "path": "manager-commands/062.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 16,
+      "dev": 45829,
+      "inode": 303813,
+      "mode": 420,
+      "mtimeNs": 1790888889525896222,
+      "path": "manager-commands/063.log",
+      "sha256": "d8760763be63067f00789fcf42648cb7e89259b37690e733415676ec0b8b6596",
+      "uid": 0
+    },
+    {
+      "bytes": 148,
+      "dev": 45829,
+      "inode": 303812,
+      "mode": 420,
+      "mtimeNs": 1790888889481897084,
+      "path": "manager-commands/063.request.json",
+      "sha256": "6619e3dc8b7f9a5042975d1e326b63e1d938d539bea7489cc4050d901cbd51f7",
+      "uid": 0
+    },
+    {
+      "bytes": 198,
+      "dev": 45829,
+      "inode": 303814,
+      "mode": 420,
+      "mtimeNs": 1790888889577895203,
+      "path": "manager-commands/063.response.json",
+      "sha256": "4267428c5860d257ff0aa1555cc370b2d8747682aaba4f265ffe8af39b141c6e",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303811,
+      "mode": 384,
+      "mtimeNs": 1790888889481897084,
+      "path": "manager-commands/063.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 190,
+      "dev": 45829,
+      "inode": 303817,
+      "mode": 420,
+      "mtimeNs": 1790888889669893400,
+      "path": "manager-commands/064.log",
+      "sha256": "48dc7f96b42a07881d2402a78d45d339c88bfc8b49182c8dc9cbf74e1ee05f44",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303816,
+      "mode": 420,
+      "mtimeNs": 1790888889637894027,
+      "path": "manager-commands/064.request.json",
+      "sha256": "2746c9d329e715348daebb01719e27afb40b904e1f1e11985a4ff6a9364871dc",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303818,
+      "mode": 420,
+      "mtimeNs": 1790888889669893400,
+      "path": "manager-commands/064.response.json",
+      "sha256": "3db21defca615b73e20de0db6f512033807acea2974d05247b06e98f5df681f5",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303815,
+      "mode": 384,
+      "mtimeNs": 1790888889637894027,
+      "path": "manager-commands/064.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 190,
+      "dev": 45829,
+      "inode": 303821,
+      "mode": 420,
+      "mtimeNs": 1790888889849889873,
+      "path": "manager-commands/065.log",
+      "sha256": "48dc7f96b42a07881d2402a78d45d339c88bfc8b49182c8dc9cbf74e1ee05f44",
+      "uid": 0
+    },
+    {
+      "bytes": 247,
+      "dev": 45829,
+      "inode": 303820,
+      "mode": 420,
+      "mtimeNs": 1790888889817890500,
+      "path": "manager-commands/065.request.json",
+      "sha256": "0f9589a4fe82261a80f534b6ccd2e98f766c28c0beed8c7bbfb064afbbdbc647",
+      "uid": 0
+    },
+    {
+      "bytes": 199,
+      "dev": 45829,
+      "inode": 303822,
+      "mode": 420,
+      "mtimeNs": 1790888889849889873,
+      "path": "manager-commands/065.response.json",
+      "sha256": "0c1271f7ed10a4ec94f2c355fd2f970868f1e8da60052d7c53ddf4721d90c876",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303819,
+      "mode": 384,
+      "mtimeNs": 1790888889817890500,
+      "path": "manager-commands/065.slot",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303186,
+      "mode": 384,
+      "mtimeNs": 1790888881902045618,
+      "path": "manager-commands/dispatch-gateway-native-boot-e6b9efe1fa8e2e35f45a20d09b39259e.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303211,
+      "mode": 384,
+      "mtimeNs": 1790888883270018812,
+      "path": "manager-commands/dispatch-gw-native-c1-082071e-gate-fail.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303176,
+      "mode": 384,
+      "mtimeNs": 1790888881402055416,
+      "path": "manager-commands/dispatch-gw-native-c1-082071e-gate-ok.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303216,
+      "mode": 384,
+      "mtimeNs": 1790888883698010425,
+      "path": "manager-commands/dispatch-gw-native-c1-082071e-reader-fail.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303245,
+      "mode": 384,
+      "mtimeNs": 1790888884154001489,
+      "path": "manager-commands/dispatch-gw-native-c1-082071e-reader-guard.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303181,
+      "mode": 384,
+      "mtimeNs": 1790888881834046951,
+      "path": "manager-commands/dispatch-gw-native-c1-082071e-reader-ok.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303720,
+      "mode": 384,
+      "mtimeNs": 1790888886681951952,
+      "path": "manager-commands/dispatch-ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303650,
+      "mode": 384,
+      "mtimeNs": 1790888884801988791,
+      "path": "manager-commands/dispatch-ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 0,
+      "dev": 45829,
+      "inode": 303761,
+      "mode": 384,
+      "mtimeNs": 1790888888325919736,
+      "path": "manager-commands/dispatch-ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "bytes": 55955,
+      "dev": 45829,
+      "inode": 1761283,
+      "mode": 420,
+      "mtimeNs": 1790888889945887992,
+      "path": "manager-result.json",
+      "sha256": "9cfe441df64f5c1d99fec7a973a9dde25ab160c9136497a7946b0015c04064e2",
+      "uid": 0
+    },
+    {
+      "bytes": 246650,
+      "dev": 45829,
+      "inode": 1761281,
+      "mode": 420,
+      "mtimeNs": 1790888892609835789,
+      "path": "result.json",
+      "sha256": "a4c466c6a394a9941486df874020363e8aa51351c64c917e5fa84b37f30a14fe",
+      "uid": 0
+    },
+    {
+      "bytes": 25067,
+      "dev": 45829,
+      "inode": 278717,
+      "mode": 256,
+      "mtimeNs": 1790888879082100878,
+      "path": "source/manager-child.py",
+      "sha256": "1596c936446be22faf6afcf3ce9a4ed94cc79d7c1c3e3f08eb00102aebdcaf51",
+      "uid": 0
+    },
+    {
+      "bytes": 201410,
+      "dev": 45829,
+      "inode": 278795,
+      "mode": 256,
+      "mtimeNs": 1790888879098100564,
+      "path": "source/offline-runtime-upgrade.py",
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c",
+      "uid": 0
+    },
+    {
+      "bytes": 53446,
+      "dev": 45829,
+      "inode": 278796,
+      "mode": 256,
+      "mtimeNs": 1790888879102100486,
+      "path": "source/ota-health-result.py",
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "uid": 0
+    },
+    {
+      "bytes": 3509,
+      "dev": 45829,
+      "inode": 278797,
+      "mode": 256,
+      "mtimeNs": 1790888879106100407,
+      "path": "source/private-entry.py",
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "uid": 0
+    },
+    {
+      "bytes": 86399,
+      "dev": 45829,
+      "inode": 278798,
+      "mode": 256,
+      "mtimeNs": 1790888879114100251,
+      "path": "source/runtime-upgrade-guard.py",
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "uid": 0
+    }
+  ],
+  "totalBytes": 1679821,
+  "remoteWrites": 0,
+  "sshClosed": true,
+  "command": "timeout --signal=TERM --kill-after=5s 110s python3 -I -B -",
+  "remoteExitCode": 0,
+  "remoteStderr": "",
+  "directories": 28,
+  "passed": true,
+  "seconds": 1.363685900112614,
+  "archive": {
+    "path": "board-23-C1-raw.tar",
+    "bytes": 2365440,
+    "sha256": "5c8d0d5ebd56460266153aae1af499f46d03cc8b50c5b6bf1006db936cb42866"
+  }
+}
