@@ -1,0 +1,548 @@
+{
+  "host": "192.168.22.23",
+  "root": "/tmp/gw-production-checkpoint-7e93c74-23-r1",
+  "commit": "7e93c745a209bb2b9ef64e788d3d287373b20d55",
+  "inputs": {
+    "deploy/offline-runtime-upgrade.py": {
+      "bytes": 162974,
+      "sha256": "a98003c25559024b6ec5cc5990ef6927cf81ebb1cc7836e899f80b2e070792f1"
+    },
+    "deploy/runtime-upgrade-guard.py": {
+      "bytes": 83157,
+      "sha256": "00f8715707a23aa2104244f51fcc7b1de31b708bdf6106ab4aaedc30d8ab65e2"
+    },
+    "deploy/ota-health-result.py": {
+      "bytes": 42618,
+      "sha256": "835e36c3ac3185a9cb0651d80ad2bad62ed3d12f6d9646eb3cd4c6ac79c8a98d"
+    },
+    "deploy/gateway-services.sh": {
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    "deploy/ota-rollback.sh": {
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    "deploy/gateway-ota-recover.service": {
+      "bytes": 845,
+      "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+    },
+    "tools/production_runtime_baseline_test.py": {
+      "bytes": 43558,
+      "sha256": "6c03bb0bd6411383cf3523e262f09a053b0d5e75255f21827c65406cf6a2bec0"
+    },
+    "tools/fixtures/production-historical-r2-allowlists.json": {
+      "bytes": 949,
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    }
+  },
+  "cases": [
+    "test_failed_rollback_completed_then_owner_final_crash_resumes_original_job",
+    "test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending",
+    "test_boot_oneshot_during_start_requires_positive_live_offline_owner",
+    "test_dangling_production_pointer_cannot_fall_back_to_legacy_authority",
+    "test_mismatched_effective_dropin_or_fragment_denies_before_intent",
+    "test_payload_wrong_elf_architecture_denies_before_any_intent",
+    "test_boot_malformed_pending_ref_denies_before_recovery_or_mutation",
+    "test_process_death_mid_copy_is_recovered_without_ignoring_inventory"
+  ],
+  "executeApprovedFlag": true,
+  "sshStarted": true,
+  "preflightExitCode": 0,
+  "preflightStdout": "{\"snapshot\": {\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2948403200, \"/tmp\": 2948403200, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2219936 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}, \"rawJson\": \"{\\\"machineCode\\\": \\\"COMM202600999\\\", \\\"bootId\\\": \\\"87ba3880-1293-4b45-8826-8386e8ffb40f\\\", \\\"architecture\\\": \\\"aarch64\\\", \\\"python\\\": \\\"3.8.10 (default, Mar 18 2025, 20:04:55) \\\\n[GCC 9.4.0]\\\", \\\"modules\\\": {\\\"argparse\\\": true, \\\"ctypes\\\": true, \\\"fcntl\\\": true, \\\"hashlib\\\": true, \\\"importlib.util\\\": true, \\\"json\\\": true, \\\"pathlib\\\": true, \\\"resource\\\": true, \\\"struct\\\": true, \\\"subprocess\\\": true, \\\"tempfile\\\": true, \\\"types\\\": true, \\\"unittest.mock\\\": true}, \\\"stateDir\\\": \\\"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\\\", \\\"stateSha256\\\": \\\"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\\\", \\\"approvalSha256\\\": \\\"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\\\", \\\"activeSha256\\\": \\\"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\\\", \\\"guardSha256\\\": \\\"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\\\", \\\"configSha256\\\": {\\\"apps/camera-service.json\\\": \\\"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\\\", \\\"apps/monitor-service.json\\\": \\\"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\\\", \\\"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\\\": \\\"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\\\", \\\"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\\\": \\\"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\\\", \\\"apps/mqtt-service.json\\\": \\\"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\\\", \\\"device_identity.json\\\": \\\"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\\\", \\\"devices/device_modbusRTU_2_readonly.json\\\": \\\"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\\\", \\\"edge-package-manifest.json\\\": \\\"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\\\", \\\"qt-display.env\\\": \\\"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\\\", \\\"tls/COMM202600999-client.key\\\": \\\"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\\\", \\\"tls/COMM202600999-client.pem\\\": \\\"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\\\", \\\"tls/ca.crt\\\": \\\"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\\\"}, \\\"markerSha256\\\": \\\"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\\\", \\\"readers\\\": [{\\\"unit\\\": \\\"modbus-rtu@device_modbusRTU_2_readonly.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475164\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/ModbusRtu\\\", \\\"sha256\\\": \\\"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\\\"}, {\\\"unit\\\": \\\"mqtt-driver@mqtt-service.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475219\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/MqttDriver\\\", \\\"sha256\\\": \\\"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\\\"}, {\\\"unit\\\": \\\"system-monitor@monitor-service.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475276\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/SystemMonitor\\\", \\\"sha256\\\": \\\"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\\\"}], \\\"runtimeProcesses\\\": [{\\\"pid\\\": 475164, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/ModbusRtu\\\"}, {\\\"pid\\\": 475219, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/MqttDriver\\\"}, {\\\"pid\\\": 475276, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/SystemMonitor\\\"}], \\\"segments\\\": [{\\\"source\\\": \\\"gateway_point_store\\\", \\\"target\\\": \\\"gateway_point_store_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_dio\\\", \\\"target\\\": \\\"gateway_point_store_dio_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ems_virtual\\\", \\\"target\\\": \\\"gateway_point_store_ems_virtual_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_gw002_readonly_rtu2_v2\\\", \\\"target\\\": \\\"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_system_monitor\\\", \\\"target\\\": \\\"gateway_point_store_system_monitor_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ttySP1\\\", \\\"target\\\": \\\"gateway_point_store_ttySP1_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ttySP2\\\", \\\"target\\\": \\\"gateway_point_store_ttySP2_v11_c1001r2\\\"}], \\\"maintenanceTarget\\\": [{\\\"path\\\": \\\"/opt\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 493, \\\"uid\\\": 0, \\\"directory\\\": true}, {\\\"path\\\": \\\"/opt/gateway-suite-maintenance\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 493, \\\"uid\\\": 0, \\\"directory\\\": true}, {\\\"path\\\": \\\"/opt/gateway-suite-maintenance/1f016eb\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 365, \\\"uid\\\": 0, \\\"directory\\\": true}], \\\"freeBytes\\\": {\\\"/opt\\\": 2948403200, \\\"/tmp\\\": 2948403200, \\\"/dev/shm\\\": 902348800}, \\\"memAvailable\\\": [\\\"MemAvailable:    2219936 kB\\\"], \\\"offlineLock\\\": {\\\"path\\\": \\\"/run/gateway-offline-runtime.lock\\\", \\\"dev\\\": 18, \\\"inode\\\": 120037, \\\"mode\\\": 384, \\\"uid\\\": 0}, \\\"remoteWrites\\\": 0, \\\"contentReadBytes\\\": 4764089}\\n\", \"rawCommands\": [{\"argv\": [\"systemctl\", \"show\", \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475164\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"systemctl\", \"show\", \"mqtt-driver@mqtt-service.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475219\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"systemctl\", \"show\", \"system-monitor@monitor-service.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475276\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"uname\", \"-p\"], \"exitCode\": 0, \"stdout\": \"aarch64\\n\"}]}\n",
+  "preflightStderr": "",
+  "uploadStarted": true,
+  "remoteExitCode": 0,
+  "remoteStdout": "{\"host\": \"192.168.22.23\", \"commit\": \"7e93c745a209bb2b9ef64e788d3d287373b20d55\", \"root\": \"/tmp/gw-production-checkpoint-7e93c74-23-r1\", \"fixtureOnly\": true, \"realLifecycleCalled\": false, \"verifiedInputs\": [{\"path\": \"deploy/offline-runtime-upgrade.py\", \"bytes\": 162974, \"sha256\": \"a98003c25559024b6ec5cc5990ef6927cf81ebb1cc7836e899f80b2e070792f1\"}, {\"path\": \"deploy/runtime-upgrade-guard.py\", \"bytes\": 83157, \"sha256\": \"00f8715707a23aa2104244f51fcc7b1de31b708bdf6106ab4aaedc30d8ab65e2\"}, {\"path\": \"deploy/ota-health-result.py\", \"bytes\": 42618, \"sha256\": \"835e36c3ac3185a9cb0651d80ad2bad62ed3d12f6d9646eb3cd4c6ac79c8a98d\"}, {\"path\": \"deploy/gateway-services.sh\", \"bytes\": 21858, \"sha256\": \"b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960\"}, {\"path\": \"deploy/ota-rollback.sh\", \"bytes\": 18983, \"sha256\": \"5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57\"}, {\"path\": \"deploy/gateway-ota-recover.service\", \"bytes\": 845, \"sha256\": \"afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f\"}, {\"path\": \"tools/production_runtime_baseline_test.py\", \"bytes\": 43558, \"sha256\": \"6c03bb0bd6411383cf3523e262f09a053b0d5e75255f21827c65406cf6a2bec0\"}, {\"path\": \"tools/fixtures/production-historical-r2-allowlists.json\", \"bytes\": 949, \"sha256\": \"03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0\"}], \"before\": {\"snapshot\": {\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2947989504, \"/tmp\": 2947989504, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2219060 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}, \"rawJson\": \"{\\\"machineCode\\\": \\\"COMM202600999\\\", \\\"bootId\\\": \\\"87ba3880-1293-4b45-8826-8386e8ffb40f\\\", \\\"architecture\\\": \\\"aarch64\\\", \\\"python\\\": \\\"3.8.10 (default, Mar 18 2025, 20:04:55) \\\\n[GCC 9.4.0]\\\", \\\"modules\\\": {\\\"argparse\\\": true, \\\"ctypes\\\": true, \\\"fcntl\\\": true, \\\"hashlib\\\": true, \\\"importlib.util\\\": true, \\\"json\\\": true, \\\"pathlib\\\": true, \\\"resource\\\": true, \\\"struct\\\": true, \\\"subprocess\\\": true, \\\"tempfile\\\": true, \\\"types\\\": true, \\\"unittest.mock\\\": true}, \\\"stateDir\\\": \\\"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\\\", \\\"stateSha256\\\": \\\"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\\\", \\\"approvalSha256\\\": \\\"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\\\", \\\"activeSha256\\\": \\\"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\\\", \\\"guardSha256\\\": \\\"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\\\", \\\"configSha256\\\": {\\\"apps/camera-service.json\\\": \\\"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\\\", \\\"apps/monitor-service.json\\\": \\\"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\\\", \\\"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\\\": \\\"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\\\", \\\"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\\\": \\\"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\\\", \\\"apps/mqtt-service.json\\\": \\\"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\\\", \\\"device_identity.json\\\": \\\"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\\\", \\\"devices/device_modbusRTU_2_readonly.json\\\": \\\"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\\\", \\\"edge-package-manifest.json\\\": \\\"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\\\", \\\"qt-display.env\\\": \\\"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\\\", \\\"tls/COMM202600999-client.key\\\": \\\"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\\\", \\\"tls/COMM202600999-client.pem\\\": \\\"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\\\", \\\"tls/ca.crt\\\": \\\"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\\\"}, \\\"markerSha256\\\": \\\"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\\\", \\\"readers\\\": [{\\\"unit\\\": \\\"modbus-rtu@device_modbusRTU_2_readonly.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475164\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/ModbusRtu\\\", \\\"sha256\\\": \\\"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\\\"}, {\\\"unit\\\": \\\"mqtt-driver@mqtt-service.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475219\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/MqttDriver\\\", \\\"sha256\\\": \\\"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\\\"}, {\\\"unit\\\": \\\"system-monitor@monitor-service.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475276\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/SystemMonitor\\\", \\\"sha256\\\": \\\"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\\\"}], \\\"runtimeProcesses\\\": [{\\\"pid\\\": 475164, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/ModbusRtu\\\"}, {\\\"pid\\\": 475219, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/MqttDriver\\\"}, {\\\"pid\\\": 475276, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/SystemMonitor\\\"}], \\\"segments\\\": [{\\\"source\\\": \\\"gateway_point_store\\\", \\\"target\\\": \\\"gateway_point_store_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_dio\\\", \\\"target\\\": \\\"gateway_point_store_dio_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ems_virtual\\\", \\\"target\\\": \\\"gateway_point_store_ems_virtual_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_gw002_readonly_rtu2_v2\\\", \\\"target\\\": \\\"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_system_monitor\\\", \\\"target\\\": \\\"gateway_point_store_system_monitor_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ttySP1\\\", \\\"target\\\": \\\"gateway_point_store_ttySP1_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ttySP2\\\", \\\"target\\\": \\\"gateway_point_store_ttySP2_v11_c1001r2\\\"}], \\\"maintenanceTarget\\\": [{\\\"path\\\": \\\"/opt\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 493, \\\"uid\\\": 0, \\\"directory\\\": true}, {\\\"path\\\": \\\"/opt/gateway-suite-maintenance\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 493, \\\"uid\\\": 0, \\\"directory\\\": true}, {\\\"path\\\": \\\"/opt/gateway-suite-maintenance/1f016eb\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 365, \\\"uid\\\": 0, \\\"directory\\\": true}], \\\"freeBytes\\\": {\\\"/opt\\\": 2947989504, \\\"/tmp\\\": 2947989504, \\\"/dev/shm\\\": 902348800}, \\\"memAvailable\\\": [\\\"MemAvailable:    2219060 kB\\\"], \\\"offlineLock\\\": {\\\"path\\\": \\\"/run/gateway-offline-runtime.lock\\\", \\\"dev\\\": 18, \\\"inode\\\": 120037, \\\"mode\\\": 384, \\\"uid\\\": 0}, \\\"remoteWrites\\\": 0, \\\"contentReadBytes\\\": 4764089}\\n\", \"rawCommands\": [{\"argv\": [\"systemctl\", \"show\", \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475164\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"systemctl\", \"show\", \"mqtt-driver@mqtt-service.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475219\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"systemctl\", \"show\", \"system-monitor@monitor-service.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475276\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"uname\", \"-p\"], \"exitCode\": 0, \"stdout\": \"aarch64\\n\"}]}, \"cases\": [\"test_failed_rollback_completed_then_owner_final_crash_resumes_original_job\", \"test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending\", \"test_boot_oneshot_during_start_requires_positive_live_offline_owner\", \"test_dangling_production_pointer_cannot_fall_back_to_legacy_authority\", \"test_mismatched_effective_dropin_or_fragment_denies_before_intent\", \"test_payload_wrong_elf_architecture_denies_before_any_intent\", \"test_boot_malformed_pending_ref_denies_before_recovery_or_mutation\", \"test_process_death_mid_copy_is_recovered_without_ignoring_inventory\"], \"fixtureUid\": 0, \"fixtureCommand\": [\"/usr/bin/python3\", \"-I\", \"-B\", \"-c\", \"import json,sys,unittest\\nfrom pathlib import Path\\nsys.path.insert(0,sys.argv[1])\\nimport production_runtime_baseline_test as fixture\\nnames=json.loads(sys.argv[2])\\nsuite=unittest.TestSuite(fixture.ProductionRuntimeTest(name) for name in names)\\nout=unittest.TextTestRunner(verbosity=2).run(suite)\\nrecord=dict(tests=out.testsRun,failures=len(out.failures),errors=len(out.errors),skipped=len(out.skipped))\\nPath('test-summary.json').write_text(json.dumps(record)+'\\\\n')\\nraise SystemExit(0 if out.wasSuccessful() and out.testsRun==8 and not out.skipped else 1)\\n\", \"/tmp/gw-production-checkpoint-7e93c74-23-r1/source/tools\", \"[\\\"test_failed_rollback_completed_then_owner_final_crash_resumes_original_job\\\", \\\"test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending\\\", \\\"test_boot_oneshot_during_start_requires_positive_live_offline_owner\\\", \\\"test_dangling_production_pointer_cannot_fall_back_to_legacy_authority\\\", \\\"test_mismatched_effective_dropin_or_fragment_denies_before_intent\\\", \\\"test_payload_wrong_elf_architecture_denies_before_any_intent\\\", \\\"test_boot_malformed_pending_ref_denies_before_recovery_or_mutation\\\", \\\"test_process_death_mid_copy_is_recovered_without_ignoring_inventory\\\"]\"], \"timeoutSeconds\": 120, \"fixtureProcessGroup\": 510220, \"fixtureExitCode\": 0, \"fixtureElapsedSeconds\": 12.989320781081915, \"remainingFixtureProcesses\": [], \"after\": {\"snapshot\": {\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2947948544, \"/tmp\": 2947948544, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2216064 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}, \"rawJson\": \"{\\\"machineCode\\\": \\\"COMM202600999\\\", \\\"bootId\\\": \\\"87ba3880-1293-4b45-8826-8386e8ffb40f\\\", \\\"architecture\\\": \\\"aarch64\\\", \\\"python\\\": \\\"3.8.10 (default, Mar 18 2025, 20:04:55) \\\\n[GCC 9.4.0]\\\", \\\"modules\\\": {\\\"argparse\\\": true, \\\"ctypes\\\": true, \\\"fcntl\\\": true, \\\"hashlib\\\": true, \\\"importlib.util\\\": true, \\\"json\\\": true, \\\"pathlib\\\": true, \\\"resource\\\": true, \\\"struct\\\": true, \\\"subprocess\\\": true, \\\"tempfile\\\": true, \\\"types\\\": true, \\\"unittest.mock\\\": true}, \\\"stateDir\\\": \\\"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\\\", \\\"stateSha256\\\": \\\"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\\\", \\\"approvalSha256\\\": \\\"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\\\", \\\"activeSha256\\\": \\\"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\\\", \\\"guardSha256\\\": \\\"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\\\", \\\"configSha256\\\": {\\\"apps/camera-service.json\\\": \\\"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\\\", \\\"apps/monitor-service.json\\\": \\\"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\\\", \\\"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\\\": \\\"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\\\", \\\"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\\\": \\\"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\\\", \\\"apps/mqtt-service.json\\\": \\\"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\\\", \\\"device_identity.json\\\": \\\"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\\\", \\\"devices/device_modbusRTU_2_readonly.json\\\": \\\"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\\\", \\\"edge-package-manifest.json\\\": \\\"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\\\", \\\"qt-display.env\\\": \\\"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\\\", \\\"tls/COMM202600999-client.key\\\": \\\"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\\\", \\\"tls/COMM202600999-client.pem\\\": \\\"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\\\", \\\"tls/ca.crt\\\": \\\"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\\\"}, \\\"markerSha256\\\": \\\"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\\\", \\\"readers\\\": [{\\\"unit\\\": \\\"modbus-rtu@device_modbusRTU_2_readonly.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475164\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/ModbusRtu\\\", \\\"sha256\\\": \\\"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\\\"}, {\\\"unit\\\": \\\"mqtt-driver@mqtt-service.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475219\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/MqttDriver\\\", \\\"sha256\\\": \\\"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\\\"}, {\\\"unit\\\": \\\"system-monitor@monitor-service.service\\\", \\\"properties\\\": {\\\"MainPID\\\": \\\"475276\\\", \\\"NRestarts\\\": \\\"0\\\", \\\"ActiveState\\\": \\\"active\\\", \\\"SubState\\\": \\\"running\\\"}, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/SystemMonitor\\\", \\\"sha256\\\": \\\"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\\\"}], \\\"runtimeProcesses\\\": [{\\\"pid\\\": 475164, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/ModbusRtu\\\"}, {\\\"pid\\\": 475219, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/MqttDriver\\\"}, {\\\"pid\\\": 475276, \\\"exe\\\": \\\"/opt/modbus-gateway/bin/SystemMonitor\\\"}], \\\"segments\\\": [{\\\"source\\\": \\\"gateway_point_store\\\", \\\"target\\\": \\\"gateway_point_store_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_dio\\\", \\\"target\\\": \\\"gateway_point_store_dio_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ems_virtual\\\", \\\"target\\\": \\\"gateway_point_store_ems_virtual_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_gw002_readonly_rtu2_v2\\\", \\\"target\\\": \\\"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_system_monitor\\\", \\\"target\\\": \\\"gateway_point_store_system_monitor_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ttySP1\\\", \\\"target\\\": \\\"gateway_point_store_ttySP1_v11_c1001r2\\\"}, {\\\"source\\\": \\\"gateway_point_store_ttySP2\\\", \\\"target\\\": \\\"gateway_point_store_ttySP2_v11_c1001r2\\\"}], \\\"maintenanceTarget\\\": [{\\\"path\\\": \\\"/opt\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 493, \\\"uid\\\": 0, \\\"directory\\\": true}, {\\\"path\\\": \\\"/opt/gateway-suite-maintenance\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 493, \\\"uid\\\": 0, \\\"directory\\\": true}, {\\\"path\\\": \\\"/opt/gateway-suite-maintenance/1f016eb\\\", \\\"present\\\": true, \\\"symlink\\\": false, \\\"mode\\\": 365, \\\"uid\\\": 0, \\\"directory\\\": true}], \\\"freeBytes\\\": {\\\"/opt\\\": 2947948544, \\\"/tmp\\\": 2947948544, \\\"/dev/shm\\\": 902348800}, \\\"memAvailable\\\": [\\\"MemAvailable:    2216064 kB\\\"], \\\"offlineLock\\\": {\\\"path\\\": \\\"/run/gateway-offline-runtime.lock\\\", \\\"dev\\\": 18, \\\"inode\\\": 120037, \\\"mode\\\": 384, \\\"uid\\\": 0}, \\\"remoteWrites\\\": 0, \\\"contentReadBytes\\\": 4764089}\\n\", \"rawCommands\": [{\"argv\": [\"systemctl\", \"show\", \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475164\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"systemctl\", \"show\", \"mqtt-driver@mqtt-service.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475219\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}, {\"argv\": [\"systemctl\", \"show\", \"system-monitor@monitor-service.service\", \"--property=MainPID,NRestarts,ActiveState,SubState\"], \"exitCode\": 0, \"stdout\": \"MainPID=475276\\nNRestarts=0\\nActiveState=active\\nSubState=running\\n\"}]}, \"baselineChanges\": [], \"fixtureLog\": \"test_failed_rollback_completed_then_owner_final_crash_resumes_original_job (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nok\\ntest_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nok\\ntest_boot_oneshot_during_start_requires_positive_live_offline_owner (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nok\\ntest_dangling_production_pointer_cannot_fall_back_to_legacy_authority (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nok\\ntest_mismatched_effective_dropin_or_fragment_denies_before_intent (production_runtime_baseline_test.ProductionRuntimeTest) ... ok\\ntest_payload_wrong_elf_architecture_denies_before_any_intent (production_runtime_baseline_test.ProductionRuntimeTest) ... ok\\ntest_boot_malformed_pending_ref_denies_before_recovery_or_mutation (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nok\\ntest_process_death_mid_copy_is_recovered_without_ignoring_inventory (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-before-intent\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nACTIVATION_CAPACITY_PRECHECK: {\\\"checkpoint\\\": \\\"production-legacy-recovery-start\\\", \\\"memAvailableBytes\\\": 2147483648, \\\"memRequiredBytes\\\": 234881024, \\\"serviceReserveBytes\\\": {\\\"gateway-services.service\\\": 33554432, \\\"system-monitor@monitor-service.service\\\": 134217728}, \\\"startUnits\\\": [\\\"gateway-services.service\\\", \\\"system-monitor@monitor-service.service\\\"], \\\"systemReserveBytes\\\": 67108864}\\nok\\n\\n----------------------------------------------------------------------\\nRan 8 tests in 12.348s\\n\\nOK\\n\", \"fixtureLogSha256\": \"69dca7bd005119b6cbd15ea05a39a9e138863b4bc1d3e045b585c7b71b87f849\", \"fixtureLogBytes\": 8207, \"testSummary\": {\"tests\": 8, \"failures\": 0, \"errors\": 0, \"skipped\": 0}, \"workRemoved\": true}\n",
+  "remoteStderr": "",
+  "execution": {
+    "host": "192.168.22.23",
+    "commit": "7e93c745a209bb2b9ef64e788d3d287373b20d55",
+    "root": "/tmp/gw-production-checkpoint-7e93c74-23-r1",
+    "fixtureOnly": true,
+    "realLifecycleCalled": false,
+    "verifiedInputs": [
+      {
+        "path": "deploy/offline-runtime-upgrade.py",
+        "bytes": 162974,
+        "sha256": "a98003c25559024b6ec5cc5990ef6927cf81ebb1cc7836e899f80b2e070792f1"
+      },
+      {
+        "path": "deploy/runtime-upgrade-guard.py",
+        "bytes": 83157,
+        "sha256": "00f8715707a23aa2104244f51fcc7b1de31b708bdf6106ab4aaedc30d8ab65e2"
+      },
+      {
+        "path": "deploy/ota-health-result.py",
+        "bytes": 42618,
+        "sha256": "835e36c3ac3185a9cb0651d80ad2bad62ed3d12f6d9646eb3cd4c6ac79c8a98d"
+      },
+      {
+        "path": "deploy/gateway-services.sh",
+        "bytes": 21858,
+        "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+      },
+      {
+        "path": "deploy/ota-rollback.sh",
+        "bytes": 18983,
+        "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+      },
+      {
+        "path": "deploy/gateway-ota-recover.service",
+        "bytes": 845,
+        "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+      },
+      {
+        "path": "tools/production_runtime_baseline_test.py",
+        "bytes": 43558,
+        "sha256": "6c03bb0bd6411383cf3523e262f09a053b0d5e75255f21827c65406cf6a2bec0"
+      },
+      {
+        "path": "tools/fixtures/production-historical-r2-allowlists.json",
+        "bytes": 949,
+        "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+      }
+    ],
+    "before": {
+      "snapshot": {
+        "machineCode": "COMM202600999",
+        "bootId": "87ba3880-1293-4b45-8826-8386e8ffb40f",
+        "architecture": "aarch64",
+        "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+        "modules": {
+          "argparse": true,
+          "ctypes": true,
+          "fcntl": true,
+          "hashlib": true,
+          "importlib.util": true,
+          "json": true,
+          "pathlib": true,
+          "resource": true,
+          "struct": true,
+          "subprocess": true,
+          "tempfile": true,
+          "types": true,
+          "unittest.mock": true
+        },
+        "stateDir": "/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state",
+        "stateSha256": "e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46",
+        "approvalSha256": "2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983",
+        "activeSha256": "3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e",
+        "guardSha256": "bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1",
+        "configSha256": {
+          "apps/camera-service.json": "c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8",
+          "apps/monitor-service.json": "add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865",
+          "apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+          "apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+          "apps/mqtt-service.json": "c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c",
+          "device_identity.json": "a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee",
+          "devices/device_modbusRTU_2_readonly.json": "dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b",
+          "edge-package-manifest.json": "9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771",
+          "qt-display.env": "c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc",
+          "tls/COMM202600999-client.key": "e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6",
+          "tls/COMM202600999-client.pem": "f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720",
+          "tls/ca.crt": "622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503"
+        },
+        "markerSha256": "6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f",
+        "readers": [
+          {
+            "unit": "modbus-rtu@device_modbusRTU_2_readonly.service",
+            "properties": {
+              "MainPID": "475164",
+              "NRestarts": "0",
+              "ActiveState": "active",
+              "SubState": "running"
+            },
+            "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+            "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0"
+          },
+          {
+            "unit": "mqtt-driver@mqtt-service.service",
+            "properties": {
+              "MainPID": "475219",
+              "NRestarts": "0",
+              "ActiveState": "active",
+              "SubState": "running"
+            },
+            "exe": "/opt/modbus-gateway/bin/MqttDriver",
+            "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6"
+          },
+          {
+            "unit": "system-monitor@monitor-service.service",
+            "properties": {
+              "MainPID": "475276",
+              "NRestarts": "0",
+              "ActiveState": "active",
+              "SubState": "running"
+            },
+            "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+            "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1"
+          }
+        ],
+        "runtimeProcesses": [
+          {
+            "pid": 475164,
+            "exe": "/opt/modbus-gateway/bin/ModbusRtu"
+          },
+          {
+            "pid": 475219,
+            "exe": "/opt/modbus-gateway/bin/MqttDriver"
+          },
+          {
+            "pid": 475276,
+            "exe": "/opt/modbus-gateway/bin/SystemMonitor"
+          }
+        ],
+        "segments": [
+          {
+            "source": "gateway_point_store",
+            "target": "gateway_point_store_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_dio",
+            "target": "gateway_point_store_dio_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_ems_virtual",
+            "target": "gateway_point_store_ems_virtual_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_gw002_readonly_rtu2_v2",
+            "target": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_system_monitor",
+            "target": "gateway_point_store_system_monitor_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_ttySP1",
+            "target": "gateway_point_store_ttySP1_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_ttySP2",
+            "target": "gateway_point_store_ttySP2_v11_c1001r2"
+          }
+        ],
+        "maintenanceTarget": [
+          {
+            "path": "/opt",
+            "present": true,
+            "symlink": false,
+            "mode": 493,
+            "uid": 0,
+            "directory": true
+          },
+          {
+            "path": "/opt/gateway-suite-maintenance",
+            "present": true,
+            "symlink": false,
+            "mode": 493,
+            "uid": 0,
+            "directory": true
+          },
+          {
+            "path": "/opt/gateway-suite-maintenance/1f016eb",
+            "present": true,
+            "symlink": false,
+            "mode": 365,
+            "uid": 0,
+            "directory": true
+          }
+        ],
+        "freeBytes": {
+          "/opt": 2947989504,
+          "/tmp": 2947989504,
+          "/dev/shm": 902348800
+        },
+        "memAvailable": [
+          "MemAvailable:    2219060 kB"
+        ],
+        "offlineLock": {
+          "path": "/run/gateway-offline-runtime.lock",
+          "dev": 18,
+          "inode": 120037,
+          "mode": 384,
+          "uid": 0
+        },
+        "remoteWrites": 0,
+        "contentReadBytes": 4764089
+      },
+      "rawJson": "{\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2947989504, \"/tmp\": 2947989504, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2219060 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}\n",
+      "rawCommands": [
+        {
+          "argv": [
+            "systemctl",
+            "show",
+            "modbus-rtu@device_modbusRTU_2_readonly.service",
+            "--property=MainPID,NRestarts,ActiveState,SubState"
+          ],
+          "exitCode": 0,
+          "stdout": "MainPID=475164\nNRestarts=0\nActiveState=active\nSubState=running\n"
+        },
+        {
+          "argv": [
+            "systemctl",
+            "show",
+            "mqtt-driver@mqtt-service.service",
+            "--property=MainPID,NRestarts,ActiveState,SubState"
+          ],
+          "exitCode": 0,
+          "stdout": "MainPID=475219\nNRestarts=0\nActiveState=active\nSubState=running\n"
+        },
+        {
+          "argv": [
+            "systemctl",
+            "show",
+            "system-monitor@monitor-service.service",
+            "--property=MainPID,NRestarts,ActiveState,SubState"
+          ],
+          "exitCode": 0,
+          "stdout": "MainPID=475276\nNRestarts=0\nActiveState=active\nSubState=running\n"
+        },
+        {
+          "argv": [
+            "uname",
+            "-p"
+          ],
+          "exitCode": 0,
+          "stdout": "aarch64\n"
+        }
+      ]
+    },
+    "cases": [
+      "test_failed_rollback_completed_then_owner_final_crash_resumes_original_job",
+      "test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending",
+      "test_boot_oneshot_during_start_requires_positive_live_offline_owner",
+      "test_dangling_production_pointer_cannot_fall_back_to_legacy_authority",
+      "test_mismatched_effective_dropin_or_fragment_denies_before_intent",
+      "test_payload_wrong_elf_architecture_denies_before_any_intent",
+      "test_boot_malformed_pending_ref_denies_before_recovery_or_mutation",
+      "test_process_death_mid_copy_is_recovered_without_ignoring_inventory"
+    ],
+    "fixtureUid": 0,
+    "fixtureCommand": [
+      "/usr/bin/python3",
+      "-I",
+      "-B",
+      "-c",
+      "import json,sys,unittest\nfrom pathlib import Path\nsys.path.insert(0,sys.argv[1])\nimport production_runtime_baseline_test as fixture\nnames=json.loads(sys.argv[2])\nsuite=unittest.TestSuite(fixture.ProductionRuntimeTest(name) for name in names)\nout=unittest.TextTestRunner(verbosity=2).run(suite)\nrecord=dict(tests=out.testsRun,failures=len(out.failures),errors=len(out.errors),skipped=len(out.skipped))\nPath('test-summary.json').write_text(json.dumps(record)+'\\n')\nraise SystemExit(0 if out.wasSuccessful() and out.testsRun==8 and not out.skipped else 1)\n",
+      "/tmp/gw-production-checkpoint-7e93c74-23-r1/source/tools",
+      "[\"test_failed_rollback_completed_then_owner_final_crash_resumes_original_job\", \"test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending\", \"test_boot_oneshot_during_start_requires_positive_live_offline_owner\", \"test_dangling_production_pointer_cannot_fall_back_to_legacy_authority\", \"test_mismatched_effective_dropin_or_fragment_denies_before_intent\", \"test_payload_wrong_elf_architecture_denies_before_any_intent\", \"test_boot_malformed_pending_ref_denies_before_recovery_or_mutation\", \"test_process_death_mid_copy_is_recovered_without_ignoring_inventory\"]"
+    ],
+    "timeoutSeconds": 120,
+    "fixtureProcessGroup": 510220,
+    "fixtureExitCode": 0,
+    "fixtureElapsedSeconds": 12.989320781081915,
+    "remainingFixtureProcesses": [],
+    "after": {
+      "snapshot": {
+        "machineCode": "COMM202600999",
+        "bootId": "87ba3880-1293-4b45-8826-8386e8ffb40f",
+        "architecture": "aarch64",
+        "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+        "modules": {
+          "argparse": true,
+          "ctypes": true,
+          "fcntl": true,
+          "hashlib": true,
+          "importlib.util": true,
+          "json": true,
+          "pathlib": true,
+          "resource": true,
+          "struct": true,
+          "subprocess": true,
+          "tempfile": true,
+          "types": true,
+          "unittest.mock": true
+        },
+        "stateDir": "/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state",
+        "stateSha256": "e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46",
+        "approvalSha256": "2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983",
+        "activeSha256": "3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e",
+        "guardSha256": "bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1",
+        "configSha256": {
+          "apps/camera-service.json": "c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8",
+          "apps/monitor-service.json": "add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865",
+          "apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+          "apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+          "apps/mqtt-service.json": "c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c",
+          "device_identity.json": "a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee",
+          "devices/device_modbusRTU_2_readonly.json": "dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b",
+          "edge-package-manifest.json": "9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771",
+          "qt-display.env": "c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc",
+          "tls/COMM202600999-client.key": "e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6",
+          "tls/COMM202600999-client.pem": "f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720",
+          "tls/ca.crt": "622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503"
+        },
+        "markerSha256": "6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f",
+        "readers": [
+          {
+            "unit": "modbus-rtu@device_modbusRTU_2_readonly.service",
+            "properties": {
+              "MainPID": "475164",
+              "NRestarts": "0",
+              "ActiveState": "active",
+              "SubState": "running"
+            },
+            "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+            "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0"
+          },
+          {
+            "unit": "mqtt-driver@mqtt-service.service",
+            "properties": {
+              "MainPID": "475219",
+              "NRestarts": "0",
+              "ActiveState": "active",
+              "SubState": "running"
+            },
+            "exe": "/opt/modbus-gateway/bin/MqttDriver",
+            "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6"
+          },
+          {
+            "unit": "system-monitor@monitor-service.service",
+            "properties": {
+              "MainPID": "475276",
+              "NRestarts": "0",
+              "ActiveState": "active",
+              "SubState": "running"
+            },
+            "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+            "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1"
+          }
+        ],
+        "runtimeProcesses": [
+          {
+            "pid": 475164,
+            "exe": "/opt/modbus-gateway/bin/ModbusRtu"
+          },
+          {
+            "pid": 475219,
+            "exe": "/opt/modbus-gateway/bin/MqttDriver"
+          },
+          {
+            "pid": 475276,
+            "exe": "/opt/modbus-gateway/bin/SystemMonitor"
+          }
+        ],
+        "segments": [
+          {
+            "source": "gateway_point_store",
+            "target": "gateway_point_store_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_dio",
+            "target": "gateway_point_store_dio_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_ems_virtual",
+            "target": "gateway_point_store_ems_virtual_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_gw002_readonly_rtu2_v2",
+            "target": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_system_monitor",
+            "target": "gateway_point_store_system_monitor_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_ttySP1",
+            "target": "gateway_point_store_ttySP1_v11_c1001r2"
+          },
+          {
+            "source": "gateway_point_store_ttySP2",
+            "target": "gateway_point_store_ttySP2_v11_c1001r2"
+          }
+        ],
+        "maintenanceTarget": [
+          {
+            "path": "/opt",
+            "present": true,
+            "symlink": false,
+            "mode": 493,
+            "uid": 0,
+            "directory": true
+          },
+          {
+            "path": "/opt/gateway-suite-maintenance",
+            "present": true,
+            "symlink": false,
+            "mode": 493,
+            "uid": 0,
+            "directory": true
+          },
+          {
+            "path": "/opt/gateway-suite-maintenance/1f016eb",
+            "present": true,
+            "symlink": false,
+            "mode": 365,
+            "uid": 0,
+            "directory": true
+          }
+        ],
+        "freeBytes": {
+          "/opt": 2947948544,
+          "/tmp": 2947948544,
+          "/dev/shm": 902348800
+        },
+        "memAvailable": [
+          "MemAvailable:    2216064 kB"
+        ],
+        "offlineLock": {
+          "path": "/run/gateway-offline-runtime.lock",
+          "dev": 18,
+          "inode": 120037,
+          "mode": 384,
+          "uid": 0
+        },
+        "remoteWrites": 0,
+        "contentReadBytes": 4764089
+      },
+      "rawJson": "{\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2947948544, \"/tmp\": 2947948544, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2216064 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}\n",
+      "rawCommands": [
+        {
+          "argv": [
+            "systemctl",
+            "show",
+            "modbus-rtu@device_modbusRTU_2_readonly.service",
+            "--property=MainPID,NRestarts,ActiveState,SubState"
+          ],
+          "exitCode": 0,
+          "stdout": "MainPID=475164\nNRestarts=0\nActiveState=active\nSubState=running\n"
+        },
+        {
+          "argv": [
+            "systemctl",
+            "show",
+            "mqtt-driver@mqtt-service.service",
+            "--property=MainPID,NRestarts,ActiveState,SubState"
+          ],
+          "exitCode": 0,
+          "stdout": "MainPID=475219\nNRestarts=0\nActiveState=active\nSubState=running\n"
+        },
+        {
+          "argv": [
+            "systemctl",
+            "show",
+            "system-monitor@monitor-service.service",
+            "--property=MainPID,NRestarts,ActiveState,SubState"
+          ],
+          "exitCode": 0,
+          "stdout": "MainPID=475276\nNRestarts=0\nActiveState=active\nSubState=running\n"
+        }
+      ]
+    },
+    "baselineChanges": [],
+    "fixtureLog": "test_failed_rollback_completed_then_owner_final_crash_resumes_original_job (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nok\ntest_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nok\ntest_boot_oneshot_during_start_requires_positive_live_offline_owner (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nok\ntest_dangling_production_pointer_cannot_fall_back_to_legacy_authority (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nok\ntest_mismatched_effective_dropin_or_fragment_denies_before_intent (production_runtime_baseline_test.ProductionRuntimeTest) ... ok\ntest_payload_wrong_elf_architecture_denies_before_any_intent (production_runtime_baseline_test.ProductionRuntimeTest) ... ok\ntest_boot_malformed_pending_ref_denies_before_recovery_or_mutation (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nok\ntest_process_death_mid_copy_is_recovered_without_ignoring_inventory (production_runtime_baseline_test.ProductionRuntimeTest) ... ACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-before-intent\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nACTIVATION_CAPACITY_PRECHECK: {\"checkpoint\": \"production-legacy-recovery-start\", \"memAvailableBytes\": 2147483648, \"memRequiredBytes\": 234881024, \"serviceReserveBytes\": {\"gateway-services.service\": 33554432, \"system-monitor@monitor-service.service\": 134217728}, \"startUnits\": [\"gateway-services.service\", \"system-monitor@monitor-service.service\"], \"systemReserveBytes\": 67108864}\nok\n\n----------------------------------------------------------------------\nRan 8 tests in 12.348s\n\nOK\n",
+    "fixtureLogSha256": "69dca7bd005119b6cbd15ea05a39a9e138863b4bc1d3e045b585c7b71b87f849",
+    "fixtureLogBytes": 8207,
+    "testSummary": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "workRemoved": true
+  },
+  "sshClosed": true
+}
