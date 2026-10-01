@@ -1,0 +1,213 @@
+{
+  "format": "nativeboot-local-checkpoint-v1",
+  "date": "2026-10-02",
+  "parentCommit": "970d7a658c5543f28e87695c277713009734d44c",
+  "scope": "EDGE LOCAL_ONLY; intermediate source checkpoint; not production/deployment/native validation",
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "bytes": 195522,
+      "sha256": "a23848742f761127965b936455e174ebdd39416c011aedb72bc7c4a041485ae5"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35"
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "bytes": 44135,
+      "sha256": "f2b2116ec4cd4e281f9d26eb9cf3bca64386f1eb0e5dba137390e83ee71ebc20"
+    },
+    {
+      "path": "tools/production_boot_publication_test.py",
+      "bytes": 21911,
+      "sha256": "be22492fbf58f36513e0631ee73562eced4281faea3d469b0bcf9aadeda7bc04"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "bytes": 21430,
+      "sha256": "a33b69ecf071e79440f3ad5608b18e5a090b38c8d54f8a13c52f49b341e550a3"
+    },
+    {
+      "path": "tools/production_boot_health_publication_test.py",
+      "bytes": 6088,
+      "sha256": "fb83cc921215cdc37a630db6f79245120440ade56775d51362c329b9a3695929"
+    },
+    {
+      "path": "deploy/gateway-services.sh",
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    {
+      "path": "deploy/ota-rollback.sh",
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    {
+      "path": "deploy/gateway-ota-recover.service",
+      "bytes": 845,
+      "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+    },
+    {
+      "path": "tools/fixtures/production-historical-r2-allowlists.json",
+      "bytes": 949,
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    }
+  ],
+  "fixtureInputBytes": 471566,
+  "changedPaths": [
+    "deploy/offline-runtime-upgrade.py",
+    "deploy/runtime-upgrade-guard.py",
+    "deploy/ota-health-result.py",
+    "tools/production_runtime_baseline_test.py",
+    "tools/production_boot_publication_test.py",
+    "tools/production_native_boot_test.py",
+    "tools/production_boot_health_publication_test.py"
+  ],
+  "validation": {
+    "fullFinalSnapshotPassed": false,
+    "windowsPublicationEarlierSnapshot": {
+      "command": "python -B tools/production_boot_publication_test.py -v",
+      "exitCode": 0,
+      "tests": 23,
+      "passed": 18,
+      "skipped": 5,
+      "seconds": 2.32,
+      "warning": "Before archive-directory retry addition and later recover/boot integration. Not the complete final-snapshot suite."
+    },
+    "windowsArchiveRepair": {
+      "command": "python -B tools/production_boot_publication_test.py IndexPublicationTest.test_archive_rename_then_directory_fsync_failure_repairs_existing_archive -v",
+      "exitCode": 0,
+      "tests": 1,
+      "seconds": 0.038
+    },
+    "windowsHealthAttemptFinal": {
+      "command": "python -B tools/production_boot_health_publication_test.py -v",
+      "exitCode": 0,
+      "tests": 1,
+      "seconds": 0.05,
+      "boundary": "Real private bytes; POSIX trust/fsync/owner/capacity/service/PID boundaries substituted. Not OS crash/native/systemd."
+    },
+    "python38Grammar": {
+      "exitCode": 0,
+      "files": [
+        "deploy/offline-runtime-upgrade.py",
+        "deploy/runtime-upgrade-guard.py",
+        "deploy/ota-health-result.py",
+        "tools/production_runtime_baseline_test.py",
+        "tools/production_boot_publication_test.py",
+        "tools/production_native_boot_test.py",
+        "tools/production_boot_health_publication_test.py"
+      ],
+      "note": "Final runtime branch/snapshot edits included; grammar only, not Python3.8 execution."
+    },
+    "diffCheckExitCode": 0
+  },
+  "missingLinuxCases": [
+    "IndexPublicationTest.test_process_exit_mid_publication_is_archived_and_repaired",
+    "BootLockTest.test_cleared_run_boot_entry_creates_lock_before_native_missing_refusal",
+    "BootLockTest.test_same_boot_entry_missing_lock_succeeds_without_service_or_shm_mutation",
+    "BootLockTest.test_creator_and_contender_do_not_truncate_or_share_flock",
+    "BootLockTest.test_wrong_mode_nonempty_symlink_and_inode_replacement_rejected",
+    "NativeBootTest.test_cleared_run_real_entry_creates_locked_boot_proof_before_readers",
+    "NativeBootTest.test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call",
+    "NativeBootTest.test_wrong_creator_pin_refuses_before_intent",
+    "NativeBootTest.test_retired_recreated_or_unowned_target_refuses",
+    "NativeBootTest.test_interrupted_creator_reenters_original_intent_and_inode",
+    "NativeBootTest.test_wrong_interrupted_header_is_not_truncated_or_replaced",
+    "NativeBootTest.test_invalid_stats_never_publishes_ready_or_admits_reader",
+    "NativeBootTest.test_not_tmpfs_or_held_lock_refuses_before_native_call",
+    "NativeBootTest.test_original_job_newboot_pending",
+    "NativeBootTest.test_original_job_newboot_promoted",
+    "NativeBootTest.test_original_job_newboot_rollback",
+    "NativeBootTest.test_original_job_newboot_preintent",
+    "NativeBootTest.test_postgate_worker_refuses_while_recovery_oneshot_activating",
+    "NativeBootTest.test_reader_start_can_require_gate_without_deadlock_or_worker_replay",
+    "NativeBootTest.test_failed_newboot_health_refences_and_official_worker_can_recover",
+    "NativeBootTest.test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt",
+    "ProductionRuntimeTest.test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending",
+    "NativeBootTest.test_no_handoff_runtime_newboot_promoted",
+    "NativeBootTest.test_no_handoff_runtime_newboot_adoption_rollback"
+  ],
+  "proposedLinuxSelections": {
+    "publication": [
+      "IndexPublicationTest.test_unfinished_short_write",
+      "IndexPublicationTest.test_unfinished_file_fsync",
+      "IndexPublicationTest.test_unfinished_rename",
+      "IndexPublicationTest.test_unfinished_directory_fsync",
+      "IndexPublicationTest.test_retired_short_write",
+      "IndexPublicationTest.test_retired_file_fsync",
+      "IndexPublicationTest.test_retired_rename",
+      "IndexPublicationTest.test_retired_directory_fsync",
+      "IndexPublicationTest.test_mkdir_root_fsync_retry_repairs_parent",
+      "IndexPublicationTest.test_unknown_partial_is_not_deleted_or_accepted",
+      "IndexPublicationTest.test_existing_final_drift_is_not_overwritten",
+      "IndexPublicationTest.test_completed_history_is_not_scanned_or_deleted",
+      "IndexPublicationTest.test_128_unfinished_allowed_129_rejected",
+      "IndexPublicationTest.test_interrupted_pointer_is_bound_to_original_intent",
+      "IndexPublicationTest.test_partial_128th_pointer_can_repair_without_counting_it_twice",
+      "IndexPublicationTest.test_retirement_receipt_sync_succeeds_before_pending_unlink",
+      "IndexPublicationTest.test_pending_unlink_sync_retry_repairs_directory",
+      "IndexPublicationTest.test_unknown_index_entry_or_wrong_token_refuses_without_deleting",
+      "IndexPublicationTest.test_archive_rename_then_directory_fsync_failure_repairs_existing_archive",
+      "IndexPublicationTest.test_process_exit_mid_publication_is_archived_and_repaired",
+      "BootLockTest.test_cleared_run_boot_entry_creates_lock_before_native_missing_refusal",
+      "BootLockTest.test_same_boot_entry_missing_lock_succeeds_without_service_or_shm_mutation",
+      "BootLockTest.test_creator_and_contender_do_not_truncate_or_share_flock",
+      "BootLockTest.test_wrong_mode_nonempty_symlink_and_inode_replacement_rejected"
+    ],
+    "native": [
+      "NativeBootTest.test_cleared_run_real_entry_creates_locked_boot_proof_before_readers",
+      "NativeBootTest.test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call",
+      "NativeBootTest.test_wrong_creator_pin_refuses_before_intent",
+      "NativeBootTest.test_retired_recreated_or_unowned_target_refuses",
+      "NativeBootTest.test_interrupted_creator_reenters_original_intent_and_inode",
+      "NativeBootTest.test_wrong_interrupted_header_is_not_truncated_or_replaced",
+      "NativeBootTest.test_invalid_stats_never_publishes_ready_or_admits_reader",
+      "NativeBootTest.test_not_tmpfs_or_held_lock_refuses_before_native_call",
+      "NativeBootTest.test_original_job_newboot_pending",
+      "NativeBootTest.test_original_job_newboot_promoted",
+      "NativeBootTest.test_original_job_newboot_rollback",
+      "NativeBootTest.test_original_job_newboot_preintent",
+      "NativeBootTest.test_postgate_worker_refuses_while_recovery_oneshot_activating",
+      "NativeBootTest.test_reader_start_can_require_gate_without_deadlock_or_worker_replay",
+      "NativeBootTest.test_failed_newboot_health_refences_and_official_worker_can_recover",
+      "NativeBootTest.test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt",
+      "NativeBootTest.test_no_handoff_runtime_newboot_promoted",
+      "NativeBootTest.test_no_handoff_runtime_newboot_adoption_rollback"
+    ],
+    "health": [
+      "BootHealthPublicationTest.test_published_attempt_survives_sync_error_retry_proves_new_pid"
+    ],
+    "affectedBaseline": [
+      "ProductionRuntimeTest.test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending"
+    ],
+    "total": 44
+  },
+  "wsl": {
+    "sessionId": 47230,
+    "lastQuery": "2026-10-02",
+    "stdoutBytes": 0,
+    "exitCode": null,
+    "sourceLoadPoint": "unknown",
+    "noRestartOrDuplicateLaunch": true
+  },
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "open": [
+    "Linux root/flock/fork tests and affected boot chain have not executed at these pins.",
+    "Actual fixed pointctl robust mutex/ABI11 construction not verified.",
+    "Actual systemd After/transient-worker ordering and crash/reboot not verified.",
+    "Signed RSA/HTTPS OTA/native C++ newer MQTT and Monitor not verified by these fixtures.",
+    "Complete configured production participants and broader admission remain OPEN; reader-safe is initial policy only.",
+    "Factory paired staging D1 M1/M2/L1 remains separate work.",
+    "Adoption rollback fixture substitutes the pinned historic verifier; actual legacy new-boot inode admission remains an independent unverified boundary.",
+    "Interrupted immutable entry publication with unknown staging files fails closed; no automatic deletion/repair of unknown files."
+  ]
+}

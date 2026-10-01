@@ -17,6 +17,7 @@ import uuid
 import copy
 import contextlib
 import tarfile
+import struct
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('upgrade_guard', str(Path(__file__).with_name('runtime-upgrade-guard.py')))
@@ -119,11 +120,12 @@ def activation_capacity_preflight(units, checkpoint):
     reserve = 64 * 1024 * 1024
     required = sum(service_bytes.values()) + reserve
     available = mem_available_bytes()
-    print('ACTIVATION_CAPACITY_PRECHECK: ' + json.dumps({
+    report = {
         'checkpoint': checkpoint, 'startUnits': units, 'serviceReserveBytes': service_bytes,
-        'systemReserveBytes': reserve, 'memRequiredBytes': required, 'memAvailableBytes': available},
-        sort_keys=True), flush=True)
+        'systemReserveBytes': reserve, 'memRequiredBytes': required, 'memAvailableBytes': available}
+    print('ACTIVATION_CAPACITY_PRECHECK: ' + json.dumps(report, sort_keys=True), flush=True)
     require(available >= required, 'insufficient MemAvailable for activation')
+    return report
 
 
 def regular(path):
@@ -1829,15 +1831,23 @@ def activate(args):
 @contextlib.contextmanager
 def production_lock():
     path = Path('/run/gateway-offline-runtime.lock')
-    regular(path)
-    fd = os.open(str(path), os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+    parent = path.parent
+    info = parent.lstat()
+    require(parent.is_dir() and not parent.is_symlink() and parent.resolve() == parent and
+            info.st_uid == 0 and not info.st_mode & 0o022, 'untrusted production lock directory')
+    # /run is volatile. O_CREAT does not truncate an existing lock; both a cold
+    # creator and a contender must prove the opened/named inode under flock.
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         before = os.fstat(fd)
-        require(before.st_uid == 0 and before.st_size == 0 and stat.S_IMODE(before.st_mode) == 0o600,
-                'production requires existing root-owned offline lock')
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_uid == 0 and
+                before.st_size == 0 and stat.S_IMODE(before.st_mode) == 0o600,
+                'production requires trusted empty root-owned offline lock')
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        named = path.stat()
-        require((before.st_dev, before.st_ino) == (named.st_dev, named.st_ino), 'production lock replaced')
+        named = path.lstat()
+        require(stat.S_ISREG(named.st_mode) and named.st_nlink == 1 and named.st_uid == 0 and
+                named.st_size == 0 and stat.S_IMODE(named.st_mode) == 0o600 and
+                (before.st_dev, before.st_ino) == (named.st_dev, named.st_ino), 'production lock replaced')
         yield
     finally:
         os.close(fd)
@@ -1935,6 +1945,160 @@ class ProductionRuntime:
 
     def state(self, transaction, value):
         save(transaction / 'state.json', value)
+
+    def prepare_boot(self, baseline, source_record, creator=None):
+        """Native-only creation of approved logical v11 roles under the offline lock."""
+        boot = regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip()
+        require(re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot), 'invalid native boot ID')
+        if boot == baseline['bootId']:
+            guard.production_verify(self.home, baseline, files=False, units=False)
+            return
+        ready = self.root / 'boots' / (boot + '.json')
+        if ready.exists() or ready.is_symlink():
+            guard.production_verify(self.home, baseline, files=False, units=False)
+            return
+        require(production_locked_owner({'ownerProof': production_owner_proof()}),
+                'native boot creation requires positive offline lock ownership')
+        guard.production_verify(self.home, baseline, files=False, units=False, segments=False)
+        names = [s['name'] for s in baseline['segments']]
+        require(0 < len(names) <= 128, 'native boot role count exceeds bound')
+        units_stopped([u for u in baseline['units'] if not u.endswith('@.service')])
+        no_processes(self.home, [])
+        no_mappings(names + list(baseline['retiredSources']), include_fds=True)
+        shm = Path('/dev/shm')
+        require(shm.is_dir() and not shm.is_symlink() and shm.resolve() == shm and shm.stat().st_uid == 0,
+                'native boot tmpfs directory is not trusted')
+        mounts = [line.split() for line in regular(Path('/proc/self/mountinfo')).read_text().splitlines()]
+        require(sum(1 for row in mounts if len(row) > 8 and row[4] == '/dev/shm' and
+                    '-' in row and row[row.index('-') + 1] == 'tmpfs') == 1,
+                'native boot requires exact /dev/shm tmpfs mount')
+        source = guard.production_json(source_record)
+        require(source == baseline, 'native boot source differs from approved baseline')
+        relative = str(source_record.relative_to(self.root))
+        require(re.fullmatch(r'(?:baselines/[A-Za-z0-9_-]{1,63}\.json|transactions/[A-Za-z0-9_-]{1,63}/(?:previous|candidate)\.json)', relative),
+                'native boot source record escaped')
+        pin = baseline['files'].get('bin/pointctl')
+        require(pin is not None and pin['mode'] & 0o111, 'native ABI11 creator is not pinned')
+        creator = creator if creator is not None else self.home / 'bin/pointctl'
+        require(guard.production_pin(creator) == pin, 'native pointctl pin drift')
+        guard.production_architecture(creator)
+        with regular(creator).open('rb') as stream:
+            require(stream.read(4) == b'\x7fELF', 'native creator must be an approved ELF')
+        intent_path = self.root / 'boots' / (boot + '-intent.json')
+        authority = dict(format='runtime-native-boot-v1', bootId=boot,
+                         rolesSha256=guard.production_roles_sha(baseline), sourceRecord=relative,
+                         sourceSha256=digest(source_record), creatorPin=pin)
+        if intent_path.exists() or intent_path.is_symlink():
+            intent = guard.production_boot_record(self.home, baseline, intent_path, intent=True)
+            require(all(intent[k] == v for k, v in authority.items()), 'native boot intent authority changed')
+        else:
+            require(all(not (shm / n).exists() and not (shm / n).is_symlink() for n in names),
+                    'unowned v11 target present before native boot intent')
+            intent = dict(authority, phase='CREATING', inProgress=None, segments=[])
+
+        def inspect(name, completed=False):
+            path = shm / name
+            if not path.exists() and not path.is_symlink():
+                require(not completed, 'completed native boot target vanished')
+                return None
+            value = regular(path).stat()
+            require(value.st_uid == 0 and stat.S_IMODE(value.st_mode) == 0o600 and
+                    value.st_dev == shm.stat().st_dev, 'native target ownership/type changed')
+            with path.open('rb') as stream:
+                header = stream.read(8)
+            require(value.st_size == 0 or value.st_size == guard.POINT_STORE_SIZES[11] and
+                    header in (b'\0' * 8, struct.pack('<II', 0x4d505354, 11)),
+                    'interrupted native target ABI/header changed')
+            if completed:
+                guard.point_store_abi(path, 11)
+            return value
+
+        def capacity():
+            page = os.sysconf('SC_PAGE_SIZE')
+            require(type(page) is int and page > 0, 'invalid native boot page size')
+            size = ((guard.POINT_STORE_SIZES[11] + page - 1) // page) * page
+            completed = {s['name']: s for s in intent['segments']}
+            added = 0
+            for name in names:
+                value = inspect(name, completed=name in completed)
+                if name in completed:
+                    require((value.st_dev, value.st_ino) == (completed[name]['dev'], completed[name]['ino']),
+                            'native completed target replaced')
+                else:
+                    require(value is None or name == intent['inProgress'], 'unowned target outside native progress')
+                    allocated = min(size, value.st_blocks * 512) if value else 0
+                    added += size - allocated
+            # Existing pages already reduce MemAvailable/statvfs. Native creation
+            # is serial; max(startup policy, 64 MiB native/Python slack), not the
+            # migration CLI's two-v10/two-v11 heap. This is not a measured peak.
+            startup = activation_capacity_preflight(baseline['allowedUnits'], 'native-boot-startup-policy')
+            required = added + max(startup['memRequiredBytes'], 64 * 1024 * 1024)
+            available = mem_available_bytes()
+            space = os.statvfs(shm)
+            require(space.f_frsize > 0 and space.f_bavail >= 0, 'invalid native boot tmpfs capacity')
+            report = dict(newPageBytes=added, memRequiredBytes=required, memAvailableBytes=available,
+                          shmAvailableBytes=space.f_frsize * space.f_bavail,
+                          retainedV10AllocatedBytes=0, migrationHeapBytes=0)
+            print('NATIVE_BOOT_CAPACITY: ' + json.dumps(report, sort_keys=True), flush=True)
+            require(available >= required and space.f_frsize * space.f_bavail >= added,
+                    'insufficient native boot memory/tmpfs capacity')
+        capacity()  # no boot intent or native operation on admission failure
+        if not intent_path.exists():
+            publish_new(intent_path, (json.dumps(intent, sort_keys=True) + '\n').encode())
+        for name in names:
+            if any(s['name'] == name for s in intent['segments']):
+                continue
+            capacity()
+            require(guard.production_pin(creator) == pin, 'native pointctl changed before invocation')
+            before = inspect(name)
+            intent.update(inProgress=name, phase='CREATING')
+            save(intent_path, intent)
+            # No --app-config, queue/write command, shell, retired or implicit name.
+            result = subprocess.run([str(creator), 'stats', '--shm', name], stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, timeout=30, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+            require(result.returncode == 0 and len(result.stdout) <= 4096 and len(result.stderr) <= 4096,
+                    'native ABI11 creation failed')
+            text = result.stdout.decode('ascii').strip()
+            require(re.fullmatch(r'shm=/?' + re.escape(name) +
+                    r' latest=0/[0-9]+ latestCapacity=[0-9]+ pendingWrites=0/[0-9]+ pendingCapacity=[0-9]+'
+                    r' persistent=0/[0-9]+ persistentCapacity=[0-9]+ pointUpdates=0/[0-9]+'
+                    r' writeSeq=0 persistentSeq=0 pointUpdateSeq=0', text), 'native new-boot queues not empty/proved')
+            value = inspect(name, completed=True)
+            require(before is None or (before.st_dev, before.st_ino) == (value.st_dev, value.st_ino),
+                    'native target replaced during constructor')
+            no_mappings(names + list(baseline['retiredSources']), include_fds=True)
+            intent['segments'].append(dict(name=name, dev=value.st_dev, ino=value.st_ino))
+            intent.update(inProgress=None)
+            save(intent_path, intent)
+        complete = {k: v for k, v in intent.items() if k not in ('phase', 'inProgress')}
+        publish_new(ready, (json.dumps(complete, sort_keys=True) + '\n').encode())
+        intent['phase'] = 'READY'
+        save(intent_path, intent)
+        guard.production_verify(self.home, baseline, files=False, units=False)
+
+    def prepare_recovery_boot(self, transaction, approval_sha):
+        approval = checked_json(transaction / 'approval.json', approval_sha)
+        state = guard.production_json(transaction / 'state.json')
+        require(state['approvalSha256'] == approval_sha and
+                transaction == self.root / 'transactions' / state['transaction'], 'native recovery owner mismatch')
+        which = 'candidate' if self.promoted(transaction, state) else 'previous'
+        record = transaction / (which + '.json')
+        require(digest(record) == state[which + 'Sha256'] and guard.production_json(record) == approval[which],
+                'native recovery baseline drift')
+        baseline = approval[which]
+        creator = self.home / 'bin/pointctl'
+        if which == 'previous' and (transaction / 'backups-complete.json').exists():
+            require(guard.production_json(transaction / 'backups-complete.json') == {'approvalSha256': approval_sha},
+                    'native recovery backup receipt drift')
+            paths = sorted(baseline['files'])
+            require('bin/pointctl' in paths, 'native recovery creator missing')
+            creator = transaction / 'files' / str(paths.index('bin/pointctl'))
+        self.prepare_boot(baseline, record, creator)
+        if which == 'candidate':
+            # A prior boot's failed health attempt may have refenced a promoted
+            # release. Repair ONLY its approved gates before terminal reconcile.
+            production_boot_repair_gates(self, baseline)
+        return baseline
 
     def verify_legacy(self, approval):
         legacy = approval['legacy']
@@ -2175,6 +2339,8 @@ class ProductionRuntime:
         state.update(phase=phase, startingBaselineSha256=(state['candidateSha256'] if phase == 'STARTING' else state['previousSha256']),
                      ownerProof=production_owner_proof())
         self.state(transaction, state)
+        if getattr(self, 'boot_work', None) is not None:
+            production_boot_begin_start(self, self.boot_work)
         # Readers first; launcher and watchdog may only see a complete provisional baseline.
         ordered = [u for u in baseline['allowedUnits'] if u in guard.PRODUCTION_READERS]
         ordered += [u for u in ('gateway-services.service', 'gateway-health-watchdog.service') if u in baseline['allowedUnits']]
@@ -2186,6 +2352,7 @@ class ProductionRuntime:
     def health(self, baseline):
         def sample():
             guard.production_verify(self.home, baseline)
+            segments = guard.production_segment_identities(self.home, baseline)
             readers = {}
             expected = {}
             for unit in baseline['allowedUnits']:
@@ -2207,7 +2374,7 @@ class ProductionRuntime:
                     if len(fields) >= 6 and fields[5].startswith('/dev/shm/'):
                         require(not line.rstrip().endswith(' (deleted)'), 'deleted production mapping')
                         name = fields[5].split('/')[-1]
-                        segment = next((s for s in baseline['segments'] if s['name'] == name), None)
+                        segment = next((s for s in segments if s['name'] == name), None)
                         require(segment is not None and int(fields[4]) == segment['ino'] and
                                 fields[3] == '%02x:%02x' % (os.major(segment['dev']), os.minor(segment['dev'])),
                                 'production actual SHM mapping mismatch')
@@ -2244,7 +2411,8 @@ class ProductionRuntime:
         time.sleep(baseline['healthPolicy']['stableSeconds'])
         after = sample()
         require(before == after, 'production PID/restarts/mapping stability failed')
-        return {'format': 'runtime-health-v1', 'readers': after, 'bootId': baseline['bootId'],
+        return {'format': 'runtime-health-v1', 'readers': after,
+                'bootId': regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip(),
                 'configSha256': baseline['configSha256']}
 
     def promoted(self, transaction, state):
@@ -2373,6 +2541,8 @@ class ProductionRuntime:
             # Preserve legacy authority, records and owned gates byte-for-byte.
             if start:
                 activation_capacity_preflight(previous['allowedUnits'], 'production-legacy-recovery-start')
+                if getattr(self, 'boot_work', None) is not None:
+                    production_boot_begin_start(self, self.boot_work)
                 for unit in previous['allowedUnits']:
                     systemctl('start', unit)
                 self.health(previous)
@@ -2410,6 +2580,226 @@ def production_recover(args):
                                                                    start=not args.no_restart)
 
 
+def production_boot_work(runtime):
+    boot = regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip()
+    require(re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot), 'invalid production boot ID')
+    return runtime.root / 'boots' / (boot + '-resume.json')
+
+
+def production_boot_work_read(runtime, path):
+    value = guard.production_json(path)
+    require(isinstance(value, dict) and value.get('format') == 'runtime-boot-resume-v1' and
+            value.get('bootId') == regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip() and
+            value.get('kind') in ('current', 'runtime', 'job') and
+            isinstance(value.get('transaction'), str) and NAME.fullmatch(value['transaction']) and
+            isinstance(value.get('approvalSha256'), str) and re.fullmatch('[0-9a-f]{64}', value['approvalSha256']) and
+            value.get('phase') in ('PREPARED', 'DISPATCHED', 'STARTING', 'FAILED_STOPPED', 'FINISHED') and
+            isinstance(value.get('entryPins'), dict) and set(value['entryPins']) ==
+            {'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'} and
+            all(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) for pin in value['entryPins'].values()),
+            'invalid production boot continuation')
+    if value['kind'] == 'job':
+        require(isinstance(value.get('jobId'), str) and re.fullmatch(r'[A-Za-z0-9._-]{1,128}', value['jobId']) and
+                '..' not in value['jobId'] and isinstance(value.get('token'), str) and
+                re.fullmatch('[0-9a-f-]{36}', value['token']) and isinstance(value.get('intentSha256'), str) and
+                re.fullmatch('[0-9a-f]{64}', value['intentSha256']), 'invalid production boot original job')
+    else:
+        require(all(value.get(k) is None for k in ('jobId', 'token', 'intentSha256')), 'unexpected boot job authority')
+    if 'startAttempt' in value:
+        require(type(value['startAttempt']) is int and 1 <= value['startAttempt'] <= 1000000,
+                'invalid boot startup attempt')
+    if 'healthRecord' in value:
+        require(isinstance(value.get('healthRecord'), str) and
+                re.fullmatch(r'[A-Za-z0-9_-]+\.json', value['healthRecord']) and
+                isinstance(value.get('healthSha256'), str) and re.fullmatch('[0-9a-f]{64}', value['healthSha256']) and
+                type(value.get('healthAttempt')) is int and 1 <= value['healthAttempt'] <= value.get('startAttempt', 0),
+                'invalid boot attempt health reference')
+    expected_entry = runtime.root / 'boots' / (value['bootId'] + '-entry-' + value['transaction'])
+    require(value.get('entryPath') == str(expected_entry) and expected_entry.is_dir() and
+            not expected_entry.is_symlink() and {p.name for p in expected_entry.iterdir()} == set(value['entryPins']) and
+            all(digest(expected_entry / name) == pin for name, pin in value['entryPins'].items()),
+            'boot continuation immutable entry drift')
+    production_boot_approval(runtime, value)
+    return value
+
+
+def production_boot_approval(runtime, value):
+    path = runtime.root / 'transactions' / value['transaction'] / 'approval.json'
+    if not path.exists() and not path.is_symlink():
+        require(value['kind'] == 'job', 'boot transaction approval missing')
+        path = runtime.home / 'ota/staging' / ('runtime-payload-' + value['jobId']) / 'approval.json'
+    approval = checked_json(path, value['approvalSha256'])
+    require(approval['transaction'] == value['transaction'] and approval['gatewayHome'] == str(runtime.home),
+            'boot continuation approval lineage mismatch')
+    return approval
+
+
+def production_boot_stage_entry(runtime, authority):
+    require(production_locked_owner({'ownerProof': production_owner_proof()}), 'boot entry staging requires offline lock')
+    boot = regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip()
+    require(re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot) and NAME.fullmatch(authority['transaction']),
+            'invalid boot entry identity')
+    approval = production_boot_approval(runtime, authority)
+    directory = runtime.root / 'boots' / (boot + '-entry-' + authority['transaction'])
+    names = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py')
+    if not directory.exists() and not directory.is_symlink():
+        directory.mkdir(mode=0o700, parents=True)
+        sync_dir(directory.parent)
+    require(directory.is_dir() and not directory.is_symlink() and
+            {p.name for p in directory.iterdir()} <= set(names), 'boot entry namespace/inventory drift')
+    if {p.name for p in directory.iterdir()} != set(names):
+        sources = {name: regular(Path(__file__).with_name(name)) for name in names}
+        require(all(source.stat().st_size <= 1024 * 1024 for source in sources.values()), 'boot helper exceeds bounded source size')
+        pins = {name: digest(source) for name, source in sources.items()}
+        require(any(all(pins[name] == baseline['files']['bin/' + name]['sha256'] for name in names)
+                    for baseline in (approval['previous'], approval['candidate'])), 'unpaired boot source entry')
+        for name, source in sources.items():
+            destination = directory / name
+            if destination.exists() or destination.is_symlink():
+                require(guard.production_pin(destination) == dict(sha256=pins[name], mode=0o400,
+                        bytes=source.stat().st_size), 'incomplete boot entry conflicts with approved source')
+                continue
+            data = source.read_bytes()
+            require(hashlib.sha256(data).hexdigest() == pins[name], 'boot source changed during staging')
+            publish_new(destination, data, 0o400)
+    require(directory.is_dir() and not directory.is_symlink() and
+            {p.name for p in directory.iterdir()} == set(names), 'boot entry namespace/inventory drift')
+    require(directory.stat().st_uid == 0 and stat.S_IMODE(directory.stat().st_mode) == 0o700 and
+            all(regular(directory / name).stat().st_uid == 0 and
+                stat.S_IMODE((directory / name).stat().st_mode) == 0o400 for name in names),
+            'boot entry ownership/mode drift')
+    pins = {name: digest(directory / name) for name in names}
+    require(any(all(pins[name] == baseline['files']['bin/' + name]['sha256'] for name in names)
+                for baseline in (approval['previous'], approval['candidate'])), 'unapproved immutable boot entry')
+    sync_dir(directory.parent)
+    sync_dir(directory)
+    return directory, pins
+
+
+def production_boot_publish(runtime, authority):
+    path = production_boot_work(runtime)
+    value = dict(authority, format='runtime-boot-resume-v1', phase='PREPARED',
+                 bootId=regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip())
+    approval = production_boot_approval(runtime, value)
+    # Keep the reviewed lifecycle entry executable even when stopped recovery
+    # restores pre-adoption/older helpers which cannot implement this boot action.
+    entry, pins = production_boot_stage_entry(runtime, authority)
+    value['entryPath'] = str(entry)
+    value['entryPins'] = pins
+    if path.exists() or path.is_symlink():
+        old = production_boot_work_read(runtime, path)
+        if not all(old.get(k) == v for k, v in value.items() if k != 'phase'):
+            require(old['phase'] == 'FINISHED', 'boot continuation authority drift')
+            audit = path.with_name(path.stem + '-retained-' + digest(path) + '.json')
+            if not audit.exists():
+                publish_new(audit, regular(path).read_bytes())
+            require(digest(audit) == digest(path), 'boot continuation retained audit drift')
+            sync_dir(audit.parent)
+            replace(path, (json.dumps(value, sort_keys=True) + '\n').encode())
+            return path, value
+        sync_dir(path.parent)
+        return path, old
+    publish_new(path, (json.dumps(value, sort_keys=True) + '\n').encode())
+    return path, value
+
+
+def production_boot_dispatch(runtime, authority):
+    path, value = production_boot_publish(runtime, authority)
+    if value['phase'] != 'PREPARED':
+        return  # never replay an uncertain/failed dispatched worker from the gate
+    identifier = hashlib.sha256(regular(path).read_bytes()).hexdigest()[:32]
+    command = ['/usr/bin/systemd-run', '--quiet', '--no-block', '--unit=gateway-native-boot-' + identifier,
+               '--property=Type=oneshot', '--property=Restart=no', '--property=KillMode=control-group',
+               '--property=After=gateway-ota-recover.service', '--property=TimeoutStartSec=900s',
+               '/usr/bin/python3', '-B', str(Path(value['entryPath']) / 'offline-runtime-upgrade.py'),
+               'production-boot-finish', str(runtime.home)]
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+                            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+    require(result.returncode == 0 and len(result.stdout) <= 4096 and len(result.stderr) <= 4096,
+            'boot continuation dispatch uncertain/failed; do not replay')
+    value['phase'] = 'DISPATCHED'
+    save(path, value)
+
+
+def production_boot_repair_gates(runtime, baseline):
+    guard.production_verify(runtime.home, baseline, units=False)
+    guard.production_units_present(baseline['units'])
+    actual = guard.production_unit_files(baseline['units'])
+    require(set(actual) == set(baseline['unitFiles']) and
+            all(actual[path] == pin for path, pin in baseline['unitFiles'].items() if path not in baseline['gates'].values()),
+            'failed boot non-gate unit inventory drift')
+    guard.production_effective(baseline)
+    changed = False
+    for path in baseline['gates'].values():
+        body = production_inhibit(runtime.home)
+        inhibited = dict(sha256=hashlib.sha256(body).hexdigest(), mode=0o644, bytes=len(body))
+        require(guard.production_pin(Path(path)) in (baseline['unitFiles'][path], inhibited),
+                'foreign failed-boot gate; refuse restore')
+        changed = changed or guard.production_pin(Path(path)) != baseline['unitFiles'][path]
+    if changed:
+        units_stopped([u for u in baseline['units'] if not u.endswith('@.service')])
+        no_processes(runtime.home, [])
+        no_mappings([s['name'] for s in baseline['segments']] + list(baseline['retiredSources']), include_fds=True)
+        runtime.convert_gates(None, baseline)
+
+
+def production_boot_begin_start(runtime, work_path):
+    work = production_boot_work_read(runtime, work_path)
+    attempt = work.get('startAttempt', 0) + 1
+    require(attempt <= 1000000, 'boot startup attempt bound exceeded')
+    work.update(phase='STARTING', ownerProof=production_owner_proof(), startAttempt=attempt)
+    save(work_path, work)
+    return work
+
+
+def production_boot_start_current(runtime, baseline, work_path):
+    work = production_boot_work_read(runtime, work_path)
+    if work['phase'] == 'FAILED_STOPPED':
+        production_boot_repair_gates(runtime, baseline)
+    guard.production_verify(runtime.home, baseline)
+    activation_capacity_preflight(baseline['allowedUnits'], 'production-boot-before-start')
+    work = production_boot_begin_start(runtime, work_path)
+    ordered = [u for u in baseline['allowedUnits'] if u in guard.PRODUCTION_READERS]
+    ordered += [u for u in ('gateway-services.service', 'gateway-health-watchdog.service') if u in baseline['allowedUnits']]
+    try:
+        for unit in ordered:
+            guard.production_unit(runtime.home, unit)
+            systemctl('start', unit)
+            systemctl('is-active', '--quiet', unit)
+        health = runtime.health(baseline)
+        production_boot_record_health(runtime, work_path, health)
+        return health
+    except BaseException:
+        for path in baseline['gates'].values():
+            require(guard.production_pin(Path(path)) == baseline['unitFiles'][path], 'foreign boot failure gate')
+        for path in baseline['gates'].values():
+            replace(Path(path), production_inhibit(runtime.home), 0o644)
+        systemctl('daemon-reload')
+        runtime.stop(baseline)
+        work = production_boot_work_read(runtime, work_path)
+        work['phase'] = 'FAILED_STOPPED'
+        save(work_path, work)
+        raise
+
+
+def production_boot_record_health(runtime, work_path, health):
+    work = production_boot_work_read(runtime, work_path)
+    attempt = work.get('startAttempt')
+    require(type(attempt) is int and attempt > 0 and health['bootId'] == work['bootId'],
+            'boot continuation health is not from this boot/start attempt')
+    value = dict(format='runtime-boot-health-v1', bootId=work['bootId'], transaction=work['transaction'],
+                 startAttempt=attempt, health=health)
+    raw = (json.dumps(value, sort_keys=True) + '\n').encode()
+    pin = hashlib.sha256(raw).hexdigest()
+    path = work_path.with_name(work_path.stem + '-' + work['transaction'] + '-attempt-' + str(attempt) + '-health-' + pin + '.json')
+    if not path.exists() and not path.is_symlink():
+        publish_new(path, raw)
+    require(digest(path) == pin and guard.production_json(path) == value, 'boot continuation health proof drift')
+    sync_dir(path.parent)
+    work.update(healthRecord=path.name, healthSha256=pin, healthAttempt=attempt)
+    save(work_path, work)
+
+
 def production_boot(args):
     home = args.home
     runtime = ProductionRuntime(home)
@@ -2427,6 +2817,14 @@ def production_boot(args):
             # proved live same-boot lock owner is NOT an interrupted transaction.
             guard.production_unit(home, 'gateway-services.service')
             return
+    work_path = production_boot_work(runtime)
+    existing_work = None
+    if work_path.exists() or work_path.is_symlink():
+        work = production_boot_work_read(runtime, work_path)
+        existing_work = work
+        if work['phase'] == 'STARTING' and production_locked_owner(work):
+            guard.production_unit(home, 'gateway-services.service')
+            return
     staging = home / 'ota/staging'
     # The job journal may still be unresolved AFTER pending was cleared by
     # promotion/recovery. Resolve it before consulting the baseline pointer.
@@ -2434,12 +2832,14 @@ def production_boot(args):
         spec = importlib.util.spec_from_file_location('production_ota_health', str(Path(__file__).with_name('ota-health-result.py')))
         helper = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(helper)
-        records = list(staging.glob('ota_handoff_*.json'))
-        require(len(records) <= 128, 'production boot handoff inventory exceeds bound')
-        for path in records:
-            record = guard.production_json(path)
-            if record.get('runtimeMayChange') is True and record.get('phase') != 'OWNER_FINISHED':
-                helper.RuntimeHandoff(staging, record['jobId'], record['token']).recover()
+        authority = None
+        for protocol in helper.RuntimeHandoff.unfinished(staging):
+            prepared = protocol.recover(boot_prepare=True)
+            if prepared is not None:
+                require(authority is None, 'multiple unresolved runtime boot owners')
+                authority = prepared
+    else:
+        authority = None
     pending = runtime.root / 'pending.json'
     if pending.exists() or pending.is_symlink():
         ref = guard.production_json(pending)
@@ -2447,14 +2847,90 @@ def production_boot(args):
                 isinstance(ref['transaction'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,63}', ref['transaction']) and
                 isinstance(ref['approvalSha256'], str) and re.fullmatch('[0-9a-f]{64}', ref['approvalSha256']),
                 'production boot pending pointer invalid')
+        if authority is None:
+            with production_lock():
+                transaction = runtime.root / 'transactions' / ref['transaction']
+                runtime.prepare_recovery_boot(transaction, ref['approvalSha256'])
+                authority = dict(kind='runtime', transaction=ref['transaction'], approvalSha256=ref['approvalSha256'],
+                                 jobId=None, token=None, intentSha256=None)
+                production_boot_stage_entry(runtime, authority)
+                runtime.recover(transaction, ref['approvalSha256'], start=False)
+    if authority is not None:
         with production_lock():
-            runtime.recover(runtime.root / 'transactions' / ref['transaction'], ref['approvalSha256'], start=False)
+            production_boot_dispatch(runtime, authority)
+        return  # gates stay inhibited until the post-gate original recovery verifies health
+    if existing_work is not None and existing_work['phase'] != 'FINISHED':
+        # Includes a terminal-job / unfinished-worker crash window. Preserve the
+        # original continuation; never replace it with an unrelated current task.
+        with production_lock():
+            production_boot_dispatch(runtime, {k: existing_work[k] for k in
+                    ('kind', 'transaction', 'approvalSha256', 'jobId', 'token', 'intentSha256')})
+        return
     current = runtime.root / 'current.json'
     if current.exists() or current.is_symlink():
-        # Missing/new-boot SHM deliberately blocks BEFORE launcher until a native
-        # creator ordering is provisioned; no Python files or raw queue restoration.
         with production_lock():
+            baseline = guard.production_context(home, segments=False)
+            pointer = guard.production_json(current)  # ID/type/SHA already checked by context
+            runtime.prepare_boot(baseline, runtime.root / 'baselines' / (pointer['baselineId'] + '.json'))
             guard.production_context(home)
+            if existing_work is not None and existing_work['phase'] == 'FINISHED':
+                return
+            if baseline['bootId'] != regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip():
+                state = guard.production_json(runtime.root / 'transactions' / pointer['transaction'] / 'state.json')
+                production_boot_dispatch(runtime, dict(kind='current', transaction=pointer['transaction'],
+                        approvalSha256=state['approvalSha256'], jobId=None, token=None, intentSha256=None))
+
+
+def production_boot_finish(args):
+    runtime = ProductionRuntime(args.home)
+    path = production_boot_work(runtime)
+    work = production_boot_work_read(runtime, path)
+    require(all(digest(Path(__file__).with_name(name)) == pin for name, pin in work['entryPins'].items()),
+            'boot continuation loaded entry differs from dispatch pair')
+    # This worker is ordered AFTER the recovery oneshot, never run inside its gate.
+    require(guard.systemctl_value('gateway-ota-recover.service', 'ActiveState') in ('inactive', 'active') and
+            guard.systemctl_value('gateway-ota-recover.service', 'LoadState') == 'loaded' and
+            guard.systemctl_value('gateway-ota-recover.service', 'MainPID') == '0',
+            'boot continuation cannot run inside recovery start ordering')
+    if work['phase'] == 'FINISHED':
+        with production_lock():
+            approval = production_boot_approval(runtime, work)
+            state = guard.production_json(runtime.root / 'transactions' / work['transaction'] / 'state.json') if work['kind'] == 'runtime' else None
+            baseline = approval['previous'] if state and state['adoption'] and state['phase'] == 'RECOVERED' else guard.production_context(runtime.home)
+            runtime.health(baseline)
+        return
+    if work['kind'] == 'job':
+        spec = importlib.util.spec_from_file_location('production_ota_health', str(Path(__file__).with_name('ota-health-result.py')))
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        protocol = helper.RuntimeHandoff(runtime.home / 'ota/staging', work['jobId'], work['token'])
+        record = protocol.read()
+        require(record['productionTransaction'] == work['transaction'] and
+                record['productionApprovalSha256'] == work['approvalSha256'] and
+                record['intentSha256'] == work['intentSha256'], 'boot continuation original job drift')
+        protocol.recover(boot_work=path)
+    else:
+        with production_lock():
+            if work['kind'] == 'runtime':
+                runtime.boot_work = path
+                result = runtime.recover(runtime.root / 'transactions' / work['transaction'], work['approvalSha256'])
+                approval = production_boot_approval(runtime, work)
+                if result == 'COMPLETED':
+                    production_boot_start_current(runtime, approval['candidate'], path)
+                else:
+                    production_boot_record_health(runtime, path, runtime.health(approval['previous']))
+            else:
+                production_boot_start_current(runtime, guard.production_context(runtime.home,
+                        units=work['phase'] != 'FAILED_STOPPED'), path)
+    work = production_boot_work_read(runtime, path)
+    require(work.get('healthAttempt') == work.get('startAttempt') and work.get('healthRecord'),
+            'boot continuation latest attempt health missing')
+    health_path = path.parent / work['healthRecord']
+    decision = checked_json(health_path, work['healthSha256'])
+    require(decision['bootId'] == work['bootId'] and decision['transaction'] == work['transaction'] and
+            decision['startAttempt'] == work['startAttempt'], 'boot continuation latest health authority drift')
+    work['phase'] = 'FINISHED'
+    save(path, work)
 
 
 def production_ota_owner(protocol, record):
@@ -2570,7 +3046,7 @@ def production_ota_finish(protocol, transaction_id, status, rollback):
             protocol.save(fresh)
 
 
-def production_ota_resume(protocol, record):
+def production_ota_resume(protocol, record, boot_prepare=False, boot_work=None):
     # Called with the ORIGINAL job lease, positive dead-owner/no-cgroup-task
     # proof, and pinned staged helper bytes. Never extract, download or install.
     home = protocol.root.parent.parent
@@ -2580,27 +3056,57 @@ def production_ota_resume(protocol, record):
             isinstance(record.get('productionApprovalSha256'), str) and
             re.fullmatch('[0-9a-f]{64}', record['productionApprovalSha256']), 'runtime recovery job lineage invalid')
     runtime = ProductionRuntime(home)
+    runtime.boot_work = boot_work
     transaction_id = record['productionTransaction']
     transaction = runtime.root / 'transactions' / transaction_id
     with production_lock():
+        if boot_work is not None and production_boot_work_read(runtime, boot_work)['phase'] == 'FAILED_STOPPED':
+            production_boot_repair_gates(runtime, guard.production_context(home, units=False))
         state_path = transaction / 'state.json'
         if not state_path.exists() and not state_path.is_symlink():
             approval_path = protocol.root / ('runtime-payload-' + protocol.job) / 'approval.json'
             approval = checked_json(approval_path, record['productionApprovalSha256'])
             require(approval['transaction'] == transaction_id and approval['machineCode'] == protocol.intent()['machineCode'] and
                     not (runtime.root / 'pending.json').exists() and not (runtime.root / 'pending.json').is_symlink() and
-                    guard.production_context(home) == approval['previous'], 'pre-intent runtime unchanged proof failed')
-            runtime.health(approval['previous'])
+                    guard.production_context(home, segments=not boot_prepare) == approval['previous'],
+                    'pre-intent runtime unchanged proof failed')
+            if boot_prepare:
+                pointer = guard.production_json(runtime.root / 'current.json')
+                runtime.prepare_boot(approval['previous'], runtime.root / 'baselines' / (pointer['baselineId'] + '.json'))
+            elif boot_work is not None:
+                production_boot_start_current(runtime, approval['previous'], boot_work)
+            else:
+                runtime.health(approval['previous'])
             result = 'RECOVERED'
         else:
             state = guard.production_json(state_path)
             approval = checked_json(transaction / 'approval.json', record['productionApprovalSha256'])
-            if state['phase'] == 'RECOVERED':
+            if boot_prepare:
+                runtime.prepare_recovery_boot(transaction, record['productionApprovalSha256'])
+                production_boot_stage_entry(runtime, dict(kind='job', transaction=transaction_id,
+                        approvalSha256=record['productionApprovalSha256'], jobId=protocol.job,
+                        token=protocol.token, intentSha256=record['intentSha256']))
+                if state['phase'] != 'RECOVERED':
+                    runtime.recover(transaction, record['productionApprovalSha256'], start=False)
+                else:
+                    require(guard.production_context(home) == approval['previous'], 'runtime recovered baseline drift')
+                result = 'DEFERRED'
+            elif state['phase'] == 'RECOVERED':
                 require(guard.production_context(home) == approval['previous'], 'runtime recovered baseline drift')
-                runtime.health(approval['previous'])
+                if boot_work is not None:
+                    production_boot_start_current(runtime, approval['previous'], boot_work)
+                else:
+                    runtime.health(approval['previous'])
                 result = 'RECOVERED'
             else:
                 result = runtime.recover(transaction, record['productionApprovalSha256'])
+                if result == 'COMPLETED' and boot_work is not None:
+                    production_boot_start_current(runtime, approval['candidate'], boot_work)
+                elif boot_work is not None:
+                    production_boot_record_health(runtime, boot_work, runtime.health(guard.production_context(home)))
+        if boot_prepare:
+            return dict(kind='job', transaction=transaction_id, approvalSha256=record['productionApprovalSha256'],
+                        jobId=protocol.job, token=protocol.token, intentSha256=record['intentSha256'])
         status, rollback = ('healthy', 'none') if result == 'COMPLETED' else ('failed', 'succeeded')
         production_ota_finish(protocol, transaction_id, status, rollback)
 
@@ -2616,6 +3122,10 @@ def main():
         require(os.geteuid() == 0, 'production boot recovery requires root')
         # Each job acquires lease BEFORE offline lock; baseline-only work follows.
         production_boot(argparse.Namespace(home=Path(sys.argv[2])))
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == 'production-boot-finish':
+        require(os.geteuid() == 0, 'production boot continuation requires root')
+        production_boot_finish(argparse.Namespace(home=Path(sys.argv[2])))
         return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('apply', 'recover', 'observe', 'activate',

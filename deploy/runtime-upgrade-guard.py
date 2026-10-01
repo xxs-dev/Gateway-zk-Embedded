@@ -287,6 +287,64 @@ def production_architecture(path):
         raise ValueError('production runtime ELF architecture mismatch')
 
 
+def production_roles_sha(baseline):
+    # Boot-local inode identities are not durable logical roles. Same-ABI installs
+    # preserve these fields; the native creation proof can outlive file promotion.
+    roles = {k: baseline[k] for k in ('gatewayHome', 'machineCode', 'pointStoreAbi',
+             'pointStoreSize', 'configSha256', 'retiredSources')}
+    roles['names'] = sorted(s['name'] for s in baseline['segments'])
+    return hashlib.sha256((json.dumps(roles, sort_keys=True) + '\n').encode()).hexdigest()
+
+
+def production_boot_record(home, baseline, path, intent=False):
+    record = production_json(path)
+    keys = {'format', 'bootId', 'rolesSha256', 'sourceRecord', 'sourceSha256', 'creatorPin', 'segments'}
+    if intent:
+        keys |= {'phase', 'inProgress'}
+    if (not isinstance(record, dict) or set(record) != keys or record['format'] != 'runtime-native-boot-v1' or
+            record['bootId'] != Path('/proc/sys/kernel/random/boot_id').read_text().strip() or
+            record['rolesSha256'] != production_roles_sha(baseline) or
+            not isinstance(record['sourceRecord'], str) or
+            not re.fullmatch(r'(?:baselines/[A-Za-z0-9_-]{1,63}\.json|transactions/[A-Za-z0-9_-]{1,63}/(?:previous|candidate)\.json)', record['sourceRecord']) or
+            not isinstance(record['sourceSha256'], str) or not re.fullmatch('[0-9a-f]{64}', record['sourceSha256'])):
+        raise ValueError('invalid native boot authority')
+    source = home / 'data' / PRODUCTION_DIR / record['sourceRecord']
+    if sha(exact_file(source)) != record['sourceSha256']:
+        raise ValueError('native boot source record drift')
+    original = production_json(source)
+    production_schema(original, home)
+    if (production_roles_sha(original) != record['rolesSha256'] or
+            original['files'].get('bin/pointctl') != record['creatorPin']):
+        raise ValueError('native boot creator/role lineage drift')
+    allowed = {s['name'] for s in baseline['segments']}
+    rows = record['segments']
+    if (not isinstance(rows, list) or any(not isinstance(s, dict) or set(s) != {'name', 'dev', 'ino'} or
+            not isinstance(s['name'], str) or s['name'] not in allowed or type(s['dev']) is not int or s['dev'] < 0 or
+            type(s['ino']) is not int or s['ino'] <= 0 for s in rows) or
+            len({s['name'] for s in rows}) != len(rows)):
+        raise ValueError('invalid native boot segment identities')
+    if intent:
+        if (record['phase'] not in ('CREATING', 'READY') or record['inProgress'] is not None and
+                (not isinstance(record['inProgress'], str) or
+                 record['inProgress'] not in allowed - {s['name'] for s in rows}) or
+                record['phase'] == 'READY' and
+                (record['inProgress'] is not None or {s['name'] for s in rows} != allowed)):
+            raise ValueError('invalid native boot progress')
+    elif {s['name'] for s in rows} != allowed:
+        raise ValueError('incomplete native boot proof')
+    return record
+
+
+def production_segment_identities(home, baseline):
+    boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    if boot == baseline['bootId']:
+        return baseline['segments']
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot):
+        raise ValueError('invalid native boot ID')
+    record = production_boot_record(home, baseline, home / 'data' / PRODUCTION_DIR / 'boots' / (boot + '.json'))
+    return record['segments']
+
+
 def production_verify(home, baseline, files=True, units=True, segments=True):
     production_schema(baseline, home)
     if production_pin(Path('/etc/modbus-gateway/ota.pub'))['sha256'] != baseline['trust']['publicKeySha256']:
@@ -328,19 +386,15 @@ def production_verify(home, baseline, files=True, units=True, segments=True):
             raise ValueError('production unit/override drift')
         production_effective(baseline)
     if segments:
-        boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-        for segment in baseline['segments']:
+        for segment in production_segment_identities(home, baseline):
             path = Path('/dev/shm') / segment['name']
             point_store_abi(path, 11)
             value = path.stat()
-            if boot != baseline['bootId']:
-                # Native creation order must be proved separately before reboot adoption.
-                raise ValueError('production new-boot SHM creation is not yet provisioned')
             if (value.st_dev, value.st_ino) != (segment['dev'], segment['ino']):
                 raise ValueError('production v11 segment identity changed')
 
 
-def production_context(home):
+def production_context(home, segments=True, units=True):
     root = home / 'data' / PRODUCTION_DIR
     pending = root / 'pending.json'
     pointer = production_json(root / 'current.json')
@@ -365,7 +419,7 @@ def production_context(home):
         ref = production_json(pending)
         if ref != {'transaction': pointer['transaction'], 'approvalSha256': state['approvalSha256']} or state['phase'] not in ('PROMOTING', 'COMPLETED', 'RECOVERED'):
             raise ValueError('unresolved production install inhibits startup')
-    production_verify(home, baseline)
+    production_verify(home, baseline, segments=segments, units=units)
     return baseline
 
 

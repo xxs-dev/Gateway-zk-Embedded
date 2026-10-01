@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import importlib.util
+import uuid
 
 
 def active_job(staging, job, token, cancel=False):
@@ -232,6 +233,8 @@ class RuntimeHandoff:
         return bound()
 
     def save(self, value):
+        if value['phase'] != 'OWNER_FINISHED':
+            self.index_unfinished(value)
         temporary = self.path.with_name(self.path.name + '.tmp.' + str(os.getpid()))
         try:
             fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -241,9 +244,183 @@ class RuntimeHandoff:
                 os.fsync(output.fileno())
             os.replace(str(temporary), str(self.path))
             sync_dir(str(self.root))
+            if value['phase'] == 'OWNER_FINISHED':
+                self.retire_index(value)
         finally:
             if temporary.exists():
                 temporary.unlink()
+
+    def index_directory(self, name, create=False):
+        path = self.root / name
+        if create and not path.exists() and not path.is_symlink():
+            path.mkdir(mode=0o700)
+        value = path.lstat()
+        if path.is_symlink() or not stat.S_ISDIR(value.st_mode) or value.st_uid != 0 or stat.S_IMODE(value.st_mode) != 0o700:
+            raise ValueError('untrusted handoff index directory')
+        if create:
+            sync_dir(str(self.root))  # also repair mkdir succeeded / parent fsync failed
+        return path
+
+    def index_unfinished(self, record):
+        directory = self.index_directory('runtime-unfinished', create=True)
+        marker = directory / (self.job + '.json')
+        expected = dict(format='runtime-unfinished-v1', jobId=self.job, token=self.token,
+                        intentSha256=record['intentSha256'])
+        if marker.exists() or marker.is_symlink():
+            if self.json_file(marker) != expected:
+                raise ValueError('unfinished handoff index drift')
+            self.publish_index(marker, expected, 0o600)
+            return
+        count, jobs = 0, set()
+        for path in directory.iterdir():
+            count += 1
+            final = re.fullmatch(r'([A-Za-z0-9._-]{1,128})\.json', path.name)
+            partial = re.fullmatch(r'\.([A-Za-z0-9._-]{1,128})\.json\.([0-9a-f-]{36})\.publish', path.name)
+            if count > 256 or not final and not partial:
+                raise ValueError('unknown/excess unfinished index entries')
+            job = (final or partial)[1]
+            if partial and job == self.job and partial[2] != self.token:
+                raise ValueError('unfinished publication token drift')
+            jobs.add(job)
+            if len(jobs - {self.job}) >= 128:
+                raise ValueError('unfinished handoff count exceeds bound')
+        self.publish_index(marker, expected, 0o600)
+
+    def publish_index(self, path, value, mode):
+        # Called by the original job's serialized writer. The exact job/token
+        # namespace plus durable intent/terminal bytes owns this temporary only.
+        data = (json.dumps(value, sort_keys=True) + '\n').encode()
+        temporary = path.with_name('.' + path.name + '.' + self.token + '.publish')
+        if path.exists() or path.is_symlink():
+            final = path.lstat()
+            if stat.S_IMODE(final.st_mode) != mode or self.file_bytes(path) != data:
+                raise ValueError('index publication target drift')
+        retained_path = self.root / 'runtime-interrupted-index'
+        if retained_path.exists() or retained_path.is_symlink():
+            # A prior move may have succeeded before its archive-directory fsync.
+            # Repair that durability without scanning/deleting retained evidence.
+            retained = self.index_directory('runtime-interrupted-index', create=True)
+            sync_dir(str(retained))
+        if temporary.exists() or temporary.is_symlink():
+            before = temporary.lstat()
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_nlink != 1 or
+                    stat.S_IMODE(before.st_mode) not in (0o600, mode) or before.st_size > len(data)):
+                raise ValueError('unowned interrupted index publication')
+            partial = self.file_bytes(temporary)
+            if partial != data[:len(partial)]:
+                raise ValueError('interrupted index bytes differ from original job')
+            retained = self.index_directory('runtime-interrupted-index', create=True)
+            archive = retained / (self.job + '-' + self.token + '-' + uuid.uuid4().hex)
+            named = temporary.lstat()
+            if not stat.S_ISREG(named.st_mode) or (named.st_dev, named.st_ino) != (before.st_dev, before.st_ino):
+                raise ValueError('interrupted index inode changed')
+            os.rename(str(temporary), str(archive))
+            sync_dir(str(retained))
+            sync_dir(str(path.parent))
+        if path.exists():
+            sync_dir(str(path.parent))  # repair an uncertain publish directory-fsync
+            return
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as out:
+            out.write(data)
+            out.flush()
+            os.fchmod(out.fileno(), mode)
+            os.fsync(out.fileno())
+        # The job mutex/lease excludes competing official writers. Never replace
+        # a pre-existing final object, including a dangling symlink.
+        if path.exists() or path.is_symlink():
+            raise ValueError('index publication namespace changed')
+        os.rename(str(temporary), str(path))
+        sync_dir(str(path.parent))
+
+    def retire_index(self, record):
+        if record['phase'] not in ('OWNER_FINISHED', 'CANCELLED'):
+            raise ValueError('unfinished handoff cannot retire')
+        directory = self.root / 'runtime-unfinished'
+        if not directory.exists() and not directory.is_symlink():
+            return  # pre-index consumed history stays untouched
+        directory = self.index_directory('runtime-unfinished')
+        marker = directory / (self.job + '.json')
+        if not marker.exists() and not marker.is_symlink():
+            sync_dir(str(directory))  # retry marker-unlink directory durability
+            return
+        expected = dict(format='runtime-unfinished-v1', jobId=self.job, token=self.token,
+                        intentSha256=record['intentSha256'])
+        if self.json_file(marker) != expected:
+            raise ValueError('unfinished retirement owner mismatch')
+        health = self.root / ('health_' + self.job + '.txt')
+        decision = self.json_file(health)
+        if decision.get('jobId') != self.job or decision.get('token') != self.token:
+            raise ValueError('unfinished retirement health mismatch')
+        retained = self.index_directory('runtime-retired', create=True)
+        receipt = retained / (self.job + '-' + self.token + '.json')
+        value = dict(format='runtime-retired-v1', originalIndex=expected,
+                     terminalSha256=hashlib.sha256(self.file_bytes(self.path)).hexdigest(),
+                     healthSha256=hashlib.sha256(self.file_bytes(health)).hexdigest())
+        self.publish_index(receipt, value, 0o400)
+        # Only the verified pending POINTER is removed, never a terminal journal,
+        # health, staged helper, lease, original intent or retained audit receipt.
+        marker.unlink()
+        sync_dir(str(directory))
+
+    @staticmethod
+    def unfinished(staging):
+        """Bounded pending pointers only; completed journals remain audit history."""
+        scanner = RuntimeHandoff(staging, 'INDEX_SCAN', '0' * 36)
+        directory = scanner.root / 'runtime-unfinished'
+        owners = {}
+        if directory.exists() or directory.is_symlink():
+            directory = scanner.index_directory('runtime-unfinished')
+            count = 0
+            for path in directory.iterdir():
+                count += 1
+                if count > 256:  # at most 128 pointers plus their interrupted publications
+                    raise ValueError('unfinished index entry count exceeds bound')
+                final = re.fullmatch(r'([A-Za-z0-9._-]{1,128})\.json', path.name)
+                partial = re.fullmatch(r'\.([A-Za-z0-9._-]{1,128})\.json\.([0-9a-f-]{36})\.publish', path.name)
+                if not final and not partial:
+                    raise ValueError('unknown unfinished index entry')
+                job = (final or partial)[1]
+                intent_path = scanner.root / ('ota_job_' + job + '.json')
+                intent = scanner.json_file(intent_path)
+                protocol = RuntimeHandoff(staging, job, intent.get('token', ''))
+                protocol.intent()
+                expected = dict(format='runtime-unfinished-v1', jobId=job, token=protocol.token,
+                                intentSha256=hashlib.sha256(protocol.file_bytes(intent_path)).hexdigest())
+                if final:
+                    if protocol.json_file(path) != expected:
+                        raise ValueError('unfinished index owner drift')
+                else:
+                    # validate/retain partial bytes only through the original job's
+                    # mutex and publish_index; an unfinished pointer cannot authorize mutation.
+                    if partial[2] != protocol.token:
+                        raise ValueError('unfinished publication token drift')
+                if job in owners and owners[job].token != protocol.token:
+                    raise ValueError('ambiguous unfinished owner')
+                owners[job] = protocol
+                if len(owners) > 128:
+                    raise ValueError('unfinished handoff count exceeds bound')
+        # Pre-index versions had one durable active-job pointer. Directly bind it,
+        # never glob all old journals or discard completed evidence to meet a cap.
+        active = scanner.root / 'ota_active_job.txt'
+        if active.exists() or active.is_symlink():
+            raw = scanner.file_bytes(active, 256).decode('ascii')
+            match = re.fullmatch(r'jobId=([A-Za-z0-9._-]{1,128})\ntoken=([0-9a-f-]{36})\n', raw)
+            if not match:
+                raise ValueError('invalid boot active job pointer')
+            protocol = RuntimeHandoff(staging, match[1], match[2])
+            if protocol.intent_path.exists() or protocol.intent_path.is_symlink():
+                intent = protocol.json_file(protocol.intent_path)
+                if intent.get('lifecycle') == 'systemd-handoff-v1':
+                    protocol.intent()
+                    owners[protocol.job] = protocol
+                elif protocol.path.exists() or protocol.path.is_symlink():
+                    raise ValueError('active handoff intent lifecycle drift')
+            elif protocol.path.exists() or protocol.path.is_symlink():
+                raise ValueError('active handoff intent missing')
+        if len(owners) > 128:
+            raise ValueError('unfinished handoff count exceeds bound')
+        return list(owners.values())
 
     def read(self):
         value = self.json_file(self.path)
@@ -590,10 +767,11 @@ class RuntimeHandoff:
             if applied.exists() or applied.is_symlink():
                 if self.job in self.file_bytes(applied, 16 * 1024 * 1024).decode().splitlines():
                     raise ValueError('runtime job was applied')
-            record['phase'] = 'CANCELLED'
-            record['cancelProof'] = dict(unit=self.unit, mainPid=props['MainPID'], job=props['Job'],
-                                        noWriter=True, bootId=self.boot())
-            self.save(record)
+            if record['phase'] != 'CANCELLED':
+                record['phase'] = 'CANCELLED'
+                record['cancelProof'] = dict(unit=self.unit, mainPid=props['MainPID'], job=props['Job'],
+                                            noWriter=True, bootId=self.boot())
+                self.save(record)
             health = self.root / ('health_' + self.job + '.txt')
             with self.lock('ota_state.lock', wait=2):
                 self.intent()
@@ -626,8 +804,9 @@ class RuntimeHandoff:
                     raise ValueError('runtime cancellation health mismatch')
                 # Also repairs an uncertain prior directory-fsync after atomic publish.
                 sync_dir(str(self.root))
+            self.retire_index(record)
 
-    def recover(self):
+    def recover(self, boot_prepare=False, boot_work=None):
         # A missing record alone proves nothing: exclude donor/helper via the
         # intent-pinned lease and serialize a tombstone with all future dispatch.
         if not (self.path.exists() or self.path.is_symlink()):
@@ -648,6 +827,7 @@ class RuntimeHandoff:
             with self.mutex():
                 record = self.read()
                 if record['phase'] == 'OWNER_FINISHED':
+                    self.retire_index(record)
                     return
                 mutated = record['runtimeMayChange']
             if mutated:
@@ -655,6 +835,7 @@ class RuntimeHandoff:
                     with self.mutex():
                         record = self.read()
                         if record['phase'] == 'OWNER_FINISHED':
+                            self.retire_index(record)
                             return
                         props = self.verify_owner(record, live=False)
                         if props['ActiveState'] not in ('inactive', 'failed') or props['MainPID'] != '0' or props['Job']:
@@ -662,6 +843,10 @@ class RuntimeHandoff:
                         self.no_unit_tasks(record)
                         self.verify_inputs(record)
                         entry = self.production_entry(record)
+                    if boot_prepare:
+                        return entry.production_ota_resume(self, record, boot_prepare=True)
+                    if boot_work is not None:
+                        return entry.production_ota_resume(self, record, boot_work=boot_work)
                     entry.production_ota_resume(self, record)
                 return
         self.cancel()

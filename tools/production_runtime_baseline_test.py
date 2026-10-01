@@ -56,6 +56,7 @@ class ProductionRuntimeTest(unittest.TestCase):
                       'system-monitor@.service', 'can-driver@.service', 'ky-ems.service']
         self.allowed = ['gateway-services.service', self.g.MONITOR_UNIT]
         self.calls = []
+        self.pid = '98765'
         self.live = set(self.allowed)
         self.fail_start = False
         self.fail_health = False
@@ -149,7 +150,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         return bytes(header) + payload
 
     def make_process(self):
-        proc = self.path('/proc/98765')
+        proc = self.path('/proc') / self.pid
         proc.mkdir(parents=True, exist_ok=True)
         if (proc / 'exe').is_symlink():
             (proc / 'exe').unlink()
@@ -157,12 +158,12 @@ class ProductionRuntimeTest(unittest.TestCase):
         s = self.path('/dev/shm/live_v11').stat()
         self.write(proc / 'maps', '1000-2000 rw-s 00000000 %02x:%02x %d /dev/shm/live_v11\n' %
                    (os.major(s.st_dev), os.minor(s.st_dev), s.st_ino))
-        self.write(proc / 'stat', '98765 (private-fixture) ' + ' '.join(['0'] * 19 + ['12345']))
+        self.write(proc / 'stat', self.pid + ' (private-fixture) ' + ' '.join(['0'] * 19 + ['12345']))
 
     def property(self, unit, prop):
         if prop == 'ActiveState': return 'active' if unit in self.live else 'inactive'
         if prop == 'SubState': return 'running' if unit in self.live else 'dead'
-        if prop == 'MainPID': return '98765' if unit == self.g.MONITOR_UNIT and unit in self.live else '0'
+        if prop == 'MainPID': return self.pid if unit == self.g.MONITOR_UNIT and unit in self.live else '0'
         if prop == 'NRestarts': return '0'
         if prop == 'LoadState': return 'loaded'
         if prop == 'NeedDaemonReload': return 'no'
@@ -179,7 +180,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.calls.append(args)
         if args[0] == 'stop':
             self.live.difference_update(args[1:])
-            proc = self.path('/proc/98765')
+            proc = self.path('/proc') / self.pid
             if proc.exists(): shutil.rmtree(proc)
             return ''
         if args[0] == 'show':
@@ -194,6 +195,11 @@ class ProductionRuntimeTest(unittest.TestCase):
 
     def external(self, command, **kwargs):
         self.calls.append(tuple(command))
+        if command[0] == '/usr/bin/systemd-run':
+            self.assertIn('--no-block', command)
+            self.assertIn('--property=After=gateway-ota-recover.service', command)
+            self.assertEqual(command[-2:], ['production-boot-finish', str(self.home)])
+            return subprocess.CompletedProcess(command, 0, b'', b'')
         if command[:2] == ['systemctl', 'list-units'] or command[:2] == ['systemctl', 'list-unit-files']:
             return subprocess.CompletedProcess(command, 0, '\n'.join(u + ' loaded' for u in self.units), '')
         if command[0] == '/usr/bin/python3' and 'activated-unit' in command:
@@ -660,8 +666,10 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.calls.clear()
         with mock.patch.object(self.m.importlib.util, 'spec_from_file_location', local_spec):
             self.m.production_boot(types.SimpleNamespace(home=self.home))
+            self.assertEqual(owner.read()['phase'], 'OWNER_INSTALLING', 'gate cannot publish untested health')
+            self.assertFalse(any(c[0] in ('stop', 'start') for c in self.calls))
+            self.m.production_boot_finish(types.SimpleNamespace(home=self.home))
         self.assertEqual(owner.read()['phase'], 'OWNER_FINISHED')
-        self.assertFalse(any(c[0] in ('stop', 'start') for c in self.calls))
 
     def test_boot_oneshot_during_start_requires_positive_live_offline_owner(self):
         original_start = self.m.ProductionRuntime.start
