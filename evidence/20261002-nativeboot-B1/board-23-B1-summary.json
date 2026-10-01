@@ -1,0 +1,629 @@
+{
+  "format": "native-creator-23-B1-execution-summary-v1",
+  "date": "2026-10-02",
+  "payloadCommit": "1950402a5d1c97e661d7132eae065508f32ab194",
+  "runnerCommit": "fe24c61489eb276e1ae7e67243c2a06d3b924bef",
+  "scopePath": "nativeboot-23-B1-execution-scope.md",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+  "root": "/tmp/gw-nativeboot-f9a79bd-23-B1",
+  "command": "python -B evidence/20261002-nativeboot-B1/execute-native-creator.py --execute-approved",
+  "localExitCode": 1,
+  "remoteExitCode": 1,
+  "childExitCode": 1,
+  "childElapsedSeconds": 1.0919260950759053,
+  "plannedChecks": 6,
+  "completedQualifiedChecks": 0,
+  "partialNativeCommands": 1,
+  "nativeCommands": [
+    {
+      "argv": [
+        "/tmp/gw-nativeboot-f9a79bd-23-B1/source/pointctl",
+        "stats",
+        "--shm",
+        "gw_native_b1_f9a79bd_cold"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "shm=/gw_native_b1_f9a79bd_cold latest=0/100000 latestCapacity=100000 pendingWrites=0/4096 pendingCapacity=4095 persistent=0/20000 persistentCapacity=19999 pointUpdates=0/65535 writeSeq=0 persistentSeq=0 pointUpdateSeq=0\n"
+    }
+  ],
+  "failure": {
+    "errorType": "ValueError",
+    "errorMessage": "native empty queue/stats proof failed",
+    "cause": "Native CLI stdout has effective ring capacities 4095/19999/65535, but runner pattern expected raw slot counts 4096/20000/65536.",
+    "localSourceProof": [
+      {
+        "path": "src/memory_point_store.cpp",
+        "line": 2043,
+        "expression": "stats.pendingWriteCapacity = kMaxPendingWriteSlots - 1;"
+      },
+      {
+        "path": "src/memory_point_store.cpp",
+        "line": 2050,
+        "expression": "stats.persistentCapacity = kMaxPersistentSlots - 1;"
+      },
+      {
+        "path": "src/memory_point_store.cpp",
+        "line": 2057,
+        "expression": "stats.pointUpdateCapacity = kMaxPointUpdateSlots - 1;"
+      }
+    ],
+    "classification": "Harness contract mismatch observed after successful real private stats invocation. B1 qualification remains FAILED, no check reclassified PASS."
+  },
+  "notReached": [
+    "Cold object direct ABI/header/dev/inode snapshot (assertion failed before object_info).",
+    "Reopen identity proof.",
+    "Owned tracee ptrace/architecture/syscall-exit interruption proof.",
+    "Native all-zero initialization reentry and subsequent reopen.",
+    "Explicit private short-size refusal.",
+    "Final provider hash pass and actual native provider-map comparison."
+  ],
+  "prerequisitesObserved": {
+    "dependencyCommands": 19,
+    "providers": 8,
+    "providerBytes": 4429720,
+    "namespaceIsolated": true,
+    "propagationPrivateBeforeMount": true,
+    "businessReadonly": true,
+    "privateTmpfsBytes": 50331648,
+    "positivePrivateFlock": true
+  },
+  "capacity": [
+    {
+      "additionalPageBytes": 31334400,
+      "lockDev": 45829,
+      "lockInode": 254190,
+      "measuredPeak": false,
+      "memAvailableBytes": 2286256128,
+      "memRequiredBytes": 98443264,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 50331648,
+      "systemPolicyReserveBytes": 67108864
+    }
+  ],
+  "dependencies": {
+    "commands": [
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/tmp/gw-nativeboot-f9a79bd-23-B1/source/pointctl"
+        ],
+        "bytes": 1756,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-pointctl-dynamic.log",
+        "sha256": "1225bd5d832c7b4a7525fdad2d74e49f548835ea2d7a298cecb20de245659899",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-l",
+          "/tmp/gw-nativeboot-f9a79bd-23-B1/source/pointctl"
+        ],
+        "bytes": 1483,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-pointctl-program.log",
+        "sha256": "b9a0d9f731ac33bb8c7e20837740b5313975e4cf9e11baaa9b66330fe234bea2",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/sbin/ldconfig",
+          "-p"
+        ],
+        "bytes": 71170,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-cache.log",
+        "sha256": "15bc6487950b630f641e7ee902755603e1f2ab106e402b371fea19a257109592",
+        "tool": {
+          "bytes": 387,
+          "dev": 45829,
+          "ino": 18452,
+          "path": "/usr/sbin/ldconfig",
+          "sha256": "bfd5df90c7f070feab584435f106f254ffffaa268a04de5b5c3bd61d59c092f3"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/ld-2.31.so"
+        ],
+        "bytes": 1157,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-ld-linux-aarch64.so.1-dynamic.log",
+        "sha256": "f8ab96f21c0fe99974ddfd2bf865f507edb30bebb3946419569955843f090309",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/ld-2.31.so"
+        ],
+        "bytes": 1252,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-ld-linux-aarch64.so.1-versions.log",
+        "sha256": "de25f86a5b1df16e9af0e20eb02f39dd61c70cf2f07546e74b80284a15b28075",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/libc-2.31.so"
+        ],
+        "bytes": 1391,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libc.so.6-dynamic.log",
+        "sha256": "50e518803aff97f13ab8c75343d9b8f67f19dad23ace7a28f8ec43dccd236605",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/libc-2.31.so"
+        ],
+        "bytes": 47445,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libc.so.6-versions.log",
+        "sha256": "2f04a9f4802f567332f66052f3d3bf12265045061c2e77b07df6f355d6b20f54",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/libdl-2.31.so"
+        ],
+        "bytes": 1581,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libdl.so.2-dynamic.log",
+        "sha256": "7c771ad40401d94c0a10c14f9c621b3b8e814e7f2be9100a24119b68ba95a716",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/libdl-2.31.so"
+        ],
+        "bytes": 1849,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libdl.so.2-versions.log",
+        "sha256": "2d04105c00cb12957c335b4a0f32d9fc220ba7fe4543476b2f87d6b7745785b3",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/libgcc_s.so.1"
+        ],
+        "bytes": 1465,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libgcc_s.so.1-dynamic.log",
+        "sha256": "aa6b76b01ce6e0b11a94a09b546b41b5c4f2ceb2900cda134afa7895aea85185",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/libgcc_s.so.1"
+        ],
+        "bytes": 4885,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libgcc_s.so.1-versions.log",
+        "sha256": "9b43151d6ab731224248a18b01bdb3e2c07df3938c1f5a0a48824ae87b2d9d1c",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/libm-2.31.so"
+        ],
+        "bytes": 1591,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libm.so.6-dynamic.log",
+        "sha256": "4057de5d08b60216ca73200276947a2414ff02262a7c4db474ca522d95862d7b",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/libm-2.31.so"
+        ],
+        "bytes": 22957,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libm.so.6-versions.log",
+        "sha256": "7ad96baf427ba431ecec4da7ae85f9107cbd6e602875317a85ac78b2834ba668",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/libpthread-2.31.so"
+        ],
+        "bytes": 1666,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libpthread.so.0-dynamic.log",
+        "sha256": "01429d76b58a735c6679addb79fca9f463a5656ce80075bb81fca6d6e7365849",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/libpthread-2.31.so"
+        ],
+        "bytes": 8254,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libpthread.so.0-versions.log",
+        "sha256": "608fa4253ea4c944807927b0457678160353ae8caf86682547d7cf26a7b3d3bf",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/librt-2.31.so"
+        ],
+        "bytes": 1720,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-librt.so.1-dynamic.log",
+        "sha256": "59e1aa9bc75e30be0b1571d82cf1a154059278f1a8803b1201f065a699b71034",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/librt-2.31.so"
+        ],
+        "bytes": 3049,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-librt.so.1-versions.log",
+        "sha256": "4ee50b3774063fd647ae32b60e2053a0be82f39802153fb4ca6858c564c08549",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "-d",
+          "/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.28"
+        ],
+        "bytes": 1811,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libstdc++.so.6-dynamic.log",
+        "sha256": "dccf47c24a67ac0df8839b7b2a2efa3ea8929115bbaf95b2724f0a0173ccdcfa",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      },
+      {
+        "argv": [
+          "/usr/bin/readelf",
+          "-W",
+          "--version-info",
+          "/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.28"
+        ],
+        "bytes": 135763,
+        "exitCode": 0,
+        "log": "/tmp/gw-nativeboot-f9a79bd-23-B1/dependency-libstdc++.so.6-versions.log",
+        "sha256": "f9f3df48523b56fe7efa8b6f1b9a4849cd5a37d02d846b61052e9205ce8e8de5",
+        "tool": {
+          "bytes": 645728,
+          "dev": 45829,
+          "ino": 1146903,
+          "path": "/usr/bin/aarch64-linux-gnu-readelf",
+          "sha256": "b5a664f517c5ff91a9ac8f32fd2f54ce472a59f6671435b06c8c941fc10fb6ec"
+        }
+      }
+    ],
+    "libraries": {
+      "ld-linux-aarch64.so.1": {
+        "bytes": 146432,
+        "dev": 45829,
+        "ino": 6922,
+        "path": "/usr/lib/aarch64-linux-gnu/ld-2.31.so",
+        "sha256": "a982ca6f7cac01f10f03a41fd366fcca7cc511714b688549e75d517945fd42a8"
+      },
+      "libc.so.6": {
+        "bytes": 1450832,
+        "dev": 45829,
+        "ino": 7218,
+        "path": "/usr/lib/aarch64-linux-gnu/libc-2.31.so",
+        "sha256": "1c2b5ed433cad8a0d4761165c9ac2a543dfaa6174b9457425194cee7f4bac0cf"
+      },
+      "libdl.so.2": {
+        "bytes": 14560,
+        "dev": 45829,
+        "ino": 7343,
+        "path": "/usr/lib/aarch64-linux-gnu/libdl-2.31.so",
+        "sha256": "2ec79c71745859480b32ba49785f217d73be250ed4342b6b33f27608f3d6cebd"
+      },
+      "libgcc_s.so.1": {
+        "bytes": 80200,
+        "dev": 45829,
+        "ino": 7536,
+        "path": "/usr/lib/aarch64-linux-gnu/libgcc_s.so.1",
+        "sha256": "42e40b1edf78999d41d763cb169c70b563e8b5dbc665e072380f96832ad4a407"
+      },
+      "libm.so.6": {
+        "bytes": 633832,
+        "dev": 45829,
+        "ino": 7926,
+        "path": "/usr/lib/aarch64-linux-gnu/libm-2.31.so",
+        "sha256": "c03d27fd2570214ae7ecdba7654553b8948ef26e3b790915fc475779b61e930e"
+      },
+      "libpthread.so.0": {
+        "bytes": 164304,
+        "dev": 45829,
+        "ino": 8212,
+        "path": "/usr/lib/aarch64-linux-gnu/libpthread-2.31.so",
+        "sha256": "48b97fe853633c03a391d99253f16f91b72c613f1d70919726fb79ccf3b17dc3"
+      },
+      "librt.so.1": {
+        "bytes": 31584,
+        "dev": 45829,
+        "ino": 8254,
+        "path": "/usr/lib/aarch64-linux-gnu/librt-2.31.so",
+        "sha256": "0f10adfa5686cb7c3fef1f9d03e4ec1073868f518a2de0ae89a045aa45d4e407"
+      },
+      "libstdc++.so.6": {
+        "bytes": 1907976,
+        "dev": 45829,
+        "ino": 8361,
+        "path": "/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.28",
+        "sha256": "d5106b70d2682294dee634486749ee06cf24ac830190996dcab95a246ebc152b"
+      }
+    },
+    "totalBytes": 4429720
+  },
+  "isolation": {
+    "businessReadonly": true,
+    "namespace": "mnt:[4026532695]",
+    "parent": {
+      "mountinfoRaw": "15 1 179:5 / / rw,relatime shared:1 - ext4 /dev/root rw\n16 15 0:14 / /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw\n17 15 0:15 / /proc rw,nosuid,nodev,noexec,relatime shared:6 - proc proc rw\n18 15 0:5 / /dev rw,nosuid shared:7 - devtmpfs devtmpfs rw,size=1991732k,nr_inodes=497933,mode=755\n19 18 0:16 / /dev/shm rw,nosuid,nodev shared:8 - tmpfs tmpfs rw\n20 18 0:17 / /dev/pts rw,nosuid,noexec,relatime shared:9 - devpts devpts rw,gid=5,mode=620,ptmxmode=000\n21 15 0:18 / /run rw,nosuid,nodev shared:10 - tmpfs tmpfs rw,size=398852k,mode=755\n22 21 0:19 / /run/lock rw,nosuid,nodev,noexec,relatime shared:11 - tmpfs tmpfs rw,size=5120k\n23 16 0:20 / /sys/fs/cgroup ro,nosuid,nodev,noexec shared:3 - tmpfs tmpfs ro,mode=755\n24 23 0:21 / /sys/fs/cgroup/unified rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 cgroup2 rw,nsdelegate\n25 23 0:22 / /sys/fs/cgroup/systemd rw,nosuid,nodev,noexec,relatime shared:5 - cgroup cgroup rw,xattr,name=systemd\n26 23 0:23 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev,noexec,relatime shared:12 - cgroup cgroup rw,cpu,cpuacct\n27 23 0:24 / /sys/fs/cgroup/devices rw,nosuid,nodev,noexec,relatime shared:13 - cgroup cgroup rw,devices\n28 23 0:25 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup cgroup rw,cpuset\n29 23 0:26 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:15 - cgroup cgroup rw,pids\n30 23 0:27 / /sys/fs/cgroup/freezer rw,nosuid,nodev,noexec,relatime shared:16 - cgroup cgroup rw,freezer\n31 23 0:28 / /sys/fs/cgroup/memory rw,nosuid,nodev,noexec,relatime shared:17 - cgroup cgroup rw,memory\n32 23 0:29 / /sys/fs/cgroup/blkio rw,nosuid,nodev,noexec,relatime shared:18 - cgroup cgroup rw,blkio\n33 18 0:11 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:19 - mqueue mqueue rw\n34 21 0:30 / /run/rpc_pipefs rw,relatime shared:20 - rpc_pipefs sunrpc rw\n35 16 0:6 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:21 - debugfs debugfs rw\n36 16 0:31 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:22 - fusectl fusectl rw\n37 16 0:12 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime shared:23 - configfs configfs rw\n256 15 179:6 / /data rw,relatime shared:146 - ext4 /dev/mmcblk0p6 rw\n563 21 0:34 / /run/user/1000 rw,nosuid,nodev,relatime shared:324 - tmpfs tmpfs rw,size=398852k,mode=700,uid=1000,gid=1000\n583 21 0:35 / /run/user/0 rw,nosuid,nodev,relatime shared:335 - tmpfs tmpfs rw,size=398852k,mode=700\n",
+      "mountinfoSha256": "f0d7de9e767621116037d5e3c402932893bffa69b29d067a58de3391a4ed09ca",
+      "namespace": "mnt:[4026531840]",
+      "parentNativeNames": {
+        "gw_native_b1_f9a79bd_cold": false,
+        "gw_native_b1_f9a79bd_interrupt": false
+      },
+      "readerNamespaces": {
+        "475164": "mnt:[4026531840]",
+        "475219": "mnt:[4026531840]",
+        "475276": "mnt:[4026531840]"
+      },
+      "shmIdentity": [
+        16,
+        1
+      ]
+    },
+    "propagationPrivateBeforeMount": true,
+    "shmDev": 33,
+    "shmInode": 1,
+    "visibleMount": [
+      "230",
+      "220",
+      "0:33",
+      "/",
+      "/dev/shm",
+      "rw,nosuid,nodev,noexec,relatime",
+      "-",
+      "tmpfs",
+      "tmpfs",
+      "rw,size=49152k,mode=700"
+    ]
+  },
+  "receiptBytes": 220753,
+  "receiptSha256": "20686442532f51ebf95c8cfffecc7dd1abd6d8814b566f0048df5e34ce4bd705",
+  "childLogBytes": 14291,
+  "childLogSha256": "97274d56ed362fc948ca65c99301c9ecdc0d64ffbd0b3ab8481be5ba3abe0f50",
+  "verifiedInputs": 2,
+  "postInputHashes": {
+    "native-child.py": "38eb214bb4e36f52dbb18c6bda40a6bc8ae7797cedd77e172a0e3681b1f13001",
+    "pointctl": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813"
+  },
+  "baselineGroupsUnchanged": 16,
+  "baselineFields": [
+    "machineCode",
+    "bootId",
+    "stateDir",
+    "stateSha256",
+    "approvalSha256",
+    "activeSha256",
+    "guardSha256",
+    "configSha256",
+    "markerSha256",
+    "readers",
+    "runtimeProcesses",
+    "segments",
+    "offlineLock",
+    "segmentIdentities",
+    "readerStartTicks",
+    "readerShmMaps"
+  ],
+  "baselineSamplesVerified": 4,
+  "parentNamespaceBaselineUnchanged": true,
+  "baselineChanges": [],
+  "finalBaselineChanges": [],
+  "readers": [
+    {
+      "unit": "modbus-rtu@device_modbusRTU_2_readonly.service",
+      "properties": {
+        "MainPID": "475164",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+      "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0"
+    },
+    {
+      "unit": "mqtt-driver@mqtt-service.service",
+      "properties": {
+        "MainPID": "475219",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/MqttDriver",
+      "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6"
+    },
+    {
+      "unit": "system-monitor@monitor-service.service",
+      "properties": {
+        "MainPID": "475276",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+      "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1"
+    }
+  ],
+  "fixtureProcessGroup": 528806,
+  "remainingFixtureProcesses": [],
+  "workRemoved": false,
+  "workRetainedForFailure": true,
+  "finalBaselineIsAfterGroupCleanup": true,
+  "finalBaselineIsAfterWorkRemoval": false,
+  "sshClosed": true,
+  "localCommandExited": true,
+  "remoteRetry": false,
+  "timedOut": false,
+  "otherTargetsExecuted": false,
+  "allAHistoryPreserved": true,
+  "wsl47230": "unknown; untouched",
+  "productChanged": false,
+  "rawDependencyLogs": "19 bounded files retained at remote B1 root; raw text not downloaded. Their exit/size/SHA/path and eight provider pins are in original receipt/native log.",
+  "authorizationNote": "Preparation remoteAuthorized=false field unchanged; subsequent precise B1 scope authorized this one --execute-approved invocation.",
+  "boundary": "One real pinned stats invocation after child-only isolation succeeded, but its contract validator failed. No complete native ABI/inode/ptrace/reentry qualification; not business deployment/systemd/OS reboot/OTA. No repair or additional device action under consumed scope."
+}
