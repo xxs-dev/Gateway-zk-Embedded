@@ -1,0 +1,21 @@
+{
+  "format": "nativeboot-A-runner-local-review-v1",
+  "sourceCommit": "e3739baa7a81dfafcd8e0c364cd1f5c92b5cbd75",
+  "runnerPath": "evidence/20261002-nativeboot/execute-board-fixture.py",
+  "runnerBytes": 20364,
+  "runnerSha256": "0341e2a0c306fa504703ea47c171b9262b3256ff4ff9e7ebb12e303b0dfc1d88",
+  "manifestSha256": "4b649f3d40db1180acfcfcdce034d300c79e7aa3b9bbf5ff0e1d27608b5b5463",
+  "command": "python -B evidence/20261002-nativeboot/execute-board-fixture.py",
+  "exitCode": 0,
+  "dryRunStdoutSha256": "496bfa151eec6098c1e5de717429ff4a39354b6d80cd23d8fa617e2aaff262bb",
+  "inputCount": 11,
+  "inputBytes": 471566,
+  "caseCount": 44,
+  "host": "192.168.22.23",
+  "root": "/tmp/gw-nativeboot-e3739ba-23-A1",
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "connectionHelperImported": false,
+  "python38Grammar": "runner/baseline/remote/leaf passed; not Python3.8 execution",
+  "linuxTestsExecuted": false
+}
