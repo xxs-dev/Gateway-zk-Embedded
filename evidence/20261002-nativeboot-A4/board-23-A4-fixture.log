@@ -1,0 +1,14 @@
+test_memory_insufficient_refuses_before_intent_or_native_call (production_native_boot_test.NativeBootTest) ... ACTIVATION_CAPACITY_PRECHECK: {"checkpoint": "production-before-intent", "memAvailableBytes": 2147483648, "memRequiredBytes": 234881024, "serviceReserveBytes": {"gateway-services.service": 33554432, "system-monitor@monitor-service.service": 134217728}, "startUnits": ["gateway-services.service", "system-monitor@monitor-service.service"], "systemReserveBytes": 67108864}
+ACTIVATION_CAPACITY_PRECHECK: {"checkpoint": "production-before-start", "memAvailableBytes": 2147483648, "memRequiredBytes": 234881024, "serviceReserveBytes": {"gateway-services.service": 33554432, "system-monitor@monitor-service.service": 134217728}, "startUnits": ["gateway-services.service", "system-monitor@monitor-service.service"], "systemReserveBytes": 67108864}
+ACTIVATION_CAPACITY_PRECHECK: {"checkpoint": "native-boot-startup-policy", "memAvailableBytes": 0, "memRequiredBytes": 234881024, "serviceReserveBytes": {"gateway-services.service": 33554432, "system-monitor@monitor-service.service": 134217728}, "startUnits": ["gateway-services.service", "system-monitor@monitor-service.service"], "systemReserveBytes": 67108864}
+ok
+test_tmpfs_insufficient_refuses_before_intent_or_native_call (production_native_boot_test.NativeBootTest) ... ACTIVATION_CAPACITY_PRECHECK: {"checkpoint": "production-before-intent", "memAvailableBytes": 2147483648, "memRequiredBytes": 234881024, "serviceReserveBytes": {"gateway-services.service": 33554432, "system-monitor@monitor-service.service": 134217728}, "startUnits": ["gateway-services.service", "system-monitor@monitor-service.service"], "systemReserveBytes": 67108864}
+ACTIVATION_CAPACITY_PRECHECK: {"checkpoint": "production-before-start", "memAvailableBytes": 2147483648, "memRequiredBytes": 234881024, "serviceReserveBytes": {"gateway-services.service": 33554432, "system-monitor@monitor-service.service": 134217728}, "startUnits": ["gateway-services.service", "system-monitor@monitor-service.service"], "systemReserveBytes": 67108864}
+ACTIVATION_CAPACITY_PRECHECK: {"checkpoint": "native-boot-startup-policy", "memAvailableBytes": 2147483648, "memRequiredBytes": 234881024, "serviceReserveBytes": {"gateway-services.service": 33554432, "system-monitor@monitor-service.service": 134217728}, "startUnits": ["gateway-services.service", "system-monitor@monitor-service.service"], "systemReserveBytes": 67108864}
+NATIVE_BOOT_CAPACITY: {"memAvailableBytes": 2147483648, "memRequiredBytes": 250548224, "migrationHeapBytes": 0, "newPageBytes": 15667200, "retainedV10AllocatedBytes": 0, "shmAvailableBytes": 0}
+ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 2.849s
+
+OK

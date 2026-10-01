@@ -1,0 +1,126 @@
+{
+  "format": "nativeboot-23-A4-execution-summary-v1",
+  "date": "2026-10-02",
+  "sourceCommit": "6e09390c70adeed724e88edc23a2b9fb87178b48",
+  "runnerCommit": "cd23e8e5e4757451e2e247b5e52594bf7a07de26",
+  "scopePath": "nativeboot-23-A4-execution-scope.md",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+  "root": "/tmp/gw-nativeboot-6e09390c-23-A4",
+  "command": "python -B evidence/20261002-nativeboot-A4/execute-board-fixture.py --execute-approved",
+  "localExitCode": 0,
+  "remoteExitCode": 0,
+  "fixtureExitCode": 0,
+  "fixtureElapsedSeconds": 3.444938956061378,
+  "unittestElapsedSeconds": 2.849,
+  "testSummary": {
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "passedUniqueSelectors": 2,
+  "passedSelectors": [
+    "production_native_boot_test.NativeBootTest.test_memory_insufficient_refuses_before_intent_or_native_call",
+    "production_native_boot_test.NativeBootTest.test_tmpfs_insufficient_refuses_before_intent_or_native_call"
+  ],
+  "assertionsReached": [
+    "Memory: exact insufficient MemAvailable for activation rejection.",
+    "Tmpfs: exact insufficient native boot memory/tmpfs capacity rejection.",
+    "Each selector: native_calls empty, no boots intent/proof directory, live_v11/retired_v10 absent, source bytes unchanged, no readers started."
+  ],
+  "preservedA3PassedSelectors": 30,
+  "A3CasesRepeated": 0,
+  "receiptBytes": 139432,
+  "receiptSha256": "c82246efcb974199b88dd52cba5b089df0a3c7e399f5ff720f6faee315ab5350",
+  "fixtureLogBytes": 2738,
+  "fixtureLogSha256": "7289f3c8e0ab561a9d6da0a938eeff29032ccebf67cfc43a8b6935fe8564b296",
+  "verifiedInputs": 11,
+  "postInputHashes": {
+    "deploy/offline-runtime-upgrade.py": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c",
+    "deploy/runtime-upgrade-guard.py": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+    "deploy/ota-health-result.py": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+    "tools/production_runtime_baseline_test.py": "7a59e5941c0468cef6ca0e99be54fe5e7a06fbf57728d2d72a5bce7a3017c185",
+    "tools/production_boot_publication_test.py": "fa7c76d4d9bd2fbf81da8afb44d1a7c56cc0e44521de465b8faa9f3fb221a804",
+    "tools/production_native_boot_test.py": "333691c4d2fb9f3e29443304164971fcf66fd00f9c8947ee5e7ccf222a94440c",
+    "tools/production_boot_health_publication_test.py": "783598b80073769058cd25a08646b2d72852c84ed5abbfa67b1406d67eb9ec73",
+    "deploy/gateway-services.sh": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960",
+    "deploy/ota-rollback.sh": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57",
+    "deploy/gateway-ota-recover.service": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f",
+    "tools/fixtures/production-historical-r2-allowlists.json": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+  },
+  "baselineGroupsUnchanged": 16,
+  "baselineFields": [
+    "machineCode",
+    "bootId",
+    "stateDir",
+    "stateSha256",
+    "approvalSha256",
+    "activeSha256",
+    "guardSha256",
+    "configSha256",
+    "markerSha256",
+    "readers",
+    "runtimeProcesses",
+    "segments",
+    "offlineLock",
+    "segmentIdentities",
+    "readerStartTicks",
+    "readerShmMaps"
+  ],
+  "baselineSamplesVerified": 4,
+  "baselineChanges": [],
+  "finalBaselineChanges": [],
+  "readers": [
+    {
+      "unit": "modbus-rtu@device_modbusRTU_2_readonly.service",
+      "properties": {
+        "MainPID": "475164",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+      "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0"
+    },
+    {
+      "unit": "mqtt-driver@mqtt-service.service",
+      "properties": {
+        "MainPID": "475219",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/MqttDriver",
+      "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6"
+    },
+    {
+      "unit": "system-monitor@monitor-service.service",
+      "properties": {
+        "MainPID": "475276",
+        "NRestarts": "0",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+      "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1"
+    }
+  ],
+  "fixtureProcessGroup": 525812,
+  "remainingFixtureProcesses": [],
+  "workRemoved": true,
+  "finalBaselineIsAfterCleanupRemoval": true,
+  "retainedSourceLogResult": true,
+  "sshClosed": true,
+  "localCommandExited": true,
+  "timedOut": false,
+  "remoteRetry": false,
+  "otherTargetsExecuted": false,
+  "A1A2A3Preserved": true,
+  "realLifecycleCalled": false,
+  "productChanged": false,
+  "wsl47230": "unknown; untouched",
+  "authorizationNote": "Raw runner plan remoteAuthorized=false remains preparation provenance; the later A4 scope authorized this one --execute-approved command. Receipt unchanged.",
+  "boundary": "Linux Python3.8/AArch64 root-private fixture, with native constructor/systemd/proc/network substituted. Two capacity rejection cases passed; no actual native SHM/pointctl/systemd/business deployment/OS reboot/RSA-HTTPS OTA acceptance."
+}
