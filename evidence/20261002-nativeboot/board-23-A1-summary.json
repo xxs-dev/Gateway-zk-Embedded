@@ -1,0 +1,157 @@
+{
+  "format": "nativeboot-23-A1-execution-summary-v1",
+  "date": "2026-10-02",
+  "sourceCommit": "e3739baa7a81dfafcd8e0c364cd1f5c92b5cbd75",
+  "runnerCommit": "ec94429c3c7f569b7d8d61a82a7d3986ea914ca3",
+  "scopeCoordinatorCommit": "8e16cc8",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+  "root": "/tmp/gw-nativeboot-e3739ba-23-A1",
+  "command": "python -B evidence/20261002-nativeboot/execute-board-fixture.py --execute-approved",
+  "localExitCode": 1,
+  "remoteExitCode": 1,
+  "fixtureExitCode": 1,
+  "elapsedSeconds": 49.724037057952955,
+  "testSummary": {
+    "tests": 44,
+    "failures": 7,
+    "errors": 14,
+    "skipped": 0
+  },
+  "passed": 23,
+  "receiptSha256": "d690df3e426dfa4a80acae110de2db8a069b64ba78cd8f7e637d30b8a831dcb5",
+  "receiptBytes": 283471,
+  "fixtureLogSha256": "71ab06006ce060ea2b6236c5f18a3b1f494cec24685d88dda777b0b89a29d014",
+  "fixtureLogBytes": 59772,
+  "verifiedInputs": 11,
+  "postInputHashesMatched": 11,
+  "baselineGroupsUnchanged": 16,
+  "baselineChanges": [],
+  "finalBaselineChanges": [],
+  "fixtureProcessGroup": 519874,
+  "remainingFixtureProcesses": [],
+  "workRemoved": false,
+  "workRetainedForFailure": true,
+  "finalBaselineIsAfterCleanupRemoval": false,
+  "sshClosed": true,
+  "realLifecycleCalled": false,
+  "remoteRetry": false,
+  "otherTargetsExecuted": false,
+  "rootAndEvidenceRetained": true,
+  "failureCategories": {
+    "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text": 16,
+    "pending-job fixture setUp calls production_context while unresolved install inhibits startup": 1,
+    "fixture mapped /proc/locks missing for positive lock owner check": 1,
+    "file-fsync injection archive-count expectation mismatch": 2,
+    "zero service-call assertion counts read-only systemctl inventory queries": 1
+  },
+  "failedCases": [
+    {
+      "kind": "ERROR",
+      "case": "test_cleared_run_real_entry_creates_locked_boot_proof_before_readers (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_interrupted_creator_reenters_original_intent_and_inode (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_wrong_interrupted_header_is_not_truncated_or_replaced (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_pending (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "pending-job fixture setUp calls production_context while unresolved install inhibits startup"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_promoted (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_rollback (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_original_job_newboot_preintent (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_postgate_worker_refuses_while_recovery_oneshot_activating (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_reader_start_can_require_gate_without_deadlock_or_worker_replay (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_failed_newboot_health_refences_and_official_worker_can_recover (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_health_published_then_directory_sync_failure_retry_binds_new_pid_attempt (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_no_handoff_runtime_newboot_promoted (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_no_handoff_runtime_newboot_adoption_rollback (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "ERROR",
+      "case": "test_boot_hook_resolves_durable_owner_tail_even_without_runtime_pending (production_runtime_baseline_test.ProductionRuntimeTest)",
+      "initialCategory": "fixture mapped /proc/locks missing for positive lock owner check"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_unfinished_file_fsync (production_boot_publication_test.IndexPublicationTest)",
+      "initialCategory": "file-fsync injection archive-count expectation mismatch"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_retired_file_fsync (production_boot_publication_test.IndexPublicationTest)",
+      "initialCategory": "file-fsync injection archive-count expectation mismatch"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_same_boot_entry_missing_lock_succeeds_without_service_or_shm_mutation (production_boot_publication_test.BootLockTest)",
+      "initialCategory": "zero service-call assertion counts read-only systemctl inventory queries"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_retired_recreated_or_unowned_target_refuses (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_invalid_stats_never_publishes_ready_or_admits_reader (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    },
+    {
+      "kind": "FAIL",
+      "case": "test_not_tmpfs_or_held_lock_refuses_before_native_call (production_native_boot_test.NativeBootTest)",
+      "initialCategory": "fixture systemctl show attribute returns batch Id/ActiveState/MainPID text"
+    }
+  ],
+  "boundary": "Linux AArch64 Python interpreter/private files/flock/fork with substituted constructor/systemd/proc/network; not host business deployment/native ABI mutex/reboot/signed OTA. No code change or repair execution after failure."
+}
