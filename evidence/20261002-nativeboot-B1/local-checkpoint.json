@@ -1,0 +1,207 @@
+{
+  "format": "native-creator-B1-checkpoint-v1",
+  "date": "2026-10-02",
+  "parentCommit": "f9a79bd900eb86d304e1e1b3bf4a3123e120ecd6",
+  "scope": "LOCAL_ONLY preparation. B1 execution NOT authorized.",
+  "sourceAudit": [
+    {
+      "path": "tools/pointctl.cpp",
+      "historicalBlob": "950327639aacdb2c34affd302b6fbb3232f42f88",
+      "currentBlob": "950327639aacdb2c34affd302b6fbb3232f42f88"
+    },
+    {
+      "path": "src/memory_point_store.cpp",
+      "historicalBlob": "16503c9e081e7500550bf726913d88550b566b22",
+      "currentBlob": "16503c9e081e7500550bf726913d88550b566b22"
+    },
+    {
+      "path": "src/memory_point_store_layout.hpp",
+      "historicalBlob": "2078343946c09195754d6e9174240350e148ac2c",
+      "currentBlob": "2078343946c09195754d6e9174240350e148ac2c"
+    },
+    {
+      "path": "include/edge_gateway/memory_point_store.hpp",
+      "historicalBlob": "239708320d043d5c8131d4cf2767820d841ffa06",
+      "currentBlob": "239708320d043d5c8131d4cf2767820d841ffa06"
+    },
+    {
+      "path": "src/config_loader.cpp",
+      "historicalBlob": "2b53a1bec98ee2e20dc41af37a59f8927fdfeead",
+      "currentBlob": "2b53a1bec98ee2e20dc41af37a59f8927fdfeead"
+    },
+    {
+      "path": "src/point_store_router.cpp",
+      "historicalBlob": "29d71aac97c793d2c19c76dd3f0e6da574b95827",
+      "currentBlob": "29d71aac97c793d2c19c76dd3f0e6da574b95827"
+    },
+    {
+      "path": "src/control_dedup_store.cpp",
+      "historicalBlob": "c03bbe79e285bd1d4ebbaed2a5679d33feee4107",
+      "currentBlob": "c03bbe79e285bd1d4ebbaed2a5679d33feee4107"
+    },
+    {
+      "path": "include/edge_gateway/config_loader.hpp",
+      "historicalBlob": "5eda7899c406a6603888915fb7c08435c51f3fd6",
+      "currentBlob": "5eda7899c406a6603888915fb7c08435c51f3fd6"
+    },
+    {
+      "path": "include/edge_gateway/point_store_router.hpp",
+      "historicalBlob": "9818a05c009296f90f884a14fc415ff9d07b670d",
+      "currentBlob": "9818a05c009296f90f884a14fc415ff9d07b670d"
+    },
+    {
+      "path": "include/edge_gateway/control_dedup_store.hpp",
+      "historicalBlob": "1957de3a63a48b8fd26ba202e93c9e52789c13a5",
+      "currentBlob": "1957de3a63a48b8fd26ba202e93c9e52789c13a5"
+    },
+    {
+      "path": "include/edge_gateway/models.hpp",
+      "historicalBlob": "e97aa5c87cd64cbcaa8d93320207411c3ae22f28",
+      "currentBlob": "e97aa5c87cd64cbcaa8d93320207411c3ae22f28"
+    }
+  ],
+  "artifact": {
+    "packagePath": "D:\\workspace\\GatewaySuite-workspaces\\realese1.0\\coordinator\\docs\\audits\\evidence\\20261001-device-acceptance\\edge-cb45f3f-programs.tar.gz",
+    "packageBytes": 8819817,
+    "packageSha256": "0b82b91f93675c61b0d807c39bc711346c8899871ae29b34f5ca8178e9198549",
+    "member": "edge-candidate/bin/pointctl",
+    "bytes": 674504,
+    "sha256": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813",
+    "sourceCommit": "cb45f3fc78cd6288d9bb49f06f93ca07b441ecfa",
+    "historicalAuditSha256": "a6be8cd1f83d93f6fa15edbf32f7907f28c70431fdc0fd9c17f7a216ba5d1d9e",
+    "interpreter": [
+      "/lib/ld-linux-aarch64.so.1"
+    ],
+    "needed": [
+      "libdl.so.2",
+      "libpthread.so.0",
+      "librt.so.1",
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6"
+    ],
+    "requiredVersions": {
+      "libdl.so.2": [
+        "GLIBC_2.17"
+      ],
+      "libpthread.so.0": [
+        "GLIBC_2.17"
+      ],
+      "libgcc_s.so.1": [
+        "GCC_3.0",
+        "GCC_4.2.0"
+      ],
+      "librt.so.1": [
+        "GLIBC_2.17"
+      ],
+      "libstdc++.so.6": [
+        "CXXABI_1.3",
+        "CXXABI_1.3.5",
+        "CXXABI_1.3.9",
+        "GLIBCXX_3.4",
+        "GLIBCXX_3.4.11",
+        "GLIBCXX_3.4.18",
+        "GLIBCXX_3.4.19",
+        "GLIBCXX_3.4.20",
+        "GLIBCXX_3.4.21",
+        "GLIBCXX_3.4.9"
+      ],
+      "libc.so.6": [
+        "GLIBC_2.17"
+      ]
+    },
+    "runpaths": [],
+    "boundary": "Exact sealed native creator + 11 selected unchanged source blobs only; not current whole business package."
+  },
+  "files": [
+    {
+      "path": "evidence/20261002-nativeboot-B1/native-child.py",
+      "sourceName": "native-child.py",
+      "bytes": 23486,
+      "sha256": "38eb214bb4e36f52dbb18c6bda40a6bc8ae7797cedd77e172a0e3681b1f13001",
+      "mode": 292
+    },
+    {
+      "sourceName": "pointctl",
+      "bytes": 674504,
+      "sha256": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813",
+      "mode": 365,
+      "archiveMember": "edge-candidate/bin/pointctl"
+    }
+  ],
+  "inputCount": 2,
+  "inputBytes": 697990,
+  "checks": [
+    "cold-create",
+    "reopen-cold",
+    "interrupt-after-ftruncate",
+    "resume-interrupted-zero-header",
+    "reopen-resumed",
+    "reject-explicit-private-short-size"
+  ],
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "root": "/tmp/gw-nativeboot-f9a79bd-23-B1",
+  "names": [
+    "gw_native_b1_f9a79bd_cold",
+    "gw_native_b1_f9a79bd_interrupt"
+  ],
+  "isolation": [
+    "Single child CLONE_NEWNS; recursive MS_PRIVATE proved before any mount/native invocation.",
+    "Child-only readonly /opt/modbus-gateway bind; reject unsupported submounts.",
+    "Child-only /dev/shm tmpfs 48MiB/nosuid/nodev/noexec/0700, initially empty; namespace/device/mount type proved.",
+    "Parent mount namespace, raw mountinfo and SHM identity plus all business PID mount namespaces and two-name absence sampled before/after/afterCleanup.",
+    "Private offline flock only under owned work, NOT host gateway offline lock."
+  ],
+  "budget": {
+    "nativeAbi11Bytes": 15667032,
+    "pageRoundedAt4096": 15667200,
+    "namesMax": 2,
+    "tmpfsBytes": 50331648,
+    "systemPolicyReserveBytes": 67108864,
+    "migrationHeapBytes": 0,
+    "method": "Real MemAvailable + private statvfs under positive private flock before each operation. Additional pages only; existing allocations already accounted. 64MiB serial Python/native/OS policy headroom, not measured RSS maximum or reservation."
+  },
+  "bounds": {
+    "childWallSeconds": 180,
+    "outerWallSeconds": 240,
+    "nativeEachWallSeconds": 15,
+    "nativeEachCpuSeconds": 15,
+    "nativeAddressSpaceBytes": 268435456,
+    "nativeFileSizeBytes": 33554432,
+    "nativeOutputEachStreamBytes": 4096,
+    "controllerAddressSpaceBytes": 402653184,
+    "controllerCpuSeconds": 180,
+    "controllerFileSizeBytes": 67108864,
+    "dependencyCommandSeconds": 10,
+    "dependencyLogEachBytes": 1048576,
+    "dependencyLogMaxCount": 19,
+    "dependencyHashTotalBytes": 67108864,
+    "logBytes": 262144,
+    "receiptBytes": 1048576,
+    "coreBytes": 0
+  },
+  "interruption": {
+    "traceOnly": "Owned second stats tracee; never attach business PID or change ptrace sysctl.",
+    "architecture": "AUDIT_ARCH_AARCH64=0xc00000b7",
+    "syscall": "ftruncate=46",
+    "lengthBytes": 15667032,
+    "return": 0,
+    "proof": "Current child-private FD exact second name/dev/inode; tracee same namespace/group; native loaded provider pins; syscall-exit stop before any subsequent user-space initialization. SIGKILL and reap same tracee.",
+    "noFallback": "Unsupported syscall-info/stop/arch/FD/return/timeout => fail/retain/stop; no sleep guess, register edits or LD_PRELOAD."
+  },
+  "negative": "Only explicitly truncated private native target (one byte short), not an interrupted-layout claim. Exact size refusal and full private object hash unchanged; no manual layout/mutex/header writes.",
+  "localValidation": {
+    "python38GrammarExitCode": 0,
+    "staticOrder": "unshare then private propagation before bind/tmpfs",
+    "childExecuted": false,
+    "deviceExecuted": false
+  },
+  "open": [
+    "No actual loader compatibility/namespace/ptrace/native operation executed in LOCAL_ONLY.",
+    "Only ftruncate-success/before-user-init interruption proposed; magic/version publication stages, mutex owner-death and arbitrary crash windows not covered.",
+    "C real systemd, D current full-business build/deploy/reboot/signature lifecycle and receiver outage/reconnect/acquisition continuity remain OPEN.",
+    "D1 factory pairing/raw-source resolution, queued R10 bounded diagnostics and cross-end requirements remain OPEN."
+  ]
+}
