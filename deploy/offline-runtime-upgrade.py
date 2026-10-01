@@ -44,6 +44,47 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def migration_capacity_preflight(segments, checkpoint):
+    # MemAvailable/statvfs already account for all existing sources and retained
+    # targets. Charge only new v11 pages; report (do not recharge) retained v10.
+    v10, v11 = guard.POINT_STORE_SIZES[10], guard.POINT_STORE_SIZES[11]
+    page = os.sysconf('SC_PAGE_SIZE')
+    require(type(page) is int and page > 0, 'invalid memory page size')
+    rounded = lambda size: ((size + page - 1) // page) * page
+    count = len(segments)
+    added = count * rounded(v11)
+    # Serial copyOfflinePointStoreV10ToV11 keeps before/checked (v10) and
+    # output/copied (v11) live together, independently of the new tmpfs pages.
+    workspace = 2 * rounded(v10) + 2 * rounded(v11)
+    # 64 MiB policy headroom for Python/staging, one serial backup's page cache
+    # and kernel/service transients. This is a gate, not a memory reservation.
+    reserve = 64 * 1024 * 1024
+    try:
+        lines = Path('/proc/meminfo').read_text(encoding='ascii').splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ValueError('cannot read MemAvailable: ' + str(error)) from error
+    entries = [line for line in lines if line.startswith('MemAvailable:')]
+    require(len(entries) == 1 and re.fullmatch(r'MemAvailable:\s+[0-9]+\s+kB\s*', entries[0]),
+            'invalid or missing MemAvailable (expected one nonnegative kB value)')
+    available = int(entries[0].split()[1]) * 1024
+    try:
+        shm = os.statvfs(Path('/dev/shm'))
+    except OSError as error:
+        raise ValueError('cannot inspect /dev/shm capacity: ' + str(error)) from error
+    require(type(shm.f_frsize) is int and shm.f_frsize > 0 and
+            type(shm.f_bavail) is int and shm.f_bavail >= 0, 'invalid /dev/shm capacity')
+    shm_available = shm.f_frsize * shm.f_bavail
+    report = {'checkpoint': checkpoint, 'uniqueSegments': count,
+              'v10LayoutBytes': v10, 'v11LayoutBytes': v11, 'pageBytes': page,
+              'retainedSourceV10Bytes': count * v10, 'newTargetV11Bytes': count * v11,
+              'migrationWorkBytes': workspace, 'systemReserveBytes': reserve,
+              'memRequiredBytes': added + workspace + reserve, 'memAvailableBytes': available,
+              'shmRequiredBytes': added, 'shmAvailableBytes': shm_available}
+    print('CAPACITY_PRECHECK: ' + json.dumps(report, sort_keys=True), flush=True)
+    require(available >= report['memRequiredBytes'], 'insufficient MemAvailable for SHM11 migration')
+    require(shm_available >= added, 'insufficient /dev/shm space for new SHM11 targets')
+
+
 def regular(path):
     require(path.is_absolute(), 'absolute path required')
     for part in (path,) + tuple(path.parents):
@@ -1080,6 +1121,7 @@ def apply(args):
             home not in args.state.parents and args.state not in home.parents, 'separate persistent state directory required')
     fs = subprocess.check_output(['stat', '-f', '-c', '%T', str(args.state.parent)], universal_newlines=True).strip()
     require(fs in ('ext2/ext3', 'ext4', 'xfs', 'btrfs'), 'state requires persistent ext-family/XFS/Btrfs filesystem')
+    migration_capacity_preflight(segments, 'initial')
     if 'recoveredFrom' in approval:
         require(approval_mode(approval) == 'standalone' and approval.get('activationStartupScripts') is not None,
                 'successor requires standalone activation script approval')
@@ -1100,6 +1142,9 @@ def apply(args):
             require(binding is not None, 'successor requires pinned A or B monitor profile')
             b_monitor_default_safe(home, approval, manifest, profile_state, [MONITOR_UNIT], (binding,), projected)
         successor_handoff(home, approval, args.state)
+    # main holds the existing flock throughout apply. Re-read after all read-only
+    # predecessor gates, immediately before the first transaction/fence mutation.
+    migration_capacity_preflight(segments, 'before-state')
     args.state.mkdir(mode=0o700)
     write_new(args.state / 'approval.json', regular(args.approval).read_bytes())
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())

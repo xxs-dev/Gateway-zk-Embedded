@@ -65,6 +65,10 @@ class AcquisitionTest(unittest.TestCase):
         self.state_dir = self.root / 'transaction'
         self.patch(self.m, 'MONITOR_DROPIN', mapped('/etc/systemd/system/' + self.g.MONITOR_UNIT + '.d/998-shm.conf'))
         write(mapped('/proc/sys/kernel/random/boot_id'), 'synthetic-boot\n')
+        write(mapped('/proc/meminfo'), 'MemAvailable:    2097152 kB\n')
+        real_statvfs = self.m.os.statvfs
+        self.patch(self.m.os, 'statvfs', lambda path: types.SimpleNamespace(f_frsize=4096, f_bavail=524288)
+                   if Path(path) == mapped('/dev/shm') else real_statvfs(path))
         source = json.loads((REPO / 'tools/fixtures/a-profile-preflight-20260925-01.json').read_text())
         self.documents = {name: row['projection']['document'] for name, row in source['documents'].items()}
         # Reconstructed redacted documents are SYNTHETIC, never passed off as full actual configs.
