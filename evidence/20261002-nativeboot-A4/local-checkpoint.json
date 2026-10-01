@@ -1,0 +1,105 @@
+{
+  "format": "nativeboot-A4-capacity-test-checkpoint-v1",
+  "date": "2026-10-02",
+  "parentCommit": "987cddd845169adfa3f52b85065d7d81cab99bd2",
+  "scope": "LOCAL_ONLY: split failed capacity test; product unchanged; fixed two-selector runner preparation only.",
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "bytes": 201410,
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35"
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "bytes": 45388,
+      "sha256": "7a59e5941c0468cef6ca0e99be54fe5e7a06fbf57728d2d72a5bce7a3017c185"
+    },
+    {
+      "path": "tools/production_boot_publication_test.py",
+      "bytes": 36269,
+      "sha256": "fa7c76d4d9bd2fbf81da8afb44d1a7c56cc0e44521de465b8faa9f3fb221a804"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "bytes": 26721,
+      "sha256": "333691c4d2fb9f3e29443304164971fcf66fd00f9c8947ee5e7ccf222a94440c"
+    },
+    {
+      "path": "tools/production_boot_health_publication_test.py",
+      "bytes": 9336,
+      "sha256": "783598b80073769058cd25a08646b2d72852c84ed5abbfa67b1406d67eb9ec73"
+    },
+    {
+      "path": "deploy/gateway-services.sh",
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    {
+      "path": "deploy/ota-rollback.sh",
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    {
+      "path": "deploy/gateway-ota-recover.service",
+      "bytes": 845,
+      "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+    },
+    {
+      "path": "tools/fixtures/production-historical-r2-allowlists.json",
+      "bytes": 949,
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    }
+  ],
+  "fixtureInputBytes": 501604,
+  "changedInputPaths": [
+    "tools/production_native_boot_test.py"
+  ],
+  "cases": [
+    "production_native_boot_test.NativeBootTest.test_memory_insufficient_refuses_before_intent_or_native_call",
+    "production_native_boot_test.NativeBootTest.test_tmpfs_insufficient_refuses_before_intent_or_native_call"
+  ],
+  "selection": {
+    "total": 2,
+    "reason": "Only the A3 failed capacity selector split into independent memory and tmpfs cases. Preserve/exclude A3's 30 passing selectors."
+  },
+  "failureEvidence": {
+    "A3ReceiptSha256": "415eb59556ab17650e408b54c7ab1756da1f1ffdcb2d64bf58f628ad6202fcbd",
+    "A3LogSha256": "6173a1451d82084c5640e27eff84039b8caee1b772c10c2194fc5f48a92f3726",
+    "observed": "Exact insufficient MemAvailable for activation message did not match capacity|memory; subsequent assert_unadmitted/tmpfs branch did not run."
+  },
+  "assertions": {
+    "memoryError": "^insufficient MemAvailable for activation$",
+    "tmpfsError": "^insufficient native boot memory/tmpfs capacity$",
+    "each": [
+      "native_calls=[]",
+      "boots directory absent (no intent/proof)",
+      "live_v11 and retired_v10 absent",
+      "source bytes unchanged",
+      "no readers started"
+    ]
+  },
+  "localValidation": {
+    "python38GrammarExitCode": 0,
+    "selectorLoadExitCode": 0,
+    "diffCheckExitCode": 0,
+    "testsExecuted": 0,
+    "boundary": "Windows standard-library grammar/loader validation only; no fixture run, no PASS/SKIP claimed."
+  },
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "wsl47230": "unknown; untouched",
+  "open": [
+    "Two Linux capacity cases have not run at this source pin.",
+    "B native creator, C real systemd/OS reboot, D full business qualification and signed HTTPS OTA remain separate scopes."
+  ]
+}

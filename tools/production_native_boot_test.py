@@ -191,15 +191,20 @@ class NativeBootTest(unittest.TestCase):
         self.boot()
         self.assertEqual(len(self.native_calls), 1, 'same boot proof prevents a second constructor invocation')
 
-    def test_memory_or_tmpfs_insufficient_refuses_before_intent_or_native_call(self):
+    def test_memory_insufficient_refuses_before_intent_or_native_call(self):
         f = self.f
         f.write(f.path('/proc/meminfo'), 'MemAvailable: 0 kB\n')
-        with self.assertRaisesRegex(ValueError, 'capacity|memory'): self.boot()
+        with self.assertRaisesRegex(ValueError, '^insufficient MemAvailable for activation$'): self.boot()
         self.assert_unadmitted()
+        self.assertFalse(f.live, 'capacity refusal must not start readers')
+
+    def test_tmpfs_insufficient_refuses_before_intent_or_native_call(self):
+        f = self.f
         f.write(f.path('/proc/meminfo'), 'MemAvailable: 2097152 kB\n')
         with mock.patch.object(f.m.os, 'statvfs', lambda p: types.SimpleNamespace(f_frsize=4096, f_bavail=0)):
-            with self.assertRaisesRegex(ValueError, 'capacity'): self.boot()
+            with self.assertRaisesRegex(ValueError, '^insufficient native boot memory/tmpfs capacity$'): self.boot()
         self.assert_unadmitted()
+        self.assertFalse(f.live, 'capacity refusal must not start readers')
 
     def test_wrong_creator_pin_refuses_before_intent(self):
         self.f.write(self.f.home / 'bin/pointctl', self.f.elf(b'wrong-creator'), 0o755)
