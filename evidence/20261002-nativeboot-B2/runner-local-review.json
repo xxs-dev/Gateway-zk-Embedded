@@ -1,0 +1,94 @@
+{
+  "format": "native-creator-B2-runner-local-review-v1",
+  "date": "2026-10-02",
+  "sourceCommit": "f936a6f1ef8fba0b08a7f805337c9faf857478cb",
+  "runnerPath": "evidence/20261002-nativeboot-B2/execute-native-creator.py",
+  "runnerBytes": 17938,
+  "runnerSha256": "fee48c39ca46a3fc40cefed0782232183f582c397061ebac33979a117e52770a",
+  "manifestSha256": "ac2b75b2e40d752580f8f80469ac2bf835072cd30966992f5542de60c824bc2c",
+  "childSha256": "0de889b79caaec8178b737024050de8b8679ab1433d812ac92f911c78d783a6f",
+  "localParserTestSha256": "6208179ac2e7434309fe1f467582f1dff1702f5d3215f0b81770b27b120f947c",
+  "inputCount": 2,
+  "inputBytes": 699017,
+  "pointctlBytes": 674504,
+  "pointctlSha256": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813",
+  "command": "python -B evidence/20261002-nativeboot-B2/execute-native-creator.py",
+  "exitCode": 0,
+  "dryRunLog": {
+    "bytes": 881,
+    "sha256": "fdc220d08a158ba05b5da34da534a10f7fcaaff5733fa1fc2c2929744f821e94"
+  },
+  "localParserResult": {
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exitCode": 0,
+    "seconds": 0.007,
+    "log": {
+      "bytes": 1553,
+      "sha256": "67e8fe8990e116642b2addff97b1a7675c6e06dbbd223ceab8296b342d0a3d98"
+    },
+    "boundary": "Windows actual pure helper AST using byte-exact original B1 stdout; no ARM import/native/remote invocation."
+  },
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "root": "/tmp/gw-nativeboot-a9b2d7d-23-B2",
+  "names": [
+    "gw_native_b2_a9b2d7d_cold",
+    "gw_native_b2_a9b2d7d_interrupt"
+  ],
+  "checks": [
+    "cold-create",
+    "reopen-cold",
+    "interrupt-after-ftruncate",
+    "resume-interrupted-zero-header",
+    "reopen-resumed",
+    "reject-explicit-private-short-size"
+  ],
+  "baselineCodeExactlyB1": true,
+  "entireRemoteCodeExactlyB1": true,
+  "invokeExactlyB1": true,
+  "childSafetyAST": "isolate/ptrace/interrupted/capacity/limits/dependencies/object proof functions identical; main record format label only normalized for comparison; stats IO prefix identical.",
+  "childContractChange": "Exact byte output with physical slots vs Slots-1 usable capacity; configured defaults not arbitrary numbers. Approved native command name whitelist unchanged.",
+  "remainingFiveStaticReview": [
+    {
+      "check": "reopen-cold",
+      "finding": "Calls the same exact stats validator and object_info ABI11/dev/inode/header/mode; no other ring-capacity assertion."
+    },
+    {
+      "check": "interrupt-after-ftruncate",
+      "finding": "Still exact syscall46/AUDIT_ARCH_AARCH64/length15667032/return0, same private FD dev/inode/name, same namespace/group, zero-header and owned kill/reap. No queue capacity test at stop. Kernel support/window remain untested."
+    },
+    {
+      "check": "resume-interrupted-zero-header",
+      "finding": "Native stats uses corrected shared validator, then same ABI11/inode as interrupted target. No Python layout writes."
+    },
+    {
+      "check": "reopen-resumed",
+      "finding": "Same corrected shared validator, unchanged object identity comparison."
+    },
+    {
+      "check": "reject-explicit-private-short-size",
+      "finding": "Native size guard precedes mmap/init; POSIX normalization prepends slash and catch prints exact pointctl error/exit1. Shared exact error validator; source pin/hash preservation unchanged."
+    }
+  ],
+  "grammarExitCode": 0,
+  "diffCheckExitCode": 0,
+  "sourceAuditCount": 11,
+  "productChanged": false,
+  "B1RecordsAndWorkPreserved": true,
+  "ARepeated": false,
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "connectionHelperImported": false,
+  "childExecuted": false,
+  "wsl47230": "unknown; untouched",
+  "executionRequires": "New independent fixed B2 scope before passing --execute-approved; no B1 command or scope reuse.",
+  "stillOpen": [
+    "B2 Linux namespace/native/ptrace/reopen/refusal not executed; local parser test is not B2 native qualification.",
+    "Only ftruncate-success/before-user-init interruption proposed; magic/version publication stages, mutex owner-death and arbitrary crash windows not covered.",
+    "C real systemd, D current full-business build/deploy/reboot/signature lifecycle and receiver outage/reconnect/acquisition continuity remain OPEN.",
+    "D1 factory pairing/raw-source resolution, queued R10 bounded diagnostics and cross-end requirements remain OPEN."
+  ]
+}
