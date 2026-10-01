@@ -1,0 +1,4 @@
+Direct OTA config: escaped=1
+ota final-state test failed: Direct OTA I/O fault must preserve readable existing status response
+
+command_exit=1

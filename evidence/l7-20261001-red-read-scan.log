@@ -1,0 +1,4 @@
+replay isolation read scan: escaped=12 full=0 realtime=0
+ota final-state test failed: OTA fault must not interrupt actual start or continuous full/realtime scans
+
+command_exit=1

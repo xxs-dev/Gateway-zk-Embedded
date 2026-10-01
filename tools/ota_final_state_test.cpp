@@ -3,6 +3,7 @@
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/ota_request_json.hpp"
+#include "edge_gateway/memory_point_store.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -33,10 +34,16 @@
 // Same linker-wrap technique as ota_service_test, limited to this thread/job.
 static thread_local int finalizationFault = 0;
 static thread_local bool failFinalDirectorySync = false;
+static thread_local bool failReplayJournalRename = false;
 extern "C" int __real_rename(const char*, const char*);
 extern "C" int __real_fsync(int);
 extern "C" int __wrap_rename(const char* source, const char* destination) {
     const std::string path(destination);
+    const std::string journalSuffix = "/ota_status_pending.log";
+    if (failReplayJournalRename && path.size() >= journalSuffix.size() &&
+        path.compare(path.size() - journalSuffix.size(), journalSuffix.size(), journalSuffix) == 0) {
+        errno = ENOSPC; return -1;
+    }
     const std::string auditSuffix = "/ota_reconcile_FINAL_JOB.json";
     if (finalizationFault == 3 && path.size() >= auditSuffix.size() &&
         path.compare(path.size() - auditSuffix.size(), auditSuffix.size(), auditSuffix) == 0) {
@@ -204,6 +211,7 @@ edge_gateway::OtaConfig lifecycleConfig(const std::string& root) {
 }
 
 #include "ota_finalization_test.hpp"
+#include "ota_replay_isolation_test.hpp"
 
 std::string fixtureBarrier(const std::string& job, const std::string& token, const std::string& state = "prepared") {
     return "{\"format\":\"official-ota-apply-barrier-v1\",\"jobId\":\"" + job +
@@ -859,6 +867,18 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
 int main(int argc, char** argv) {
     try {
 #ifndef _WIN32
+        if (argc == 4 && std::string(argv[1]) == "--replay-isolation") {
+            verifyOtaReplayIsolation(argv[2], std::string(argv[3]) == "start");
+            return 0;
+        }
+        if (argc == 3 && std::string(argv[1]) == "--direct-replay-isolation") {
+            verifyDirectOtaReplayIsolation(argv[2]);
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--replay-isolation-all") {
+            verifyOtaReplayIsolationCases();
+            return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--finalization") {
             verifySuccessfulFinalization(argv[2]);
             return 0;
@@ -881,6 +901,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         verifySuccessfulFinalizationCases();
+        verifyOtaReplayIsolationCases();
         verifyOtaRootParsing();
         verifyPreIntentFailureRetainsLease();
         for (bool direct : {false, true}) for (bool invalid : {false, true})

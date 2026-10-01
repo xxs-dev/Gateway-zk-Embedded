@@ -1,0 +1,59 @@
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+replay isolation reconcile start: escaped=0 full=6 realtime=3
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+mqtt OTA replay deferred phase=reconcile retryAfterMs=20000
+replay isolation reconcile scan: escaped=0 full=12 realtime=12
+mqtt OTA replay deferred phase=journal-read retryAfterMs=10000
+replay isolation read start: escaped=0 full=6 realtime=3
+mqtt OTA replay deferred phase=journal-read retryAfterMs=10000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=20000
+replay isolation read scan: escaped=0 full=12 realtime=12
+mqtt status event publish failed event=started error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=realtime-session-started error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+replay isolation audit start: escaped=0 full=6 realtime=3
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=realtime-session-started error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+mqtt status event publish failed event=on-demand error=injected audit publication failure
+mqtt status event publish failed event=full-snapshot error=injected audit publication failure
+replay isolation audit scan: escaped=0 full=12 realtime=12
+mqtt OTA replay deferred phase=publish retryAfterMs=10000
+replay isolation publish start: escaped=0 full=6 realtime=3
+mqtt OTA replay deferred phase=publish retryAfterMs=10000
+mqtt OTA replay deferred phase=publish retryAfterMs=20000
+replay isolation publish scan: escaped=0 full=12 realtime=12
+
+command_exit=0

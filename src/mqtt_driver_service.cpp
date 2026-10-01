@@ -1027,7 +1027,7 @@ void MqttDriverService::start() {
             R"(,"fullUploadMode":")" +
             escapeJson(driverConfig_.fullUploadWorker.mode) + R"(")"
     );
-    replayPendingOtaStatuses();
+    replayPendingOtaStatuses(ts);
     scanThread_ = std::thread(&MqttDriverService::scanLoop, this);
     if (eventOutbox_ || businessReplayFactory_) {
         replayThread_ = std::thread(&MqttDriverService::replayLoop, this);
@@ -1097,10 +1097,7 @@ void MqttDriverService::runScanOnce(std::int64_t nowMs) {
 }
 
 void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs) {
-    if (nowMs - lastOtaReplayAttemptMs_ >= 5000) {
-        replayPendingOtaStatuses();
-        lastOtaReplayAttemptMs_ = nowMs;
-    }
+    replayPendingOtaStatuses(nowMs);
 
     processIncomingMessages(nowMs, incomingTimeoutMs);
     processPendingCommandReplies(nowMs);
@@ -2679,7 +2676,8 @@ void MqttDriverService::startOtaJob(const OtaRequest& request, const std::string
 void MqttDriverService::publishStatusEvent(
     const std::string& event,
     std::int64_t ts,
-    const std::string& detailsJson
+    const std::string& detailsJson,
+    bool includeExceptionDetails
 ) const {
     if (mqttConfig_.statusTopic.empty()) {
         return;
@@ -2700,7 +2698,7 @@ void MqttDriverService::publishStatusEvent(
     } catch (const std::exception& ex) {
         std::cerr << "mqtt status event publish failed"
                   << " event=" << event
-                  << " error=" << ex.what()
+                  << " error=" << (includeExceptionDetails ? ex.what() : "publication failed")
                   << std::endl;
     } catch (...) {
         std::cerr << "mqtt status event publish failed"
@@ -2752,52 +2750,68 @@ void MqttDriverService::enrichValue(StoredPointValue& value) const {
     }
 }
 
-void MqttDriverService::replayPendingOtaStatuses() {
+void MqttDriverService::replayPendingOtaStatuses(std::int64_t nowMs) noexcept {
     if (!otaService_) {
         return;
     }
-    const auto nowMs = currentTimeMs();
+    if (lastOtaReplayAttemptMs_ != 0 && nowMs >= lastOtaReplayAttemptMs_ &&
+        nowMs - lastOtaReplayAttemptMs_ < otaReplayRetryDelayMs_) return;
     lastOtaReplayAttemptMs_ = nowMs;
-    otaService_->reconcilePendingJobs();
-    const auto statuses = otaService_->loadPendingStatuses();
-    if (statuses.empty()) {
-        otaReplayFirstSuccessMs_ = 0;
-        otaReplaySuccessRounds_ = 0;
-        return;
-    }
+    const char* phase = "reconcile";
     std::size_t published = 0;
-    for (const auto& status : statuses) {
-        try {
+    std::size_t pending = 0;
+    bool cleared = false;
+    try {
+        otaService_->reconcilePendingJobs();
+        phase = "journal-read";
+        const auto statuses = otaService_->loadPendingStatuses();
+        pending = statuses.size();
+        if (statuses.empty()) {
+            otaReplayFirstSuccessMs_ = 0;
+            otaReplaySuccessRounds_ = 0;
+            otaReplayRetryDelayMs_ = 5000;
+            return;
+        }
+        phase = "publish";
+        for (const auto& status : statuses) {
             publisher_->publishOtaStatus(mqttConfig_.otaStatusTopic, status);
             ++published;
-        } catch (...) {
-            break;
         }
-    }
-    bool cleared = false;
-    if (published == statuses.size()) {
         if (otaReplaySuccessRounds_ == 0) {
             otaReplayFirstSuccessMs_ = nowMs;
         }
         ++otaReplaySuccessRounds_;
         if (otaReplaySuccessRounds_ >= 6 && nowMs - otaReplayFirstSuccessMs_ >= 30000) {
+            phase = "journal-clear";
             otaService_->clearPendingStatuses();
             otaReplayFirstSuccessMs_ = 0;
             otaReplaySuccessRounds_ = 0;
             cleared = true;
         }
-    } else {
+        otaReplayRetryDelayMs_ = 5000;
+    } catch (...) {
         otaReplayFirstSuccessMs_ = 0;
         otaReplaySuccessRounds_ = 0;
+        otaReplayRetryDelayMs_ = std::min(30000, otaReplayRetryDelayMs_ * 2);
+        // OTA storage/transport must not take the telemetry worker down. Neither
+        // original exception text nor a diagnostic publication may escape here.
+        try {
+            std::cerr << "mqtt OTA replay deferred phase=" << phase
+                      << " retryAfterMs=" << otaReplayRetryDelayMs_ << std::endl;
+            publishStatusEvent(std::string(phase) == "reconcile" ? "ota-reconcile-failed" : "ota-replay-failed",
+                nowMs, std::string(R"("phase":")") + phase + R"(","retryAfterMs":)" +
+                    std::to_string(otaReplayRetryDelayMs_), false);
+        } catch (...) {}
+        return;
     }
-    publishStatusEvent(
+    try { publishStatusEvent(
         "ota-status-replayed",
         nowMs,
         std::string(R"("count":)") + std::to_string(published) +
-            R"(,"pending":)" + std::to_string(statuses.size()) +
+            R"(,"pending":)" + std::to_string(pending) +
             R"(,"rounds":)" + std::to_string(otaReplaySuccessRounds_) +
-            R"(,"cleared":)" + (cleared ? "true" : "false")
-    );
+            R"(,"cleared":)" + (cleared ? "true" : "false"), false
+    ); } catch (...) {}
 }
 
 std::vector<StoredPointValue> MqttDriverService::enrichValues(std::vector<StoredPointValue> values) const {

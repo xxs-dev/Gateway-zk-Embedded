@@ -1,0 +1,27 @@
+mqtt OTA replay deferred phase=reconcile retryAfterMs=10000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=20000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+mqtt OTA replay deferred phase=reconcile retryAfterMs=30000
+mqtt status event publish failed event=ota-reconcile-failed error=publication failed
+replay isolation reconcile-audit scan: escaped=0 full=120 realtime=120
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+mqtt status event publish failed event=ota-status-replayed error=publication failed
+replay isolation reconcile-audit: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+mqtt OTA replay deferred phase=journal-clear retryAfterMs=10000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=20000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=30000
+mqtt OTA replay deferred phase=journal-read retryAfterMs=30000
+replay isolation clear scan: escaped=0 full=120 realtime=120
+replay isolation clear: bounded retry/recovery, six-round/30s retention, full/realtime uninterrupted
+
+command_exit=0

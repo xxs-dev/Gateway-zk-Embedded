@@ -106,7 +106,7 @@ private:
     void runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs);
     void processIncomingMessages(std::int64_t nowMs);
     void processIncomingMessages(std::int64_t nowMs, int timeoutMs);
-    void replayPendingOtaStatuses();
+    void replayPendingOtaStatuses(std::int64_t nowMs) noexcept;
     void replayEventOutboxIfNeeded(std::int64_t nowMs);
     void replayIpcEventsIfNeeded(std::int64_t nowMs);
     void drainIpcEvents();
@@ -131,7 +131,8 @@ private:
     void publishStatusEvent(
         const std::string& event,
         std::int64_t ts,
-        const std::string& detailsJson = std::string()
+        const std::string& detailsJson = std::string(),
+        bool includeExceptionDetails = true
     ) const;
     void scanLoop();
     void replayLoop();
@@ -188,6 +189,7 @@ private:
     std::int64_t lastOtaReplayAttemptMs_ = 0;
     bool subscribeUnavailable_ = false;
     std::int64_t otaReplayFirstSuccessMs_ = 0;
+    int otaReplayRetryDelayMs_ = 5000;
     int otaReplaySuccessRounds_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
     bool isolatedFullForwarderWasActive_ = false;

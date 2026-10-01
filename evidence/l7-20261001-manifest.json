@@ -1,0 +1,164 @@
+{
+  "format": "edge-ota-l7-evidence-v1",
+  "date": "2026-10-01",
+  "workspace": "D:/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0",
+  "branch": "fix/edge-review-r1-20260930",
+  "baseCommit": "deba51f4ccbfc665d3d0ed03f209c94851ff0d45",
+  "status": "source-frozen-awaiting-commit-approval",
+  "repositoryFileCount": 29,
+  "sourceFileCount": 5,
+  "rawLogCount": 23,
+  "files": [
+    {
+      "path": "include/edge_gateway/mqtt_driver_service.hpp",
+      "bytes": 9753,
+      "sha256": "1182969b6b4c3fa573c8aa65c53641829da3c9c55e6fe7fc3b64e405ab2c58e7"
+    },
+    {
+      "path": "src/mqtt_driver_service.cpp",
+      "bytes": 119053,
+      "sha256": "b5368d4eb708d1bc12e370bac66502440988c526db96b507f2d8df1071b4807a"
+    },
+    {
+      "path": "system_monitor_direct_maintenance.cpp",
+      "bytes": 131815,
+      "sha256": "a00b966916e34d490a129b5d2ed2fca78b5dbc633b68ce372b829965792c694d"
+    },
+    {
+      "path": "tools/ota_final_state_test.cpp",
+      "bytes": 50541,
+      "sha256": "803bb7a4905026e21e1a023974d28197e9bef97635c64b0b233b3d1c0de12649"
+    },
+    {
+      "path": "tools/ota_replay_isolation_test.hpp",
+      "bytes": 15672,
+      "sha256": "99346cd26958f8ada3414ba453c9d92151ea2993c0e24bcd55e00031485cb6be"
+    },
+    {
+      "path": "evidence/l7-20261001-report.md",
+      "bytes": 6320,
+      "sha256": "97aa545ade34ce1a333b4c0fe069a43e353c4f4dd8962a45628f4b82f500ae8f"
+    },
+    {
+      "path": "evidence/l7-20261001-final-build.log",
+      "bytes": 315,
+      "sha256": "4312353f9be65d0bc35b5d6dacf97fdb666141bbd487dd8065e440330d9bf74b"
+    },
+    {
+      "path": "evidence/l7-20261001-final-focused-native.log",
+      "bytes": 5657,
+      "sha256": "c814b8e105d356914e9bfd09d8d698d5239870c562a1eff3482c1dc33c085202"
+    },
+    {
+      "path": "evidence/l7-20261001-green-combined-clear.log",
+      "bytes": 1926,
+      "sha256": "208530b0b7a8ecf99f67b0cc46d053c7674fbbcb10c67a20ea70cdaff65a1351"
+    },
+    {
+      "path": "evidence/l7-20261001-green-direct-build.log",
+      "bytes": 481,
+      "sha256": "22ddd7a16fcb8266ed17f7f5de5a1be1fb596adcab45a6fb2b07d1a545150d60"
+    },
+    {
+      "path": "evidence/l7-20261001-green-focused-native.log",
+      "bytes": 5718,
+      "sha256": "acf676d2ee689b80250ad0437c8c0974950ee3c7141ee897a5a2ce1d1111db1b"
+    },
+    {
+      "path": "evidence/l7-20261001-green-mqtt-build.log",
+      "bytes": 374,
+      "sha256": "b2f170f3f370b2f7f838f5eed5e4d685ef8964fe5925aa407a2fc37dcd6479d6"
+    },
+    {
+      "path": "evidence/l7-20261001-green-mqtt-entry.log",
+      "bytes": 4713,
+      "sha256": "b1b4c17f56f1c1539a61bbe851972d4efda6c00538c66435adb2eea3701688b7"
+    },
+    {
+      "path": "evidence/l7-20261001-red-audit-scan.log",
+      "bytes": 2688,
+      "sha256": "7af627b35a357d1994c42a337bb69ec4d6dc58a4399ce246d1f884d5a95bb228"
+    },
+    {
+      "path": "evidence/l7-20261001-red-audit-start.log",
+      "bytes": 1201,
+      "sha256": "1d32babf7bbd23c8e1091d1e3357d9170b6c1e4db390f5b9169fc36b9ca9ec44"
+    },
+    {
+      "path": "evidence/l7-20261001-red-build-corrected.log",
+      "bytes": 237,
+      "sha256": "db349506e66d3593c1b1d207c4a010cffda573e2dbfe36380229b352359af5af"
+    },
+    {
+      "path": "evidence/l7-20261001-red-build.log",
+      "bytes": 237,
+      "sha256": "db349506e66d3593c1b1d207c4a010cffda573e2dbfe36380229b352359af5af"
+    },
+    {
+      "path": "evidence/l7-20261001-red-direct-build.log",
+      "bytes": 237,
+      "sha256": "db349506e66d3593c1b1d207c4a010cffda573e2dbfe36380229b352359af5af"
+    },
+    {
+      "path": "evidence/l7-20261001-red-direct-config.log",
+      "bytes": 143,
+      "sha256": "470a59202c80ec5958a65290b205162f5f983dfe1866fcfd1574b7483d5ce5a2"
+    },
+    {
+      "path": "evidence/l7-20261001-red-direct-metadata.log",
+      "bytes": 145,
+      "sha256": "3a595b74142caba906f07278d57caa406fc8277ea11ff81f4383936b69e23553"
+    },
+    {
+      "path": "evidence/l7-20261001-red-direct-state.log",
+      "bytes": 142,
+      "sha256": "da00bdfc8832835e38e7af46ec4183194f3da65b29f74411b56c9eb27f4c782a"
+    },
+    {
+      "path": "evidence/l7-20261001-red-publish-scan.log",
+      "bytes": 77,
+      "sha256": "a36874585c7fc7326ae2319c532b4bc9618c53929cb3a2057661465c9c4bbfce"
+    },
+    {
+      "path": "evidence/l7-20261001-red-publish-start.log",
+      "bytes": 76,
+      "sha256": "32395c438afe135468e3cec6080de250ac85710969010189caeea18782129289"
+    },
+    {
+      "path": "evidence/l7-20261001-red-read-scan.log",
+      "bytes": 178,
+      "sha256": "9d9b770618c4fc102ea1c497cbf5804c014c5e27b4934ac2e3d90d39ae350819"
+    },
+    {
+      "path": "evidence/l7-20261001-red-read-start.log",
+      "bytes": 178,
+      "sha256": "e0fd03c269a4d8492238c10d857eef2f2a21fbd2d3984233f681fc2558076209"
+    },
+    {
+      "path": "evidence/l7-20261001-red-reconcile-scan-corrected.log",
+      "bytes": 183,
+      "sha256": "499c26478685b2aefb32c041a8b097cb556cf66cc1cff8b60596a9d2ab9af08d"
+    },
+    {
+      "path": "evidence/l7-20261001-red-reconcile-scan.log",
+      "bytes": 79,
+      "sha256": "90e08d5c28c16e0632021a0723c516812191af42abea02569ef6d17bab398d9a"
+    },
+    {
+      "path": "evidence/l7-20261001-red-reconcile-start-corrected.log",
+      "bytes": 183,
+      "sha256": "0114e6247a2c88fe51eb36d7f9def84fa36130bcc0c90fd9368b2337dfea2e0d"
+    },
+    {
+      "path": "evidence/l7-20261001-red-reconcile-start.log",
+      "bytes": 78,
+      "sha256": "b5697b344fab6ba21eeed0a0621892e15950f0f1a2099a006c871653fc549377"
+    }
+  ],
+  "buildArtifacts": [
+    {
+      "path": "/var/tmp/edge-review-r1-20260930-build/ota_final_state_test",
+      "sha256": "209cfb5407ee4562efe429ecc8b17f906fbfb592af79874bc86af0877d293d6a"
+    }
+  ]
+}
