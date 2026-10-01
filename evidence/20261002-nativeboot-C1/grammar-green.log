@@ -1,0 +1,3 @@
+C source/embedded remote Python3.8 grammar PASS; B2 anchors exact; no fixture/helper/connection execution
+remoteCodeBytes=13906
+remoteCodeSHA256=fb76047081dd8db9778b57d469fea1e31ec78ae37bb2041e12dba82b0e98f934

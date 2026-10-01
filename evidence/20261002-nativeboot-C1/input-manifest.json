@@ -1,0 +1,98 @@
+{
+  "format": "nativeboot-C1-manager-input-v1",
+  "date": "2026-10-02",
+  "productCommit": "082071eeb1674121d412a5dae326a164754df53f",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "root": "/tmp/gw-nativeboot-082071e-23-C1",
+  "executionAuthorized": false,
+  "fileCount": 5,
+  "inputBytes": 369831,
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "sourceName": "offline-runtime-upgrade.py",
+      "bytes": 201410,
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c",
+      "mode": 256
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "sourceName": "runtime-upgrade-guard.py",
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "mode": 256
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "sourceName": "ota-health-result.py",
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "mode": 256
+    },
+    {
+      "path": "evidence/20261002-nativeboot-C1/manager-child.py",
+      "sourceName": "manager-child.py",
+      "bytes": 25067,
+      "sha256": "1596c936446be22faf6afcf3ce9a4ed94cc79d7c1c3e3f08eb00102aebdcaf51",
+      "mode": 256
+    },
+    {
+      "path": "evidence/20261002-nativeboot-C1/private-entry.py",
+      "sourceName": "private-entry.py",
+      "bytes": 3509,
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "mode": 256
+    }
+  ],
+  "checks": [
+    "manager-cgroup-binding",
+    "gate-queues-readers-and-worker",
+    "worker-after-gate",
+    "reader-after-gate",
+    "failed-gate-keeps-reader-closed",
+    "real-guard-rejects-private-unadopted-home",
+    "ready-while-donor-holds-lease",
+    "owned-live-bindings-and-negative-identity",
+    "donor-exit-transfers-original-lease",
+    "uncertain-dispatch-no-replay-original-cancel"
+  ],
+  "reusedExecutor": {
+    "commit": "aa35299d3f418b9dd6c12061a0075181dfa24985",
+    "path": "evidence/20261002-nativeboot-B2/execute-native-creator.py",
+    "sha256": "fee48c39ca46a3fc40cefed0782232183f582c397061ebac33979a117e52770a",
+    "reuse": "AST constants BASELINE_CODE/RUN_CODE + blob/invoke. Fixed string adaptations listed in C runner, no original changes."
+  },
+  "connectionProbeSha256": "509a74fcf5658156773d1273b4e2222d5b8d687da57bc8cdaf0086a88765a221",
+  "connectionHelperSha256": "d8dfd569062fee7bbb022c6f4f49b93bdd4a0415a819d1c2e5bfcb16f2dc7ccf",
+  "limits": {
+    "controllerSeconds": 90,
+    "outerSeconds": 420,
+    "outerKillGraceSeconds": 20,
+    "cleanupPerUnitSeconds": 12,
+    "cleanupCgroupSelectionSeconds": 5,
+    "baselineEachSeconds": 30,
+    "managerCleanupShowSeconds": 2,
+    "managerCleanupStopSeconds": 3,
+    "managerCleanupResetSeconds": 2,
+    "initialUnitAdmissionSeconds": 18,
+    "inputValidationSeconds": 15,
+    "deadlineAccountingSeconds": 363,
+    "deadlineUnallocatedMarginSeconds": 57,
+    "managerCommandSeconds": 15,
+    "managerCommandsMax": 160,
+    "managerOutputBytesEach": 16384,
+    "entryCpuSeconds": 15,
+    "entryAsBytes": 268435456,
+    "entryWaitSeconds": 25
+  },
+  "boundaries": [
+    "No native ELF or business SHM creation.",
+    "No official apply/install/adopt/recover/activate/boot/owner main; RuntimeHandoff.recover only on private observation intent with runtimeMayChange=false.",
+    "No official gateway-ota-recover unit, no installed unit edits/daemon-reload/sysctl/network.",
+    "Actual product production_gate dependency text mapped once to a private gate. Positive pre-reader/finish/install callbacks substituted; negative ExecStartPre calls actual guard on private unadopted home.",
+    "Actual production_boot_dispatch uses a private publisher/authority substitute and actual save/dispatch logic; After and executable narrowly mapped. Not end-to-end boot authority proof.",
+    "Actual RuntimeHandoff launch/own/read/verify/cancel and manager-cgroup kernel binding unchanged; owner entry is separately pinned observation adapter.",
+    "C1 23-only proposal. No C1/24/D permission or execution yet."
+  ]
+}

@@ -1,0 +1,11 @@
+test_child_dispatch_merged_and_no_parent_duplicate (__main__.Records.test_child_dispatch_merged_and_no_parent_duplicate) ... ok
+test_global160_budget_spans_processes (__main__.Records.test_global160_budget_spans_processes) ... ok
+test_parent_child_parent_logs_unique_and_parent_merges (__main__.Records.test_parent_child_parent_logs_unique_and_parent_merges) ... ok
+test_timeout_preserves_partial_log_and_unknown_request (__main__.Records.test_timeout_preserves_partial_log_and_unknown_request) ... ok
+test_unknown_child_reservation_not_hidden (__main__.Records.test_unknown_child_reservation_not_hidden) ... ok
+test_unknown_dispatch_is_not_replayed (__main__.Records.test_unknown_dispatch_is_not_replayed) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 1.921s
+
+OK
