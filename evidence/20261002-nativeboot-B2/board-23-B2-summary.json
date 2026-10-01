@@ -1,0 +1,315 @@
+{
+  "format": "native-creator-B2-board-summary-v1",
+  "date": "2026-10-02",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "scope": "coordinator/docs/audits/evidence/20261001-device-acceptance/nativeboot-23-B2-execution-scope.md; coordinator commit 83c83c8",
+  "payloadCommit": "f936a6f1ef8fba0b08a7f805337c9faf857478cb",
+  "runnerCommit": "aa35299d3f418b9dd6c12061a0075181dfa24985",
+  "command": "python -B evidence/20261002-nativeboot-B2/execute-native-creator.py --execute-approved",
+  "executionCount": 1,
+  "preflightExitCode": 0,
+  "localExitCode": 0,
+  "remoteExitCode": 0,
+  "childExitCode": 0,
+  "childElapsedSeconds": 1.6409649078268558,
+  "receipt": {
+    "path": "board-23-B2-result.json",
+    "bytes": 244935,
+    "sha256": "5195052b307cb905107dcf61ced00e450589736c9271b08002755c00218099c2",
+    "rawBytesPreserved": true
+  },
+  "nativeLog": {
+    "path": "board-23-B2-native.log",
+    "bytes": 19166,
+    "sha256": "b85318d83dc006fdabd27eee745fc06f98d7d20745cda6d05e71655ba88ebf37"
+  },
+  "checks": [
+    {
+      "case": "cold-create",
+      "object": {
+        "bytes": 15667032,
+        "dev": 33,
+        "header": "5453504d0b000000",
+        "ino": 2,
+        "mode": 384,
+        "name": "gw_native_b2_a9b2d7d_cold"
+      },
+      "passed": true
+    },
+    {
+      "case": "reopen-cold",
+      "object": {
+        "bytes": 15667032,
+        "dev": 33,
+        "header": "5453504d0b000000",
+        "ino": 2,
+        "mode": 384,
+        "name": "gw_native_b2_a9b2d7d_cold"
+      },
+      "passed": true
+    },
+    {
+      "case": "interrupt-after-ftruncate",
+      "object": {
+        "bytes": 15667032,
+        "dev": 33,
+        "header": "0000000000000000",
+        "ino": 3,
+        "mode": 384,
+        "name": "gw_native_b2_a9b2d7d_interrupt"
+      },
+      "passed": true
+    },
+    {
+      "case": "resume-interrupted-zero-header",
+      "object": {
+        "bytes": 15667032,
+        "dev": 33,
+        "header": "5453504d0b000000",
+        "ino": 3,
+        "mode": 384,
+        "name": "gw_native_b2_a9b2d7d_interrupt"
+      },
+      "passed": true
+    },
+    {
+      "case": "reopen-resumed",
+      "object": {
+        "bytes": 15667032,
+        "dev": 33,
+        "header": "5453504d0b000000",
+        "ino": 3,
+        "mode": 384,
+        "name": "gw_native_b2_a9b2d7d_interrupt"
+      },
+      "passed": true
+    },
+    {
+      "case": "reject-explicit-private-short-size",
+      "object": {
+        "bytes": 15667031,
+        "dev": 33,
+        "ino": 3,
+        "path": "/dev/shm/gw_native_b2_a9b2d7d_interrupt",
+        "sha256": "c0103b979e87826d2a6bd05471eb0be5c6db6597985960938b41ffbcdb11db5b"
+      },
+      "passed": true
+    }
+  ],
+  "passedChecks": 6,
+  "approvedChecks": 6,
+  "interruption": {
+    "after": {
+      "bytes": 15667032,
+      "dev": 33,
+      "header": "0000000000000000",
+      "ino": 3,
+      "mode": 384,
+      "name": "gw_native_b2_a9b2d7d_interrupt"
+    },
+    "arch": "AUDIT_ARCH_AARCH64",
+    "entry": {
+      "fd": 3,
+      "length": 15667032,
+      "object": {
+        "bytes": 0,
+        "dev": 33,
+        "header": "",
+        "ino": 3,
+        "mode": 384,
+        "name": "gw_native_b2_a9b2d7d_interrupt"
+      },
+      "syscall": 46
+    },
+    "group": 531145,
+    "mappedProviders": [
+      "/tmp/gw-nativeboot-a9b2d7d-23-B2/source/pointctl",
+      "/usr/lib/aarch64-linux-gnu/ld-2.31.so",
+      "/usr/lib/aarch64-linux-gnu/libc-2.31.so",
+      "/usr/lib/aarch64-linux-gnu/libdl-2.31.so",
+      "/usr/lib/aarch64-linux-gnu/libgcc_s.so.1",
+      "/usr/lib/aarch64-linux-gnu/libm-2.31.so",
+      "/usr/lib/aarch64-linux-gnu/libpthread-2.31.so",
+      "/usr/lib/aarch64-linux-gnu/librt-2.31.so",
+      "/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.28"
+    ],
+    "namespace": "mnt:[4026532695]",
+    "outputBytesBeforeKill": 0,
+    "pid": 531168,
+    "stage": "ftruncate EXIT before returning to user-space",
+    "syscall": 46,
+    "syscallReturn": 0
+  },
+  "isolation": {
+    "parentNamespace": "mnt:[4026531840]",
+    "parentShmIdentity": [
+      16,
+      1
+    ],
+    "childNamespace": "mnt:[4026532695]",
+    "childShmDev": 33,
+    "childShmInode": 1,
+    "propagationPrivateBeforeMount": true,
+    "businessReadonly": true,
+    "visibleMount": [
+      "230",
+      "220",
+      "0:33",
+      "/",
+      "/dev/shm",
+      "rw,nosuid,nodev,noexec,relatime",
+      "-",
+      "tmpfs",
+      "tmpfs",
+      "rw,size=49152k,mode=700"
+    ]
+  },
+  "inputs": [
+    {
+      "path": "native-child.py",
+      "bytes": 24513,
+      "sha256": "0de889b79caaec8178b737024050de8b8679ab1433d812ac92f911c78d783a6f",
+      "mode": 292
+    },
+    {
+      "path": "pointctl",
+      "bytes": 674504,
+      "sha256": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813",
+      "mode": 365
+    }
+  ],
+  "postInputHashes": {
+    "native-child.py": "0de889b79caaec8178b737024050de8b8679ab1433d812ac92f911c78d783a6f",
+    "pointctl": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813"
+  },
+  "capacity": [
+    {
+      "additionalPageBytes": 31334400,
+      "lockDev": 45829,
+      "lockInode": 278717,
+      "measuredPeak": false,
+      "memAvailableBytes": 2285268992,
+      "memRequiredBytes": 98443264,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 50331648,
+      "systemPolicyReserveBytes": 67108864
+    },
+    {
+      "additionalPageBytes": 15667200,
+      "lockDev": 45829,
+      "lockInode": 278717,
+      "measuredPeak": false,
+      "memAvailableBytes": 2270302208,
+      "memRequiredBytes": 82776064,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 34664448,
+      "systemPolicyReserveBytes": 67108864
+    },
+    {
+      "additionalPageBytes": 15667200,
+      "lockDev": 45829,
+      "lockInode": 278717,
+      "measuredPeak": false,
+      "memAvailableBytes": 2269786112,
+      "memRequiredBytes": 82776064,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 34664448,
+      "systemPolicyReserveBytes": 67108864
+    },
+    {
+      "additionalPageBytes": 15667200,
+      "lockDev": 45829,
+      "lockInode": 278717,
+      "measuredPeak": false,
+      "memAvailableBytes": 2269011968,
+      "memRequiredBytes": 82776064,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 34664448,
+      "systemPolicyReserveBytes": 67108864
+    },
+    {
+      "additionalPageBytes": 0,
+      "lockDev": 45829,
+      "lockInode": 278717,
+      "measuredPeak": false,
+      "memAvailableBytes": 2254561280,
+      "memRequiredBytes": 67108864,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 18997248,
+      "systemPolicyReserveBytes": 67108864
+    },
+    {
+      "additionalPageBytes": 0,
+      "lockDev": 45829,
+      "lockInode": 278717,
+      "measuredPeak": false,
+      "memAvailableBytes": 2253787136,
+      "memRequiredBytes": 67108864,
+      "migrationHeapBytes": 0,
+      "shmAvailableBytes": 18997248,
+      "systemPolicyReserveBytes": 67108864
+    }
+  ],
+  "dependencies": {
+    "metadataCommands": 19,
+    "exitCodes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "providerCount": 8,
+    "providerBytes": 4429720,
+    "rawLogs": "19 metadata logs retained remotely beneath the unique B2 root; not downloaded. Per-log size/hash and provider identities in receipt."
+  },
+  "businessBaseline": {
+    "groupsCompared": 16,
+    "samples": 4,
+    "baselineChanges": [],
+    "cleanupBaselineChanges": [],
+    "parentNamespaceUnchanged": true,
+    "readerPids": [
+      475164,
+      475219,
+      475276
+    ],
+    "readerNRestarts": [
+      0,
+      0,
+      0
+    ]
+  },
+  "fixtureProcessGroup": 531145,
+  "remainingFixtureProcesses": [],
+  "workRemoved": true,
+  "sshClosed": true,
+  "retainedRoot": "/tmp/gw-nativeboot-a9b2d7d-23-B2",
+  "retainedContents": "read-only input source, result/native/dependency logs; own work removed only after checks and empty group",
+  "provenanceNote": "Original plan remoteAuthorized=false is preserved preparation provenance; new scope authorized this one invocation. Not a changed runner field.",
+  "B1Preserved": true,
+  "ARepeated": false,
+  "otherDeviceAccessed": false,
+  "wsl47230": "unknown; untouched",
+  "limits": "Child 180s; outer 240s. Existing reviewed native/metadata CPU, AS, file, fd and output limits unchanged.",
+  "notQualified": [
+    "All initialization/publication crash windows and robust-mutex owner death.",
+    "Real manager ordering, business installation, normal reboot, signed HTTPS/RSA OTA or production approval.",
+    "Current full-business binaries, receiver outage/reconnect and sustained acquisition; reused sealed pointctl alone is not current entire-product equivalence."
+  ]
+}
