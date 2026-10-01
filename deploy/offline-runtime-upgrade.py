@@ -183,6 +183,11 @@ def monitor_dropin_name(raw):
 def monitor_binding(approval, names):
     pin = approval.get('systemMonitorShmDropinSha256')
     if pin is None:
+        if 'coreReadOnlyTest' in approval:
+            require(MONITOR_IMPLICIT_SHM in names and not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(),
+                    'core implicit monitor binding must be absent and explicitly migrated')
+            return {'old': None, 'new': MONITOR_ENV + names[MONITOR_IMPLICIT_SHM].encode() + b'\n',
+                    'mode': 0o644, 'source': MONITOR_IMPLICIT_SHM, 'target': names[MONITOR_IMPLICIT_SHM]}
         return None
     require(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) and
             MONITOR_UNIT in approval['units'], 'monitor SHM binding pin and unit required')
@@ -203,6 +208,18 @@ def checked_monitor_record(state_dir, state, approval):
             set(record) == {'oldSha256', 'newSha256', 'source', 'target', 'mode'} and
             type(record['mode']) is int and 0 <= record['mode'] <= 0o777,
             'invalid monitor SHM binding state')
+    if record['oldSha256'] is None:
+        require('coreReadOnlyTest' in approval and 'systemMonitorShmDropinSha256' not in approval and
+                record['source'] == MONITOR_IMPLICIT_SHM and record['mode'] == 0o644 and
+                not (state_dir / 'monitor-dropin-old').exists() and
+                not (state_dir / 'monitor-dropin-old').is_symlink(), 'invalid absent core monitor binding')
+        names = {item['source']: item['target'] for item in approval['segments']}
+        require(MONITOR_IMPLICIT_SHM in names and record['target'] == names[MONITOR_IMPLICIT_SHM],
+                'core monitor SHM lineage changed')
+        new = MONITOR_ENV + record['target'].encode() + b'\n'
+        require(record['newSha256'] == hashlib.sha256(new).hexdigest() and
+                regular(state_dir / 'monitor-dropin-new').read_bytes() == new, 'core monitor backup binding changed')
+        return record, None, new
     old = regular(state_dir / 'monitor-dropin-old').read_bytes()
     source = monitor_dropin_name(old)
     names = {item['source']: item['target'] for item in approval['segments']}
@@ -568,7 +585,9 @@ def installed_inventory(home, paths, approval):
             require(not path.is_symlink(), 'symlink in runtime tree refused: ' + str(path))
             if path.is_file() and guard.runtime_file(path, path):
                 installed[str(path.relative_to(home))] = digest(path)
-    require(set(installed) <= set(paths.values()), 'installed runtime absent from approved paths')
+    preserved = approval.get('coreReadOnlyTest', {}).get('preservedRuntimeSha256', {})
+    require(set(installed) <= set(paths.values()) | set(preserved), 'installed runtime absent from approved paths')
+    require(all(installed.get(p) == pin for p, pin in preserved.items()), 'preserved runtime inventory changed')
     require(installed == approval.get('installedRuntimeSha256'), 'installed runtime inventory changed')
     for relative in paths.values():
         destination = home / relative
@@ -576,17 +595,31 @@ def installed_inventory(home, paths, approval):
         require(not destination.exists() or relative in installed, 'unapproved existing destination')
 
 
+def activation_scripts(approval):
+    return guard.CORE_SCRIPTS if 'coreReadOnlyTest' in approval else ACTIVATION_SCRIPTS
+
+
+def core_sources_unchanged(approval, identities):
+    for segment in approval['segments']:
+        path = regular(Path('/dev/shm') / segment['source'])
+        value = path.stat()
+        require(identities[segment['source']] == {'dev': value.st_dev, 'ino': value.st_ino},
+                'core source SHM identity changed: ' + segment['source'])
+        require(digest(path) == segment['sha256'], 'core source SHM bytes changed')
+        guard.point_store_abi(path, 10)
+
+
 def activation_script_pins(home, approval, side):
     pins = approval.get('activationStartupScripts')
     if pins is None:
         return None
-    require(isinstance(pins, dict) and set(pins) == set(ACTIVATION_SCRIPTS),
-            'activation startup scripts require exact two-file approval')
-    for name in ACTIVATION_SCRIPTS:
+    require(isinstance(pins, dict) and set(pins) == set(activation_scripts(approval)),
+            'activation startup scripts require exact paired-file approval')
+    for name in activation_scripts(approval):
         pin = pins[name]
         require(isinstance(pin, dict) and set(pin) == {'oldSha256', 'newSha256', 'mode'} and
                 type(pin['mode']) is int and 0 < pin['mode'] <= 0o777 and
-                (pin['oldSha256'] is None and name == 'runtime-upgrade-guard.py' or
+                (pin['oldSha256'] is None and name in ('runtime-upgrade-guard.py', 'ota-health-result.py') or
                  isinstance(pin['oldSha256'], str) and re.fullmatch('[0-9a-f]{64}', pin['oldSha256'])) and
                 re.fullmatch('[0-9a-f]{64}', pin['newSha256']) and
                 digest(Path(__file__).with_name(name)) == pin['newSha256'],
@@ -602,7 +635,7 @@ def activation_script_pins(home, approval, side):
     return pins
 
 
-def no_mappings(names):
+def no_mappings(names, include_fds=False):
     identities = set()
     for name in names:
         value = regular(Path('/dev/shm') / name).stat()
@@ -617,6 +650,14 @@ def no_mappings(names):
                     device = fields[3].split(':')
                     require((int(device[0], 16), int(device[1], 16), int(fields[4])) not in identities,
                             'SHM still mapped by pid ' + entry.name)
+            if include_fds:
+                for fd in (entry / 'fd').iterdir():
+                    try:
+                        value = fd.stat()
+                        require((os.major(value.st_dev), os.minor(value.st_dev), value.st_ino) not in identities,
+                                'SHM still open by pid ' + entry.name)
+                    except (FileNotFoundError, ProcessLookupError):
+                        continue
         except (FileNotFoundError, ProcessLookupError):
             continue
 
@@ -632,9 +673,14 @@ def read_inputs(args):
             str(home) not in ('/', '/opt'), 'unsafe gateway home')
     if 'aReadonlyAcquisition' in approval or 'aReadonlyWindowsIntegration' in approval:
         guard.a_acquisition_scope(home, approval)
+    if 'coreReadOnlyTest' in approval:
+        guard.core_scope(home, approval)
+        require(approval.get('activationStartupScripts') is not None, 'core requires paired startup/runtime scripts')
     activation_script_pins(home, approval, 'old')
     manifest = checked_json(args.manifest, approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
+    if 'coreReadOnlyTest' in approval:
+        guard.core_scope(home, approval, manifest)
     paths = install_paths(components, approval)
     require('memory_point_store_migrate' in paths, 'complete product set with migration CLI required')
     for component in components:
@@ -643,6 +689,10 @@ def read_inputs(args):
         require(args.payload in path.resolve().parents, 'component escapes payload')
         require(digest(path) == component['sha256'] and path.stat().st_size == component['bytes'],
                 'component hash/size mismatch: ' + component['target'])
+        if 'coreReadOnlyTest' in approval:
+            with regular(path).open('rb') as stream: header = stream.read(20)
+            require(header[:6] == b'\x7fELF\x02\x01' and header[18:20] == b'\xb7\x00',
+                    'core candidate must be AArch64 ELF64 little-endian: ' + component['target'])
     installed_inventory(home, paths, approval)
     units = approval['units']
     require(isinstance(units, list) and len(units) == len(set(units)) and
@@ -797,7 +847,7 @@ def recovered_predecessor(home, approval, state_dir):
         relative = Path(item['path'])
         require(not relative.is_absolute() and '..' not in relative.parts and
                 (str(relative) in paths.values() or relative.parts[:2] == ('config', 'runtime') or
-                 str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}),
+                 str(relative) in {'bin/' + name for name in activation_scripts(old)}),
                 'unsafe recovered predecessor backup path')
         live = home / relative
         if item['oldSha256'] is not None:
@@ -816,7 +866,8 @@ def recovered_predecessor(home, approval, state_dir):
                 'recovered read-only SCADA binding state changed')
         guard.scada_readonly_binding(home, old, 'old')
     if monitor:
-        require(digest(MONITOR_DROPIN) == monitor[0]['oldSha256'] and
+        require((not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink()) if monitor[1] is None else
+                digest(MONITOR_DROPIN) == monitor[0]['oldSha256'] and
                 stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == monitor[0]['mode'],
                 'recovered predecessor monitor binding not restored')
     if joint:
@@ -957,7 +1008,21 @@ def apply(args):
     monitor_path = Path('/dev/shm', MONITOR_IMPLICIT_SHM)
     require(not (monitor_path.exists() or monitor_path.is_symlink()) or MONITOR_IMPLICIT_SHM in names,
             'uncovered implicit SystemMonitor SHM segment')
-    if MONITOR_IMPLICIT_SHM in names:
+    core = 'coreReadOnlyTest' in approval
+    source_identities = {}
+    if core:
+        guard.core_documents_safe(home, approval, documents)
+        require(MONITOR_IMPLICIT_SHM in names, 'core must cover implicit monitor SHM')
+        for segment in segments:
+            path = Path('/dev/shm') / segment['source']
+            guard.point_store_abi(path, 10)
+            value = path.stat()
+            source_identities[segment['source']] = {'dev': value.st_dev, 'ino': value.st_ino}
+        no_processes(home, [c['target'] for c in components])
+        no_mappings(list(names), include_fds=True)
+        units_stopped(approval['units'])
+        guard.core_denied_units(approval, [])
+    if MONITOR_IMPLICIT_SHM in names and not core:
         targets = {item['target'] for item in components}
         require(approval_mode(approval) == 'standalone' and
                 {MONITOR_UNIT, 'ky-ems.service'} <= set(approval['units']) and
@@ -967,7 +1032,7 @@ def apply(args):
                 'systemMonitorShmDropinSha256' not in approval,
                 'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
     binding = monitor_binding(approval, names)
-    a_binding = a_joint_binding(home, approval, names, documents)
+    a_binding = None if core else a_joint_binding(home, approval, names, documents)
     if 'aReadonlyAcquisition' in approval:
         guard.a_acquisition_scope(home, approval)
         require(a_binding is not None and a_binding['disableInbound'] and
@@ -979,9 +1044,9 @@ def apply(args):
         require({'ModbusRtu', 'MqttDriver'} <= {c['target'] for c in components} and
                 all(approval['installPaths'].get(name) == 'bin/' + name for name in ('ModbusRtu', 'MqttDriver')),
                 'A acquisition requires both pinned driver components')
-    require('scadaReadOnlyProject' not in approval or a_binding is not None,
+    require('scadaReadOnlyProject' not in approval or a_binding is not None or core,
             'read-only SCADA approval requires A joint profile')
-    if 'scadaReadOnlyProject' in approval:
+    if 'scadaReadOnlyProject' in approval and not core:
         projected = {key: switch_names(doc, names) for key, doc in documents.items()}
         monitor_app = projected['apps/monitor-service.json']
         monitor_app['localDisplay']['scada']['autoReload'] = False
@@ -992,7 +1057,7 @@ def apply(args):
             guard.a_acquisition_patch('apps/monitor-service.json', monitor_app, approval)
         a_joint_config_safe(home, approval, {'segments': segments, 'unreferencedDefaultShm': unreferenced_default},
                             [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)
-    require('aInboundDisableSourceSha256' not in approval or a_binding is not None,
+    require('aInboundDisableSourceSha256' not in approval or a_binding is not None or core,
             'A inbound maintenance disable approval requires A joint binding')
     if a_binding:
         require(any(c.get('kind') == 'product' and c.get('target') == 'LocalDisplayQtEms' and
@@ -1019,7 +1084,9 @@ def apply(args):
                 'successor requires standalone activation script approval')
         projected = {key: switch_names(doc, names) for key, doc in documents.items()}
         profile_state = {'segments': segments, 'unreferencedDefaultShm': unreferenced_default}
-        if a_binding:
+        if core:
+            guard.core_documents_safe(home, approval, projected)
+        elif a_binding:
             if a_binding['disableInbound']:
                 projected['apps/monitor-service.json']['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
                 projected['apps/monitor-service.json']['systemMonitor']['directMaintenance']['enabled'] = False
@@ -1037,12 +1104,14 @@ def apply(args):
     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
     state = {'phase': 'PREPARED', 'stopConfirmed': False, 'approvalSha256': args.approval_sha256, 'files': [], 'segments': [],
              'unreferencedDefaultShm': unreferenced_default,
-             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names and a_binding is None,
+             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names and a_binding is None and not core,
              'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
                                {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
     if 'recoveredFrom' in approval:
         state['successorHandoffComplete'] = False
+    if core:
+        state['coreSourceIdentities'] = source_identities
     if 'scadaReadOnlyProject' in approval:
         state['scadaReadOnlyProject'] = approval['scadaReadOnlyProject']
     save(args.state / 'state.json', state)
@@ -1056,14 +1125,19 @@ def apply(args):
                 'uncovered implicit SystemMonitor SHM segment after stop')
         state['stopConfirmed'] = True
         require(tree_hashes(configs) == approval['configSha256'], 'config changed during stop')
+        if core:
+            core_sources_unchanged(approval, source_identities)
         if binding:
-            path = regular(MONITOR_DROPIN)
-            require(path.read_bytes() == binding['old'] and stat.S_IMODE(path.stat().st_mode) == binding['mode'],
-                    'monitor SHM drop-in changed during stop')
-            write_new(args.state / 'monitor-dropin-old', binding['old'])
+            if binding['old'] is None:
+                require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(), 'core monitor binding appeared')
+            else:
+                path = regular(MONITOR_DROPIN)
+                require(path.read_bytes() == binding['old'] and stat.S_IMODE(path.stat().st_mode) == binding['mode'],
+                        'monitor SHM drop-in changed during stop')
+                write_new(args.state / 'monitor-dropin-old', binding['old'])
             write_new(args.state / 'monitor-dropin-new', binding['new'])
             state['systemMonitorShmDropin'] = {
-                'oldSha256': hashlib.sha256(binding['old']).hexdigest(),
+                'oldSha256': hashlib.sha256(binding['old']).hexdigest() if binding['old'] is not None else None,
                 'newSha256': hashlib.sha256(binding['new']).hexdigest(),
                 'source': binding['source'], 'target': binding['target'], 'mode': binding['mode']}
             save(args.state / 'state.json', state)
@@ -1098,7 +1172,7 @@ def apply(args):
             changed.append((home / paths[component['target']], payload, 0o755))
         if approval.get('activationStartupScripts') is not None:
             activation_script_pins(home, approval, 'old')
-            for name in ACTIVATION_SCRIPTS:
+            for name in activation_scripts(approval):
                 changed.append((home / 'bin' / name, regular(Path(__file__).with_name(name)).read_bytes(),
                                 approval['activationStartupScripts'][name]['mode']))
         for relative, doc in documents.items():
@@ -1108,7 +1182,7 @@ def apply(args):
             if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
                 updated['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
                 updated['systemMonitor']['directMaintenance']['enabled'] = False
-            if 'scadaReadOnlyProject' in approval and relative == 'apps/monitor-service.json':
+            if 'scadaReadOnlyProject' in approval and not core and relative == 'apps/monitor-service.json':
                 updated['localDisplay']['scada']['autoReload'] = False
             if updated != doc:
                 require(relative != 'device_identity.json', 'identity cannot contain migrated references')
@@ -1133,24 +1207,40 @@ def apply(args):
         for segment in segments:
             source = Path('/dev/shm') / segment['source']
             require(digest(source) == segment['sha256'], 'source SHM changed during stop')
+            if core:
+                core_sources_unchanged(approval, source_identities)
             command = [str(cli_path), '--shm', segment['source'], '--copy-to-v11', segment['target'],
                        '--offline-confirmed', '--backup', str(args.state / (segment['source'] + '.v10.bak'))]
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
             write_new(args.state / (segment['source'] + '.migration.log'), result.stdout)
             require(result.returncode == 0, 'migration refused/failed for ' + segment['source'] + ': ' + result.stdout.decode(errors='replace'))
             require(digest(source) == segment['sha256'], 'migration changed source')
+            if core:
+                core_sources_unchanged(approval, source_identities)
+                guard.point_store_abi(source, 10)
+                guard.point_store_abi(Path('/dev/shm') / segment['target'], 11)
+                require(digest(args.state / (segment['source'] + '.v10.bak')) == segment['sha256'],
+                        'core durable SHM backup verification failed')
             state['segments'].append({'source': segment['source'], 'target': segment['target'],
                                       'sourceSha256': digest(source), 'targetSha256': digest(Path('/dev/shm') / segment['target'])})
             save(args.state / 'state.json', state)
         state['phase'] = 'SWITCHING'
         save(args.state / 'state.json', state)
         no_processes(home, [c['target'] for c in components])
+        if core:
+            core_sources_unchanged(approval, source_identities)
+            no_mappings([s[k] for s in segments for k in ('source', 'target')], include_fds=True)
+            for segment in segments:
+                require(digest(Path('/dev/shm') / segment['source']) == segment['sha256'], 'core source changed before replace')
+                guard.point_store_abi(Path('/dev/shm') / segment['target'], 11)
         if binding:
-            require(regular(MONITOR_DROPIN).read_bytes() == binding['old'],
+            require((not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink()) if binding['old'] is None else
+                    regular(MONITOR_DROPIN).read_bytes() == binding['old'],
                     'monitor SHM drop-in changed before switch')
             require(digest(args.state / 'monitor-dropin-new') == state['systemMonitorShmDropin']['newSha256'],
                     'monitor SHM staged drop-in changed')
-            replace(MONITOR_DROPIN, regular(args.state / 'monitor-dropin-new').read_bytes(), binding['mode'])
+            (write_new if binding['old'] is None else replace)(
+                MONITOR_DROPIN, regular(args.state / 'monitor-dropin-new').read_bytes(), binding['mode'])
         if a_binding:
             require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(),
                     'A monitor drop-in appeared before switch')
@@ -1161,7 +1251,7 @@ def apply(args):
             stage = args.state / 'new' / str(index)
             require(digest(stage) == item['newSha256'], 'staged file changed')
             replace(home / item['path'], stage.read_bytes(), item['mode'])
-        if 'scadaReadOnlyProject' in approval:
+        if 'scadaReadOnlyProject' in approval and not core:
             guard.scada_readonly_binding(home, approval, 'old')
             scada_current_switch(home, approval, True)
         if binding or a_binding:
@@ -1181,10 +1271,11 @@ def recover(args):
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
     require(state['approvalSha256'] == args.approval_sha256, 'state approval mismatch')
     home = Path(approval['gatewayHome'])
+    core = 'coreReadOnlyTest' in approval
     local_identity(home, approval)
     if 'recoveredFrom' in approval and not state.get('successorHandoffComplete', False):
         successor_handoff(home, approval, args.state, state)
-    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE):
+    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE, guard.CORE_PROFILE):
         refence_activation(home, approval, args.state, state)
     else:
         fence(home, approval, args.state, state)
@@ -1199,7 +1290,8 @@ def recover(args):
     monitor = checked_monitor_record(args.state, state, approval)
     if monitor:
         record, _, _ = monitor
-        require(digest(MONITOR_DROPIN) in (record['oldSha256'], record['newSha256']),
+        require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink() and monitor[1] is None or
+                digest(MONITOR_DROPIN) in (record['oldSha256'], record['newSha256']),
                 'monitor SHM drop-in changed since transaction')
     a_joint = checked_a_joint_record(args.state, state, approval)
     if a_joint:
@@ -1213,12 +1305,12 @@ def recover(args):
         relative = Path(item['path'])
         require(not relative.is_absolute() and '..' not in relative.parts and
                 (str(relative) in products or relative.parts[:2] == ('config', 'runtime') or
-                 str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}) and
+                 str(relative) in {'bin/' + name for name in activation_scripts(approval)}) and
                 relative != Path('config/runtime/device_identity.json'), 'unsafe recovery path')
         if str(relative) in products:
             require(item['newSha256'] == products[str(relative)]['sha256'] and
                     item['oldSha256'] == approval['installedRuntimeSha256'].get(str(relative)), 'unapproved binary recovery')
-        elif str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}:
+        elif str(relative) in {'bin/' + name for name in activation_scripts(approval)}:
             pins = approval.get('activationStartupScripts')
             pin = pins.get(relative.name) if isinstance(pins, dict) else None
             require(isinstance(pin, dict) and item['oldSha256'] == pin.get('oldSha256') and
@@ -1232,7 +1324,7 @@ def recover(args):
             require(digest(args.state / 'files' / str(index)) == item['oldSha256'], 'recovery backup mismatch')
         live = home / relative
         require(not live.exists() or digest(live) in (item['oldSha256'], item['newSha256']), 'live file changed since transaction')
-    if 'scadaReadOnlyProject' in approval:
+    if 'scadaReadOnlyProject' in approval and not core:
         # Stop and validate backups first; retain any changed candidate bytes.
         scada_current_switch(home, approval, False)
     for index, item in enumerate(state['files']):
@@ -1249,7 +1341,13 @@ def recover(args):
             sync_dir(live.parent)
     if monitor:
         record, old, _ = monitor
-        replace(MONITOR_DROPIN, old, record['mode'])
+        if old is None:
+            if MONITOR_DROPIN.exists() or MONITOR_DROPIN.is_symlink():
+                require(regular(MONITOR_DROPIN).read_bytes() == monitor[2], 'core monitor binding changed before recovery')
+                MONITOR_DROPIN.unlink()
+                sync_dir(MONITOR_DROPIN.parent)
+        else:
+            replace(MONITOR_DROPIN, old, record['mode'])
         systemctl('daemon-reload')
     if a_joint:
         if MONITOR_DROPIN.exists():
@@ -1309,7 +1407,8 @@ def observe(args):
         for side in ('source', 'target'):
             require(digest(Path('/dev/shm') / segment[side]) == segment[side + 'Sha256'], 'SHM changed before observe')
     no_processes(home, [c['target'] for c in components])
-    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')])
+    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')],
+                include_fds='coreReadOnlyTest' in approval)
     units_stopped(approval['units'])
     selected = ready['startUnits']
     require(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and
@@ -1431,6 +1530,10 @@ def observe(args):
 
 
 def activation_units(approval, readers):
+    if 'coreReadOnlyTest' in approval:
+        require(readers == guard.core_scope(Path(approval['gatewayHome']), approval),
+                'core requires the exact approved reader group')
+        return ['gateway-services.service'] + readers
     if 'aReadonlyAcquisition' in approval:
         require(approval['aReadonlyAcquisition'] is True and readers == guard.A_ACQUISITION_READERS,
                 'A acquisition requires the exact combined group')
@@ -1447,6 +1550,7 @@ def inhibition_dropin(home, transaction, unit):
 def refence_activation(home, approval, state_dir, state):
     allowed = state.get('activatedUnits', [])
     require(isinstance(allowed, list) and allowed == activation_units(approval,
+            guard.core_scope(home, approval) if state['activationProfile'] == guard.CORE_PROFILE else
             guard.A_ACQUISITION_READERS if state['activationProfile'] in (guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE) else
             [MONITOR_UNIT] if state['activationProfile'] == 'B_MONITOR' else [MONITOR_UNIT, A_QT_UNIT]),
             'invalid activation recovery scope')
@@ -1503,6 +1607,7 @@ def activate(args):
             'activate requires unchanged upgraded/stopped state')
     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
     home = Path(approval['gatewayHome'])
+    core = 'coreReadOnlyTest' in approval
     mode = approval_mode(approval)
     require(mode == 'standalone' and ready.get('mode') == mode and
             ready.get('transactionId') == approval['transactionId'] and
@@ -1519,7 +1624,7 @@ def activate(args):
     require(regular(home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'] and
             not (home / 'data' / guard.ACTIVATION_FILE).exists(), 'activation fence/record changed')
     require(activation_script_pins(home, approval, 'new') is not None and
-            {'bin/' + name for name in ACTIVATION_SCRIPTS} <= {item['path'] for item in state['files']},
+            {'bin/' + name for name in activation_scripts(approval)} <= {item['path'] for item in state['files']},
             'activation requires installed paired startup scripts')
     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
     components = [c for c in manifest['components'] if c.get('kind') == 'product']
@@ -1527,8 +1632,14 @@ def activate(args):
     for component in components:
         require(digest(home / paths[component['target']]) == component['sha256'],
                 'installed component no longer approved')
-    installed_inventory(home, paths, {'installedRuntimeSha256': {
-        paths[c['target']]: c['sha256'] for c in components}})
+    expected = {paths[c['target']]: c['sha256'] for c in components}
+    inventory = {'installedRuntimeSha256': expected}
+    if core:
+        expected.update(approval['coreReadOnlyTest']['preservedRuntimeSha256'])
+        inventory['coreReadOnlyTest'] = approval['coreReadOnlyTest']
+        guard.core_scope(home, approval, manifest)
+        core_sources_unchanged(approval, state['coreSourceIdentities'])
+    installed_inventory(home, paths, inventory)
     require(tree_hashes(home / 'config/runtime') == state['configSha256'], 'activated configuration changed')
     documents = configured(home / 'config/runtime')
     for doc in documents.values():
@@ -1538,12 +1649,22 @@ def activate(args):
             require(digest(Path('/dev/shm') / segment[side]) == segment[side + 'Sha256'],
                     'SHM changed before activation')
     no_processes(home, [c['target'] for c in components])
-    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')])
+    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')], include_fds=core)
     units_stopped(approval['units'])
     readers = ready.get('startUnits')
     monitor = checked_monitor_record(args.state, state, approval)
     joint = checked_a_joint_record(args.state, state, approval)
-    if 'aReadonlyAcquisition' in approval:
+    if core:
+        require(monitor and not joint and readers == guard.core_scope(home, approval),
+                'core activation requires exact approved readers and monitor binding')
+        guard.core_config(home, args.state, approval, state)
+        guard.core_denied_units(approval, activation_units(approval, readers), inhibited=True)
+        for segment in state['segments']:
+            guard.point_store_abi(Path('/dev/shm') / segment['target'], 11)
+        state['coreReadonlyUnitProof'] = guard.a_acquisition_units(
+            home, approval, monitor[0]['target'], inhibited=True, core=True)
+        profile, monitor_source = guard.CORE_PROFILE, monitor[0]['source']
+    elif 'aReadonlyAcquisition' in approval:
         guard.a_acquisition_scope(home, approval)
         require(joint and readers == guard.A_ACQUISITION_READERS, 'A acquisition ready group changed')
         profile, monitor_source = guard.a_acquisition_profile(approval), MONITOR_IMPLICIT_SHM

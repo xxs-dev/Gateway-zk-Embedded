@@ -1,0 +1,8 @@
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-o5gq_207/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-o5gq_207/backup'), PosixPath('/var/tmp/gateway-install-test-o5gq_207/staging')] exit=2
+[2026-10-01 13:53:47] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-o5gq_207/fixture.tar.gz
+runtime upgrade refused: runtime ELF OTA requires the offline all-participant upgrade; declarations alone do not prove ABI compatibility
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-o5gq_207/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+

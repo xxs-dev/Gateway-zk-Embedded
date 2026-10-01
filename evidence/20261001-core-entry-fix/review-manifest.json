@@ -1,0 +1,131 @@
+{
+  "head": "cb45f3fc78cd6288d9bb49f06f93ca07b441ecfa",
+  "branch": "fix/edge-review-r1-20260930",
+  "files": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "bytes": 106329,
+      "sha256": "49573cc1cd1de1d73a811cf7aba7d2bc4ff709cdd5645609dba6e9488933e4ae"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "bytes": 57512,
+      "sha256": "67654ed702efb4ff682e3d013da7c0ea16487c1c80bcd0ca45c4c28437f67517"
+    },
+    {
+      "path": "tools/core_readonly_activation_test.py",
+      "bytes": 19412,
+      "sha256": "5b0114f5ac435e127e0c8d84ef51c16d59d12cbb91cf9f28748db14c3422c795"
+    },
+    {
+      "path": "deploy/gateway-services.sh",
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    {
+      "path": "deploy/ota-apply.sh",
+      "bytes": 43843,
+      "sha256": "cedb29529a307a46b2e1eb268eca5d80aa8457f6f2d12ffd25c8e21889cbb246"
+    },
+    {
+      "path": "deploy/ota-rollback.sh",
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    {
+      "path": "deploy/ota-health-result.py",
+      "bytes": 8861,
+      "sha256": "49c0171b1991b77a2d0dfdaceae3bed205b17f8514697e3d509047ebf5e16f7a"
+    },
+    {
+      "path": "deploy/production-smoke-test.sh",
+      "bytes": 33389,
+      "sha256": "896309f187bcf10e9ab31a12f87cb87b1a973a3002aad18fe2022c354767fcf0"
+    }
+  ],
+  "diffStat": [
+    " deploy/offline-runtime-upgrade.py | 195 ++++++++++++++++++++++++++++++-------",
+    " deploy/runtime-upgrade-guard.py   | 200 ++++++++++++++++++++++++++++++++++++--",
+    " 2 files changed, 350 insertions(+), 45 deletions(-)"
+  ],
+  "diffNumstat": [
+    "158\t37\tdeploy/offline-runtime-upgrade.py",
+    "192\t8\tdeploy/runtime-upgrade-guard.py"
+  ],
+  "schemaVersion": "edge-core-entry-review-1",
+  "commitPerformed": false,
+  "deploymentPerformed": false,
+  "remoteCallsDuringEdgeRepair": 0,
+  "productWriteSet": [
+    "deploy/offline-runtime-upgrade.py",
+    "deploy/runtime-upgrade-guard.py",
+    "tools/core_readonly_activation_test.py"
+  ],
+  "pairedLauncherChanged": false,
+  "programsRebuilt": false,
+  "previousProgramPackage": {
+    "file": "edge-cb45f3f-programs.tar.gz",
+    "bytes": 8819817,
+    "sha256": "0b82b91f93675c61b0d807c39bc711346c8899871ae29b34f5ca8178e9198549"
+  },
+  "tests": [
+    {
+      "command": "python3 -B tools/core_readonly_activation_test.py -v",
+      "environment": "local WSL Ubuntu, synthetic filesystem/systemctl/migration",
+      "count": 18,
+      "seconds": 20.23,
+      "exitCode": 0
+    },
+    {
+      "command": "python3 -B tools/a_acquisition_activation_test.py -v",
+      "environment": "local WSL Ubuntu",
+      "count": 21,
+      "seconds": 2.793,
+      "exitCode": 0
+    },
+    {
+      "command": "python3 -B tools/install_isolation_test.py --evidence evidence/20261001-core-entry-fix/related-regressions --test test_ota_runtime_rejected_before_any_live_change --test test_ota_plain_config_is_not_blocked --test test_ota_compatibility_type_missing_and_conflict_rejected --test test_offline_b_default_monitor_observe_roundtrip --test test_offline_recovered_a_absent_guard_handoff_activation_roundtrip",
+      "environment": "local WSL root, private mount/net/ipc namespaces, simulated services",
+      "count": 5,
+      "seconds": 6.907,
+      "exitCode": 0
+    },
+    {
+      "command": "ast.parse(..., feature_version=(3,6)) for both changed deployment Python scripts",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "earlyFailureReceipts": "early-failures.md",
+  "nativeMigrationCli": {
+    "buildRunnerExitCode": 1,
+    "remoteBuildExitCode": null,
+    "executableExists": false,
+    "sha256": null,
+    "blindRetry": false
+  },
+  "historicalApproval": {
+    "transactionId": "A-GW002-20260928-WIN02",
+    "approvalSha256": "b3ac290348f357ed27b11afa0bbaa91aaea7b1b5b5643519b8cfb2dfde4f8f99",
+    "recoveredStateSha256": "8ebd221f59a95d271616d5f1e71128029e904cdb04696e7b37fbab0a957ccef7",
+    "operatorSummarySha256": "7ee02bce17738d274c32156aaedba391e46bcd06ba9bd766583d716a88d921a5",
+    "operatorSummarySchema": "operator-terminal-recovery-summary-1",
+    "operatorSummaryIsFormalSuccessorReceipt": false,
+    "currentDeviceLineageQualified": false
+  },
+  "ota": {
+    "ordinaryRuntimeElfAllowed": false,
+    "ordinaryOtaFenceRemoved": false,
+    "realDeviceOtaCompleted": false,
+    "reason": "Official apply/activate/recover keep persistent offline stop fence. No approved fence-exit lifecycle exists in this scope; plain OTA allowed by the guard without a fence is not a real OTA result."
+  },
+  "gatesBeforeImplementation": [
+    "Independent review then explicit commit permission",
+    "Diagnose and recover native migration build logs/return code, compile only CLI if approved after diagnosis",
+    "Current read-only WIN02 state/receipt/retained-target/backup/fence validation; preserve any mismatch as an independent blocker",
+    "Fixed full manifest, independent approval and paired script pins before deployment; no program package rebuild"
+  ]
+}

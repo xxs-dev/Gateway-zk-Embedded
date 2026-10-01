@@ -1,0 +1,1128 @@
+diff --git a/deploy/offline-runtime-upgrade.py b/deploy/offline-runtime-upgrade.py
+index a4358d1..0af1adc 100644
+--- a/deploy/offline-runtime-upgrade.py
++++ b/deploy/offline-runtime-upgrade.py
+@@ -183,6 +183,11 @@ def monitor_dropin_name(raw):
+ def monitor_binding(approval, names):
+     pin = approval.get('systemMonitorShmDropinSha256')
+     if pin is None:
++        if 'coreReadOnlyTest' in approval:
++            require(MONITOR_IMPLICIT_SHM in names and not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(),
++                    'core implicit monitor binding must be absent and explicitly migrated')
++            return {'old': None, 'new': MONITOR_ENV + names[MONITOR_IMPLICIT_SHM].encode() + b'\n',
++                    'mode': 0o644, 'source': MONITOR_IMPLICIT_SHM, 'target': names[MONITOR_IMPLICIT_SHM]}
+         return None
+     require(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) and
+             MONITOR_UNIT in approval['units'], 'monitor SHM binding pin and unit required')
+@@ -203,6 +208,18 @@ def checked_monitor_record(state_dir, state, approval):
+             set(record) == {'oldSha256', 'newSha256', 'source', 'target', 'mode'} and
+             type(record['mode']) is int and 0 <= record['mode'] <= 0o777,
+             'invalid monitor SHM binding state')
++    if record['oldSha256'] is None:
++        require('coreReadOnlyTest' in approval and 'systemMonitorShmDropinSha256' not in approval and
++                record['source'] == MONITOR_IMPLICIT_SHM and record['mode'] == 0o644 and
++                not (state_dir / 'monitor-dropin-old').exists() and
++                not (state_dir / 'monitor-dropin-old').is_symlink(), 'invalid absent core monitor binding')
++        names = {item['source']: item['target'] for item in approval['segments']}
++        require(MONITOR_IMPLICIT_SHM in names and record['target'] == names[MONITOR_IMPLICIT_SHM],
++                'core monitor SHM lineage changed')
++        new = MONITOR_ENV + record['target'].encode() + b'\n'
++        require(record['newSha256'] == hashlib.sha256(new).hexdigest() and
++                regular(state_dir / 'monitor-dropin-new').read_bytes() == new, 'core monitor backup binding changed')
++        return record, None, new
+     old = regular(state_dir / 'monitor-dropin-old').read_bytes()
+     source = monitor_dropin_name(old)
+     names = {item['source']: item['target'] for item in approval['segments']}
+@@ -568,7 +585,9 @@ def installed_inventory(home, paths, approval):
+             require(not path.is_symlink(), 'symlink in runtime tree refused: ' + str(path))
+             if path.is_file() and guard.runtime_file(path, path):
+                 installed[str(path.relative_to(home))] = digest(path)
+-    require(set(installed) <= set(paths.values()), 'installed runtime absent from approved paths')
++    preserved = approval.get('coreReadOnlyTest', {}).get('preservedRuntimeSha256', {})
++    require(set(installed) <= set(paths.values()) | set(preserved), 'installed runtime absent from approved paths')
++    require(all(installed.get(p) == pin for p, pin in preserved.items()), 'preserved runtime inventory changed')
+     require(installed == approval.get('installedRuntimeSha256'), 'installed runtime inventory changed')
+     for relative in paths.values():
+         destination = home / relative
+@@ -576,17 +595,31 @@ def installed_inventory(home, paths, approval):
+         require(not destination.exists() or relative in installed, 'unapproved existing destination')
+ 
+ 
++def activation_scripts(approval):
++    return guard.CORE_SCRIPTS if 'coreReadOnlyTest' in approval else ACTIVATION_SCRIPTS
++
++
++def core_sources_unchanged(approval, identities):
++    for segment in approval['segments']:
++        path = regular(Path('/dev/shm') / segment['source'])
++        value = path.stat()
++        require(identities[segment['source']] == {'dev': value.st_dev, 'ino': value.st_ino},
++                'core source SHM identity changed: ' + segment['source'])
++        require(digest(path) == segment['sha256'], 'core source SHM bytes changed')
++        guard.point_store_abi(path, 10)
++
++
+ def activation_script_pins(home, approval, side):
+     pins = approval.get('activationStartupScripts')
+     if pins is None:
+         return None
+-    require(isinstance(pins, dict) and set(pins) == set(ACTIVATION_SCRIPTS),
+-            'activation startup scripts require exact two-file approval')
+-    for name in ACTIVATION_SCRIPTS:
++    require(isinstance(pins, dict) and set(pins) == set(activation_scripts(approval)),
++            'activation startup scripts require exact paired-file approval')
++    for name in activation_scripts(approval):
+         pin = pins[name]
+         require(isinstance(pin, dict) and set(pin) == {'oldSha256', 'newSha256', 'mode'} and
+                 type(pin['mode']) is int and 0 < pin['mode'] <= 0o777 and
+-                (pin['oldSha256'] is None and name == 'runtime-upgrade-guard.py' or
++                (pin['oldSha256'] is None and name in ('runtime-upgrade-guard.py', 'ota-health-result.py') or
+                  isinstance(pin['oldSha256'], str) and re.fullmatch('[0-9a-f]{64}', pin['oldSha256'])) and
+                 re.fullmatch('[0-9a-f]{64}', pin['newSha256']) and
+                 digest(Path(__file__).with_name(name)) == pin['newSha256'],
+@@ -602,7 +635,7 @@ def activation_script_pins(home, approval, side):
+     return pins
+ 
+ 
+-def no_mappings(names):
++def no_mappings(names, include_fds=False):
+     identities = set()
+     for name in names:
+         value = regular(Path('/dev/shm') / name).stat()
+@@ -617,6 +650,14 @@ def no_mappings(names):
+                     device = fields[3].split(':')
+                     require((int(device[0], 16), int(device[1], 16), int(fields[4])) not in identities,
+                             'SHM still mapped by pid ' + entry.name)
++            if include_fds:
++                for fd in (entry / 'fd').iterdir():
++                    try:
++                        value = fd.stat()
++                        require((os.major(value.st_dev), os.minor(value.st_dev), value.st_ino) not in identities,
++                                'SHM still open by pid ' + entry.name)
++                    except (FileNotFoundError, ProcessLookupError):
++                        continue
+         except (FileNotFoundError, ProcessLookupError):
+             continue
+ 
+@@ -632,9 +673,14 @@ def read_inputs(args):
+             str(home) not in ('/', '/opt'), 'unsafe gateway home')
+     if 'aReadonlyAcquisition' in approval or 'aReadonlyWindowsIntegration' in approval:
+         guard.a_acquisition_scope(home, approval)
++    if 'coreReadOnlyTest' in approval:
++        guard.core_scope(home, approval)
++        require(approval.get('activationStartupScripts') is not None, 'core requires paired startup/runtime scripts')
+     activation_script_pins(home, approval, 'old')
+     manifest = checked_json(args.manifest, approval['programManifestSha256'])
+     components = [c for c in manifest['components'] if c.get('kind') == 'product']
++    if 'coreReadOnlyTest' in approval:
++        guard.core_scope(home, approval, manifest)
+     paths = install_paths(components, approval)
+     require('memory_point_store_migrate' in paths, 'complete product set with migration CLI required')
+     for component in components:
+@@ -643,6 +689,10 @@ def read_inputs(args):
+         require(args.payload in path.resolve().parents, 'component escapes payload')
+         require(digest(path) == component['sha256'] and path.stat().st_size == component['bytes'],
+                 'component hash/size mismatch: ' + component['target'])
++        if 'coreReadOnlyTest' in approval:
++            with regular(path).open('rb') as stream: header = stream.read(20)
++            require(header[:6] == b'\x7fELF\x02\x01' and header[18:20] == b'\xb7\x00',
++                    'core candidate must be AArch64 ELF64 little-endian: ' + component['target'])
+     installed_inventory(home, paths, approval)
+     units = approval['units']
+     require(isinstance(units, list) and len(units) == len(set(units)) and
+@@ -797,7 +847,7 @@ def recovered_predecessor(home, approval, state_dir):
+         relative = Path(item['path'])
+         require(not relative.is_absolute() and '..' not in relative.parts and
+                 (str(relative) in paths.values() or relative.parts[:2] == ('config', 'runtime') or
+-                 str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}),
++                 str(relative) in {'bin/' + name for name in activation_scripts(old)}),
+                 'unsafe recovered predecessor backup path')
+         live = home / relative
+         if item['oldSha256'] is not None:
+@@ -816,7 +866,8 @@ def recovered_predecessor(home, approval, state_dir):
+                 'recovered read-only SCADA binding state changed')
+         guard.scada_readonly_binding(home, old, 'old')
+     if monitor:
+-        require(digest(MONITOR_DROPIN) == monitor[0]['oldSha256'] and
++        require((not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink()) if monitor[1] is None else
++                digest(MONITOR_DROPIN) == monitor[0]['oldSha256'] and
+                 stat.S_IMODE(MONITOR_DROPIN.stat().st_mode) == monitor[0]['mode'],
+                 'recovered predecessor monitor binding not restored')
+     if joint:
+@@ -957,7 +1008,21 @@ def apply(args):
+     monitor_path = Path('/dev/shm', MONITOR_IMPLICIT_SHM)
+     require(not (monitor_path.exists() or monitor_path.is_symlink()) or MONITOR_IMPLICIT_SHM in names,
+             'uncovered implicit SystemMonitor SHM segment')
+-    if MONITOR_IMPLICIT_SHM in names:
++    core = 'coreReadOnlyTest' in approval
++    source_identities = {}
++    if core:
++        guard.core_documents_safe(home, approval, documents)
++        require(MONITOR_IMPLICIT_SHM in names, 'core must cover implicit monitor SHM')
++        for segment in segments:
++            path = Path('/dev/shm') / segment['source']
++            guard.point_store_abi(path, 10)
++            value = path.stat()
++            source_identities[segment['source']] = {'dev': value.st_dev, 'ino': value.st_ino}
++        no_processes(home, [c['target'] for c in components])
++        no_mappings(list(names), include_fds=True)
++        units_stopped(approval['units'])
++        guard.core_denied_units(approval, [])
++    if MONITOR_IMPLICIT_SHM in names and not core:
+         targets = {item['target'] for item in components}
+         require(approval_mode(approval) == 'standalone' and
+                 {MONITOR_UNIT, 'ky-ems.service'} <= set(approval['units']) and
+@@ -967,7 +1032,7 @@ def apply(args):
+                 'systemMonitorShmDropinSha256' not in approval,
+                 'unbound implicit SystemMonitor SHM requires stopped monitor and KY-EMS scope')
+     binding = monitor_binding(approval, names)
+-    a_binding = a_joint_binding(home, approval, names, documents)
++    a_binding = None if core else a_joint_binding(home, approval, names, documents)
+     if 'aReadonlyAcquisition' in approval:
+         guard.a_acquisition_scope(home, approval)
+         require(a_binding is not None and a_binding['disableInbound'] and
+@@ -979,9 +1044,9 @@ def apply(args):
+         require({'ModbusRtu', 'MqttDriver'} <= {c['target'] for c in components} and
+                 all(approval['installPaths'].get(name) == 'bin/' + name for name in ('ModbusRtu', 'MqttDriver')),
+                 'A acquisition requires both pinned driver components')
+-    require('scadaReadOnlyProject' not in approval or a_binding is not None,
++    require('scadaReadOnlyProject' not in approval or a_binding is not None or core,
+             'read-only SCADA approval requires A joint profile')
+-    if 'scadaReadOnlyProject' in approval:
++    if 'scadaReadOnlyProject' in approval and not core:
+         projected = {key: switch_names(doc, names) for key, doc in documents.items()}
+         monitor_app = projected['apps/monitor-service.json']
+         monitor_app['localDisplay']['scada']['autoReload'] = False
+@@ -992,7 +1057,7 @@ def apply(args):
+             guard.a_acquisition_patch('apps/monitor-service.json', monitor_app, approval)
+         a_joint_config_safe(home, approval, {'segments': segments, 'unreferencedDefaultShm': unreferenced_default},
+                             [MONITOR_UNIT, A_QT_UNIT], projected, project_pending=True)
+-    require('aInboundDisableSourceSha256' not in approval or a_binding is not None,
++    require('aInboundDisableSourceSha256' not in approval or a_binding is not None or core,
+             'A inbound maintenance disable approval requires A joint binding')
+     if a_binding:
+         require(any(c.get('kind') == 'product' and c.get('target') == 'LocalDisplayQtEms' and
+@@ -1019,7 +1084,9 @@ def apply(args):
+                 'successor requires standalone activation script approval')
+         projected = {key: switch_names(doc, names) for key, doc in documents.items()}
+         profile_state = {'segments': segments, 'unreferencedDefaultShm': unreferenced_default}
+-        if a_binding:
++        if core:
++            guard.core_documents_safe(home, approval, projected)
++        elif a_binding:
+             if a_binding['disableInbound']:
+                 projected['apps/monitor-service.json']['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
+                 projected['apps/monitor-service.json']['systemMonitor']['directMaintenance']['enabled'] = False
+@@ -1037,12 +1104,14 @@ def apply(args):
+     write_new(args.state / 'program-manifest.json', regular(args.manifest).read_bytes())
+     state = {'phase': 'PREPARED', 'stopConfirmed': False, 'approvalSha256': args.approval_sha256, 'files': [], 'segments': [],
+              'unreferencedDefaultShm': unreferenced_default,
+-             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names and a_binding is None,
++             'implicitMonitorShmUnqualified': MONITOR_IMPLICIT_SHM in names and a_binding is None and not core,
+              'unitStates': {u: ({'enabled': 'template-file', 'active': 'not-instance'} if u.endswith('@.service') else
+                                {'enabled': systemctl('show', '--property=UnitFileState', '--value', u),
+                                 'active': systemctl('show', '--property=ActiveState', '--value', u)}) for u in approval['units']}}
+     if 'recoveredFrom' in approval:
+         state['successorHandoffComplete'] = False
++    if core:
++        state['coreSourceIdentities'] = source_identities
+     if 'scadaReadOnlyProject' in approval:
+         state['scadaReadOnlyProject'] = approval['scadaReadOnlyProject']
+     save(args.state / 'state.json', state)
+@@ -1056,14 +1125,19 @@ def apply(args):
+                 'uncovered implicit SystemMonitor SHM segment after stop')
+         state['stopConfirmed'] = True
+         require(tree_hashes(configs) == approval['configSha256'], 'config changed during stop')
++        if core:
++            core_sources_unchanged(approval, source_identities)
+         if binding:
+-            path = regular(MONITOR_DROPIN)
+-            require(path.read_bytes() == binding['old'] and stat.S_IMODE(path.stat().st_mode) == binding['mode'],
+-                    'monitor SHM drop-in changed during stop')
+-            write_new(args.state / 'monitor-dropin-old', binding['old'])
++            if binding['old'] is None:
++                require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(), 'core monitor binding appeared')
++            else:
++                path = regular(MONITOR_DROPIN)
++                require(path.read_bytes() == binding['old'] and stat.S_IMODE(path.stat().st_mode) == binding['mode'],
++                        'monitor SHM drop-in changed during stop')
++                write_new(args.state / 'monitor-dropin-old', binding['old'])
+             write_new(args.state / 'monitor-dropin-new', binding['new'])
+             state['systemMonitorShmDropin'] = {
+-                'oldSha256': hashlib.sha256(binding['old']).hexdigest(),
++                'oldSha256': hashlib.sha256(binding['old']).hexdigest() if binding['old'] is not None else None,
+                 'newSha256': hashlib.sha256(binding['new']).hexdigest(),
+                 'source': binding['source'], 'target': binding['target'], 'mode': binding['mode']}
+             save(args.state / 'state.json', state)
+@@ -1098,7 +1172,7 @@ def apply(args):
+             changed.append((home / paths[component['target']], payload, 0o755))
+         if approval.get('activationStartupScripts') is not None:
+             activation_script_pins(home, approval, 'old')
+-            for name in ACTIVATION_SCRIPTS:
++            for name in activation_scripts(approval):
+                 changed.append((home / 'bin' / name, regular(Path(__file__).with_name(name)).read_bytes(),
+                                 approval['activationStartupScripts'][name]['mode']))
+         for relative, doc in documents.items():
+@@ -1108,7 +1182,7 @@ def apply(args):
+             if a_binding and a_binding['disableInbound'] and relative == 'apps/monitor-service.json':
+                 updated['mqtt']['enabled'] = guard.a_acquisition_profile(approval) == guard.A_WINDOWS_PROFILE
+                 updated['systemMonitor']['directMaintenance']['enabled'] = False
+-            if 'scadaReadOnlyProject' in approval and relative == 'apps/monitor-service.json':
++            if 'scadaReadOnlyProject' in approval and not core and relative == 'apps/monitor-service.json':
+                 updated['localDisplay']['scada']['autoReload'] = False
+             if updated != doc:
+                 require(relative != 'device_identity.json', 'identity cannot contain migrated references')
+@@ -1133,24 +1207,40 @@ def apply(args):
+         for segment in segments:
+             source = Path('/dev/shm') / segment['source']
+             require(digest(source) == segment['sha256'], 'source SHM changed during stop')
++            if core:
++                core_sources_unchanged(approval, source_identities)
+             command = [str(cli_path), '--shm', segment['source'], '--copy-to-v11', segment['target'],
+                        '--offline-confirmed', '--backup', str(args.state / (segment['source'] + '.v10.bak'))]
+             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
+             write_new(args.state / (segment['source'] + '.migration.log'), result.stdout)
+             require(result.returncode == 0, 'migration refused/failed for ' + segment['source'] + ': ' + result.stdout.decode(errors='replace'))
+             require(digest(source) == segment['sha256'], 'migration changed source')
++            if core:
++                core_sources_unchanged(approval, source_identities)
++                guard.point_store_abi(source, 10)
++                guard.point_store_abi(Path('/dev/shm') / segment['target'], 11)
++                require(digest(args.state / (segment['source'] + '.v10.bak')) == segment['sha256'],
++                        'core durable SHM backup verification failed')
+             state['segments'].append({'source': segment['source'], 'target': segment['target'],
+                                       'sourceSha256': digest(source), 'targetSha256': digest(Path('/dev/shm') / segment['target'])})
+             save(args.state / 'state.json', state)
+         state['phase'] = 'SWITCHING'
+         save(args.state / 'state.json', state)
+         no_processes(home, [c['target'] for c in components])
++        if core:
++            core_sources_unchanged(approval, source_identities)
++            no_mappings([s[k] for s in segments for k in ('source', 'target')], include_fds=True)
++            for segment in segments:
++                require(digest(Path('/dev/shm') / segment['source']) == segment['sha256'], 'core source changed before replace')
++                guard.point_store_abi(Path('/dev/shm') / segment['target'], 11)
+         if binding:
+-            require(regular(MONITOR_DROPIN).read_bytes() == binding['old'],
++            require((not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink()) if binding['old'] is None else
++                    regular(MONITOR_DROPIN).read_bytes() == binding['old'],
+                     'monitor SHM drop-in changed before switch')
+             require(digest(args.state / 'monitor-dropin-new') == state['systemMonitorShmDropin']['newSha256'],
+                     'monitor SHM staged drop-in changed')
+-            replace(MONITOR_DROPIN, regular(args.state / 'monitor-dropin-new').read_bytes(), binding['mode'])
++            (write_new if binding['old'] is None else replace)(
++                MONITOR_DROPIN, regular(args.state / 'monitor-dropin-new').read_bytes(), binding['mode'])
+         if a_binding:
+             require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink(),
+                     'A monitor drop-in appeared before switch')
+@@ -1161,7 +1251,7 @@ def apply(args):
+             stage = args.state / 'new' / str(index)
+             require(digest(stage) == item['newSha256'], 'staged file changed')
+             replace(home / item['path'], stage.read_bytes(), item['mode'])
+-        if 'scadaReadOnlyProject' in approval:
++        if 'scadaReadOnlyProject' in approval and not core:
+             guard.scada_readonly_binding(home, approval, 'old')
+             scada_current_switch(home, approval, True)
+         if binding or a_binding:
+@@ -1181,10 +1271,11 @@ def recover(args):
+     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
+     require(state['approvalSha256'] == args.approval_sha256, 'state approval mismatch')
+     home = Path(approval['gatewayHome'])
++    core = 'coreReadOnlyTest' in approval
+     local_identity(home, approval)
+     if 'recoveredFrom' in approval and not state.get('successorHandoffComplete', False):
+         successor_handoff(home, approval, args.state, state)
+-    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE):
++    elif state.get('activationProfile') in ('B_MONITOR', 'A_MONITOR_QT', guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE, guard.CORE_PROFILE):
+         refence_activation(home, approval, args.state, state)
+     else:
+         fence(home, approval, args.state, state)
+@@ -1199,7 +1290,8 @@ def recover(args):
+     monitor = checked_monitor_record(args.state, state, approval)
+     if monitor:
+         record, _, _ = monitor
+-        require(digest(MONITOR_DROPIN) in (record['oldSha256'], record['newSha256']),
++        require(not MONITOR_DROPIN.exists() and not MONITOR_DROPIN.is_symlink() and monitor[1] is None or
++                digest(MONITOR_DROPIN) in (record['oldSha256'], record['newSha256']),
+                 'monitor SHM drop-in changed since transaction')
+     a_joint = checked_a_joint_record(args.state, state, approval)
+     if a_joint:
+@@ -1213,12 +1305,12 @@ def recover(args):
+         relative = Path(item['path'])
+         require(not relative.is_absolute() and '..' not in relative.parts and
+                 (str(relative) in products or relative.parts[:2] == ('config', 'runtime') or
+-                 str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}) and
++                 str(relative) in {'bin/' + name for name in activation_scripts(approval)}) and
+                 relative != Path('config/runtime/device_identity.json'), 'unsafe recovery path')
+         if str(relative) in products:
+             require(item['newSha256'] == products[str(relative)]['sha256'] and
+                     item['oldSha256'] == approval['installedRuntimeSha256'].get(str(relative)), 'unapproved binary recovery')
+-        elif str(relative) in {'bin/' + name for name in ACTIVATION_SCRIPTS}:
++        elif str(relative) in {'bin/' + name for name in activation_scripts(approval)}:
+             pins = approval.get('activationStartupScripts')
+             pin = pins.get(relative.name) if isinstance(pins, dict) else None
+             require(isinstance(pin, dict) and item['oldSha256'] == pin.get('oldSha256') and
+@@ -1232,7 +1324,7 @@ def recover(args):
+             require(digest(args.state / 'files' / str(index)) == item['oldSha256'], 'recovery backup mismatch')
+         live = home / relative
+         require(not live.exists() or digest(live) in (item['oldSha256'], item['newSha256']), 'live file changed since transaction')
+-    if 'scadaReadOnlyProject' in approval:
++    if 'scadaReadOnlyProject' in approval and not core:
+         # Stop and validate backups first; retain any changed candidate bytes.
+         scada_current_switch(home, approval, False)
+     for index, item in enumerate(state['files']):
+@@ -1249,7 +1341,13 @@ def recover(args):
+             sync_dir(live.parent)
+     if monitor:
+         record, old, _ = monitor
+-        replace(MONITOR_DROPIN, old, record['mode'])
++        if old is None:
++            if MONITOR_DROPIN.exists() or MONITOR_DROPIN.is_symlink():
++                require(regular(MONITOR_DROPIN).read_bytes() == monitor[2], 'core monitor binding changed before recovery')
++                MONITOR_DROPIN.unlink()
++                sync_dir(MONITOR_DROPIN.parent)
++        else:
++            replace(MONITOR_DROPIN, old, record['mode'])
+         systemctl('daemon-reload')
+     if a_joint:
+         if MONITOR_DROPIN.exists():
+@@ -1309,7 +1407,8 @@ def observe(args):
+         for side in ('source', 'target'):
+             require(digest(Path('/dev/shm') / segment[side]) == segment[side + 'Sha256'], 'SHM changed before observe')
+     no_processes(home, [c['target'] for c in components])
+-    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')])
++    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')],
++                include_fds='coreReadOnlyTest' in approval)
+     units_stopped(approval['units'])
+     selected = ready['startUnits']
+     require(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and
+@@ -1431,6 +1530,10 @@ def observe(args):
+ 
+ 
+ def activation_units(approval, readers):
++    if 'coreReadOnlyTest' in approval:
++        require(readers == guard.core_scope(Path(approval['gatewayHome']), approval),
++                'core requires the exact approved reader group')
++        return ['gateway-services.service'] + readers
+     if 'aReadonlyAcquisition' in approval:
+         require(approval['aReadonlyAcquisition'] is True and readers == guard.A_ACQUISITION_READERS,
+                 'A acquisition requires the exact combined group')
+@@ -1447,6 +1550,7 @@ def inhibition_dropin(home, transaction, unit):
+ def refence_activation(home, approval, state_dir, state):
+     allowed = state.get('activatedUnits', [])
+     require(isinstance(allowed, list) and allowed == activation_units(approval,
++            guard.core_scope(home, approval) if state['activationProfile'] == guard.CORE_PROFILE else
+             guard.A_ACQUISITION_READERS if state['activationProfile'] in (guard.A_ACQUISITION_PROFILE, guard.A_WINDOWS_PROFILE) else
+             [MONITOR_UNIT] if state['activationProfile'] == 'B_MONITOR' else [MONITOR_UNIT, A_QT_UNIT]),
+             'invalid activation recovery scope')
+@@ -1503,6 +1607,7 @@ def activate(args):
+             'activate requires unchanged upgraded/stopped state')
+     approval = checked_json(args.state / 'approval.json', args.approval_sha256)
+     home = Path(approval['gatewayHome'])
++    core = 'coreReadOnlyTest' in approval
+     mode = approval_mode(approval)
+     require(mode == 'standalone' and ready.get('mode') == mode and
+             ready.get('transactionId') == approval['transactionId'] and
+@@ -1519,7 +1624,7 @@ def activate(args):
+     require(regular(home / 'data/runtime-upgrade-stop').read_text().strip() == approval['transactionId'] and
+             not (home / 'data' / guard.ACTIVATION_FILE).exists(), 'activation fence/record changed')
+     require(activation_script_pins(home, approval, 'new') is not None and
+-            {'bin/' + name for name in ACTIVATION_SCRIPTS} <= {item['path'] for item in state['files']},
++            {'bin/' + name for name in activation_scripts(approval)} <= {item['path'] for item in state['files']},
+             'activation requires installed paired startup scripts')
+     manifest = checked_json(args.state / 'program-manifest.json', approval['programManifestSha256'])
+     components = [c for c in manifest['components'] if c.get('kind') == 'product']
+@@ -1527,8 +1632,14 @@ def activate(args):
+     for component in components:
+         require(digest(home / paths[component['target']]) == component['sha256'],
+                 'installed component no longer approved')
+-    installed_inventory(home, paths, {'installedRuntimeSha256': {
+-        paths[c['target']]: c['sha256'] for c in components}})
++    expected = {paths[c['target']]: c['sha256'] for c in components}
++    inventory = {'installedRuntimeSha256': expected}
++    if core:
++        expected.update(approval['coreReadOnlyTest']['preservedRuntimeSha256'])
++        inventory['coreReadOnlyTest'] = approval['coreReadOnlyTest']
++        guard.core_scope(home, approval, manifest)
++        core_sources_unchanged(approval, state['coreSourceIdentities'])
++    installed_inventory(home, paths, inventory)
+     require(tree_hashes(home / 'config/runtime') == state['configSha256'], 'activated configuration changed')
+     documents = configured(home / 'config/runtime')
+     for doc in documents.values():
+@@ -1538,12 +1649,22 @@ def activate(args):
+             require(digest(Path('/dev/shm') / segment[side]) == segment[side + 'Sha256'],
+                     'SHM changed before activation')
+     no_processes(home, [c['target'] for c in components])
+-    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')])
++    no_mappings([s[k] for s in state['segments'] for k in ('source', 'target')], include_fds=core)
+     units_stopped(approval['units'])
+     readers = ready.get('startUnits')
+     monitor = checked_monitor_record(args.state, state, approval)
+     joint = checked_a_joint_record(args.state, state, approval)
+-    if 'aReadonlyAcquisition' in approval:
++    if core:
++        require(monitor and not joint and readers == guard.core_scope(home, approval),
++                'core activation requires exact approved readers and monitor binding')
++        guard.core_config(home, args.state, approval, state)
++        guard.core_denied_units(approval, activation_units(approval, readers), inhibited=True)
++        for segment in state['segments']:
++            guard.point_store_abi(Path('/dev/shm') / segment['target'], 11)
++        state['coreReadonlyUnitProof'] = guard.a_acquisition_units(
++            home, approval, monitor[0]['target'], inhibited=True, core=True)
++        profile, monitor_source = guard.CORE_PROFILE, monitor[0]['source']
++    elif 'aReadonlyAcquisition' in approval:
+         guard.a_acquisition_scope(home, approval)
+         require(joint and readers == guard.A_ACQUISITION_READERS, 'A acquisition ready group changed')
+         profile, monitor_source = guard.a_acquisition_profile(approval), MONITOR_IMPLICIT_SHM
+diff --git a/deploy/runtime-upgrade-guard.py b/deploy/runtime-upgrade-guard.py
+index 2431155..07a0a2a 100644
+--- a/deploy/runtime-upgrade-guard.py
++++ b/deploy/runtime-upgrade-guard.py
+@@ -53,6 +53,168 @@ A_WINDOWS_RX = {
+     'apps/mqtt-service.json': {'realtimeRequestTopic': 'edge/telemetry/realtime/request'},
+     'apps/monitor-service.json': {'systemMonitorRequestTopic': 'edge/system/monitor/request',
+                                   'configPullRequestTopic': 'edge/config/pull/request'}}
++CORE_PROFILE = 'CORE_READONLY_TEST'
++CORE_READERS = {'RTU_MQTT_MONITOR': [A_RTU_UNIT, A_MQTT_UNIT, MONITOR_UNIT],
++                'MONITOR_ONLY': [MONITOR_UNIT]}
++CORE_NODES = {'RTU_MQTT_MONITOR': 'COMM202600999', 'MONITOR_ONLY': 'COMM202600998'}
++CORE_PROGRAMS = frozenset(('ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver '
++                          'MqttForwarder EventEngine ComputeEngine EmsClusterCoordinator '
++                          'AgcAvcController EmsParityCheck SystemMonitor LocalDisplay '
++                          'QtDisplayBridge CameraService pointctl stress_runner memory_point_store_migrate').split())
++CORE_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh', 'ota-apply.sh',
++                'ota-rollback.sh', 'ota-health-result.py', 'production-smoke-test.sh')
++POINT_STORE_SIZES = {10: 15174272, 11: 15667032}
++
++
++def core_scope(home, approval, manifest=None):
++    profile = approval.get('coreReadOnlyTest')
++    if (not isinstance(profile, dict) or set(profile) != {
++            'schemaVersion', 'profile', 'sourceCommit', 'programManifestSha256', 'preservedRuntimeSha256'} or
++            profile['schemaVersion'] != 'core-readonly-test-1' or
++            not isinstance(profile['profile'], str) or profile['profile'] not in CORE_READERS or
++            approval.get('nodeId') != CORE_NODES[profile['profile']] or
++            home != Path('/opt/modbus-gateway') or approval.get('mode') != 'standalone' or
++            approval.get('controlEnabled') is not False or
++            any(k in approval for k in ('aReadonlyAcquisition', 'aReadonlyWindowsIntegration')) or
++            re.fullmatch('[0-9a-f]{40}', str(profile['sourceCommit'])) is None or
++            re.fullmatch('[0-9a-f]{64}', str(profile['programManifestSha256'])) is None or
++            profile['programManifestSha256'] != approval.get('programManifestSha256') or
++            not set(CORE_READERS[profile['profile']] + ['gateway-services.service', QT_UNIT,
++                    'qt-display-bridge.service']) <= set(approval.get('units', []))):
++        raise ValueError('core read-only requires exact independent approval and reader scope')
++    # Recovered A metadata is preservation-only, never a request for A rewrites/Qt activation.
++    for key, relative in (('qtDisplayEnvSha256', 'qt-display.env'),
++                          ('aInboundDisableSourceSha256', 'apps/monitor-service.json')):
++        if key in approval and ('recoveredFrom' not in approval or
++                approval[key] != approval.get('configSha256', {}).get(relative)):
++            raise ValueError('core inherited metadata must preserve the approved source')
++    if 'scadaReadOnlyProject' in approval:
++        if 'recoveredFrom' not in approval:
++            raise ValueError('core SCADA metadata is only a predecessor preservation proof')
++        scada_readonly_binding(home, approval, 'old')
++    preserved = profile['preservedRuntimeSha256']
++    if not isinstance(preserved, dict) or any(
++            path not in {'bin/' + name for name in RUNTIME_BINARIES | {'stress_runner'}} | {'ky-ems/KY-EMS'} or
++            re.fullmatch('[0-9a-f]{64}', str(pin)) is None or
++            approval.get('installedRuntimeSha256', {}).get(path) != pin or
++            path in approval.get('installPaths', {}).values() for path, pin in preserved.items()):
++        raise ValueError('core preserved runtime inventory must be exact and disjoint')
++    if manifest is not None:
++        components = manifest.get('components', [])
++        if (manifest.get('sourceCommit') != profile['sourceCommit'] or not isinstance(components, list) or
++                len(components) != len(CORE_PROGRAMS) or
++                {c.get('target') for c in components if isinstance(c, dict)} != CORE_PROGRAMS or
++                any(not isinstance(c, dict) or c.get('kind') != 'product' or
++                    c.get('archivePath') != 'bin/' + c.get('target', '') or
++                    approval.get('installPaths', {}).get(c['target']) != 'bin/' + c['target'] or
++                    re.fullmatch('[0-9a-f]{64}', str(c.get('sha256'))) is None or
++                    type(c.get('bytes')) is not int or c['bytes'] < 64 for c in components)):
++            raise ValueError('core requires complete exact approved AArch64 program manifest')
++    return list(CORE_READERS[profile['profile']])
++
++
++def point_store_abi(path, version):
++    with exact_file(path).open('rb') as stream:
++        header = stream.read(8)
++    if path.stat().st_size != POINT_STORE_SIZES[version] or header != struct.pack('<II', 0x4d505354, version):
++        raise ValueError('point-store native layout/version/size mismatch: ' + path.name)
++
++
++def core_documents_safe(home, approval, documents):
++    readers = core_scope(home, approval)
++    def safe(value):
++        if isinstance(value, dict):
++            for key in ('emsCluster', 'agcAvc'):
++                if key in value and (not isinstance(value[key], dict) or
++                        value[key].get('enabled') is not False or
++                        value[key].get('controlEnabled', False) is not False):
++                    raise ValueError('core read-only forbids control authority')
++            if value.get('startupWrites') not in (None, []):
++                raise ValueError('core read-only forbids startup writes')
++            if 'write' in value and (not isinstance(value['write'], dict) or
++                    value['write'].get('enable', False) is not False):
++                raise ValueError('core read-only forbids writable points')
++            if 'northboundServer' in value and (not isinstance(value['northboundServer'], dict) or
++                    value['northboundServer'].get('enabled') is not False):
++                raise ValueError('core read-only forbids northbound writes')
++            for item in value.values(): safe(item)
++        elif isinstance(value, list):
++            for item in value: safe(item)
++    for doc in documents.values(): safe(doc)
++    monitor = documents.get('apps/monitor-service.json', {})
++    if monitor.get('systemMonitor', {}).get('enabled') is not True:
++        raise ValueError('core monitor must be explicitly enabled')
++    if readers == [MONITOR_UNIT]:
++        if (any(name.startswith('devices/') for name in documents) or
++                any(doc.get('deviceConfigFiles') not in (None, []) or
++                    doc.get('mqtt', {}).get('enabled') is not False
++                    for name, doc in documents.items() if name.startswith('apps/'))):
++            raise ValueError('monitor-only requires empty device inventory and disabled MQTT')
++    else:
++        device = 'devices/device_modbusRTU_2_readonly.json'
++        mqtt = documents.get('apps/mqtt-service.json', {})
++        if (device not in documents or mqtt.get('mqtt', {}).get('enabled') is not True or
++                any(doc.get('deviceConfigFiles') != [str(home / 'config/runtime' / device)]
++                    for doc in (monitor, mqtt))):
++            raise ValueError('core RTU/MQTT requires the exact read-only device binding')
++
++
++def core_config(home, state_dir, approval, state):
++    core_scope(home, approval)
++    names = {s['source']: s['target'] for s in state['segments']}
++    if names != {s['source']: s['target'] for s in approval['segments']}:
++        raise ValueError('core SHM lineage changed')
++    root = home / 'config/runtime'
++    actual = {str(p.relative_to(root)): sha(exact_file(p)) for p in root.rglob('*') if p.is_file()}
++    if set(actual) != set(approval['configSha256']) or actual != state['configSha256']:
++        raise ValueError('core configuration inventory changed')
++    for relative, pin in approval['configSha256'].items():
++        rows = [(i, row) for i, row in enumerate(state['files']) if row['path'] == 'config/runtime/' + relative]
++        if len(rows) > 1 or rows and rows[0][1]['oldSha256'] != pin:
++            raise ValueError('core config backup binding changed')
++        current = exact_file(root / relative)
++        original = exact_file(state_dir / 'files' / str(rows[0][0])) if rows else current
++        if sha(original) != pin:
++            raise ValueError('core original config backup changed')
++        if current.suffix == '.json':
++            before = json.loads(original.read_text())
++            expected = switch_names(before, names)
++            if relative == 'device_identity.json' and expected != before:
++                raise ValueError('core cannot remap device identity')
++            if json.loads(current.read_text()) != expected:
++                raise ValueError('core configuration exceeds internal SHM remap')
++        elif current.read_bytes() != original.read_bytes():
++            raise ValueError('core cannot change non-JSON configuration')
++    manifest_path = exact_file(state_dir / 'program-manifest.json')
++    if sha(manifest_path) != approval['programManifestSha256']:
++        raise ValueError('core manifest approval changed')
++    manifest = json.loads(manifest_path.read_text())
++    core_scope(home, approval, manifest)
++    expected_runtime = dict(approval['coreReadOnlyTest']['preservedRuntimeSha256'])
++    expected_runtime.update({'bin/' + c['target']: c['sha256'] for c in manifest['components']})
++    installed = {str(p.relative_to(home)): sha(exact_file(p)) for d in ('bin', 'ky-ems')
++                 for p in (home / d).rglob('*') if p.is_file() and runtime_file(p, p)}
++    if installed != expected_runtime:
++        raise ValueError('core complete installed runtime inventory changed')
++    for name, pin in approval['activationStartupScripts'].items():
++        if sha(exact_file(home / 'bin' / name)) != pin['newSha256']:
++            raise ValueError('core paired runtime script changed')
++    core_documents_safe(home, approval, {str(p.relative_to(root)): json.loads(p.read_text()) for p in root.rglob('*.json')})
++
++
++def core_denied_units(approval, allowed, inhibited=None):
++    for unit in set(approval['units']) - set(allowed):
++        if not unit.endswith('@.service') and (systemctl_value(unit, 'ActiveState') not in ('inactive', 'failed') or
++                systemctl_value(unit, 'MainPID') != '0'):
++            raise ValueError('core excluded participant is not stopped: ' + unit)
++        if inhibited is not None:
++            home = Path(approval['gatewayHome'])
++            path, body = denied_dropin(home, approval['transactionId'], unit)
++            if inhibited:
++                body = ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
++            if (exact_file(path).read_bytes() != body or
++                    set(systemctl_value(unit, 'DropInPaths').split()) != {str(path)}):
++                raise ValueError('core excluded participant fence coverage changed: ' + unit)
+ 
+ 
+ def a_acquisition_profile(approval):
+@@ -288,12 +450,15 @@ def active_context(home):
+         a_acquisition_scope(home, approval)
+         if not acquisition or state['activationProfile'] != a_acquisition_profile(approval):
+             raise ValueError('A acquisition cannot fall back to an observer-only profile')
+-    readers = (A_ACQUISITION_READERS if acquisition else
++    core = state.get('activationProfile') == CORE_PROFILE
++    if core != ('coreReadOnlyTest' in approval):
++        raise ValueError('core cannot fall back to a historical profile')
++    readers = (core_scope(home, approval) if core else A_ACQUISITION_READERS if acquisition else
+                [MONITOR_UNIT] if state.get('activationProfile') == 'B_MONITOR' else [MONITOR_UNIT, QT_UNIT])
+-    watchdog = ('gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
++    watchdog = (not core and 'gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
+     allowed = ['gateway-services.service'] + (['gateway-health-watchdog.service'] if watchdog else []) + readers
+     if (state.get('phase') != 'ACTIVATED_CONTROL_DISABLED' or
+-            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE) or
++            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE, CORE_PROFILE) or
+             state.get('activationReadySha256') != active['readySha256'] or
+             state.get('activatedUnits') != allowed or active.get('allowedUnits') != allowed or
+             ready.get('schemaVersion') != 'offline-shm11-activate-1' or
+@@ -350,7 +515,7 @@ def a_acquisition_unit_properties(unit):
+     return values
+ 
+ 
+-def a_acquisition_units(home, approval, monitor_target, inhibited):
++def a_acquisition_units(home, approval, monitor_target, inhibited, core=False):
+     """Fixed-file proof for this one profile, never a generic systemd parser."""
+     root = Path('/etc/systemd/system')
+     fence_name = '90-offline-' + approval['transactionId'] + '.conf'
+@@ -365,6 +530,9 @@ def a_acquisition_units(home, approval, monitor_target, inhibited):
+         (QT_UNIT, QT_UNIT, QT_UNIT_SHA, '/bin/sh', ' ' + str(home / 'bin/gateway-qt-run.sh'), 'system.slice'),
+         ('gateway-services.service', 'gateway-services.service', LAUNCHER_UNIT_SHA,
+          str(home / 'bin/gateway-services.sh'), ' apply', 'system.slice'))
++    if core:
++        readers = core_scope(home, approval)
++        specs = tuple(s for s in specs if s[0] in readers + ['gateway-services.service'])
+     derived = {}
+     for unit, template, pin, executable, arguments, slice_unit in specs:
+         fragment = root / template
+@@ -448,7 +616,7 @@ def a_acquisition_units(home, approval, monitor_target, inhibited):
+     return {'source': 'STATIC_PINNED_FILES', 'derivedEmptyFields': {u: sorted(v) for u, v in derived.items()}}
+ 
+ 
+-def no_old_mappings(names):
++def no_old_mappings(names, include_fds=False):
+     identities = set()
+     for name in names:
+         path = Path('/dev/shm') / name
+@@ -467,6 +635,14 @@ def no_old_mappings(names):
+                 if ((int(dev[0], 16), int(dev[1], 16), int(fields[4])) in identities or
+                         any(mapped in ('/dev/shm/' + name, '/dev/shm/' + name + ' (deleted)') for name in names)):
+                     raise ValueError('old SHM still mapped: ' + entry.name)
++            if include_fds:
++                for fd in (entry / 'fd').iterdir():
++                    try:
++                        value = fd.stat()
++                        if (os.major(value.st_dev), os.minor(value.st_dev), value.st_ino) in identities:
++                            raise ValueError('old SHM still open: ' + entry.name)
++                    except (FileNotFoundError, ProcessLookupError):
++                        continue
+         except (FileNotFoundError, ProcessLookupError):
+             continue
+ 
+@@ -492,7 +668,8 @@ def activated_unit(home, unit):
+                    MONITOR_UNIT: MONITOR_TEMPLATE,
+                    QT_UNIT: QT_UNIT_SHA,
+                    'gateway-health-watchdog.service': WATCHDOG_UNIT_SHA}
+-    if state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
++    core = state['activationProfile'] == CORE_PROFILE
++    if core or state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
+         fixed_units.update({A_RTU_UNIT: A_RTU_TEMPLATE, A_MQTT_UNIT: A_MQTT_TEMPLATE})
+     for selected in allowed:
+         fragment = (selected.split('@')[0] + '@.service' if selected in (MONITOR_UNIT, A_RTU_UNIT, A_MQTT_UNIT)
+@@ -539,10 +716,13 @@ def activated_unit(home, unit):
+             with exact_file(target).open('rb') as stream:
+                 if stream.read(8) != struct.pack('<II', 0x4d505354, 11):
+                     raise ValueError('activated target SHM ABI mismatch')
++            if core:
++                point_store_abi(target, 11)
+         elif not boot_changed:
+             raise ValueError('target SHM disappeared in same boot')
+-    no_old_mappings(sources)
+-    if sha(home / 'bin/SystemMonitor') != MONITOR_BINARY or sha(Path('/etc/systemd/system/system-monitor@.service')) != MONITOR_TEMPLATE:
++    no_old_mappings(sources, include_fds=core)
++    if (not core and sha(home / 'bin/SystemMonitor') != MONITOR_BINARY or
++            sha(Path('/etc/systemd/system/system-monitor@.service')) != MONITOR_TEMPLATE):
+         raise ValueError('activated monitor binary/template changed')
+     if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
+         if (sha(home / 'ky-ems/KY-EMS') != QT_BINARY or
+@@ -585,6 +765,10 @@ def activated_unit(home, unit):
+     if state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
+         a_acquisition_config(home, Path(active['stateDir']), approval, state)
+         a_acquisition_units(home, approval, monitor_target, inhibited=False)
++    if core:
++        core_config(home, Path(active['stateDir']), approval, state)
++        core_denied_units(approval, allowed, inhibited=False)
++        a_acquisition_units(home, approval, monitor_target, inhibited=False, core=True)
+     return readers
+diff --git a/tools/core_readonly_activation_test.py b/tools/core_readonly_activation_test.py
+new file mode 100644
+index 0000000..36ee8a1
+--- /dev/null
++++ b/tools/core_readonly_activation_test.py
+@@ -0,0 +1,376 @@
++"""Local file transactions only; no device, broker, real daemon or migration.
++
++Reuse the existing systemctl/migration fixture. Pins are synthetic approved
++manifest data, never substitutes for the retained historical profile constants.
++"""
++import json
++import copy
++import os
++from pathlib import Path
++import struct
++import subprocess
++import unittest
++
++import a_acquisition_activation_test as fixture
++
++load, sha, write = fixture.load, fixture.sha, fixture.write
++
++PROGRAMS = ('ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver '
++            'MqttForwarder EventEngine ComputeEngine EmsClusterCoordinator '
++            'AgcAvcController EmsParityCheck SystemMonitor LocalDisplay '
++            'QtDisplayBridge CameraService pointctl stress_runner memory_point_store_migrate').split()
++SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh', 'ota-apply.sh',
++           'ota-rollback.sh', 'ota-health-result.py', 'production-smoke-test.sh')
++
++
++class CoreReadOnlyTest(unittest.TestCase):
++    def setUp(self):
++        original = load()
++        f = self.f = fixture.AcquisitionTest('test_apply_activate_recover_restores_exact_bytes')
++        f.setUp()
++        self.addCleanup(f.doCleanups)
++        for owner, key, value in ((f.g, 'MONITOR_BINARY', original.guard.MONITOR_BINARY),
++                                   (f.g, 'QT_BINARY', original.guard.QT_BINARY),
++                                   (f.m, 'B_MONITOR_BINARY_SHA256', original.B_MONITOR_BINARY_SHA256),
++                                   (f.m, 'A_QT_BINARY_SHA256', original.A_QT_BINARY_SHA256)):
++            setattr(owner, key, value)
++        f.g.A_SOURCE_CONFIGS = original.guard.A_SOURCE_CONFIGS.copy()
++        for key in ('aReadonlyAcquisition', 'qtDisplayEnvSha256', 'aInboundDisableSourceSha256', 'scadaReadOnlyProject'):
++            f.approval.pop(key, None)
++        f.approval['nodeId'] = 'COMM202600999'
++        f.approval['offlineLocal']['nodeId'] = f.approval['nodeId']
++        write(f.config/'device_identity.json', json.dumps({'machineCode': f.approval['nodeId']}))
++        components = []
++        for name in PROGRAMS:
++            p = f.root/'payload/bin'/name
++            header = bytearray(64)
++            header[:6] = b'\x7fELF\x02\x01'
++            struct.pack_into('<HH', header, 16, 2, 183)
++            write(p, bytes(header) + ('synthetic approved ' + name).encode())
++            components.append({'kind': 'product', 'target': name, 'archivePath': 'bin/'+name,
++                               'sha256': sha(p), 'bytes': p.stat().st_size})
++        manifest = {'sourceCommit': 'cb45f3fc78cd6288d9bb49f06f93ca07b441ecfa', 'components': components}
++        write(f.root/'manifest.json', json.dumps(manifest))
++        f.approval['programManifestSha256'] = sha(f.root/'manifest.json')
++        f.approval['installPaths'] = {c['target']: 'bin/'+c['target'] for c in components}
++        f.approval['coreReadOnlyTest'] = {
++            'schemaVersion': 'core-readonly-test-1', 'profile': 'RTU_MQTT_MONITOR',
++            'sourceCommit': manifest['sourceCommit'], 'programManifestSha256': sha(f.root/'manifest.json'),
++            'preservedRuntimeSha256': {'ky-ems/KY-EMS': sha(f.home/'ky-ems/KY-EMS')}}
++        for name in SCRIPTS[2:]:
++            write(f.home/'bin'/name, 'old script '+name)
++            (f.home/'bin'/name).chmod(0o755)
++            f.approval['activationStartupScripts'][name] = {
++                'oldSha256': sha(f.home/'bin'/name),
++                'newSha256': sha(Path(__file__).resolve().parent.parent/'deploy'/name), 'mode': 0o755}
++        for segment in f.approval['segments']:
++            p = f.path('/dev/shm')/segment['source']
++            with p.open('r+b') as out: out.truncate(15174272)
++            segment['sha256'] = sha(p)
++        self.refresh_config()
++        self.initial_sources = {s['source']: (f.path('/dev/shm')/s['source']).stat().st_ino for s in f.approval['segments']}
++        old_external = f.external
++        def external(command, **kwargs):
++            if '--copy-to-v11' in command:
++                source = command[command.index('--shm')+1]
++                target = command[command.index('--copy-to-v11')+1]
++                write(Path(command[command.index('--backup')+1]), (f.path('/dev/shm')/source).read_bytes())
++                p = f.path('/dev/shm')/target
++                write(p, struct.pack('<II', 0x4d505354, 11))
++                with p.open('r+b') as out: out.truncate(15667032)
++                return subprocess.CompletedProcess(command, 0, b'simulated migration; not real OTA\n')
++            return old_external(command, **kwargs)
++        f.patch(f.m.subprocess, 'run', external)
++
++    def refresh_config(self):
++        f = self.f
++        f.approval['identitySha256'] = sha(f.config/'device_identity.json')
++        f.approval['configSha256'] = f.m.tree_hashes(f.config)
++        f.originals = {name: (f.config/name).read_bytes() for name in f.approval['configSha256']}
++
++    def readers(self):
++        f = self.f
++        return [f.g.A_RTU_UNIT, f.g.A_MQTT_UNIT, f.g.MONITOR_UNIT]
++
++    def test_current_manifest_three_readers_apply_activate_recover(self):
++        f = self.f
++        old_qt = (f.home/'ky-ems/KY-EMS').read_bytes()
++        state = f.apply()
++        self.assertEqual('UPGRADED_STOPPED', state['phase'])
++        f.activate(self.readers())
++        self.assertEqual(set(self.readers()+['gateway-services.service']), f.live)
++        self.assertEqual(old_qt, (f.home/'ky-ems/KY-EMS').read_bytes())
++        for s in f.approval['segments']:
++            p = f.path('/dev/shm')/s['source']
++            self.assertEqual(s['sha256'], sha(p))
++            self.assertEqual(self.initial_sources[s['source']], p.stat().st_ino)
++        f.m.recover(f.args)
++        self.assertFalse(f.live)
++        self.assertFalse(f.m.MONITOR_DROPIN.exists())
++        for name, raw in f.originals.items(): self.assertEqual(raw, (f.config/name).read_bytes())
++        for unit in f.approval['units']:
++            path, body = f.m.inhibition_dropin(f.home, f.approval['transactionId'], unit)
++            self.assertEqual(body, path.read_bytes())
++
++    def test_monitor_only_has_no_devices_or_mqtt_and_no_watchdog_start(self):
++        f = self.f
++        f.approval['nodeId'] = 'COMM202600998'
++        f.approval['offlineLocal']['nodeId'] = f.approval['nodeId']
++        f.approval['coreReadOnlyTest']['profile'] = 'MONITOR_ONLY'
++        f.approval['units'].append('gateway-health-watchdog.service')
++        write(f.config/'device_identity.json', json.dumps({'machineCode': f.approval['nodeId']}))
++        for p in (f.config/'devices').glob('*.json'): p.unlink()
++        for p in (f.config/'apps').glob('*.json'):
++            doc = json.loads(p.read_text())
++            doc['deviceConfigFiles'] = []
++            doc['mqtt']['enabled'] = False
++            write(p, json.dumps(doc))
++        f.approval['segments'] = [s for s in f.approval['segments'] if 'readonly_rtu' not in s['source']]
++        self.refresh_config()
++        f.apply()
++        f.activate([f.g.MONITOR_UNIT])
++        self.assertEqual({'gateway-services.service', f.g.MONITOR_UNIT}, f.live)
++        f.m.recover(f.args)
++        self.assertFalse(f.live)
++
++    def test_core_cannot_add_qt_or_control_unit_to_ready(self):
++        f = self.f
++        f.apply()
++        for readers in (self.readers()+[f.g.QT_UNIT], [f.g.MONITOR_UNIT],
++                        self.readers()+['agc-avc@control.service']):
++            with self.assertRaisesRegex(ValueError, 'exact approved readers'):
++                f.activate(readers)
++            self.assertFalse(f.live)
++
++    def test_unapproved_elf_target_refused_even_if_manifest_rehashed(self):
++        f = self.f
++        manifest = json.loads((f.root/'manifest.json').read_text())
++        manifest['components'][0]['target'] = 'arbitrary_control'
++        write(f.root/'manifest.json', json.dumps(manifest))
++        f.approval['programManifestSha256'] = sha(f.root/'manifest.json')
++        f.approval['coreReadOnlyTest']['programManifestSha256'] = f.approval['programManifestSha256']
++        with self.assertRaisesRegex(ValueError, 'complete exact approved'):
++            f.apply()
++        self.assertFalse(f.state_dir.exists())
++
++    def test_manifest_pin_and_preserved_qt_inventory_fail_closed(self):
++        f = self.f
++        old = f.approval['coreReadOnlyTest']['programManifestSha256']
++        f.approval['coreReadOnlyTest']['programManifestSha256'] = '0'*64
++        with self.assertRaisesRegex(ValueError, 'independent approval'):
++            f.apply()
++        f.approval['coreReadOnlyTest']['programManifestSha256'] = old
++        write(f.home/'ky-ems/KY-EMS', 'changed unrelated Qt')
++        with self.assertRaisesRegex(ValueError, 'preserved runtime'):
++            f.apply()
++        self.assertFalse(f.state_dir.exists())
++
++    def test_layout_size_mismatch_refused_before_fence_or_replacement(self):
++        f = self.f
++        p = f.path('/dev/shm')/f.approval['segments'][0]['source']
++        with p.open('r+b') as out: out.truncate(15174271)
++        f.approval['segments'][0]['sha256'] = sha(p)
++        old = (f.home/'bin/ModbusRtu').read_bytes()
++        with self.assertRaisesRegex(ValueError, 'layout/version/size'):
++            f.apply()
++        self.assertFalse(f.state_dir.exists())
++        self.assertFalse((f.home/'data/runtime-upgrade-stop').exists())
++        self.assertEqual(old, (f.home/'bin/ModbusRtu').read_bytes())
++
++    def test_same_bytes_new_source_inode_rejected_before_replace(self):
++        f = self.f
++        original = f.m.subprocess.run
++        p = f.path('/dev/shm')/f.approval['segments'][0]['source']
++        def external(command, **kwargs):
++            result = original(command, **kwargs)
++            if '--copy-to-v11' in command:
++                twin = p.with_name('same_bytes_unapproved_inode')
++                write(twin, p.read_bytes())
++                os.replace(twin, p)
++            return result
++        f.patch(f.m.subprocess, 'run', external)
++        old = (f.home/'bin/ModbusRtu').read_bytes()
++        with self.assertRaisesRegex(ValueError, 'source SHM identity'):
++            f.apply()
++        self.assertEqual(old, (f.home/'bin/ModbusRtu').read_bytes())
++
++    def test_absent_monitor_dangling_symlink_recovery_is_not_success(self):
++        f = self.f
++        f.apply()
++        f.m.MONITOR_DROPIN.unlink()
++        f.m.MONITOR_DROPIN.symlink_to(f.root/'missing-target')
++        original = f.systemctl
++        # systemctl metadata does not open the broken file; the file gate must reject it.
++        def systemctl(*args):
++            if args[0]=='show' and args[-1]==f.g.MONITOR_UNIT and args[1]=='--property=ActiveState':
++                return 'inactive'
++            return original(*args)
++        f.patch(f.m, 'systemctl', systemctl)
++        with self.assertRaisesRegex(ValueError, 'symlink'):
++            f.m.recover(f.args)
++        self.assertTrue(f.m.MONITOR_DROPIN.is_symlink())
++        self.assertNotEqual('RECOVERED_STOPPED', json.loads((f.state_dir/'state.json').read_text())['phase'])
++
++    def test_absent_old_monitor_backup_dangling_symlink_refused(self):
++        f = self.f
++        f.apply()
++        (f.state_dir/'monitor-dropin-old').symlink_to(f.root/'missing-old')
++        with self.assertRaisesRegex(ValueError, 'absent core monitor'):
++            f.m.recover(f.args)
++
++    def test_writable_points_are_refused_even_when_config_reapproved(self):
++        f = self.f
++        p = f.config/'devices/device_modbusRTU_2_readonly.json'
++        doc = json.loads(p.read_text())
++        doc['meters'][0]['points'][0]['write']['enable'] = True
++        write(p, json.dumps(doc))
++        self.refresh_config()
++        with self.assertRaisesRegex(ValueError, 'writable points'):
++            f.apply()
++        self.assertFalse(f.state_dir.exists())
++
++    def test_rehashed_state_cannot_expand_configuration_patch(self):
++        f = self.f
++        state = f.apply()
++        p = f.config/'apps/mqtt-service.json'
++        doc = json.loads(p.read_text())
++        doc['mqtt']['username'] = 'unapproved change'
++        write(p, json.dumps(doc))
++        state['configSha256']['apps/mqtt-service.json'] = sha(p)
++        next(row for row in state['files'] if row['path']=='config/runtime/apps/mqtt-service.json')['newSha256'] = sha(p)
++        with self.assertRaisesRegex(ValueError, 'exceeds internal SHM remap'):
++            f.g.core_config(f.home, f.state_dir, f.approval, state)
++
++    def test_start_failure_refences_and_restores_without_source_mutation(self):
++        f = self.f
++        f.apply()
++        f.fail_start = f.g.A_MQTT_UNIT
++        with self.assertRaisesRegex(ValueError, 'start failure'):
++            f.activate(self.readers())
++        self.assertFalse(f.live)
++        f.m.recover(f.args)
++        for s in f.approval['segments']:
++            self.assertEqual(s['sha256'], sha(f.path('/dev/shm')/s['source']))
++        for name, raw in f.originals.items(): self.assertEqual(raw, (f.config/name).read_bytes())
++
++    def historical_predecessor(self):
++        f = self.f
++        core_approval = copy.deepcopy(f.approval)
++        core_manifest = (f.root/'manifest.json').read_bytes()
++        legacy = copy.deepcopy(core_approval)
++        del legacy['coreReadOnlyTest']
++        legacy.update(aReadonlyAcquisition=True, qtDisplayEnvSha256=sha(f.config/'qt-display.env'),
++                      aInboundDisableSourceSha256=sha(f.config/'apps/monitor-service.json'),
++                      scadaReadOnlyProject={'oldTarget':'releases/old','newTarget':'releases/new'})
++        legacy['activationStartupScripts'] = {k:v for k,v in legacy['activationStartupScripts'].items() if k in f.m.ACTIVATION_SCRIPTS}
++        manifest = json.loads(core_manifest)
++        qt = f.root/'payload/ky-ems/KY-EMS'
++        manifest['components'].append({'kind':'product','target':'LocalDisplayQtEms',
++                                       'archivePath':'ky-ems/KY-EMS','sha256':sha(qt),'bytes':qt.stat().st_size})
++        legacy['installPaths']['LocalDisplayQtEms'] = 'ky-ems/KY-EMS'
++        write(f.root/'manifest.json', json.dumps(manifest))
++        legacy['programManifestSha256'] = sha(f.root/'manifest.json')
++        real_constants = (f.g.MONITOR_BINARY, f.g.QT_BINARY, f.m.B_MONITOR_BINARY_SHA256, f.m.A_QT_BINARY_SHA256)
++        monitor = next(c['sha256'] for c in manifest['components'] if c['target']=='SystemMonitor')
++        # Only the legacy synthetic fixture substitutes its historical pins.
++        f.g.MONITOR_BINARY = f.m.B_MONITOR_BINARY_SHA256 = monitor
++        f.g.QT_BINARY = f.m.A_QT_BINARY_SHA256 = sha(qt)
++        f.g.A_SOURCE_CONFIGS = {name:sha(f.config/name) for name in f.documents}
++        f.approval = legacy
++        f.apply()
++        f.activate(f.g.A_ACQUISITION_READERS)
++        f.m.recover(f.args)
++        old_dir, old_sha = f.state_dir, f.args.approval_sha256
++        recovered = json.loads((old_dir/'state.json').read_text())
++        receipt = {'schemaVersion':'offline-shm11-recovered-1','phase':'RECOVERED_STOPPED',
++                   'controlEnabled':False,'transactionId':legacy['transactionId'],'nodeId':legacy['nodeId'],
++                   'gatewayHome':str(f.home),'approvalSha256':old_sha,'stateSha256':sha(old_dir/'state.json'),
++                   'retainedTargetsSha256':{s['target']:sha(f.path('/dev/shm')/s['target']) for s in legacy['segments']}}
++        receipt_path = f.root/'recovered-receipt.json'
++        write(receipt_path, json.dumps(receipt))
++        f.g.MONITOR_BINARY, f.g.QT_BINARY, f.m.B_MONITOR_BINARY_SHA256, f.m.A_QT_BINARY_SHA256 = real_constants
++        f.approval = core_approval
++        f.approval['transactionId'] = 'synthetic-core-successor'
++        for key in ('qtDisplayEnvSha256','aInboundDisableSourceSha256','scadaReadOnlyProject'):
++            f.approval[key] = legacy[key]
++        for i,s in enumerate(f.approval['segments']): s['target'] = 'core_successor_target_'+str(i)
++        f.approval['recoveredFrom'] = {'stateDir':str(old_dir),'stateSha256':sha(old_dir/'state.json'),
++                                      'approvalSha256':old_sha,'receiptPath':str(receipt_path),
++                                      'receiptSha256':sha(receipt_path)}
++        f.state_dir = f.root/'core-successor-state'
++        write(f.root/'manifest.json', core_manifest)
++        return old_dir, recovered
++
++    def test_historical_metadata_is_preserved_not_an_a_profile_patch(self):
++        f = self.f
++        self.historical_predecessor()
++        qt_env = (f.config/'qt-display.env').read_bytes()
++        monitor_before = json.loads((f.config/'apps/monitor-service.json').read_text())
++        f.apply()
++        f.activate(self.readers())
++        monitor_after = json.loads((f.config/'apps/monitor-service.json').read_text())
++        for key in ('mqtt','systemMonitor'):
++            self.assertEqual(monitor_before[key], monitor_after[key])
++        self.assertEqual(qt_env, (f.config/'qt-display.env').read_bytes())
++        self.assertNotIn(f.g.QT_UNIT, f.live)
++        self.assertEqual('releases/old', os.readlink(f.home/'scada/current'))
++        f.m.recover(f.args)
++        for name,raw in f.originals.items():self.assertEqual(raw, (f.config/name).read_bytes())
++
++    def test_historical_metadata_or_receipt_drift_still_blocks_successor(self):
++        f = self.f
++        self.historical_predecessor()
++        f.approval['qtDisplayEnvSha256'] = '0'*64
++        with self.assertRaisesRegex(ValueError, 'inherited metadata'):
++            f.apply()
++        f.approval['qtDisplayEnvSha256'] = f.approval['configSha256']['qt-display.env']
++        f.approval['recoveredFrom']['stateSha256'] = '0'*64
++        with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
++            f.apply()
++        self.assertFalse(f.state_dir.exists())
++
++    def test_open_source_fd_refused_even_without_mapping(self):
++        f = self.f
++        pid = f.path('/proc/900001')
++        write(pid/'maps', '')
++        (pid/'fd').mkdir()
++        (pid/'fd/5').symlink_to(f.path('/dev/shm')/f.approval['segments'][0]['source'])
++        with self.assertRaisesRegex(ValueError, 'SHM still open'):
++            f.apply()
++        self.assertFalse(f.state_dir.exists())
++
++    def test_source_identity_rechecked_between_apply_and_activation(self):
++        f = self.f
++        f.apply()
++        p = f.path('/dev/shm')/f.approval['segments'][0]['source']
++        twin = p.with_name('unapproved_identical_clone')
++        write(twin, p.read_bytes())
++        os.replace(twin, p)
++        with self.assertRaisesRegex(ValueError, 'source SHM identity'):
++            f.activate(self.readers())
++        self.assertFalse(f.live)
++
++    def test_late_excluded_participant_start_or_override_refused(self):
++        f = self.f
++        f.apply()
++        f.activate(self.readers())
++        f.live.add(f.g.QT_UNIT)
++        with self.assertRaisesRegex(ValueError, 'excluded participant is not stopped'):
++            f.g.activated_unit(f.home, f.g.A_RTU_UNIT)
++        f.live.remove(f.g.QT_UNIT)
++        f.overrides[f.g.QT_UNIT] = {'DropInPaths': 'unapproved-later-override.conf'}
++        with self.assertRaisesRegex(ValueError, 'fence coverage'):
++            f.g.activated_unit(f.home, f.g.A_RTU_UNIT)
++
++    def test_ordinary_ota_still_blocked_by_offline_fence(self):
++        f = self.f
++        f.apply()
++        f.activate(self.readers())
++        manifest = f.root/'script-ota-manifest.json'
++        write(manifest, json.dumps({'files': []}))
++        with self.assertRaisesRegex(ValueError, 'offline upgrade fence active'):
++            f.g.ota(manifest)
++
++
++if __name__ == '__main__':
++    unittest.main()

@@ -53,6 +53,168 @@ A_WINDOWS_RX = {
     'apps/mqtt-service.json': {'realtimeRequestTopic': 'edge/telemetry/realtime/request'},
     'apps/monitor-service.json': {'systemMonitorRequestTopic': 'edge/system/monitor/request',
                                   'configPullRequestTopic': 'edge/config/pull/request'}}
+CORE_PROFILE = 'CORE_READONLY_TEST'
+CORE_READERS = {'RTU_MQTT_MONITOR': [A_RTU_UNIT, A_MQTT_UNIT, MONITOR_UNIT],
+                'MONITOR_ONLY': [MONITOR_UNIT]}
+CORE_NODES = {'RTU_MQTT_MONITOR': 'COMM202600999', 'MONITOR_ONLY': 'COMM202600998'}
+CORE_PROGRAMS = frozenset(('ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver '
+                          'MqttForwarder EventEngine ComputeEngine EmsClusterCoordinator '
+                          'AgcAvcController EmsParityCheck SystemMonitor LocalDisplay '
+                          'QtDisplayBridge CameraService pointctl stress_runner memory_point_store_migrate').split())
+CORE_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh', 'ota-apply.sh',
+                'ota-rollback.sh', 'ota-health-result.py', 'production-smoke-test.sh')
+POINT_STORE_SIZES = {10: 15174272, 11: 15667032}
+
+
+def core_scope(home, approval, manifest=None):
+    profile = approval.get('coreReadOnlyTest')
+    if (not isinstance(profile, dict) or set(profile) != {
+            'schemaVersion', 'profile', 'sourceCommit', 'programManifestSha256', 'preservedRuntimeSha256'} or
+            profile['schemaVersion'] != 'core-readonly-test-1' or
+            not isinstance(profile['profile'], str) or profile['profile'] not in CORE_READERS or
+            approval.get('nodeId') != CORE_NODES[profile['profile']] or
+            home != Path('/opt/modbus-gateway') or approval.get('mode') != 'standalone' or
+            approval.get('controlEnabled') is not False or
+            any(k in approval for k in ('aReadonlyAcquisition', 'aReadonlyWindowsIntegration')) or
+            re.fullmatch('[0-9a-f]{40}', str(profile['sourceCommit'])) is None or
+            re.fullmatch('[0-9a-f]{64}', str(profile['programManifestSha256'])) is None or
+            profile['programManifestSha256'] != approval.get('programManifestSha256') or
+            not set(CORE_READERS[profile['profile']] + ['gateway-services.service', QT_UNIT,
+                    'qt-display-bridge.service']) <= set(approval.get('units', []))):
+        raise ValueError('core read-only requires exact independent approval and reader scope')
+    # Recovered A metadata is preservation-only, never a request for A rewrites/Qt activation.
+    for key, relative in (('qtDisplayEnvSha256', 'qt-display.env'),
+                          ('aInboundDisableSourceSha256', 'apps/monitor-service.json')):
+        if key in approval and ('recoveredFrom' not in approval or
+                approval[key] != approval.get('configSha256', {}).get(relative)):
+            raise ValueError('core inherited metadata must preserve the approved source')
+    if 'scadaReadOnlyProject' in approval:
+        if 'recoveredFrom' not in approval:
+            raise ValueError('core SCADA metadata is only a predecessor preservation proof')
+        scada_readonly_binding(home, approval, 'old')
+    preserved = profile['preservedRuntimeSha256']
+    if not isinstance(preserved, dict) or any(
+            path not in {'bin/' + name for name in RUNTIME_BINARIES | {'stress_runner'}} | {'ky-ems/KY-EMS'} or
+            re.fullmatch('[0-9a-f]{64}', str(pin)) is None or
+            approval.get('installedRuntimeSha256', {}).get(path) != pin or
+            path in approval.get('installPaths', {}).values() for path, pin in preserved.items()):
+        raise ValueError('core preserved runtime inventory must be exact and disjoint')
+    if manifest is not None:
+        components = manifest.get('components', [])
+        if (manifest.get('sourceCommit') != profile['sourceCommit'] or not isinstance(components, list) or
+                len(components) != len(CORE_PROGRAMS) or
+                {c.get('target') for c in components if isinstance(c, dict)} != CORE_PROGRAMS or
+                any(not isinstance(c, dict) or c.get('kind') != 'product' or
+                    c.get('archivePath') != 'bin/' + c.get('target', '') or
+                    approval.get('installPaths', {}).get(c['target']) != 'bin/' + c['target'] or
+                    re.fullmatch('[0-9a-f]{64}', str(c.get('sha256'))) is None or
+                    type(c.get('bytes')) is not int or c['bytes'] < 64 for c in components)):
+            raise ValueError('core requires complete exact approved AArch64 program manifest')
+    return list(CORE_READERS[profile['profile']])
+
+
+def point_store_abi(path, version):
+    with exact_file(path).open('rb') as stream:
+        header = stream.read(8)
+    if path.stat().st_size != POINT_STORE_SIZES[version] or header != struct.pack('<II', 0x4d505354, version):
+        raise ValueError('point-store native layout/version/size mismatch: ' + path.name)
+
+
+def core_documents_safe(home, approval, documents):
+    readers = core_scope(home, approval)
+    def safe(value):
+        if isinstance(value, dict):
+            for key in ('emsCluster', 'agcAvc'):
+                if key in value and (not isinstance(value[key], dict) or
+                        value[key].get('enabled') is not False or
+                        value[key].get('controlEnabled', False) is not False):
+                    raise ValueError('core read-only forbids control authority')
+            if value.get('startupWrites') not in (None, []):
+                raise ValueError('core read-only forbids startup writes')
+            if 'write' in value and (not isinstance(value['write'], dict) or
+                    value['write'].get('enable', False) is not False):
+                raise ValueError('core read-only forbids writable points')
+            if 'northboundServer' in value and (not isinstance(value['northboundServer'], dict) or
+                    value['northboundServer'].get('enabled') is not False):
+                raise ValueError('core read-only forbids northbound writes')
+            for item in value.values(): safe(item)
+        elif isinstance(value, list):
+            for item in value: safe(item)
+    for doc in documents.values(): safe(doc)
+    monitor = documents.get('apps/monitor-service.json', {})
+    if monitor.get('systemMonitor', {}).get('enabled') is not True:
+        raise ValueError('core monitor must be explicitly enabled')
+    if readers == [MONITOR_UNIT]:
+        if (any(name.startswith('devices/') for name in documents) or
+                any(doc.get('deviceConfigFiles') not in (None, []) or
+                    doc.get('mqtt', {}).get('enabled') is not False
+                    for name, doc in documents.items() if name.startswith('apps/'))):
+            raise ValueError('monitor-only requires empty device inventory and disabled MQTT')
+    else:
+        device = 'devices/device_modbusRTU_2_readonly.json'
+        mqtt = documents.get('apps/mqtt-service.json', {})
+        if (device not in documents or mqtt.get('mqtt', {}).get('enabled') is not True or
+                any(doc.get('deviceConfigFiles') != [str(home / 'config/runtime' / device)]
+                    for doc in (monitor, mqtt))):
+            raise ValueError('core RTU/MQTT requires the exact read-only device binding')
+
+
+def core_config(home, state_dir, approval, state):
+    core_scope(home, approval)
+    names = {s['source']: s['target'] for s in state['segments']}
+    if names != {s['source']: s['target'] for s in approval['segments']}:
+        raise ValueError('core SHM lineage changed')
+    root = home / 'config/runtime'
+    actual = {str(p.relative_to(root)): sha(exact_file(p)) for p in root.rglob('*') if p.is_file()}
+    if set(actual) != set(approval['configSha256']) or actual != state['configSha256']:
+        raise ValueError('core configuration inventory changed')
+    for relative, pin in approval['configSha256'].items():
+        rows = [(i, row) for i, row in enumerate(state['files']) if row['path'] == 'config/runtime/' + relative]
+        if len(rows) > 1 or rows and rows[0][1]['oldSha256'] != pin:
+            raise ValueError('core config backup binding changed')
+        current = exact_file(root / relative)
+        original = exact_file(state_dir / 'files' / str(rows[0][0])) if rows else current
+        if sha(original) != pin:
+            raise ValueError('core original config backup changed')
+        if current.suffix == '.json':
+            before = json.loads(original.read_text())
+            expected = switch_names(before, names)
+            if relative == 'device_identity.json' and expected != before:
+                raise ValueError('core cannot remap device identity')
+            if json.loads(current.read_text()) != expected:
+                raise ValueError('core configuration exceeds internal SHM remap')
+        elif current.read_bytes() != original.read_bytes():
+            raise ValueError('core cannot change non-JSON configuration')
+    manifest_path = exact_file(state_dir / 'program-manifest.json')
+    if sha(manifest_path) != approval['programManifestSha256']:
+        raise ValueError('core manifest approval changed')
+    manifest = json.loads(manifest_path.read_text())
+    core_scope(home, approval, manifest)
+    expected_runtime = dict(approval['coreReadOnlyTest']['preservedRuntimeSha256'])
+    expected_runtime.update({'bin/' + c['target']: c['sha256'] for c in manifest['components']})
+    installed = {str(p.relative_to(home)): sha(exact_file(p)) for d in ('bin', 'ky-ems')
+                 for p in (home / d).rglob('*') if p.is_file() and runtime_file(p, p)}
+    if installed != expected_runtime:
+        raise ValueError('core complete installed runtime inventory changed')
+    for name, pin in approval['activationStartupScripts'].items():
+        if sha(exact_file(home / 'bin' / name)) != pin['newSha256']:
+            raise ValueError('core paired runtime script changed')
+    core_documents_safe(home, approval, {str(p.relative_to(root)): json.loads(p.read_text()) for p in root.rglob('*.json')})
+
+
+def core_denied_units(approval, allowed, inhibited=None):
+    for unit in set(approval['units']) - set(allowed):
+        if not unit.endswith('@.service') and (systemctl_value(unit, 'ActiveState') not in ('inactive', 'failed') or
+                systemctl_value(unit, 'MainPID') != '0'):
+            raise ValueError('core excluded participant is not stopped: ' + unit)
+        if inhibited is not None:
+            home = Path(approval['gatewayHome'])
+            path, body = denied_dropin(home, approval['transactionId'], unit)
+            if inhibited:
+                body = ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
+            if (exact_file(path).read_bytes() != body or
+                    set(systemctl_value(unit, 'DropInPaths').split()) != {str(path)}):
+                raise ValueError('core excluded participant fence coverage changed: ' + unit)
 
 
 def a_acquisition_profile(approval):
@@ -288,12 +450,15 @@ def active_context(home):
         a_acquisition_scope(home, approval)
         if not acquisition or state['activationProfile'] != a_acquisition_profile(approval):
             raise ValueError('A acquisition cannot fall back to an observer-only profile')
-    readers = (A_ACQUISITION_READERS if acquisition else
+    core = state.get('activationProfile') == CORE_PROFILE
+    if core != ('coreReadOnlyTest' in approval):
+        raise ValueError('core cannot fall back to a historical profile')
+    readers = (core_scope(home, approval) if core else A_ACQUISITION_READERS if acquisition else
                [MONITOR_UNIT] if state.get('activationProfile') == 'B_MONITOR' else [MONITOR_UNIT, QT_UNIT])
-    watchdog = ('gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
+    watchdog = (not core and 'gateway-health-watchdog.service' in approval['units'] and readers == [MONITOR_UNIT])
     allowed = ['gateway-services.service'] + (['gateway-health-watchdog.service'] if watchdog else []) + readers
     if (state.get('phase') != 'ACTIVATED_CONTROL_DISABLED' or
-            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE) or
+            state.get('activationProfile') not in ('B_MONITOR', 'A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE, CORE_PROFILE) or
             state.get('activationReadySha256') != active['readySha256'] or
             state.get('activatedUnits') != allowed or active.get('allowedUnits') != allowed or
             ready.get('schemaVersion') != 'offline-shm11-activate-1' or
@@ -350,7 +515,7 @@ def a_acquisition_unit_properties(unit):
     return values
 
 
-def a_acquisition_units(home, approval, monitor_target, inhibited):
+def a_acquisition_units(home, approval, monitor_target, inhibited, core=False):
     """Fixed-file proof for this one profile, never a generic systemd parser."""
     root = Path('/etc/systemd/system')
     fence_name = '90-offline-' + approval['transactionId'] + '.conf'
@@ -365,6 +530,9 @@ def a_acquisition_units(home, approval, monitor_target, inhibited):
         (QT_UNIT, QT_UNIT, QT_UNIT_SHA, '/bin/sh', ' ' + str(home / 'bin/gateway-qt-run.sh'), 'system.slice'),
         ('gateway-services.service', 'gateway-services.service', LAUNCHER_UNIT_SHA,
          str(home / 'bin/gateway-services.sh'), ' apply', 'system.slice'))
+    if core:
+        readers = core_scope(home, approval)
+        specs = tuple(s for s in specs if s[0] in readers + ['gateway-services.service'])
     derived = {}
     for unit, template, pin, executable, arguments, slice_unit in specs:
         fragment = root / template
@@ -448,7 +616,7 @@ def a_acquisition_units(home, approval, monitor_target, inhibited):
     return {'source': 'STATIC_PINNED_FILES', 'derivedEmptyFields': {u: sorted(v) for u, v in derived.items()}}
 
 
-def no_old_mappings(names):
+def no_old_mappings(names, include_fds=False):
     identities = set()
     for name in names:
         path = Path('/dev/shm') / name
@@ -467,6 +635,14 @@ def no_old_mappings(names):
                 if ((int(dev[0], 16), int(dev[1], 16), int(fields[4])) in identities or
                         any(mapped in ('/dev/shm/' + name, '/dev/shm/' + name + ' (deleted)') for name in names)):
                     raise ValueError('old SHM still mapped: ' + entry.name)
+            if include_fds:
+                for fd in (entry / 'fd').iterdir():
+                    try:
+                        value = fd.stat()
+                        if (os.major(value.st_dev), os.minor(value.st_dev), value.st_ino) in identities:
+                            raise ValueError('old SHM still open: ' + entry.name)
+                    except (FileNotFoundError, ProcessLookupError):
+                        continue
         except (FileNotFoundError, ProcessLookupError):
             continue
 
@@ -492,7 +668,8 @@ def activated_unit(home, unit):
                    MONITOR_UNIT: MONITOR_TEMPLATE,
                    QT_UNIT: QT_UNIT_SHA,
                    'gateway-health-watchdog.service': WATCHDOG_UNIT_SHA}
-    if state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
+    core = state['activationProfile'] == CORE_PROFILE
+    if core or state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         fixed_units.update({A_RTU_UNIT: A_RTU_TEMPLATE, A_MQTT_UNIT: A_MQTT_TEMPLATE})
     for selected in allowed:
         fragment = (selected.split('@')[0] + '@.service' if selected in (MONITOR_UNIT, A_RTU_UNIT, A_MQTT_UNIT)
@@ -539,10 +716,13 @@ def activated_unit(home, unit):
             with exact_file(target).open('rb') as stream:
                 if stream.read(8) != struct.pack('<II', 0x4d505354, 11):
                     raise ValueError('activated target SHM ABI mismatch')
+            if core:
+                point_store_abi(target, 11)
         elif not boot_changed:
             raise ValueError('target SHM disappeared in same boot')
-    no_old_mappings(sources)
-    if sha(home / 'bin/SystemMonitor') != MONITOR_BINARY or sha(Path('/etc/systemd/system/system-monitor@.service')) != MONITOR_TEMPLATE:
+    no_old_mappings(sources, include_fds=core)
+    if (not core and sha(home / 'bin/SystemMonitor') != MONITOR_BINARY or
+            sha(Path('/etc/systemd/system/system-monitor@.service')) != MONITOR_TEMPLATE):
         raise ValueError('activated monitor binary/template changed')
     if state['activationProfile'] in ('A_MONITOR_QT', A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         if (sha(home / 'ky-ems/KY-EMS') != QT_BINARY or
@@ -585,6 +765,10 @@ def activated_unit(home, unit):
     if state['activationProfile'] in (A_ACQUISITION_PROFILE, A_WINDOWS_PROFILE):
         a_acquisition_config(home, Path(active['stateDir']), approval, state)
         a_acquisition_units(home, approval, monitor_target, inhibited=False)
+    if core:
+        core_config(home, Path(active['stateDir']), approval, state)
+        core_denied_units(approval, allowed, inhibited=False)
+        a_acquisition_units(home, approval, monitor_target, inhibited=False, core=True)
     return readers
 
 

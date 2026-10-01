@@ -1,0 +1,48 @@
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-gv1p5heh/backup'), PosixPath('/var/tmp/gateway-install-test-gv1p5heh/staging')] exit=2
+[2026-10-01 13:53:47] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz
+runtime upgrade refused: runtimeCompatibility requires exactly pointStoreAbi, clusterProtocol, upgradeMode
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-gv1p5heh/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-gv1p5heh/backup'), PosixPath('/var/tmp/gateway-install-test-gv1p5heh/staging')] exit=2
+[2026-10-01 13:53:48] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.pointStoreAbi
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-gv1p5heh/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-gv1p5heh/backup'), PosixPath('/var/tmp/gateway-install-test-gv1p5heh/staging')] exit=2
+[2026-10-01 13:53:48] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.clusterProtocol
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-gv1p5heh/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-gv1p5heh/backup'), PosixPath('/var/tmp/gateway-install-test-gv1p5heh/staging')] exit=2
+[2026-10-01 13:53:48] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.pointStoreAbi
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-gv1p5heh/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-gv1p5heh/backup'), PosixPath('/var/tmp/gateway-install-test-gv1p5heh/staging')] exit=2
+[2026-10-01 13:53:48] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz
+runtime upgrade refused: unsupported or mistyped runtimeCompatibility.upgradeMode
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-gv1p5heh/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+
+script=ota-apply.sh args=[PosixPath('/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz'), 'fixture', 'fixture-job', PosixPath('/var/tmp/gateway-install-test-gv1p5heh/backup'), PosixPath('/var/tmp/gateway-install-test-gv1p5heh/staging')] exit=2
+[2026-10-01 13:53:48] [ota-apply] start jobId=fixture-job version=fixture artifact=/var/tmp/gateway-install-test-gv1p5heh/fixture.tar.gz
+runtime upgrade refused: runtimeCompatibility requires exactly pointStoreAbi, clusterProtocol, upgradeMode
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/gateway-install-test-gv1p5heh/staging/ota_job_fixture-job.json'
+[ota-apply] unchanged result not proven; job remains unresolved
+
