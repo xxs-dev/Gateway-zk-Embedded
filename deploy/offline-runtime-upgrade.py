@@ -44,6 +44,17 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def mem_available_bytes():
+    try:
+        lines = Path('/proc/meminfo').read_text(encoding='ascii').splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ValueError('cannot read MemAvailable: ' + str(error)) from error
+    entries = [line for line in lines if line.startswith('MemAvailable:')]
+    require(len(entries) == 1 and re.fullmatch(r'MemAvailable:\s+[0-9]+\s+kB\s*', entries[0]),
+            'invalid or missing MemAvailable (expected one nonnegative kB value)')
+    return int(entries[0].split()[1]) * 1024
+
+
 def migration_capacity_preflight(segments, checkpoint):
     # MemAvailable/statvfs already account for all existing sources and retained
     # targets. Charge only new v11 pages; report (do not recharge) retained v10.
@@ -59,14 +70,7 @@ def migration_capacity_preflight(segments, checkpoint):
     # 64 MiB policy headroom for Python/staging, one serial backup's page cache
     # and kernel/service transients. This is a gate, not a memory reservation.
     reserve = 64 * 1024 * 1024
-    try:
-        lines = Path('/proc/meminfo').read_text(encoding='ascii').splitlines()
-    except (OSError, UnicodeError) as error:
-        raise ValueError('cannot read MemAvailable: ' + str(error)) from error
-    entries = [line for line in lines if line.startswith('MemAvailable:')]
-    require(len(entries) == 1 and re.fullmatch(r'MemAvailable:\s+[0-9]+\s+kB\s*', entries[0]),
-            'invalid or missing MemAvailable (expected one nonnegative kB value)')
-    available = int(entries[0].split()[1]) * 1024
+    available = mem_available_bytes()
     try:
         shm = os.statvfs(Path('/dev/shm'))
     except OSError as error:
@@ -83,6 +87,32 @@ def migration_capacity_preflight(segments, checkpoint):
     print('CAPACITY_PRECHECK: ' + json.dumps(report, sort_keys=True), flush=True)
     require(available >= report['memRequiredBytes'], 'insufficient MemAvailable for SHM11 migration')
     require(shm_available >= added, 'insufficient /dev/shm space for new SHM11 targets')
+
+
+def activation_capacity_preflight(units, checkpoint):
+    # Admission-policy floors, NOT measured RSS maxima or cgroup reservations.
+    # The 20261001 short 999 sample was RTU/MQTT/Monitor ~17/32/40 MiB RSS:
+    # 128 MiB each leaves private startup/queue headroom, not load qualification.
+    # Qt gets a larger UI floor; its pinned Requires= bridge is budgeted too.
+    # Launcher/watchdog are shell helpers. No new SHM pages or CLI heaps here:
+    # existing v10/v11 allocations already reduce current MemAvailable.
+    mib = {MONITOR_UNIT: 128, guard.A_RTU_UNIT: 128, guard.A_MQTT_UNIT: 128,
+           A_QT_UNIT: 256, 'gateway-services.service': 32, 'gateway-health-watchdog.service': 32}
+    require(isinstance(units, list) and units and len(set(units)) == len(units) and
+            all(unit in mib for unit in units), 'activation memory policy requires known unique units')
+    service_bytes = {unit: mib[unit] * 1024 * 1024 for unit in units}
+    if A_QT_UNIT in units:
+        service_bytes['qt-display-bridge.service'] = 64 * 1024 * 1024
+    # Independent 64 MiB policy slack for Python, systemd and OS transients.
+    # Large point sets/UI projects still require separate peak/load evidence.
+    reserve = 64 * 1024 * 1024
+    required = sum(service_bytes.values()) + reserve
+    available = mem_available_bytes()
+    print('ACTIVATION_CAPACITY_PRECHECK: ' + json.dumps({
+        'checkpoint': checkpoint, 'startUnits': units, 'serviceReserveBytes': service_bytes,
+        'systemReserveBytes': reserve, 'memRequiredBytes': required, 'memAvailableBytes': available},
+        sort_keys=True), flush=True)
+    require(available >= required, 'insufficient MemAvailable for activation')
 
 
 def regular(path):
@@ -1732,6 +1762,7 @@ def activate(args):
     else:
         raise ValueError('only pinned B monitor or A joint monitor/Qt activation supported')
     allowed = activation_units(approval, readers)
+    activation_capacity_preflight(allowed, 'initial')
     for unit in approval['units']:
         path, body = inhibition_dropin(home, approval['transactionId'], unit)
         require(regular(path).read_bytes() == body, 'activation inhibition changed: ' + unit)
@@ -1740,6 +1771,8 @@ def activate(args):
         info = regular(Path('/dev/shm') / segment['source']).stat()
         source_meta[segment['source']] = {'dev': info.st_dev, 'ino': info.st_ino, 'size': info.st_size,
                                           'mtimeNs': info.st_mtime_ns, 'ctimeNs': info.st_ctime_ns}
+    # Still under main's flock; refuse drift before ready/state/fences/start.
+    activation_capacity_preflight(allowed, 'before-ready')
     write_new(args.state / 'activation-ready.json', regular(args.ready).read_bytes())
     state.update(phase='ACTIVATING', activationProfile=profile, activationMonitorSource=monitor_source,
                  activationReadySha256=args.ready_sha256, activatedUnits=allowed,
