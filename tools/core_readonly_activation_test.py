@@ -94,6 +94,187 @@ class CoreReadOnlyTest(unittest.TestCase):
         f = self.f
         return [f.g.A_RTU_UNIT, f.g.A_MQTT_UNIT, f.g.MONITOR_UNIT]
 
+    def without_qt(self):
+        f = self.f
+        f.approval['nodeId'] = 'COMM202600998'
+        f.approval['offlineLocal']['nodeId'] = f.approval['nodeId']
+        f.approval['coreReadOnlyTest']['profile'] = 'MONITOR_ONLY'
+        f.approval['coreReadOnlyTest']['preservedRuntimeSha256'] = {}
+        f.approval['units'] = ['camera-service@.service', 'compute-engine@.service', 'dio-driver@.service',
+            'dlt645-driver@.service', 'event-engine@.service', 'gateway-services.service',
+            'local-display-qt@.service', 'local-display@.service', 'local-kiosk@.service',
+            'modbus-rtu@.service', 'mqtt-driver@.service', 'mqtt-tls-tunnel@.service',
+            'system-monitor@.service', f.g.MONITOR_UNIT]
+        for unit in (f.g.QT_UNIT, 'qt-display-bridge.service'):
+            f.path('/etc/systemd/system', unit).unlink()
+        (f.home/'ky-ems/KY-EMS').unlink()
+        f.approval['installedRuntimeSha256'].pop('ky-ems/KY-EMS')
+        (f.config/'qt-display.env').unlink()
+        write(f.config/'device_identity.json', json.dumps({'machineCode': f.approval['nodeId']}))
+        for p in (f.config/'devices').glob('*.json'): p.unlink()
+        for p in (f.config/'apps').glob('*.json'):
+            doc = json.loads(p.read_text())
+            doc['deviceConfigFiles'] = []
+            doc['mqtt']['enabled'] = False
+            if 'localDisplay' in doc: doc['localDisplay']['enabled'] = False
+            write(p, json.dumps(doc))
+        f.approval['segments'] = [s for s in f.approval['segments'] if 'readonly_rtu' not in s['source']]
+        self.refresh_config()
+        original = f.g.systemctl_value
+        def value(unit, prop):
+            if unit in (f.g.QT_UNIT, 'qt-display-bridge.service'):
+                properties = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'MainPID': '0',
+                              'FragmentPath': '', 'DropInPaths': '', 'NeedDaemonReload': 'no'}
+                properties.update(f.overrides.get(unit, {}))
+                return properties[prop]
+            return original(unit, prop)
+        f.patch(f.g, 'systemctl_value', value)
+
+    def test_monitor_only_absent_qt_preserves_original_unit_scope(self):
+        self.without_qt()
+        f = self.f
+        original_units = list(f.approval['units'])
+        self.assertEqual([f.g.MONITOR_UNIT], f.g.core_scope(f.home, f.approval))
+        f.apply()
+        f.activate([f.g.MONITOR_UNIT])
+        self.assertEqual({'gateway-services.service', f.g.MONITOR_UNIT}, f.live)
+        f.m.recover(f.args)
+        self.assertFalse(f.live)
+        self.assertEqual(original_units, f.approval['units'])
+
+    def test_monitor_only_omitted_qt_runtime_or_env_refused(self):
+        self.without_qt()
+        f = self.f
+        for relative in ('bin/KY-EMS', 'bin/LocalDisplayQtEms', 'ky-ems/KY-EMS', 'config/runtime/qt-display.env'):
+            with self.subTest(path=relative):
+                p = f.home/relative
+                write(p, 'unapproved Qt installation')
+                try:
+                    with self.assertRaisesRegex(ValueError, 'omitted Qt installation exists'):
+                        f.g.core_scope(f.home, f.approval)
+                finally: p.unlink()
+
+    def test_monitor_only_omitted_qt_unit_file_or_dangling_alias_refused(self):
+        self.without_qt()
+        f = self.f
+        for unit in (f.g.QT_UNIT, 'qt-display-bridge.service'):
+            for root in ('/etc/systemd/system', '/run/systemd/transient', '/usr/lib/systemd/system'):
+                for kind in ('regular', 'dangling'):
+                    with self.subTest(unit=unit, root=root, kind=kind):
+                        p = f.path(root)/unit
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        if kind == 'regular': write(p, '[Service]\nExecStart=/unapproved\n')
+                        else: p.symlink_to(f.root/'missing-Qt-unit')
+                        try:
+                            with self.assertRaisesRegex(ValueError, 'omitted Qt unit file exists'):
+                                f.g.core_scope(f.home, f.approval)
+                        finally: p.unlink()
+
+    def test_monitor_only_omitted_qt_dropin_or_dangling_coverage_refused(self):
+        self.without_qt()
+        f = self.f
+        for dirname in ('/etc/systemd/system/ky-ems.service.d', '/run/systemd/system/qt-display-bridge.service.d',
+                        '/etc/systemd/system/service.d', '/usr/lib/systemd/system/ky-.service.d',
+                        '/run/systemd/generator.early/qt-display-.service.d'):
+            for kind in ('extra', 'dangling-directory', 'dangling-file'):
+                with self.subTest(directory=dirname, kind=kind):
+                    directory = f.path(dirname)
+                    directory.parent.mkdir(parents=True, exist_ok=True)
+                    if kind == 'dangling-directory': directory.symlink_to(f.root/'missing-Qt-dropins')
+                    else:
+                        directory.mkdir(exist_ok=True)
+                        extra = directory/'99-unapproved.conf'
+                        if kind == 'extra': write(extra, '[Service]\nExecStartPre=/unapproved\n')
+                        else: extra.symlink_to(f.root/'missing-Qt-override')
+                    try:
+                        with self.assertRaisesRegex(ValueError, 'omitted Qt unit coverage exists'):
+                            f.g.core_scope(f.home, f.approval)
+                    finally:
+                        if kind == 'dangling-directory': directory.unlink()
+                        else:
+                            extra.unlink()
+                            directory.rmdir()
+
+    def test_monitor_only_omitted_qt_effective_presence_or_query_error_refused(self):
+        self.without_qt()
+        f = self.f
+        for unit in (f.g.QT_UNIT, 'qt-display-bridge.service'):
+            for prop, value in (('LoadState', 'loaded'), ('LoadState', 'masked'), ('ActiveState', 'active'),
+                                ('MainPID', '91'), ('FragmentPath', '/unapproved'),
+                                ('DropInPaths', '/unapproved.conf'), ('NeedDaemonReload', 'yes')):
+                with self.subTest(unit=unit, prop=prop):
+                    f.overrides[unit] = {prop: value}
+                    with self.assertRaisesRegex(ValueError, 'omitted Qt unit is not absent'):
+                        f.g.core_scope(f.home, f.approval)
+                    f.overrides.clear()
+        with mock.patch.object(f.g, 'systemctl_value', side_effect=ValueError('systemctl query failed')):
+            with self.assertRaisesRegex(ValueError, 'query failed'):
+                f.g.core_scope(f.home, f.approval)
+
+    def test_monitor_only_omitted_qt_local_display_and_partial_scope_refused(self):
+        self.without_qt()
+        f = self.f
+        documents = f.m.configured(f.config)
+        documents['apps/monitor-service.json']['localDisplay']['enabled'] = True
+        with self.assertRaisesRegex(ValueError, 'requires disabled local display'):
+            f.g.core_documents_safe(f.home, f.approval, documents)
+        f.approval['units'].append(f.g.QT_UNIT)
+        with self.assertRaisesRegex(ValueError, 'independent approval and reader scope'):
+            f.g.core_scope(f.home, f.approval)
+
+    def test_monitor_only_omitted_qt_late_appearance_blocks_guard_without_scope_change(self):
+        self.without_qt()
+        f = self.f
+        original_units = list(f.approval['units'])
+        f.apply()
+        f.activate([f.g.MONITOR_UNIT])
+        write(f.path('/run/systemd/system/qt-display-bridge.service'), '[Service]\nExecStart=/unapproved\n')
+        with self.assertRaisesRegex(ValueError, 'omitted Qt unit file exists'):
+            f.g.activated_unit(f.home, f.g.MONITOR_UNIT)
+        self.assertEqual(original_units, f.approval['units'])
+
+    def test_999_still_requires_both_qt_and_bridge_participants(self):
+        f = self.f
+        for omitted in ((f.g.QT_UNIT,), ('qt-display-bridge.service',), (f.g.QT_UNIT, 'qt-display-bridge.service')):
+            with self.subTest(omitted=omitted):
+                approval = copy.deepcopy(f.approval)
+                approval['units'] = [u for u in approval['units'] if u not in omitted]
+                with self.assertRaisesRegex(ValueError, 'independent approval and reader scope'):
+                    f.g.core_scope(f.home, approval)
+
+    def test_monitor_only_missing_reader_or_launcher_refused(self):
+        self.without_qt()
+        f = self.f
+        for omitted in (f.g.MONITOR_UNIT, 'gateway-services.service'):
+            with self.subTest(omitted=omitted):
+                approval = copy.deepcopy(f.approval)
+                approval['units'].remove(omitted)
+                with self.assertRaisesRegex(ValueError, 'independent approval and reader scope'):
+                    f.g.core_scope(f.home, approval)
+
+    def test_existing_explicit_monitor_binding_remains_separate_preapply_blocker(self):
+        self.without_qt()
+        f = self.f
+        implicit = f.m.MONITOR_IMPLICIT_SHM
+        explicit = 'gateway_point_store_COMM202600998_monitor'
+        source = f.path('/dev/shm')/implicit
+        source.rename(f.path('/dev/shm')/explicit)
+        for segment in f.approval['segments']:
+            if segment['source'] == implicit: segment['source'] = explicit
+        for p in (f.config/'apps').glob('*.json'):
+            doc = f.m.switch_names(json.loads(p.read_text()), {implicit: explicit})
+            if p.name == 'monitor-service.json': doc['systemMonitor']['sharedMemoryName'] = explicit
+            write(p, json.dumps(doc))
+        write(f.m.MONITOR_DROPIN, f.m.MONITOR_ENV + explicit.encode() + b'\n')
+        f.m.MONITOR_DROPIN.chmod(0o644)
+        f.approval['systemMonitorShmDropinSha256'] = sha(f.m.MONITOR_DROPIN)
+        self.refresh_config()
+        self.assertEqual([f.g.MONITOR_UNIT], f.g.core_scope(f.home, f.approval))
+        with self.assertRaisesRegex(ValueError, 'core must cover implicit monitor SHM'):
+            f.apply()
+        self.assertFalse(f.state_dir.exists())
+        self.assertFalse((f.home/'data/runtime-upgrade-stop').exists())
+
     def test_current_manifest_three_readers_apply_activate_recover(self):
         f = self.f
         old_qt = (f.home/'ky-ems/KY-EMS').read_bytes()

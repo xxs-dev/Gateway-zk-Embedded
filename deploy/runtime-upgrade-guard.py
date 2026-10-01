@@ -66,6 +66,35 @@ CORE_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh', 'ota-apply.sh
 POINT_STORE_SIZES = {10: 15174272, 11: 15667032}
 
 
+def core_absent_qt(home):
+    for relative in ('bin/KY-EMS', 'bin/LocalDisplayQtEms', 'ky-ems/KY-EMS', 'config/runtime/qt-display.env'):
+        path = home / relative
+        if path.exists() or path.is_symlink():
+            raise ValueError('core monitor-only omitted Qt installation exists: ' + relative)
+    for unit in (QT_UNIT, 'qt-display-bridge.service'):
+        expected = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'MainPID': '0',
+                    'FragmentPath': '', 'DropInPaths': '', 'NeedDaemonReload': 'no'}
+        if any(systemctl_value(unit, prop) != value for prop, value in expected.items()):
+            raise ValueError('core monitor-only omitted Qt unit is not absent: ' + unit)
+        directory_names = {unit + '.d', 'service.d'}
+        prefix = unit[:-len('.service')]
+        for i, character in enumerate(prefix):
+            if character == '-':
+                directory_names.add(prefix[:i + 1] + '.service.d')
+        for base in ('/etc/systemd/system', '/run/systemd/system', '/usr/local/lib/systemd/system',
+                     '/usr/lib/systemd/system', '/lib/systemd/system', '/etc/systemd/system.control',
+                     '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator',
+                     '/run/systemd/generator.early', '/run/systemd/generator.late'):
+            path = Path(base) / unit
+            if path.exists() or path.is_symlink():
+                raise ValueError('core monitor-only omitted Qt unit file exists: ' + unit)
+            for dirname in directory_names:
+                directory = Path(base) / dirname
+                if directory.is_symlink() or (directory.exists() and (
+                        not directory.is_dir() or any(directory.iterdir()))):
+                    raise ValueError('core monitor-only omitted Qt unit coverage exists: ' + unit)
+
+
 def core_scope(home, approval, manifest=None):
     profile = approval.get('coreReadOnlyTest')
     if (not isinstance(profile, dict) or set(profile) != {
@@ -78,10 +107,15 @@ def core_scope(home, approval, manifest=None):
             any(k in approval for k in ('aReadonlyAcquisition', 'aReadonlyWindowsIntegration')) or
             re.fullmatch('[0-9a-f]{40}', str(profile['sourceCommit'])) is None or
             re.fullmatch('[0-9a-f]{64}', str(profile['programManifestSha256'])) is None or
-            profile['programManifestSha256'] != approval.get('programManifestSha256') or
-            not set(CORE_READERS[profile['profile']] + ['gateway-services.service', QT_UNIT,
-                    'qt-display-bridge.service']) <= set(approval.get('units', []))):
+            profile['programManifestSha256'] != approval.get('programManifestSha256')):
         raise ValueError('core read-only requires exact independent approval and reader scope')
+    missing = set(CORE_READERS[profile['profile']] + ['gateway-services.service', QT_UNIT,
+                  'qt-display-bridge.service']) - set(approval.get('units', []))
+    if missing:
+        # Only the no-Qt Monitor-only device may preserve its smaller predecessor scope.
+        if profile['profile'] != 'MONITOR_ONLY' or missing != {QT_UNIT, 'qt-display-bridge.service'}:
+            raise ValueError('core read-only requires exact independent approval and reader scope')
+        core_absent_qt(home)
     # Recovered A metadata is preservation-only, never a request for A rewrites/Qt activation.
     for key, relative in (('qtDisplayEnvSha256', 'qt-display.env'),
                           ('aInboundDisableSourceSha256', 'apps/monitor-service.json')):
@@ -150,6 +184,8 @@ def core_documents_safe(home, approval, documents):
                     doc.get('mqtt', {}).get('enabled') is not False
                     for name, doc in documents.items() if name.startswith('apps/'))):
             raise ValueError('monitor-only requires empty device inventory and disabled MQTT')
+        if QT_UNIT not in approval['units'] and monitor.get('localDisplay', {}).get('enabled', False) is not False:
+            raise ValueError('core monitor-only omitted Qt requires disabled local display')
     else:
         device = 'devices/device_modbusRTU_2_readonly.json'
         mqtt = documents.get('apps/mqtt-service.json', {})
