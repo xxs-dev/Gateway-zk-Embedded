@@ -1,14 +1,17 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/diagnostic_process.hpp"
 #include "edge_gateway/iec103_recording_transfer_service.hpp"
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -85,6 +88,7 @@ public:
     void runOnce(std::int64_t nowMs);
 
 private:
+    friend struct SystemMonitorDiagnosticTestAccess;
     struct Sample {
         struct CellularStatus {
             bool enabled = false;
@@ -148,10 +152,24 @@ private:
         std::int64_t lastUpdateMs = 0;
     };
 
+    struct DiagnosticRequest {
+        std::string cmdId;
+        std::string command;
+        std::string arg;
+        std::string operatorName;
+        std::int64_t requestTs = 0;
+        std::string reply;
+        std::chrono::steady_clock::time_point expiresAt{};
+    };
+
     void loop();
     void processIncomingMessages(std::int64_t nowMs);
     void handleMonitorRequest(const std::string& payload, std::int64_t nowMs);
     void handleDiagRequest(const std::string& payload, std::int64_t nowMs);
+    void pollDiagnostics(std::int64_t nowMs);
+    void completeDiagnostic(std::int64_t nowMs);
+    std::string diagnosticReply(const DiagnosticRequest& request, const DiagnosticProcessResult& result,
+                                const std::string& reason, std::int64_t nowMs) const;
     void handleConfigPullRequest(const std::string& payload, std::int64_t nowMs);
     void handleConfigApplyRequest(const std::string& payload, std::int64_t nowMs);
     void handleConfigFileOperationRequest(const std::string& payload, std::int64_t nowMs, const std::string& operation);
@@ -177,7 +195,7 @@ private:
     std::vector<std::string> activeMeterCodes(std::int64_t nowMs) const;
     int effectiveIntervalMs(std::int64_t nowMs) const;
     bool isCommandAllowed(const std::string& command) const;
-    std::string executeDiagCommand(const std::string& command, const std::string& arg, int* exitCode) const;
+    std::string buildDiagShellCommand(const std::string& command, const std::string& arg) const;
     void publishConfigPullReply(const std::string& payload, const std::vector<int>& chunkIndexes = {}) const;
     void publishConfigApplyReply(const std::string& payload) const;
     void publishConfigFileOperationReply(const std::string& payload, const std::string& operation) const;
@@ -203,9 +221,13 @@ private:
     std::unique_ptr<ScadaUpperComputerSafetyMonitor> scadaSafetyMonitor_;
     std::unique_ptr<Iec103RecordingTransferService> recordingTransferService_;
     std::atomic<bool> running_{false};
+    std::mutex lifecycleMutex_;
     std::thread thread_;
     mutable std::map<std::string, MonitorLease> leases_;
     std::map<std::string, PendingChunkedConfigApply> pendingConfigApplyChunks_;
+    DiagnosticProcess diagnosticProcess_;
+    std::map<std::string, DiagnosticRequest> diagnosticRequests_;
+    std::string currentDiagnosticId_;
     std::int64_t lastTelemetryMs_ = 0;
     std::int64_t lastPointSnapshotMs_ = 0;
     std::map<std::string, std::int64_t> lastAlertPublishMs_;

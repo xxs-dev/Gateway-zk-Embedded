@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "stage": "R10-local-checkpoint",
+  "baseline": "18b600b0aa0d4a15f602fb830b3078dd5102befc",
+  "deploymentAuthorized": false,
+  "productionAccepted": false,
+  "linuxVerified": false,
+  "architectureVerified": false,
+  "hashSemantics": "sha256/bytes are working-tree bytes at freeze; gitBlob is clean Git object identity. Recompute Git-blob SHA256 before any source transfer; CRLF filtering may change working-tree bytes.",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "bytes": 53508,
+      "sha256": "19bf7e5ee1c780dcfcd3243771695206d870d162b40215efaf417db96a45f239",
+      "gitBlob": "36a51435eb7227e6b0e4b8e7d4247092e8c147f8"
+    },
+    {
+      "path": "include/edge_gateway/system_monitor_service.hpp",
+      "bytes": 9607,
+      "sha256": "9ad377768d34aa20a6bffae14efd8105b0b52d780971e6e5277c41cd6c9da1b8",
+      "gitBlob": "e9810afe18600d2c42c2cd46f6dc96f9b01b7633"
+    },
+    {
+      "path": "include/edge_gateway/diagnostic_process.hpp",
+      "bytes": 1844,
+      "sha256": "ad8e4edb2c9e6d61923d8bd525a1e1eddf53c4f04f21c7e6c3608ab99018c1e6",
+      "gitBlob": "7cd5212c825ad5c6cc13d6325f884a63378591e4"
+    },
+    {
+      "path": "src/system_monitor_service.cpp",
+      "bytes": 146969,
+      "sha256": "a4f043f8799ce63010d861092eee822b4f4fe4b14d4ef071a80cde7e8eb4ee30",
+      "gitBlob": "dc78354801382714b69dc863b6b33102bbcd9eda"
+    },
+    {
+      "path": "src/diagnostic_process.cpp",
+      "bytes": 16002,
+      "sha256": "0c2bf379a3d0d279df2ee09f3bdec077148e42cafad448da9a6eda79e9fdfd83",
+      "gitBlob": "3972734843fc0bc9a4476bd83855e59c0c765db6"
+    },
+    {
+      "path": "tools/system_monitor_service_test.cpp",
+      "bytes": 38891,
+      "sha256": "6e1fc237862f5104903ef1bd8024fbb81adca36101300b3fd547398c96653160",
+      "gitBlob": "f9be48e24da32bce70d5547aa73a0196fc8663b7"
+    },
+    {
+      "path": "tools/diagnostic_process_test.cpp",
+      "bytes": 9837,
+      "sha256": "59bf1c13697c3c6b9a75431406331b3047454948e5a449e4a2d4f36f15360949",
+      "gitBlob": "c275842e088c815713c16b401ca005b542c8a779"
+    },
+    {
+      "path": "tools/system_monitor_diagnostic_test.cpp",
+      "bytes": 12135,
+      "sha256": "1edc0663d19e42a18a8f6a99e0ef98f5fb61c4beeb7757750571c6e0782c152f",
+      "gitBlob": "ea270a9307765ce6b98501247a7bedcf8afeb895"
+    },
+    {
+      "path": "tools/diagnostic_process_source_test.py",
+      "bytes": 6140,
+      "sha256": "4f03ee62ede26d0d289af767639165474a89a02ec3684916063331e2cc8dbbd0",
+      "gitBlob": "e0f560c6c67f2fa3561bcb32a2697007b130dfbb"
+    }
+  ],
+  "results": [
+    {
+      "command": "python -B tools/diagnostic_process_source_test.py --reproduce-baseline",
+      "scope": "minimized historical helper, Windows; corrected harness",
+      "exitCode": 1,
+      "elapsedMs": 447,
+      "commandExitCode": 0,
+      "outputBytes": 2,
+      "meaning": "valid timing RED, not actual monitor/POSIX"
+    },
+    {
+      "command": "python -B tools/diagnostic_process_source_test.py",
+      "exitCode": 0,
+      "count": 3,
+      "scope": "source structural checks only"
+    },
+    {
+      "command": "g++ -std=c++17 -Wall -Wextra -Werror -I include -fsyntax-only src/diagnostic_process.cpp",
+      "exitCode": 0,
+      "scope": "Windows branch only"
+    },
+    {
+      "command": "g++ -std=c++17 -Wall -Wextra -I include -fsyntax-only src/system_monitor_service.cpp tools/system_monitor_diagnostic_test.cpp",
+      "exitCode": 0,
+      "warnings": 3,
+      "scope": "Windows parse only; Linux test body excluded"
+    },
+    {
+      "command": "python -B tools/diagnostic_process_source_test.py --compile-portable",
+      "compilerExitCode": 0,
+      "testExitCode": 77,
+      "wrapperExitCode": 1,
+      "scope": "Windows refusal checked, POSIX SKIP"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "remaining": [
+    "Linux compilation of POSIX branch",
+    "All standalone POSIX behavioral cases",
+    "Actual parent death while diagnostics active",
+    "Supervisor death after command launch: cleanup of orphan descendants is NOT proved",
+    "Inherited descriptor closure behavior",
+    "Actual SystemMonitor diagnostic/safety integration and updated existing service regression",
+    "Matched AArch64 business build and real transport/deployment"
+  ]
+}

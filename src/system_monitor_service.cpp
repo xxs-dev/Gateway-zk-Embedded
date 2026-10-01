@@ -51,6 +51,8 @@ constexpr std::size_t kMaxMonitorLeases = 256;
 constexpr std::size_t kMaxPendingConfigApplies = 4;
 constexpr std::size_t kMaxPendingConfigApplyBytes = 64U * 1024U * 1024U;
 constexpr std::int64_t kPendingConfigApplyTtlMs = 120000;
+constexpr std::size_t kMaxDiagnosticReplies = 16;
+constexpr std::size_t kMaxDiagnosticReplyBytes = 8U * 1024U * 1024U;
 
 struct ConfigApplyFile {
     std::string path;
@@ -2395,6 +2397,7 @@ SystemMonitorService::~SystemMonitorService() {
 }
 
 void SystemMonitorService::start() {
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
@@ -2407,16 +2410,19 @@ void SystemMonitorService::start() {
 }
 
 void SystemMonitorService::stop() {
-    bool expected = true;
-    if (!running_.compare_exchange_strong(expected, false)) {
-        return;
-    }
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
+    running_.store(false);
     if (thread_.joinable()) {
         thread_.join();
     }
     if (recordingTransferService_) {
         recordingTransferService_->stop();
     }
+    if (!diagnosticProcess_.cancelAndWait()) {
+        std::cerr << "diagnostic shutdown cleanup not confirmed\n";
+    }
+    // runOnce-only users must cancel jobs too, even if start() was never called.
+    if (!currentDiagnosticId_.empty()) completeDiagnostic(currentTimeMs());
 }
 
 bool SystemMonitorService::isRunning() const {
@@ -2435,6 +2441,7 @@ void SystemMonitorService::runOnce(std::int64_t nowMs) {
             : std::next(it);
     }
     processIncomingMessages(nowMs);
+    pollDiagnostics(nowMs);
     if (scadaSafetyMonitor_) {
         const auto safety = scadaSafetyMonitor_->runOnce(nowMs);
         if (safety.triggered) {
@@ -2669,6 +2676,7 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     if (!monitorConfig_.diagEnabled) {
         throw std::runtime_error("diag disabled");
     }
+    if (payload.size() > 8192) throw std::runtime_error("diag request too large");
     FlatJsonReader json(payload);
     std::string cmdId;
     std::string command;
@@ -2693,43 +2701,100 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     if (cmdId.empty()) {
         cmdId = "DIAG_" + std::to_string(nowMs);
     }
-    publishStatusEvent(
-        "diag-request",
-        nowMs,
-        std::string(R"("cmdId":")") + escapeJson(cmdId) +
-            R"(","command":")" + escapeJson(command) +
-            R"(")"
-    );
-    if (!isCommandAllowed(command)) {
-        throw std::runtime_error("diag command not allowed");
-    }
-    int exitCode = 0;
+    if (cmdId.size() > 128 || command.size() > 64 ||
+            operatorName.size() > 128 || service.size() > 128) throw std::runtime_error("diag request too large");
     std::string arg;
     if (command == "journal_tail") {
         arg = std::to_string(std::max(1, std::min(500, tailLines)));
     } else if (command == "systemctl_status") {
         arg = service;
     }
-    const auto stdoutText = executeDiagCommand(command, arg, &exitCode);
+    DiagnosticRequest request;
+    request.cmdId = cmdId; request.command = command; request.arg = arg;
+    request.operatorName = operatorName; request.requestTs = requestTs;
+    const auto reject = [&](const std::string& reason) {
+        DiagnosticProcessResult result; result.output = reason;
+        result.cleanupFailed = reason == "cleanup_unknown";
+        publishReply(diagnosticReply(request, result, reason, nowMs));
+    };
+    const auto steadyNow = std::chrono::steady_clock::now();
+    for (auto it = diagnosticRequests_.begin(); it != diagnosticRequests_.end();) {
+        it = (!it->second.reply.empty() && it->first != currentDiagnosticId_ && it->second.expiresAt <= steadyNow)
+            ? diagnosticRequests_.erase(it) : std::next(it);
+    }
+    const auto existing = diagnosticRequests_.find(cmdId);
+    if (existing != diagnosticRequests_.end()) {
+        const auto& saved = existing->second;
+        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) reject("cmdId_conflict");
+        else if (!saved.reply.empty()) publishReply(saved.reply);
+        // Same in-flight logical request shares the eventual terminal reply.
+        // Existing clients treat every diag reply as terminal; do not send a
+        // success=false "in_progress" reply which would falsely finish the task.
+        return;
+    }
+    if (!isCommandAllowed(command)) { reject("command_not_allowed"); return; }
+    std::string shellCommand;
+    try { shellCommand = buildDiagShellCommand(command, arg); }
+    catch (const std::exception&) { reject("invalid_command_argument"); return; }
+    if (diagnosticProcess_.active()) { reject("busy"); return; }
+    if (diagnosticProcess_.unavailable()) { reject("cleanup_unknown"); return; }
+    std::size_t replyBytes = 0;
+    for (const auto& entry : diagnosticRequests_) replyBytes += entry.second.reply.size();
+    const auto outputLimit = std::max<std::size_t>(256, std::min<std::size_t>(1024 * 1024, monitorConfig_.maxDiagOutputBytes));
+    // JSON escaping can expand one output byte to six bytes. Never evict an
+    // unexpired idempotency record to admit another diagnostic job.
+    if (diagnosticRequests_.size() >= kMaxDiagnosticReplies ||
+            replyBytes + 6 * outputLimit + 4096 > kMaxDiagnosticReplyBytes) {
+        reject("cache_full"); return;
+    }
+    diagnosticRequests_.emplace(cmdId, std::move(request));
+    currentDiagnosticId_ = cmdId;
+    if (!diagnosticProcess_.start(shellCommand, outputLimit)) completeDiagnostic(nowMs);
+    try {
+        publishStatusEvent("diag-request", nowMs, std::string(R"("cmdId":")") + escapeJson(cmdId) +
+            R"(","command":")" + escapeJson(command) + R"(")");
+    } catch (...) { /* the admitted job does not depend on event delivery */ }
+}
+
+std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& request,
+        const DiagnosticProcessResult& result, const std::string& reason, std::int64_t nowMs) const {
     std::ostringstream reply;
-    reply << "{\"cmdId\":\"" << escapeJson(cmdId)
-          << "\",\"machineCode\":\"" << escapeJson(machineCode)
-          << "\",\"operator\":\"" << escapeJson(operatorName)
-          << "\",\"command\":\"" << escapeJson(command)
-          << "\",\"success\":" << (exitCode == 0 ? "true" : "false")
-          << ",\"exitCode\":" << exitCode
-          << ",\"stdout\":\"" << escapeJson(stdoutText)
+    reply << "{\"cmdId\":\"" << escapeJson(request.cmdId)
+          << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+          << "\",\"operator\":\"" << escapeJson(request.operatorName)
+          << "\",\"command\":\"" << escapeJson(request.command)
+          << "\",\"success\":" << (result.exitCode == 0 && !result.cleanupFailed ? "true" : "false")
+          << ",\"exitCode\":" << result.exitCode
+          << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
+          << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
+          << ",\"cleanupConfirmed\":" << (!result.cleanupFailed && !diagnosticProcess_.active() ? "true" : "false")
+          << ",\"stdout\":\"" << escapeJson(result.output)
           << "\",\"stderr\":\"\""
-          << ",\"requestTs\":" << requestTs
+          << ",\"requestTs\":" << request.requestTs
           << ",\"ts\":" << nowMs
           << "}";
-    publishReply(reply.str());
-    publishStatusEvent(
-        "diag-replied",
-        nowMs,
-        std::string(R"("cmdId":")") + escapeJson(cmdId) +
-            R"(","exitCode":)" + std::to_string(exitCode)
-    );
+    return reply.str();
+}
+
+void SystemMonitorService::completeDiagnostic(std::int64_t nowMs) {
+    auto found = diagnosticRequests_.find(currentDiagnosticId_);
+    if (found == diagnosticRequests_.end() || !found->second.reply.empty()) return;
+    auto result = diagnosticProcess_.result();
+    if (diagnosticProcess_.active()) { result.cleanupFailed = true; result.exitCode = -1; }
+    const auto reason = result.cleanupFailed ? "cleanup_unknown" : result.cancelled ? "cancelled" :
+        result.timedOut ? "timeout" : result.signal ? "signal" : result.exitCode < 0 ? "launch_failed" : "exit";
+    found->second.reply = diagnosticReply(found->second, result, reason, nowMs);
+    found->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::minutes(5);
+    try {
+        publishReply(found->second.reply);
+        publishStatusEvent("diag-replied", nowMs, std::string(R"("cmdId":")") + escapeJson(found->first) +
+            R"(","exitCode":)" + std::to_string(result.exitCode) + R"(,"reason":")" + reason + R"(")");
+    } catch (...) { /* retry replays cached terminal reply */ }
+}
+
+void SystemMonitorService::pollDiagnostics(std::int64_t nowMs) {
+    if (diagnosticProcess_.poll()) completeDiagnostic(nowMs);
+    if (!diagnosticProcess_.active()) currentDiagnosticId_.clear();
 }
 
 void SystemMonitorService::handleConfigPullRequest(const std::string& payload, std::int64_t nowMs) {
@@ -3713,7 +3778,7 @@ bool SystemMonitorService::isCommandAllowed(const std::string& command) const {
     ) != monitorConfig_.allowedCommands.end();
 }
 
-std::string SystemMonitorService::executeDiagCommand(const std::string& command, const std::string& arg, int* exitCode) const {
+std::string SystemMonitorService::buildDiagShellCommand(const std::string& command, const std::string& arg) const {
     std::string shellCommand;
     if (command == "uptime") {
         shellCommand = "uptime 2>&1";
@@ -3757,7 +3822,7 @@ std::string SystemMonitorService::executeDiagCommand(const std::string& command,
         throw std::runtime_error("unsupported diag command");
     }
 
-    return runShellCommand(shellCommand, exitCode, monitorConfig_.maxDiagOutputBytes);
+    return shellCommand;
 }
 
 }  // namespace edge_gateway

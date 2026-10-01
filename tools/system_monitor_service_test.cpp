@@ -2,6 +2,8 @@
 #include "edge_gateway/system_monitor_points.hpp"
 
 #include <cstdlib>
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <fcntl.h>
 #include <fstream>
@@ -12,6 +14,7 @@
 #include <pthread.h>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -739,6 +742,12 @@ int main() {
     diagRequest.payload = "{\"cmdId\":\"DIAG_1\",\"machineCode\":\"GW_TEST\",\"command\":\"top_once\"}";
     diagPublisher->incoming.push_back(diagRequest);
     diagService.runOnce(1770000002000LL);
+    // Diagnostic completion is asynchronous; the same service loop continues.
+    for (int tick = 0; tick < 120 && diagPublisher->topics.end() ==
+            std::find(diagPublisher->topics.begin(), diagPublisher->topics.end(), diagMqtt.diagReplyTopic); ++tick) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        diagService.runOnce(1770000002000LL + tick * 100);
+    }
     std::string diagReply;
     for (std::size_t i = 0; i < diagPublisher->topics.size(); ++i) {
         if (diagPublisher->topics[i] == diagMqtt.diagReplyTopic) {

@@ -84,6 +84,7 @@ add_library(edge_gateway
     src/system_monitor_points.cpp
     src/sysfs_gpio_port.cpp
     src/system_monitor_service.cpp
+    src/diagnostic_process.cpp
     src/timing_policy.cpp
     src/writeback_service.cpp
 )
@@ -694,6 +695,18 @@ add_executable(system_monitor_service_test tools/system_monitor_service_test.cpp
 target_link_libraries(system_monitor_service_test PRIVATE edge_gateway)
 target_compile_options(system_monitor_service_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(diagnostic_process_test tools/diagnostic_process_test.cpp src/diagnostic_process.cpp)
+target_include_directories(diagnostic_process_test PRIVATE include)
+target_compile_definitions(diagnostic_process_test PRIVATE EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS)
+target_compile_options(diagnostic_process_test PRIVATE -fdiagnostics-color=never)
+if(UNIX)
+    target_link_libraries(diagnostic_process_test PRIVATE pthread)
+endif()
+
+add_executable(system_monitor_diagnostic_test tools/system_monitor_diagnostic_test.cpp)
+target_link_libraries(system_monitor_diagnostic_test PRIVATE edge_gateway)
+target_compile_options(system_monitor_diagnostic_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(system_monitor_runtime_discovery_test tools/system_monitor_runtime_discovery_test.cpp)
 target_link_libraries(system_monitor_runtime_discovery_test PRIVATE edge_gateway)
 target_compile_options(system_monitor_runtime_discovery_test PRIVATE -fdiagnostics-color=never)
@@ -806,6 +819,10 @@ if(BUILD_TESTING)
     add_test(NAME scada_upper_computer_safety COMMAND scada_upper_computer_safety_test)
     add_test(NAME system_monitor_runtime_discovery COMMAND system_monitor_runtime_discovery_test)
     add_test(NAME system_monitor_service COMMAND system_monitor_service_test)
+    add_test(NAME diagnostic_process COMMAND diagnostic_process_test)
+    set_tests_properties(diagnostic_process PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+    add_test(NAME system_monitor_diagnostic COMMAND system_monitor_diagnostic_test)
+    set_tests_properties(system_monitor_diagnostic PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
     add_test(NAME timing_policy COMMAND timing_policy_test)
     if(UNIX)
         add_test(NAME mqtt_offline_restart_replay COMMAND builtin_mqtt_driver_publisher_test)

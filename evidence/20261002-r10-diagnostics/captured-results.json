@@ -1,0 +1,105 @@
+{
+  "format": "captured exec output strings and metadata, not reconstructed raw process logs",
+  "results": [
+    {
+      "key": "R10red",
+      "captured": {
+        "chunk_id": "cb9acf",
+        "wall_time_seconds": 1.3418367,
+        "exit_code": 0,
+        "original_token_count": 90,
+        "output": "{\"baseline\": \"18b600b0aa0d4a15f602fb830b3078dd5102befc\", \"scope\": \"minimized exact helper, local only\", \"stdout\": \"'C:/Users/12193/AppData/Local/Python/pythoncore-3.14-64/python.exe\\\" -c \\\"import' is not recognized as an internal or external command,\\noperable program or batch file.\\nold helper elapsedMs=18 commandExit=1 outputBytes=0\\\\n\", \"exitCode\": 0}\r\n"
+      }
+    },
+    {
+      "key": "R10redCorrected",
+      "captured": {
+        "chunk_id": "3006de",
+        "wall_time_seconds": 1.2088441,
+        "exit_code": 1,
+        "original_token_count": 48,
+        "output": "{\"baseline\": \"18b600b0aa0d4a15f602fb830b3078dd5102befc\", \"scope\": \"minimized exact helper, local only\", \"stdout\": \"old helper elapsedMs=447 commandExit=0 outputBytes=2\\\\n\", \"exitCode\": 1}\r\n"
+      }
+    },
+    {
+      "key": "R10sourceLatest",
+      "captured": {
+        "chunk_id": "10f26c",
+        "wall_time_seconds": 0.2349117,
+        "exit_code": 0,
+        "original_token_count": 141,
+        "output": "test_diag_entry_is_nonblocking_and_loop_polls_before_safety (__main__.SourceContract.test_diag_entry_is_nonblocking_and_loop_polls_before_safety) ... ok\r\ntest_inflight_has_no_false_terminal_reply_and_conflict_is_strict (__main__.SourceContract.test_inflight_has_no_false_terminal_reply_and_conflict_is_strict) ... ok\r\ntest_no_worker_thread_or_parent_global_child_reaping (__main__.SourceContract.test_no_worker_thread_or_parent_global_child_reaping) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 3 tests in 0.002s\r\n\r\nOK\r\n"
+      }
+    },
+    {
+      "key": "R10portableFinal",
+      "captured": {
+        "chunk_id": "3e99db",
+        "wall_time_seconds": 1.0818473,
+        "exit_code": 1,
+        "original_token_count": 48,
+        "output": "SKIP POSIX process/group/reaper cases; Windows refusal checked, not POSIX PASS\r\n{\"compilerExitCode\": 0, \"testExitCode\": 77, \"scope\": \"local native compiler only; not AArch64 product build\"}\r\n"
+      }
+    },
+    {
+      "key": "R10helperSyntaxFinal",
+      "captured": {
+        "chunk_id": "c4068c",
+        "wall_time_seconds": 0.4643167,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "key": "R10serviceCheckpoint",
+      "captured": {
+        "chunk_id": "460942",
+        "wall_time_seconds": 1.7863525,
+        "exit_code": 0,
+        "original_token_count": 477,
+        "output": "src/system_monitor_service.cpp: In function 'int edge_gateway::{anonymous}::countProcesses()':\nsrc/system_monitor_service.cpp:338:27: warning: the address of 'dirent::d_name' will never be NULL [-Waddress]\n  338 |         if (entry->d_name == nullptr || entry->d_name[0] == '\\0') {\n      |             ~~~~~~~~~~~~~~^~~~~~~~~~\nIn file included from src/system_monitor_service.cpp:16:\nC:/Users/12193/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/x86_64-w64-mingw32/include/dirent.h:30:25: note: 'dirent::d_name' declared here\n   30 |         char            d_name[260]; /* [FILENAME_MAX] */ /* File name. */\n      |                         ^~~~~~\nsrc/system_monitor_service.cpp: In function 'std::vector<std::__cxx11::basic_string<char> > edge_gateway::{anonymous}::listDirectoryNames(const std::string&)':\nsrc/system_monitor_service.cpp:705:27: warning: the address of 'dirent::d_name' will never be NULL [-Waddress]\n  705 |         if (entry->d_name == nullptr || entry->d_name[0] == '.') {\n      |             ~~~~~~~~~~~~~~^~~~~~~~~~\nC:/Users/12193/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/x86_64-w64-mingw32/include/dirent.h:30:25: note: 'dirent::d_name' declared here\n   30 |         char            d_name[260]; /* [FILENAME_MAX] */ /* File name. */\n      |                         ^~~~~~\nsrc/system_monitor_service.cpp: In function 'void edge_gateway::system_monitor_config_safety::writeFileAtomically(const std::string&, const std::string&, bool)':\nsrc/system_monitor_service.cpp:2212:84: warning: unused parameter 'durable' [-Wunused-parameter]\n 2212 | void writeFileAtomically(const std::string& path, const std::string& content, bool durable) {\n      |                                                                               ~~~~~^~~~~~~\n"
+      }
+    },
+    {
+      "key": "R10sourceGreenFinal",
+      "captured": {
+        "chunk_id": "4af181",
+        "wall_time_seconds": 0.2329059,
+        "exit_code": 1,
+        "original_token_count": 447,
+        "output": "test_diag_entry_is_nonblocking_and_loop_polls_before_safety (__main__.SourceContract.test_diag_entry_is_nonblocking_and_loop_polls_before_safety) ... ok\r\ntest_inflight_has_no_false_terminal_reply_and_conflict_is_strict (__main__.SourceContract.test_inflight_has_no_false_terminal_reply_and_conflict_is_strict) ... FAIL\r\ntest_no_worker_thread_or_parent_global_child_reaping (__main__.SourceContract.test_no_worker_thread_or_parent_global_child_reaping) ... ok\r\n\r\n======================================================================\r\nFAIL: test_inflight_has_no_false_terminal_reply_and_conflict_is_strict (__main__.SourceContract.test_inflight_has_no_false_terminal_reply_and_conflict_is_strict)\r\n----------------------------------------------------------------------\r\nTraceback (most recent call last):\r\n  File \"D:\\workspace\\GatewaySuite-workspaces\\GW-20260809-002\\edge\\realese1.0\\tools\\diagnostic_process_source_test.py\", line 36, in test_inflight_has_no_false_terminal_reply_and_conflict_is_strict\r\n    self.assertNotIn('\"in_progress\"', duplicate)\r\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\nAssertionError: '\"in_progress\"' unexpectedly found in '\\n        const auto& saved = existing->second;\\n        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) reject(\"cmdId_conflict\");\\n        else if (!saved.reply.empty()) publishReply(saved.reply);\\n        // Same in-flight logical request shares the eventual terminal reply.\\n        // Existing clients treat every diag reply as terminal; do not send a\\n        // success=false \"in_progress\" reply which would falsely finish the task.\\n        return;\\n    }\\n    '\r\n\r\n----------------------------------------------------------------------\r\nRan 3 tests in 0.002s\r\n\r\nFAILED (failures=1)\r\n"
+      }
+    },
+    {
+      "key": "R10sourceBackoff",
+      "captured": {
+        "chunk_id": "9f1c0f",
+        "wall_time_seconds": 0.2386366,
+        "exit_code": 0,
+        "original_token_count": 141,
+        "output": "test_diag_entry_is_nonblocking_and_loop_polls_before_safety (__main__.SourceContract.test_diag_entry_is_nonblocking_and_loop_polls_before_safety) ... ok\r\ntest_inflight_has_no_false_terminal_reply_and_conflict_is_strict (__main__.SourceContract.test_inflight_has_no_false_terminal_reply_and_conflict_is_strict) ... ok\r\ntest_no_worker_thread_or_parent_global_child_reaping (__main__.SourceContract.test_no_worker_thread_or_parent_global_child_reaping) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 3 tests in 0.002s\r\n\r\nOK\r\n"
+      }
+    },
+    {
+      "key": "R10helperBackoff",
+      "captured": {
+        "chunk_id": "debd34",
+        "wall_time_seconds": 0.4241165,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "key": "R10portableBackoff",
+      "captured": {
+        "chunk_id": "a9dcd5",
+        "wall_time_seconds": 1.057358,
+        "exit_code": 1,
+        "original_token_count": 48,
+        "output": "SKIP POSIX process/group/reaper cases; Windows refusal checked, not POSIX PASS\r\n{\"compilerExitCode\": 0, \"testExitCode\": 77, \"scope\": \"local native compiler only; not AArch64 product build\"}\r\n"
+      }
+    }
+  ]
+}
