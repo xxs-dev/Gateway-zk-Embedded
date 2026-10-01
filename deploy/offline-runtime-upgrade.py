@@ -1012,7 +1012,8 @@ def apply(args):
     source_identities = {}
     if core:
         guard.core_documents_safe(home, approval, documents)
-        require(MONITOR_IMPLICIT_SHM in names, 'core must cover implicit monitor SHM')
+        require(approval.get('systemMonitorShmDropinSha256') is not None or MONITOR_IMPLICIT_SHM in names,
+                'core must cover implicit monitor SHM')
         for segment in segments:
             path = Path('/dev/shm') / segment['source']
             guard.point_store_abi(path, 10)

@@ -252,7 +252,7 @@ class CoreReadOnlyTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'independent approval and reader scope'):
                     f.g.core_scope(f.home, approval)
 
-    def test_existing_explicit_monitor_binding_remains_separate_preapply_blocker(self):
+    def pinned_custom_monitor(self):
         self.without_qt()
         f = self.f
         implicit = f.m.MONITOR_IMPLICIT_SHM
@@ -269,11 +269,73 @@ class CoreReadOnlyTest(unittest.TestCase):
         f.m.MONITOR_DROPIN.chmod(0o644)
         f.approval['systemMonitorShmDropinSha256'] = sha(f.m.MONITOR_DROPIN)
         self.refresh_config()
+
+    def test_pinned_custom_monitor_apply_activate_recover_preserves_source_and_scope(self):
+        self.pinned_custom_monitor()
+        f = self.f
+        units = list(f.approval['units'])
+        original_dropin = f.m.MONITOR_DROPIN.read_bytes()
+        identities = {s['source']: ((f.path('/dev/shm')/s['source']).stat().st_dev,
+                                   (f.path('/dev/shm')/s['source']).stat().st_ino,
+                                   sha(f.path('/dev/shm')/s['source'])) for s in f.approval['segments']}
         self.assertEqual([f.g.MONITOR_UNIT], f.g.core_scope(f.home, f.approval))
-        with self.assertRaisesRegex(ValueError, 'core must cover implicit monitor SHM'):
+        state = f.apply()
+        self.assertEqual('UPGRADED_STOPPED', state['phase'])
+        self.assertEqual('gateway_point_store_COMM202600998_monitor', state['systemMonitorShmDropin']['source'])
+        f.activate([f.g.MONITOR_UNIT])
+        self.assertEqual({'gateway-services.service', f.g.MONITOR_UNIT}, f.live)
+        f.m.recover(f.args)
+        self.assertFalse(f.live)
+        self.assertEqual(units, f.approval['units'])
+        self.assertEqual(original_dropin, f.m.MONITOR_DROPIN.read_bytes())
+        for name, raw in f.originals.items(): self.assertEqual(raw, (f.config/name).read_bytes())
+        for name, identity in identities.items():
+            p = f.path('/dev/shm')/name
+            self.assertEqual(identity, (p.stat().st_dev, p.stat().st_ino, sha(p)))
+        self.assertFalse((f.path('/dev/shm')/f.m.MONITOR_IMPLICIT_SHM).exists())
+
+    def test_pinned_custom_monitor_wrong_pin_refused_before_mutation(self):
+        self.pinned_custom_monitor()
+        f = self.f
+        f.approval['systemMonitorShmDropinSha256'] = '0'*64
+        with self.assertRaisesRegex(ValueError, 'monitor SHM drop-in SHA256 mismatch'):
             f.apply()
         self.assertFalse(f.state_dir.exists())
         self.assertFalse((f.home/'data/runtime-upgrade-stop').exists())
+
+    def test_pinned_custom_monitor_unapproved_source_refused_before_mutation(self):
+        self.pinned_custom_monitor()
+        f = self.f
+        write(f.m.MONITOR_DROPIN, f.m.MONITOR_ENV + b'unapproved_monitor_source\n')
+        f.approval['systemMonitorShmDropinSha256'] = sha(f.m.MONITOR_DROPIN)
+        with self.assertRaisesRegex(ValueError, 'binding source must be an approved segment'):
+            f.apply()
+        self.assertFalse(f.state_dir.exists())
+
+    def test_pinned_custom_monitor_uncovered_canonical_refused(self):
+        self.pinned_custom_monitor()
+        f = self.f
+        write(f.path('/dev/shm')/f.m.MONITOR_IMPLICIT_SHM, struct.pack('<II', 0x4d505354, 10))
+        with self.assertRaisesRegex(ValueError, 'uncovered implicit SystemMonitor SHM segment'):
+            f.apply()
+        self.assertFalse(f.state_dir.exists())
+
+    def test_unpinned_custom_monitor_still_requires_canonical(self):
+        self.pinned_custom_monitor()
+        f = self.f
+        del f.approval['systemMonitorShmDropinSha256']
+        with self.assertRaisesRegex(ValueError, 'core must cover implicit monitor SHM'):
+            f.apply()
+        self.assertFalse(f.state_dir.exists())
+
+    def test_pinned_custom_monitor_changed_backup_refuses_activation(self):
+        self.pinned_custom_monitor()
+        f = self.f
+        f.apply()
+        write(f.state_dir/'monitor-dropin-old', f.m.MONITOR_ENV + b'unapproved_old_source\n')
+        with self.assertRaisesRegex(ValueError, 'monitor SHM binding'):
+            f.activate([f.g.MONITOR_UNIT])
+        self.assertFalse(f.live)
 
     def test_current_manifest_three_readers_apply_activate_recover(self):
         f = self.f
