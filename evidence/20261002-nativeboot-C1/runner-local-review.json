@@ -1,0 +1,107 @@
+{
+  "format": "nativeboot-C1-runner-review-v1",
+  "date": "2026-10-02",
+  "localOnly": true,
+  "executionAuthorized": false,
+  "remoteExecuted": false,
+  "connectionHelperImported": false,
+  "payloadCommit": "9e1fd55298ec503db46e9faffec55cb808798e3b",
+  "productCommit": "082071eeb1674121d412a5dae326a164754df53f",
+  "runnerPath": "evidence/20261002-nativeboot-C1/execute-manager-fixture.py",
+  "runner": {
+    "bytes": 14647,
+    "sha256": "38e58960b8caa944e47e78fa3a2486479422235f27fd54c740ad29298c3d2627"
+  },
+  "manifest": {
+    "bytes": 4104,
+    "sha256": "95a272548b82f639fd7aba7ea15129dd957acc8cf25a3beb41264fed7c6f3c04"
+  },
+  "remoteCodeSha256": "fb76047081dd8db9778b57d469fea1e31ec78ae37bb2041e12dba82b0e98f934",
+  "inputCount": 5,
+  "inputBytes": 369831,
+  "plannedChecks": 10,
+  "plannedUnits": 9,
+  "sourcePins": {
+    "command-record-green.log": {
+      "bytes": 812,
+      "sha256": "c77d7077603007e70de6f4f14ef22fc32b54dd4e3cfa0a4cbb2a31fe81dd3963"
+    },
+    "command-record-test.py": {
+      "bytes": 5776,
+      "sha256": "902855b45c13e3a97cc4f4920b597e131ce9e958371c445399befb101834be30"
+    },
+    "device-validation-proposal.md": {
+      "bytes": 7156,
+      "sha256": "7bfdd4a876773fbb599ccb345f2f9ad867f796b86e4b2e65543bd23fcee969fd"
+    },
+    "execute-manager-fixture.py": {
+      "bytes": 14647,
+      "sha256": "38e58960b8caa944e47e78fa3a2486479422235f27fd54c740ad29298c3d2627"
+    },
+    "grammar-green.log": {
+      "bytes": 210,
+      "sha256": "1abb83e7ea694f38b5723800cefcb6d14adff72c32d2712eae171e8f166c38c0"
+    },
+    "input-manifest.json": {
+      "bytes": 4104,
+      "sha256": "95a272548b82f639fd7aba7ea15129dd957acc8cf25a3beb41264fed7c6f3c04"
+    },
+    "manager-child.py": {
+      "bytes": 25067,
+      "sha256": "1596c936446be22faf6afcf3ce9a4ed94cc79d7c1c3e3f08eb00102aebdcaf51"
+    },
+    "private-entry.py": {
+      "bytes": 3509,
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10"
+    }
+  },
+  "defaultCommand": "python -B evidence/20261002-nativeboot-C1/execute-manager-fixture.py",
+  "defaultExitCode": 0,
+  "localRecordRegression": {
+    "command": "python -B evidence/20261002-nativeboot-C1/command-record-test.py",
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 1.921,
+    "exitCode": 0,
+    "log": {
+      "bytes": 812,
+      "sha256": "c77d7077603007e70de6f4f14ef22fc32b54dd4e3cfa0a4cbb2a31fe81dd3963"
+    },
+    "boundary": "Actual recorder AST/private Windows files/separate subprocess; manager stub, Windows O_NOFOLLOW flag=0. Not Linux fork/systemd proof."
+  },
+  "independentInterim": "Coordinator six tests/1.871s covered preceding 3d895b8d manager snapshot and c9b69141 test. Final files differ: atomic request/response visibility, shared owner recorder; affected six rerun locally. Not counted as extra independent scenarios.",
+  "forkRecordFix": "Atomic O_EXCL160 shared reservation slots and one dispatch marker/unit. Donor terminal receipt + final parent merge includes donor/owner operations. Atomic request/response publication; incomplete reservation remains UNKNOWN. No copied counter reused.",
+  "deadline": {
+    "outerSeconds": 420,
+    "killGraceSeconds": 20,
+    "channelSeconds": 450,
+    "accountedSeconds": 363,
+    "marginSeconds": 57,
+    "parts": {
+      "inputValidation": 15,
+      "initialUnitAdmission": 18,
+      "controller": 90,
+      "groupAndReap": 12,
+      "cgroupSelection": 5,
+      "nineUnitCleanup": 108,
+      "threeBaselines": 90,
+      "filesystemSetupAndResultAllowance": 25
+    },
+    "notes": "Per unit12s includes raw show2/stop3/reset2/show2 and kernel proof/logging. Initial pre-upload baseline separate60s. Kernel uninterruptible I/O may exceed userspace budgets; no completion claimed without proof."
+  },
+  "cleanup": "Actual transient fragment+fixed argv proof before scoped stop; actual RuntimeHandoff.no_unit_tasks after stop; only new units, never unproved unit. Raw cleanup stdout/stderr/exit or UNKNOWN/partial stored before/after actions; failure retains audit/root/source. Own group subreaper and inode-work cleanup reused B2; final16group+namespace baseline after cleanup.",
+  "scopeBoundary": "Production class and dispatch/gate methods called, but positive guard/install/finish authority substituted as documented. No full production boot/install/RSA/HTTPS/normal reboot acceptance.",
+  "productChanged": false,
+  "priorEvidenceChanged": false,
+  "wsl47230": "unknown; untouched",
+  "stillOpen": [
+    "C1 is unexecuted; actual systemd property/command/cgroup behavior remains unqualified.",
+    "All pending/promoted/pre-intent full production boot paths need real D package/admission/reboot tests.",
+    "Donor-before-ready and arbitrary owner crash windows beyond the fixed ten checks.",
+    "Current full configured B0/B1 binaries, signed OTA/original-job install/health/rollback, simulator and receiver-outage/acquisition continuity.",
+    "D1 factory rawsource/paired-resolution and queued R10 diagnostics; cross-end R01-R14/N01-N05 unchanged."
+  ],
+  "executeRequires": "New fixed coordinator C1 scope. Do NOT pass --execute-approved until that scope; no A/B scope reuse,24 or D."
+}

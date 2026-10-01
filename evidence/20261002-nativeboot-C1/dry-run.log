@@ -1,0 +1,137 @@
+{
+  "host": "192.168.22.23",
+  "root": "/tmp/gw-nativeboot-082071e-23-C1",
+  "payloadCommit": "9e1fd55298ec503db46e9faffec55cb808798e3b",
+  "manifestSha256": "95a272548b82f639fd7aba7ea15129dd957acc8cf25a3beb41264fed7c6f3c04",
+  "inputs": {
+    "offline-runtime-upgrade.py": {
+      "bytes": 201410,
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c",
+      "mode": 256
+    },
+    "runtime-upgrade-guard.py": {
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35",
+      "mode": 256
+    },
+    "ota-health-result.py": {
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6",
+      "mode": 256
+    },
+    "manager-child.py": {
+      "bytes": 25067,
+      "sha256": "1596c936446be22faf6afcf3ce9a4ed94cc79d7c1c3e3f08eb00102aebdcaf51",
+      "mode": 256
+    },
+    "private-entry.py": {
+      "bytes": 3509,
+      "sha256": "59b82f3c690ee2a33b7ba984f453330e3f3ed61f1cd4d4755663ed3c4294fb10",
+      "mode": 256
+    }
+  },
+  "checks": [
+    "manager-cgroup-binding",
+    "gate-queues-readers-and-worker",
+    "worker-after-gate",
+    "reader-after-gate",
+    "failed-gate-keeps-reader-closed",
+    "real-guard-rejects-private-unadopted-home",
+    "ready-while-donor-holds-lease",
+    "owned-live-bindings-and-negative-identity",
+    "donor-exit-transfers-original-lease",
+    "uncertain-dispatch-no-replay-original-cancel"
+  ],
+  "remoteCodeSha256": "fb76047081dd8db9778b57d469fea1e31ec78ae37bb2041e12dba82b0e98f934",
+  "units": [
+    "gw-native-c1-082071e-gate-ok.service",
+    "gw-native-c1-082071e-reader-ok.service",
+    "gw-native-c1-082071e-gate-fail.service",
+    "gw-native-c1-082071e-reader-fail.service",
+    "gw-native-c1-082071e-reader-guard.service",
+    "gateway-native-boot-e6b9efe1fa8e2e35f45a20d09b39259e.service",
+    "ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service",
+    "ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service",
+    "ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service"
+  ],
+  "plannedUnitCommands": {
+    "gw-native-c1-082071e-gate-ok.service": [
+      "/usr/bin/python3",
+      "-I",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py",
+      "gate",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/gate-ok"
+    ],
+    "gw-native-c1-082071e-reader-ok.service": [
+      "/usr/bin/python3",
+      "-I",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py",
+      "reader",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/gate-ok"
+    ],
+    "gw-native-c1-082071e-gate-fail.service": [
+      "/usr/bin/python3",
+      "-I",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py",
+      "gate",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/gate-fail"
+    ],
+    "gw-native-c1-082071e-reader-fail.service": [
+      "/usr/bin/python3",
+      "-I",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py",
+      "reader",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/gate-fail"
+    ],
+    "gw-native-c1-082071e-reader-guard.service": [
+      "/usr/bin/python3",
+      "-I",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py",
+      "reader",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/unadopted"
+    ],
+    "gateway-native-boot-e6b9efe1fa8e2e35f45a20d09b39259e.service": [
+      "/usr/bin/python3",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/source/private-entry.py",
+      "production-boot-finish",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/gate-ok"
+    ],
+    "ota-runtime-C1_082071E_HAND-082071ee-0000-4000-8000-000000000001.service": [
+      "/usr/bin/python3",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/C1_082071E_HAND/data/ota/runtime-entry-C1_082071E_HAND/offline-runtime-upgrade.py",
+      "ota-owner",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/C1_082071E_HAND/data/ota",
+      "C1_082071E_HAND",
+      "082071ee-0000-4000-8000-000000000001"
+    ],
+    "ota-runtime-C1_082071E_DONOR-082071ee-0000-4000-8000-000000000001.service": [
+      "/usr/bin/python3",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/C1_082071E_DONOR/data/ota/runtime-entry-C1_082071E_DONOR/offline-runtime-upgrade.py",
+      "ota-owner",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/C1_082071E_DONOR/data/ota",
+      "C1_082071E_DONOR",
+      "082071ee-0000-4000-8000-000000000001"
+    ],
+    "ota-runtime-C1_082071E_UNKNOWN-082071ee-0000-4000-8000-000000000001.service": [
+      "/usr/bin/python3",
+      "-B",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/C1_082071E_UNKNOWN/data/ota/runtime-entry-C1_082071E_UNKNOWN/offline-runtime-upgrade.py",
+      "ota-owner",
+      "/tmp/gw-nativeboot-082071e-23-C1/audit/C1_082071E_UNKNOWN/data/ota",
+      "C1_082071E_UNKNOWN",
+      "082071ee-0000-4000-8000-000000000001"
+    ]
+  },
+  "executeApprovedFlag": false,
+  "remoteAuthorized": false,
+  "privateManagerOnly": true,
+  "nativeOrBusinessLifecycle": false
+}
