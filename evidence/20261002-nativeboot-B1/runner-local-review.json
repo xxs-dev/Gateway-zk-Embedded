@@ -1,0 +1,61 @@
+{
+  "format": "native-creator-B1-runner-local-review-v1",
+  "date": "2026-10-02",
+  "sourceCommit": "1950402a5d1c97e661d7132eae065508f32ab194",
+  "runnerPath": "evidence/20261002-nativeboot-B1/execute-native-creator.py",
+  "runnerBytes": 17938,
+  "runnerSha256": "4dd5792975b7343f2023104b7425ac09d99a9e73a41ab542ae01e6f8b03328f6",
+  "manifestSha256": "844716aeb6c9426d98b6649e844c8947d213b96423064c2e5a6fd986a5a06bed",
+  "childSha256": "38eb214bb4e36f52dbb18c6bda40a6bc8ae7797cedd77e172a0e3681b1f13001",
+  "inputCount": 2,
+  "inputBytes": 697990,
+  "pointctlBytes": 674504,
+  "pointctlSha256": "f6f4a0a94d55827e874e45b9484daf8e9af74bae60ac048e7416ba433881c813",
+  "command": "python -B evidence/20261002-nativeboot-B1/execute-native-creator.py",
+  "exitCode": 0,
+  "dryRunLog": {
+    "bytes": 881,
+    "sha256": "edc17ff00101960d46c8d0de3ca304bf92642e6cce98e2c4d015830d6e5c5bc3"
+  },
+  "initialDryRun": {
+    "exitCode": 1,
+    "log": {
+      "bytes": 641,
+      "sha256": "40422d6646cfd00562e8684ad6f91c16f0ed98f52c50ab04d79f8cf63ef9dad0"
+    },
+    "cause": "Local ELF magic literal overescaped; assertion stopped before helper import/connection. Corrected only runner literal; no target/native result."
+  },
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "root": "/tmp/gw-nativeboot-f9a79bd-23-B1",
+  "names": [
+    "gw_native_b1_f9a79bd_cold",
+    "gw_native_b1_f9a79bd_interrupt"
+  ],
+  "checks": [
+    "cold-create",
+    "reopen-cold",
+    "interrupt-after-ftruncate",
+    "resume-interrupted-zero-header",
+    "reopen-resumed",
+    "reject-explicit-private-short-size"
+  ],
+  "businessSampler": "A4 BASELINE_CODE prefix byte-for-byte unchanged; adds parent/raw-mountinfo/reader namespace/two-name-absence proof.",
+  "reuse": "A4 invoke/connect/upload and owned process-group/subreaper/conditional cleanup mechanism. B command/result shape, two input modes, 180s child/240s outer and namespace checks are explicit adaptations, not unchanged test code.",
+  "grammar": "runner/child/baseline/remote Python3.8 grammar exit0; static unshare-private-mount order verified.",
+  "cleanup": "Only owned work on six PASS + empty group + unchanged 16 business groups and parent namespace, then final baseline and two hashes. Retain source/binary/dependency logs/native/parent receipts. Unknown/failure stops; no other targets.",
+  "boundary": "No B child/native executable/unshare/mount/ptrace/loader/SSH executed locally. No Linux/actual-native PASS claimed.",
+  "remoteAuthorized": false,
+  "remoteExecuted": false,
+  "connectionHelperImported": false,
+  "childExecuted": false,
+  "A1A2A3A4Repeated": false,
+  "wsl47230": "unknown; untouched",
+  "BExecutionRequires": "Independent review and new precise scope.",
+  "stillOpen": [
+    "No actual loader compatibility/namespace/ptrace/native operation executed in LOCAL_ONLY.",
+    "Only ftruncate-success/before-user-init interruption proposed; magic/version publication stages, mutex owner-death and arbitrary crash windows not covered.",
+    "C real systemd, D current full-business build/deploy/reboot/signature lifecycle and receiver outage/reconnect/acquisition continuity remain OPEN.",
+    "D1 factory pairing/raw-source resolution, queued R10 bounded diagnostics and cross-end requirements remain OPEN."
+  ]
+}

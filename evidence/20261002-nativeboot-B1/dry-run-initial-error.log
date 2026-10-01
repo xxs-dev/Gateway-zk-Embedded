@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\evidence\20261002-nativeboot-B1\execute-native-creator.py", line 315, in <module>
+    if __name__=='__main__':raise SystemExit(main())
+                                             ~~~~^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\evidence\20261002-nativeboot-B1\execute-native-creator.py", line 262, in main
+    assert elf[:6]==b'\\x7fELF\\x02\\x01' and struct.unpack_from('<H',elf,18)[0]==183
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
