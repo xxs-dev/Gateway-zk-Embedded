@@ -1,0 +1,59 @@
+test_empty_roots_do_not_create_absolute_deploy_candidates (__main__.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates) ... FAIL
+test_external_installer_keeps_source_trio_paired (__main__.LifecycleInstall.test_external_installer_keeps_source_trio_paired) ... FAIL
+test_partial_authoritative_trio_rejects_before_home_creation (__main__.LifecycleInstall.test_partial_authoritative_trio_rejects_before_home_creation) ... FAIL
+test_raw_source_install_disables_core_without_editing_source (__main__.LifecycleInstall.test_raw_source_install_disables_core_without_editing_source) ... FAIL
+
+======================================================================
+FAIL: test_empty_roots_do_not_create_absolute_deploy_candidates (__main__.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 110, in test_empty_roots_do_not_create_absolute_deploy_candidates
+    self.assertNotIn('/deploy/', result.stdout)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '/deploy/' unexpectedly found in '+ deploy_file ota-health-result.py\n+ name=ota-health-result.py\n+ \'[\' ota-health-result.py = offline-runtime-upgrade.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /ota-health-result.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /deploy/ota-health-result.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /deploy/ota-health-result.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /deploy/ota-health-result.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /deploy/ota-health-result.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /ota-health-result.py \']\'\n+ for candidate in "$DEPLOY_DIR/$name" "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name" "$DEFAULT_SOURCE_ROOT/deploy/$name" "$ROOT_DIR/deploy/$name" "$SCRIPT_DIR/$name" "$SCRIPT_DIR/deploy/$name"\n+ \'[\' -f /deploy/ota-health-result.py \']\'\n+ return 1\n+ true\n'
+
+======================================================================
+FAIL: test_external_installer_keeps_source_trio_paired (__main__.LifecycleInstall.test_external_installer_keeps_source_trio_paired)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 91, in test_external_installer_keeps_source_trio_paired
+    self.assert_installed(home, self.source)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 77, in assert_installed
+    self.assertIs(ast.literal_eval(assignments[0].value), False)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+======================================================================
+FAIL: test_partial_authoritative_trio_rejects_before_home_creation (__main__.LifecycleInstall.test_partial_authoritative_trio_rejects_before_home_creation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 96, in test_partial_authoritative_trio_rejects_before_home_creation
+    self.assertNotEqual(result.returncode, 0, result.stdout)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 == 0 : install package profile: base
+initialized runtimeMode: gateway
+initialized machineCode: PRIVATE_FACTORY
+initialized mqtt broker: tcp://127.0.0.1:1883
+initialized mqtt username:
+initialized mqtt tls: false
+initialized direct maintenance: enabled=false listen=192.168.1.250 allowed=
+factory config installed
+
+
+======================================================================
+FAIL: test_raw_source_install_disables_core_without_editing_source (__main__.LifecycleInstall.test_raw_source_install_disables_core_without_editing_source)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 85, in test_raw_source_install_disables_core_without_editing_source
+    self.assert_installed(home, self.source)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 77, in assert_installed
+    self.assertIs(ast.literal_eval(assignments[0].value), False)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+----------------------------------------------------------------------
+Ran 4 tests in 21.233s
+
+FAILED (failures=4)

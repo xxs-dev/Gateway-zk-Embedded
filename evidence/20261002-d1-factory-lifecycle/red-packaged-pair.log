@@ -1,0 +1,19 @@
+test_built_package_wins_over_raw_source_and_external_deploy (tools.factory_lifecycle_install_test.LifecycleInstall.test_built_package_wins_over_raw_source_and_external_deploy) ... FAIL
+test_empty_roots_do_not_create_absolute_deploy_candidates (tools.factory_lifecycle_install_test.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates) ... ok
+
+======================================================================
+FAIL: test_built_package_wins_over_raw_source_and_external_deploy (tools.factory_lifecycle_install_test.LifecycleInstall.test_built_package_wins_over_raw_source_and_external_deploy)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 141, in test_built_package_wins_over_raw_source_and_external_deploy
+    self.assert_installed(home, packaged)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 98, in assert_installed
+    self.assertEqual((home / 'bin' / name).read_bytes(), (origin / 'deploy' / name).read_bytes())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'#!/[91454 chars]s.stderr)\n        sys.exit(2)\n\n# fixture origin: external\n' != b'#!/[91454 chars]s.stderr)\n        sys.exit(2)\n\n# fixture origin: source\n'
+
+----------------------------------------------------------------------
+Ran 2 tests in 10.938s
+
+FAILED (failures=1)

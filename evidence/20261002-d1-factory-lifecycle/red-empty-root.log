@@ -1,0 +1,15 @@
+test_empty_roots_do_not_create_absolute_deploy_candidates (tools.factory_lifecycle_install_test.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates) ... FAIL
+
+======================================================================
+FAIL: test_empty_roots_do_not_create_absolute_deploy_candidates (tools.factory_lifecycle_install_test.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\factory_lifecycle_install_test.py", line 245, in test_empty_roots_do_not_create_absolute_deploy_candidates
+    self.assertFalse(any(path.startswith('/') for path in probes), probes)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false : ['/example.sh', '/deploy/example.sh', '/deploy/example.sh', '/deploy/example.sh', '/deploy/example.sh', '/example.sh', '/deploy/example.sh', '/build-aarch64/PrivateMissing', '/bin/PrivateMissing', '/PrivateMissing', '/build-aarch64/PrivateMissing', '/bin/PrivateMissing', '/PrivateMissing', '/ky-ems', '/ky-ems', '/ky-ems', '/ky-ems', '/ky-ems', '/../ky-ems']
+
+----------------------------------------------------------------------
+Ran 1 test in 0.344s
+
+FAILED (failures=1)

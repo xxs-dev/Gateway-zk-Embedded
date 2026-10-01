@@ -1,0 +1,8 @@
+test_all_factory_profiles_disable_new_core_apply_and_keep_guard (__main__.FactoryCoreIsolationTest.test_all_factory_profiles_disable_new_core_apply_and_keep_guard) ... ok
+test_unknown_policy_assignment_refuses_package_publication (__main__.FactoryCoreIsolationTest.test_unknown_policy_assignment_refuses_package_publication) ... ok
+test_packaged_real_main_rejects_both_test_nodes_before_lock_or_mutation (__main__.FactoryCoreIsolationTest.test_packaged_real_main_rejects_both_test_nodes_before_lock_or_mutation) ... skipped 'real offline main requires Linux fcntl; do not substitute'
+
+----------------------------------------------------------------------
+Ran 3 tests in 6.030s
+
+OK (skipped=1)

@@ -1,0 +1,18 @@
+test_built_package_wins_over_raw_source_and_external_deploy (__main__.LifecycleInstall.test_built_package_wins_over_raw_source_and_external_deploy) ... ok
+test_each_missing_authoritative_trio_member_rejects_before_home_creation (__main__.LifecycleInstall.test_each_missing_authoritative_trio_member_rejects_before_home_creation) ... ok
+test_empty_roots_do_not_create_absolute_deploy_candidates (__main__.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates) ... ok
+test_external_installer_keeps_source_trio_paired (__main__.LifecycleInstall.test_external_installer_keeps_source_trio_paired) ... ok
+test_incomplete_or_unrecognized_package_cannot_fall_back_to_raw_source (__main__.LifecycleInstall.test_incomplete_or_unrecognized_package_cannot_fall_back_to_raw_source) ... ok
+test_installed_bin_installer_has_paired_dependency_and_can_initialize_fresh_home (__main__.LifecycleInstall.test_installed_bin_installer_has_paired_dependency_and_can_initialize_fresh_home) ... ok
+test_malformed_authoritative_policy_rejects_before_home_creation (__main__.LifecycleInstall.test_malformed_authoritative_policy_rejects_before_home_creation) ... ok
+test_missing_installer_stage_helper_rejects_before_home_creation (__main__.LifecycleInstall.test_missing_installer_stage_helper_rejects_before_home_creation) ... ok
+test_production_init_extracted_source_and_cleared_package_are_authoritative (__main__.LifecycleInstall.test_production_init_extracted_source_and_cleared_package_are_authoritative) ... ok
+test_raw_source_install_disables_core_without_editing_source (__main__.LifecycleInstall.test_raw_source_install_disables_core_without_editing_source) ... ok
+test_complete_trio_validated_before_output_mutation (__main__.StagePolicy.test_complete_trio_validated_before_output_mutation) ... ok
+test_literal_value_only_preserves_adjacent_unicode_statements (__main__.StagePolicy.test_literal_value_only_preserves_adjacent_unicode_statements) ... ok
+test_nonliteral_duplicate_nested_and_annotated_bindings_reject (__main__.StagePolicy.test_nonliteral_duplicate_nested_and_annotated_bindings_reject) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 59.893s
+
+OK

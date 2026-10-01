@@ -1,4 +1,5 @@
 """D1 factory artifacts and simulated offline transactions; no real services or SHM."""
+import ast
 import hashlib
 import importlib.util
 import json
@@ -10,12 +11,14 @@ import tarfile
 import tempfile
 import unittest
 from unittest import mock
+import shlex
 
 import core_readonly_activation_test as core
+from factory_lifecycle_install_test import SHELL
 
 REPO = Path(__file__).resolve().parent.parent
 MESSAGE = 'core test apply is disabled in factory packages'
-FILES = ('build-factory-package.sh', 'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
+FILES = ('build-factory-package.sh', 'factory-lifecycle-stage.py', 'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
          'gateway-services.sh', 'ota-apply.sh', 'ota-rollback.sh', 'ota-health-result.py',
          'production-smoke-test.sh')
 BINS = ('SystemMonitor MqttDriver MqttForwarder pointctl ModbusRtu Dlt645Driver DioDriver '
@@ -46,16 +49,23 @@ class FactoryCoreIsolationTest(unittest.TestCase):
         core.write(self.source / 'config/factory/runtime/apps/monitor-service.json', '{}\n')
         for name in BINS:
             core.write(self.source / 'build-aarch64' / name, 'not executable: synthetic package payload\n')
+        self.env = os.environ.copy()
+        if os.name == 'nt':
+            commands = self.root / 'commands'; commands.mkdir()
+            core.write(commands / 'python3', '#!/bin/sh\nexec ' + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"\n')
+            (commands / 'python3').chmod(0o755)
+            self.env.update(PATH=str(commands) + os.pathsep + str(Path(SHELL).parent) + os.pathsep + self.env.get('PATH', ''),
+                            TAR_OPTIONS='--force-local', PYTHONDONTWRITEBYTECODE='1')
 
     def build(self, profile='full'):
         output = self.root / (profile + '.tar.gz')
-        args = ['sh', str(self.source / 'deploy/build-factory-package.sh'), '--profile', profile, '--out', str(output)]
+        args = [SHELL, (self.source / 'deploy/build-factory-package.sh').as_posix(), '--profile', profile, '--out', output.as_posix()]
         if profile == 'project':
             manifest = self.root / 'project.json'
             core.write(manifest, json.dumps({'requiredDrivers': [{'binary': 'ModbusRtu'}]}))
-            args += ['--manifest', str(manifest)]
-        env = os.environ.copy()
-        env.update(TMPDIR=str(self.root), EDGE_PACKAGE_BUILD_DIR=str(self.source / 'build-aarch64'),
+            args += ['--manifest', manifest.as_posix()]
+        env = self.env.copy()
+        env.update(TMPDIR=self.root.as_posix(), EDGE_PACKAGE_BUILD_DIR=(self.source / 'build-aarch64').as_posix(),
                    GIT_OPTIONAL_LOCKS='0')
         return subprocess.run(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, timeout=45), output
@@ -78,13 +88,19 @@ class FactoryCoreIsolationTest(unittest.TestCase):
                 result, output = self.build(profile)
                 self.assertEqual(0, result.returncode, result.stdout)
                 package = self.unpack(output, 'unpacked-' + profile)
-                module = load(package / 'deploy/offline-runtime-upgrade.py')
-                self.assertIs(False, getattr(module, 'CORE_TEST_APPLY_ALLOWED', True))
+                tree = ast.parse((package / 'deploy/offline-runtime-upgrade.py').read_bytes())
+                assignment = next(n for n in tree.body if isinstance(n, ast.Assign) and
+                                  any(isinstance(t, ast.Name) and t.id == 'CORE_TEST_APPLY_ALLOWED' for t in n.targets))
+                self.assertIs(False, ast.literal_eval(assignment.value))
                 self.assertEqual((REPO / 'deploy/runtime-upgrade-guard.py').read_bytes(),
                                  (package / 'deploy/runtime-upgrade-guard.py').read_bytes())
-                self.assertTrue(callable(module.recover))
-                self.assertTrue(callable(module.guard.activated_unit))
-                self.assertTrue(callable(module.guard.ota))
+                self.assertEqual((REPO / 'deploy/ota-health-result.py').read_bytes(),
+                                 (package / 'deploy/ota-health-result.py').read_bytes())
+                if os.name == 'posix':
+                    module = load(package / 'deploy/offline-runtime-upgrade.py')
+                    self.assertTrue(callable(module.recover))
+                    self.assertTrue(callable(module.guard.activated_unit))
+                    self.assertTrue(callable(module.guard.ota))
         self.assertEqual(original, inventory(self.source))
 
     def test_unknown_policy_assignment_refuses_package_publication(self):
@@ -96,6 +112,7 @@ class FactoryCoreIsolationTest(unittest.TestCase):
         self.assertIn('factory core policy assignment', result.stdout)
         self.assertFalse(output.exists())
 
+    @unittest.skipUnless(os.name == 'posix', 'real offline main requires Linux fcntl; do not substitute')
     def test_packaged_real_main_rejects_both_test_nodes_before_lock_or_mutation(self):
         result, output = self.build()
         self.assertEqual(0, result.returncode, result.stdout)

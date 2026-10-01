@@ -1,0 +1,116 @@
+{
+  "format": "d1-factory-lifecycle-local-checkpoint-v1",
+  "date": "2026-10-02",
+  "parent": "599d1a0389ccaf8d820697ed3c04e202c8870c2e",
+  "scope": "LOCAL_ONLY; no SSH/WSL/device/build/Broker/systemd",
+  "files": [
+    {
+      "path": "deploy/build-factory-package.sh",
+      "bytes": 15918,
+      "sha256": "36a0994bc1d23e87acb69cd18309f05c78aff5a344f0746853a7119007e391d3"
+    },
+    {
+      "path": "deploy/install-factory-config.sh",
+      "bytes": 47307,
+      "sha256": "caf6074141c29d526ae1cac07ecb5151f0cf2b3f0fad9def213649a955f5dd3b"
+    },
+    {
+      "path": "deploy/factory-lifecycle-stage.py",
+      "bytes": 4094,
+      "sha256": "953b94fbc21394b492887559f107c64a27c7856e57b671ad4bf98f522cf1cd38"
+    },
+    {
+      "path": "tools/factory_core_isolation_test.py",
+      "bytes": 10007,
+      "sha256": "28733522fa48a09881fbb1112f779b4ed16ec1676dda1c7914fd03e7dadb703b"
+    },
+    {
+      "path": "tools/factory_lifecycle_install_test.py",
+      "bytes": 17008,
+      "sha256": "f0f8e41fb30079a7099ef9f312731082e65c61d0dfa885ef09b5d34b5b85c0f4"
+    }
+  ],
+  "hashBasis": "exact Git index blobs; identical to tested working bytes",
+  "environment": {
+    "python": "Windows Python 3.14.3",
+    "shell": "C:/Program Files/Git/usr/bin/sh.exe",
+    "kernelInventory": "guard /proc and /dev/shm mapped to private empty directories only",
+    "payload": "synthetic never-executed binaries",
+    "disabled": {
+      "INSTALL_SYSTEMD": "0",
+      "START_SERVICES": "0",
+      "RESET_SHM": "0"
+    }
+  },
+  "results": [
+    {
+      "command": "python -B tools/factory_lifecycle_install_test.py (original four-case draft before product fixes)",
+      "tests": 4,
+      "failures": 4,
+      "exitCode": 1,
+      "seconds": 21.233,
+      "log": "red-original-four.log",
+      "note": "original pair assertion was masked by True-policy failure; distinct packaged pairing RED below"
+    },
+    {
+      "command": "FACTORY_TEST_BASELINE_REF=599d1a0389ccaf8d820697ed3c04e202c8870c2e python -B -m unittest -v tools.factory_lifecycle_install_test.LifecycleInstall.test_built_package_wins_over_raw_source_and_external_deploy tools.factory_lifecycle_install_test.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates",
+      "tests": 2,
+      "failures": 1,
+      "exitCode": 1,
+      "seconds": 10.938,
+      "log": "red-packaged-pair.log",
+      "note": "package False policy, external guard bytes differ; empty-root selector still read current file at this earlier harness snapshot, so its PASS is not historical coverage"
+    },
+    {
+      "command": "FACTORY_TEST_BASELINE_REF=599d1a0389ccaf8d820697ed3c04e202c8870c2e python -B -m unittest -v tools.factory_lifecycle_install_test.LifecycleInstall.test_empty_roots_do_not_create_absolute_deploy_candidates",
+      "tests": 1,
+      "failures": 1,
+      "exitCode": 1,
+      "seconds": 0.344,
+      "log": "red-empty-root.log",
+      "note": "corrected exact historical shell selector; actual expanded absolute deploy/bin/ky-ems candidates; no root bait"
+    },
+    {
+      "command": "python -B tools/factory_lifecycle_install_test.py",
+      "tests": 13,
+      "pass": 13,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "exitCode": 0,
+      "seconds": 59.893,
+      "log": "green-install-thirteen.log"
+    },
+    {
+      "command": "python -B tools/factory_core_isolation_test.py -v FactoryCoreIsolationTest.test_all_factory_profiles_disable_new_core_apply_and_keep_guard FactoryCoreIsolationTest.test_unknown_policy_assignment_refuses_package_publication FactoryCoreIsolationTest.test_packaged_real_main_rejects_both_test_nodes_before_lock_or_mutation",
+      "tests": 3,
+      "pass": 2,
+      "skips": 1,
+      "exitCode": 0,
+      "seconds": 6.03,
+      "log": "green-profiles.log",
+      "note": "base/project/full real archives, AST and exact helper bytes; POSIX main explicitly skipped, not emulated"
+    },
+    {
+      "command": "Git sh -n for both changed shell scripts; Python3.8 grammar for three Python files; git diff --check",
+      "exitCode": 0,
+      "note": "grammar only, not Python3.8 runtime"
+    }
+  ],
+  "intermediateFailures": [
+    "initial shell PATH omitted dirname (harness, preserved historical summary)",
+    "Windows stat/fstat ctime semantics made immutable staged sources fail drift checks; helper now preserves named before/after ctime and full POSIX opened ctime checks",
+    "GNU tar treated C:/ archive path as remote; Windows fixture adds --force-local only",
+    "test extraction used a nonexistent function/end marker; corrected; 13-case intermediate had 12 PASS/1 harness ERROR at59.511s; final thirteen fully passed",
+    "earlier POSIX-import regression command failed on missing fcntl; actual returned transcript retained; not a Linux or product admission failure"
+  ],
+  "notVerified": [
+    "Linux/Python3.8 installer and POSIX metadata/fsync behavior",
+    "packaged real offline main refusal before flock (Windows skip)",
+    "unchanged legacy lifecycle/noncore/core recovery compatibility tests on Linux (not rerun)",
+    "actual full AArch64 business package and helper dependency closure on board",
+    "actual production-init interactive/TLS/enrollment/systemd path; only extracted SOURCE_ROOT + cleared FACTORY_PACKAGE calling shape tested",
+    "device install/normal reboot/native SHM/signed HTTPS OTA/business qualification"
+  ],
+  "mutationBoundary": "all installer outputs/extraction/staging under TemporaryDirectory; unknown worktree files unchanged; no factory upgrade admission relaxed; no current runtime/approval/state changes"
+}

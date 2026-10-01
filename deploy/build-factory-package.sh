@@ -339,28 +339,8 @@ if [ -d "$ROOT_DIR/deploy" ]; then
 fi
 # No factory profile may initiate CORE_NODES test transactions. Preserve the
 # guard and saved-state paths; modify only the private staged entry, not source.
-python3 - "$TMP_DIR/gateway-factory-defaults/deploy/offline-runtime-upgrade.py" <<'PY'
-import ast
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-source = path.read_text(encoding="utf-8")
-tree = ast.parse(source)
-assignments = [node for node in tree.body if isinstance(node, ast.Assign) and
-               any(isinstance(target, ast.Name) and target.id == "CORE_TEST_APPLY_ALLOWED"
-                   for target in node.targets)]
-if (len(assignments) != 1 or len(assignments[0].targets) != 1 or
-        not isinstance(assignments[0].value, ast.Constant) or
-        type(assignments[0].value.value) is not bool):
-    raise SystemExit("factory core policy assignment must be one literal bool")
-node = assignments[0]
-lines = source.splitlines(keepends=True)
-lines[node.lineno - 1:node.end_lineno] = ["CORE_TEST_APPLY_ALLOWED = False\n"]
-disabled = "".join(lines)
-compile(disabled, str(path), "exec")
-path.write_text(disabled, encoding="utf-8")
-PY
+python3 "$SCRIPT_DIR/factory-lifecycle-stage.py" \
+  "$TMP_DIR/gateway-factory-defaults/deploy" "$TMP_DIR/gateway-factory-defaults/deploy"
 if [ -n "$OTA_SIGNING_PUBKEY" ]; then
   [ -f "$OTA_SIGNING_PUBKEY" ] || { echo "OTA public key not found: $OTA_SIGNING_PUBKEY" >&2; exit 2; }
   if grep -q 'PRIVATE KEY' "$OTA_SIGNING_PUBKEY" || ! grep -q -- '-----BEGIN PUBLIC KEY-----' "$OTA_SIGNING_PUBKEY"; then

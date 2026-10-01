@@ -4,7 +4,7 @@ set -eu
 GATEWAY_HOME="${GATEWAY_HOME:-/opt/modbus-gateway}"
 DEFAULT_SOURCE_ROOT="${DEFAULT_SOURCE_ROOT:-/home/gateway-factory}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ROOT_DIR=$(CDPATH= cd -- "${SCRIPT_DIR:+$SCRIPT_DIR/..}" && pwd)
 BACKUP_DIR="${BACKUP_DIR:-$GATEWAY_HOME/backup}"
 START_SERVICES="${START_SERVICES:-1}"
 RESET_SHM="${RESET_SHM:-0}"
@@ -17,6 +17,7 @@ INIT_DIRECT_MAINTENANCE_ENABLED="${INIT_DIRECT_MAINTENANCE_ENABLED:-1}"
 INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
 INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
+LIFECYCLE_STAGE_DIR=""
 FACTORY_TMP_DIR="${FACTORY_TMP_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}}"
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
@@ -126,7 +127,7 @@ if [ "$INSTALL_SYSTEMD" = "0" ]; then
 fi
 
 [ "$RESET_SHM" = "0" ] || { echo "RESET_SHM is unsupported; preserve segments and use offline migration" >&2; exit 2; }
-python3 "$SCRIPT_DIR/runtime-upgrade-guard.py" factory "$GATEWAY_HOME"
+python3 "${SCRIPT_DIR:+$SCRIPT_DIR/runtime-upgrade-guard.py}" factory "$GATEWAY_HOME"
 
 cleanup_factory_extract() {
   if [ "$WATCHDOG_APPLYING_OWNED" = "1" ] && grep -qx "pid=$$" "$WATCHDOG_APPLYING_FILE" 2>/dev/null; then
@@ -134,6 +135,9 @@ cleanup_factory_extract() {
   fi
   if [ -n "$FACTORY_EXTRACT_DIR" ] && [ -d "$FACTORY_EXTRACT_DIR" ]; then
     rm -rf "$FACTORY_EXTRACT_DIR"
+  fi
+  if [ -n "$LIFECYCLE_STAGE_DIR" ] && [ -d "$LIFECYCLE_STAGE_DIR" ]; then
+    rm -rf "$LIFECYCLE_STAGE_DIR"
   fi
 }
 
@@ -206,16 +210,16 @@ SOURCE_ROOT="${SOURCE_ROOT:-}"
 if [ -z "$SOURCE_ROOT" ]; then
   SOURCE_ROOT=$(pick_source_root "$DEFAULT_SOURCE_ROOT" "$ROOT_DIR" "$SCRIPT_DIR" || true)
 fi
-DEPLOY_DIR="${DEPLOY_DIR:-$SOURCE_ROOT/deploy}"
+DEPLOY_DIR="${DEPLOY_DIR:-${SOURCE_ROOT:+$SOURCE_ROOT/deploy}}"
 
 FACTORY_PACKAGE="${FACTORY_PACKAGE:-}"
 if [ -z "$FACTORY_PACKAGE" ] && [ -z "${SOURCE_ROOT:-}" ]; then
   FACTORY_PACKAGE=$(pick_existing_file \
-    "$DEFAULT_SOURCE_ROOT/$FACTORY_PACKAGE_NAME" \
+    "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/$FACTORY_PACKAGE_NAME}" \
     "/home/$FACTORY_PACKAGE_NAME" \
-    "$ROOT_DIR/$FACTORY_PACKAGE_NAME" \
-    "$SCRIPT_DIR/$FACTORY_PACKAGE_NAME" \
-    "$SCRIPT_DIR/../$FACTORY_PACKAGE_NAME" \
+    "${ROOT_DIR:+$ROOT_DIR/$FACTORY_PACKAGE_NAME}" \
+    "${SCRIPT_DIR:+$SCRIPT_DIR/$FACTORY_PACKAGE_NAME}" \
+    "${SCRIPT_DIR:+$SCRIPT_DIR/../$FACTORY_PACKAGE_NAME}" \
     "$GATEWAY_HOME/$FACTORY_PACKAGE_NAME" || true)
 fi
 
@@ -226,25 +230,40 @@ if [ -n "$FACTORY_PACKAGE" ]; then
     "$FACTORY_EXTRACT_DIR" \
     "$FACTORY_EXTRACT_DIR/gateway-factory-defaults" \
     "$FACTORY_EXTRACT_DIR/gateway-factory" || true)
+  [ -n "$PACKAGE_ROOT" ] || { echo "factory package source root missing" >&2; exit 2; }
 fi
 
 if [ -z "${FACTORY_DIR:-}" ]; then
-  FACTORY_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/factory" "$SOURCE_ROOT/config/factory" "$DEFAULT_SOURCE_ROOT/config/factory" "$ROOT_DIR/config/factory" "$SCRIPT_DIR/config/factory" || true)
+  FACTORY_DIR=$(pick_existing_dir "${PACKAGE_ROOT:+$PACKAGE_ROOT/config/factory}" "${SOURCE_ROOT:+$SOURCE_ROOT/config/factory}" "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/config/factory}" "${ROOT_DIR:+$ROOT_DIR/config/factory}" "${SCRIPT_DIR:+$SCRIPT_DIR/config/factory}" || true)
 fi
 if [ -z "${TEMPLATES_DIR:-}" ]; then
-  TEMPLATES_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/templates" "$SOURCE_ROOT/config/templates" "$DEFAULT_SOURCE_ROOT/config/templates" "$ROOT_DIR/config/templates" "$SCRIPT_DIR/config/templates" || true)
+  TEMPLATES_DIR=$(pick_existing_dir "${PACKAGE_ROOT:+$PACKAGE_ROOT/config/templates}" "${SOURCE_ROOT:+$SOURCE_ROOT/config/templates}" "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/config/templates}" "${ROOT_DIR:+$ROOT_DIR/config/templates}" "${SCRIPT_DIR:+$SCRIPT_DIR/config/templates}" || true)
 fi
 if [ -z "${EXAMPLES_DIR:-}" ]; then
-  EXAMPLES_DIR=$(pick_existing_dir "$PACKAGE_ROOT/config/examples" "$SOURCE_ROOT/config/examples" "$DEFAULT_SOURCE_ROOT/config/examples" "$ROOT_DIR/config/examples" "$SCRIPT_DIR/config/examples" || true)
+  EXAMPLES_DIR=$(pick_existing_dir "${PACKAGE_ROOT:+$PACKAGE_ROOT/config/examples}" "${SOURCE_ROOT:+$SOURCE_ROOT/config/examples}" "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/config/examples}" "${ROOT_DIR:+$ROOT_DIR/config/examples}" "${SCRIPT_DIR:+$SCRIPT_DIR/config/examples}" || true)
 fi
 if [ -z "${DEPLOY_DIR:-}" ] || [ ! -d "$DEPLOY_DIR" ]; then
-  DEPLOY_DIR=$(pick_existing_dir "$PACKAGE_ROOT/deploy" "$SOURCE_ROOT/deploy" "$DEFAULT_SOURCE_ROOT/deploy" "$ROOT_DIR/deploy" "$SCRIPT_DIR/deploy" || true)
+  DEPLOY_DIR=$(pick_existing_dir "${PACKAGE_ROOT:+$PACKAGE_ROOT/deploy}" "${SOURCE_ROOT:+$SOURCE_ROOT/deploy}" "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/deploy}" "${ROOT_DIR:+$ROOT_DIR/deploy}" "${SCRIPT_DIR:+$SCRIPT_DIR/deploy}" || true)
 fi
 
-if [ ! -d "$FACTORY_DIR/runtime" ]; then
+if [ -z "$FACTORY_DIR" ] || [ ! -d "$FACTORY_DIR/runtime" ]; then
   echo "factory runtime not found: $FACTORY_DIR/runtime" >&2
   exit 1
 fi
+
+# One authoritative lifecycle bundle; never fill a partial package from a newer
+# external installer. production-init's explicit SOURCE_ROOT is authoritative
+# when it has already extracted the package and cleared FACTORY_PACKAGE.
+if [ -n "$PACKAGE_ROOT" ]; then
+  LIFECYCLE_DEPLOY_DIR="${PACKAGE_ROOT:+$PACKAGE_ROOT/deploy}"
+elif [ -n "$SOURCE_ROOT" ]; then
+  LIFECYCLE_DEPLOY_DIR="${SOURCE_ROOT:+$SOURCE_ROOT/deploy}"
+else
+  LIFECYCLE_DEPLOY_DIR="$DEPLOY_DIR"
+fi
+[ -n "$LIFECYCLE_DEPLOY_DIR" ] || { echo "factory lifecycle source missing" >&2; exit 2; }
+LIFECYCLE_STAGE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/factory-lifecycle.XXXXXX")
+python3 "${SCRIPT_DIR:+$SCRIPT_DIR/factory-lifecycle-stage.py}" "$LIFECYCLE_DEPLOY_DIR" "$LIFECYCLE_STAGE_DIR"
 
 install_file_if_exists() {
   src="$1"
@@ -260,24 +279,25 @@ install_file_if_exists() {
 
 deploy_file() {
   name="$1"
-  # External production-init may use a newer installer from DEPLOY_DIR. Never
-  # replace the packaged core-disabled entry with that installer's test source.
-  if [ "$name" = "offline-runtime-upgrade.py" ]; then
-    for candidate in "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name"; do
-      if [ -f "$candidate" ]; then
-        printf '%s\n' "$candidate"
-        return 0
-      fi
-    done
-  fi
+  case "$name" in
+    install-factory-config.sh|factory-lifecycle-stage.py)
+      [ -n "$SCRIPT_DIR" ] && pick_existing_file "$SCRIPT_DIR/$name"
+      return ;;
+    offline-runtime-upgrade.py|runtime-upgrade-guard.py|ota-health-result.py)
+      [ -n "$LIFECYCLE_STAGE_DIR" ] && pick_existing_file "$LIFECYCLE_STAGE_DIR/$name"
+      return ;;
+    ota-apply.sh|ota-rollback.sh|gateway-services.sh|gateway-ota-recover.service)
+      [ -n "$LIFECYCLE_DEPLOY_DIR" ] && pick_existing_file "$LIFECYCLE_DEPLOY_DIR/$name"
+      return ;;
+  esac
   for candidate in \
-    "$DEPLOY_DIR/$name" \
-    "$PACKAGE_ROOT/deploy/$name" \
-    "$SOURCE_ROOT/deploy/$name" \
-    "$DEFAULT_SOURCE_ROOT/deploy/$name" \
-    "$ROOT_DIR/deploy/$name" \
-    "$SCRIPT_DIR/$name" \
-    "$SCRIPT_DIR/deploy/$name"; do
+    "${DEPLOY_DIR:+$DEPLOY_DIR/$name}" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/deploy/$name}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/deploy/$name}" \
+    "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/deploy/$name}" \
+    "${ROOT_DIR:+$ROOT_DIR/deploy/$name}" \
+    "${SCRIPT_DIR:+$SCRIPT_DIR/$name}" \
+    "${SCRIPT_DIR:+$SCRIPT_DIR/deploy/$name}"; do
     if [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0
@@ -327,23 +347,23 @@ install_required_binary() {
 required_binary_file() {
   bin="$1"
   find_first_file \
-    "$PACKAGE_ROOT/build-aarch64/$bin" \
-    "$PACKAGE_ROOT/bin/$bin" \
-    "$PACKAGE_ROOT/$bin" \
-    "$SOURCE_ROOT/build-aarch64/$bin" \
-    "$SOURCE_ROOT/bin/$bin" \
-    "$SOURCE_ROOT/$bin"
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/build-aarch64/$bin}" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/bin/$bin}" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/$bin}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/build-aarch64/$bin}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/bin/$bin}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/$bin}"
 }
 
 install_optional_binary() {
   bin="$1"
   src=$(find_first_file \
-    "$PACKAGE_ROOT/build-aarch64/$bin" \
-    "$PACKAGE_ROOT/bin/$bin" \
-    "$PACKAGE_ROOT/$bin" \
-    "$SOURCE_ROOT/build-aarch64/$bin" \
-    "$SOURCE_ROOT/bin/$bin" \
-    "$SOURCE_ROOT/$bin" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/build-aarch64/$bin}" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/bin/$bin}" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/$bin}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/build-aarch64/$bin}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/bin/$bin}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/$bin}" \
   ) || return 0
   install_file_if_exists "$src" "$GATEWAY_HOME/bin/$bin"
 }
@@ -352,12 +372,12 @@ install_ky_ems_payload() {
   required="${1:-0}"
   src=""
   for candidate in \
-    "$PACKAGE_ROOT/ky-ems" \
-    "$SOURCE_ROOT/ky-ems" \
-    "$DEFAULT_SOURCE_ROOT/ky-ems" \
-    "$ROOT_DIR/ky-ems" \
-    "$SCRIPT_DIR/ky-ems" \
-    "$SCRIPT_DIR/../ky-ems"; do
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/ky-ems}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/ky-ems}" \
+    "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/ky-ems}" \
+    "${ROOT_DIR:+$ROOT_DIR/ky-ems}" \
+    "${SCRIPT_DIR:+$SCRIPT_DIR/ky-ems}" \
+    "${SCRIPT_DIR:+$SCRIPT_DIR/../ky-ems}"; do
     if [ -n "$candidate" ] && [ -d "$candidate" ] && [ -f "$candidate/KY-EMS" ]; then
       src="$candidate"
       break
@@ -487,11 +507,11 @@ unique_words() {
 
 if [ -z "$EDGE_PACKAGE_MANIFEST" ]; then
   EDGE_PACKAGE_MANIFEST=$(pick_existing_file \
-    "$PACKAGE_ROOT/edge-package-manifest.json" \
-    "$PACKAGE_ROOT/config/runtime/edge-package-manifest.json" \
-    "$SOURCE_ROOT/edge-package-manifest.json" \
-    "$SOURCE_ROOT/config/runtime/edge-package-manifest.json" \
-    "$DEFAULT_SOURCE_ROOT/edge-package-manifest.json" || true)
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/edge-package-manifest.json}" \
+    "${PACKAGE_ROOT:+$PACKAGE_ROOT/config/runtime/edge-package-manifest.json}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/edge-package-manifest.json}" \
+    "${SOURCE_ROOT:+$SOURCE_ROOT/config/runtime/edge-package-manifest.json}" \
+    "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/edge-package-manifest.json}" || true)
 fi
 
 if [ -z "$PACKAGE_PROFILE" ]; then
@@ -936,7 +956,7 @@ deploy_file "offline-runtime-upgrade.py" >/dev/null || { echo "offline-runtime-u
 for bin in $REQUIRED_BINS; do
   if [ "$bin" = "KY-EMS" ]; then
     found_ky_ems=0
-    for candidate in "$PACKAGE_ROOT/ky-ems" "$SOURCE_ROOT/ky-ems" "$DEFAULT_SOURCE_ROOT/ky-ems" "$ROOT_DIR/ky-ems"; do
+    for candidate in "${PACKAGE_ROOT:+$PACKAGE_ROOT/ky-ems}" "${SOURCE_ROOT:+$SOURCE_ROOT/ky-ems}" "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/ky-ems}" "${ROOT_DIR:+$ROOT_DIR/ky-ems}"; do
       if [ -n "$candidate" ] && [ -f "$candidate/KY-EMS" ]; then
         found_ky_ems=1
         break
@@ -947,7 +967,7 @@ for bin in $REQUIRED_BINS; do
     required_binary_file "$bin" >/dev/null || { echo "required binary missing: $bin" >&2; exit 2; }
   fi
 done
-for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh; do
+for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh factory-lifecycle-stage.py production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh; do
   deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
 done
 
@@ -979,6 +999,7 @@ install_required_deploy_file "gateway-health-watchdog.sh" "$GATEWAY_HOME/bin/gat
 install_required_deploy_file "gateway-run.sh" "$GATEWAY_HOME/bin/gateway-run.sh"
 install_required_deploy_file "gateway-tls-enroll.sh" "$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
 install_required_deploy_file "install-factory-config.sh" "$GATEWAY_HOME/bin/install-factory-config.sh"
+install_required_deploy_file "factory-lifecycle-stage.py" "$GATEWAY_HOME/bin/factory-lifecycle-stage.py"
 install_required_deploy_file "production-smoke-test.sh" "$GATEWAY_HOME/bin/production-smoke-test.sh"
 install_required_deploy_file "ota-apply.sh" "$GATEWAY_HOME/bin/ota-apply.sh"
 install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.sh"
@@ -994,7 +1015,7 @@ fi
 install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 install_deploy_file_if_exists "prepare-generic-runtime.py" "$GATEWAY_HOME/bin/prepare-generic-runtime.py"
 install_deploy_file_if_exists "gateway-qt-run.sh" "$GATEWAY_HOME/bin/gateway-qt-run.sh"
-install_file_if_exists "$SOURCE_ROOT/config/generic-scada-widgets.json" "$GATEWAY_HOME/config/generic-scada-widgets.json"
+install_file_if_exists "${SOURCE_ROOT:+$SOURCE_ROOT/config/generic-scada-widgets.json}" "$GATEWAY_HOME/config/generic-scada-widgets.json"
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 
@@ -1007,7 +1028,7 @@ install_ota_public_key() {
     pubkey_src=$(pick_existing_file \
       "${PACKAGE_ROOT:+$PACKAGE_ROOT/ota/ota.pub}" \
       "${SOURCE_ROOT:+$SOURCE_ROOT/ota/ota.pub}" \
-      "$DEFAULT_SOURCE_ROOT/ota/ota.pub" || true)
+      "${DEFAULT_SOURCE_ROOT:+$DEFAULT_SOURCE_ROOT/ota/ota.pub}" || true)
   fi
   if [ -n "$pubkey_src" ]; then
     [ -f "$pubkey_src" ] || { echo "OTA public key not found: $pubkey_src" >&2; exit 2; }
