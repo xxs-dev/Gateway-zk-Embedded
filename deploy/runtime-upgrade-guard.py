@@ -204,7 +204,8 @@ def core_config(home, state_dir, approval, state):
 
 def core_denied_units(approval, allowed, inhibited=None):
     for unit in set(approval['units']) - set(allowed):
-        if not unit.endswith('@.service') and (systemctl_value(unit, 'ActiveState') not in ('inactive', 'failed') or
+        template = unit.endswith('@.service')
+        if not template and (systemctl_value(unit, 'ActiveState') not in ('inactive', 'failed') or
                 systemctl_value(unit, 'MainPID') != '0'):
             raise ValueError('core excluded participant is not stopped: ' + unit)
         if inhibited is not None:
@@ -212,8 +213,27 @@ def core_denied_units(approval, allowed, inhibited=None):
             path, body = denied_dropin(home, approval['transactionId'], unit)
             if inhibited:
                 body = ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
-            if (exact_file(path).read_bytes() != body or
-                    set(systemctl_value(unit, 'DropInPaths').split()) != {str(path)}):
+            if (exact_file(path).read_bytes() != body or stat.S_IMODE(path.stat().st_mode) != 0o644):
+                raise ValueError('core excluded participant fence coverage changed: ' + unit)
+            if template:
+                # Bare templates have no systemctl show object; retain the existing fixed-directory coverage gate.
+                directory_names = {unit + '.d', 'service.d'}
+                prefix = unit.split('@')[0]
+                for i, character in enumerate(prefix):
+                    if character == '-':
+                        directory_names.add(prefix[:i + 1] + '.service.d')
+                for base in ('/etc/systemd/system', '/run/systemd/system', '/usr/local/lib/systemd/system',
+                             '/usr/lib/systemd/system', '/lib/systemd/system', '/etc/systemd/system.control',
+                             '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator',
+                             '/run/systemd/generator.early', '/run/systemd/generator.late'):
+                    for dirname in directory_names:
+                        directory = Path(base) / dirname
+                        wanted = {path.name} if directory == path.parent else set()
+                        if directory.is_symlink() or (directory.exists() and (
+                                not directory.is_dir() or {p.name for p in directory.iterdir()} != wanted)) or (
+                                wanted and not directory.exists()):
+                            raise ValueError('core excluded participant fence coverage changed: ' + unit)
+            elif set(systemctl_value(unit, 'DropInPaths').split()) != {str(path)}:
                 raise ValueError('core excluded participant fence coverage changed: ' + unit)
 
 

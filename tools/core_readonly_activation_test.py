@@ -9,7 +9,9 @@ import os
 from pathlib import Path
 import struct
 import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 import a_acquisition_activation_test as fixture
 
@@ -370,6 +372,127 @@ class CoreReadOnlyTest(unittest.TestCase):
         write(manifest, json.dumps({'files': []}))
         with self.assertRaisesRegex(ValueError, 'offline upgrade fence active'):
             f.g.ota(manifest)
+
+
+class CoreDeniedTemplateTest(unittest.TestCase):
+    def setUp(self):
+        self.g = load().guard
+        temp = tempfile.TemporaryDirectory(prefix='core-template-fence-')
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        def mapped(*parts):
+            path = Path(*parts)
+            return self.root / str(path).lstrip('/') if path.is_absolute() else path
+        self.path = mapped
+        patcher = mock.patch.object(self.g, 'Path', mapped)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.template = 'event-engine@.service'
+        self.instance = 'event-engine@excluded.service'
+        self.approval = {'gatewayHome': '/opt/modbus-gateway', 'transactionId': 'synthetic-template',
+                         'units': [self.template, self.instance]}
+        self.queries = []
+        def value(unit, prop):
+            if unit.endswith('@.service'):
+                raise ValueError('systemctl show failed: ' + unit + ' ' + prop)
+            self.queries.append((unit, prop))
+            path, _ = self.g.denied_dropin(mapped(self.approval['gatewayHome']),
+                                          self.approval['transactionId'], unit)
+            return {'ActiveState': 'inactive', 'MainPID': '0', 'DropInPaths': str(path)}[prop]
+        self.value = value
+        patcher = mock.patch.object(self.g, 'systemctl_value', value)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fences(self, inhibited):
+        home = self.path(self.approval['gatewayHome'])
+        for unit in self.approval['units']:
+            path, body = self.g.denied_dropin(home, self.approval['transactionId'], unit)
+            if inhibited:
+                body = ('[Unit]\nConditionPathExists=!' + str(home / 'data/runtime-upgrade-stop') + '\n').encode()
+            write(path, body)
+            path.chmod(0o644)
+        return self.g.denied_dropin(home, self.approval['transactionId'], self.template)[0]
+
+    def test_bare_template_is_not_queried_but_instances_are(self):
+        for inhibited in (True, False):
+            with self.subTest(inhibited=inhibited):
+                self.fences(inhibited)
+                self.queries.clear()
+                self.g.core_denied_units(self.approval, [], inhibited=inhibited)
+                self.assertEqual({(self.instance, p) for p in ('ActiveState', 'MainPID', 'DropInPaths')},
+                                 set(self.queries))
+
+    def test_template_missing_fence_refused(self):
+        for inhibited in (True, False):
+            with self.subTest(inhibited=inhibited):
+                self.fences(inhibited).unlink()
+                with self.assertRaisesRegex(ValueError, 'single-link regular'):
+                    self.g.core_denied_units(self.approval, [], inhibited=inhibited)
+
+    def test_template_changed_fence_refused(self):
+        for inhibited in (True, False):
+            with self.subTest(inhibited=inhibited):
+                write(self.fences(inhibited), '[Unit]\nConditionPathExists=/unapproved\n')
+                with self.assertRaisesRegex(ValueError, 'fence coverage'):
+                    self.g.core_denied_units(self.approval, [], inhibited=inhibited)
+
+    def test_template_wrong_mode_refused(self):
+        for inhibited in (True, False):
+            for mode in (0o600, 0o666, 0o755):
+                with self.subTest(inhibited=inhibited, mode=mode):
+                    self.fences(inhibited).chmod(mode)
+                    with self.assertRaisesRegex(ValueError, 'fence coverage'):
+                        self.g.core_denied_units(self.approval, [], inhibited=inhibited)
+
+    def test_template_extra_dropins_refused_in_fixed_search_directories(self):
+        for inhibited in (True, False):
+            for dirname in ('etc/systemd/system/' + self.template + '.d',
+                            'run/systemd/system/' + self.template + '.d',
+                            'usr/lib/systemd/system/' + self.template + '.d',
+                            'run/systemd/generator.early/' + self.template + '.d',
+                            'etc/systemd/system/service.d',
+                            'etc/systemd/system/event-.service.d'):
+                with self.subTest(inhibited=inhibited, directory=dirname):
+                    self.fences(inhibited)
+                    extra = self.root / dirname / '99-unapproved.conf'
+                    write(extra, '[Service]\nExecStartPre=/unapproved\n')
+                    try:
+                        with self.assertRaisesRegex(ValueError, 'fence coverage'):
+                            self.g.core_denied_units(self.approval, [], inhibited=inhibited)
+                    finally:
+                        extra.unlink()
+
+    def test_template_nonregular_or_multilink_fence_refused(self):
+        for kind in ('symlink', 'hardlink', 'directory'):
+            with self.subTest(kind=kind):
+                p = self.fences(True)
+                original = p.read_bytes()
+                p.unlink()
+                target = self.root / 'unapproved-fence'
+                write(target, original)
+                if kind == 'symlink': p.symlink_to(target)
+                elif kind == 'hardlink': os.link(target, p)
+                else: p.mkdir()
+                try:
+                    with self.assertRaisesRegex(ValueError, 'single-link regular'):
+                        self.g.core_denied_units(self.approval, [], inhibited=True)
+                finally:
+                    if kind == 'directory': p.rmdir()
+                    else: p.unlink()
+                    target.unlink()
+
+    def test_instance_effective_coverage_and_stopped_gates_remain_strict(self):
+        for prop, value, error in (('DropInPaths', '/unapproved.conf', 'fence coverage'),
+                                   ('ActiveState', 'active', 'not stopped'),
+                                   ('MainPID', '91', 'not stopped')):
+            with self.subTest(property=prop):
+                self.fences(True)
+                def changed(unit, requested):
+                    return value if unit == self.instance and requested == prop else self.value(unit, requested)
+                with mock.patch.object(self.g, 'systemctl_value', changed):
+                    with self.assertRaisesRegex(ValueError, error):
+                        self.g.core_denied_units(self.approval, [], inhibited=True)
 
 
 if __name__ == '__main__':
