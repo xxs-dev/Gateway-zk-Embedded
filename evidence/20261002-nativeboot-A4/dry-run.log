@@ -1,0 +1,59 @@
+{
+  "host": "192.168.22.23",
+  "root": "/tmp/gw-nativeboot-6e09390c-23-A4",
+  "commit": "6e09390c70adeed724e88edc23a2b9fb87178b48",
+  "inputs": {
+    "deploy/offline-runtime-upgrade.py": {
+      "bytes": 201410,
+      "sha256": "a1a6b40fda30064959441ee40096fbdb321a7f0c3da1e8bb0e32a5ab0900d13c"
+    },
+    "deploy/runtime-upgrade-guard.py": {
+      "bytes": 86399,
+      "sha256": "984ea3a6e568022f72d7a6dee71bcef3589cad7a6209f3f96dfa9ed2d0c98c35"
+    },
+    "deploy/ota-health-result.py": {
+      "bytes": 53446,
+      "sha256": "370806529336c91c258ec33f35026424b76d722b8be341192a515a5cff5866c6"
+    },
+    "tools/production_runtime_baseline_test.py": {
+      "bytes": 45388,
+      "sha256": "7a59e5941c0468cef6ca0e99be54fe5e7a06fbf57728d2d72a5bce7a3017c185"
+    },
+    "tools/production_boot_publication_test.py": {
+      "bytes": 36269,
+      "sha256": "fa7c76d4d9bd2fbf81da8afb44d1a7c56cc0e44521de465b8faa9f3fb221a804"
+    },
+    "tools/production_native_boot_test.py": {
+      "bytes": 26721,
+      "sha256": "333691c4d2fb9f3e29443304164971fcf66fd00f9c8947ee5e7ccf222a94440c"
+    },
+    "tools/production_boot_health_publication_test.py": {
+      "bytes": 9336,
+      "sha256": "783598b80073769058cd25a08646b2d72852c84ed5abbfa67b1406d67eb9ec73"
+    },
+    "deploy/gateway-services.sh": {
+      "bytes": 21858,
+      "sha256": "b9745835b50ed70d9697fb99909f3ccdbd15240aa31cf6733318e9f3672e5960"
+    },
+    "deploy/ota-rollback.sh": {
+      "bytes": 18983,
+      "sha256": "5c1c9cf20e3da05667846349d83a150aaafa2d824ea83d583505527a041c2c57"
+    },
+    "deploy/gateway-ota-recover.service": {
+      "bytes": 845,
+      "sha256": "afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f"
+    },
+    "tools/fixtures/production-historical-r2-allowlists.json": {
+      "bytes": 949,
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    }
+  },
+  "cases": [
+    "production_native_boot_test.NativeBootTest.test_memory_insufficient_refuses_before_intent_or_native_call",
+    "production_native_boot_test.NativeBootTest.test_tmpfs_insufficient_refuses_before_intent_or_native_call"
+  ],
+  "executeApprovedFlag": false,
+  "remoteAuthorized": false,
+  "fixtureOnly": true,
+  "selectedTestCount": 2
+}
