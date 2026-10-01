@@ -260,6 +260,16 @@ install_file_if_exists() {
 
 deploy_file() {
   name="$1"
+  # External production-init may use a newer installer from DEPLOY_DIR. Never
+  # replace the packaged core-disabled entry with that installer's test source.
+  if [ "$name" = "offline-runtime-upgrade.py" ]; then
+    for candidate in "$PACKAGE_ROOT/deploy/$name" "$SOURCE_ROOT/deploy/$name"; do
+      if [ -f "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  fi
   for candidate in \
     "$DEPLOY_DIR/$name" \
     "$PACKAGE_ROOT/deploy/$name" \

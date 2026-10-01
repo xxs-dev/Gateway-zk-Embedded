@@ -37,11 +37,19 @@ B_MONITOR_BINARY_SHA256 = '91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b6
 B_MONITOR_UNIT_SHA256 = '946e192e53d54482d0758aac4260575a617f2495b43ad87b4dd1a2f3257465a2'
 B_MONITOR_APPS = {'camera-service.json', 'monitor-service.json', 'mqtt-service.json'}
 ACTIVATION_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh')
+# This source entry is test-only for CORE_NODES; factory staging hard-disables
+# new core apply. Keep saved transaction validation/activation/recovery compatible.
+CORE_TEST_APPLY_ALLOWED = True
 
 
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def core_apply_policy(approval):
+    require('coreReadOnlyTest' not in approval or CORE_TEST_APPLY_ALLOWED is True,
+            'core test apply is disabled in factory packages')
 
 
 def mem_available_bytes():
@@ -735,6 +743,7 @@ def no_mappings(names, include_fds=False):
 
 def read_inputs(args):
     approval = checked_json(args.approval, args.approval_sha256)
+    core_apply_policy(approval)
     approval_mode(approval)
     require(guard.compatibility(approval) is not None, 'runtimeCompatibility required')
     require(approval.get('controlEnabled') is False, 'control must remain disabled')
@@ -1829,6 +1838,9 @@ def main():
     if args.action == 'apply':
         require(args.approval and args.manifest and args.payload, 'apply requires approval, manifest and payload')
         args.payload = args.payload.absolute()
+        if CORE_TEST_APPLY_ALLOWED is not True:
+            # Refuse production core requests before even creating the main lock.
+            core_apply_policy(checked_json(args.approval, args.approval_sha256))
     lock_path = Path('/run/gateway-offline-runtime.lock')
     fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:

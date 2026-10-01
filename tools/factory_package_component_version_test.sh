@@ -85,6 +85,19 @@ done
 [ -x "$TMP_ROOT/gateway/ky-ems/KY-EMS" ]
 [ -x "$TMP_ROOT/gateway/bin/gateway-health-watchdog.sh" ]
 
+python3 - "$TMP_ROOT/gateway/bin/offline-runtime-upgrade.py" \
+  "$TMP_ROOT/gateway/bin/runtime-upgrade-guard.py" "$ROOT_DIR/deploy/runtime-upgrade-guard.py" <<'PY'
+import ast
+from pathlib import Path
+import sys
+tree = ast.parse(Path(sys.argv[1]).read_text())
+policy = [node.value.value for node in tree.body if isinstance(node, ast.Assign)
+          and any(isinstance(t, ast.Name) and t.id == 'CORE_TEST_APPLY_ALLOWED' for t in node.targets)]
+assert policy == [False], policy
+assert Path(sys.argv[2]).read_bytes() == Path(sys.argv[3]).read_bytes()
+print('external production init installed disabled core apply and unchanged guard')
+PY
+
 smoke_output="$TMP_ROOT/production-smoke.out"
 GATEWAY_HOME="$TMP_ROOT/gateway" \
 APP_CONFIG="$TMP_ROOT/gateway/config/runtime/apps/mqtt-service.json" \
