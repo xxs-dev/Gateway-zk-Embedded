@@ -1,0 +1,109 @@
+{
+  "stage": "L8",
+  "date": "2026-10-01",
+  "base": "9501da0cb720c247c34c923352709b9e53b3b1d0",
+  "releaseRef": "refs/heads/realese1.0",
+  "releaseHash": "f9c944f84cc01ff3ea15e40bef21f2afacd2422a",
+  "native": {
+    "path": "/var/tmp/edge-review-r1-20260930-build/ota_final_state_test",
+    "sha256": "98d37872b191b22fd8bb31e46350e18e11af69068571c945f55769685d343bcb"
+  },
+  "fileCount": 19,
+  "files": [
+    {
+      "path": "src/ota_service.cpp",
+      "sha256": "51c788e044a3a54e41927f0ed0f340b3344f01d7f18b2ff598c2cf80b5812f08",
+      "bytes": 116100
+    },
+    {
+      "path": "tools/ota_final_state_test.cpp",
+      "sha256": "3f448b989b7cce5e7c7eaa4517ecb42049e303d66c6fc6e37b67a02e64a48cce",
+      "bytes": 50825
+    },
+    {
+      "path": "tools/ota_finalization_test.hpp",
+      "sha256": "ab2a38686e3f24ebb84ec3b48c29c79aa00188067734a5100492053d1c688ca1",
+      "bytes": 26423
+    },
+    {
+      "path": "evidence/l8-20261001-evidence-build.log",
+      "sha256": "db349506e66d3593c1b1d207c4a010cffda573e2dbfe36380229b352359af5af",
+      "bytes": 237
+    },
+    {
+      "path": "evidence/l8-20261001-final-build.log",
+      "sha256": "ab808aa710cfba5d62356e695baa87da1eef92c9a53f45d94e39af16ae0e4e11",
+      "bytes": 366
+    },
+    {
+      "path": "evidence/l8-20261001-final-check-verified.log",
+      "sha256": "9ea4bffc9c6ba93bc738ebdea2a0c5f100b278f88cef25e928b49d6e30be627d",
+      "bytes": 471
+    },
+    {
+      "path": "evidence/l8-20261001-final-check.log",
+      "sha256": "5cbbc281c1a02f5e2bec3b1904fd939c5d9741f14753a2bb42f7b6737b8c86bc",
+      "bytes": 468
+    },
+    {
+      "path": "evidence/l8-20261001-final-native.log",
+      "sha256": "8afc4fcd815e02f98578452424aa5bab3efc484bdfde7486ab2537ca68bd0aad",
+      "bytes": 17165
+    },
+    {
+      "path": "evidence/l8-20261001-focused-evidence.log",
+      "sha256": "22ccbd6fda0e87d2b7ee73944b29de0108a534f9a15d644d481906727780ea4d",
+      "bytes": 2120
+    },
+    {
+      "path": "evidence/l8-20261001-focused-history.log",
+      "sha256": "6c74a71ac886493797c76661c02bb2b884bad1dcb00d854187eee0fb311a0f73",
+      "bytes": 169
+    },
+    {
+      "path": "evidence/l8-20261001-green-directory-sync.log",
+      "sha256": "fe9d2f2086bdc106f020d65def1d47c4b095a4caa37ffc8d65cb6a5161bff92b",
+      "bytes": 183
+    },
+    {
+      "path": "evidence/l8-20261001-green-final.log",
+      "sha256": "59bcf2dea745382d8649fac3433f358fd5e46816b28f6963895070808e233331",
+      "bytes": 165
+    },
+    {
+      "path": "evidence/l8-20261001-green-tail-build.log",
+      "sha256": "fedd6f13c6726077df4ac956272cc958402816b8fbadb153d47273e0aedf9c2b",
+      "bytes": 270
+    },
+    {
+      "path": "evidence/l8-20261001-green-version.log",
+      "sha256": "232fbd47a2458c02cc10c950a0427f9e83d61df222cf51f41c7671a9ade04028",
+      "bytes": 169
+    },
+    {
+      "path": "evidence/l8-20261001-red-build.log",
+      "sha256": "db349506e66d3593c1b1d207c4a010cffda573e2dbfe36380229b352359af5af",
+      "bytes": 237
+    },
+    {
+      "path": "evidence/l8-20261001-red-directory-sync.log",
+      "sha256": "d160b243015479a04198031bb46cd9c4196778665e7129ab1276b0fc0526b271",
+      "bytes": 134
+    },
+    {
+      "path": "evidence/l8-20261001-red-final.log",
+      "sha256": "d160b243015479a04198031bb46cd9c4196778665e7129ab1276b0fc0526b271",
+      "bytes": 134
+    },
+    {
+      "path": "evidence/l8-20261001-red-version.log",
+      "sha256": "d160b243015479a04198031bb46cd9c4196778665e7129ab1276b0fc0526b271",
+      "bytes": 134
+    },
+    {
+      "path": "evidence/l8-20261001-report.md",
+      "sha256": "f020f252c0aaf370dd66e458cfc2a28fd1f8c3f2d7934c4a9f34cb6ae9f7d538",
+      "bytes": 4505
+    }
+  ]
+}

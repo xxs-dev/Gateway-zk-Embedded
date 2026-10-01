@@ -1,0 +1,7 @@
+warning: in the working copy of 'src/ota_service.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tools/ota_final_state_test.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tools/ota_finalization_test.hpp', LF will be replaced by CRLF the next time Git touches it
+diff_check_exit=0
+9501da0cb720c247c34c923352709b9e53b3b1d0
+f9c944f84cc01ff3ea15e40bef21f2afacd2422a
+refs_exit=0

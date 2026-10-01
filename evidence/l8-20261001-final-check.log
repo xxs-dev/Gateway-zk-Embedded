@@ -1,0 +1,4 @@
+fatal: not a git repository: /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/D:/workspace/Embedded/Gateway-zk/.git/worktrees/realese1.0
+diff_check_exit=128
+fatal: not a git repository: /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0/D:/workspace/Embedded/Gateway-zk/.git/worktrees/realese1.0
+98d37872b191b22fd8bb31e46350e18e11af69068571c945f55769685d343bcb  /var/tmp/edge-review-r1-20260930-build/ota_final_state_test

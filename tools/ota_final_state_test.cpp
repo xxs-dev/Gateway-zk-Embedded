@@ -35,6 +35,7 @@
 static thread_local int finalizationFault = 0;
 static thread_local bool failFinalDirectorySync = false;
 static thread_local bool failReplayJournalRename = false;
+static thread_local bool failSyncAuditRename = false;
 extern "C" int __real_rename(const char*, const char*);
 extern "C" int __real_fsync(int);
 extern "C" int __wrap_rename(const char* source, const char* destination) {
@@ -45,7 +46,7 @@ extern "C" int __wrap_rename(const char* source, const char* destination) {
         errno = ENOSPC; return -1;
     }
     const std::string auditSuffix = "/ota_reconcile_FINAL_JOB.json";
-    if (finalizationFault == 3 && path.size() >= auditSuffix.size() &&
+    if ((finalizationFault == 3 || failSyncAuditRename) && path.size() >= auditSuffix.size() &&
         path.compare(path.size() - auditSuffix.size(), auditSuffix.size(), auditSuffix) == 0) {
         errno = ENOSPC; return -1;
     }
@@ -883,6 +884,10 @@ int main(int argc, char** argv) {
             verifySuccessfulFinalization(argv[2]);
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--sync-recovery-evidence") {
+            verifySynchronousRecoveryEvidence();
+            return 0;
+        }
         if (argc == 4 && std::string(argv[1]) == "--official-early-failure") {
             verifyOfficialEarlyFailure(argv[2], argv[3]);
             return 0;
@@ -901,6 +906,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         verifySuccessfulFinalizationCases();
+        verifySynchronousRecoveryEvidence();
         verifyOtaReplayIsolationCases();
         verifyOtaRootParsing();
         verifyPreIntentFailureRetainsLease();

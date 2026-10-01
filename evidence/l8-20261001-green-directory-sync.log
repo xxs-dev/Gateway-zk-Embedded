@@ -1,0 +1,4 @@
+synchronous audit tail directory-sync: metadata recovered, apply once, no health fabricated
+finalization directory-sync: initial-final=unknown no false failed/reapply
+
+command_exit=0

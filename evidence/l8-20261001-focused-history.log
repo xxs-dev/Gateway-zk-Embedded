@@ -1,0 +1,4 @@
+synchronous audit tail history: metadata recovered, apply once, no health fabricated
+finalization history: initial-final=unknown no false failed/reapply
+
+command_exit=0
