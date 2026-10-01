@@ -7,7 +7,8 @@
 #include <thread>
 #ifndef _WIN32
 #include <cstdlib>
-#include <filesystem>
+#include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -25,6 +26,29 @@ void require(bool condition, const char* message) {
 }
 #ifndef _WIN32
 using namespace edge_gateway;
+bool removeContents(int directory) {
+    DIR* entries = fdopendir(fcntl(directory, F_DUPFD_CLOEXEC, 3));
+    if (!entries) return false;
+    bool ok = true;
+    for (dirent* entry = readdir(entries); entry && ok; entry = readdir(entries)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        struct stat before{};
+        if (fstatat(directory, name.c_str(), &before, AT_SYMLINK_NOFOLLOW) != 0) { ok = false; break; }
+        if (S_ISDIR(before.st_mode)) {
+            const int child = openat(directory, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            struct stat opened{};
+            ok = child >= 0 && fstat(child, &opened) == 0 && before.st_dev == opened.st_dev &&
+                before.st_ino == opened.st_ino && removeContents(child);
+            if (child >= 0) close(child);
+        }
+        struct stat current{};
+        ok = ok && fstatat(directory, name.c_str(), &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+            before.st_dev == current.st_dev && before.st_ino == current.st_ino &&
+            unlinkat(directory, name.c_str(), S_ISDIR(before.st_mode) ? AT_REMOVEDIR : 0) == 0;
+    }
+    closedir(entries); return ok;
+}
 class Publisher : public IMqttDriverPublisher {
 public:
     void publishFullSnapshot(const std::string&, const std::vector<StoredPointValue>&, const std::string&) override {}
@@ -59,14 +83,14 @@ struct Fixture {
         char path[] = "/tmp/gateway-r10-private-XXXXXX";
         const auto made = mkdtemp(path); require(made != nullptr, "private test root");
         root = made; previousPath = getenv("PATH") ? getenv("PATH") : "";
-        std::filesystem::create_directory(root + "/bin");
+        require(mkdir((root + "/bin").c_str(), 0700) == 0, "private bin directory");
         write("bin/top", "#!/bin/sh\necho run >> \"$DIAG_FIXTURE_DIR/runs\"\n"
                          "case \"$DIAG_FIXTURE_MODE\" in stall) sleep 30;; failure) exit 1;; *) printf 'done\\n';; esac\n");
         require(chmod((root + "/bin/top").c_str(), 0700) == 0, "private top mode");
         setenv("PATH", (root + "/bin:" + previousPath).c_str(), 1);
         setenv("DIAG_FIXTURE_DIR", root.c_str(), 1);
         setenv("DIAG_FIXTURE_MODE", "stall", 1);
-        std::filesystem::create_directory(root + "/project");
+        require(mkdir((root + "/project").c_str(), 0700) == 0, "private project directory");
         write("project/manifest.json", R"({"schemaVersion":"2.0","projectId":"private","projectName":"Private","packageVersion":"1.0.0","entryScreen":"","packageRole":"edgeNode"})");
         write("project/topology.json", R"({"mode":"upperComputer","scadaHost":"fixture","emsHost":"fixture","dataTransport":"directPreferredMqttFallback","offlinePolicy":"edgeSafeState","upperComputerOfflinePolicy":{"timeoutMs":1000,"action":"executeConfiguredActions","retainLocalSafetyRules":true,"requireFreshLeaseForControl":true,"safetyActions":[{"actionId":"private-safe","nodeId":"private","tagId":"private.setpoint","value":0,"highPriority":false}]}})");
         write("project/nodes.json", R"([{"nodeId":"private","machineCode":"PRIVATE_DIAG","displayName":"Private","roles":["safety"]}])");
@@ -75,7 +99,11 @@ struct Fixture {
     }
     ~Fixture() {
         setenv("PATH", previousPath.c_str(), 1); unsetenv("DIAG_FIXTURE_DIR"); unsetenv("DIAG_FIXTURE_MODE");
-        std::filesystem::remove_all(root); // Exact mkdtemp-owned root, after service destruction.
+        // Exact mkdtemp-owned root, after service destruction. Never follow links.
+        const int directory = open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        const bool removed = directory >= 0 && removeContents(directory);
+        if (directory >= 0) close(directory);
+        if (!removed || rmdir(root.c_str()) != 0) std::cerr << "private fixture cleanup not confirmed: " << root << "\n";
     }
     void write(const std::string& name, const std::string& content) {
         std::ofstream file(root + "/" + name); file << content; require(bool(file), "private fixture write");
