@@ -1,0 +1,50 @@
+{
+  "scope": "LOCAL_ONLY R10 build preparation; NO remote execution",
+  "sourceCommit": "438507cdb191b5b91c77eca2e672b4e74e06bd1f",
+  "productCommit": "68de70fbc37cf3267116624a259a81510b2d74d3",
+  "manifestSha256": "e52eac409d17fd34f5e14fd2d24975bcdc5318a7a5c3f4d8f50669d7b96e1f9b",
+  "runnerSha256": "86a733971f0696973edc3de5d266f07786263e5462e34faeb5b11814e7e0701a",
+  "sourceArchiveSha256": "dd8bc90081b89cd52ff7fd7abd2e1633a2c646e2590279a9166a42dfb4d2080f",
+  "sourceArchiveBytes": 8140800,
+  "sourceFiles": 442,
+  "python38Grammar": "all supplemental .py parsed as feature_version(3,8); NOT actual Python3.8 execution",
+  "windowsSyntaxChecks": [
+    {
+      "file": "tools/system_monitor_diagnostic_test.cpp",
+      "exitCode": 0,
+      "scope": "Linux fixture body EXCLUDED"
+    },
+    {
+      "file": "evidence/20261002-r10-linux/ownership-probe.cpp",
+      "exitCode": 0,
+      "scope": "Linux directed experiment body EXCLUDED"
+    }
+  ],
+  "dryRuns": [
+    {
+      "command": "python -B evidence/20261002-r10-linux/execute-r10.py",
+      "captured": {
+        "chunk_id": "162005",
+        "wall_time_seconds": 0.0000092,
+        "exit_code": 0,
+        "original_token_count": 178,
+        "output": "{\r\n  \"stage\": \"build\",\r\n  \"manifestSha256\": \"e52eac409d17fd34f5e14fd2d24975bcdc5318a7a5c3f4d8f50669d7b96e1f9b\",\r\n  \"sourceCommit\": \"438507cdb191b5b91c77eca2e672b4e74e06bd1f\",\r\n  \"productCommit\": \"68de70fbc37cf3267116624a259a81510b2d74d3\",\r\n  \"sourceArchiveBytes\": 8140800,\r\n  \"sourceArchiveSha256\": \"dd8bc90081b89cd52ff7fd7abd2e1633a2c646e2590279a9166a42dfb4d2080f\",\r\n  \"sourceFiles\": 442,\r\n  \"buildRoot\": \"/srv/build/gw-r10-68de70f-build-L1\",\r\n  \"boardRoot\": \"/tmp/gw-r10-68de70f-23-L1\",\r\n  \"targets\": [\r\n    \"diagnostic_process_test\",\r\n    \"system_monitor_diagnostic_test\",\r\n    \"system_monitor_service_test\"\r\n  ],\r\n  \"executionAuthorized\": false,\r\n  \"connects\": false,\r\n  \"remoteResultAvailable\": false\r\n}\r\n"
+      }
+    },
+    {
+      "command": "python -B evidence/20261002-r10-linux/execute-r10.py --stage board",
+      "captured": {
+        "chunk_id": "6ccd86",
+        "wall_time_seconds": 0.0000072,
+        "exit_code": 0,
+        "original_token_count": 178,
+        "output": "{\r\n  \"stage\": \"board\",\r\n  \"manifestSha256\": \"e52eac409d17fd34f5e14fd2d24975bcdc5318a7a5c3f4d8f50669d7b96e1f9b\",\r\n  \"sourceCommit\": \"438507cdb191b5b91c77eca2e672b4e74e06bd1f\",\r\n  \"productCommit\": \"68de70fbc37cf3267116624a259a81510b2d74d3\",\r\n  \"sourceArchiveBytes\": 8140800,\r\n  \"sourceArchiveSha256\": \"dd8bc90081b89cd52ff7fd7abd2e1633a2c646e2590279a9166a42dfb4d2080f\",\r\n  \"sourceFiles\": 442,\r\n  \"buildRoot\": \"/srv/build/gw-r10-68de70f-build-L1\",\r\n  \"boardRoot\": \"/tmp/gw-r10-68de70f-23-L1\",\r\n  \"targets\": [\r\n    \"diagnostic_process_test\",\r\n    \"system_monitor_diagnostic_test\",\r\n    \"system_monitor_service_test\"\r\n  ],\r\n  \"executionAuthorized\": false,\r\n  \"connects\": false,\r\n  \"remoteResultAvailable\": false\r\n}\r\n"
+      }
+    }
+  ],
+  "remoteConnections": 0,
+  "linuxCompilation": false,
+  "linuxBehavior": false,
+  "boardExecutionReady": false,
+  "firstFreeze": "default Windows Git archive CRLF rejected before outputs/transfer; corrected explicit LF archive succeeded"
+}

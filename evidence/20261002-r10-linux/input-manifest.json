@@ -1,0 +1,2714 @@
+{
+  "baselineGitSha256": "fee48c39ca46a3fc40cefed0782232183f582c397061ebac33979a117e52770a",
+  "boardExecutionReady": false,
+  "boardHost": "192.168.22.23",
+  "boardRoot": "/tmp/gw-r10-68de70f-23-L1",
+  "buildHost": "192.168.22.11",
+  "buildRoot": "/srv/build/gw-r10-68de70f-build-L1",
+  "connectionPins": {
+    "d2_device_readonly_probe.py": "509a74fcf5658156773d1273b4e2222d5b8d687da57bc8cdaf0086a88765a221",
+    "run_bounded_probe.py": "d8dfd569062fee7bbb022c6f4f49b93bdd4a0415a819d1c2e5bfcb16f2dc7ccf"
+  },
+  "executionAuthorized": false,
+  "gitByteIdentity": true,
+  "productCommit": "68de70fbc37cf3267116624a259a81510b2d74d3",
+  "sourceArchiveBytes": 8140800,
+  "sourceArchiveSha256": "dd8bc90081b89cd52ff7fd7abd2e1633a2c646e2590279a9166a42dfb4d2080f",
+  "sourceCommit": "438507cdb191b5b91c77eca2e672b4e74e06bd1f",
+  "sourceFiles": [
+    {
+      "bytes": 52641,
+      "mode": 436,
+      "path": "CMakeLists.txt",
+      "sha256": "116eab8692ef50ac657af391f5b0f776be341f3a1561a8368ba84f504f3147cd"
+    },
+    {
+      "bytes": 4767,
+      "mode": 436,
+      "path": "agc_avc_main.cpp",
+      "sha256": "4f9b6cca1a073633c6e0e4ba6e6a2c724f53d8162f19039e6d8a20f742f67723"
+    },
+    {
+      "bytes": 24432,
+      "mode": 436,
+      "path": "camera_service_main.cpp",
+      "sha256": "cb3dea939e7edb11b3b96c89ed63d4a2ae0449dc7cafdce4f43fc78c5e64649c"
+    },
+    {
+      "bytes": 3954,
+      "mode": 436,
+      "path": "can_driver_main.cpp",
+      "sha256": "3e8224115ee242914de876e140fd8aa29e6d70cf688a534695ddd0c7062a74c0"
+    },
+    {
+      "bytes": 7381,
+      "mode": 436,
+      "path": "compute_engine_main.cpp",
+      "sha256": "e7cc7ba109b00362da48c57d2bb77040a4f787e5d18647f2cfddfb4b234991fb"
+    },
+    {
+      "bytes": 4507,
+      "mode": 436,
+      "path": "dio_driver_main.cpp",
+      "sha256": "d677fe0e646c064c4f503ab6812900bc7659725a55198a00afa58ab04db87eb7"
+    },
+    {
+      "bytes": 5437,
+      "mode": 436,
+      "path": "dlt645_main.cpp",
+      "sha256": "7309e362e5e6b0f8a9fc93674afadeefc11a94f8f7f89112f31ea38e50f4c9b2"
+    },
+    {
+      "bytes": 13900,
+      "mode": 436,
+      "path": "ems_cluster_main.cpp",
+      "sha256": "070caef50930e356eb04952663ce6593f7a5b41e452c0316c0a6b21b122ff920"
+    },
+    {
+      "bytes": 13135,
+      "mode": 436,
+      "path": "event_engine_main.cpp",
+      "sha256": "c3b87f5389fe4d791778cb283d756a8aef64cdf2eaef73406c7299b5b3152816"
+    },
+    {
+      "bytes": 1186,
+      "mode": 436,
+      "path": "event_store_main.cpp",
+      "sha256": "eba7dd57daca6155cacbc097f8dacaebb4ac7e14b2d7c7b4ed90baad8684e090"
+    },
+    {
+      "bytes": 10722,
+      "mode": 436,
+      "path": "iec_driver_main.cpp",
+      "sha256": "54a30237ee504cdf287f1c6b13cd487dea5e64e1d6e98cc292d28b4253e56464"
+    },
+    {
+      "bytes": 738,
+      "mode": 436,
+      "path": "include/edge_gateway/agc_avc_command_mailbox.hpp",
+      "sha256": "18f93e09c9c2f6da1de9a579d302b8302b3d761cacdeed9e0ca780da82da0c13"
+    },
+    {
+      "bytes": 3656,
+      "mode": 436,
+      "path": "include/edge_gateway/agc_avc_controller.hpp",
+      "sha256": "5b1e081ddc9f2bfe9a96bf6a41c1440ea13de84d0e5e6c6c2c3593a10412794c"
+    },
+    {
+      "bytes": 3797,
+      "mode": 436,
+      "path": "include/edge_gateway/agc_avc_service.hpp",
+      "sha256": "c9c61cf17c7130b6cba9f1353c0a056d058d9fe87a65d7c0daebecf2371a0822"
+    },
+    {
+      "bytes": 1274,
+      "mode": 436,
+      "path": "include/edge_gateway/alarm_service.hpp",
+      "sha256": "4d993c77e2543e764066954ab94299ffa122c7522d9e0afa7812196ee2aae704"
+    },
+    {
+      "bytes": 2724,
+      "mode": 436,
+      "path": "include/edge_gateway/am5se_iec103_client.hpp",
+      "sha256": "48cc5272dafdc48bb327f3684fa00cf47637199e6c47d6bb3eb0a149af87be73"
+    },
+    {
+      "bytes": 6731,
+      "mode": 436,
+      "path": "include/edge_gateway/builtin_mqtt_driver_publisher.hpp",
+      "sha256": "25386be68596636d4878adc151ae36f926c2287ba09a3ac03e353e5226fc1b53"
+    },
+    {
+      "bytes": 3814,
+      "mode": 436,
+      "path": "include/edge_gateway/can_driver_service.hpp",
+      "sha256": "5054cad5d2301d4e816fa8b99970b220731a438fdfadab560f0ff4ddfbe21b4f"
+    },
+    {
+      "bytes": 1176,
+      "mode": 436,
+      "path": "include/edge_gateway/can_signal_codec.hpp",
+      "sha256": "a9a4196a0ab2eabb4bb493232836c975069bdaec8c5c8bf94ca55c9dba4c524f"
+    },
+    {
+      "bytes": 1086,
+      "mode": 436,
+      "path": "include/edge_gateway/cluster_write_authorization.hpp",
+      "sha256": "3ca1a075f77e863e0241737c9317a02b9f289f12e649895b29e6010816996661"
+    },
+    {
+      "bytes": 275,
+      "mode": 436,
+      "path": "include/edge_gateway/collector.hpp",
+      "sha256": "2ef71a5ba1ec4e06ce839868d2c0e42cb3ae49b64fa331f4d04bc7391122a31f"
+    },
+    {
+      "bytes": 2040,
+      "mode": 436,
+      "path": "include/edge_gateway/command_executor.hpp",
+      "sha256": "c215c27c16ef5a5b2e3ad7603d01cc4bd107f3a5da9234c1b76bd86db416ebe3"
+    },
+    {
+      "bytes": 180,
+      "mode": 436,
+      "path": "include/edge_gateway/command_executor_interface.hpp",
+      "sha256": "2b3856f06b4125b95d27532d32da739230f16566abcbb114490502fdd18fcf97"
+    },
+    {
+      "bytes": 2081,
+      "mode": 436,
+      "path": "include/edge_gateway/common/collector_base.hpp",
+      "sha256": "8df64788ddd18436626195f3a9fb0393a46afb66c3aa64927ac315508026cdb7"
+    },
+    {
+      "bytes": 1899,
+      "mode": 436,
+      "path": "include/edge_gateway/common/command_executor_interface.hpp",
+      "sha256": "e10783faa2d02797d9cf0b854620df8f27a0cb18a9586e2fb61be40c0766551b"
+    },
+    {
+      "bytes": 1527,
+      "mode": 436,
+      "path": "include/edge_gateway/common/persistent_flush_schedule.hpp",
+      "sha256": "5640c83711ba51719004e548c55210373afa321d536e11e0baefe8d6e77feaa9"
+    },
+    {
+      "bytes": 379,
+      "mode": 436,
+      "path": "include/edge_gateway/common/runtime_device.hpp",
+      "sha256": "3dbd515048fa3c05021b90c4007b71ace8dad88e7df75655d923dd8595d66845"
+    },
+    {
+      "bytes": 795,
+      "mode": 436,
+      "path": "include/edge_gateway/compat.hpp",
+      "sha256": "08f74df9cd312a99a25903e89c85fe62a38902a1d8d500bf40f38d79191f844d"
+    },
+    {
+      "bytes": 3507,
+      "mode": 436,
+      "path": "include/edge_gateway/compute_engine_service.hpp",
+      "sha256": "390e83d23c57898b64ecbf47747abd38b20b4a1125cf6aa314acdf21416ddc75"
+    },
+    {
+      "bytes": 1051,
+      "mode": 436,
+      "path": "include/edge_gateway/config_loader.hpp",
+      "sha256": "c7a2a05930a9d2c47eee9d0b875379191b4be65dbf9d65bd18280df1d3bfa039"
+    },
+    {
+      "bytes": 2296,
+      "mode": 436,
+      "path": "include/edge_gateway/control_dedup_store.hpp",
+      "sha256": "a919b309de5760c38a2b0e894cd3407cf28bac6469e949660c3f3431cc1781aa"
+    },
+    {
+      "bytes": 1844,
+      "mode": 436,
+      "path": "include/edge_gateway/diagnostic_process.hpp",
+      "sha256": "ad8e4edb2c9e6d61923d8bd525a1e1eddf53c4f04f21c7e6c3608ab99018c1e6"
+    },
+    {
+      "bytes": 953,
+      "mode": 436,
+      "path": "include/edge_gateway/dio_collector.hpp",
+      "sha256": "3d989c40d684b60412194f16c1fb91c1a787a55fbd5c2170c00c2f12dba447c9"
+    },
+    {
+      "bytes": 1356,
+      "mode": 436,
+      "path": "include/edge_gateway/dio_command_executor.hpp",
+      "sha256": "230eacfbf84fba09174fcc8b024f3b6bdf58b5dff2e68676ade0af4acf82d42c"
+    },
+    {
+      "bytes": 1233,
+      "mode": 436,
+      "path": "include/edge_gateway/dlt645_client.hpp",
+      "sha256": "12c0bdec9118846304e7c342a11891e1da980fad53866a9a8d04cd6d54f5ce15"
+    },
+    {
+      "bytes": 1604,
+      "mode": 436,
+      "path": "include/edge_gateway/dlt645_codec.hpp",
+      "sha256": "96a337940c5a1bd0f091243239a95f7d825e3706b20af300e3b8e8d9c1237d80"
+    },
+    {
+      "bytes": 807,
+      "mode": 436,
+      "path": "include/edge_gateway/dlt645_collector.hpp",
+      "sha256": "695514184e4d18a9f0053e816b2d15b542ef216e1ff8e1e577929a69535f6efe"
+    },
+    {
+      "bytes": 1339,
+      "mode": 436,
+      "path": "include/edge_gateway/dlt645_command_executor.hpp",
+      "sha256": "5ba08150281c1c9aaa22345a684d394f84b93e004baae0ce7c53a2816d98f61c"
+    },
+    {
+      "bytes": 272,
+      "mode": 436,
+      "path": "include/edge_gateway/dlt645_standard_points_loader.hpp",
+      "sha256": "4a92792989b8d1f4491b630ba5d5b4a32e82fa11cc05f542ca38bf3e0eb54d15"
+    },
+    {
+      "bytes": 11898,
+      "mode": 436,
+      "path": "include/edge_gateway/ems_cluster.hpp",
+      "sha256": "bf6bd6e93e25420ccb32db0a54ac73dc7119bad6a39cfdffb5bb1aef7e1541e3"
+    },
+    {
+      "bytes": 1030,
+      "mode": 436,
+      "path": "include/edge_gateway/ems_cluster_network.hpp",
+      "sha256": "8d342a11c01539817f5befd4e49efb2bd545d6f7d0c64716d1a931bb76ddda9b"
+    },
+    {
+      "bytes": 3834,
+      "mode": 436,
+      "path": "include/edge_gateway/ems_cluster_points.hpp",
+      "sha256": "4fda26e40cb1d27b02c345343e22469856685dc7f753686fd57c0b178a725e98"
+    },
+    {
+      "bytes": 599,
+      "mode": 436,
+      "path": "include/edge_gateway/ems_cluster_transport.hpp",
+      "sha256": "42bba18461c057f1a7feb9207d7e3c314925eea7e12a7f0e91ef564aedc10f22"
+    },
+    {
+      "bytes": 1690,
+      "mode": 436,
+      "path": "include/edge_gateway/event_commit_sink.hpp",
+      "sha256": "a8a9e2b91e8c82f7a6f630a6b4aa177cdc3a9380caa8ee05631bb0e8312f0d2c"
+    },
+    {
+      "bytes": 6261,
+      "mode": 436,
+      "path": "include/edge_gateway/event_engine_service.hpp",
+      "sha256": "8f4d533587323e7c819ab7839f94a8b37c47260ebddbacb82f19a9a2ba56977b"
+    },
+    {
+      "bytes": 1967,
+      "mode": 436,
+      "path": "include/edge_gateway/event_history_projection.hpp",
+      "sha256": "9840a32a5bd14aa3a515c647e971c4fefb77b5ebbb9d73b98575aeaa941e17ab"
+    },
+    {
+      "bytes": 2543,
+      "mode": 436,
+      "path": "include/edge_gateway/event_stats_reader.hpp",
+      "sha256": "cfb0dd9268062d797e44a2887a97b14255e4959889d7293f68cc15552c79d6cb"
+    },
+    {
+      "bytes": 1081,
+      "mode": 436,
+      "path": "include/edge_gateway/event_stats_source.hpp",
+      "sha256": "c023f516d63309f3e4253db150e283ee4bafde40fb56b45daca5c9619bfbde26"
+    },
+    {
+      "bytes": 5696,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store.hpp",
+      "sha256": "8394e7b7440a76c117ad1d8cddd58ddf290bb4d261d8693d5e2a9c163001634f"
+    },
+    {
+      "bytes": 3016,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_client.hpp",
+      "sha256": "f68a6ab72f20c677518694d98f0929880c48e5734a606ed8f50e5c56fb557bd8"
+    },
+    {
+      "bytes": 2399,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_clock.hpp",
+      "sha256": "bf7940847069b05e5614d63e386f40b438f648a3e3da48a867279f7ce37d4424"
+    },
+    {
+      "bytes": 3170,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_config.hpp",
+      "sha256": "d1117260b8b287a875cafc38e19fe9752687b848e955b99308e3963df3758430"
+    },
+    {
+      "bytes": 1563,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_management.hpp",
+      "sha256": "3841673e20255b4593331da034bb3f7a3ae984cd9ae43200f1f5949acd7543a2"
+    },
+    {
+      "bytes": 1440,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_producer.hpp",
+      "sha256": "c710d0264914a930947d58f1c5568cdb0fca5b23533763b0980635de791c6d20"
+    },
+    {
+      "bytes": 1106,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_replay_factory.hpp",
+      "sha256": "e73b245a4451f46f7deebdde5f9a5db3fbcfa39cef9b2a0c296f9e456ae47a00"
+    },
+    {
+      "bytes": 2368,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_runtime.hpp",
+      "sha256": "3ffbd0a5cd516b6e8a41fe9c3bc587d0f732618d09f0d4843ef7f1d2240b2f84"
+    },
+    {
+      "bytes": 3605,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_sender.hpp",
+      "sha256": "6f0589c6ee3498aec96316e6bef4e67ad17188e190eb47e76a5832ef1339e12e"
+    },
+    {
+      "bytes": 777,
+      "mode": 436,
+      "path": "include/edge_gateway/event_store_stats.hpp",
+      "sha256": "01bb6ff4d3753ebd9e6485e3549772c2466292a0376e9b58f6d0237533bb5566"
+    },
+    {
+      "bytes": 1336,
+      "mode": 436,
+      "path": "include/edge_gateway/filesystem_compat.hpp",
+      "sha256": "74095ef40bf70823746f4dd048031c68dc9c1bb304dc2f3ed619a605b6c3e828"
+    },
+    {
+      "bytes": 1173,
+      "mode": 436,
+      "path": "include/edge_gateway/flexible_phase_balance.hpp",
+      "sha256": "341deb5844e0f2995078a87a082f3448f62ae99fbe08f0cb28794bc93e7c3e2c"
+    },
+    {
+      "bytes": 3727,
+      "mode": 436,
+      "path": "include/edge_gateway/gateway_daemon.hpp",
+      "sha256": "f15c4a75bfdcb59feb4d58585a1d75448d8fdcd249ddbf5d4dce8ed4198f84af"
+    },
+    {
+      "bytes": 11135,
+      "mode": 436,
+      "path": "include/edge_gateway/graph_ems_engine.hpp",
+      "sha256": "18316ed149d0dc0f02e6d93a0617ad16848d1dd1eac8220d12d08d7ebfa3bc28"
+    },
+    {
+      "bytes": 1356,
+      "mode": 436,
+      "path": "include/edge_gateway/grid_friendly_dispatch.hpp",
+      "sha256": "86fed88944261dc63b1c3bfa11c59a87d2a3f3100c08ef5199cd7917fd5bea6c"
+    },
+    {
+      "bytes": 1879,
+      "mode": 436,
+      "path": "include/edge_gateway/iec103_recording_command.hpp",
+      "sha256": "9cdc8994fc2d56e16826dfbdadfa5da7bb4685fd8be289df57f48777e21f4a7f"
+    },
+    {
+      "bytes": 4391,
+      "mode": 436,
+      "path": "include/edge_gateway/iec103_recording_transfer_service.hpp",
+      "sha256": "89cdc0e038e364193074c2bd4833af2245184bd50c57dcc86ae328a29ab2ec11"
+    },
+    {
+      "bytes": 7052,
+      "mode": 436,
+      "path": "include/edge_gateway/iec_client.hpp",
+      "sha256": "bc7ebc549f425af0bddcb1d1d4862f250de7fb07f90cef9bc40d0e5a8b3c83ee"
+    },
+    {
+      "bytes": 8546,
+      "mode": 436,
+      "path": "include/edge_gateway/iec_codec.hpp",
+      "sha256": "c1d67faa776a9ac434ff9cd6a8817326e89d85d1b97d355f47dbed7259509f74"
+    },
+    {
+      "bytes": 574,
+      "mode": 436,
+      "path": "include/edge_gateway/iec_collector.hpp",
+      "sha256": "ba4b374135322b69fc46dad22b6b0c7dead97773aae92ac4224eb4259e069f80"
+    },
+    {
+      "bytes": 1406,
+      "mode": 436,
+      "path": "include/edge_gateway/iec_command_executor.hpp",
+      "sha256": "9b0e66d40c79eb08c1defacdb3eb9f633370a64064fcea03d2c0a3cfc338c469"
+    },
+    {
+      "bytes": 5241,
+      "mode": 436,
+      "path": "include/edge_gateway/interfaces.hpp",
+      "sha256": "9665087d16c855be50c023049eca4c7d17235d5188881378f5d12acef7d155ab"
+    },
+    {
+      "bytes": 15641,
+      "mode": 436,
+      "path": "include/edge_gateway/json_value.hpp",
+      "sha256": "1ad2ac79fd9601b6c1d1d050a68939c13b2494967c274cedf40602230acba62e"
+    },
+    {
+      "bytes": 269,
+      "mode": 436,
+      "path": "include/edge_gateway/json_value_writer.hpp",
+      "sha256": "8e4203595f02efc4f44131bc23a05112bf9157a5c9e108b4749490944bedfd90"
+    },
+    {
+      "bytes": 3474,
+      "mode": 436,
+      "path": "include/edge_gateway/legacy_ems_engine.hpp",
+      "sha256": "3b48a70501d5ba895a642c06d58604ef32fd0801dec5f517f65ec235ed48d243"
+    },
+    {
+      "bytes": 1165,
+      "mode": 436,
+      "path": "include/edge_gateway/legacy_ems_point_catalog.hpp",
+      "sha256": "7a4b4bb543d1cbbe5f61726f4088b7e5c437d4d8b06217ec9dddb3aebbb5bdf9"
+    },
+    {
+      "bytes": 366,
+      "mode": 436,
+      "path": "include/edge_gateway/legacy_telemetry_payload.hpp",
+      "sha256": "2b24d51fda3e2222e069d429000e2965f35da7ea537d7d2650d5a79d8a5ff3eb"
+    },
+    {
+      "bytes": 5771,
+      "mode": 436,
+      "path": "include/edge_gateway/memory_point_store.hpp",
+      "sha256": "90fd4796c8384ea09befe56bbe3e2bbfdce885abd5930aaa831beb59d4064dfe"
+    },
+    {
+      "bytes": 1394,
+      "mode": 436,
+      "path": "include/edge_gateway/mock_serial_port.hpp",
+      "sha256": "ad29bbd949fe3d7f7fbc672516a59a6a54ee69bb6927678f5026a51d86155dda"
+    },
+    {
+      "bytes": 918,
+      "mode": 436,
+      "path": "include/edge_gateway/modbus_codec.hpp",
+      "sha256": "bc78c541a4f64c3e0518818e07d241c728562503e6fd10d1af249fcee0fae58d"
+    },
+    {
+      "bytes": 3781,
+      "mode": 436,
+      "path": "include/edge_gateway/modbus_collector.hpp",
+      "sha256": "b1e2ba189376a87b607f7606e82ba0c7b14cc6ccc37e22ea2da232584002fa63"
+    },
+    {
+      "bytes": 2035,
+      "mode": 436,
+      "path": "include/edge_gateway/modbus_error.hpp",
+      "sha256": "4060732590ff822416d58e04ab7acf8d46f48122ffae228441c7e3b44c44df5a"
+    },
+    {
+      "bytes": 3363,
+      "mode": 436,
+      "path": "include/edge_gateway/modbus_northbound_server.hpp",
+      "sha256": "429dc3850d0aa9b94958829ba9b3099035fab2620c7c3212b4ee0aa3c8da0db9"
+    },
+    {
+      "bytes": 3540,
+      "mode": 436,
+      "path": "include/edge_gateway/modbus_rtu_client.hpp",
+      "sha256": "efe9b37853e61512c6e051635417fc103b45a24e50238f0367d26c5c6bc12fbd"
+    },
+    {
+      "bytes": 3032,
+      "mode": 436,
+      "path": "include/edge_gateway/modbus_tcp_client.hpp",
+      "sha256": "cdc9103a39650a98b147fc931a06983ee50d7f8f962bb10ad2fde111023811e6"
+    },
+    {
+      "bytes": 57516,
+      "mode": 436,
+      "path": "include/edge_gateway/models.hpp",
+      "sha256": "3c5cbb34a89f1d53c007a4d20c99505c53478740e8f5d6a9370e5e7a65cd4784"
+    },
+    {
+      "bytes": 2213,
+      "mode": 436,
+      "path": "include/edge_gateway/mosquitto_mqtt_driver_publisher.hpp",
+      "sha256": "3fc7309577a78ec59ce560d4060663dca203259acbdcdc2b26686b23beeeef4d"
+    },
+    {
+      "bytes": 2515,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_control_result_store.hpp",
+      "sha256": "668a743b616c202d1b35f44ab51ddebb8f828afd1acc41d39ca74e7de74c840c"
+    },
+    {
+      "bytes": 9536,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_driver_service.hpp",
+      "sha256": "e6b252d0828ace891a056494252630a3c2d2cb072a2a4ab6fcf9b5cd3e395a13"
+    },
+    {
+      "bytes": 8700,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_event_outbox.hpp",
+      "sha256": "13e991606774cb943dd280ecafa84401a9c21681b321cced2780e0ba9cedb681"
+    },
+    {
+      "bytes": 4437,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_event_replay.hpp",
+      "sha256": "b6e0724b8f802d5cb06a95dc04fe7322816b4617928b357be8f712b21992b74a"
+    },
+    {
+      "bytes": 1011,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_event_stats.hpp",
+      "sha256": "4cd8f8a84d28c393b11df8793758b0eed35c5132c9072f5cf51abf566cc32df6"
+    },
+    {
+      "bytes": 418,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_event_stats_factory.hpp",
+      "sha256": "6269f892b495a8e715a016b30a87aeac1746fee154a325a7752d286188ac2394"
+    },
+    {
+      "bytes": 5255,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_forwarder_service.hpp",
+      "sha256": "adc1e482b23b82bb3ff6f4085c619a59398d89a5af7fe0690e5dbe5d5d26f788"
+    },
+    {
+      "bytes": 1713,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_full_snapshot.hpp",
+      "sha256": "1cb17ea2c1d8728ae0cea691846c5da03b6f706acf72ae147135745d9f3caf83"
+    },
+    {
+      "bytes": 1503,
+      "mode": 436,
+      "path": "include/edge_gateway/mqtt_realtime_ring_buffer.hpp",
+      "sha256": "c4d17541a29cc621e126051b468f1632774a2231da3ceb169851423a81c8b9ed"
+    },
+    {
+      "bytes": 2330,
+      "mode": 436,
+      "path": "include/edge_gateway/ota_request_json.hpp",
+      "sha256": "4587f484d6f4638032195cfea18f562dae34307e256581121a99f9df1b664867"
+    },
+    {
+      "bytes": 6531,
+      "mode": 436,
+      "path": "include/edge_gateway/ota_service.hpp",
+      "sha256": "152985c0ec9ba84bee59dfc793109397786e404f98f7883aefcd5859056c64b1"
+    },
+    {
+      "bytes": 7323,
+      "mode": 436,
+      "path": "include/edge_gateway/point_store_router.hpp",
+      "sha256": "79612976e07487b66f6c777ce4bab1546df89ae50bf04aa1292e1fe0585f0aea"
+    },
+    {
+      "bytes": 890,
+      "mode": 436,
+      "path": "include/edge_gateway/posix_serial_port.hpp",
+      "sha256": "d7ecddb852031d5f8242ac6e8dea446b9d2e8d98f1de582a8ea08f6714ba9778"
+    },
+    {
+      "bytes": 2838,
+      "mode": 436,
+      "path": "include/edge_gateway/power_control_ownership.hpp",
+      "sha256": "a641a8fa99ac2de75fd09c2adb361e503bed930cc12f34e672ed44eb2e30ebb1"
+    },
+    {
+      "bytes": 950,
+      "mode": 436,
+      "path": "include/edge_gateway/priority_control_lease.hpp",
+      "sha256": "e0c3a1a0f87d86678328f59e750834a62af5fc13bfd456e5555cdd6a4b161435"
+    },
+    {
+      "bytes": 447,
+      "mode": 436,
+      "path": "include/edge_gateway/process_file_lock.hpp",
+      "sha256": "be1334552560cf76c940371063352a1741e1229bf6cfb2b1c5a8559e1287656c"
+    },
+    {
+      "bytes": 324,
+      "mode": 436,
+      "path": "include/edge_gateway/read_task_planner.hpp",
+      "sha256": "92616e132b9330aa2f10264cdf42750cdca8b10c522a7ee6bcaf5ce5ea00fe84"
+    },
+    {
+      "bytes": 367,
+      "mode": 436,
+      "path": "include/edge_gateway/scada_control_lease.hpp",
+      "sha256": "203fd5aef9bad7f04a513d66c22c05d50650b9f8a6802b632b88e19ebe1930c0"
+    },
+    {
+      "bytes": 4650,
+      "mode": 436,
+      "path": "include/edge_gateway/scada_models.hpp",
+      "sha256": "858cbb2cc66bdad77d32c9ee5e529b99f988c8d743f9e12d182e7edeffaef205"
+    },
+    {
+      "bytes": 297,
+      "mode": 436,
+      "path": "include/edge_gateway/scada_project_loader.hpp",
+      "sha256": "f04540a29dfad68e635d3046ddec33b6c939450874a8b9121f1cf42a2281d4e0"
+    },
+    {
+      "bytes": 2454,
+      "mode": 436,
+      "path": "include/edge_gateway/scada_runtime_map.hpp",
+      "sha256": "213440149fdefc7985724941a3f3a1f581f5e0fa0b447ae9a17da53992c5ce2d"
+    },
+    {
+      "bytes": 1847,
+      "mode": 436,
+      "path": "include/edge_gateway/scada_upper_computer_safety.hpp",
+      "sha256": "d85eb0cfe7ecb53e4f2f77e27276da53c47432820b414735e1fd17b1a1d731e4"
+    },
+    {
+      "bytes": 1070,
+      "mode": 436,
+      "path": "include/edge_gateway/serial_port.hpp",
+      "sha256": "583c40f8850a2e0e0810a2d0625e26ff8d75992c71c166c99a5e7fb8991863db"
+    },
+    {
+      "bytes": 1383,
+      "mode": 436,
+      "path": "include/edge_gateway/sqlite_alarm_writer.hpp",
+      "sha256": "241c4fc3edc81a6847a166ea66519d43b8935c06114679c82267077a45a448c6"
+    },
+    {
+      "bytes": 1209,
+      "mode": 436,
+      "path": "include/edge_gateway/sqlite_error.hpp",
+      "sha256": "ad27429a89e97a464f269e0b264f179f49fcc8303776624ea81e23b9abdb1446"
+    },
+    {
+      "bytes": 1572,
+      "mode": 436,
+      "path": "include/edge_gateway/sqlite_sample_writer.hpp",
+      "sha256": "b7777b6cbbb1c896a7e80044a01e9f56c087c44437f442257310706861e821b1"
+    },
+    {
+      "bytes": 1333,
+      "mode": 436,
+      "path": "include/edge_gateway/storage_budget.hpp",
+      "sha256": "801b04a6a401deee44993c679f6a2d99700e54a4aa59ffefd0830bcb3c88cbcf"
+    },
+    {
+      "bytes": 1080,
+      "mode": 436,
+      "path": "include/edge_gateway/sysfs_gpio_port.hpp",
+      "sha256": "bcb78ceeb497f65ca0bd4a06a355b069c697593602860fe7326fcca19a77df1e"
+    },
+    {
+      "bytes": 1584,
+      "mode": 436,
+      "path": "include/edge_gateway/system_monitor_direct_maintenance.hpp",
+      "sha256": "f99f5cc0b7efec28cc3ed20ea8437728249ea48d14b3067725728ef40f15fd6e"
+    },
+    {
+      "bytes": 1170,
+      "mode": 436,
+      "path": "include/edge_gateway/system_monitor_points.hpp",
+      "sha256": "daf869b575a975e8d8370e349b76555f4de7d16d666bd5ef61e577673bc05589"
+    },
+    {
+      "bytes": 580,
+      "mode": 436,
+      "path": "include/edge_gateway/system_monitor_runtime_discovery.hpp",
+      "sha256": "ecdde8ebd86bdd655949b0fbac8f3047326c748f15fc2e91efe18c7442b14020"
+    },
+    {
+      "bytes": 9399,
+      "mode": 436,
+      "path": "include/edge_gateway/system_monitor_service.hpp",
+      "sha256": "b248b37103c43a3289cd690a18bbe83879e069344aa01ec05dfd43fd72baff92"
+    },
+    {
+      "bytes": 1207,
+      "mode": 436,
+      "path": "include/edge_gateway/timing_policy.hpp",
+      "sha256": "0396270d75b2a990452c16ed8a4462ca74509676ef14d8721c24712fecb39724"
+    },
+    {
+      "bytes": 2597,
+      "mode": 436,
+      "path": "include/edge_gateway/virtual_can_datagram.hpp",
+      "sha256": "a6f2687310d1e7c2f3fa43ecf9d8edc84c03ce7ab99bdc146525d37331a108f8"
+    },
+    {
+      "bytes": 1323,
+      "mode": 436,
+      "path": "include/edge_gateway/writeback_service.hpp",
+      "sha256": "6faefb6580c3a545c023f4a33ce0288fb50bd95f4546a689ce3d51680d675408"
+    },
+    {
+      "bytes": 58143,
+      "mode": 436,
+      "path": "local_display_main.cpp",
+      "sha256": "3384dce356fcbbfe726a78d9d865a6d80990773ced29cf984d55d3c060ee9b87"
+    },
+    {
+      "bytes": 12290,
+      "mode": 436,
+      "path": "local_display_qt_access_control.cpp",
+      "sha256": "68a76cd85badafc995275f73103c208882fff90e4a99088d7248b6f211be1c29"
+    },
+    {
+      "bytes": 1309,
+      "mode": 436,
+      "path": "local_display_qt_access_control.hpp",
+      "sha256": "345599909a726c8d603195918a2442c9d63f362af3994ce57e01a7a18cc1d633"
+    },
+    {
+      "bytes": 34858,
+      "mode": 436,
+      "path": "local_display_qt_ems_main.cpp",
+      "sha256": "c379737fb340ca82c7b215dd98520aff267cf10433265c1187de2f2df6cba845"
+    },
+    {
+      "bytes": 37040,
+      "mode": 436,
+      "path": "local_display_qt_main.cpp",
+      "sha256": "54f17ce246605987cd86cb4a260a31e9978121340d5319482233d1c673a9c9c3"
+    },
+    {
+      "bytes": 26758,
+      "mode": 436,
+      "path": "local_display_qt_pcs_power_control.cpp",
+      "sha256": "aa3c96d7e0afb9f6db30c2e08efba92c3ebd5ce387675b4f0e5c46eacfd2db92"
+    },
+    {
+      "bytes": 3443,
+      "mode": 436,
+      "path": "local_display_qt_pcs_power_control.hpp",
+      "sha256": "9cbe736b2a18396063727e4e1c01810fb93bed74d81167fc4f664fb3e8a05497"
+    },
+    {
+      "bytes": 1755,
+      "mode": 436,
+      "path": "local_display_qt_scada_runtime.hpp",
+      "sha256": "fcbf3c3580d21bcff6a83976722b131a599014509e4b769ef2ef2301d6ffcb69"
+    },
+    {
+      "bytes": 89717,
+      "mode": 436,
+      "path": "local_display_qt_scada_scene.cpp",
+      "sha256": "f0a9bfd0630264c66088318c68263754d1450df53b0cdc7fc1788b99d3312ace"
+    },
+    {
+      "bytes": 9761,
+      "mode": 436,
+      "path": "local_display_qt_scada_scene.hpp",
+      "sha256": "56d0c72a000222ad09dd87484677f44ac2754f94c4ed2335e751b8eb84ec442b"
+    },
+    {
+      "bytes": 3970,
+      "mode": 436,
+      "path": "local_display_qt_value_map.cpp",
+      "sha256": "50acbc217b7e5afa6f48d3662c78dcd3e90c99aee22f8e4969e5449955e79587"
+    },
+    {
+      "bytes": 398,
+      "mode": 436,
+      "path": "local_display_qt_value_map.hpp",
+      "sha256": "9b8750db21938ccc49e699b4288b260ef4e9c22315d4edf1095b722d8c9c3d96"
+    },
+    {
+      "bytes": 7153,
+      "mode": 436,
+      "path": "main.cpp",
+      "sha256": "5a793e09662983b82073c47e29f6639e6d4aeed0d805473b43ea3fb834c07520"
+    },
+    {
+      "bytes": 19734,
+      "mode": 436,
+      "path": "mqtt_driver_main.cpp",
+      "sha256": "a3bd1ffdcfb3de818d103119afd34e7e0d11dbe58356d5145230683f64d28170"
+    },
+    {
+      "bytes": 18576,
+      "mode": 436,
+      "path": "mqtt_forwarder_main.cpp",
+      "sha256": "b4b0d592d66d89ab359825b6851e7758c7df82da101bd9b5f98b6f713cbd4974"
+    },
+    {
+      "bytes": 30321,
+      "mode": 436,
+      "path": "qt_display_bridge_main.cpp",
+      "sha256": "5c3bb90be7241408cde511d3eae7497b0cf77a8a50b206be2c046bc7b4b30576"
+    },
+    {
+      "bytes": 22264,
+      "mode": 436,
+      "path": "scada_windows_renderer_main.cpp",
+      "sha256": "ec4adeba6efc670879403ecbfb398f4be1f3f5756dd5441cb85dcd904901a74f"
+    },
+    {
+      "bytes": 3651,
+      "mode": 436,
+      "path": "src/agc_avc_command_mailbox.cpp",
+      "sha256": "1ae5088a97b2edf3435bcb95eb1300fc5383ea4efb82c9e161ae88b1ed871d89"
+    },
+    {
+      "bytes": 24119,
+      "mode": 436,
+      "path": "src/agc_avc_controller.cpp",
+      "sha256": "615184ebcc1fae4c30a8d1d2698d8de4ddfd16721f8b941bfb93eef16af96d13"
+    },
+    {
+      "bytes": 36971,
+      "mode": 436,
+      "path": "src/agc_avc_service.cpp",
+      "sha256": "77089a04f4876cf0c30ba07236b8c1f3081e17fa60cc8e3144c1edf72673c4df"
+    },
+    {
+      "bytes": 4573,
+      "mode": 436,
+      "path": "src/alarm_service.cpp",
+      "sha256": "a44f1bb9fc5837884381f19b1220acf5b613b278e7f5de452fc7d105dcbbb0c7"
+    },
+    {
+      "bytes": 29624,
+      "mode": 436,
+      "path": "src/am5se_iec103_client.cpp",
+      "sha256": "ed93cff98b085e45eb8e40efbeecd4af3f443f93ebd053243f9f43b52b73c021"
+    },
+    {
+      "bytes": 117383,
+      "mode": 436,
+      "path": "src/builtin_mqtt_driver_publisher.cpp",
+      "sha256": "18552ba325d8ba5f65779bd3eca21f1e267d99ce4a8443158c5e3fc0c764f7fe"
+    },
+    {
+      "bytes": 44226,
+      "mode": 436,
+      "path": "src/can_driver_service.cpp",
+      "sha256": "96fb886851e97a94356659283081ebfdb44f6c90b403bdf5e3e58616d382d98f"
+    },
+    {
+      "bytes": 11812,
+      "mode": 436,
+      "path": "src/can_signal_codec.cpp",
+      "sha256": "080791dda6294b275bdd47553cf035d535b184692e73a595bd2322f0af97fc04"
+    },
+    {
+      "bytes": 6043,
+      "mode": 436,
+      "path": "src/cluster_write_authorization.cpp",
+      "sha256": "107c4ed62396f9c38bdbd1cff8a9a9f5567442fdf3b40264aee12fdf7ea77cd6"
+    },
+    {
+      "bytes": 31575,
+      "mode": 436,
+      "path": "src/collector.cpp",
+      "sha256": "c7c5612dd6e06581d4ca6bbf51b748fcfe044beb1e3220f5aa38ced6628f33f7"
+    },
+    {
+      "bytes": 14799,
+      "mode": 436,
+      "path": "src/command_executor.cpp",
+      "sha256": "acec9dfab7d7f1da69989d2591ea872fcf52afe93b39e08bee2f26c5989918c3"
+    },
+    {
+      "bytes": 6498,
+      "mode": 436,
+      "path": "src/common/collector_base.cpp",
+      "sha256": "8a03418007fe0937f871fe54868668ffb40b2a6d8327bb127e766d7b6d46600d"
+    },
+    {
+      "bytes": 33147,
+      "mode": 436,
+      "path": "src/common/gateway_daemon.cpp",
+      "sha256": "e2d3338bc002791639eeac47ca92a331d80270286ba8483386b2b2e7422fb5f0"
+    },
+    {
+      "bytes": 3007,
+      "mode": 436,
+      "path": "src/common/gateway_daemon_modbus.cpp",
+      "sha256": "ec614faaaf2d1c19f3b9d677e36da728785e146655bfa9ba70d4425e04a1abdc"
+    },
+    {
+      "bytes": 41385,
+      "mode": 436,
+      "path": "src/compute_engine_service.cpp",
+      "sha256": "d0d2e46aa9c906e3d2cce24d104c10b5b6479363dadbf0b7907488775dec90aa"
+    },
+    {
+      "bytes": 209777,
+      "mode": 436,
+      "path": "src/config_loader.cpp",
+      "sha256": "04112c5b3e1c5d1849825c1022ac06b94c7f3026b3d83067929d5871a9d612c7"
+    },
+    {
+      "bytes": 17018,
+      "mode": 436,
+      "path": "src/control_dedup_store.cpp",
+      "sha256": "d17bc55f033b9934a03d49067231fb11c52975daa89c7d45c71fb8bc5dc1c9c7"
+    },
+    {
+      "bytes": 16002,
+      "mode": 436,
+      "path": "src/diagnostic_process.cpp",
+      "sha256": "0c2bf379a3d0d279df2ee09f3bdec077148e42cafad448da9a6eda79e9fdfd83"
+    },
+    {
+      "bytes": 4256,
+      "mode": 436,
+      "path": "src/dio_collector.cpp",
+      "sha256": "7d996d32cfdca09e94d4d7844b500f530e10ed6c96c032b7298bdcb7febceb3f"
+    },
+    {
+      "bytes": 4703,
+      "mode": 436,
+      "path": "src/dio_command_executor.cpp",
+      "sha256": "887ec9c4f4194de749ec2f1526ebf39d22e4fc9d65873535853e6fa8c0546d20"
+    },
+    {
+      "bytes": 6729,
+      "mode": 436,
+      "path": "src/dlt645_client.cpp",
+      "sha256": "379c0279b0db55418ae6464342103530fe62ee51c5525522d930f1f3fb6e7012"
+    },
+    {
+      "bytes": 17530,
+      "mode": 436,
+      "path": "src/dlt645_codec.cpp",
+      "sha256": "b9121f6748f5f1745b258bd25f05c9f5c228b8be52acd4a38eea73a757ea98a2"
+    },
+    {
+      "bytes": 6196,
+      "mode": 436,
+      "path": "src/dlt645_collector.cpp",
+      "sha256": "beef0265fcb1671c7b0657fa6c74d3876ec9c85fddf73e2d6e903c4b2a4f73f4"
+    },
+    {
+      "bytes": 4047,
+      "mode": 436,
+      "path": "src/dlt645_command_executor.cpp",
+      "sha256": "2780c0dbbd3d5342d93d37d57839216e962600ff05e7c5f63b2a005da1c7eaec"
+    },
+    {
+      "bytes": 330,
+      "mode": 436,
+      "path": "src/dlt645_standard_points_loader.cpp",
+      "sha256": "36b516225b58a84b5e648faf331115a0d5c6aced374991b6b8569317945e638b"
+    },
+    {
+      "bytes": 83509,
+      "mode": 436,
+      "path": "src/ems_cluster.cpp",
+      "sha256": "97da94ea8499ae691060b34943a0fd359e87c4e62383483def2d3c8d7094afcc"
+    },
+    {
+      "bytes": 20721,
+      "mode": 436,
+      "path": "src/ems_cluster_dispatch.cpp",
+      "sha256": "89ca92a2a8f8d8bd6e3eb65eab13e2c3a570cacba23d962fab67d5dc2cdbc4ed"
+    },
+    {
+      "bytes": 10920,
+      "mode": 436,
+      "path": "src/ems_cluster_network.cpp",
+      "sha256": "1d0cd2dea4ead1c6f010ad5f201cdda6832673b67f24a1ba26d28dda6abdd1dc"
+    },
+    {
+      "bytes": 19926,
+      "mode": 436,
+      "path": "src/ems_cluster_points.cpp",
+      "sha256": "cf72dbb727b245c4e91d8178238529939eda0701c97555c1346d00c7cc1317fa"
+    },
+    {
+      "bytes": 28132,
+      "mode": 436,
+      "path": "src/ems_cluster_transport.cpp",
+      "sha256": "11339aacfad88392035d5b02e860073edadd254f4f16a564f1016c01e10972a1"
+    },
+    {
+      "bytes": 1651,
+      "mode": 436,
+      "path": "src/event_commit_status.cpp",
+      "sha256": "9b1beeb3b1a7de1a1a5ca90a4a6b31051fffadeab2d9493437f86658ad1f2cc8"
+    },
+    {
+      "bytes": 40935,
+      "mode": 436,
+      "path": "src/event_engine_service.cpp",
+      "sha256": "2e95827217a06723a78282f3719c6be1a228a84326e27c99bb8f5ba22898d7e3"
+    },
+    {
+      "bytes": 17253,
+      "mode": 436,
+      "path": "src/event_stats_reader.cpp",
+      "sha256": "5a1d06486123fb2f02104b7b355e9a3caf541dd51610ed9a1637bc7199e29ddf"
+    },
+    {
+      "bytes": 32021,
+      "mode": 436,
+      "path": "src/event_store_client.cpp",
+      "sha256": "3796f49ad11e7651f75ba91af90efbc021def1209ea6ebd09f7c71bebff852c9"
+    },
+    {
+      "bytes": 4601,
+      "mode": 436,
+      "path": "src/event_store_management.cpp",
+      "sha256": "c38d1ad73e8bd8fdf74b586d6929bb9bf9aa1934a5dd4599bb61912bbc165389"
+    },
+    {
+      "bytes": 16271,
+      "mode": 436,
+      "path": "src/event_store_producer.cpp",
+      "sha256": "ef8a9ebd58ee3955f9ba03f0a829e071108f248504ca7826e9aa7defb7f95b59"
+    },
+    {
+      "bytes": 5008,
+      "mode": 436,
+      "path": "src/event_store_replay_factory.cpp",
+      "sha256": "e1c89e806054841163fdbd8097dd4b635a23a63fbfd1261252e609660a877793"
+    },
+    {
+      "bytes": 67764,
+      "mode": 436,
+      "path": "src/event_store_runtime.cpp",
+      "sha256": "44306bc34c54d3efdb76f257f22ff1214e2587a92acd12d716f5c89ca3f82a2b"
+    },
+    {
+      "bytes": 13717,
+      "mode": 436,
+      "path": "src/event_store_sender.cpp",
+      "sha256": "c04384ba6992a0928c69d9bc5639845fc69288dd2b4882ac6f15f6767d76d57e"
+    },
+    {
+      "bytes": 1618,
+      "mode": 436,
+      "path": "src/event_store_stats.cpp",
+      "sha256": "81f085f30695829331fab73a58f61a32a235927dcd5d393a36ddb0b4bb369df9"
+    },
+    {
+      "bytes": 8727,
+      "mode": 436,
+      "path": "src/flexible_phase_balance.cpp",
+      "sha256": "7a90df3be246baaa440c99ca7d7311fbb8723edecef2ca60be899852f81c93f2"
+    },
+    {
+      "bytes": 297228,
+      "mode": 436,
+      "path": "src/graph_ems_engine.cpp",
+      "sha256": "b7605c4f9c8b6a792b138d1d5a1ea26bf0c190106659cf61395f0a0ed0728a70"
+    },
+    {
+      "bytes": 6542,
+      "mode": 436,
+      "path": "src/grid_friendly_dispatch.cpp",
+      "sha256": "a97cac4046aeec4c990a82a09c308012918c1ab919fb84dbb54378d881138e9c"
+    },
+    {
+      "bytes": 23805,
+      "mode": 436,
+      "path": "src/iec103_recording_command.cpp",
+      "sha256": "5baaccda2b717ec1c7a7a0ad4bdd78d0d7f8cbbe96e4bf9432a349822dee7b03"
+    },
+    {
+      "bytes": 46550,
+      "mode": 436,
+      "path": "src/iec103_recording_transfer_service.cpp",
+      "sha256": "0977066046d462d5546f8cb352518136b2f24960a11efbae1b02dfd049063467"
+    },
+    {
+      "bytes": 54245,
+      "mode": 436,
+      "path": "src/iec_client.cpp",
+      "sha256": "2676560e1ccca859e1257845452f17c59a6cffe7ab330c01d047638be45e64be"
+    },
+    {
+      "bytes": 55834,
+      "mode": 436,
+      "path": "src/iec_codec.cpp",
+      "sha256": "edcd12a1bf0712d3db3199ee223de63fe6573ba97438b603a7148a536294420a"
+    },
+    {
+      "bytes": 5151,
+      "mode": 436,
+      "path": "src/iec_collector.cpp",
+      "sha256": "06b0d48c9b6ea0ee9910b6359c079766d6b600b5001eed5951957d279a894133"
+    },
+    {
+      "bytes": 1997,
+      "mode": 436,
+      "path": "src/iec_command_executor.cpp",
+      "sha256": "5129363b39a27b2b966193f09c7be8d99f16a97b6017c2f7a80ee72e6063231d"
+    },
+    {
+      "bytes": 48839,
+      "mode": 436,
+      "path": "src/legacy_ems_engine.cpp",
+      "sha256": "03ad5ff8054e0951a59abe1f27e732fff24030a2f6ac5c1222fa9501a4bd8c95"
+    },
+    {
+      "bytes": 10012,
+      "mode": 436,
+      "path": "src/legacy_ems_point_catalog.cpp",
+      "sha256": "b1d1448b553e86b3106c4ff262eadb617793e1e3946ba6ea64bf6e006a5070d2"
+    },
+    {
+      "bytes": 3995,
+      "mode": 436,
+      "path": "src/legacy_telemetry_payload.cpp",
+      "sha256": "0d1d41f802d9f2ebffa66bb5401de2cd8206d064bfd2765190d4cf7686663fb6"
+    },
+    {
+      "bytes": 83494,
+      "mode": 436,
+      "path": "src/memory_point_store.cpp",
+      "sha256": "85382e9c12fcd2a6ce9571abd1af857535c36fd7e892db6fc55b0e0063259d8c"
+    },
+    {
+      "bytes": 7453,
+      "mode": 436,
+      "path": "src/memory_point_store_layout.hpp",
+      "sha256": "dadbe0ba3518bc63c51eaad2151cbb7a4aaf2e68761f499f766cb4fd8b96351b"
+    },
+    {
+      "bytes": 5764,
+      "mode": 436,
+      "path": "src/memory_point_store_layout_v10.hpp",
+      "sha256": "acdca70b7c185dbaa595b1aefafe3a79825c3694a534537c7501448bc398f307"
+    },
+    {
+      "bytes": 20130,
+      "mode": 436,
+      "path": "src/memory_point_store_migration.cpp",
+      "sha256": "66db25ff1ad79f5ee66b55230ae09d2d42d6bab95d7cbae617536f7bd64b4885"
+    },
+    {
+      "bytes": 1413,
+      "mode": 436,
+      "path": "src/memory_point_store_migration.hpp",
+      "sha256": "b9cbf1f40216cf4eb0ff8a09e84bb496ac220a590bb8012c149501f0eadc1277"
+    },
+    {
+      "bytes": 8600,
+      "mode": 436,
+      "path": "src/mock_serial_port.cpp",
+      "sha256": "459ae2bad4dc5f7a08b5263734d51ce962a16aab167a754201189f0a5cb60bda"
+    },
+    {
+      "bytes": 14829,
+      "mode": 436,
+      "path": "src/modbus_codec.cpp",
+      "sha256": "f7b8fb75d47ffc627e80cafda4eabc406231b57f91e5e6058a48e3e791195fbb"
+    },
+    {
+      "bytes": 35759,
+      "mode": 436,
+      "path": "src/modbus_northbound_server.cpp",
+      "sha256": "47c7bbccaf8b267b28e22d3e72acebd9ad1fc5c5b352d983a7b6798e5c91ef99"
+    },
+    {
+      "bytes": 25505,
+      "mode": 436,
+      "path": "src/modbus_rtu_client.cpp",
+      "sha256": "2df8289f87bdcf3b6baecc590ed0fef383e970d7af70a123d559058ddc089c9d"
+    },
+    {
+      "bytes": 25594,
+      "mode": 436,
+      "path": "src/modbus_tcp_client.cpp",
+      "sha256": "3ff8c60905757cb3ad622f290c0ebeef90f34adece8445c50f2d11fec65d5eb5"
+    },
+    {
+      "bytes": 21462,
+      "mode": 436,
+      "path": "src/mosquitto_mqtt_driver_publisher.cpp",
+      "sha256": "635b606687fc4decd828eb44ae155ced6c7b4d74bc15f8cc24011530d92bdb12"
+    },
+    {
+      "bytes": 27385,
+      "mode": 436,
+      "path": "src/mqtt_control_result_store.cpp",
+      "sha256": "4b08f65568c1f85bd63ad2bb4aa8d21b13024814d6a6549acf3e3b797d960f25"
+    },
+    {
+      "bytes": 116412,
+      "mode": 436,
+      "path": "src/mqtt_driver_service.cpp",
+      "sha256": "f45921e5124fedb76891e6badab9df39ab5682f4bc5f35b3cd494b1b8a9d5198"
+    },
+    {
+      "bytes": 163341,
+      "mode": 436,
+      "path": "src/mqtt_event_outbox.cpp",
+      "sha256": "92066c92fb09c27951175297a30c4bdda0c3f7572cf75bc6cc00a30407f5f6da"
+    },
+    {
+      "bytes": 7705,
+      "mode": 436,
+      "path": "src/mqtt_event_stats.cpp",
+      "sha256": "0f71eef74a91736c233aa1878f4595d000644ef74e8593808fd8a0c485e181ef"
+    },
+    {
+      "bytes": 2008,
+      "mode": 436,
+      "path": "src/mqtt_event_stats_factory.cpp",
+      "sha256": "a2d83d4d639e6667d9cf89ca7cc696dfd397d9fa77a559c28bfca75a778ef026"
+    },
+    {
+      "bytes": 85510,
+      "mode": 436,
+      "path": "src/mqtt_forwarder_service.cpp",
+      "sha256": "8ce90ea7fdb0567f7ee9cdfd918bb910b3146238274a7b3fa036b33dfdb7156b"
+    },
+    {
+      "bytes": 11089,
+      "mode": 436,
+      "path": "src/mqtt_realtime_ring_buffer.cpp",
+      "sha256": "9302f2431e90b27b092c0881f127a4c0fe268b05d3ce393448fee36396f0add8"
+    },
+    {
+      "bytes": 122365,
+      "mode": 436,
+      "path": "src/ota_service.cpp",
+      "sha256": "be9674502b4e0833b4eaa226559942c93ae75314af8862405ad79c94a6ea77c1"
+    },
+    {
+      "bytes": 54021,
+      "mode": 436,
+      "path": "src/point_store_router.cpp",
+      "sha256": "148831680902d6554dd96b625657e6370a5fc1142cad1dcec461dff9acbc38ee"
+    },
+    {
+      "bytes": 6058,
+      "mode": 436,
+      "path": "src/posix_serial_port.cpp",
+      "sha256": "8f5bc33f6cde1a276d32ac4a904492292048081a02552e3a8d363661d4655b30"
+    },
+    {
+      "bytes": 32736,
+      "mode": 436,
+      "path": "src/power_control_ownership.cpp",
+      "sha256": "a94958dd97106dd46fba166e2083fe1063d53a9655b6a57229444b5a93c6a697"
+    },
+    {
+      "bytes": 8365,
+      "mode": 436,
+      "path": "src/priority_control_lease.cpp",
+      "sha256": "c5eb63dc1fa4df5fa025773c8b8481297b0d62671c38cb830be9e63416bd5fb4"
+    },
+    {
+      "bytes": 1464,
+      "mode": 436,
+      "path": "src/process_file_lock.cpp",
+      "sha256": "e9955cefc507fa1c7e4aaf193b42138d0ff8b256b82c83c048a53801b34d12ea"
+    },
+    {
+      "bytes": 2115,
+      "mode": 436,
+      "path": "src/read_task_planner.cpp",
+      "sha256": "b5b4aaa0f23255f91fabfc50f0183af685e2485fcef2ac1f2be8d3b622402b29"
+    },
+    {
+      "bytes": 3800,
+      "mode": 436,
+      "path": "src/scada_control_lease.cpp",
+      "sha256": "187a6cef71cf9ef87866b92a8203a1c08304c7740e8263d46db634d6dbfde4e7"
+    },
+    {
+      "bytes": 44100,
+      "mode": 436,
+      "path": "src/scada_project_loader.cpp",
+      "sha256": "8e5aeac7aafff7e31adab1fde4a06aba06fadc3e2e1c023944d204ca42395508"
+    },
+    {
+      "bytes": 11200,
+      "mode": 436,
+      "path": "src/scada_runtime_map.cpp",
+      "sha256": "40d43a4e1e3f9d3214107f0cde52130b9321e7215271d5a5b1fb102d79abb879"
+    },
+    {
+      "bytes": 10489,
+      "mode": 436,
+      "path": "src/scada_upper_computer_safety.cpp",
+      "sha256": "6199fbef0aebced20efde11612901845789fc7bab9062dbe0d0083cd41c585ac"
+    },
+    {
+      "bytes": 16143,
+      "mode": 436,
+      "path": "src/sqlite_alarm_writer.cpp",
+      "sha256": "b242959d81958f859a00f11d774d292585fe248c3f027eb6645cd92270a99b3b"
+    },
+    {
+      "bytes": 12153,
+      "mode": 436,
+      "path": "src/sqlite_sample_writer.cpp",
+      "sha256": "2462f782ad56a51db35527e9e533e88565402d783946d018f775ed520f3bbd29"
+    },
+    {
+      "bytes": 5457,
+      "mode": 436,
+      "path": "src/storage_budget.cpp",
+      "sha256": "4eccb14062fe76522b3125f6a2ec433386bb2fecbffc901f10a4c093bccb19d9"
+    },
+    {
+      "bytes": 5518,
+      "mode": 436,
+      "path": "src/sysfs_gpio_port.cpp",
+      "sha256": "d6f9700145a1461055c743e8f6951ae071f3fc3961d8c51bf8b809e348e614ff"
+    },
+    {
+      "bytes": 2878,
+      "mode": 436,
+      "path": "src/system_monitor_points.cpp",
+      "sha256": "4f9546cc85bec4ca7e221c680bca77d1e792bab71f78056eeb99d47ecc1428fa"
+    },
+    {
+      "bytes": 3808,
+      "mode": 436,
+      "path": "src/system_monitor_runtime_discovery.cpp",
+      "sha256": "f659b52a021b07c2a09b3f58e64534f4b6892cb63df525d6e7aa0336fcea1a3d"
+    },
+    {
+      "bytes": 143255,
+      "mode": 436,
+      "path": "src/system_monitor_service.cpp",
+      "sha256": "585ed69c4eef7c5a713d2c5f8f97f5541c823cc8364f1d863c065273db2b1b44"
+    },
+    {
+      "bytes": 14828,
+      "mode": 436,
+      "path": "src/timing_policy.cpp",
+      "sha256": "8c9b0df50ee5f629ea8d04bf19fa1ca78e0ab0cfad910f8282bb6a831d36fb84"
+    },
+    {
+      "bytes": 2922,
+      "mode": 436,
+      "path": "src/writeback_service.cpp",
+      "sha256": "b08e5c6c4331b9a0ee5c2ffb2c748bfec23644ab3ccd0722a02d6eb414cf0899"
+    },
+    {
+      "bytes": 128468,
+      "mode": 436,
+      "path": "system_monitor_direct_maintenance.cpp",
+      "sha256": "24d584b067255277546fc616b4ed90fe1eb9434fa6012ef303d77b096357d8f4"
+    },
+    {
+      "bytes": 11053,
+      "mode": 436,
+      "path": "system_monitor_main.cpp",
+      "sha256": "71f3ae43eb88972ef2309c0529c76cc53c37152306f66e59de9dcd6fd1632c28"
+    },
+    {
+      "bytes": 5118,
+      "mode": 436,
+      "path": "test-lab/dist-windows/Gateway-TestLabSimulator.ps1",
+      "sha256": "89b2bb038bf4d2850610a89321c7ee8b1365ab549bde3fff0b7778dcd4bf5f20"
+    },
+    {
+      "bytes": 1405,
+      "mode": 436,
+      "path": "test-lab/dist-windows/Show-GatewayTestLabResults.ps1",
+      "sha256": "d3da52632f34dca4380012802f5e1e7ab5cbf8e3e063390a2453b9d8c759ea47"
+    },
+    {
+      "bytes": 1024,
+      "mode": 436,
+      "path": "test-lab/include/gateway_test_lab/can_simulator.hpp",
+      "sha256": "b2147865aa248e22ef9f4181c279369804260ed4dc8d4b2eadf5824e2c2fb5ff"
+    },
+    {
+      "bytes": 1021,
+      "mode": 436,
+      "path": "test-lab/include/gateway_test_lab/iec104_simulator.hpp",
+      "sha256": "bd68f68363383facf2c7718cda4e5258a7ab1c352a5f53567320cb1a99defb7b"
+    },
+    {
+      "bytes": 1889,
+      "mode": 436,
+      "path": "test-lab/include/gateway_test_lab/modbus_simulator.hpp",
+      "sha256": "b076a7d574487163cbb7d4b9446b0c547d581d7d2bbaace8af9fbf791d21fa23"
+    },
+    {
+      "bytes": 1412,
+      "mode": 436,
+      "path": "test-lab/include/gateway_test_lab/serial_simulator.hpp",
+      "sha256": "5bea40a2a769d03394795ee854076b485500fde7168946f282f30dda6c781044"
+    },
+    {
+      "bytes": 5118,
+      "mode": 436,
+      "path": "test-lab/scripts/Gateway-TestLabSimulator.ps1",
+      "sha256": "89b2bb038bf4d2850610a89321c7ee8b1365ab549bde3fff0b7778dcd4bf5f20"
+    },
+    {
+      "bytes": 1405,
+      "mode": 436,
+      "path": "test-lab/scripts/Show-GatewayTestLabResults.ps1",
+      "sha256": "d3da52632f34dca4380012802f5e1e7ab5cbf8e3e063390a2453b9d8c759ea47"
+    },
+    {
+      "bytes": 52534,
+      "mode": 436,
+      "path": "test-lab/scripts/gateway-test-lab-performance.sh",
+      "sha256": "51082be427c5489a2c01bd2ea014e964cd2777b846d81833ba2da564bafa21d7"
+    },
+    {
+      "bytes": 9850,
+      "mode": 436,
+      "path": "test-lab/scripts/gateway-test-lab-suite.sh",
+      "sha256": "3c35262ecea7d02836975ad96999fe2cb4c28ee463807df24d8c1c3be95690b5"
+    },
+    {
+      "bytes": 20860,
+      "mode": 436,
+      "path": "test-lab/scripts/gateway-test-lab.sh",
+      "sha256": "fd53e7f3f15905e8a9364dcfafc2b14cb3ff93bdee878d42e0cc181beceaabb3"
+    },
+    {
+      "bytes": 3714,
+      "mode": 436,
+      "path": "test-lab/scripts/install-gateway-test-lab.sh",
+      "sha256": "1ac8e148b61414e13044bff05d6f3f01072194c0251540c5d67d49d141390d8c"
+    },
+    {
+      "bytes": 1809,
+      "mode": 436,
+      "path": "test-lab/scripts/package-windows-simulator.ps1",
+      "sha256": "ebc2578d5b83eabcfce1664f4eb1b5e6d6f27785695fa231297a210cb2497add"
+    },
+    {
+      "bytes": 11086,
+      "mode": 436,
+      "path": "test-lab/src/can_simulator.cpp",
+      "sha256": "943b295e2680ad4ce8cbcabaec029a75bd320fefb7e728b2a4eabd9021409edb"
+    },
+    {
+      "bytes": 14601,
+      "mode": 436,
+      "path": "test-lab/src/iec104_simulator.cpp",
+      "sha256": "bf11e3d1ab850e7aec492ea265a60115b3638aaf060b49bb45239b5ba371c0ce"
+    },
+    {
+      "bytes": 19017,
+      "mode": 436,
+      "path": "test-lab/src/main.cpp",
+      "sha256": "573c445a85578b19399aef31307c58db9d98f739ea7730235f9cc09d994033a5"
+    },
+    {
+      "bytes": 30881,
+      "mode": 436,
+      "path": "test-lab/src/modbus_simulator.cpp",
+      "sha256": "6e21dfde7f58015e076f63fbab55b598bb525d8aa4f1fcd4922dc22740bc81e9"
+    },
+    {
+      "bytes": 27078,
+      "mode": 436,
+      "path": "test-lab/src/serial_simulator.cpp",
+      "sha256": "52fe8521a880a09132c6832b9d10c2fefbb7ec889ac1ff91df6cd59d3612395d"
+    },
+    {
+      "bytes": 3390,
+      "mode": 436,
+      "path": "test-lab/templates/device_can.json",
+      "sha256": "83b4a35e951399214a62abdbff8ca5f0d1fe53dfc19918c00ae57f0d46ae0eae"
+    },
+    {
+      "bytes": 1240,
+      "mode": 436,
+      "path": "test-lab/templates/device_compute.json",
+      "sha256": "1194a3167901ca1f4ebbc388f664e646d3890351b0791c26e30c6a8e73304c7f"
+    },
+    {
+      "bytes": 2499,
+      "mode": 436,
+      "path": "test-lab/templates/device_dio.json",
+      "sha256": "cb707ef45781e5c68c9166310650e19fece73640cfb18f221019b5c54c709d79"
+    },
+    {
+      "bytes": 3317,
+      "mode": 436,
+      "path": "test-lab/templates/device_dlt645.json",
+      "sha256": "2b534de950a3e3960c8a2ca5a343a27cb576b3fdb02615fef003493589e66ffd"
+    },
+    {
+      "bytes": 167,
+      "mode": 436,
+      "path": "test-lab/templates/device_identity.json",
+      "sha256": "383d7b05330fc6f8aba395efa66cbdf7eea9029e49c0b1752afa2aeb57c73649"
+    },
+    {
+      "bytes": 2462,
+      "mode": 436,
+      "path": "test-lab/templates/device_iec104.json",
+      "sha256": "544e490ec6f2b71650a7d59698ea9ee1a003c1bcd7ad99c20f5379db2d3dcd60"
+    },
+    {
+      "bytes": 5368,
+      "mode": 436,
+      "path": "test-lab/templates/device_modbus_rtu.json",
+      "sha256": "80be89c619483aca8cb077d833900df960168d3bb412cd32f9106a0135330612"
+    },
+    {
+      "bytes": 7731,
+      "mode": 436,
+      "path": "test-lab/templates/device_modbus_tcp.json",
+      "sha256": "fb1c63d31011540a07faa8d42e1850638904927999368dcfa979105937eea5f8"
+    },
+    {
+      "bytes": 3088,
+      "mode": 436,
+      "path": "test-lab/templates/monitor-service-protocol.json",
+      "sha256": "42adafdca240f1b08219092d47d29979d1f1f101cef16a6e796762e365e69d09"
+    },
+    {
+      "bytes": 1770,
+      "mode": 436,
+      "path": "test-lab/templates/monitor-service.json",
+      "sha256": "fc5ca8a209ddb57b44109a454aab243e664c2acd7cd77068393f8c9f057a194b"
+    },
+    {
+      "bytes": 3535,
+      "mode": 436,
+      "path": "test-lab/tests/iec104_simulator_test.cpp",
+      "sha256": "1cefcf24a59d782e2042a3863756d802b2883ea86c1d01e5ed3b737d8ca0440a"
+    },
+    {
+      "bytes": 4648,
+      "mode": 436,
+      "path": "test-lab/tests/modbus_simulator_test.cpp",
+      "sha256": "28dcde1c278f32c7d28452a79d20f7de6411683768723aedd9c5e93454708bd1"
+    },
+    {
+      "bytes": 5965,
+      "mode": 436,
+      "path": "test-lab/tests/run-windows-simulator-smoke.ps1",
+      "sha256": "a89fb39d1834f985d486eeacade27da5cd8a458557d9b6af8d34a53ef0eeaf97"
+    },
+    {
+      "bytes": 3424,
+      "mode": 436,
+      "path": "test-lab/tests/run_modbus_e2e.sh",
+      "sha256": "24c22e5fbcecd2a742e92c92a6b8bbca2013093ab68b5e67d2ac985be12ea2ba"
+    },
+    {
+      "bytes": 4437,
+      "mode": 436,
+      "path": "test-lab/tests/run_performance_report_e2e.sh",
+      "sha256": "71dfe434f0926ef66232b631c23283d25d1ea5f5efe513a7f49f97a9955af74f"
+    },
+    {
+      "bytes": 5804,
+      "mode": 436,
+      "path": "test-lab/tests/run_protocol_e2e.sh",
+      "sha256": "9d2b9fb5c5b704fea3964772e5123ea54474265a6d5845b4186ffe025da2d2b2"
+    },
+    {
+      "bytes": 6113,
+      "mode": 436,
+      "path": "test-lab/tests/serial_simulator_test.cpp",
+      "sha256": "f43b2df50021d7ce4a8d7ddab91375afd7df4b8300f8fa5e30ec3c8ae06da989"
+    },
+    {
+      "bytes": 483,
+      "mode": 436,
+      "path": "toolchains/aarch64-linux-gnu.cmake",
+      "sha256": "c32dfbad22d4ae622088805768176735c8f93513dd6ddf98bb468379e2b14b8f"
+    },
+    {
+      "bytes": 30028,
+      "mode": 436,
+      "path": "tools/a_acquisition_activation_test.py",
+      "sha256": "7632ef5e8c72071b1404f974ac4f236ff0797f92e85623d38aeb0aabd6bdb05f"
+    },
+    {
+      "bytes": 23817,
+      "mode": 436,
+      "path": "tools/a_readonly_profile_check.py",
+      "sha256": "d301b112c5a792ea8d000d072a04160b63860457bd66c42b7c4b37851d452e79"
+    },
+    {
+      "bytes": 26293,
+      "mode": 436,
+      "path": "tools/a_readonly_profile_check_test.py",
+      "sha256": "49b071dc0e386ff19db228188f9bc0979ec0f485cd36d1b7aa9eb7440af0efab"
+    },
+    {
+      "bytes": 11541,
+      "mode": 436,
+      "path": "tools/activation_capacity_preflight_test.py",
+      "sha256": "6c5639e83ce0e31122a00e6379ebe81a730f37289e63cd6da610c0a0b1bfd265"
+    },
+    {
+      "bytes": 39113,
+      "mode": 436,
+      "path": "tools/agc_avc_controller_test.cpp",
+      "sha256": "01f4d75ceaa081052c15a0bdbae3bfdc15a8a129be26a7807be8b87b9f00d39c"
+    },
+    {
+      "bytes": 14170,
+      "mode": 436,
+      "path": "tools/am5se_iec103_client_integration_test.cpp",
+      "sha256": "62185df81a8af4cb7ecbbdaedecc6a050942763c13e282e11bb691bf8f3586d6"
+    },
+    {
+      "bytes": 6736,
+      "mode": 436,
+      "path": "tools/am5se_iec103_codec_test.cpp",
+      "sha256": "fa7c2af075cac9bfcd7eacbbb72c209bc4353cc94700b3cccfb642e6b512e4c5"
+    },
+    {
+      "bytes": 6004,
+      "mode": 436,
+      "path": "tools/build_edge_aarch64.sh",
+      "sha256": "ae04a89cc79ed8eb7d000e5d103d0b236379809163fe9e18ca92d681eae3e1bd"
+    },
+    {
+      "bytes": 18095,
+      "mode": 436,
+      "path": "tools/build_generic_factory.py",
+      "sha256": "4f0e07b0288b46afb4f918fdfb058da4318bca2e8cd180e2c8ba7c6058fb74ea"
+    },
+    {
+      "bytes": 2403,
+      "mode": 436,
+      "path": "tools/build_generic_factory_test.py",
+      "sha256": "06578cdd9cf0dbec4172671637887f4f5b1e54df4b63abbde5b31f4d5e1606a5"
+    },
+    {
+      "bytes": 6644,
+      "mode": 436,
+      "path": "tools/build_ota_manifest_candidate.py",
+      "sha256": "847838f89aed98cef69d5f72ec5344d2b8fac0e5a3af6bfde01ff09541a48244"
+    },
+    {
+      "bytes": 3011,
+      "mode": 436,
+      "path": "tools/build_scada_qt_aarch64.sh",
+      "sha256": "b4055a5455ceaa9b7f1178d8fad408d02f0701118256d45e9b8566c87581a65a"
+    },
+    {
+      "bytes": 3587,
+      "mode": 436,
+      "path": "tools/build_scada_qt_windows.ps1",
+      "sha256": "502f09ffae58475a325975a56663605684f3c4e83ccf8534b81f24f21ef78b46"
+    },
+    {
+      "bytes": 81499,
+      "mode": 436,
+      "path": "tools/builtin_mqtt_driver_publisher_test.cpp",
+      "sha256": "6f69fe2ed7d91e9ac259c8a0ec29bc001aadad95089e8013f3e1d919cdca16fd"
+    },
+    {
+      "bytes": 15906,
+      "mode": 436,
+      "path": "tools/can_signal_codec_test.cpp",
+      "sha256": "307f2478a3300809e93233d4b4b3a9fef7329753fd339c132c9568d3d42f4cbe"
+    },
+    {
+      "bytes": 2573,
+      "mode": 436,
+      "path": "tools/cluster_config_authority_test.cpp",
+      "sha256": "af088ba102750b48af6b00bc25e2e47abd2e428581bb0d507a3732b6c60a0b4c"
+    },
+    {
+      "bytes": 10705,
+      "mode": 436,
+      "path": "tools/cluster_driver_rejection_test.cpp",
+      "sha256": "19a71834c9dfe4de49a6d16f5dd2f7032dd3e36e6c97073ca336bfb8a59b1472"
+    },
+    {
+      "bytes": 12356,
+      "mode": 436,
+      "path": "tools/cluster_driver_send_guard_test.cpp",
+      "sha256": "aa93dd8a3614d13efb976578844c026373aa2f0cf6b63a779f9ad2e6b8afd154"
+    },
+    {
+      "bytes": 5281,
+      "mode": 436,
+      "path": "tools/cluster_router_authority_test.cpp",
+      "sha256": "189032117c5309ff0be1a35cd55faa521c2edb0c0aec9ba098e12257168a1a03"
+    },
+    {
+      "bytes": 3795,
+      "mode": 436,
+      "path": "tools/cluster_write_authorization_test.cpp",
+      "sha256": "e3d39ba918d925402dd1e9412a759cee72dd6698517aa94a499c67d85d6bc271"
+    },
+    {
+      "bytes": 60838,
+      "mode": 436,
+      "path": "tools/collector_partial_failure_test.cpp",
+      "sha256": "eb69eb161ab12c1ce913b52092f865d622ba11ec4286b0d879888f20d3cb4479"
+    },
+    {
+      "bytes": 7144,
+      "mode": 436,
+      "path": "tools/compute_engine_service_test.cpp",
+      "sha256": "18cb4221cb37d3b4bdd4afea071dc1095fbcb907077ac4e62fb13fa1f9e10991"
+    },
+    {
+      "bytes": 84947,
+      "mode": 436,
+      "path": "tools/config_loader_test.cpp",
+      "sha256": "a1f572efa5cc37ef8fe7d41d6c6a1ccd5456ad7e9ab6c405480a1a41ca319c53"
+    },
+    {
+      "bytes": 23747,
+      "mode": 436,
+      "path": "tools/control_dedup_integration_test.cpp",
+      "sha256": "bc1e5ea65be66e520b83a0f512252ffa95a7d38d2fe95fe71aa615fc36fdc22b"
+    },
+    {
+      "bytes": 5663,
+      "mode": 436,
+      "path": "tools/control_dedup_protocol_test.cpp",
+      "sha256": "429d70e19cd39f692e34619e4b13f306c5db161407c176c4aaa213dcc773dc2b"
+    },
+    {
+      "bytes": 8871,
+      "mode": 436,
+      "path": "tools/control_dedup_store_test.cpp",
+      "sha256": "99289478397a5c81fc1c522b382374e15ad618e54983ca545fb6bf268a8bed71"
+    },
+    {
+      "bytes": 2151,
+      "mode": 436,
+      "path": "tools/control_dedup_test_support.hpp",
+      "sha256": "b1809ef79fffb931608dbd3cefc1462a368b4c402186c2685736c42184c3bf3d"
+    },
+    {
+      "bytes": 2135,
+      "mode": 436,
+      "path": "tools/convert_comm_manager_dtype_test.py",
+      "sha256": "028f09b8030830b23f2d31b5f6dddb74bb3b9932b09d2abd4b66794e50117e20"
+    },
+    {
+      "bytes": 38355,
+      "mode": 436,
+      "path": "tools/convert_comm_manager_xlsm.py",
+      "sha256": "47dcc4a65fd9bf5442030406071d172957111d18c9fb76f84855993caf409596"
+    },
+    {
+      "bytes": 39047,
+      "mode": 436,
+      "path": "tools/core_readonly_activation_test.py",
+      "sha256": "a3539db7122a906940fb133ea4c58165f3d7d7893976d840d1f923cc67dad26c"
+    },
+    {
+      "bytes": 6140,
+      "mode": 436,
+      "path": "tools/diagnostic_process_source_test.py",
+      "sha256": "4f03ee62ede26d0d289af767639165474a89a02ec3684916063331e2cc8dbbd0"
+    },
+    {
+      "bytes": 9837,
+      "mode": 436,
+      "path": "tools/diagnostic_process_test.cpp",
+      "sha256": "59bf1c13697c3c6b9a75431406331b3047454948e5a449e4a2d4f36f15360949"
+    },
+    {
+      "bytes": 9626,
+      "mode": 436,
+      "path": "tools/dio_smoke_test.cpp",
+      "sha256": "8a606efc088042c365499995eae68723ffebc243950005091abfee135560c176"
+    },
+    {
+      "bytes": 21386,
+      "mode": 436,
+      "path": "tools/dlt645_client_interval_test.cpp",
+      "sha256": "16c3f34995fcfcd5bc2526c4fa72f763d432c430a97b9996721e857f56cfa015"
+    },
+    {
+      "bytes": 6082,
+      "mode": 436,
+      "path": "tools/dlt645_command_executor_test.cpp",
+      "sha256": "1dab6b117e13dda274ca59e1808ef42516ad265f64f5d3685953d6d4303d9e33"
+    },
+    {
+      "bytes": 8286,
+      "mode": 436,
+      "path": "tools/ems_cluster_capability_snapshot_test.cpp",
+      "sha256": "33f2f7f332150bdbb221d72452b6671afaf161d9dd34e494872235efbc3de13b"
+    },
+    {
+      "bytes": 5358,
+      "mode": 436,
+      "path": "tools/ems_cluster_load_sampler_test.cpp",
+      "sha256": "a7db49bec48014f46c4b2485980299a7a89eb9f50d5e7cc54af67d6e5386f8f4"
+    },
+    {
+      "bytes": 20418,
+      "mode": 436,
+      "path": "tools/ems_cluster_output_authority_test.cpp",
+      "sha256": "3544a6c6b901f5a1ed5674b06e1ff4f77e2110600415511a3318936480d67f4d"
+    },
+    {
+      "bytes": 21566,
+      "mode": 436,
+      "path": "tools/ems_cluster_strategy_startup_test.cpp",
+      "sha256": "1babc3d87ff78c0eaed70d135cb0717170ba373fbc30c046ca1aeefcadfab15e"
+    },
+    {
+      "bytes": 89683,
+      "mode": 436,
+      "path": "tools/ems_cluster_test.cpp",
+      "sha256": "a5918e83621832ff49f489c2508aadac9ec76dd9ebd5a176b0c5077771e791ad"
+    },
+    {
+      "bytes": 24192,
+      "mode": 436,
+      "path": "tools/ems_cluster_transport_bounds_test.cpp",
+      "sha256": "6f03db87c1e712f068715c7feec8a6703fe213696c7e1d2a278db6fadadb4a0c"
+    },
+    {
+      "bytes": 29304,
+      "mode": 436,
+      "path": "tools/ems_parity_check.cpp",
+      "sha256": "09315ef3925d1240b6c0784b4a3917518537fd9fd9f188871308fbb3be8d2567"
+    },
+    {
+      "bytes": 13202,
+      "mode": 436,
+      "path": "tools/ems_shadow_live_helper.cpp",
+      "sha256": "9335ee2cfa7722508ce2ca533711acaab59b244d0a6b5453ac74562472c271e0"
+    },
+    {
+      "bytes": 5504,
+      "mode": 436,
+      "path": "tools/ems_shadow_live_helper.md",
+      "sha256": "cf43f1bee15c68a68a8191940efd16080d440891e2ebeed3e56a7fff57ff5ec0"
+    },
+    {
+      "bytes": 10849,
+      "mode": 436,
+      "path": "tools/ems_shadow_live_helper_test.cpp",
+      "sha256": "392d77058370f774911d879506c7cf997de2def21860676cc0fe029483ed3085"
+    },
+    {
+      "bytes": 39741,
+      "mode": 436,
+      "path": "tools/event_engine_ipc_test.cpp",
+      "sha256": "1cd5eac725a047cd4935255b76edc89823da61d61ce7b8f45492870482a03080"
+    },
+    {
+      "bytes": 27061,
+      "mode": 436,
+      "path": "tools/event_engine_service_test.cpp",
+      "sha256": "833346c5716bc02fa286a29524ba2471a06c0ec9f39b4b719ce3d5f1a0e64f6d"
+    },
+    {
+      "bytes": 16893,
+      "mode": 436,
+      "path": "tools/event_history_projection_test.cpp",
+      "sha256": "cab6e127cfa4dddbd9e0c81dd376dc4d27a2cc5695e64028d9ff77c263e9a35d"
+    },
+    {
+      "bytes": 65543,
+      "mode": 436,
+      "path": "tools/event_stats_reader_test.cpp",
+      "sha256": "76b923cc19b48093abcd1a96b2f3d16ed89c9584d17b423f26a93beedcab562a"
+    },
+    {
+      "bytes": 11234,
+      "mode": 436,
+      "path": "tools/event_store_capacity_test.cpp",
+      "sha256": "a124c7727aa53c7f55fef399292ee51ad9ac808ff19bdead29fda12a5635ba95"
+    },
+    {
+      "bytes": 64732,
+      "mode": 436,
+      "path": "tools/event_store_client_test.cpp",
+      "sha256": "a10d40dc53b53b3d4776dfd8bbbd2ad5314e472083a0a570337c558695e7e69c"
+    },
+    {
+      "bytes": 9231,
+      "mode": 436,
+      "path": "tools/event_store_cpu_test.cpp",
+      "sha256": "113728f72544b6a456177f236f876b32649abdf769bed6b01c7b0490779bbb50"
+    },
+    {
+      "bytes": 54569,
+      "mode": 436,
+      "path": "tools/event_store_delivery_test.cpp",
+      "sha256": "8bfda2fe1befff103a8797a5aaf2cab8e65a3be9a662ff400bc35d3bec76a121"
+    },
+    {
+      "bytes": 13682,
+      "mode": 436,
+      "path": "tools/event_store_history_runtime_test.cpp",
+      "sha256": "1178c4e38db4b20aaf57033bd8d5cf6fbcecadc6a6bfd9942aba2abb25f46188"
+    },
+    {
+      "bytes": 2664,
+      "mode": 436,
+      "path": "tools/event_store_index_init_test.cpp",
+      "sha256": "fef32fef8f2227c1dac3cd53ca0446af5451f55f0c53357e962ab2573af1cdbe"
+    },
+    {
+      "bytes": 8816,
+      "mode": 436,
+      "path": "tools/event_store_management_test.cpp",
+      "sha256": "2d2d20b6768ea5434f2e87046f9bb8ec7e0c4bd69c0eabbe6c54cd3ab4a8c063"
+    },
+    {
+      "bytes": 3585,
+      "mode": 436,
+      "path": "tools/event_store_migrate_ipc_test.cpp",
+      "sha256": "f36b264a57548a411d3b16293a2f699ab7d66b8114fa39cb16bfc6747f1350da"
+    },
+    {
+      "bytes": 1161,
+      "mode": 436,
+      "path": "tools/event_store_pipeline_baseline_test.cpp",
+      "sha256": "a3394b306f89cac34aaf3a2fb6733971e6061e75f88e12f56bd4aa2c502fa045"
+    },
+    {
+      "bytes": 25052,
+      "mode": 436,
+      "path": "tools/event_store_producer_test.cpp",
+      "sha256": "c97fda21addd65479c67b598f90957ed20e926e9289a36d8310fd29be3bac426"
+    },
+    {
+      "bytes": 24690,
+      "mode": 436,
+      "path": "tools/event_store_sender_test.cpp",
+      "sha256": "5c956be300ab9aec538d3feb6bd06be2bb2a4068e2c6872e55a8fa8102a47351"
+    },
+    {
+      "bytes": 27908,
+      "mode": 436,
+      "path": "tools/event_store_stats_test.cpp",
+      "sha256": "91ecc318fc0836c7e428a6b955011f59fe3e4a291962ab2047d0a24c3953076d"
+    },
+    {
+      "bytes": 33220,
+      "mode": 436,
+      "path": "tools/event_store_test.cpp",
+      "sha256": "df4a17e57721161d3ced0426761f41d93801c884377e7cb28bf769eebf40009f"
+    },
+    {
+      "bytes": 742,
+      "mode": 436,
+      "path": "tools/event_store_test_files.hpp",
+      "sha256": "fcdafb4af8e876c90443cd1152bae1cc20b94662841d4018b5a48a8eefac564f"
+    },
+    {
+      "bytes": 3984,
+      "mode": 436,
+      "path": "tools/event_store_transport_test.cpp",
+      "sha256": "8b21b73a87eefa5ebeabe816b5ab6d213d149837029e213a7104988eeabcd7e3"
+    },
+    {
+      "bytes": 10007,
+      "mode": 436,
+      "path": "tools/factory_core_isolation_test.py",
+      "sha256": "28733522fa48a09881fbb1112f779b4ed16ec1676dda1c7914fd03e7dadb703b"
+    },
+    {
+      "bytes": 17008,
+      "mode": 436,
+      "path": "tools/factory_lifecycle_install_test.py",
+      "sha256": "f0f8e41fb30079a7099ef9f312731082e65c61d0dfa885ef09b5d34b5b85c0f4"
+    },
+    {
+      "bytes": 4101,
+      "mode": 436,
+      "path": "tools/factory_package_component_version_test.sh",
+      "sha256": "7520412b637779b96a6f72c6b9f4df1b89d840dd9dbedbcf5fbed201fb5fc99c"
+    },
+    {
+      "bytes": 1150,
+      "mode": 436,
+      "path": "tools/filesystem_compat_test.cpp",
+      "sha256": "1029d5eabe13635fd151bdd51d5e9b4c3adee9c292073ad0f9ec09c310149fb4"
+    },
+    {
+      "bytes": 108814,
+      "mode": 436,
+      "path": "tools/fixtures/a-profile-preflight-20260925-01.json",
+      "sha256": "4da811ae013a43b51e7f8ba701085fe78bea2fb0e8f2f4e27db9a104f247ec60"
+    },
+    {
+      "bytes": 1836,
+      "mode": 436,
+      "path": "tools/fixtures/a-unit-env-public-supplement-20260925-01.json",
+      "sha256": "a6fc97e7f69a96849665532f38051c82780b26276748ee8b3bb012940064d206"
+    },
+    {
+      "bytes": 949,
+      "mode": 436,
+      "path": "tools/fixtures/production-historical-r2-allowlists.json",
+      "sha256": "03eb3cbe592a5bc84475bd1c67313f4013cc98eea145d862eecc1845b02ec1a0"
+    },
+    {
+      "bytes": 5912,
+      "mode": 436,
+      "path": "tools/flexible_phase_balance_test.cpp",
+      "sha256": "bbd88d4617508839f0ec5cc2cbab29f6022165bc25ec6ddca9eb40ee191924f1"
+    },
+    {
+      "bytes": 25676,
+      "mode": 436,
+      "path": "tools/gateway_daemon_realtime_priority_test.cpp",
+      "sha256": "030fd7e62316bd4a0681b92b6cbbaf618da50692a4b3ee68479472829c535b67"
+    },
+    {
+      "bytes": 9941,
+      "mode": 436,
+      "path": "tools/gateway_health_watchdog_test.sh",
+      "sha256": "7d78f747767aa1f6e2e680894cc72d090369287ea986584c290c83e8d867c21e"
+    },
+    {
+      "bytes": 7612,
+      "mode": 436,
+      "path": "tools/gateway_inventory_builder.py",
+      "sha256": "0e9bf433c0d292e7905ca3519007bcf6c93aca0e76df78b1ae0ff6b60ab79384"
+    },
+    {
+      "bytes": 9707,
+      "mode": 436,
+      "path": "tools/gateway_plan_materializer.py",
+      "sha256": "5990dfdcfbc6947df6d60624546f35ab677d00bc34305c1c509f1df98325687f"
+    },
+    {
+      "bytes": 1087,
+      "mode": 436,
+      "path": "tools/gateway_services_boot_test.sh",
+      "sha256": "0a2b4c0950bbc6cee0e77984597b9b48ea649109eeec539600aa3fef0b38b5e1"
+    },
+    {
+      "bytes": 3214,
+      "mode": 436,
+      "path": "tools/gateway_services_watchdog_lifecycle_test.sh",
+      "sha256": "c670183a324b845f5f640ed9ef75045233d08617987d6e4535df71045a75ca00"
+    },
+    {
+      "bytes": 13707,
+      "mode": 436,
+      "path": "tools/gateway_split_planner.py",
+      "sha256": "b5140485e75972fc516e65a00eab04a8c54c93428c0d62019bae47f1025fc8cf"
+    },
+    {
+      "bytes": 9772,
+      "mode": 436,
+      "path": "tools/generate_60w_dehumidifier_config.ps1",
+      "sha256": "c0793ba710ee07fec99931a2a1dbbeab1a04cbd16d57bf75b21d874e5e6bff01"
+    },
+    {
+      "bytes": 4630,
+      "mode": 436,
+      "path": "tools/generate_60w_dehumidifier_config_test.ps1",
+      "sha256": "25031e40c03e2eb9b5cf9839d5df0e0eff3f5185ab1ade49e6a513271bfc5a10"
+    },
+    {
+      "bytes": 101473,
+      "mode": 436,
+      "path": "tools/generate_shuntong_modular_graph.ps1",
+      "sha256": "0a8ba9f7a436011c15bc69f72ed48543ef018f88b8f0fd235928943aa8198c1e"
+    },
+    {
+      "bytes": 3334,
+      "mode": 436,
+      "path": "tools/generate_shuntong_modular_graph_test.ps1",
+      "sha256": "3992f13b90c98f24d53642abe7e282f25bc93f6d2491b71b9f4bfe892486261a"
+    },
+    {
+      "bytes": 654,
+      "mode": 436,
+      "path": "tools/generate_storage_ems_2_scada.ps1",
+      "sha256": "8e46a801c83e1534652df6470bf6ac2c7deadef746ca898bef83eb8306cc46d1"
+    },
+    {
+      "bytes": 37982,
+      "mode": 436,
+      "path": "tools/generic_factory_test.py",
+      "sha256": "1b6b10e9dba7cd174f2fa3d0bbfa3afb2b02a35f100f5cd188292b3935ac8550"
+    },
+    {
+      "bytes": 27727,
+      "mode": 436,
+      "path": "tools/graph_ems_cluster_dispatch_test.cpp",
+      "sha256": "3faff1cb314a3c41bf57e6f297b1421d1c5ec50bdb58d8b1780555f669ebb3b8"
+    },
+    {
+      "bytes": 35026,
+      "mode": 436,
+      "path": "tools/graph_ems_v2_loader_test.cpp",
+      "sha256": "b6882f6245c5a15697c4104439e8dddc967b4df700ab7a2fc47576ce10a2702c"
+    },
+    {
+      "bytes": 12464,
+      "mode": 436,
+      "path": "tools/graph_ems_voltage_quality_test.cpp",
+      "sha256": "934cf0d485a242c162b14b9d5acedbe50f9527099432ad8b4358e5b65996b823"
+    },
+    {
+      "bytes": 3022,
+      "mode": 436,
+      "path": "tools/grid_friendly_dispatch_test.cpp",
+      "sha256": "87a889a6e3a21a7f5bdf2ec9e4a837e0fdb5d365ddbcd910a186600d4415cb65"
+    },
+    {
+      "bytes": 7121,
+      "mode": 436,
+      "path": "tools/grid_reserve_test.cpp",
+      "sha256": "0c880c6d773d22b818d5929b67b5b8e485d037a05c5a835bc73879282e1fb9df"
+    },
+    {
+      "bytes": 5195,
+      "mode": 436,
+      "path": "tools/iec103_recording_command_test.cpp",
+      "sha256": "d5b332332d7f00b26188621dde19530046234556c4726a29d7466f9f99f87c7a"
+    },
+    {
+      "bytes": 15533,
+      "mode": 436,
+      "path": "tools/iec103_recording_transfer_service_test.cpp",
+      "sha256": "8fdfa1a0be6e9f8f4e9e2bb2780ff96168b7d662dc00fadbb56c3a76d38e5639"
+    },
+    {
+      "bytes": 18142,
+      "mode": 436,
+      "path": "tools/iec104_client_integration_test.cpp",
+      "sha256": "74963d5815e43f9ef3ca345f8ff77b14f3962fa5d5c009cff1cef3a91e1799dd"
+    },
+    {
+      "bytes": 12405,
+      "mode": 436,
+      "path": "tools/iec_codec_test.cpp",
+      "sha256": "c423e51626bc02db97364cc95e24b176ca9a79d201448cdc4dc92da8b5d7ac45"
+    },
+    {
+      "bytes": 6148,
+      "mode": 436,
+      "path": "tools/iec_collector_incremental_test.cpp",
+      "sha256": "da838d13faa5e556fd58d33ef1e72d76d80e62509576ec560da6eac57f9cfc16"
+    },
+    {
+      "bytes": 202325,
+      "mode": 436,
+      "path": "tools/install_isolation_test.py",
+      "sha256": "14b1367102e5195f2496e8490ce8005311c6a85a6cfc8121e5199608cc7a598e"
+    },
+    {
+      "bytes": 251404,
+      "mode": 436,
+      "path": "tools/legacy_ems_test.cpp",
+      "sha256": "02bde81d020353085aaa1c53629bb6881658396a4dbfc47d431be4a7827347d1"
+    },
+    {
+      "bytes": 3143,
+      "mode": 436,
+      "path": "tools/local_display_qt_access_test.cpp",
+      "sha256": "08ed6eb93be0ae9040ab7ef04adc10c078a5762726edcff46e6a7ed065a7942d"
+    },
+    {
+      "bytes": 2544,
+      "mode": 436,
+      "path": "tools/local_display_qt_value_map_test.cpp",
+      "sha256": "4bf960423b3f5fb7e2f4e4bbb0b1fb835cf3e9daa3b5201b205a19b46de6e736"
+    },
+    {
+      "bytes": 22198,
+      "mode": 436,
+      "path": "tools/memory_point_store_lifecycle_test.cpp",
+      "sha256": "6f03f5412d82fbd77560ab6a89fcbb1482ad3ca0980e11750decb27c7cbaec8a"
+    },
+    {
+      "bytes": 4013,
+      "mode": 436,
+      "path": "tools/memory_point_store_migrate.cpp",
+      "sha256": "3f68b9d8ab83ea7a42b7572b90a910cd3c06a890faee4f036b772a340ca742db"
+    },
+    {
+      "bytes": 22564,
+      "mode": 436,
+      "path": "tools/memory_point_store_migration_test.cpp",
+      "sha256": "4dac144d5e659864cd9d2e7ddc434027fbb47b61f35bcb024572c80c60575368"
+    },
+    {
+      "bytes": 18367,
+      "mode": 436,
+      "path": "tools/memory_point_store_reader_cache_test.cpp",
+      "sha256": "51957fbb6dfb4ac47079fddc2d052bb0e43681f8bcbac8d384fd9f2b002ff458"
+    },
+    {
+      "bytes": 8437,
+      "mode": 436,
+      "path": "tools/memory_point_store_shm11_test.cpp",
+      "sha256": "370670478d9e7092cbccc85f0b238713fe96ad83e4c68689a4effff881f912f2"
+    },
+    {
+      "bytes": 6093,
+      "mode": 436,
+      "path": "tools/memory_point_store_v11_migration_test.cpp",
+      "sha256": "8cac2261dc71d71a72b32ab66abcb988445336540c22b3f6d3cda1e81a478d90"
+    },
+    {
+      "bytes": 2359,
+      "mode": 436,
+      "path": "tools/modbus_codec_test.cpp",
+      "sha256": "f450b17d4beb67ff4f1a58a66cf15972ad52fd46c272df9531bb7bbeab654982"
+    },
+    {
+      "bytes": 4898,
+      "mode": 436,
+      "path": "tools/modbus_northbound_server_test.cpp",
+      "sha256": "349d13b445577bdbcd810282114d77e154c2bf803ad03e90c78e9e638f1699ea"
+    },
+    {
+      "bytes": 17642,
+      "mode": 436,
+      "path": "tools/modbus_rtu_client_resync_test.cpp",
+      "sha256": "25dcaf400197d73c6d55220a2de92e2f71127551ce8677831762c10310d65441"
+    },
+    {
+      "bytes": 20315,
+      "mode": 436,
+      "path": "tools/modbus_tcp_client_limit_test.cpp",
+      "sha256": "3c1b6f4696ae7360348909efcd85cb317a8b36985d3dcc3d5ff98425fcd420cc"
+    },
+    {
+      "bytes": 135021,
+      "mode": 436,
+      "path": "tools/mqtt_driver_service_test.cpp",
+      "sha256": "8520af359ed3fc2fa5b8e8648d105d141c97a76a41ce7b77b2f04831a9e44ac3"
+    },
+    {
+      "bytes": 69439,
+      "mode": 436,
+      "path": "tools/mqtt_event_outbox_target_test.cpp",
+      "sha256": "bb94662cfa9af025d844408922c65ce571f35f2d65d89e3a07ff6db24a763157"
+    },
+    {
+      "bytes": 46821,
+      "mode": 436,
+      "path": "tools/mqtt_event_stats_test.cpp",
+      "sha256": "f1ec93027ab1de86050468adcc0287e4334a57a7d67bf9e2a6f55428d504ad64"
+    },
+    {
+      "bytes": 171367,
+      "mode": 436,
+      "path": "tools/mqtt_forwarder_service_test.cpp",
+      "sha256": "73a71ea5e2873d155ab03782e1ed0f211dc789cc63750393026809043a3d8d0e"
+    },
+    {
+      "bytes": 6084,
+      "mode": 436,
+      "path": "tools/mqtt_full_snapshot_encoding_test.cpp",
+      "sha256": "225060841ae66b19acfea9fca00e93ce4c7b3b8cb9ad0a847c2161a4fb259f17"
+    },
+    {
+      "bytes": 9701,
+      "mode": 436,
+      "path": "tools/offline_capacity_preflight_test.py",
+      "sha256": "a35f981580f5a7232ffb785a586cd674e458bb6f55032346f6577aab2e13577f"
+    },
+    {
+      "bytes": 4095,
+      "mode": 436,
+      "path": "tools/offline_upgrade_fixture.cpp",
+      "sha256": "35555790af569e793c8a8d44696c35140d329b5f406a63d5d19f76a4c43a37eb"
+    },
+    {
+      "bytes": 5175,
+      "mode": 436,
+      "path": "tools/ota_apply_self_upgrade_test.sh",
+      "sha256": "3547136084697bfd68d2cc2d650e5cc59ef3cea84ccdef582003c17e86704570"
+    },
+    {
+      "bytes": 7524,
+      "mode": 436,
+      "path": "tools/ota_async_health_test.sh",
+      "sha256": "7714ffb660b34880679e181fe4278d1417b3826ba8c3859c014f1bc3843da80a"
+    },
+    {
+      "bytes": 6367,
+      "mode": 436,
+      "path": "tools/ota_checksum_test.cpp",
+      "sha256": "f2ad276e8c524eedd7a5b69a88232193e25ab08ad292cd74c581985364215168"
+    },
+    {
+      "bytes": 17620,
+      "mode": 436,
+      "path": "tools/ota_duplicate_ingress_test.hpp",
+      "sha256": "024dfd5700e2e9cb1e6c01d50f03808bfdf8f1e903a76076a59e03adbfada809"
+    },
+    {
+      "bytes": 51155,
+      "mode": 436,
+      "path": "tools/ota_final_state_test.cpp",
+      "sha256": "1195b82efe21ae15bfe02bec525b2e0c00c56415f14ebb9290abbbf33ee0ba9c"
+    },
+    {
+      "bytes": 26423,
+      "mode": 436,
+      "path": "tools/ota_finalization_test.hpp",
+      "sha256": "ab2a38686e3f24ebb84ec3b48c29c79aa00188067734a5100492053d1c688ca1"
+    },
+    {
+      "bytes": 799,
+      "mode": 436,
+      "path": "tools/ota_fixture_cleanup_test.sh",
+      "sha256": "01ef92d962877b2948fb94396fddc7a9fefe352bcaa406bd09c5822609a6b485"
+    },
+    {
+      "bytes": 4958,
+      "mode": 436,
+      "path": "tools/ota_lifecycle_isolation_test.sh",
+      "sha256": "9c1d3f09aceee0ab7682dd1df7cc107aa65f8a929872a84568c359cc5a12aab1"
+    },
+    {
+      "bytes": 17421,
+      "mode": 436,
+      "path": "tools/ota_manifest_guard_test.py",
+      "sha256": "5073d0f2e92bb661b641827587a1eec6508e39cca1c22f8e5cc144aefdd17688"
+    },
+    {
+      "bytes": 20150,
+      "mode": 436,
+      "path": "tools/ota_replay_isolation_test.hpp",
+      "sha256": "c3b5e11cb3b9b3b3f396dfa027e7f1519916ad2559dc4ef55469e3fda6417c2d"
+    },
+    {
+      "bytes": 9210,
+      "mode": 436,
+      "path": "tools/ota_runtime_handoff_service_test.cpp",
+      "sha256": "6a6c3203a812c5bcfae713fef9ff5d6a5d26c192d873c41d65731bd6fd0258ab"
+    },
+    {
+      "bytes": 31556,
+      "mode": 436,
+      "path": "tools/ota_runtime_handoff_test.py",
+      "sha256": "67548d978a28543e938cebfae5ab1628c1492bdc685c02d34f777493cd4cbd85"
+    },
+    {
+      "bytes": 39267,
+      "mode": 436,
+      "path": "tools/ota_service_test.cpp",
+      "sha256": "ab8c1bdf7c7b185e9e4df39e779e406d4f31179407be6a799a4df8f1effb1643"
+    },
+    {
+      "bytes": 2733,
+      "mode": 436,
+      "path": "tools/ota_sync_failure_test.sh",
+      "sha256": "7c3b8c3adf84836eec9b64959f6b9edee287ab95634dec7b084142bd661346ac"
+    },
+    {
+      "bytes": 27968,
+      "mode": 436,
+      "path": "tools/persistent_flush_pressure_test.cpp",
+      "sha256": "3465dfac14a12643512f98cf5d16bc5fd3a654728bc6be947924d5a28f70f2a2"
+    },
+    {
+      "bytes": 7140,
+      "mode": 436,
+      "path": "tools/point_store_router_normalize_test.cpp",
+      "sha256": "5f7a7594550b9c961cafc8b2b147f49492a3e5e763b38db9a59556bde099be24"
+    },
+    {
+      "bytes": 10411,
+      "mode": 436,
+      "path": "tools/point_store_router_retention_test.cpp",
+      "sha256": "8f8f84c489a61cae669bf991a209dfb61d3802310c8b199ee6a59e76d423dd09"
+    },
+    {
+      "bytes": 16546,
+      "mode": 436,
+      "path": "tools/pointctl.cpp",
+      "sha256": "90d39ac9709145e5fa384bcd8a6fc285cd0ff4c4d55ffa2aca505f4ff88d9664"
+    },
+    {
+      "bytes": 1732,
+      "mode": 436,
+      "path": "tools/posix_serial_port_recovery_test.cpp",
+      "sha256": "82cc246e42c0f37d556ba9f0f4e5454694aafb75d2d033f13484be0d221cc7bf"
+    },
+    {
+      "bytes": 1576,
+      "mode": 436,
+      "path": "tools/priority_control_lease_test.cpp",
+      "sha256": "247ef6a1a6f7fc0d95e7a84c91724b207235da1858de546a892fd214fa738e38"
+    },
+    {
+      "bytes": 9336,
+      "mode": 436,
+      "path": "tools/production_boot_health_publication_test.py",
+      "sha256": "783598b80073769058cd25a08646b2d72852c84ed5abbfa67b1406d67eb9ec73"
+    },
+    {
+      "bytes": 36269,
+      "mode": 436,
+      "path": "tools/production_boot_publication_test.py",
+      "sha256": "fa7c76d4d9bd2fbf81da8afb44d1a7c56cc0e44521de465b8faa9f3fb221a804"
+    },
+    {
+      "bytes": 26721,
+      "mode": 436,
+      "path": "tools/production_native_boot_test.py",
+      "sha256": "333691c4d2fb9f3e29443304164971fcf66fd00f9c8947ee5e7ccf222a94440c"
+    },
+    {
+      "bytes": 45388,
+      "mode": 436,
+      "path": "tools/production_runtime_baseline_test.py",
+      "sha256": "7a59e5941c0468cef6ca0e99be54fe5e7a06fbf57728d2d72a5bce7a3017c185"
+    },
+    {
+      "bytes": 6734,
+      "mode": 436,
+      "path": "tools/release/audit-scada-runtime.ps1",
+      "sha256": "101a91e67d6cfd6a445a20052f27112cb89ef8da32ecc51e89b1668abc616c68"
+    },
+    {
+      "bytes": 2301,
+      "mode": 436,
+      "path": "tools/release/build-ems-mobile.ps1",
+      "sha256": "b7140b0ec39a5604bb5bfcff5326609c01273c0913327722df3c80d00318061b"
+    },
+    {
+      "bytes": 2315,
+      "mode": 436,
+      "path": "tools/release/build-ems-stationary.ps1",
+      "sha256": "be6f58b2056a93412474be02c012a3e0f7c5282aa0585f0fe7d07b547c5374bf"
+    },
+    {
+      "bytes": 8452,
+      "mode": 436,
+      "path": "tools/release/validate-ems-package.ps1",
+      "sha256": "068835a99e45155fd557590498f7e3618f2d89fa892687964b06304562331c89"
+    },
+    {
+      "bytes": 51156,
+      "mode": 436,
+      "path": "tools/remap_scada_project.ps1",
+      "sha256": "99ee6404bc8cb926e0e03b4a9976ded7e9c5e402ba66f14590f11c2327e30398"
+    },
+    {
+      "bytes": 42518,
+      "mode": 436,
+      "path": "tools/remap_scada_project_baseline_test.ps1",
+      "sha256": "c696fae612f98e78dad619600a7efa5cc7ca953b4e4e9c4b3b045a4113aa0264"
+    },
+    {
+      "bytes": 1019,
+      "mode": 436,
+      "path": "tools/run_control_dedup_regressions.sh",
+      "sha256": "1f8e988a6cf23d4e3356484f1a5dbe6222e65305e47cc18b772cab94674d3394"
+    },
+    {
+      "bytes": 3005,
+      "mode": 436,
+      "path": "tools/runtime_mode_package_test.sh",
+      "sha256": "5495d59b71ec40f45d81477e698be56a504c8c397535b53620361acc8db50c75"
+    },
+    {
+      "bytes": 1743,
+      "mode": 436,
+      "path": "tools/scada-windows-renderer/CMakeLists.txt",
+      "sha256": "6a43a598001ea9fdcd032f65ba42929a455839e6154357ab03499b3ae4f90c58"
+    },
+    {
+      "bytes": 3404,
+      "mode": 436,
+      "path": "tools/scada_install_test.sh",
+      "sha256": "f150747f6aa2b516f554cf09830ff597ddf79291b486d84ae719ae7b9a90f0ef"
+    },
+    {
+      "bytes": 4042,
+      "mode": 436,
+      "path": "tools/scada_rollback_test.sh",
+      "sha256": "d2978100973769edb751b209569f72f6d263cafcefe627a956fdf2d694144823"
+    },
+    {
+      "bytes": 20166,
+      "mode": 436,
+      "path": "tools/scada_runtime_test.cpp",
+      "sha256": "baab656d49b567373731f0671ddae4752e32cc16c4583dc072a1ebe2a56fb95a"
+    },
+    {
+      "bytes": 11830,
+      "mode": 436,
+      "path": "tools/scada_upper_computer_safety_test.cpp",
+      "sha256": "bb88a6f741dd6f87637113ad76bf8cf9642657ebab068e4c62b194b07eea1b14"
+    },
+    {
+      "bytes": 3125,
+      "mode": 436,
+      "path": "tools/sqlite_failure_fixture.cpp",
+      "sha256": "2b9def313119ac359f5fe59a812caea5c7c3f08e0ee192e99106e4c091b8756b"
+    },
+    {
+      "bytes": 6814,
+      "mode": 436,
+      "path": "tools/sqlite_history_storage_guard_test.cpp",
+      "sha256": "f2e774e2fb2c0085bb8168f02c1a07ce56d3db6cf03b2aa77ba349dc107d1eab"
+    },
+    {
+      "bytes": 8782,
+      "mode": 436,
+      "path": "tools/sqlite_outbox_benchmark.cpp",
+      "sha256": "e5f6a74203a2014f091ced6d3a5b112be37e404b25986d5b22ccf58b4667572e"
+    },
+    {
+      "bytes": 7730,
+      "mode": 436,
+      "path": "tools/sqlite_outbox_failure_fixture.cpp",
+      "sha256": "19c2b43725a06ae024ed5222a6389b9fb67f434472f76a76ebc3288c7cd8cf01"
+    },
+    {
+      "bytes": 13896,
+      "mode": 436,
+      "path": "tools/sqlite_outbox_failure_test.cpp",
+      "sha256": "35c4a21dc98b27a299afcdf42cd74f330ee62abc4bcc31f43768a00daad3cdb4"
+    },
+    {
+      "bytes": 2859,
+      "mode": 436,
+      "path": "tools/sqlite_query_plan_test_support.hpp",
+      "sha256": "76862e2923ea036bda1ef3eeef4967f7c8a0c590aa171ba9291db9a11f81b230"
+    },
+    {
+      "bytes": 10359,
+      "mode": 436,
+      "path": "tools/sqlite_sample_writer_retention_test.cpp",
+      "sha256": "3f0a728c115c9abc88a5f907a82329f5ee982a7fbc2f048ad0aeb3c004d73941"
+    },
+    {
+      "bytes": 15803,
+      "mode": 436,
+      "path": "tools/sqlite_writer_failure_test.cpp",
+      "sha256": "5fb3396bae887ea6ac7fd8658d87b002547e8525295c196245bebec38ef7b9aa"
+    },
+    {
+      "bytes": 2050,
+      "mode": 436,
+      "path": "tools/storage_budget_test.cpp",
+      "sha256": "280cee0c551f0631ee52088c0df98b6d45db84b41e961ba6ff7312d263233c5e"
+    },
+    {
+      "bytes": 13631,
+      "mode": 436,
+      "path": "tools/storage_retention_test.cpp",
+      "sha256": "2eddf10bdb7689a743eea7bb656a2ca34d0b866abee6cdefee789fd91502b808"
+    },
+    {
+      "bytes": 23173,
+      "mode": 436,
+      "path": "tools/stress_runner.cpp",
+      "sha256": "17d47cc892c1ac8fa651493957aba227a236396363c65fd8d7cae4a1b57b26bf"
+    },
+    {
+      "bytes": 13757,
+      "mode": 436,
+      "path": "tools/system_monitor_diagnostic_test.cpp",
+      "sha256": "cf0f67a98531e0e247b80547c1d5b15af1e9f88e495a2f256176f64be0906d6f"
+    },
+    {
+      "bytes": 8885,
+      "mode": 436,
+      "path": "tools/system_monitor_direct_maintenance_contract_test.cpp",
+      "sha256": "68ee3a0c84696e877904f4776582c78f3bbe32a777c67bbe3d250c5165acc299"
+    },
+    {
+      "bytes": 4618,
+      "mode": 436,
+      "path": "tools/system_monitor_runtime_discovery_test.cpp",
+      "sha256": "f01156c3885c476d2626d5c4c6f09e3cf6b5a479d12e5b1bff2088f2e5965435"
+    },
+    {
+      "bytes": 38131,
+      "mode": 436,
+      "path": "tools/system_monitor_service_test.cpp",
+      "sha256": "637f04b1bf20d901b7f117ccfe1ca3e32cdd38fe1d718baff5638717a1c923c2"
+    },
+    {
+      "bytes": 12287,
+      "mode": 436,
+      "path": "tools/test_validate_ems_v2_routes.py",
+      "sha256": "3c03f7e99612220aeed43474dd6a4643cb2ec05057f1c1d9f52617b1168d2f98"
+    },
+    {
+      "bytes": 3517,
+      "mode": 436,
+      "path": "tools/testdata/graph_ems_v2_direct.logic.json",
+      "sha256": "0f6b9073ac7b8af49d3ea559815472eaa3687dcc4323fc363a60ea5c3318b4f2"
+    },
+    {
+      "bytes": 15404,
+      "mode": 436,
+      "path": "tools/testdata/shuntong_ems_generator_seed.json",
+      "sha256": "2fdf4aff253b0cd20002f6d80c9ec12172a3412342bb17d6a8f03e1473492461"
+    },
+    {
+      "bytes": 6281,
+      "mode": 436,
+      "path": "tools/timing_policy_test.cpp",
+      "sha256": "b5c6ee839489f051be170374d526f7b163b639ecff76773c29bc07115fe6520b"
+    },
+    {
+      "bytes": 10603,
+      "mode": 436,
+      "path": "tools/update_60w_dehumidifier_alarm.ps1",
+      "sha256": "f6b79589ad558d09e77ddc19351af43c8704e9e0b2aaa863d7beee034faca17b"
+    },
+    {
+      "bytes": 566,
+      "mode": 436,
+      "path": "tools/upgrade_ems_1_scada_retention.ps1",
+      "sha256": "a81b2b2625e948b0b9eff93d549861cb388095eb6a288726251f38cf4bfa6408"
+    },
+    {
+      "bytes": 153,
+      "mode": 436,
+      "path": "tools/upgrade_ems_1_scada_retention_test.ps1",
+      "sha256": "30d7ec4c772f3895dbf9f626dcfa17e8a2cda30942b2e9bed8eb4b77ba6e2db3"
+    },
+    {
+      "bytes": 3493,
+      "mode": 436,
+      "path": "tools/validate_ems_v2_routes.md",
+      "sha256": "149dcf593eee73ef586bf94ff04018695a20139fb195f553ae7b5d25e76ad0c1"
+    },
+    {
+      "bytes": 38933,
+      "mode": 436,
+      "path": "tools/validate_ems_v2_routes.py",
+      "sha256": "d352ffe53011c221017c70fb4a40654736e2e33caba09009d05a80624f9f6395"
+    }
+  ],
+  "supplementalFiles": {
+    "board-child.py": {
+      "bytes": 7405,
+      "mode": 320,
+      "sha256": "2d6af17c7713d19c43a5d7ffc01f7a6330486f446ad04e7a01896c40da762dfe"
+    },
+    "build-child.py": {
+      "bytes": 10287,
+      "mode": 320,
+      "sha256": "bf8c54817fd1f48dc6dadbdb6e5f768e49fd9baf24fea5a068891ea06c3dc02a"
+    },
+    "build-group.py": {
+      "bytes": 431,
+      "mode": 320,
+      "sha256": "c38ba97da1d6c813abd2cefdfed91a592fe99f122db83c818a890a12a55ce41c"
+    },
+    "execute-r10.py": {
+      "bytes": 10036,
+      "mode": 320,
+      "sha256": "86a733971f0696973edc3de5d266f07786263e5462e34faeb5b11814e7e0701a"
+    },
+    "namespace-child.py": {
+      "bytes": 6262,
+      "mode": 320,
+      "sha256": "084a372c65658d100f8035b77f50b14dd0abd96c0bfd396cc48df9975464ef7a"
+    },
+    "ownership-probe.cpp": {
+      "bytes": 6256,
+      "mode": 320,
+      "sha256": "88b7d693698403a9f89a8a4f9c820f057fa70b0a0d6be927ad543516aeb9fe3e"
+    },
+    "prepare-r10.py": {
+      "bytes": 5231,
+      "mode": 320,
+      "sha256": "27556e9e9c124287be138fa22cb8627578d5a9f783f64b0964b84c7e009ba59f"
+    }
+  },
+  "targets": [
+    "diagnostic_process_test",
+    "system_monitor_diagnostic_test",
+    "system_monitor_service_test"
+  ]
+}

@@ -1,0 +1,6 @@
+source.tar
+artifacts/
+build-result.json
+board-result.json
+remote-*.log
+remote-build-result.json
