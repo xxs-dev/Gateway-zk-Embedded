@@ -29,7 +29,7 @@ class ProductionRolePolicyTest(unittest.TestCase):
         self.trust.write_bytes(b'fixture-public-key\n')
         self.write('device_identity.json', {'machineCode': 'SIM_23'})
         self.write('apps/mqtt-service.json', {
-            'runtimeMode': 'standard', 'identityConfigFile': TARGET + 'device_identity.json',
+            'runtimeMode': 'gateway', 'identityConfigFile': TARGET + 'device_identity.json',
             'deviceConfigFiles': [TARGET + 'devices/meter_1.json'],
             'mqtt': {'enabled': True},
             'mqttDriver': {'enabled': True, 'sharedMemoryNames': ['store_1']},
@@ -37,7 +37,7 @@ class ProductionRolePolicyTest(unittest.TestCase):
             'mqttForward': {'enabled': False}, 'emsCluster': {'enabled': False},
             'ota': {'enabled': False}, 'realtime': {'enabled': False}})
         self.write('apps/monitor-service.json', {
-            'runtimeMode': 'standard', 'identityConfigFile': TARGET + 'device_identity.json',
+            'runtimeMode': 'gateway', 'identityConfigFile': TARGET + 'device_identity.json',
             'deviceConfigFiles': [TARGET + 'devices/meter_1.json'],
             'systemMonitor': {'enabled': True, 'cellular': {'routeFailover': {'enabled': False}}},
             'localDisplay': {'enabled': False}})
@@ -127,6 +127,17 @@ class ProductionRolePolicyTest(unittest.TestCase):
         device['protocol']['type'] = 'unknown_protocol'
         self.write('devices/meter_1.json', device)
         self.rejects('unknown device protocol')
+
+    def test_runtime_modes_match_native_app_parser(self):
+        for name in ('apps/mqtt-service.json', 'apps/monitor-service.json'):
+            with self.subTest(name=name):
+                app = self.read(name)
+                app['runtimeMode'] = 'standard'
+                self.write(name, app)
+                self.rejects('unknown app runtime mode')
+                app['runtimeMode'] = 'gateway'
+                self.write(name, app)
+        self.assertEqual(self.resolve()['format'], 'configured-role-policy-v2')
 
     def test_noncanonical_protocol_cannot_select_different_driver_transport(self):
         device = self.read('devices/meter_1.json')
@@ -344,7 +355,7 @@ class ProductionRolePolicyTest(unittest.TestCase):
         self.assertIn('iec-driver@meter_1.service', [r['unit'] for r in roles])
 
     def test_camera_requires_test_source_not_physical_device(self):
-        camera = {'runtimeMode': 'standard', 'identityConfigFile': TARGET + 'device_identity.json',
+        camera = {'runtimeMode': 'gateway', 'identityConfigFile': TARGET + 'device_identity.json',
                   'deviceConfigFiles': [], 'cameraService': {'enabled': True,
                   'cameras': [{'enabled': True, 'sourceType': 'rtsp', 'source': 'rtsp://camera.invalid'}]}}
         self.write('apps/camera-service.json', camera)
@@ -377,7 +388,7 @@ class ProductionRolePolicyTest(unittest.TestCase):
 
     def test_camera_derived_publish_url_requires_exact_local_receiver(self):
         self.write('apps/camera-service.json', {
-            'runtimeMode': 'standard', 'identityConfigFile': TARGET + 'device_identity.json',
+            'runtimeMode': 'gateway', 'identityConfigFile': TARGET + 'device_identity.json',
             'deviceConfigFiles': [], 'cameraService': {
                 'enabled': True, 'media': {'serverUrl': 'rtsp://127.0.0.1:8554',
                                             'auth': {'enabled': False}},
@@ -400,7 +411,7 @@ class ProductionRolePolicyTest(unittest.TestCase):
 
     def test_camera_omitted_enabled_is_active_and_must_be_reviewed(self):
         self.write('apps/camera-service.json', {
-            'runtimeMode': 'standard', 'identityConfigFile': TARGET + 'device_identity.json',
+            'runtimeMode': 'gateway', 'identityConfigFile': TARGET + 'device_identity.json',
             'deviceConfigFiles': [], 'cameraService': {'enabled': True,
                 'cameras': [
                     {'enabled': True, 'cameraCode': 'safe', 'sourceType': 'test',

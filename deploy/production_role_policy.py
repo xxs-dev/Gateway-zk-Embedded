@@ -400,6 +400,8 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
             continue
         value = _json(config_root, relative)
         require(isinstance(value, dict) and set(value) <= APP_KEYS, 'unknown app field: ' + relative)
+        require(value.get('runtimeMode', 'gateway') in ('gateway', 'ems', 'agc_avc'),
+                'unknown app runtime mode: ' + relative)
         require(value.get('identityConfigFile') == str(HOME / 'config/runtime/device_identity.json'),
                 'app identity path changed')
         mqtt_config = value.get('mqtt', {})
@@ -515,7 +517,7 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
     require(mqtt_enabled or not (driver_enabled or event_enabled or forward_enabled or ota_enabled or realtime_enabled),
             'MQTT-dependent role enabled without MQTT')
     mode = mqtt.get('runtimeMode')
-    require(mode in ('ems', 'agc_avc', 'standard'), 'unknown MQTT runtime mode')
+    require(mode in (None, 'gateway', 'ems', 'agc_avc'), 'unknown MQTT runtime mode')
     require(not cluster_enabled or mode == 'ems' and 'control-simulator' in caps,
             'EMS cluster requires reviewed simulated control')
     driver_section = mqtt.get('mqttDriver', {})
