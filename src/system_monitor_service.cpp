@@ -2729,6 +2729,9 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
             std::ostringstream rejection;
             rejection << "{\"replyKind\":\"admission_rejection\",\"attemptedCmdId\":\""
                       << escapeJson(cmdId) << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+                      << "\",\"command\":\"" << escapeJson(command)
+                      << "\",\"arg\":\"" << escapeJson(arg)
+                      << "\",\"operator\":\"" << escapeJson(operatorName)
                       << "\",\"reason\":\"cmdId_conflict\",\"ts\":" << nowMs << "}";
             publisher_->publishJsonMessage(mqttConfig_.diagReplyTopic, rejection.str());
         }
@@ -2769,6 +2772,7 @@ std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& reque
           << "\",\"machineCode\":\"" << escapeJson(machineCode_)
           << "\",\"operator\":\"" << escapeJson(request.operatorName)
           << "\",\"command\":\"" << escapeJson(request.command)
+          << "\",\"arg\":\"" << escapeJson(request.arg)
           << "\",\"success\":" << (result.exitCode == 0 && !result.cleanupFailed ? "true" : "false")
           << ",\"exitCode\":" << result.exitCode
           << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal

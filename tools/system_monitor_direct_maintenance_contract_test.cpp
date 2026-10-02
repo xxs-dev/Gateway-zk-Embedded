@@ -229,6 +229,7 @@ void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMain
     const auto request = prefix + "\"cmdId\":\"DIRECT_ONE\",\"command\":\"uptime\"}";
     const auto first = send(request);
     require(startsWith(first, "HTTP/1.1 200") && first.find("\"reason\":\"exit\"") != std::string::npos &&
+            first.find("\"arg\":\"\"") != std::string::npos &&
             first.find("\"cleanupConfirmed\":true") != std::string::npos &&
             first.find("\"truncated\":false") != std::string::npos,
             "direct successful result must be classified and owned");

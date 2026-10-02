@@ -2089,13 +2089,14 @@ void pollDirectDiagOwner() {
 }
 
 std::string directDiagReplyJson(const std::string& cmdId, const std::string& machineCode,
-    const std::string& operatorName, const std::string& command, std::int64_t requestTs,
+    const std::string& operatorName, const std::string& command, const std::string& arg, std::int64_t requestTs,
     const edge_gateway::DiagnosticProcessResult& result, const std::string& reason, bool cleanupConfirmed) {
     std::ostringstream out;
     out << "{\"cmdId\":\"" << jsonEscape(cmdId)
         << "\",\"machineCode\":\"" << jsonEscape(machineCode)
         << "\",\"operator\":\"" << jsonEscape(operatorName)
         << "\",\"command\":\"" << jsonEscape(command)
+        << "\",\"arg\":\"" << jsonEscape(arg)
         << "\",\"success\":" << (result.exitCode == 0 && cleanupConfirmed ? "true" : "false")
         << ",\"exitCode\":" << result.exitCode
         << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
@@ -2188,7 +2189,7 @@ DirectDiagResponse diagResponseJson(const SystemMonitorDirectMaintenanceConfig& 
                 result.cleanupFailed = !cleaned;
                 result.exitCode = cleaned ? 124 : -1;
                 const auto reason = cleaned ? "timeout" : "cleanup_unknown";
-                const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, requestTs,
+                const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, arg, requestTs,
                                                       result, reason, cleaned);
                 state.replies.emplace(cmdId, DirectDiagRecord{command, arg, operatorName, reply,
                     std::chrono::steady_clock::now() + std::chrono::minutes(5)});
@@ -2201,7 +2202,7 @@ DirectDiagResponse diagResponseJson(const SystemMonitorDirectMaintenanceConfig& 
     if (state.process.active()) { result.cleanupFailed = true; result.exitCode = -1; }
     const auto reason = result.cleanupFailed ? "cleanup_unknown" : result.cancelled ? "cancelled" :
         result.timedOut ? "timeout" : result.signal ? "signal" : result.exitCode < 0 ? "launch_failed" : "exit";
-    const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, requestTs,
+    const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, arg, requestTs,
                                           result, reason, !result.cleanupFailed && !state.process.active());
     state.replies.emplace(cmdId, DirectDiagRecord{command, arg, operatorName, reply,
         std::chrono::steady_clock::now() + std::chrono::minutes(5)});

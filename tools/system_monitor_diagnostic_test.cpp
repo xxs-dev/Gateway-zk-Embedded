@@ -166,6 +166,8 @@ void cases() {
         publisher->request("stall", "systemctl_status", ",\"service\":\"private.service\""); tick(service, 2003);
         require(publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
                 publisher->replies.back().find("\"attemptedCmdId\":\"stall\"") != std::string::npos &&
+                publisher->replies.back().find("\"command\":\"systemctl_status\"") != std::string::npos &&
+                publisher->replies.back().find("\"arg\":\"private.service\"") != std::string::npos &&
                 publisher->replies.back().find("\"cmdId\":") == std::string::npos,
                 "in-flight conflict must not occupy the admitted terminal identity");
         publisher->request("invalid", "systemctl_status", ",\"service\":\"x; touch nope\""); tick(service, 2004);
@@ -175,7 +177,9 @@ void cases() {
         service.stop();
         require(publisher->replies.back().find("\"reason\":\"cancelled\"") != std::string::npos &&
                 publisher->replies.back().find("\"replyKind\":\"terminal\"") != std::string::npos &&
-                publisher->replies.back().find("\"cmdId\":\"stall\"") != std::string::npos,
+                publisher->replies.back().find("\"cmdId\":\"stall\"") != std::string::npos &&
+                publisher->replies.back().find("\"command\":\"top_once\"") != std::string::npos &&
+                publisher->replies.back().find("\"arg\":\"\"") != std::string::npos,
                 "conflict-first must preserve the original terminal result");
         require(fixture.runs() == 1, "duplicate/rejected requests executed again");
         std::cout << "PASS actual-loop/monitor/safety/inflight/conflict/busy/whitelist/stop\n";
