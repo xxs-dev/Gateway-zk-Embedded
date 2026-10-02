@@ -43,8 +43,9 @@ public:
     // leaving subsequent appends intact. I/O/corruption errors are not acceptance.
     // Topic is not journaled. A configured topic change is a new destination;
     // cross-destination idempotence is not guaranteed.
-    // maxPendingStatusBytes still evicts oldest whole records; this is a bounded
-    // recovery journal, not an unlimited history. Oversized single records fail.
+    // maxPendingStatusBytes evicts old nonterminal records only, wherever they
+    // occur. One terminal record of bounded headroom may exceed that limit;
+    // an all-terminal backlog fails closed until local delivery is resolved.
     // Linux acceptance requires file and directory fsync; storage failures throw
     // before publish. This does not promise durability on dishonest hardware.
     std::vector<OtaStatus> loadPendingStatuses() const;

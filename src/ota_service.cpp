@@ -1119,30 +1119,45 @@ void OtaService::appendPendingStatus(OtaStatus& status) const {
     const auto record = encodePendingStatus(status);
     if (config_.maxPendingStatusBytes && record.size() > config_.maxPendingStatusBytes)
         throw std::runtime_error("OTA status exceeds pending journal limit");
+    const auto previousSize = bytes.size();
     const auto existing = bytes.find(record);
-    if (existing == std::string::npos || (existing != 0 && bytes[existing - 1] != '\n')) bytes += record;
+    const bool appended = existing == std::string::npos || (existing != 0 && bytes[existing - 1] != '\n');
+    if (appended) bytes += record;
     const bool terminal = status.stage == "completed" || status.stage == "failed";
     const auto limit = config_.maxPendingStatusBytes;
-    if (limit && bytes.size() > limit && terminal && bytes.size() <= limit + record.size()) {
-        replacePendingJournal(statusJournalPath(), bytes);
-        return;
-    }
     if (limit && bytes.size() > limit) {
-        while (bytes.size() > config_.maxPendingStatusBytes) {
-            const auto end = bytes.find('\n');
+        struct Row { std::string bytes; bool disposable; bool appended; };
+        std::vector<Row> rows;
+        for (std::size_t pos = 0; pos < bytes.size();) {
+            const auto end = bytes.find('\n', pos);
             if (end == std::string::npos) throw std::runtime_error("truncated OTA pending journal");
-            const auto line = bytes.substr(0, end);
+            const auto line = bytes.substr(pos, end - pos);
+            bool disposable = false;
             if (!line.empty() && line.front() == '{') {
                 const auto old = decodePendingStatus(line);
-                if (old.stage == "completed" || old.stage == "failed")
-                    throw OtaTerminalBacklog();
+                disposable = old.stage != "completed" && old.stage != "failed";
             } else {
                 const auto fields = splitTabLine(line);
-                if (fields.size() >= 3 && (fields[2] == "completed" || fields[2] == "failed"))
-                    throw OtaTerminalBacklog();
+                disposable = fields.size() >= 3 && fields[2] != "completed" && fields[2] != "failed";
             }
-            bytes.erase(0, end + 1);
+            rows.push_back({bytes.substr(pos, end - pos + 1), disposable, appended && pos == previousSize});
+            pos = end + 1;
         }
+        auto size = bytes.size();
+        while (size > limit) {
+            const auto old = std::find_if(rows.begin(), rows.end(), [](const Row& row) {
+                return row.disposable && !row.appended;
+            });
+            if (old == rows.end()) {
+                if (terminal && size - limit <= record.size()) break;
+                throw OtaTerminalBacklog();
+            }
+            size -= old->bytes.size();
+            rows.erase(old);
+        }
+        bytes.clear();
+        bytes.reserve(size);
+        for (const auto& row : rows) bytes += row.bytes;
     }
     replacePendingJournal(statusJournalPath(), bytes);
 }
@@ -1437,6 +1452,72 @@ bool hasValidFinal(const std::string& stagingDir, const PendingOtaJob& job) {
     return true;
 }
 
+std::string statusSupersessionPath(const std::string& stagingDir, const PendingOtaJob& job) {
+    return joinPath(stagingDir, "ota_status_supersession_" + job.jobId + ".json");
+}
+
+void persistStatusSupersession(const std::string& stagingDir, const PendingOtaJob& job,
+                              const OtaStatus& status, const std::string& healthBytes) {
+    replacePendingJournal(statusSupersessionPath(stagingDir, job),
+        "{\"format\":\"ota-status-supersession-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
+        ",\"token\":" + pendingJsonString(job.token) +
+        ",\"sourceOccurrence\":" + pendingJsonString(status.occurrenceId) +
+        ",\"machineCode\":" + pendingJsonString(status.machineCode) +
+        ",\"healthRecord\":" + pendingJsonString(healthBytes) + "}\n");
+}
+
+bool hasBoundSupersedingTerminal(const std::string& snapshot, const PendingOtaJob& job) {
+    std::istringstream input(snapshot);
+    std::string line;
+    while (std::getline(input, line)) {
+        try {
+            if (line.empty() || line.front() != '{') continue;
+            const auto replacement = decodePendingStatus(line);
+            if (replacement.jobId == job.jobId && replacement.machineCode == job.machineCode &&
+                replacement.occurrenceId == job.token && replacement.stage == "failed") return true;
+        } catch (const std::exception&) {}
+    }
+    return false;
+}
+
+bool hasValidatedStatusSupersession(const std::string& stagingDir, const std::string& snapshot,
+                                    const OtaStatus& status, const PendingOtaJob& job) {
+    if (status.stage != "failed" || status.occurrenceId == job.token ||
+        !hasBoundSupersedingTerminal(snapshot, job)) return false;
+    const auto path = statusSupersessionPath(stagingDir, job);
+    if (strictlyAbsent(path) || fileSizeBytes(path) > 8192) return false;
+#ifndef _WIN32
+    struct stat info{};
+    if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != 0 ||
+        info.st_nlink != 1 || (info.st_mode & 0022)) return false;
+#endif
+    const auto bytes = readPendingJournal(path);
+    if (bytes.empty() || bytes.back() != '\n') return false;
+    const auto proof = json::JsonParser(bytes, 4, 32).parse();
+    if (!proof.isObject() || proof.asObject().values.size() != 6 ||
+        pendingField(proof, "format") != "ota-status-supersession-v1" ||
+        pendingField(proof, "jobId") != job.jobId || pendingField(proof, "token") != job.token ||
+        pendingField(proof, "sourceOccurrence") != status.occurrenceId ||
+        pendingField(proof, "machineCode") != status.machineCode) return false;
+    const auto healthBytes = pendingField(proof, "healthRecord");
+    if (healthBytes.empty() || healthBytes.size() > 4096 ||
+        healthBytes != readPendingJournal(joinPath(stagingDir, "health_" + job.jobId + ".txt"))) return false;
+    const auto health = decodeHealthResult(healthBytes, job);
+    if (health.status != "failed" ||
+        (health.rollback != "unchanged" && health.rollback != "succeeded")) return false;
+    if (!hasValidFinal(stagingDir, job) ||
+        readPendingJournal(joinPath(stagingDir, "ota_final_" + job.jobId + ".txt")) !=
+            "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=failed\n") return false;
+    bool deliveryPending = false;
+    if (needsFinalizationReconciliation(stagingDir, job, nullptr, nullptr, &deliveryPending) &&
+        !deliveryPending) return false;
+    const auto audit = json::JsonParser(readPendingJournal(
+        joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json")), 4, 32).parse();
+    return pendingField(audit, "reason") == "ota-terminal-outbox-v1" &&
+        pendingField(audit, "phase") == "terminal-journal" &&
+        pendingField(audit, "evidence") == "verified-health";
+}
+
 std::string acknowledgeTerminalIntents(const std::string& stagingDir, const std::string& snapshot) {
     std::istringstream input(snapshot);
     std::string retained;
@@ -1452,8 +1533,12 @@ std::string acknowledgeTerminalIntents(const std::string& stagingDir, const std:
             const auto intentPath = pendingJobPath(stagingDir, status.jobId);
             if (strictlyAbsent(intentPath)) throw std::runtime_error("missing OTA terminal intent");
             const auto job = decodePendingJob(readPendingJournal(intentPath));
-            if (job.token != status.occurrenceId || job.machineCode != status.machineCode)
+            if (job.token != status.occurrenceId) {
+                if (hasValidatedStatusSupersession(stagingDir, snapshot, status, job)) continue;
                 throw std::runtime_error("OTA terminal identity changed");
+            }
+            if (job.machineCode != status.machineCode)
+                throw std::runtime_error("OTA terminal machine changed");
             const bool pending = needsFinalizationReconciliation(stagingDir, job);
             if (!hasValidFinal(stagingDir, job) ||
                 (job.lifecycle == "systemd-handoff-v1" && !hasHandoffResolution(stagingDir, job)) ||
@@ -1740,6 +1825,10 @@ void OtaService::reconcilePendingJobs() const {
                 appendPendingStatus(terminal);
             } catch (const OtaTerminalBacklog&) {
                 // The older terminal must be replayed before this durable intent can fit.
+            } catch (const std::exception&) {
+                // A historical delivery fault must not invalidate the active job's
+                // independent finalization. Its durable outbox remains for replay.
+                if (isActiveJob(config_.stagingDir, job)) throw;
             }
             continue;
         }
@@ -2165,7 +2254,36 @@ void OtaService::execute(
             status->ts = currentTimeMs();
         } else {
             appendFailureRecord(request, failedStage, ex.what(), rollbackAttempted, rollbackSucceeded, currentTimeMs());
-            reportStage(status, "failed", 0, ex.what(), currentTimeMs(), publishStatus);
+            bool linkedSafeFailure = false;
+            if (intentPersisted && safeEvidence) {
+                PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
+                const auto pending = decodePendingJob(readPendingJournal(
+                    pendingJobPath(config_.stagingDir, request.jobId)));
+                const auto healthBytes = readPendingJournal(joinPath(
+                    config_.stagingDir, "health_" + request.jobId + ".txt"));
+                const auto health = decodeHealthResult(healthBytes, pending);
+                if (pending.jobId == request.jobId && pending.version == request.version &&
+                    pending.machineCode == machineCode && pending.token == ownToken &&
+                    health.status == "failed" &&
+                    (health.rollback == "unchanged" || health.rollback == "succeeded")) {
+                    status->stage = "failed";
+                    status->progress = 0;
+                    status->message = ex.what();
+                    status->ts = currentTimeMs();
+                    status->occurrenceId = newStatusOccurrence();
+                    persistStatusSupersession(config_.stagingDir, pending, *status, healthBytes);
+                    linkedSafeFailure = true;
+                }
+            }
+            if (linkedSafeFailure) {
+                appendPendingStatus(*status);
+                if (publishStatus) {
+                    try { publishStatus(*status); }
+                    catch (...) { std::cerr << "ota failed status publish deferred; pending replay retained\n"; }
+                }
+            } else {
+                reportStage(status, "failed", 0, ex.what(), currentTimeMs(), publishStatus);
+            }
         }
         // An owned late refusal has already reported its own failure. Do not
         // let an entry worker turn it into a second, post-lease negative reply.
