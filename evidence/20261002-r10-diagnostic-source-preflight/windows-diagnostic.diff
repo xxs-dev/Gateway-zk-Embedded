@@ -1,0 +1,1073 @@
+diff --git a/src/GatewayDesktop.Core/Entities/DiagnosticCommand.cs b/src/GatewayDesktop.Core/Entities/DiagnosticCommand.cs
+index 63be6b6..53979d1 100644
+--- a/src/GatewayDesktop.Core/Entities/DiagnosticCommand.cs
++++ b/src/GatewayDesktop.Core/Entities/DiagnosticCommand.cs
+@@ -49,4 +49,11 @@ public class CommandResult
+     public int ExitCode { get; set; }
+     public DateTime ExecutedAt { get; set; } = DateTime.Now;
+     public TimeSpan Duration { get; set; }
++    public string? CmdId { get; set; }
++    public string? MachineCode { get; set; }
++    public string? Reason { get; set; }
++    public int? Signal { get; set; }
++    public bool? TimedOut { get; set; }
++    public bool? CleanupConfirmed { get; set; }
++    public bool? Truncated { get; set; }
+ }
+diff --git a/src/GatewayDesktop.Infrastructure/Legacy/Devices/DeviceModels.cs b/src/GatewayDesktop.Infrastructure/Legacy/Devices/DeviceModels.cs
+index 60b40bb..138100b 100644
+--- a/src/GatewayDesktop.Infrastructure/Legacy/Devices/DeviceModels.cs
++++ b/src/GatewayDesktop.Infrastructure/Legacy/Devices/DeviceModels.cs
+@@ -259,7 +259,14 @@ public sealed record DiagResponse(
+     string Stdout,
+     string Stderr,
+     long RequestTs,
+-    long Ts
++    long Ts,
++    string? Arg = null,
++    string? Reason = null,
++    int? Signal = null,
++    bool? TimedOut = null,
++    bool? CleanupConfirmed = null,
++    bool? Truncated = null,
++    string? ReplyKind = null
+ );
+ 
+ public sealed record ConfigApplyFile(
+diff --git a/src/GatewayDesktop.Infrastructure/Legacy/Transport/DiagReplyAdmission.cs b/src/GatewayDesktop.Infrastructure/Legacy/Transport/DiagReplyAdmission.cs
+new file mode 100644
+index 0000000..35032a8
+--- /dev/null
++++ b/src/GatewayDesktop.Infrastructure/Legacy/Transport/DiagReplyAdmission.cs
+@@ -0,0 +1,89 @@
++using System.Text.Json;
++using GatewayDesktop.Core.Devices;
++
++namespace GatewayDesktop.Transport;
++
++internal enum DiagReplyKind { Ignore, Terminal, AdmissionRejected }
++
++internal static class DiagReplyAdmission
++{
++    internal const int MaxMqttJsonChars = 6 * 1024 * 1024 + 4096;
++    internal const int MaxDirectJsonBytes = 6 * 64 * 1024 + 4096;
++    internal static string ExpectedArg(DiagRequest request) => request.Command switch
++    {
++        "journal_tail" => Math.Clamp(request.TailLines, 1, 500).ToString(),
++        "systemctl_status" => request.Service,
++        _ => string.Empty
++    };
++
++    internal static DiagReplyKind Match(string payload, DiagRequest request, string machineCode,
++        out DiagResponse? terminal)
++    {
++        terminal = null;
++        if (payload.Length > MaxMqttJsonChars) return DiagReplyKind.Ignore;
++        try
++        {
++            using var document = JsonDocument.Parse(payload);
++            var root = document.RootElement;
++            if (root.ValueKind != JsonValueKind.Object ||
++                Text(root, "machineCode") != machineCode) return DiagReplyKind.Ignore;
++            var kind = Text(root, "replyKind");
++            var expectedArg = ExpectedArg(request);
++            if (kind == "admission_rejection")
++            {
++                return Text(root, "reason") == "cmdId_conflict" &&
++                    Text(root, "attemptedCmdId") == request.CmdId &&
++                    Text(root, "command") == request.Command &&
++                    Text(root, "arg") == expectedArg &&
++                    Text(root, "operator") == request.Operator &&
++                    !root.TryGetProperty("cmdId", out _)
++                    ? DiagReplyKind.AdmissionRejected : DiagReplyKind.Ignore;
++            }
++            if (kind is not null and not "terminal" ||
++                Text(root, "cmdId") != request.CmdId ||
++                Text(root, "command") != request.Command ||
++                Text(root, "operator") != request.Operator ||
++                Text(root, "reason") == "cmdId_conflict") return DiagReplyKind.Ignore;
++            var arg = Text(root, "arg");
++            if (arg is not null && arg != expectedArg || expectedArg.Length > 0 && arg is null)
++                return DiagReplyKind.Ignore;
++            if (!root.TryGetProperty("requestTs", out var timestamp) ||
++                !timestamp.TryGetInt64(out var requestTs) || requestTs != request.RequestTs)
++                return DiagReplyKind.Ignore;
++            if (!OptionalKind(root, "reason", JsonValueKind.String) ||
++                !OptionalKind(root, "signal", JsonValueKind.Number) ||
++                !OptionalKind(root, "timedOut", JsonValueKind.True, JsonValueKind.False) ||
++                !OptionalKind(root, "cleanupConfirmed", JsonValueKind.True, JsonValueKind.False) ||
++                !OptionalKind(root, "truncated", JsonValueKind.True, JsonValueKind.False))
++                return DiagReplyKind.Ignore;
++            if (!root.TryGetProperty("success", out var successField) ||
++                successField.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
++                !root.TryGetProperty("exitCode", out var exitField) ||
++                exitField.ValueKind != JsonValueKind.Number || !exitField.TryGetInt32(out var exitCode))
++                return DiagReplyKind.Ignore;
++            var success = successField.GetBoolean();
++            var signal = 0;
++            if (root.TryGetProperty("signal", out var signalField) && !signalField.TryGetInt32(out signal))
++                return DiagReplyKind.Ignore;
++            var timedOut = root.TryGetProperty("timedOut", out var timedOutField) && timedOutField.GetBoolean();
++            var cleanupUnknown = root.TryGetProperty("cleanupConfirmed", out var cleanupField) &&
++                !cleanupField.GetBoolean();
++            if (signal < 0 || success && (exitCode != 0 || signal != 0 || timedOut || cleanupUnknown ||
++                    Text(root, "reason") is { } successReason && successReason != "exit") ||
++                !success && exitCode == 0)
++                return DiagReplyKind.Ignore;
++            terminal = JsonSerializer.Deserialize<DiagResponse>(payload,
++                new JsonSerializerOptions(JsonSerializerDefaults.Web));
++            return terminal is null ? DiagReplyKind.Ignore : DiagReplyKind.Terminal;
++        }
++        catch (JsonException) { return DiagReplyKind.Ignore; }
++        catch (InvalidOperationException) { return DiagReplyKind.Ignore; }
++    }
++
++    private static string? Text(JsonElement root, string name) =>
++        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
++            ? value.GetString() : null;
++
++    private static bool OptionalKind(JsonElement root, string name, params JsonValueKind[] kinds) =>
++        !root.TryGetProperty(name, out var value) || kinds.Contains(value.ValueKind);
++}
+diff --git a/src/GatewayDesktop.Infrastructure/Legacy/Transport/DirectDeviceTransport.cs b/src/GatewayDesktop.Infrastructure/Legacy/Transport/DirectDeviceTransport.cs
+index ebedffc..86f3ede 100644
+--- a/src/GatewayDesktop.Infrastructure/Legacy/Transport/DirectDeviceTransport.cs
++++ b/src/GatewayDesktop.Infrastructure/Legacy/Transport/DirectDeviceTransport.cs
+@@ -1,7 +1,9 @@
+ using System.Net.Http.Json;
+ using System.Net.Http.Headers;
+ using System.Text.Json;
++using System.Text;
+ using GatewayDesktop.Core.Devices;
++using GatewayDesktop.Transport;
+ 
+ namespace GatewayDesktop.Transport.Direct;
+ 
+@@ -336,19 +338,46 @@ public sealed class DirectDeviceTransport : IDeviceTransport
+                 request,
+                 cancellationToken
+             );
+-            var value = await response.Content.ReadFromJsonAsync<DiagResponse>(cancellationToken);
++            using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
++            using var bytes = new MemoryStream();
++            var buffer = new byte[8192];
++            int read;
++            while ((read = await content.ReadAsync(buffer, cancellationToken)) > 0)
++            {
++                if (bytes.Length + read > DiagReplyAdmission.MaxDirectJsonBytes)
++                    return TransportResult<DiagResponse>.Fail("direct diag response exceeded bounded JSON limit");
++                bytes.Write(buffer, 0, read);
++            }
++            var payload = Encoding.UTF8.GetString(bytes.ToArray());
+             if (!response.IsSuccessStatusCode)
+             {
++                string reason;
++                try
++                {
++                    using var document = JsonDocument.Parse(payload);
++                    var root = document.RootElement;
++                    reason = root.ValueKind != JsonValueKind.Object ? "invalid error response" :
++                        root.TryGetProperty("reason", out var field) && field.ValueKind == JsonValueKind.String
++                        ? field.GetString() ?? "unknown" :
++                        root.TryGetProperty("message", out field) && field.ValueKind == JsonValueKind.String
++                        ? field.GetString() ?? "unknown" : "unknown";
++                }
++                catch (Exception ex) when (ex is JsonException or InvalidOperationException)
++                { reason = "invalid error response"; }
+                 return TransportResult<DiagResponse>.Fail(
+-                    value?.Stderr ?? value?.Stdout ?? $"direct diag failed: {(int)response.StatusCode}"
++                    $"direct diag HTTP {(int)response.StatusCode}: {reason}"
+                 );
+             }
+-
+-            return value is null
+-                ? TransportResult<DiagResponse>.Fail("direct maintenance API returned empty diag response")
++            var matched = DiagReplyAdmission.Match(payload, request, endpoint.MachineCode, out var value);
++            return matched != DiagReplyKind.Terminal || value is null
++                ? TransportResult<DiagResponse>.Fail("direct diag response did not match the target request")
+                 : TransportResult<DiagResponse>.Ok(value, $"diag exitCode={value.ExitCode}");
+         }
+-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
++        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
++        {
++            throw;
++        }
++        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+         {
+             return TransportResult<DiagResponse>.Fail(ex.Message);
+         }
+diff --git a/src/GatewayDesktop.Infrastructure/Legacy/Transport/MqttDeviceTransport.cs b/src/GatewayDesktop.Infrastructure/Legacy/Transport/MqttDeviceTransport.cs
+index 01bfc2d..b35a039 100644
+--- a/src/GatewayDesktop.Infrastructure/Legacy/Transport/MqttDeviceTransport.cs
++++ b/src/GatewayDesktop.Infrastructure/Legacy/Transport/MqttDeviceTransport.cs
+@@ -8,6 +8,7 @@ using System.Security.Cryptography.X509Certificates;
+ using System.Text;
+ using System.Text.Json;
+ using GatewayDesktop.Core.Devices;
++using GatewayDesktop.Transport;
+ 
+ namespace GatewayDesktop.Transport.Mqtt;
+ 
+@@ -793,21 +794,21 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+             return TransportResult<DiagResponse>.Fail(error);
+         }
+ 
+-        var machineCode = string.IsNullOrWhiteSpace(request.MachineCode)
+-            ? endpoint.MachineCode
+-            : request.MachineCode;
+-        if (string.IsNullOrWhiteSpace(machineCode))
++        var machineCode = endpoint.MachineCode;
++        if (string.IsNullOrWhiteSpace(machineCode) || machineCode.Length > 128 ||
++            !string.IsNullOrWhiteSpace(request.MachineCode) && request.MachineCode != machineCode)
+         {
+-            return TransportResult<DiagResponse>.Fail("machineCode is required for MQTT diag");
++            return TransportResult<DiagResponse>.Fail("MQTT diag target machineCode mismatch");
+         }
+ 
+         var cmdId = string.IsNullOrWhiteSpace(request.CmdId)
+-            ? "DIAG_" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
++            ? $"DIAG_{Guid.NewGuid():N}"
+             : request.CmdId;
+ 
+         try
+         {
+-            using var client = await MinimalMqttClient.ConnectAsync(endpoint, broker, cancellationToken);
++            using var client = await MinimalMqttClient.ConnectAsync(endpoint, broker, cancellationToken,
++                DiagReplyAdmission.MaxMqttJsonChars + 1024, 8);
+             var requestTopic = ScopedTopic("edge/system/diag/request", machineCode);
+             var replyTopic = ScopedTopic("edge/system/diag/reply", machineCode);
+             await client.SubscribeAsync(replyTopic, ControlQos, cancellationToken);
+@@ -828,21 +829,34 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+             );
+             await client.PublishAsync(requestTopic, payload, ControlQos, cancellationToken);
+ 
+-            var messages = await client.ReadMatchingAsync(
++            DiagResponse? terminal = null;
++            var rejected = false;
++            var observed = 0;
++            await client.ReadMatchingAsync(
+                 new[] { replyTopic },
+                 TimeSpan.FromSeconds(20),
+-                cancellationToken
+-            );
+-            var reply = messages
+-                .Select(message => JsonSerializer.Deserialize<DiagResponse>(message.Payload, JsonOptions))
+-                .Where(value => value is not null)
+-                .LastOrDefault(value => string.Equals(value!.CmdId, cmdId, StringComparison.Ordinal));
+-
+-            return reply is null
++                cancellationToken,
++                onMessage: message =>
++                {
++                    observed++;
++                    var match = DiagReplyAdmission.Match(message.Payload, request with { CmdId = cmdId },
++                        machineCode, out var candidate);
++                    if (match == DiagReplyKind.Terminal) terminal = candidate;
++                    if (match == DiagReplyKind.AdmissionRejected) rejected = true;
++                    return terminal is not null || rejected || observed >= 8;
++                });
++            if (rejected) return TransportResult<DiagResponse>.Fail("MQTT diag cmdId_conflict: request not admitted");
++            if (observed >= 8 && terminal is null)
++                return TransportResult<DiagResponse>.Fail("too many unmatched MQTT diag replies");
++            return terminal is null
+                 ? TransportResult<DiagResponse>.Fail("no matching MQTT diag reply received")
+-                : TransportResult<DiagResponse>.Ok(reply, $"diag exitCode={reply.ExitCode}");
++                : TransportResult<DiagResponse>.Ok(terminal, $"diag exitCode={terminal.ExitCode}");
+         }
+-        catch (Exception ex) when (ex is SocketException or IOException or InvalidOperationException or JsonException or TaskCanceledException)
++        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
++        {
++            throw;
++        }
++        catch (Exception ex) when (ex is SocketException or IOException or InvalidDataException or InvalidOperationException or JsonException or TaskCanceledException)
+         {
+             return TransportResult<DiagResponse>.Fail(ex.Message);
+         }
+@@ -2074,6 +2088,8 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+         private readonly List<ushort> pendingInboundQoS2PacketIds = new();
+         private DateTimeOffset lastOutboundAt = DateTimeOffset.UtcNow;
+         private ushort packetId;
++        private int maxInboundPacketBytes = int.MaxValue;
++        private int maxPendingMessages = int.MaxValue;
+ 
+         private MinimalMqttClient(TcpClient tcpClient, Stream stream)
+         {
+@@ -2084,7 +2100,9 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+         public static async Task<MinimalMqttClient> ConnectAsync(
+             DeviceEndpoint endpoint,
+             MqttBroker broker,
+-            CancellationToken cancellationToken
++            CancellationToken cancellationToken,
++            int maxInboundPacketBytes = int.MaxValue,
++            int maxPendingMessages = int.MaxValue
+         )
+         {
+             var tcpClient = new TcpClient();
+@@ -2114,7 +2132,11 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+                 stream = sslStream;
+             }
+ 
+-            var client = new MinimalMqttClient(tcpClient, stream);
++            var client = new MinimalMqttClient(tcpClient, stream)
++            {
++                maxInboundPacketBytes = maxInboundPacketBytes,
++                maxPendingMessages = maxPendingMessages
++            };
+             try
+             {
+                 await client.SendConnectAsync(endpoint, cancellationToken);
+@@ -2742,6 +2764,8 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+                 await SendPubRecAsync(publishPacketId, cancellationToken);
+                 QueueInboundQoS2(publishPacketId);
+             }
++            if (pendingMessages.Count >= maxPendingMessages)
++                throw new InvalidDataException("MQTT diagnostic pending reply limit exceeded");
+             pendingMessages.Enqueue(message);
+         }
+ 
+@@ -2828,6 +2852,8 @@ public sealed class MqttDeviceTransport : IDeviceTransport
+             var typeBuffer = new byte[1];
+             await ReadExactAsync(typeBuffer, cancellationToken);
+             var remaining = await ReadRemainingLengthAsync(cancellationToken);
++            if (remaining > maxInboundPacketBytes)
++                throw new InvalidDataException("MQTT diagnostic frame exceeds bounded receive limit");
+             var payload = new byte[remaining];
+             if (remaining > 0)
+             {
+diff --git a/src/GatewayDesktop.Services/Device/DiagnosticService.cs b/src/GatewayDesktop.Services/Device/DiagnosticService.cs
+index 7c22f64..5292df6 100644
+--- a/src/GatewayDesktop.Services/Device/DiagnosticService.cs
++++ b/src/GatewayDesktop.Services/Device/DiagnosticService.cs
+@@ -45,12 +45,12 @@ public class DiagnosticService : IDiagnosticService
+         }
+ 
+         var request = new Legacy.DiagRequest(
+-            $"DIAG_{DateTimeOffset.UtcNow:yyyyMMddHHmmss}",
++            $"DIAG_{Guid.NewGuid():N}",
+             endpoint.MachineCode,
+             Environment.UserName,
+             command.Command,
+-            service?.Trim() ?? string.Empty,
+-            tailLines,
++            command.Command == "systemctl_status" ? service?.Trim() ?? string.Empty : string.Empty,
++            command.Command == "journal_tail" ? Math.Clamp(tailLines, 1, 500) : 100,
+             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+             MaintenanceAuth.ForEndpoint(endpoint));
+ 
+@@ -63,31 +63,61 @@ public class DiagnosticService : IDiagnosticService
+             cts.CancelAfter(DefaultTimeout);
+ 
+             var result = await transport.ExecuteDiagAsync(endpoint, request, cts.Token);
++            if (cts.IsCancellationRequested)
++                return Failed(cancellationToken.IsCancellationRequested
++                    ? "诊断请求已取消；远端是否仍在执行未知。"
++                    : "25s 内未取得诊断结果；远端是否仍在执行未知。",
++                    stopwatch.Elapsed, request.CmdId, request.MachineCode);
+ 
+             if (!result.Success || result.Value is null)
+             {
+                 _logger?.LogWarning("诊断失败: {Message}", result.Message);
+-                return Failed(result.Message, stopwatch.Elapsed);
++                return Failed(result.Message, stopwatch.Elapsed, request.CmdId, request.MachineCode);
+             }
+ 
+             var resp = result.Value;
++            var expectedArg = request.Command == "journal_tail" ? request.TailLines.ToString() :
++                request.Command == "systemctl_status" ? request.Service : string.Empty;
++            if (!string.Equals(resp.CmdId, request.CmdId, StringComparison.Ordinal) ||
++                !string.Equals(resp.MachineCode, request.MachineCode, StringComparison.Ordinal) ||
++                !string.Equals(resp.Command, request.Command, StringComparison.Ordinal) ||
++                !string.Equals(resp.Operator, request.Operator, StringComparison.Ordinal) ||
++                resp.RequestTs != request.RequestTs ||
++                (resp.Arg is not null && !string.Equals(resp.Arg, expectedArg, StringComparison.Ordinal)) ||
++                (expectedArg.Length > 0 && resp.Arg is null) ||
++                (resp.ReplyKind is not null && resp.ReplyKind != "terminal"))
++                return Failed("诊断回复与已发送请求不匹配；远端结果未知。", stopwatch.Elapsed,
++                    request.CmdId, request.MachineCode);
+             return new CommandResult
+             {
+                 Success = resp.Success,
+                 Output = resp.Stdout,
+                 Error = resp.Stderr,
+                 ExitCode = resp.ExitCode,
+-                Duration = stopwatch.Elapsed
++                Duration = stopwatch.Elapsed,
++                CmdId = request.CmdId,
++                MachineCode = request.MachineCode,
++                Reason = resp.Reason,
++                Signal = resp.Signal,
++                TimedOut = resp.TimedOut,
++                CleanupConfirmed = resp.CleanupConfirmed,
++                Truncated = resp.Truncated
+             };
+         }
++        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
++        {
++            return Failed("诊断请求已取消；远端是否仍在执行未知。", stopwatch.Elapsed,
++                request.CmdId, request.MachineCode);
++        }
+         catch (OperationCanceledException)
+         {
+-            return Failed("诊断执行超时（25s），请检查设备连接或缩短日志行数。", stopwatch.Elapsed);
++            return Failed("25s 内未取得诊断结果；远端是否仍在执行未知。", stopwatch.Elapsed,
++                request.CmdId, request.MachineCode);
+         }
+         catch (Exception ex)
+         {
+             _logger?.LogError(ex, "诊断异常: {Command}", command.Command);
+-            return Failed(ex.Message, stopwatch.Elapsed);
++            return Failed(ex.Message, stopwatch.Elapsed, request.CmdId, request.MachineCode);
+         }
+     }
+ 
+@@ -100,12 +130,14 @@ public class DiagnosticService : IDiagnosticService
+         return (null, null);
+     }
+ 
+-    private static CommandResult Failed(string message, TimeSpan duration) => new()
++    private static CommandResult Failed(string message, TimeSpan duration, string? cmdId = null, string? machineCode = null) => new()
+     {
+         Success = false,
+         Error = message,
+         ExitCode = -1,
+-        Duration = duration
++        Duration = duration,
++        CmdId = cmdId,
++        MachineCode = machineCode
+     };
+ 
+     /// <summary>旧项目 8 种网关诊断命令（edge 端 diag 协议，非 shell 命令）。</summary>
+@@ -116,7 +148,7 @@ public class DiagnosticService : IDiagnosticService
+         New("df_root", "磁盘使用", CommandCategory.Disk),
+         New("top_once", "进程 CPU 占用快照", CommandCategory.Process),
+         New("ps_gateway", "网关进程列表", CommandCategory.Process),
+-        New("journal_tail", "systemd 日志尾部（需服务名+行数）", CommandCategory.Log),
++        New("journal_tail", "系统日志尾部（需行数）", CommandCategory.Log),
+         New("systemctl_status", "服务状态（需服务名）", CommandCategory.Log),
+         New("cellular_status", "蜂窝网络状态", CommandCategory.Network),
+     };
+diff --git a/src/GatewayDesktop.UI/ViewModels/DiagnosticViewModel.cs b/src/GatewayDesktop.UI/ViewModels/DiagnosticViewModel.cs
+index e1c1acd..ea3759c 100644
+--- a/src/GatewayDesktop.UI/ViewModels/DiagnosticViewModel.cs
++++ b/src/GatewayDesktop.UI/ViewModels/DiagnosticViewModel.cs
+@@ -21,6 +21,11 @@ public partial class DiagnosticViewModel : ViewModelBase
+     private readonly IDiagnosticService _diagnosticService;
+     private readonly UiAppContext _appContext;
+     private readonly ILogger<DiagnosticViewModel>? _logger;
++    private ExecutedDiagnostic? _lastRequest;
++    private CommandResult? _lastResult;
++
++    private sealed record ExecutedDiagnostic(string Name, string Command, string Service, int TailLines,
++        string MachineCode, string ConnectionMode, string? CmdId = null);
+ 
+     public ObservableCollection<DiagnosticCommand> Commands { get; } = new();
+ 
+@@ -80,7 +85,7 @@ public partial class DiagnosticViewModel : ViewModelBase
+     }
+ 
+     /// <summary>是否需要服务名输入（仅 journal_tail / systemctl_status）。</summary>
+-    public bool NeedsService => SelectedCommand?.Command is "journal_tail" or "systemctl_status";
++    public bool NeedsService => SelectedCommand?.Command is "systemctl_status";
+ 
+     public bool NeedsTailLines => SelectedCommand?.Command is "journal_tail";
+ 
+@@ -93,42 +98,54 @@ public partial class DiagnosticViewModel : ViewModelBase
+     [RelayCommand]
+     private async Task ExecuteAsync()
+     {
+-        if (SelectedCommand is null)
++        var selected = SelectedCommand;
++        if (selected is null)
+         {
+             StatusMessage = "请先选择诊断命令";
+             return;
+         }
+ 
++        var request = new ExecutedDiagnostic(selected.Name, selected.Command,
++            selected.Command == "systemctl_status" ? ServiceName.Trim() : string.Empty,
++            selected.Command == "journal_tail" ? Math.Clamp(TailLines, 1, 500) : 100,
++            _appContext.MachineCode, _appContext.ConnectionMode.ToString());
++        var executedCommand = new DiagnosticCommand { Name = request.Name, Command = request.Command };
+         IsBusy = true;
+-        BusyMessage = $"执行诊断 {SelectedCommand.Command}…";
++        BusyMessage = $"执行诊断 {request.Command}…";
+         Output = string.Empty;
+ 
+         try
+         {
+-            var result = await _diagnosticService.ExecuteAsync(SelectedCommand, ServiceName, TailLines);
++            var result = await _diagnosticService.ExecuteAsync(executedCommand, request.Service, request.TailLines);
+ 
++            request = request with { MachineCode = result.MachineCode ?? request.MachineCode, CmdId = result.CmdId };
++            _lastRequest = request;
++            _lastResult = result;
+             Output = result.Success
+                 ? result.Output
+                 : $"[失败 exit={result.ExitCode}]{(string.IsNullOrEmpty(result.Error) ? "" : " " + result.Error)}\n\n{result.Output}";
+             LastExecutedAt = result.ExecutedAt;
+             LastExitCode = result.ExitCode;
+             LastDurationMs = result.Duration.TotalMilliseconds;
+-            ResultSummary = $"{SelectedCommand.Name} · {(result.Success ? "成功" : "失败")} · exit={result.ExitCode} · {result.Duration.TotalMilliseconds:F0}ms · {result.ExecutedAt:yyyy-MM-dd HH:mm:ss}";
+-            RebuildInsights(result, SelectedCommand);
++            ResultSummary = $"{request.Name} · {(result.Success ? "成功" : "失败")} · exit={result.ExitCode} · {result.Duration.TotalMilliseconds:F0}ms · {result.ExecutedAt:yyyy-MM-dd HH:mm:ss}";
++            if (!string.IsNullOrWhiteSpace(result.Reason)) ResultSummary += $" · {result.Reason}";
++            RebuildInsights(result, executedCommand);
+ 
+             StatusMessage = result.Success
+                 ? $"诊断完成（{result.Duration.TotalMilliseconds:F0}ms）"
+                 : "诊断失败";
+-            _appContext.RecordAction("诊断命令", SelectedCommand.Command, result.Success, ResultSummary);
++            _appContext.RecordAction("诊断命令", $"{request.MachineCode}/{request.Command}/{request.CmdId}", result.Success, ResultSummary);
+         }
+         catch (Exception ex)
+         {
+             _logger?.LogError(ex, "诊断执行异常");
++            _lastRequest = request;
++            _lastResult = null;
+             Output = "[异常] " + ex.Message;
+             ResultSummary = $"诊断异常 · {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+             RebuildExceptionInsight(ex);
+             StatusMessage = "诊断异常";
+-            _appContext.RecordAction("诊断命令", SelectedCommand.Command, false, ResultSummary + "：" + ex.Message);
++            _appContext.RecordAction("诊断命令", $"{request.MachineCode}/{request.Command}/{request.CmdId}", false, ResultSummary + "：" + ex.Message);
+         }
+         finally
+         {
+@@ -182,7 +199,7 @@ public partial class DiagnosticViewModel : ViewModelBase
+         {
+             Title = "导出诊断输出",
+             Filter = "文本文件 (*.txt)|*.txt|日志文件 (*.log)|*.log|所有文件|*.*",
+-            FileName = $"diagnostic-{SelectedCommand?.Command ?? "output"}-{DateTime.Now:yyyyMMddHHmmss}.txt"
++            FileName = $"diagnostic-{_lastRequest?.Command ?? "output"}-{DateTime.Now:yyyyMMddHHmmss}.txt"
+         };
+         if (dialog.ShowDialog() != true)
+         {
+@@ -204,9 +221,17 @@ public partial class DiagnosticViewModel : ViewModelBase
+     private string BuildExportText() =>
+         $"""
+         GatewayDesktop Diagnostic
+-        Command: {SelectedCommand?.Name} ({SelectedCommand?.Command})
+-        Service: {ServiceName}
+-        TailLines: {TailLines}
++        Command: {_lastRequest?.Name} ({_lastRequest?.Command})
++        Service: {_lastRequest?.Service}
++        TailLines: {_lastRequest?.TailLines}
++        MachineCode: {_lastRequest?.MachineCode}
++        ConnectionMode: {_lastRequest?.ConnectionMode}
++        CmdId: {_lastResult?.CmdId ?? "unknown"}
++        Reason: {_lastResult?.Reason ?? "unknown"}
++        Signal: {_lastResult?.Signal?.ToString() ?? "unknown"}
++        TimedOut: {_lastResult?.TimedOut?.ToString() ?? "unknown"}
++        CleanupConfirmed: {_lastResult?.CleanupConfirmed?.ToString() ?? "unknown"}
++        Truncated: {_lastResult?.Truncated?.ToString() ?? "unknown"}
+         Summary: {ResultSummary}
+ 
+         {Output}
+@@ -216,6 +241,9 @@ public partial class DiagnosticViewModel : ViewModelBase
+     {
+         InsightRows.Clear();
+         InsightRows.Add(new DiagnosticInsightRow("执行结果", result.Success ? "通过" : "阻断", $"exit={result.ExitCode}，耗时 {result.Duration.TotalMilliseconds:F0}ms"));
++        if (result.Reason is not null || result.CleanupConfirmed is not null || result.Truncated is not null)
++            InsightRows.Add(new DiagnosticInsightRow("远端分类", result.CleanupConfirmed == false ? "阻断" : "建议",
++                $"reason={result.Reason ?? "unknown"}, signal={result.Signal?.ToString() ?? "unknown"}, timedOut={result.TimedOut?.ToString() ?? "unknown"}, cleanup={result.CleanupConfirmed?.ToString() ?? "unknown"}, truncated={result.Truncated?.ToString() ?? "unknown"}"));
+ 
+         var text = (result.Output + Environment.NewLine + result.Error).Trim();
+         if (string.IsNullOrWhiteSpace(text))
+diff --git a/tests/GatewayDesktop.Tests/Services/DiagnosticReplyContractTests.cs b/tests/GatewayDesktop.Tests/Services/DiagnosticReplyContractTests.cs
+new file mode 100644
+index 0000000..a8f1fe4
+--- /dev/null
++++ b/tests/GatewayDesktop.Tests/Services/DiagnosticReplyContractTests.cs
+@@ -0,0 +1,154 @@
++using System.Net;
++using System.Net.Http;
++using System.Text;
++using System.Text.Json;
++using GatewayDesktop.Core.Devices;
++using GatewayDesktop.Transport;
++using GatewayDesktop.Transport.Direct;
++
++namespace GatewayDesktop.Tests.Services;
++
++public sealed class DiagnosticReplyContractTests
++{
++    private static readonly DiagRequest Original = new("DIAG_ONE", "GW_TEST", "operator-a",
++        "systemctl_status", "gateway-services.service", 100, 12345, "");
++    private static readonly DiagRequest Conflict = Original with { Service = "other.service" };
++
++    private const string Terminal = """
++        {"replyKind":"terminal","cmdId":"DIAG_ONE","machineCode":"GW_TEST","operator":"operator-a",
++         "command":"systemctl_status","arg":"gateway-services.service","success":false,"exitCode":1,
++         "reason":"exit","signal":0,"timedOut":false,"cleanupConfirmed":true,"truncated":false,
++         "stdout":"failed","stderr":"","requestTs":12345,"ts":12346}
++        """;
++    private const string Rejection = """
++        {"replyKind":"admission_rejection","attemptedCmdId":"DIAG_ONE","machineCode":"GW_TEST",
++         "command":"systemctl_status","arg":"other.service","operator":"operator-a",
++         "reason":"cmdId_conflict","ts":12346}
++        """;
++
++    [Theory]
++    [InlineData(true)]
++    [InlineData(false)]
++    public void Conflict_and_terminal_order_never_transfers_original_result(bool conflictFirst)
++    {
++        var ordered = conflictFirst ? new[] { Rejection, Terminal } : new[] { Terminal, Rejection };
++        Assert.Equal(DiagReplyKind.Ignore,
++            DiagReplyAdmission.Match(ordered.First(x => x == Rejection), Original, "GW_TEST", out _));
++        Assert.Equal(DiagReplyKind.AdmissionRejected,
++            DiagReplyAdmission.Match(Rejection, Conflict, "GW_TEST", out _));
++        var matches = ordered.Select(payload => DiagReplyAdmission.Match(payload, Original, "GW_TEST", out _)).ToArray();
++        Assert.Single(matches, kind => kind == DiagReplyKind.Terminal);
++        Assert.Equal(DiagReplyKind.Terminal,
++            DiagReplyAdmission.Match(Terminal, Original, "GW_TEST", out var result));
++        Assert.Equal("exit", result!.Reason);
++        Assert.True(result.CleanupConfirmed);
++        Assert.False(result.Truncated);
++        Assert.Equal(DiagReplyKind.Ignore,
++            DiagReplyAdmission.Match(Terminal, Conflict, "GW_TEST", out _));
++    }
++
++    [Fact]
++    public void Legacy_conflict_and_malformed_classification_cannot_be_terminal()
++    {
++        var legacyConflict = Terminal.Replace("\"reason\":\"exit\"", "\"reason\":\"cmdId_conflict\"");
++        Assert.Equal(DiagReplyKind.Ignore,
++            DiagReplyAdmission.Match(legacyConflict, Original, "GW_TEST", out _));
++        var malformed = Terminal.Replace("\"signal\":0", "\"signal\":\"15\"");
++        Assert.Equal(DiagReplyKind.Ignore,
++            DiagReplyAdmission.Match(malformed, Original, "GW_TEST", out _));
++        Assert.Equal(DiagReplyKind.Ignore,
++            DiagReplyAdmission.Match(Terminal, Original, "OTHER", out _));
++        var legacy = """
++            {"cmdId":"DIAG_LEGACY","machineCode":"GW_TEST","operator":"operator-a",
++             "command":"uptime","success":true,"exitCode":0,"stdout":"ok","stderr":"",
++             "requestTs":12345,"ts":12346}
++            """;
++        var request = Original with { CmdId = "DIAG_LEGACY", Command = "uptime", Service = "" };
++        Assert.Equal(DiagReplyKind.Terminal,
++            DiagReplyAdmission.Match(legacy, request, "GW_TEST", out var result));
++        Assert.Null(result!.Reason);
++        Assert.Null(result.CleanupConfirmed);
++        Assert.Null(result.Truncated);
++    }
++
++    [Theory]
++    [InlineData("\"success\":false", "\"success\":true")]
++    [InlineData("\"success\":false", "\"success\":\"false\"")]
++    [InlineData("\"exitCode\":1", "\"exitCode\":\"1\"")]
++    [InlineData("\"signal\":0", "\"signal\":-1")]
++    public void Contradictory_or_untyped_terminal_is_ignored(string before, string after)
++    {
++        Assert.Equal(DiagReplyKind.Ignore,
++            DiagReplyAdmission.Match(Terminal.Replace(before, after), Original, "GW_TEST", out _));
++    }
++
++    [Fact]
++    public async Task Direct_non2xx_is_not_an_execution_reply_and_success_requires_binding()
++    {
++        var endpoint = new DeviceEndpoint { Mode = DeviceAccessMode.LocalDirect, MachineCode = "GW_TEST", DirectBaseAddress = new Uri("http://127.0.0.1:18181") };
++        using var rejectedClient = new HttpClient(new FixedHandler(HttpStatusCode.Conflict,
++            """{"success":false,"reason":"cmdId_conflict"}"""));
++        var rejected = await new DirectDeviceTransport(rejectedClient).ExecuteDiagAsync(endpoint, Original, CancellationToken.None);
++        Assert.False(rejected.Success);
++        Assert.Contains("HTTP 409: cmdId_conflict", rejected.Message);
++        Assert.Null(rejected.Value);
++
++        using var mismatchedClient = new HttpClient(new FixedHandler(HttpStatusCode.OK,
++            Terminal.Replace("gateway-services.service", "other.service")));
++        var mismatched = await new DirectDeviceTransport(mismatchedClient).ExecuteDiagAsync(endpoint, Original, CancellationToken.None);
++        Assert.False(mismatched.Success);
++        Assert.Null(mismatched.Value);
++
++        using var arrayClient = new HttpClient(new FixedHandler(HttpStatusCode.Conflict, "[]"));
++        var array = await new DirectDeviceTransport(arrayClient).ExecuteDiagAsync(endpoint, Original, CancellationToken.None);
++        Assert.False(array.Success);
++        Assert.Contains("HTTP 409", array.Message);
++    }
++
++    [Fact]
++    public async Task Escaped_output_at_approved_direct_limit_remains_bounded_and_parseable()
++    {
++        var endpoint = new DeviceEndpoint { Mode = DeviceAccessMode.LocalDirect, MachineCode = "GW_TEST",
++            DirectBaseAddress = new Uri("http://127.0.0.1:18181") };
++        var output = new string('\u0001', 64 * 1024);
++        var payload = JsonSerializer.Serialize(new
++        {
++            replyKind = "terminal", cmdId = Original.CmdId, machineCode = "GW_TEST", @operator = Original.Operator,
++            command = Original.Command, arg = Original.Service, success = true, exitCode = 0,
++            stdout = output, stderr = "", requestTs = Original.RequestTs, ts = 12346
++        });
++        Assert.InRange(Encoding.UTF8.GetByteCount(payload), 128 * 1024, DiagReplyAdmission.MaxDirectJsonBytes);
++        using var client = new HttpClient(new FixedHandler(HttpStatusCode.OK, payload));
++        var result = await new DirectDeviceTransport(client).ExecuteDiagAsync(endpoint, Original, CancellationToken.None);
++        Assert.True(result.Success, result.Message);
++        Assert.Equal(output, result.Value!.Stdout);
++    }
++
++    [Fact]
++    public async Task Direct_transport_propagates_caller_cancellation_instead_of_reporting_remote_cleanup()
++    {
++        var endpoint = new DeviceEndpoint { Mode = DeviceAccessMode.LocalDirect, MachineCode = "GW_TEST",
++            DirectBaseAddress = new Uri("http://127.0.0.1:18181") };
++        using var client = new HttpClient(new CancelHandler());
++        using var cancel = new CancellationTokenSource();
++        var pending = new DirectDeviceTransport(client).ExecuteDiagAsync(endpoint, Original, cancel.Token);
++        cancel.Cancel();
++        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
++    }
++
++    private sealed class FixedHandler(HttpStatusCode status, string body) : HttpMessageHandler
++    {
++        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
++            Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
++    }
++
++    private sealed class CancelHandler : HttpMessageHandler
++    {
++        protected override async Task<HttpResponseMessage> SendAsync(
++            HttpRequestMessage request, CancellationToken cancellationToken)
++        {
++            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
++            throw new InvalidOperationException("unreachable");
++        }
++    }
++}
+diff --git a/tests/GatewayDesktop.Tests/Services/DiagnosticServiceRequestTests.cs b/tests/GatewayDesktop.Tests/Services/DiagnosticServiceRequestTests.cs
+new file mode 100644
+index 0000000..ae1a1d9
+--- /dev/null
++++ b/tests/GatewayDesktop.Tests/Services/DiagnosticServiceRequestTests.cs
+@@ -0,0 +1,59 @@
++using GatewayDesktop.Core.Entities;
++using GatewayDesktop.Core.Enums;
++using GatewayDesktop.Core.Interfaces;
++using GatewayDesktop.Infrastructure.Transport.Real;
++using GatewayDesktop.Services.Device;
++using Moq;
++using Legacy = GatewayDesktop.Core.Devices;
++
++namespace GatewayDesktop.Tests.Services;
++
++public sealed class DiagnosticServiceRequestTests
++{
++    [Fact]
++    public async Task Caller_cancellation_keeps_remote_state_unknown_and_next_execution_gets_new_id()
++    {
++        const string machine = "GW_DIAG_TEST";
++        var pending = new TaskCompletionSource<Legacy.TransportResult<Legacy.DiagResponse>>(
++            TaskCreationOptions.RunContinuationsAsynchronously);
++        var sent = new List<Legacy.DiagRequest>();
++        var legacy = new Mock<Legacy.IDeviceTransport>();
++        legacy.Setup(x => x.GetHealthAsync(It.IsAny<Legacy.DeviceEndpoint>(), It.IsAny<CancellationToken>()))
++            .ReturnsAsync(Legacy.TransportResult<Legacy.DeviceHealth>.Ok(new(true, "ok", 1, "fixture")));
++        legacy.Setup(x => x.GetIdentityAsync(It.IsAny<Legacy.DeviceEndpoint>(), It.IsAny<CancellationToken>()))
++            .ReturnsAsync(Legacy.TransportResult<Legacy.DeviceIdentity>.Ok(new(machine, "", "", "fixture", "", "")));
++        legacy.Setup(x => x.ExecuteDiagAsync(It.IsAny<Legacy.DeviceEndpoint>(),
++                It.IsAny<Legacy.DiagRequest>(), It.IsAny<CancellationToken>()))
++            .Returns((Legacy.DeviceEndpoint _, Legacy.DiagRequest request, CancellationToken _) =>
++            {
++                sent.Add(request);
++                return sent.Count == 1 ? pending.Task : Task.FromResult(
++                    Legacy.TransportResult<Legacy.DiagResponse>.Ok(new(request.CmdId, machine,
++                        request.Operator, request.Command, true, 0, "ok", "", request.RequestTs, 2,
++                        "", "exit", 0, false, true, false, "terminal")));
++            });
++        using var adapter = new RealDeviceTransport(legacy.Object, ConnectionMode.RemoteMqtt);
++        var connected = await adapter.ConnectAsync(new ConnectionProfile { MachineCode = machine, Mode = ConnectionMode.RemoteMqtt });
++        Assert.True(connected.Success);
++        var connection = new Mock<IConnectionService>();
++        connection.Setup(x => x.GetTransport()).Returns(adapter);
++        var service = new DiagnosticService(connection.Object);
++        var command = new DiagnosticCommand { Name = "Uptime", Command = "uptime" };
++        using var cancellation = new CancellationTokenSource();
++        var first = service.ExecuteAsync(command, "unused", 99, cancellation.Token);
++        cancellation.Cancel();
++        pending.SetResult(Legacy.TransportResult<Legacy.DiagResponse>.Fail("transport consumed cancellation"));
++        var unknown = await first;
++        Assert.False(unknown.Success);
++        Assert.Contains("远端是否仍在执行未知", unknown.Error);
++        Assert.Equal(sent[0].CmdId, unknown.CmdId);
++        Assert.Equal(machine, unknown.MachineCode);
++
++        var second = await service.ExecuteAsync(command, "unused", 99);
++        Assert.True(second.Success, second.Error);
++        Assert.NotEqual(sent[0].CmdId, sent[1].CmdId);
++        Assert.StartsWith("DIAG_", sent[0].CmdId);
++        Assert.Equal("", sent[0].Service);
++        Assert.Equal(100, sent[0].TailLines);
++    }
++}
+diff --git a/tests/GatewayDesktop.Tests/Services/MqttBatchControlTransportTests.cs b/tests/GatewayDesktop.Tests/Services/MqttBatchControlTransportTests.cs
+index 1eb4b0b..bf6be53 100644
+--- a/tests/GatewayDesktop.Tests/Services/MqttBatchControlTransportTests.cs
++++ b/tests/GatewayDesktop.Tests/Services/MqttBatchControlTransportTests.cs
+@@ -2,6 +2,7 @@ using System.Buffers.Binary;
+ using System.Net;
+ using System.Net.Sockets;
+ using System.Text;
++using System.Text.Json;
+ using System.Text.Json.Nodes;
+ using GatewayDesktop.Core.Devices;
+ using GatewayDesktop.Core.Entities;
+@@ -9,6 +10,7 @@ using GatewayDesktop.Core.Enums;
+ using GatewayDesktop.Core.Interfaces;
+ using GatewayDesktop.Infrastructure.Transport.Real;
+ using GatewayDesktop.Services.Device;
++using GatewayDesktop.Transport;
+ using GatewayDesktop.Transport.Mqtt;
+ using Moq;
+ 
+@@ -18,6 +20,79 @@ public sealed class MqttBatchControlTransportTests
+ {
+     private const string Machine = "STAGE7_LOOPBACK";
+ 
++    [Theory]
++    [InlineData(true, true)]
++    [InlineData(true, false)]
++    [InlineData(false, true)]
++    [InlineData(false, false)]
++    public async Task Diagnostic_transport_distinguishes_admitted_terminal_from_conflicting_attempt(
++        bool originalCaller, bool conflictFirst)
++    {
++        using var broker = new LoopbackBroker();
++        var server = broker.RunDiagAsync(conflictFirst);
++        var request = new DiagRequest("DIAG_FIXED", Machine, "operator-a", "systemctl_status",
++            originalCaller ? "gateway-services.service" : "other.service", 100, 12345, "");
++
++        var result = await new MqttDeviceTransport().ExecuteDiagAsync(broker.Endpoint, request, broker.Token);
++        var published = await server;
++
++        Assert.Equal("DIAG_FIXED", published["cmdId"]!.GetValue<string>());
++        Assert.Equal(request.Service, published["service"]!.GetValue<string>());
++        if (originalCaller)
++        {
++            Assert.True(result.Success, result.Message);
++            Assert.Equal("exit", result.Value!.Reason);
++            Assert.Equal("gateway-services.service", result.Value.Arg);
++        }
++        else
++        {
++            Assert.False(result.Success);
++            Assert.Null(result.Value);
++            Assert.Contains("cmdId_conflict", result.Message);
++        }
++    }
++
++    [Fact]
++    public async Task Diagnostic_transport_retry_reuses_one_logical_request_id()
++    {
++        using var broker = new LoopbackBroker();
++        var request = new DiagRequest("DIAG_RETRY_FIXED", Machine, "operator-a", "systemctl_status",
++            "gateway-services.service", 100, 12345, "");
++        for (var attempt = 0; attempt < 2; attempt++)
++        {
++            var server = broker.RunDiagAsync(conflictFirst: false);
++            var result = await new MqttDeviceTransport().ExecuteDiagAsync(broker.Endpoint, request, broker.Token);
++            var published = await server;
++            Assert.True(result.Success, result.Message);
++            Assert.Equal(request.CmdId, published["cmdId"]!.GetValue<string>());
++            Assert.Equal(request.RequestTs, published["requestTs"]!.GetValue<long>());
++        }
++    }
++
++    [Fact]
++    public async Task Diagnostic_oversized_remaining_length_is_rejected_before_payload_allocation()
++    {
++        using var broker = new LoopbackBroker();
++        var server = broker.RunDiagOversizedHeaderAsync();
++        var request = new DiagRequest("DIAG_LIMIT", Machine, "operator-a", "uptime", "", 100, 12345, "");
++        var result = await new MqttDeviceTransport().ExecuteDiagAsync(broker.Endpoint, request, broker.Token);
++        await server;
++        Assert.False(result.Success);
++        Assert.Contains("bounded receive limit", result.Message);
++    }
++
++    [Fact]
++    public async Task Diagnostic_pre_ack_pending_reply_flood_is_bounded()
++    {
++        using var broker = new LoopbackBroker();
++        var server = broker.RunDiagPendingFloodAsync();
++        var request = new DiagRequest("DIAG_FLOOD", Machine, "operator-a", "uptime", "", 100, 12345, "");
++        var result = await new MqttDeviceTransport().ExecuteDiagAsync(broker.Endpoint, request, broker.Token);
++        await server;
++        Assert.False(result.Success);
++        Assert.Contains("pending reply limit", result.Message);
++    }
++
+     [Fact]
+     public async Task Signed_ota_loopback_publish_contains_signature_and_original_job_identity()
+     {
+@@ -417,6 +492,94 @@ public sealed class MqttBatchControlTransportTests
+             };
+         }
+ 
++        public async Task<JsonObject> RunDiagAsync(bool conflictFirst)
++        {
++            using var client = await _listener.AcceptTcpClientAsync(Token);
++            var stream = client.GetStream();
++            await ConnectAsync(stream);
++            var subscribe = await ReadAsync(stream);
++            Assert.Equal(0x82, subscribe.Type);
++            Assert.Equal($"edge/system/diag/reply/{Machine}", ReadString(subscribe.Body, 2));
++            await WriteAsync(stream, 0x90, [subscribe.Body[0], subscribe.Body[1], 2]);
++            var publish = await ReadAsync(stream);
++            Assert.Equal(0x34, publish.Type);
++            Assert.Equal($"edge/system/diag/request/{Machine}", ReadString(publish.Body, 0));
++            var offset = 2 + BinaryPrimitives.ReadUInt16BigEndian(publish.Body);
++            var packetId = publish.Body[offset..(offset + 2)];
++            var request = JsonNode.Parse(Encoding.UTF8.GetString(publish.Body[(offset + 2)..]))!.AsObject();
++            await WriteAsync(stream, 0x50, packetId);
++            var release = await ReadAsync(stream);
++            Assert.Equal(0x62, release.Type);
++            await WriteAsync(stream, 0x70, packetId);
++
++            var id = request["cmdId"]!.GetValue<string>();
++            var terminal = JsonSerializer.Serialize(new
++            {
++                replyKind = "terminal", cmdId = id, machineCode = Machine, @operator = "operator-a",
++                command = "systemctl_status", arg = "gateway-services.service", success = false,
++                exitCode = 1, reason = "exit", signal = 0, timedOut = false,
++                cleanupConfirmed = true, truncated = false, stdout = "failed", stderr = "",
++                requestTs = 12345, ts = 12346
++            });
++            var rejection = JsonSerializer.Serialize(new
++            {
++                replyKind = "admission_rejection", attemptedCmdId = id, machineCode = Machine,
++                command = "systemctl_status", arg = "other.service", @operator = "operator-a",
++                reason = "cmdId_conflict", ts = 12346
++            });
++            foreach (var payload in conflictFirst ? new[] { rejection, terminal } : new[] { terminal, rejection })
++            {
++                var topic = Encoding.UTF8.GetBytes($"edge/system/diag/reply/{Machine}");
++                await WriteAsync(stream, 0x30,
++                    [(byte)(topic.Length >> 8), (byte)topic.Length, .. topic, .. Encoding.UTF8.GetBytes(payload)]);
++            }
++            return request;
++        }
++
++        public async Task RunDiagOversizedHeaderAsync()
++        {
++            using var client = await _listener.AcceptTcpClientAsync(Token);
++            var stream = client.GetStream();
++            await ConnectAsync(stream);
++            var subscribe = await ReadAsync(stream);
++            Assert.Equal(0x82, subscribe.Type);
++            await WriteAsync(stream, 0x90, [subscribe.Body[0], subscribe.Body[1], 2]);
++            var publish = await ReadAsync(stream);
++            Assert.Equal(0x34, publish.Type);
++            var offset = 2 + BinaryPrimitives.ReadUInt16BigEndian(publish.Body);
++            var packetId = publish.Body[offset..(offset + 2)];
++            await WriteAsync(stream, 0x50, packetId);
++            Assert.Equal(0x62, (await ReadAsync(stream)).Type);
++            await WriteAsync(stream, 0x70, packetId);
++            var remaining = DiagReplyAdmission.MaxMqttJsonChars + 1025;
++            var header = new List<byte> { 0x30 };
++            do
++            {
++                var digit = (byte)(remaining % 128);
++                remaining /= 128;
++                if (remaining > 0) digit |= 0x80;
++                header.Add(digit);
++            } while (remaining > 0);
++            await stream.WriteAsync(header.ToArray(), Token);
++        }
++
++        public async Task RunDiagPendingFloodAsync()
++        {
++            using var client = await _listener.AcceptTcpClientAsync(Token);
++            var stream = client.GetStream();
++            await ConnectAsync(stream);
++            var subscribe = await ReadAsync(stream);
++            Assert.Equal(0x82, subscribe.Type);
++            await WriteAsync(stream, 0x90, [subscribe.Body[0], subscribe.Body[1], 2]);
++            Assert.Equal(0x34, (await ReadAsync(stream)).Type);
++            var topic = Encoding.UTF8.GetBytes($"edge/system/diag/reply/{Machine}");
++            byte[] body = [(byte)(topic.Length >> 8), (byte)topic.Length, .. topic, (byte)'{', (byte)'}'];
++            Assert.InRange(body.Length, 1, 127);
++            byte[] packet = [0x30, (byte)body.Length, .. body];
++            var flood = Enumerable.Range(0, 9).SelectMany(_ => packet).ToArray();
++            await stream.WriteAsync(flood, Token);
++        }
++
+         public async Task AcceptHealthAsync()
+         {
+             using var client = await _listener.AcceptTcpClientAsync(Token);
+diff --git a/tests/GatewayDesktop.Tests/ViewModels/DiagnosticViewModelRequestSnapshotTests.cs b/tests/GatewayDesktop.Tests/ViewModels/DiagnosticViewModelRequestSnapshotTests.cs
+new file mode 100644
+index 0000000..59d99d1
+--- /dev/null
++++ b/tests/GatewayDesktop.Tests/ViewModels/DiagnosticViewModelRequestSnapshotTests.cs
+@@ -0,0 +1,72 @@
++using System.Reflection;
++using GatewayDesktop.Core.Entities;
++using GatewayDesktop.Core.Interfaces;
++using GatewayDesktop.UI.Infrastructure;
++using GatewayDesktop.UI.ViewModels;
++using Moq;
++using UiAppContext = GatewayDesktop.UI.Infrastructure.AppContext;
++
++namespace GatewayDesktop.Tests.ViewModels;
++
++public sealed class DiagnosticViewModelRequestSnapshotTests
++{
++    [Fact]
++    public async Task Deferred_result_keeps_executed_command_target_and_parameters_after_selection_changes()
++    {
++        var deferred = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
++        var commands = new List<DiagnosticCommand>
++        {
++            new() { Name = "Service A", Command = "systemctl_status" },
++            new() { Name = "Memory B", Command = "free_m" },
++            new() { Name = "Journal", Command = "journal_tail" }
++        };
++        DiagnosticCommand? sentCommand = null;
++        string? sentService = null;
++        var service = new Mock<IDiagnosticService>();
++        service.Setup(x => x.GetPredefinedCommandsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(commands);
++        service.Setup(x => x.ExecuteAsync(It.IsAny<DiagnosticCommand>(), It.IsAny<string>(), It.IsAny<int>(),
++                It.IsAny<CancellationToken>()))
++            .Returns((DiagnosticCommand command, string unit, int _, CancellationToken _) =>
++            {
++                sentCommand = command;
++                sentService = unit;
++                return deferred.Task;
++            });
++        var context = new UiAppContext(Mock.Of<IConnectionService>(), new ConfigWorkspace())
++        { MachineCode = "GW_A" };
++        GatewayDesktop.UI.Infrastructure.ActionRecordedEventArgs? action = null;
++        context.ActionRecorded += (_, recorded) => action = recorded;
++        var vm = new DiagnosticViewModel(service.Object, context);
++        vm.SelectedCommand = commands[0];
++        vm.ServiceName = "gateway-services.service";
++        var running = vm.ExecuteCommand.ExecuteAsync(null);
++        Assert.Equal("systemctl_status", sentCommand?.Command);
++        Assert.Equal("gateway-services.service", sentService);
++
++        vm.SelectedCommand = commands[1];
++        vm.ServiceName = "other.service";
++        vm.TailLines = 300;
++        context.MachineCode = "GW_B";
++        deferred.SetResult(new CommandResult
++        {
++            Success = true, Output = "Active: active (running)", ExitCode = 0,
++            CmdId = "DIAG_FIXED", MachineCode = "GW_A", Reason = "exit", CleanupConfirmed = true
++        });
++        await running;
++
++        Assert.Contains("Service A", vm.ResultSummary);
++        Assert.DoesNotContain("Memory B", vm.ResultSummary);
++        Assert.Contains("GW_A/systemctl_status/DIAG_FIXED", action?.Target);
++        var export = (string)typeof(DiagnosticViewModel)
++            .GetMethod("BuildExportText", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(vm, null)!;
++        Assert.Contains("Command: Service A (systemctl_status)", export);
++        Assert.Contains("Service: gateway-services.service", export);
++        Assert.Contains("MachineCode: GW_A", export);
++        Assert.Contains("CmdId: DIAG_FIXED", export);
++        Assert.DoesNotContain("other.service", export);
++
++        vm.SelectedCommand = commands[2];
++        Assert.False(vm.NeedsService);
++        Assert.True(vm.NeedsTailLines);
++    }
++}

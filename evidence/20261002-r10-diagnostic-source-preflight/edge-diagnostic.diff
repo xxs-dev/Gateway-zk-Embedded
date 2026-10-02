@@ -1,0 +1,835 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 36a5143..3b6d76a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -718,6 +718,18 @@ add_executable(
+ )
+ target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE edge_gateway)
+ target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
++add_executable(
++    system_monitor_direct_maintenance_owner_test
++    tools/system_monitor_direct_maintenance_contract_test.cpp
++    system_monitor_direct_maintenance.cpp
++    src/system_monitor_service.cpp
++    src/diagnostic_process.cpp
++)
++target_compile_definitions(system_monitor_direct_maintenance_owner_test PRIVATE EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS)
++target_link_libraries(system_monitor_direct_maintenance_owner_test PRIVATE edge_gateway)
++target_compile_options(system_monitor_direct_maintenance_owner_test PRIVATE -fdiagnostics-color=never)
++target_link_options(system_monitor_direct_maintenance_owner_test PRIVATE
++    "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/system_monitor_direct_maintenance_owner.map")
+ 
+ if(BUILD_TESTING)
+     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
+@@ -862,6 +874,7 @@ if(BUILD_TESTING)
+     add_test(NAME grid_friendly_dispatch COMMAND grid_friendly_dispatch_test)
+     add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
+     add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
++    add_test(NAME system_monitor_direct_maintenance_owner COMMAND system_monitor_direct_maintenance_owner_test --owner)
+     set_tests_properties(
+         graph_ems_v2_loader
+         graph_ems_voltage_quality
+diff --git a/include/edge_gateway/diagnostic_output_json.hpp b/include/edge_gateway/diagnostic_output_json.hpp
+new file mode 100644
+index 0000000..d6809c6
+--- /dev/null
++++ b/include/edge_gateway/diagnostic_output_json.hpp
+@@ -0,0 +1,55 @@
++#pragma once
++
++#include <string>
++
++namespace edge_gateway {
++
++inline std::string escapeDiagnosticOutputJson(const std::string& value) {
++    static constexpr char hex[] = "0123456789abcdef";
++    std::string out;
++    out.reserve(value.size() + 8);
++    for (std::size_t i = 0; i < value.size();) {
++        const auto ch = static_cast<unsigned char>(value[i]);
++        if (ch < 0x80) {
++            switch (ch) {
++                case '\\': out += "\\\\"; break;
++                case '"': out += "\\\""; break;
++                case '\n': out += "\\n"; break;
++                case '\r': out += "\\r"; break;
++                case '\t': out += "\\t"; break;
++                default:
++                    if (ch < 0x20) {
++                        out += "\\u00";
++                        out += hex[ch >> 4];
++                        out += hex[ch & 0x0f];
++                    } else out += static_cast<char>(ch);
++                    break;
++            }
++            ++i;
++            continue;
++        }
++        const auto continuation = [&](std::size_t offset) {
++            return i + offset < value.size() &&
++                (static_cast<unsigned char>(value[i + offset]) & 0xc0) == 0x80;
++        };
++        std::size_t length = 0;
++        if (ch >= 0xc2 && ch <= 0xdf && continuation(1)) length = 2;
++        else if (ch >= 0xe0 && ch <= 0xef && continuation(1) && continuation(2)) {
++            const auto second = static_cast<unsigned char>(value[i + 1]);
++            if ((ch != 0xe0 || second >= 0xa0) && (ch != 0xed || second < 0xa0)) length = 3;
++        } else if (ch >= 0xf0 && ch <= 0xf4 && continuation(1) && continuation(2) && continuation(3)) {
++            const auto second = static_cast<unsigned char>(value[i + 1]);
++            if ((ch != 0xf0 || second >= 0x90) && (ch != 0xf4 || second < 0x90)) length = 4;
++        }
++        if (length) {
++            out.append(value, i, length);
++            i += length;
++        } else {
++            out += "\\ufffd";
++            ++i;
++        }
++    }
++    return out;
++}
++
++}  // namespace edge_gateway
+diff --git a/include/edge_gateway/system_monitor_direct_maintenance.hpp b/include/edge_gateway/system_monitor_direct_maintenance.hpp
+index ed31e02..be54d53 100644
+--- a/include/edge_gateway/system_monitor_direct_maintenance.hpp
++++ b/include/edge_gateway/system_monitor_direct_maintenance.hpp
+@@ -10,6 +10,11 @@ namespace system_monitor_direct_maintenance {
+ std::string otaCapabilitiesJson();
+ int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config);
+ void requestStop();
++#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
++void setDirectDiagFaultForTest(bool signalLeader, bool delayCleanupFailure);
++bool directDiagOwnerActiveForTest();
++bool directDiagOwnerUnavailableForTest();
++#endif
+ 
+ // Per-device maintenance credential. Clients keep sending passwordSha256 =
+ // hex(SHA-256(password)); the device stores PBKDF2-HMAC-SHA256(passwordSha256, salt).
+diff --git a/src/system_monitor_service.cpp b/src/system_monitor_service.cpp
+index dc78354..9404c4f 100644
+--- a/src/system_monitor_service.cpp
++++ b/src/system_monitor_service.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "edge_gateway/json_value.hpp"
+ #include "edge_gateway/json_value_writer.hpp"
++#include "edge_gateway/diagnostic_output_json.hpp"
+ #include "edge_gateway/system_monitor_points.hpp"
+ 
+ #include <algorithm>
+@@ -2725,7 +2726,16 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
+     const auto existing = diagnosticRequests_.find(cmdId);
+     if (existing != diagnosticRequests_.end()) {
+         const auto& saved = existing->second;
+-        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) reject("cmdId_conflict");
++        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) {
++            std::ostringstream rejection;
++            rejection << "{\"replyKind\":\"admission_rejection\",\"attemptedCmdId\":\""
++                      << escapeJson(cmdId) << "\",\"machineCode\":\"" << escapeJson(machineCode_)
++                      << "\",\"command\":\"" << escapeJson(command)
++                      << "\",\"arg\":\"" << escapeJson(arg)
++                      << "\",\"operator\":\"" << escapeJson(operatorName)
++                      << "\",\"reason\":\"cmdId_conflict\",\"ts\":" << nowMs << "}";
++            publisher_->publishJsonMessage(mqttConfig_.diagReplyTopic, rejection.str());
++        }
+         else if (!saved.reply.empty()) publishReply(saved.reply);
+         // Same in-flight logical request shares the eventual terminal reply.
+         // Existing clients treat every diag reply as terminal; do not send a
+@@ -2759,16 +2769,18 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
+ std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& request,
+         const DiagnosticProcessResult& result, const std::string& reason, std::int64_t nowMs) const {
+     std::ostringstream reply;
+-    reply << "{\"cmdId\":\"" << escapeJson(request.cmdId)
++    reply << "{\"replyKind\":\"terminal\",\"cmdId\":\"" << escapeJson(request.cmdId)
+           << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+           << "\",\"operator\":\"" << escapeJson(request.operatorName)
+           << "\",\"command\":\"" << escapeJson(request.command)
++          << "\",\"arg\":\"" << escapeJson(request.arg)
+           << "\",\"success\":" << (result.exitCode == 0 && !result.cleanupFailed ? "true" : "false")
+           << ",\"exitCode\":" << result.exitCode
+           << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
+           << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
++          << ",\"truncated\":" << (result.truncated ? "true" : "false")
+           << ",\"cleanupConfirmed\":" << (!result.cleanupFailed && !diagnosticProcess_.active() ? "true" : "false")
+-          << ",\"stdout\":\"" << escapeJson(result.output)
++          << ",\"stdout\":\"" << escapeDiagnosticOutputJson(result.output)
+           << "\",\"stderr\":\"\""
+           << ",\"requestTs\":" << request.requestTs
+           << ",\"ts\":" << nowMs
+diff --git a/system_monitor_direct_maintenance.cpp b/system_monitor_direct_maintenance.cpp
+index 2ffa16e..2c3f897 100644
+--- a/system_monitor_direct_maintenance.cpp
++++ b/system_monitor_direct_maintenance.cpp
+@@ -25,6 +25,8 @@
+ #include <vector>
+ 
+ #include "edge_gateway/config_loader.hpp"
++#include "edge_gateway/diagnostic_process.hpp"
++#include "edge_gateway/diagnostic_output_json.hpp"
+ #include "edge_gateway/control_dedup_store.hpp"
+ #include "edge_gateway/agc_avc_command_mailbox.hpp"
+ #include "edge_gateway/graph_ems_engine.hpp"
+@@ -66,6 +68,8 @@ constexpr std::size_t kMaxConfigSnapshotReplyBytes = 96 * 1024 * 1024;
+ constexpr std::size_t kMaxConfigApplyFiles = 512;
+ constexpr std::size_t kMaxBatchControlCommands = 128;
+ constexpr std::size_t kMaxDiagOutputBytes = 64 * 1024;
++constexpr std::size_t kMaxDirectDiagReplies = 16;
++constexpr std::size_t kMaxDirectDiagReplyBytes = 8 * 1024 * 1024;
+ constexpr std::size_t kMaxHttpRequestBytes = 96 * 1024 * 1024;
+ 
+ void handleSignal(int) {
+@@ -2022,7 +2026,7 @@ std::string systemStatusJson(const SystemMonitorDirectMaintenanceConfig& config)
+     return out.str();
+ }
+ 
+-std::string executeDiagCommand(const std::string& command, const std::string& service, int tailLines, int* exitCode) {
++std::string directDiagShellCommand(const std::string& command, const std::string& service, int tailLines) {
+     std::string shellCommand;
+     if (command == "uptime") {
+         shellCommand = "uptime 2>&1";
+@@ -2052,37 +2056,160 @@ std::string executeDiagCommand(const std::string& command, const std::string& se
+     } else {
+         throw std::runtime_error("unsupported diag command");
+     }
+-    return runShellCommand(shellCommand, exitCode, kMaxDiagOutputBytes);
++    return shellCommand;
+ }
+ 
+-std::string diagResponseJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
+-    if (!maintenancePasswordAccepted(config, body)) {
+-        throw std::runtime_error("invalid maintenance password");
+-    }
+-    const auto command = jsonString(body, "command");
+-    const auto cmdId = jsonString(body, "cmdId", "DIAG_" + std::to_string(nowMs()));
+-    const auto machineCode = jsonString(body, "machineCode");
+-    const auto operatorName = jsonString(body, "operator");
+-    const auto service = jsonString(body, "service");
+-    const auto tailLines = jsonInt(body, "tailLines", 100);
+-    const auto requestTs = static_cast<std::int64_t>(jsonUint64(body, "requestTs", static_cast<std::uint64_t>(nowMs())));
+-    int exitCode = 0;
+-    const auto stdoutText = executeDiagCommand(command, service, tailLines, &exitCode);
++struct DirectDiagRecord {
++    std::string command;
++    std::string arg;
++    std::string operatorName;
++    std::string reply;
++    std::chrono::steady_clock::time_point expiresAt;
++};
++
++struct DirectDiagState {
++    std::mutex mutex;
++    edge_gateway::DiagnosticProcess process;
++    std::map<std::string, DirectDiagRecord> replies;
++    std::string identityPath;
++    std::string machineCode;
++#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
++    bool signalLeaderForTest = false;
++#endif
++};
++
++DirectDiagState& directDiagState() {
++    static DirectDiagState state;
++    return state;
++}
++
++void pollDirectDiagOwner() {
++    auto& state = directDiagState();
++    std::lock_guard<std::mutex> lock(state.mutex);
++    if (state.process.active()) state.process.poll();
++}
++
++std::string directDiagReplyJson(const std::string& cmdId, const std::string& machineCode,
++    const std::string& operatorName, const std::string& command, const std::string& arg, std::int64_t requestTs,
++    const edge_gateway::DiagnosticProcessResult& result, const std::string& reason, bool cleanupConfirmed) {
+     std::ostringstream out;
+     out << "{\"cmdId\":\"" << jsonEscape(cmdId)
+         << "\",\"machineCode\":\"" << jsonEscape(machineCode)
+         << "\",\"operator\":\"" << jsonEscape(operatorName)
+         << "\",\"command\":\"" << jsonEscape(command)
+-        << "\",\"success\":" << (exitCode == 0 ? "true" : "false")
+-        << ",\"exitCode\":" << exitCode
+-        << ",\"stdout\":\"" << jsonEscape(stdoutText)
++        << "\",\"arg\":\"" << jsonEscape(arg)
++        << "\",\"success\":" << (result.exitCode == 0 && cleanupConfirmed ? "true" : "false")
++        << ",\"exitCode\":" << result.exitCode
++        << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
++        << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
++        << ",\"cleanupConfirmed\":" << (cleanupConfirmed ? "true" : "false")
++        << ",\"truncated\":" << (result.truncated ? "true" : "false")
++        << ",\"stdout\":\"" << edge_gateway::escapeDiagnosticOutputJson(result.output)
+         << "\",\"stderr\":\"\""
+         << ",\"requestTs\":" << requestTs
+-        << ",\"ts\":" << nowMs()
+-        << "}";
++        << ",\"ts\":" << nowMs() << "}";
+     return out.str();
+ }
+ 
++struct DirectDiagResponse {
++    int status;
++    std::string body;
++};
++
++DirectDiagResponse diagResponseJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
++    if (!maintenancePasswordAccepted(config, body)) {
++        throw std::runtime_error("invalid maintenance password");
++    }
++    const auto command = jsonString(body, "command");
++    auto cmdId = jsonString(body, "cmdId");
++    if (cmdId.empty()) {
++        std::random_device random;
++        std::ostringstream generated;
++        generated << "DIAG_" << std::hex << std::setfill('0');
++        for (int part = 0; part < 4; ++part) generated << std::setw(8) << random();
++        cmdId = generated.str();
++    }
++    const auto requestedMachineCode = jsonString(body, "machineCode");
++    const auto operatorName = jsonString(body, "operator");
++    const auto service = jsonString(body, "service");
++    const auto tailLines = jsonInt(body, "tailLines", 100);
++    const auto requestTs = static_cast<std::int64_t>(jsonUint64(body, "requestTs", static_cast<std::uint64_t>(nowMs())));
++    if (cmdId.size() > 128 || command.size() > 64 || operatorName.size() > 128 || service.size() > 128)
++        throw std::runtime_error("diag request too large");
++    const auto machineCode = loadIdentity(config.identityConfigFile).machineCode;
++    if (machineCode.empty() || requestedMachineCode != machineCode)
++        throw std::runtime_error("machineCode mismatch");
++    const auto arg = command == "journal_tail" ? std::to_string(std::max(1, std::min(500, tailLines))) :
++        command == "systemctl_status" ? service : std::string();
++    auto& state = directDiagState();
++    std::lock_guard<std::mutex> lock(state.mutex);
++    if (state.identityPath.empty()) {
++        state.identityPath = config.identityConfigFile;
++        state.machineCode = machineCode;
++    } else if (state.identityPath != config.identityConfigFile || state.machineCode != machineCode) {
++        throw std::runtime_error("direct diagnostic identity changed");
++    }
++    const auto steadyNow = std::chrono::steady_clock::now();
++    for (auto it = state.replies.begin(); it != state.replies.end();) {
++        it = it->second.expiresAt <= steadyNow ? state.replies.erase(it) : std::next(it);
++    }
++    const auto existing = state.replies.find(cmdId);
++    if (existing != state.replies.end()) {
++        const auto& saved = existing->second;
++        if (saved.command == command && saved.arg == arg && saved.operatorName == operatorName)
++            return {200, saved.reply};
++        return {409, "{\"success\":false,\"reason\":\"cmdId_conflict\"}"};
++    }
++    auto shellCommand = directDiagShellCommand(command, service, tailLines);
++#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
++    if (state.signalLeaderForTest) {
++        shellCommand += "; kill -TERM $$";
++        state.signalLeaderForTest = false;
++    }
++#endif
++    if (state.process.active()) state.process.poll();
++    if (state.process.active() || state.process.unavailable()) {
++        return {503, state.process.unavailable() ?
++            "{\"success\":false,\"reason\":\"cleanup_unknown\"}" :
++            "{\"success\":false,\"reason\":\"busy\"}"};
++    }
++    std::size_t replyBytes = 0;
++    for (const auto& entry : state.replies) replyBytes += entry.second.reply.size();
++    if (state.replies.size() >= kMaxDirectDiagReplies ||
++            replyBytes + 6 * kMaxDiagOutputBytes + 4096 > kMaxDirectDiagReplyBytes) {
++        return {429, "{\"success\":false,\"reason\":\"cache_full\"}"};
++    }
++    const bool started = state.process.start(shellCommand, kMaxDiagOutputBytes, 10000);
++    if (started) {
++        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(13);
++        while (!state.process.poll()) {
++            if (std::chrono::steady_clock::now() >= deadline) {
++                const bool cleaned = state.process.cancelAndWait();
++                auto result = state.process.result();
++                result.timedOut = true;
++                result.cleanupFailed = !cleaned;
++                result.exitCode = cleaned ? 124 : -1;
++                const auto reason = cleaned ? "timeout" : "cleanup_unknown";
++                const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, arg, requestTs,
++                                                      result, reason, cleaned);
++                state.replies.emplace(cmdId, DirectDiagRecord{command, arg, operatorName, reply,
++                    std::chrono::steady_clock::now() + std::chrono::minutes(5)});
++                return {200, reply};
++            }
++            std::this_thread::sleep_for(std::chrono::milliseconds(10));
++        }
++    }
++    auto result = state.process.result();
++    if (state.process.active()) { result.cleanupFailed = true; result.exitCode = -1; }
++    const auto reason = result.cleanupFailed ? "cleanup_unknown" : result.cancelled ? "cancelled" :
++        result.timedOut ? "timeout" : result.signal ? "signal" : result.exitCode < 0 ? "launch_failed" : "exit";
++    const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, arg, requestTs,
++                                          result, reason, !result.cleanupFailed && !state.process.active());
++    state.replies.emplace(cmdId, DirectDiagRecord{command, arg, operatorName, reply,
++        std::chrono::steady_clock::now() + std::chrono::minutes(5)});
++    return {200, reply};
++}
++
+ void restartGatewayServicesLater() {
+     std::thread([]() {
+         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+@@ -2831,7 +2958,10 @@ std::string handleRequest(
+             return response(401, "Unauthorized", "{\"success\":false,\"message\":\"invalid maintenance password\"}");
+         }
+         try {
+-            return response(200, "OK", diagResponseJson(config, body));
++            const auto result = diagResponseJson(config, body);
++            return response(result.status, result.status == 409 ? "Conflict" :
++                            result.status == 429 ? "Too Many Requests" :
++                            result.status == 503 ? "Service Unavailable" : "OK", result.body);
+         } catch (const std::exception& ex) {
+             return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+         }
+@@ -3191,6 +3321,7 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
+     }
+ 
+     while (g_running) {
++        pollDirectDiagOwner();
+         fd_set readSet;
+         FD_ZERO(&readSet);
+         int maxFd = -1;
+@@ -3278,6 +3409,27 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
+ namespace edge_gateway {
+ namespace system_monitor_direct_maintenance {
+ 
++#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
++void setDirectDiagFaultForTest(bool signalLeader, bool delayCleanupFailure) {
++    auto& state = directDiagState();
++    std::lock_guard<std::mutex> lock(state.mutex);
++    state.signalLeaderForTest = signalLeader;
++    state.process.delayCleanupFailure = delayCleanupFailure;
++}
++
++bool directDiagOwnerActiveForTest() {
++    auto& state = directDiagState();
++    std::lock_guard<std::mutex> lock(state.mutex);
++    return state.process.active();
++}
++
++bool directDiagOwnerUnavailableForTest() {
++    auto& state = directDiagState();
++    std::lock_guard<std::mutex> lock(state.mutex);
++    return state.process.unavailable();
++}
++#endif
++
+ std::string otaCapabilitiesJson() {
+     std::ostringstream payload;
+     payload << "{\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]"
+diff --git a/tools/system_monitor_diagnostic_test.cpp b/tools/system_monitor_diagnostic_test.cpp
+index 0e3ba90..af1307a 100644
+--- a/tools/system_monitor_diagnostic_test.cpp
++++ b/tools/system_monitor_diagnostic_test.cpp
+@@ -1,4 +1,5 @@
+ #include "edge_gateway/system_monitor_service.hpp"
++#include "edge_gateway/json_value.hpp"
+ #include <algorithm>
+ #include <chrono>
+ #include <fstream>
+@@ -85,7 +86,7 @@ struct Fixture {
+         root = made; previousPath = getenv("PATH") ? getenv("PATH") : "";
+         require(mkdir((root + "/bin").c_str(), 0700) == 0, "private bin directory");
+         write("bin/top", "#!/bin/sh\necho run >> \"$DIAG_FIXTURE_DIR/runs\"\n"
+-                         "case \"$DIAG_FIXTURE_MODE\" in stall) sleep 30;; failure) exit 1;; *) printf 'done\\n';; esac\n");
++                         "case \"$DIAG_FIXTURE_MODE\" in stall) sleep 30;; failure) exit 1;; control) printf '\\001\\b\\f\\033';; utf8) printf '\\344\\270\\255\\377';; boundary) head -c 243 /dev/zero | tr '\\000' X; printf '\\344\\270\\255abcdefghijklmnop';; *) printf 'done\\n';; esac\n");
+         require(chmod((root + "/bin/top").c_str(), 0700) == 0, "private top mode");
+         setenv("PATH", (root + "/bin:" + previousPath).c_str(), 1);
+         setenv("DIAG_FIXTURE_DIR", root.c_str(), 1);
+@@ -164,13 +165,23 @@ void cases() {
+         publisher->request("other"); tick(service, 2002);
+         require(publisher->replies.back().find("\"reason\":\"busy\"") != std::string::npos, "busy correlation");
+         publisher->request("stall", "systemctl_status", ",\"service\":\"private.service\""); tick(service, 2003);
+-        require(publisher->replies.back().find("cmdId_conflict") != std::string::npos, "strict same-id conflict");
++        require(publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
++                publisher->replies.back().find("\"attemptedCmdId\":\"stall\"") != std::string::npos &&
++                publisher->replies.back().find("\"command\":\"systemctl_status\"") != std::string::npos &&
++                publisher->replies.back().find("\"arg\":\"private.service\"") != std::string::npos &&
++                publisher->replies.back().find("\"cmdId\":") == std::string::npos,
++                "in-flight conflict must not occupy the admitted terminal identity");
+         publisher->request("invalid", "systemctl_status", ",\"service\":\"x; touch nope\""); tick(service, 2004);
+         require(publisher->replies.back().find("invalid_command_argument") != std::string::npos, "argument rejected");
+         publisher->request("forbidden", "arbitrary_command"); tick(service, 2005);
+         require(publisher->replies.back().find("command_not_allowed") != std::string::npos, "whitelist rejected");
+         service.stop();
+-        require(publisher->replies.back().find("\"reason\":\"cancelled\"") != std::string::npos, "stop terminal result");
++        require(publisher->replies.back().find("\"reason\":\"cancelled\"") != std::string::npos &&
++                publisher->replies.back().find("\"replyKind\":\"terminal\"") != std::string::npos &&
++                publisher->replies.back().find("\"cmdId\":\"stall\"") != std::string::npos &&
++                publisher->replies.back().find("\"command\":\"top_once\"") != std::string::npos &&
++                publisher->replies.back().find("\"arg\":\"\"") != std::string::npos,
++                "conflict-first must preserve the original terminal result");
+         require(fixture.runs() == 1, "duplicate/rejected requests executed again");
+         std::cout << "PASS actual-loop/monitor/safety/inflight/conflict/busy/whitelist/stop\n";
+     }
+@@ -181,13 +192,43 @@ void cases() {
+         publisher->request("exit"); tick(service, 3000); waitReply(service, *publisher, 1);
+         const auto terminal = publisher->replies.back();
+         require(terminal.find("\"exitCode\":1") != std::string::npos, "exit1 was raw wait status");
++        publisher->request("exit", "systemctl_status", ",\"service\":\"private.service\""); tick(service, 3001);
++        require(publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
++                publisher->replies.back().find("\"cmdId\":") == std::string::npos,
++                "terminal-first conflict must remain nonterminal");
+         publisher->request("exit"); tick(service, 3001);
+         require(publisher->replies.back() == terminal && fixture.runs() == 2, "completed idempotent replay");
+         SystemMonitorDiagnosticTestAccess::expire(service, "exit");
+-        publisher->request("exit"); tick(service, 3002); waitReply(service, *publisher, 3);
++        publisher->request("exit"); tick(service, 3002); waitReply(service, *publisher, 4);
+         require(fixture.runs() == 3, "expired completion did not release same id");
+         std::cout << "PASS normalized-exit/completed-replay/expiry\n";
+     }
++    setenv("DIAG_FIXTURE_MODE", "control", 1);
++    {
++        auto publisher = std::make_shared<Publisher>();
++        SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
++        publisher->request("control"); tick(service, 3500); waitReply(service, *publisher, 1);
++        const auto parsed = json::JsonParser(publisher->replies.back(), 16, 64).parse();
++        const auto* output = parsed.find("stdout");
++        require(output && output->asString() == std::string("\001\b\f\033", 4),
++                "diagnostic control bytes did not survive strict JSON roundtrip");
++        std::cout << "PASS diagnostic-control-json-roundtrip\n";
++    }
++    for (const auto& mode : {"utf8", "boundary"}) {
++        setenv("DIAG_FIXTURE_MODE", mode, 1);
++        auto publisher = std::make_shared<Publisher>();
++        SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
++        publisher->request(mode); tick(service, 3600); waitReply(service, *publisher, 1);
++        const auto parsed = json::JsonParser(publisher->replies.back(), 16, 64).parse();
++        const auto* output = parsed.find("stdout");
++        const auto* truncated = parsed.find("truncated");
++        const auto replacement = std::string("\xef\xbf\xbd", 3);
++        const auto expected = std::string(mode) == "utf8" ? std::string("\xe4\xb8\xad", 3) + replacement :
++            std::string(243, 'X') + replacement + "\n[truncated]";
++        require(output && output->asString() == expected && truncated &&
++                truncated->asBool() == (std::string(mode) == "boundary"),
++                "diagnostic UTF-8 output or truncated boundary was not valid JSON");
++    }
+     setenv("DIAG_FIXTURE_MODE", "success", 1);
+     {
+         auto publisher = std::make_shared<Publisher>();
+diff --git a/tools/system_monitor_direct_maintenance_contract_test.cpp b/tools/system_monitor_direct_maintenance_contract_test.cpp
+index 1bda799..44ef2aa 100644
+--- a/tools/system_monitor_direct_maintenance_contract_test.cpp
++++ b/tools/system_monitor_direct_maintenance_contract_test.cpp
+@@ -1,13 +1,20 @@
+ #include <cstdio>
++#include <cstdlib>
++#include <cerrno>
+ #include <chrono>
+ #include <fstream>
+ #include <iostream>
+ #include <stdexcept>
+ #include <string>
+ #include <thread>
++#include <arpa/inet.h>
++#include <netinet/in.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
+ #include <unistd.h>
+ 
+ #include "edge_gateway/system_monitor_direct_maintenance.hpp"
++#include "edge_gateway/json_value.hpp"
+ 
+ namespace {
+ 
+@@ -21,7 +28,262 @@ bool startsWith(const std::string& value, const std::string& prefix) {
+     return value.compare(0, prefix.size(), prefix) == 0;
+ }
+ 
+-void verifyMaintenanceCredential() {
++std::string loopbackRequest(int port, const std::string& request) {
++    int fd = -1;
++    for (int attempt = 0; attempt < 50; ++attempt) {
++        fd = ::socket(AF_INET, SOCK_STREAM, 0);
++        require(fd >= 0, "private HTTP socket allocation failed");
++        sockaddr_in address{};
++        address.sin_family = AF_INET;
++        address.sin_port = htons(static_cast<unsigned short>(port));
++        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++        if (::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) break;
++        const int error = errno;
++        ::close(fd); fd = -1;
++        if (error != ECONNREFUSED) throw std::runtime_error("private HTTP connect failed");
++        std::this_thread::sleep_for(std::chrono::milliseconds(20));
++    }
++    require(fd >= 0, "private HTTP server did not listen");
++    timeval timeout{}; timeout.tv_sec = 20;
++    require(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0,
++            "private HTTP receive timeout failed");
++    std::size_t sent = 0;
++    while (sent < request.size()) {
++        const auto count = ::send(fd, request.data() + sent, request.size() - sent, 0);
++        require(count > 0, "private HTTP send failed");
++        sent += static_cast<std::size_t>(count);
++    }
++    std::string reply;
++    char buffer[4096];
++    for (;;) {
++        const auto count = ::recv(fd, buffer, sizeof(buffer), 0);
++        if (count == 0) break;
++        require(count > 0 && reply.size() + static_cast<std::size_t>(count) < 1024 * 1024,
++                "private HTTP response failed or unbounded");
++        reply.append(buffer, static_cast<std::size_t>(count));
++    }
++    ::close(fd);
++    return reply;
++}
++
++void verifySerialHttpBudget(const edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig& base,
++                            const std::string& password, const std::string& root,
++                            const std::string& bin) {
++    namespace dm = edge_gateway::system_monitor_direct_maintenance;
++    const auto probe = ::socket(AF_INET, SOCK_STREAM, 0);
++    require(probe >= 0, "private port reservation failed");
++    sockaddr_in address{};
++    address.sin_family = AF_INET;
++    address.sin_port = 0;
++    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    require(::bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0,
++            "private port bind failed");
++    socklen_t addressSize = sizeof(address);
++    require(::getsockname(probe, reinterpret_cast<sockaddr*>(&address), &addressSize) == 0,
++            "private port query failed");
++    const int port = ntohs(address.sin_port);
++    ::close(probe);
++    auto config = base;
++    config.enabled = true;
++    config.listenHosts = {"127.0.0.1"};
++    config.listenPort = port;
++    const auto started = root + "-diag-started";
++    { std::ofstream script(bin + "/uptime");
++      script << "#!/bin/sh\nprintf started > '" << started << "'\nsleep 2\nprintf 'socket-ok\\n'\n"; }
++    require(::chmod((bin + "/uptime").c_str(), 0700) == 0, "private socket script mode");
++    const auto body = std::string("{\"passwordSha256\":\"") + password +
++        "\",\"machineCode\":\"GW_TEST\",\"cmdId\":\"DIRECT_SOCKET\",\"command\":\"uptime\"}";
++    const auto diagRequest = std::string("POST /api/v1/diag/execute HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: ") +
++        std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
++    const std::string healthRequest = "GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
++    std::thread server;
++    std::thread client;
++    std::string diagnosticReply;
++    std::exception_ptr clientError;
++    int serverExit = -1;
++    const auto finish = [&] {
++        if (client.joinable()) client.join();
++        dm::requestStop();
++        if (server.joinable()) server.join();
++    };
++    try {
++        server = std::thread([&] { serverExit = dm::runFromConfig(config); });
++        client = std::thread([&] {
++            try { diagnosticReply = loopbackRequest(port, diagRequest); }
++            catch (...) { clientError = std::current_exception(); }
++        });
++        bool entered = false;
++        for (int i = 0; i < 100; ++i) {
++            std::ifstream marker(started);
++            if (marker.good()) { entered = true; break; }
++            std::this_thread::sleep_for(std::chrono::milliseconds(20));
++        }
++        require(entered, "private diagnostic did not enter server");
++        const auto begin = std::chrono::steady_clock::now();
++        const auto health = loopbackRequest(port, healthRequest);
++        const auto elapsed = std::chrono::steady_clock::now() - begin;
++        finish();
++        if (clientError) std::rethrow_exception(clientError);
++        require(serverExit == 0 && startsWith(diagnosticReply, "HTTP/1.1 200") &&
++                diagnosticReply.find("socket-ok") != std::string::npos,
++                "private socket diagnostic response failed");
++        require(startsWith(health, "HTTP/1.1 200") &&
++                elapsed >= std::chrono::milliseconds(1000) && elapsed < std::chrono::seconds(8),
++                "serial health response must wait but return within HTTP budget");
++    } catch (...) { finish(); throw; }
++    std::remove(started.c_str());
++    { std::ofstream script(bin + "/uptime");
++      script << "#!/bin/sh\nprintf x >> '" << root << "-diag-count'\nprintf 'direct-ok\\n'\n"; }
++    require(::chmod((bin + "/uptime").c_str(), 0700) == 0, "restore private short command mode");
++}
++
++void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig& config,
++                             const std::string& password, const std::string& root, bool ownerMode) {
++    namespace dm = edge_gateway::system_monitor_direct_maintenance;
++    const auto bin = root + "-diag-bin";
++    require(::mkdir(bin.c_str(), 0700) == 0, "private diagnostic command directory");
++    const auto priorPath = std::string(std::getenv("PATH") ? std::getenv("PATH") : "");
++    require(::setenv("PATH", (bin + ":/usr/bin:/bin").c_str(), 1) == 0, "private diagnostic PATH");
++    const auto script = [&](const std::string& name, const std::string& source) {
++        const auto path = bin + "/" + name;
++        { std::ofstream output(path); output << "#!/bin/sh\n" << source; }
++        require(::chmod(path.c_str(), 0700) == 0, "private diagnostic script mode");
++    };
++    const auto counter = root + "-diag-count";
++    script("uptime", "printf x >> '" + counter + "'\nprintf 'direct-ok\\n'\n");
++    script("journalctl", "sleep 30\n");
++    script("top", "yes X | head -c 70000\n");
++    script("free", "kill -TERM $$\n");
++    const auto prefix = std::string("{\"passwordSha256\":\"") + password +
++        "\",\"machineCode\":\"GW_TEST\",\"operator\":\"tester\",\"requestTs\":123,";
++    const auto send = [&](const std::string& payload) {
++        return dm::handleHttpRequest(config, "POST", "/api/v1/diag/execute", "", "", payload, "10.0.0.7");
++    };
++#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
++    if (ownerMode) {
++        dm::setDirectDiagFaultForTest(true, false);
++        const auto signalled = send(prefix + "\"cmdId\":\"DIRECT_LEADER_SIGNAL\",\"command\":\"free_m\"}");
++        require(startsWith(signalled, "HTTP/1.1 200") &&
++                signalled.find("\"reason\":\"signal\"") != std::string::npos &&
++                signalled.find("\"signal\":15") != std::string::npos &&
++                signalled.find("\"exitCode\":143") != std::string::npos &&
++                signalled.find("\"cleanupConfirmed\":true") != std::string::npos,
++                "owned command leader signal must be classified from wait status");
++        dm::setDirectDiagFaultForTest(false, true);
++        const auto unknown = send(prefix + "\"cmdId\":\"DIRECT_UNKNOWN\",\"command\":\"uptime\"}");
++        require(unknown.find("\"reason\":\"cleanup_unknown\"") != std::string::npos &&
++                unknown.find("\"cleanupConfirmed\":false") != std::string::npos &&
++                dm::directDiagOwnerActiveForTest() && dm::directDiagOwnerUnavailableForTest(),
++                "early unknown must retain a poisoned live owner");
++        const auto refused = send(prefix + "\"cmdId\":\"DIRECT_REFUSED\",\"command\":\"uptime\"}");
++        require(startsWith(refused, "HTTP/1.1 503") &&
++                refused.find("\"reason\":\"cleanup_unknown\"") != std::string::npos &&
++                refused.find("\"cmdId\":") == std::string::npos,
++                "uncertain owner must reject new admission without terminal cmdId");
++        const int portProbe = ::socket(AF_INET, SOCK_STREAM, 0);
++        require(portProbe >= 0, "owner loop private port allocation");
++        sockaddr_in address{};
++        address.sin_family = AF_INET;
++        address.sin_port = 0;
++        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++        require(::bind(portProbe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0,
++                "owner loop private port bind");
++        socklen_t addressSize = sizeof(address);
++        require(::getsockname(portProbe, reinterpret_cast<sockaddr*>(&address), &addressSize) == 0,
++                "owner loop private port query");
++        auto serverConfig = config;
++        serverConfig.enabled = true;
++        serverConfig.listenHosts = {"127.0.0.1"};
++        serverConfig.listenPort = ntohs(address.sin_port);
++        ::close(portProbe);
++        int serverExit = -1;
++        std::thread server([&] { serverExit = dm::runFromConfig(serverConfig); });
++        try {
++            const auto health = loopbackRequest(serverConfig.listenPort,
++                "GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
++            require(startsWith(health, "HTTP/1.1 200"), "owner recovery server health");
++            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
++            while (dm::directDiagOwnerActiveForTest() && std::chrono::steady_clock::now() < until)
++                std::this_thread::sleep_for(std::chrono::milliseconds(10));
++            require(!dm::directDiagOwnerActiveForTest() && dm::directDiagOwnerUnavailableForTest(),
++                    "server loop must reap retained owner without reopening admission");
++            require(startsWith(send(prefix + "\"cmdId\":\"DIRECT_STILL_REFUSED\",\"command\":\"uptime\"}"),
++                               "HTTP/1.1 503"), "poisoned admission reopened after owner reap");
++        } catch (...) { dm::requestStop(); server.join(); throw; }
++        dm::requestStop();
++        server.join();
++        require(serverExit == 0, "owner recovery server did not stop cleanly");
++        require(::setenv("PATH", priorPath.c_str(), 1) == 0, "restore owner fixture PATH");
++        for (const auto& name : {"uptime", "journalctl", "top", "free"}) std::remove((bin + "/" + name).c_str());
++        std::remove(counter.c_str());
++        require(::rmdir(bin.c_str()) == 0, "owner fixture cleanup");
++        return;
++    }
++#else
++    (void)ownerMode;
++#endif
++    require(startsWith(send("{\"passwordSha256\":\"wrong\",\"machineCode\":\"GW_TEST\",\"cmdId\":\"UNAUTHORIZED\",\"command\":\"uptime\"}"),
++                       "HTTP/1.1 401"), "direct diagnostic authentication changed");
++    require(startsWith(send(std::string("{\"passwordSha256\":\"") + password +
++        "\",\"machineCode\":\"WRONG\",\"cmdId\":\"WRONG_NODE\",\"command\":\"uptime\"}"), "HTTP/1.1 400"),
++        "direct diagnostic must bind loaded identity");
++    const auto request = prefix + "\"cmdId\":\"DIRECT_ONE\",\"command\":\"uptime\"}";
++    const auto first = send(request);
++    require(startsWith(first, "HTTP/1.1 200") && first.find("\"reason\":\"exit\"") != std::string::npos &&
++            first.find("\"arg\":\"\"") != std::string::npos &&
++            first.find("\"cleanupConfirmed\":true") != std::string::npos &&
++            first.find("\"truncated\":false") != std::string::npos,
++            "direct successful result must be classified and owned");
++    require(send(request) == first, "same logical cmdId must replay exact terminal response");
++    const auto conflict = send(prefix + "\"cmdId\":\"DIRECT_ONE\",\"command\":\"free_m\"}");
++    require(startsWith(conflict, "HTTP/1.1 409") && conflict.find("\"reason\":\"cmdId_conflict\"") != std::string::npos &&
++            conflict.find("\"cmdId\":") == std::string::npos,
++            "conflicting cmdId must not execute");
++    { std::ifstream input(counter); require(std::string((std::istreambuf_iterator<char>(input)),
++        std::istreambuf_iterator<char>()) == "x", "replay/conflict executed command again"); }
++    const auto signalled = send(prefix + "\"cmdId\":\"DIRECT_SIGNAL\",\"command\":\"free_m\"}");
++    require(signalled.find("\"reason\":\"exit\"") != std::string::npos &&
++            signalled.find("\"exitCode\":143") != std::string::npos &&
++            signalled.find("\"signal\":0") != std::string::npos &&
++            signalled.find("\"cleanupConfirmed\":true") != std::string::npos,
++            "inner script signal must not masquerade as supervised-shell signal");
++    script("free", "printf '\\344\\270\\255\\377'\n");
++    const auto utf8 = send(prefix + "\"cmdId\":\"DIRECT_UTF8\",\"command\":\"free_m\"}");
++    const auto bodyAt = utf8.find("\r\n\r\n");
++    require(bodyAt != std::string::npos, "direct UTF-8 reply missing HTTP body");
++    const auto parsedUtf8 = edge_gateway::json::JsonParser(utf8.substr(bodyAt + 4), 16, 64).parse();
++    const auto* utf8Output = parsedUtf8.find("stdout");
++    require(utf8Output && utf8Output->asString() == std::string("\xe4\xb8\xad\xef\xbf\xbd", 6),
++            "direct diagnostic invalid UTF-8 did not become valid JSON");
++    const auto truncated = send(prefix + "\"cmdId\":\"DIRECT_TRUNC\",\"command\":\"top_once\"}");
++    require(truncated.find("\"truncated\":true") != std::string::npos &&
++            truncated.find("[truncated]") != std::string::npos && truncated.size() < 500000,
++            "direct output truncation must be structured and bounded");
++    const auto start = std::chrono::steady_clock::now();
++    const auto timedOut = send(prefix + "\"cmdId\":\"DIRECT_TIMEOUT\",\"command\":\"journal_tail\",\"tailLines\":4}");
++    const auto elapsed = std::chrono::steady_clock::now() - start;
++    require(startsWith(timedOut, "HTTP/1.1 200") &&
++            timedOut.find("\"reason\":\"timeout\"") != std::string::npos &&
++            timedOut.find("\"timedOut\":true") != std::string::npos &&
++            timedOut.find("\"cleanupConfirmed\":true") != std::string::npos &&
++            elapsed < std::chrono::seconds(16), "direct timeout must clean owned job within HTTP bound");
++    const auto invalid = send(prefix + "\"cmdId\":\"DIRECT_INVALID\",\"command\":\"systemctl_status\",\"service\":\"bad;name.service\"}");
++    require(startsWith(invalid, "HTTP/1.1 400"), "direct service argument whitelist changed");
++    verifySerialHttpBudget(config, password, root, bin);
++    for (int i = 0; i < 10; ++i) {
++        const auto reply = send(prefix + "\"cmdId\":\"DIRECT_FILL_" + std::to_string(i) + "\",\"command\":\"uptime\"}");
++        require(startsWith(reply, "HTTP/1.1 200"), "direct bounded replay cache fill failed");
++    }
++    const auto full = send(prefix + "\"cmdId\":\"DIRECT_OVERFLOW\",\"command\":\"uptime\"}");
++    require(startsWith(full, "HTTP/1.1 429") && full.find("\"reason\":\"cache_full\"") != std::string::npos &&
++            full.find("\"cmdId\":") == std::string::npos, "cache full must reject without terminal cmdId reply");
++    require(::setenv("PATH", priorPath.c_str(), 1) == 0, "restore diagnostic PATH");
++    for (const auto& name : {"uptime", "journalctl", "top", "free"}) std::remove((bin + "/" + name).c_str());
++    std::remove(counter.c_str());
++    require(::rmdir(bin.c_str()) == 0, "private diagnostic command cleanup");
++}
++
++void verifyMaintenanceCredential(bool ownerMode) {
+     namespace dm = edge_gateway::system_monitor_direct_maintenance;
+     const auto root = std::string("/tmp/direct-maintenance-contract-") + std::to_string(::getpid());
+     edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig config;
+@@ -120,6 +382,7 @@ void verifyMaintenanceCredential() {
+         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+     }
+     require(asyncFinished, "Direct signed request worker did not finish locally");
++    verifyDirectDiagnostics(config, good, root, ownerMode);
+     std::remove(config.otaAppConfigFile.c_str());
+     std::remove(config.identityConfigFile.c_str());
+     std::remove(config.otaStatusFile.c_str());
+@@ -133,7 +396,7 @@ void verifyMaintenanceCredential() {
+ 
+ }  // namespace
+ 
+-int main() {
++int main(int argc, char** argv) {
+     try {
+         const auto json = edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson();
+         require(json.find("\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]") != std::string::npos,
+@@ -148,7 +411,7 @@ int main() {
+                 "compiler contract capability is incorrect");
+         require(json.find("\"executesEditorSource\":true") != std::string::npos,
+                 "direct V2 execution capability is incorrect");
+-        verifyMaintenanceCredential();
++        verifyMaintenanceCredential(argc == 2 && std::string(argv[1]) == "--owner");
+         std::cout << "system_monitor_direct_maintenance_contract_test passed\n";
+         return 0;
+     } catch (const std::exception& ex) {
+diff --git a/tools/system_monitor_service_test.cpp b/tools/system_monitor_service_test.cpp
+index f9be48e..5f4c5b6 100644
+--- a/tools/system_monitor_service_test.cpp
++++ b/tools/system_monitor_service_test.cpp
+@@ -757,6 +757,7 @@ int main() {
+     }
+     require(!diagReply.empty(), "expected diag reply");
+     require(diagReply.find("[truncated]") != std::string::npos, "expected bounded diag output");
++    require(diagReply.find("\"truncated\":true") != std::string::npos, "expected structured diag truncation");
+     require(diagReply.size() < 2048, "diag reply should stay bounded");
+ 
+     removeFileIfExists(small);

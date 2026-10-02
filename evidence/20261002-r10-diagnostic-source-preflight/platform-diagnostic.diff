@@ -1,0 +1,776 @@
+diff --git a/docs/r10-diagnostic-request-binding.md b/docs/r10-diagnostic-request-binding.md
+new file mode 100644
+index 0000000..0a67393
+--- /dev/null
++++ b/docs/r10-diagnostic-request-binding.md
+@@ -0,0 +1,7 @@
++# R10 diagnostic request binding
++
++New deployments require H2 migration V16 or PostgreSQL migration V17 before starting the platform. `edge_diagnostic_request` owns the immutable cmdId, device, command, argument, normalized operator and request timestamp. Reservation commits in `REQUIRES_NEW` before MQTT publish; ingress checks it before the first-write terminal inbox. A failed or uncertain publish does not delete the reservation or imply remote cleanup. Rejections are not terminal records. The request and terminal tables are durable history owned by the diagnostic task lifecycle; include both in R07 inventory/retention planning and do not purge them as a deployment shortcut.
++
++Upgrade precondition: stop admitting new remote diagnostic tasks and let all existing QUEUED/DISPATCHING/DISPATCHED tasks reach a reviewed terminal state before enabling the new ingress. Requests published by the old version have no binding and their later replies will be rejected, not guessed or backfilled. A platform timeout means no reply before its deadline, not proof that a remote process stopped; unresolved delivery/execution requires operator review before the quiet window is declared complete. Do not relax binding or use last-write-wins to bridge this migration.
++
++The diagnostic reply topic alone accepts up to `6 * 1 MiB + 4096` bytes, matching the edge's conservative JSON envelope budget for a 1 MiB diagnostic output. Other topics and outbound publishes keep the configured maximum (capped at 4 MiB). Output is redacted before truncation and durable insertion. Local H2/MockMvc, Paho callback and Vue typecheck evidence is not PostgreSQL migration, live Broker, ARM or device acceptance.
+diff --git a/frontend/src/modules/tasks/TaskDetailView.vue b/frontend/src/modules/tasks/TaskDetailView.vue
+index d72fff4..9d344c6 100644
+--- a/frontend/src/modules/tasks/TaskDetailView.vue
++++ b/frontend/src/modules/tasks/TaskDetailView.vue
+@@ -136,6 +136,12 @@ async function cancel(): Promise<void> {
+               输出已由平台{{ primaryTarget.result.redacted ? '脱敏' : '' }}{{ primaryTarget.result.redacted && primaryTarget.result.truncated ? '并' : '' }}{{ primaryTarget.result.truncated ? '截断' : '' }}后存储。
+             </p>
+             <template v-if="!configTask">
++              <dl v-if="primaryTarget.result.reason !== undefined || primaryTarget.result.cleanupConfirmed !== undefined" class="result-facts">
++                <div><dt>设备分类</dt><dd>{{ primaryTarget.result.reason ?? '未知' }}</dd></div>
++                <div><dt>信号</dt><dd>{{ primaryTarget.result.signal ?? '未知' }}</dd></div>
++                <div><dt>设备超时</dt><dd>{{ primaryTarget.result.timedOut === undefined ? '未知' : primaryTarget.result.timedOut ? '是' : '否' }}</dd></div>
++                <div><dt>清理确认</dt><dd>{{ primaryTarget.result.cleanupConfirmed === undefined ? '未知' : primaryTarget.result.cleanupConfirmed ? '是' : '否' }}</dd></div>
++              </dl>
+               <h4>标准输出</h4>
+               <pre class="task-output">{{ primaryTarget.result.stdout || '暂无标准输出' }}</pre>
+               <h4>错误输出</h4>
+diff --git a/frontend/src/modules/tasks/types.ts b/frontend/src/modules/tasks/types.ts
+index c82366b..1554214 100644
+--- a/frontend/src/modules/tasks/types.ts
++++ b/frontend/src/modules/tasks/types.ts
+@@ -42,6 +42,10 @@ export interface TaskTargetResult {
+   replyTs?: number
+   redacted?: boolean
+   truncated?: boolean
++  reason?: string
++  signal?: number
++  timedOut?: boolean
++  cleanupConfirmed?: boolean
+   stage?: string
+   progress?: number
+   message?: string
+diff --git a/src/main/java/com/gatewayzk/platform/edge/EdgeMessageIngestService.java b/src/main/java/com/gatewayzk/platform/edge/EdgeMessageIngestService.java
+index 7c965e0..d92a494 100644
+--- a/src/main/java/com/gatewayzk/platform/edge/EdgeMessageIngestService.java
++++ b/src/main/java/com/gatewayzk/platform/edge/EdgeMessageIngestService.java
+@@ -3,6 +3,7 @@ package com.gatewayzk.platform.edge;
+ import com.fasterxml.jackson.core.JsonProcessingException;
+ import com.fasterxml.jackson.databind.JsonNode;
+ import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.node.JsonNodeType;
+ import com.gatewayzk.platform.alarm.AlarmApplicationService;
+ import com.gatewayzk.platform.configrev.ConfigDeploymentStateService;
+ import com.gatewayzk.platform.task.DiagnosticResultSanitizer;
+@@ -33,6 +34,9 @@ public class EdgeMessageIngestService {
+     private static final long MAX_CONFIG_RESERVED_BYTES = 128L * 1024 * 1024;
+     private static final long CONFIG_CHUNK_TTL_MILLIS = 120_000L;
+     private static final Pattern REALTIME_SESSION = Pattern.compile("REALTIME_[A-Za-z0-9-]{1,64}");
++    private static final java.util.Set<String> DIAGNOSTIC_REASONS = java.util.Set.of(
++        "exit", "signal", "timeout", "cancelled", "launch_failed", "cleanup_unknown",
++        "busy", "cache_full", "command_not_allowed", "invalid_command_argument");
+ 
+     private final EdgeRuntimeRepository repository;
+     private final ObjectMapper objectMapper;
+@@ -61,7 +65,9 @@ public class EdgeMessageIngestService {
+         if (topic == null || topic.isBlank()) {
+             throw rejected(EdgeMessageRejectedException.Reason.INVALID_TOPIC, "MQTT topic 不能为空");
+         }
+-        if (payload == null || payload.getBytes(StandardCharsets.UTF_8).length > maxPayloadBytes) {
++        int payloadLimit = topic.startsWith("edge/system/diag/reply/")
++            ? EdgeMqttProperties.MAX_DIAGNOSTIC_REPLY_BYTES : maxPayloadBytes;
++        if (payload == null || payload.getBytes(StandardCharsets.UTF_8).length > payloadLimit) {
+             throw rejected(EdgeMessageRejectedException.Reason.PAYLOAD_SIZE, "边端消息超过大小限制");
+         }
+         JsonNode root;
+@@ -500,14 +506,65 @@ public class EdgeMessageIngestService {
+     private void ingestDiagnosticReply(String topic, JsonNode root) {
+         String machineCode = requiredMatchingMachineCode(topic, root);
+         long deviceId = registeredDeviceId(machineCode);
++        if ("admission_rejection".equals(root.path("replyKind").asText()) ||
++            "cmdId_conflict".equals(root.path("reason").asText())) return;
++        if (root.has("replyKind") && !"terminal".equals(root.path("replyKind").asText()) ||
++            !root.path("success").isBoolean() || !integerDiagnosticField(root, "exitCode", true) ||
++            !integerDiagnosticField(root, "signal", false) ||
++            !integerDiagnosticField(root, "requestTs", true) ||
++            !optionalDiagnosticType(root, "reason", JsonNodeType.STRING) ||
++            !optionalDiagnosticType(root, "timedOut", JsonNodeType.BOOLEAN) ||
++            !optionalDiagnosticType(root, "cleanupConfirmed", JsonNodeType.BOOLEAN) ||
++            !optionalDiagnosticType(root, "truncated", JsonNodeType.BOOLEAN) ||
++            !optionalDiagnosticType(root, "stdout", JsonNodeType.STRING) ||
++            !optionalDiagnosticType(root, "stderr", JsonNodeType.STRING) ||
++            !boundedDiagnosticText(root, "reason", 64) ||
++            root.has("reason") && !DIAGNOSTIC_REASONS.contains(root.path("reason").asText()) ||
++            !boundedDiagnosticText(root, "command", 128) ||
++            !boundedDiagnosticText(root, "arg", 512) ||
++            !boundedDiagnosticText(root, "operator", 120)) {
++            throw rejected(EdgeMessageRejectedException.Reason.INVALID_PAYLOAD, "诊断终态字段类型非法");
++        }
++        int exitCode = root.path("exitCode").asInt();
++        int signal = root.path("signal").asInt(0);
++        String reason = root.path("reason").asText("");
++        boolean success = root.path("success").asBoolean();
++        if (signal < 0 || success &&
++            (exitCode != 0 || signal != 0 || root.path("timedOut").asBoolean(false) ||
++                root.has("cleanupConfirmed") && !root.path("cleanupConfirmed").asBoolean() ||
++                !reason.isEmpty() && !"exit".equals(reason)) ||
++            !success && exitCode == 0 ||
++            "timeout".equals(reason) && !root.path("timedOut").asBoolean(false) ||
++            "signal".equals(reason) && signal == 0 ||
++            "cleanup_unknown".equals(reason) &&
++                (!root.has("cleanupConfirmed") || root.path("cleanupConfirmed").asBoolean())) {
++            throw rejected(EdgeMessageRejectedException.Reason.INVALID_PAYLOAD, "诊断终态字段矛盾");
++        }
+         String commandId = safeId(root.path("cmdId").asText(""), "cmdId");
+         if (commandId.isBlank()) {
+             throw rejected(EdgeMessageRejectedException.Reason.INVALID_PAYLOAD, "诊断回执缺少 cmdId");
+         }
++        var binding = repository.diagnosticRequest(commandId).orElseThrow(() ->
++            rejected(EdgeMessageRejectedException.Reason.INVALID_PAYLOAD, "诊断请求身份未登记"));
++        if (binding.deviceId() != deviceId ||
++            !binding.command().equals(root.path("command").asText(null)) ||
++            !binding.argument().equals(root.path("arg").asText(null)) ||
++            !binding.operator().equals(root.path("operator").asText(null)) ||
++            binding.requestTs() != root.path("requestTs").asLong()) {
++            throw rejected(EdgeMessageRejectedException.Reason.INVALID_PAYLOAD, "诊断回执与已登记请求不匹配");
++        }
+         var unsafeResult = objectMapper.createObjectNode();
+-        if (root.hasNonNull("exitCode")) unsafeResult.put("exitCode", root.path("exitCode").asInt());
+-        copyText(root, unsafeResult, "stdout", 131_072);
+-        copyText(root, unsafeResult, "stderr", 131_072);
++        unsafeResult.put("exitCode", exitCode);
++        for (String field : new String[] {"stdout", "stderr"}) {
++            if (root.path(field).isTextual()) unsafeResult.put(field, root.path(field).asText());
++        }
++        for (String field : new String[] {"reason", "command", "arg", "operator", "replyKind"}) {
++            if (root.path(field).isTextual()) unsafeResult.put(field, root.path(field).asText());
++        }
++        if (root.has("signal")) unsafeResult.put("signal", signal);
++        for (String field : new String[] {"timedOut", "cleanupConfirmed", "truncated"}) {
++            if (root.has(field)) unsafeResult.put(field, root.path(field).asBoolean());
++        }
+         copyLong(root, unsafeResult, "requestTs");
+         copyLong(root, unsafeResult, "ts");
+         DiagnosticResultSanitizer.SanitizedDiagnostic cleaned = diagnosticSanitizer.sanitize(unsafeResult);
+@@ -520,9 +577,15 @@ public class EdgeMessageIngestService {
+         var sanitized = objectMapper.createObjectNode();
+         sanitized.put("cmdId", commandId);
+         sanitized.put("machineCode", machineCode);
+-        copyText(root, sanitized, "command", 128);
+-        if (root.hasNonNull("success")) sanitized.put("success", root.path("success").asBoolean());
++        sanitized.put("success", root.path("success").asBoolean());
+         if (cleanResult.hasNonNull("exitCode")) sanitized.put("exitCode", cleanResult.path("exitCode").asInt());
++        for (String field : new String[] {"reason", "command", "arg", "operator", "replyKind"}) {
++            if (cleanResult.hasNonNull(field)) sanitized.put(field, cleanResult.path(field).asText());
++        }
++        if (cleanResult.hasNonNull("signal")) sanitized.put("signal", cleanResult.path("signal").asInt());
++        for (String field : new String[] {"timedOut", "cleanupConfirmed"}) {
++            if (cleanResult.hasNonNull(field)) sanitized.put(field, cleanResult.path(field).asBoolean());
++        }
+         sanitized.put("stdout", cleanResult.path("stdout").asText(""));
+         sanitized.put("stderr", cleanResult.path("stderr").asText(""));
+         if (cleanResult.hasNonNull("requestTs")) sanitized.put("requestTs", cleanResult.path("requestTs").asLong());
+@@ -534,6 +597,22 @@ public class EdgeMessageIngestService {
+         repository.recordSeen(deviceId, receivedAt);
+     }
+ 
++    private boolean optionalDiagnosticType(JsonNode root, String field, JsonNodeType type) {
++        JsonNode value = root.get(field);
++        return value == null || value.getNodeType() == type;
++    }
++
++    private boolean integerDiagnosticField(JsonNode root, String field, boolean required) {
++        JsonNode value = root.get(field);
++        return value == null ? !required : value.isIntegralNumber() &&
++            ("requestTs".equals(field) ? value.canConvertToLong() : value.canConvertToInt());
++    }
++
++    private boolean boundedDiagnosticText(JsonNode root, String field, int max) {
++        JsonNode value = root.get(field);
++        return value == null || value.isTextual() && value.asText().length() <= max;
++    }
++
+     private void ingestSystemTelemetry(String topic, JsonNode root) {
+         String machineCode = requiredMatchingMachineCode(topic, root);
+         long deviceId = registeredDeviceId(machineCode);
+diff --git a/src/main/java/com/gatewayzk/platform/edge/EdgeMqttProperties.java b/src/main/java/com/gatewayzk/platform/edge/EdgeMqttProperties.java
+index aee22bc..406783b 100644
+--- a/src/main/java/com/gatewayzk/platform/edge/EdgeMqttProperties.java
++++ b/src/main/java/com/gatewayzk/platform/edge/EdgeMqttProperties.java
+@@ -18,6 +18,13 @@ public record EdgeMqttProperties(
+     Tls tls,
+     String machineCode
+ ) {
++    public static final int MAX_DIAGNOSTIC_REPLY_BYTES = 6 * 1024 * 1024 + 4096;
++
++    public int inboundPayloadLimit(String topic) {
++        return topic != null && topic.startsWith("edge/system/diag/reply/")
++            ? MAX_DIAGNOSTIC_REPLY_BYTES : maxPayloadBytes;
++    }
++
+     public EdgeMqttProperties {
+         broker = defaultValue(broker, "tcp://127.0.0.1:1883");
+         clientId = defaultValue(clientId, "gateway-platform-next-edge");
+diff --git a/src/main/java/com/gatewayzk/platform/edge/EdgeRuntimeRepository.java b/src/main/java/com/gatewayzk/platform/edge/EdgeRuntimeRepository.java
+index 346f3f3..b846e68 100644
+--- a/src/main/java/com/gatewayzk/platform/edge/EdgeRuntimeRepository.java
++++ b/src/main/java/com/gatewayzk/platform/edge/EdgeRuntimeRepository.java
+@@ -663,6 +663,31 @@ public class EdgeRuntimeRepository {
+         }
+     }
+ 
++    @Transactional(propagation = Propagation.REQUIRES_NEW)
++    public void reserveDiagnosticRequest(String commandId, long deviceId, String command,
++                                         String argument, String operator, long requestTs) {
++        jdbc.update("""
++            INSERT INTO edge_diagnostic_request
++                (cmd_id,device_id,command_name,argument,operator_name,request_ts)
++            VALUES (:commandId,:deviceId,:command,:argument,:operator,:requestTs)
++            """, new MapSqlParameterSource("commandId", commandId).addValue("deviceId", deviceId)
++            .addValue("command", command).addValue("argument", argument)
++            .addValue("operator", operator).addValue("requestTs", requestTs));
++    }
++
++    public Optional<DiagnosticRequestBinding> diagnosticRequest(String commandId) {
++        return jdbc.query("""
++            SELECT device_id,command_name,argument,operator_name,request_ts
++            FROM edge_diagnostic_request WHERE cmd_id=:commandId
++            """, new MapSqlParameterSource("commandId", commandId),
++            (rs, rowNum) -> new DiagnosticRequestBinding(rs.getLong("device_id"),
++                rs.getString("command_name"), rs.getString("argument"),
++                rs.getString("operator_name"), rs.getLong("request_ts"))).stream().findFirst();
++    }
++
++    public record DiagnosticRequestBinding(long deviceId, String command, String argument,
++                                           String operator, long requestTs) { }
++
+     public Optional<JsonNode> diagnosticResult(String machineCode, String commandId) {
+         return jdbc.query("""
+             SELECT r.payload_json FROM edge_diagnostic_reply r
+diff --git a/src/main/java/com/gatewayzk/platform/edge/NativeEdgeOperationsGateway.java b/src/main/java/com/gatewayzk/platform/edge/NativeEdgeOperationsGateway.java
+index a0a9bc0..85a4b11 100644
+--- a/src/main/java/com/gatewayzk/platform/edge/NativeEdgeOperationsGateway.java
++++ b/src/main/java/com/gatewayzk/platform/edge/NativeEdgeOperationsGateway.java
+@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
+ import org.springframework.stereotype.Service;
+ 
+ import java.time.Instant;
++import java.nio.charset.StandardCharsets;
+ import java.util.Optional;
+ import java.util.UUID;
+ 
+@@ -40,14 +41,23 @@ public class NativeEdgeOperationsGateway implements EdgeOperationsGateway {
+                                     String service, int tailLines) {
+         requireReady();
+         String commandId = "DIAG_" + UUID.randomUUID();
++        String operator = normalizeDiagnosticOperator(operatorName);
++        int boundedTail = Math.max(1, Math.min(500, tailLines));
++        long requestTs = Instant.now().toEpochMilli();
+         var payload = objectMapper.createObjectNode();
+         payload.put("cmdId", commandId);
+         payload.put("machineCode", machineCode);
+-        payload.put("operator", safeOperator(operatorName));
++        payload.put("operator", operator);
+         payload.put("command", commandName);
+         if (service != null && !service.isBlank()) payload.put("service", service);
+-        payload.put("tailLines", Math.max(1, Math.min(500, tailLines)));
+-        payload.put("requestTs", Instant.now().toEpochMilli());
++        payload.put("tailLines", boundedTail);
++        payload.put("requestTs", requestTs);
++        long deviceId = repository.findDeviceId(machineCode)
++            .orElseThrow(() -> new IllegalArgumentException("诊断目标设备未登记"));
++        String argument = "systemctl_status".equals(commandName) ? service :
++            "journal_tail".equals(commandName) ? Integer.toString(boundedTail) : "";
++        repository.reserveDiagnosticRequest(commandId, deviceId, commandName,
++            argument == null ? "" : argument, operator, requestTs);
+         publish(DIAG_REQUEST_TOPIC + "/" + machineCode, payload);
+         return commandId;
+     }
+@@ -135,9 +145,18 @@ public class NativeEdgeOperationsGateway implements EdgeOperationsGateway {
+         }
+     }
+ 
+-    private String safeOperator(String value) {
++    public static String normalizeDiagnosticOperator(String value) {
+         String normalized = value == null ? "platform-operator" : value.trim();
+         if (normalized.isBlank()) return "platform-operator";
+-        return normalized.length() <= 120 ? normalized : normalized.substring(0, 120);
++        int end = 0;
++        int bytes = 0;
++        while (end < normalized.length()) {
++            int codePoint = normalized.codePointAt(end);
++            int length = new String(Character.toChars(codePoint)).getBytes(StandardCharsets.UTF_8).length;
++            if (bytes + length > 120) break;
++            bytes += length;
++            end += Character.charCount(codePoint);
++        }
++        return normalized.substring(0, end);
+     }
+ }
+diff --git a/src/main/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransport.java b/src/main/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransport.java
+index da8b193..e8f544e 100644
+--- a/src/main/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransport.java
++++ b/src/main/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransport.java
+@@ -224,7 +224,7 @@ public class PahoEdgeCommandTransport implements EdgeCommandTransport {
+             logRejected(topic, EdgeMessageRejectedException.Reason.EMPTY_PAYLOAD);
+             return;
+         }
+-        if (bytes.length > properties.maxPayloadBytes()) {
++        if (bytes.length > properties.inboundPayloadLimit(topic)) {
+             logRejected(topic, EdgeMessageRejectedException.Reason.PAYLOAD_SIZE);
+             return;
+         }
+diff --git a/src/main/java/com/gatewayzk/platform/task/DiagnosticResultSanitizer.java b/src/main/java/com/gatewayzk/platform/task/DiagnosticResultSanitizer.java
+index 2694729..0c8a3df 100644
+--- a/src/main/java/com/gatewayzk/platform/task/DiagnosticResultSanitizer.java
++++ b/src/main/java/com/gatewayzk/platform/task/DiagnosticResultSanitizer.java
+@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
+ public class DiagnosticResultSanitizer {
+ 
+     private static final Pattern PRIVATE_KEY = Pattern.compile(
+-        "(?is)-----BEGIN [^-\\r\\n]*PRIVATE KEY-----.*?-----END [^-\\r\\n]*PRIVATE KEY-----");
++        "(?is)-----BEGIN [^-\\r\\n]*PRIVATE KEY-----.*?(?:-----END [^-\\r\\n]*PRIVATE KEY-----|\\z)");
+     private static final Pattern BEARER_TOKEN = Pattern.compile(
+         "(?i)\\bBearer\\s+[A-Za-z0-9._~+\\-/]+=*");
+     private static final Pattern SECRET_ASSIGNMENT = Pattern.compile(
+@@ -39,6 +39,13 @@ public class DiagnosticResultSanitizer {
+         boolean truncatedFlag = wasTruncated || stdout.truncated() || stderr.truncated();
+         ObjectNode result = objectMapper.createObjectNode();
+         if (audit.hasNonNull("exitCode")) result.put("exitCode", audit.path("exitCode").asInt());
++        for (String field : new String[] {"reason", "command", "arg", "operator", "replyKind"}) {
++            if (audit.hasNonNull(field)) result.put(field, audit.path(field).asText());
++        }
++        if (audit.hasNonNull("signal")) result.put("signal", audit.path("signal").asInt());
++        for (String field : new String[] {"timedOut", "cleanupConfirmed"}) {
++            if (audit.hasNonNull(field)) result.put(field, audit.path(field).asBoolean());
++        }
+         result.put("stdout", stdout.value());
+         result.put("stderr", stderr.value());
+         if (audit.hasNonNull("requestTs")) result.put("requestTs", audit.path("requestTs").asLong());
+diff --git a/src/main/java/com/gatewayzk/platform/task/TaskWorker.java b/src/main/java/com/gatewayzk/platform/task/TaskWorker.java
+index 36a3c23..459b487 100644
+--- a/src/main/java/com/gatewayzk/platform/task/TaskWorker.java
++++ b/src/main/java/com/gatewayzk/platform/task/TaskWorker.java
+@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.gatewayzk.platform.edge.EdgeOperationsGateway;
+ import com.gatewayzk.platform.edge.EdgeTransportException;
++import com.gatewayzk.platform.edge.NativeEdgeOperationsGateway;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+@@ -80,6 +81,10 @@ public class TaskWorker {
+             try {
+                 JsonNode audit = edge.findDiagnosticResult(item.machineCode(), item.externalReference()).orElse(null);
+                 if (audit == null) continue;
++                if (!matchesDiagnosticTask(item, audit)) {
++                    log.warn("Ignoring diagnostic reply inconsistent with task {}", item.publicId());
++                    continue;
++                }
+                 DiagnosticResultSanitizer.SanitizedDiagnostic result = sanitizer.sanitize(audit);
+                 if (!audit.hasNonNull("success")) {
+                     lifecycle.markFailed(item, "DIAGNOSTIC_RESULT_INVALID",
+@@ -94,6 +99,8 @@ public class TaskWorker {
+                 }
+             } catch (EdgeTransportException exception) {
+                 log.debug("Native edge result store unavailable while reconciling task {}", item.publicId());
++            } catch (JsonProcessingException exception) {
++                log.warn("Invalid diagnostic task parameters for {}", item.publicId(), exception);
+             } catch (RuntimeException exception) {
+                 log.error("Unexpected diagnostic reconciliation failure for task {}", item.publicId(), exception);
+             }
+@@ -111,6 +118,24 @@ public class TaskWorker {
+         }
+     }
+ 
++    private boolean matchesDiagnosticTask(TaskJdbcRepository.TaskWorkItem item, JsonNode audit)
++        throws JsonProcessingException {
++        if (!item.machineCode().equals(audit.path("machineCode").asText()) ||
++            "cmdId_conflict".equals(audit.path("reason").asText()) ||
++            "admission_rejection".equals(audit.path("replyKind").asText())) return false;
++        JsonNode parameters = objectMapper.readTree(item.parametersJson());
++        String command = requiredText(parameters, "commandName");
++        String arg = "systemctl_status".equals(command) ? optionalText(parameters, "service") :
++            "journal_tail".equals(command) ? Integer.toString(parameters.path("tailLines").asInt(100)) : "";
++        String operator = NativeEdgeOperationsGateway.normalizeDiagnosticOperator(item.requestedByName());
++        boolean modern = "terminal".equals(audit.path("replyKind").asText());
++        return (!modern || audit.hasNonNull("command") && audit.hasNonNull("arg") &&
++                audit.hasNonNull("operator")) &&
++            (!audit.hasNonNull("command") || command.equals(audit.path("command").asText())) &&
++            (!audit.hasNonNull("arg") || arg.equals(audit.path("arg").asText())) &&
++            (!audit.hasNonNull("operator") || operator.equals(audit.path("operator").asText()));
++    }
++
+     private void failDispatch(TaskJdbcRepository.TaskWorkItem item, String code,
+                               String message, boolean retryable) {
+         try {
+diff --git a/src/main/resources/db/migration/V16__diagnostic_request_binding.sql b/src/main/resources/db/migration/V16__diagnostic_request_binding.sql
+new file mode 100644
+index 0000000..f58cc82
+--- /dev/null
++++ b/src/main/resources/db/migration/V16__diagnostic_request_binding.sql
+@@ -0,0 +1,9 @@
++CREATE TABLE edge_diagnostic_request (
++    cmd_id VARCHAR(128) PRIMARY KEY,
++    device_id BIGINT NOT NULL,
++    command_name VARCHAR(128) NOT NULL,
++    argument VARCHAR(512) NOT NULL,
++    operator_name VARCHAR(120) NOT NULL,
++    request_ts BIGINT NOT NULL,
++    CONSTRAINT fk_edge_diag_request_device FOREIGN KEY (device_id) REFERENCES device_asset(id)
++);
+diff --git a/src/main/resources/db/postgresql/V17__diagnostic_request_binding.sql b/src/main/resources/db/postgresql/V17__diagnostic_request_binding.sql
+new file mode 100644
+index 0000000..0b78978
+--- /dev/null
++++ b/src/main/resources/db/postgresql/V17__diagnostic_request_binding.sql
+@@ -0,0 +1,8 @@
++CREATE TABLE edge_diagnostic_request (
++    cmd_id VARCHAR(128) PRIMARY KEY,
++    device_id BIGINT NOT NULL REFERENCES device_asset(id),
++    command_name VARCHAR(128) NOT NULL,
++    argument VARCHAR(512) NOT NULL,
++    operator_name VARCHAR(120) NOT NULL,
++    request_ts BIGINT NOT NULL
++);
+diff --git a/src/test/java/com/gatewayzk/platform/edge/EdgeRuntimeApiIntegrationTest.java b/src/test/java/com/gatewayzk/platform/edge/EdgeRuntimeApiIntegrationTest.java
+index 6417315..1365838 100644
+--- a/src/test/java/com/gatewayzk/platform/edge/EdgeRuntimeApiIntegrationTest.java
++++ b/src/test/java/com/gatewayzk/platform/edge/EdgeRuntimeApiIntegrationTest.java
+@@ -135,6 +135,10 @@ class EdgeRuntimeApiIntegrationTest {
+                 WHERE s.project_id=?
+                 """, Long.class, projectId);
+             for (long deviceId : deviceIds) {
++                jdbc.update("DELETE FROM edge_diagnostic_reply WHERE device_id=?", deviceId);
++                jdbc.update("DELETE FROM edge_diagnostic_request WHERE device_id=?", deviceId);
++                jdbc.update("DELETE FROM operation_task WHERE id IN " +
++                    "(SELECT task_id FROM operation_task_target WHERE device_id=?)", deviceId);
+                 jdbc.update("""
+                     DELETE FROM audit_event WHERE resource_type='DEVICE'
+                     AND resource_id=(SELECT machine_code FROM device_asset WHERE id=?)
+@@ -1474,6 +1478,7 @@ class EdgeRuntimeApiIntegrationTest {
+ 
+     @Test
+     @WithUserDetails("admin")
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+     void remoteDiagnosticPublishesDirectlyAndCompletesFromTheNativeReplyTopic() throws Exception {
+         when(transport.ready()).thenReturn(true);
+         MvcResult created = mockMvc.perform(post("/api/v2/tasks").with(csrf())
+@@ -1490,25 +1495,32 @@ class EdgeRuntimeApiIntegrationTest {
+         String cmdId = tasks.findWorkItems(com.gatewayzk.platform.task.TaskStatus.DISPATCHED,
+                 "REMOTE_DIAGNOSTIC", 100).stream()
+             .filter(item -> item.publicId().equals(taskId)).findFirst().orElseThrow().externalReference();
++        var binding = edgeRuntimeRepository.diagnosticRequest(cmdId).orElseThrow();
+         ingress.ingest("edge/system/diag/reply/" + machineCode, """
+-            {"cmdId":"%s","machineCode":"%s","operator":"Test Administrator",
+-             "command":"df_root","success":true,"exitCode":0,"stdout":"disk ok",
+-             "stderr":"","requestTs":1780000004000,"ts":1780000004100}
+-            """.formatted(cmdId, machineCode));
++            {"replyKind":"terminal","cmdId":"%s","machineCode":"%s","operator":"%s",
++             "command":"df_root","arg":"","success":true,"exitCode":0,"stdout":"disk ok",
++             "stderr":"","requestTs":%d,"ts":1780000004100}
++            """.formatted(cmdId, machineCode, binding.operator(), binding.requestTs()));
+         worker().runOnce();
+ 
+         mockMvc.perform(get("/api/v2/tasks/{id}", taskId))
+             .andExpect(status().isOk())
+             .andExpect(jsonPath("$.data.summary.status").value("SUCCEEDED"))
+             .andExpect(jsonPath("$.data.targets[0].resultCode").value("DIAGNOSTIC_SUCCEEDED"))
++            .andExpect(jsonPath("$.data.targets[0].result.reason").doesNotExist())
++            .andExpect(jsonPath("$.data.targets[0].result.cleanupConfirmed").doesNotExist())
+             .andExpect(content().string(not(containsString("LEGACY_"))));
+     }
+ 
+     @Test
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+     void diagnosticReplyIsRedactedBeforeItReachesTheDurableInbox() {
+         String cmdId = "DIAG_REDACT_001";
++        edgeRuntimeRepository.reserveDiagnosticRequest(cmdId,
++            edgeRuntimeRepository.findDeviceId(machineCode).orElseThrow(), "df_root", "", "fixture", 1780000004000L);
+         ingress.ingest("edge/system/diag/reply/" + machineCode, """
+-            {"cmdId":"%s","machineCode":"%s","command":"df_root",
++            {"replyKind":"terminal","cmdId":"%s","machineCode":"%s","command":"df_root",
++             "arg":"","operator":"fixture",
+              "success":true,"exitCode":0,
+              "stdout":"password=durable-secret-value disk ok",
+              "stderr":"Bearer durable-token-value","requestTs":1780000004000,
+@@ -1523,6 +1535,222 @@ class EdgeRuntimeApiIntegrationTest {
+         assertTrue(stored.contains("\"redacted\":true"));
+     }
+ 
++    @ParameterizedTest
++    @ValueSource(booleans = {true, false})
++    @WithUserDetails("admin")
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
++    void conflictingAttemptNeverOccupiesTheOriginalTerminalInbox(boolean conflictFirst) throws Exception {
++        when(transport.ready()).thenReturn(true);
++        String taskId = createDiagnosticTask("df_root");
++        worker().runOnce();
++        String cmdId = diagnosticCmdId(taskId);
++        var binding = edgeRuntimeRepository.diagnosticRequest(cmdId).orElseThrow();
++        String terminal = terminalReply(cmdId, binding, "df_root", "disk ok");
++        String conflict = """
++            {"replyKind":"admission_rejection","attemptedCmdId":"%s",
++             "machineCode":"%s","command":"uptime","arg":"","operator":"other",
++             "reason":"cmdId_conflict"}
++            """.formatted(cmdId, machineCode);
++        String wrong = terminalReply(cmdId, binding, "uptime", "wrong");
++        String topic = "edge/system/diag/reply/" + machineCode;
++        if (conflictFirst) {
++            ingress.ingest(topic, conflict);
++            assertThrows(EdgeMessageRejectedException.class, () -> ingress.ingest(topic, wrong));
++            assertTrue(operations.findDiagnosticResult(machineCode, cmdId).isEmpty());
++        }
++        ingress.ingest(topic, terminal);
++        if (!conflictFirst) {
++            ingress.ingest(topic, conflict);
++            assertThrows(EdgeMessageRejectedException.class, () -> ingress.ingest(topic, wrong));
++        }
++        ingress.ingest(topic, terminal);
++        assertTrue(operations.findDiagnosticResult(machineCode, cmdId).orElseThrow()
++            .path("stdout").asText().equals("disk ok"));
++        worker().runOnce();
++        mockMvc.perform(get("/api/v2/tasks/{id}", taskId)).andExpect(status().isOk())
++            .andExpect(jsonPath("$.data.summary.status").value("SUCCEEDED"))
++            .andExpect(jsonPath("$.data.targets[0].result.stdout").value("disk ok"));
++    }
++
++    @Test
++    @WithUserDetails("admin")
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
++    void wrongFingerprintCannotBlockTheRightTerminalAndFastReplyCanPrecedeDispatchRecord() throws Exception {
++        when(transport.ready()).thenReturn(true);
++        String taskId = createDiagnosticTask("df_root");
++        var fastCmdId = new java.util.concurrent.atomic.AtomicReference<String>();
++        doAnswer(invocation -> {
++            var request = objectMapper.readTree((byte[]) invocation.getArgument(1));
++            String cmdId = request.path("cmdId").asText();
++            fastCmdId.set(cmdId);
++            assertTrue(tasks.findWorkItems(com.gatewayzk.platform.task.TaskStatus.DISPATCHING,
++                "REMOTE_DIAGNOSTIC", 100).stream().anyMatch(item -> item.publicId().equals(taskId)));
++            assertTrue(java.util.concurrent.CompletableFuture.supplyAsync(() ->
++                edgeRuntimeRepository.diagnosticRequest(cmdId).isPresent()).get(2, TimeUnit.SECONDS));
++            var binding = edgeRuntimeRepository.diagnosticRequest(cmdId).orElseThrow();
++            ingress.ingest("edge/system/diag/reply/" + machineCode,
++                terminalReply(cmdId, binding, "df_root", "fast result"));
++            return null;
++        }).when(transport).publish(anyString(), any(byte[].class), anyInt());
++        worker().runOnce();
++        String cmdId = fastCmdId.get();
++        assertTrue(cmdId != null);
++        assertTrue(operations.findDiagnosticResult(machineCode, cmdId).isPresent());
++        worker().runOnce();
++        mockMvc.perform(get("/api/v2/tasks/{id}", taskId)).andExpect(status().isOk())
++            .andExpect(jsonPath("$.data.summary.status").value("SUCCEEDED"))
++            .andExpect(jsonPath("$.data.targets[0].result.stdout").value("fast result"));
++    }
++
++    @Test
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
++    void typedClassificationAndTruncatedFakeKeyAreSanitizedAtActualIngress() throws Exception {
++        String cmdId = "DIAG_TYPED_" + UUID.randomUUID();
++        long deviceId = edgeRuntimeRepository.findDeviceId(machineCode).orElseThrow();
++        edgeRuntimeRepository.reserveDiagnosticRequest(cmdId, deviceId, "df_root", "", "fixture", 1780000004000L);
++        var binding = edgeRuntimeRepository.diagnosticRequest(cmdId).orElseThrow();
++        var terminal = (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(
++            terminalReply(cmdId, binding, "df_root", "safe"));
++        String topic = "edge/system/diag/reply/" + machineCode;
++        for (String field : new String[] {"exitCode", "signal", "requestTs"}) {
++            var invalid = terminal.deepCopy();
++            invalid.put(field, 1.5);
++            assertThrows(EdgeMessageRejectedException.class, () ->
++                ingress.ingest(topic, invalid.toString()));
++        }
++        for (String invalidReason : new String[] {"password=leak", "timeout"}) {
++            var invalid = terminal.deepCopy();
++            invalid.put("reason", invalidReason);
++            assertThrows(EdgeMessageRejectedException.class, () ->
++                ingress.ingest(topic, invalid.toString()));
++        }
++        var invalidSuccess = terminal.deepCopy();
++        invalidSuccess.put("success", false);
++        assertThrows(EdgeMessageRejectedException.class, () ->
++            ingress.ingest(topic, invalidSuccess.toString()));
++        assertTrue(operations.findDiagnosticResult(machineCode, cmdId).isEmpty());
++
++        terminal.put("stdout", "-----BEGIN PRIVATE KEY-----\nFAKE_KEY_MATERIAL_123\n" +
++            "x".repeat(131_100));
++        terminal.put("truncated", true);
++        terminal.put("reason", "exit");
++        terminal.put("signal", 0);
++        terminal.put("timedOut", false);
++        terminal.put("cleanupConfirmed", true);
++        ingress.ingest(topic, terminal.toString());
++        String stored = operations.findDiagnosticResult(machineCode, cmdId).orElseThrow().toString();
++        assertFalse(stored.contains("FAKE_KEY_MATERIAL_123"));
++        assertTrue(stored.contains("[REDACTED_PRIVATE_KEY]"));
++        assertTrue(stored.contains("\"truncated\":true"));
++        assertTrue(stored.contains("\"cleanupConfirmed\":true"));
++    }
++
++    @Test
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
++    void longUnicodeOperatorUsesOneByteBoundedPublishedAndPersistedIdentity() throws Exception {
++        when(transport.ready()).thenReturn(true);
++        String longOperator = "中".repeat(50);
++        String cmdId = operations.executeDiagnostic(machineCode, longOperator, "df_root", null, 100);
++        var binding = edgeRuntimeRepository.diagnosticRequest(cmdId).orElseThrow();
++        assertEquals("中".repeat(40), binding.operator());
++        assertEquals(120, binding.operator().getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
++        var published = org.mockito.ArgumentCaptor.forClass(byte[].class);
++        verify(transport).publish(eq("edge/system/diag/request/" + machineCode), published.capture(), eq(2));
++        assertEquals(binding.operator(), objectMapper.readTree(published.getValue()).path("operator").asText());
++        ingress.ingest("edge/system/diag/reply/" + machineCode,
++            terminalReply(cmdId, binding, "df_root", "unicode ok"));
++        assertEquals("unicode ok", operations.findDiagnosticResult(machineCode, cmdId)
++            .orElseThrow().path("stdout").asText());
++    }
++
++    @Test
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
++    void diagnosticOnlyIngressAcceptsBoundedEscapedOutputAboveOrdinaryLimit() {
++        String cmdId = "DIAG_LARGE_" + UUID.randomUUID();
++        edgeRuntimeRepository.reserveDiagnosticRequest(cmdId,
++            edgeRuntimeRepository.findDeviceId(machineCode).orElseThrow(),
++            "df_root", "", "fixture", 1780000004000L);
++        String payload = "{\"replyKind\":\"terminal\",\"cmdId\":\"" + cmdId +
++            "\",\"machineCode\":\"" + machineCode +
++            "\",\"command\":\"df_root\",\"arg\":\"\",\"operator\":\"fixture\"," +
++            "\"success\":true,\"exitCode\":0,\"requestTs\":1780000004000," +
++            "\"stdout\":\"" + "\\ufffd".repeat(700_000) + "\",\"stderr\":\"\"}";
++        assertTrue(payload.length() > 4 * 1024 * 1024);
++        assertTrue(payload.length() < EdgeMqttProperties.MAX_DIAGNOSTIC_REPLY_BYTES);
++        ingress.ingest("edge/system/diag/reply/" + machineCode, payload);
++        assertTrue(operations.findDiagnosticResult(machineCode, cmdId).orElseThrow()
++            .path("truncated").asBoolean());
++        assertThrows(EdgeMessageRejectedException.class, () ->
++            ingress.ingest("edge/status/" + machineCode, payload));
++    }
++
++    @Test
++    @WithUserDetails("admin")
++    @Transactional(propagation = Propagation.NOT_SUPPORTED)
++    void failureCategoriesSurviveIngressWorkerAndTaskApiWithoutInventingLegacyFields() throws Exception {
++        when(transport.ready()).thenReturn(true);
++        String[] reasons = {"timeout", "cleanup_unknown", "signal", "exit", "launch_failed"};
++        for (String reason : reasons) {
++            String taskId = createDiagnosticTask("df_root");
++            worker().runOnce();
++            String cmdId = diagnosticCmdId(taskId);
++            var binding = edgeRuntimeRepository.diagnosticRequest(cmdId).orElseThrow();
++            var reply = (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(
++                terminalReply(cmdId, binding, "df_root", "category"));
++            reply.put("success", false);
++            reply.put("exitCode", "exit".equals(reason) ? 7 : -1);
++            reply.put("reason", reason);
++            reply.put("signal", "signal".equals(reason) ? 15 : 0);
++            reply.put("timedOut", "timeout".equals(reason));
++            reply.put("cleanupConfirmed", !"cleanup_unknown".equals(reason));
++            reply.put("truncated", "timeout".equals(reason));
++            ingress.ingest("edge/system/diag/reply/" + machineCode, reply.toString());
++            worker().runOnce();
++            mockMvc.perform(get("/api/v2/tasks/{id}", taskId)).andExpect(status().isOk())
++                .andExpect(jsonPath("$.data.summary.status").value("FAILED"))
++                .andExpect(jsonPath("$.data.targets[0].result.reason").value(reason))
++                .andExpect(jsonPath("$.data.targets[0].result.signal")
++                    .value("signal".equals(reason) ? 15 : 0))
++                .andExpect(jsonPath("$.data.targets[0].result.cleanupConfirmed")
++                    .value(!"cleanup_unknown".equals(reason)));
++        }
++    }
++
++    private String createDiagnosticTask(String command) throws Exception {
++        MvcResult created = mockMvc.perform(post("/api/v2/tasks").with(csrf())
++                .header("Idempotency-Key", "native-diag-" + UUID.randomUUID())
++                .contentType("application/json")
++                .content("{\"machineCode\":\"" + machineCode +
++                    "\",\"commandName\":\"" + command + "\",\"tailLines\":100}"))
++            .andExpect(status().isAccepted()).andReturn();
++        return objectMapper.readTree(created.getResponse().getContentAsString())
++            .path("data").path("id").asText();
++    }
++
++    private String diagnosticCmdId(String taskId) {
++        return tasks.findWorkItems(com.gatewayzk.platform.task.TaskStatus.DISPATCHED,
++                "REMOTE_DIAGNOSTIC", 100).stream()
++            .filter(item -> item.publicId().equals(taskId)).findFirst().orElseThrow().externalReference();
++    }
++
++    private String terminalReply(String cmdId, EdgeRuntimeRepository.DiagnosticRequestBinding binding,
++                                 String command, String output) throws Exception {
++        var reply = objectMapper.createObjectNode();
++        reply.put("replyKind", "terminal");
++        reply.put("cmdId", cmdId);
++        reply.put("machineCode", machineCode);
++        reply.put("command", command);
++        reply.put("arg", binding.argument());
++        reply.put("operator", binding.operator());
++        reply.put("success", true);
++        reply.put("exitCode", 0);
++        reply.put("stdout", output);
++        reply.put("stderr", "");
++        reply.put("requestTs", binding.requestTs());
++        reply.put("ts", binding.requestTs() + 1);
++        return objectMapper.writeValueAsString(reply);
++    }
++
+     private TaskWorker worker() {
+         return new TaskWorker(tasks, lifecycle, taskProperties, operations, sanitizer, objectMapper);
+     }
+diff --git a/src/test/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransportTest.java b/src/test/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransportTest.java
+index 99a5220..25eecdd 100644
+--- a/src/test/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransportTest.java
++++ b/src/test/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransportTest.java
+@@ -49,6 +49,22 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
+ import static org.mockito.Mockito.when;
+ 
+ class PahoEdgeCommandTransportTest {
++    @Test
++    void largerDiagnosticReplyUsesOnlyItsBoundedReceiveBudget() throws Exception {
++        EdgeMessageIngestService ingress = mock(EdgeMessageIngestService.class);
++        byte[] payload = new byte[4 * 1024 * 1024 + 1];
++        java.util.Arrays.fill(payload, (byte) 'x');
++        String diagnosticTopic = "edge/system/diag/reply/COMM_TEST";
++        callbackForTopic(ingress, diagnosticTopic).messageArrived(diagnosticTopic, new MqttMessage(payload));
++        verify(ingress).ingest(eq(diagnosticTopic), any(String.class));
++
++        EdgeMessageIngestService ordinaryIngress = mock(EdgeMessageIngestService.class);
++        String ordinaryTopic = "edge/status/COMM_TEST";
++        dataCallback(ordinaryIngress).messageArrived(ordinaryTopic, new MqttMessage(payload));
++        verifyNoInteractions(ordinaryIngress);
++        assertTrue(properties().inboundPayloadLimit(diagnosticTopic) >= payload.length);
++        assertTrue(properties().inboundPayloadLimit(ordinaryTopic) < payload.length);
++    }
+     @Test
+     void databaseIngestionFailureEscapesCallbackInsteadOfReportingConsumption() throws Exception {
+         EdgeMessageIngestService ingress = mock(EdgeMessageIngestService.class);
+diff --git a/src/test/java/com/gatewayzk/platform/task/DiagnosticResultSanitizerTest.java b/src/test/java/com/gatewayzk/platform/task/DiagnosticResultSanitizerTest.java
+index b77cb00..89af137 100644
+--- a/src/test/java/com/gatewayzk/platform/task/DiagnosticResultSanitizerTest.java
++++ b/src/test/java/com/gatewayzk/platform/task/DiagnosticResultSanitizerTest.java
+@@ -41,6 +41,16 @@ class DiagnosticResultSanitizerTest {
+         assertThat(result.resultJson()).contains("OUTPUT_TRUNCATED", "\"truncated\":true");
+     }
+ 
++    @Test
++    void redactsIncompleteFakePrivateKeyBeforeOutputTruncation() throws Exception {
++        DiagnosticResultSanitizer sanitizer = sanitizer(1_000);
++        String fake = "-----BEGIN PRIVATE KEY-----\nFAKE_KEY_MATERIAL_123\n" + "x".repeat(131_100);
++        var audit = objectMapper.createObjectNode().put("stdout", fake).put("truncated", true);
++        var result = sanitizer.sanitize(audit);
++        assertThat(result.resultJson()).doesNotContain("FAKE_KEY_MATERIAL_123", "BEGIN PRIVATE KEY");
++        assertThat(result.resultJson()).contains("[REDACTED_PRIVATE_KEY]", "\"truncated\":true");
++    }
++
+     private DiagnosticResultSanitizer sanitizer(int maxChars) {
+         TaskEngineProperties properties = new TaskEngineProperties(false, 2_000, 20,
+             new TaskEngineProperties.RemoteDiagnostic(Duration.ofMinutes(2), maxChars,
+diff --git a/src/test/java/com/gatewayzk/platform/task/TaskApiIntegrationTest.java b/src/test/java/com/gatewayzk/platform/task/TaskApiIntegrationTest.java
+index c1b253b..4a7a7bf 100644
+--- a/src/test/java/com/gatewayzk/platform/task/TaskApiIntegrationTest.java
++++ b/src/test/java/com/gatewayzk/platform/task/TaskApiIntegrationTest.java
+@@ -94,9 +94,9 @@ class TaskApiIntegrationTest {
+             .thenReturn("DIAG_TEST_1");
+         when(edge.findDiagnosticResult(eq(machineCode), eq("DIAG_TEST_1"))).thenReturn(Optional.of(
+             objectMapper.readTree("""
+-                {"cmdId":"DIAG_TEST_1","success":true,"exitCode":0,
++                {"cmdId":"DIAG_TEST_1","machineCode":"%s","success":true,"exitCode":0,
+                  "stdoutText":"uptime ok token=must-not-survive","stderrText":"","replyTs":123}
+-                """)));
++                """.formatted(machineCode))));
+         String taskId = dataId(create("worker-key-" + UUID.randomUUID(), "uptime")
+             .andExpect(status().isAccepted()).andReturn());
+ 

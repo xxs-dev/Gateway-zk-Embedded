@@ -1,0 +1,317 @@
+{
+  "batch": "R10-DIAGNOSTIC-SOURCE-6671a3b-4488c00-e4d8655",
+  "status": "SOURCE_ONLY_PREDEPLOYMENT",
+  "evidenceCorrectionPlatform": "6ee978b",
+  "selection": "Only diagnostic-related source and necessary context; no raw test logs or credentials",
+  "groups": [
+    {
+      "members": [
+        {
+          "sha256": "cde27aff7f79d6f9ea5d0911611dcfb909ea210ad050925e307d4d587c9f4e22",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "CMakeLists.txt",
+          "gitBlob": "3b6d76afb8b2dd3911741ac461b0836407ae287c",
+          "bytes": 53467
+        },
+        {
+          "sha256": "c039345640e0e8305c2699175c4ef6ce7d1efa919a591f15a4b59fced85b280e",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "include/edge_gateway/diagnostic_output_json.hpp",
+          "gitBlob": "d6809c6e06769490defb6871f88366e8274dda00",
+          "bytes": 2035
+        },
+        {
+          "sha256": "97cf77242010e1a7865e7fb663648c16dcb7af0ba369a01909071fd2d9067a89",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "include/edge_gateway/diagnostic_process.hpp",
+          "gitBlob": "2ba722555e57295434fdc87a0ab870f16c863b40",
+          "bytes": 1925
+        },
+        {
+          "sha256": "f4e06a84ddc8939fe15784ddc354bc7622cb7bf57d8fba7b97c9533d7a9bdaed",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "include/edge_gateway/system_monitor_direct_maintenance.hpp",
+          "gitBlob": "be54d530f39faf141fe0aeb318ea5db28680b738",
+          "bytes": 1789
+        },
+        {
+          "sha256": "b248b37103c43a3289cd690a18bbe83879e069344aa01ec05dfd43fd72baff92",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "include/edge_gateway/system_monitor_service.hpp",
+          "gitBlob": "e9810afe18600d2c42c2cd46f6dc96f9b01b7633",
+          "bytes": 9399
+        },
+        {
+          "sha256": "afb3dcc4992c3a4cf6fd66ffc5932dfb533af2d431c909323ec4914a052139ba",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "src/diagnostic_process.cpp",
+          "gitBlob": "550cebfe43fb19da618c59fa4cf106caa788ac7f",
+          "bytes": 27055
+        },
+        {
+          "sha256": "0ee8cc8a5d6f2651473db09fedaca4e4b37dfa00a767973fa81e893b24009ce4",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "src/system_monitor_service.cpp",
+          "gitBlob": "9404c4f5153196dd1af6afb2c871abc3ab6f64d3",
+          "bytes": 144067
+        },
+        {
+          "sha256": "307f230cdae21fd4816f2b5c42cbfe52f238f6792c90e8f7d60d147a2263ea9a",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "system_monitor_direct_maintenance.cpp",
+          "gitBlob": "2c3f8976dd5690c8506a293e35631477f4d1625b",
+          "bytes": 135540
+        },
+        {
+          "sha256": "acd5b61bc2bec9e0d5c057de018e8763638610a2fec680789e14096eea126650",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "tools/diagnostic_process_test.cpp",
+          "gitBlob": "58d37fb07d443b6426cbc2d54245e06837bca8a8",
+          "bytes": 15569
+        },
+        {
+          "sha256": "ccd16d77561925b409cbe6bbaa2ec4d30d23477c2b078950275f3589c2a1e283",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "tools/system_monitor_diagnostic_test.cpp",
+          "gitBlob": "af1307a56f475372c2a23c795aff9072092db101",
+          "bytes": 16931
+        },
+        {
+          "sha256": "b9c55d07eee88215f34d5312b2c0647a5c744c26b7eac02bb58d41eeda39ac2d",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "tools/system_monitor_direct_maintenance_contract_test.cpp",
+          "gitBlob": "44ef2aa7876c5277a1bc9d5c5c87f41b386cf429",
+          "bytes": 24931
+        },
+        {
+          "sha256": "672755298c5a312e95bcb7cbe86fb8158423011df26b2e359287ccad840b68ee",
+          "sourceCommit": "6671a3b128edd852265b77c2564e4d19334685de",
+          "path": "tools/system_monitor_service_test.cpp",
+          "gitBlob": "5f4c5b63b2b2e7f392b22f0e1b1c619a4983b25a",
+          "bytes": 38242
+        }
+      ],
+      "memberCount": 12,
+      "diffSha256": "4d966b71a6fec6ecea0f2ef8dda6c27daae78fe39db17ac4ac8337c37241470a",
+      "before": "daeb1763f70838dfe493c27999bc9cc4779b828b",
+      "archive": "edge-source.zip",
+      "diff": "edge-diagnostic.diff",
+      "after": "6671a3b128edd852265b77c2564e4d19334685de",
+      "product": "edge",
+      "archiveSha256": "27cc4911582c4d30a073b4c08c1638fb20499e42bbba554c3237d65474ac018d"
+    },
+    {
+      "members": [
+        {
+          "sha256": "6d9c4be1e3b9e08c3bf1ee8801659a573762a91696a978c811cdfd539f151595",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.Core/Entities/DiagnosticCommand.cs",
+          "gitBlob": "53979d1f62831cd1feb05b74e75005908558034a",
+          "bytes": 1628
+        },
+        {
+          "sha256": "ad7c6994ae0a419807bf79645359885dec4ab6b90a42597df7ab2b4b9aa070ef",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.Infrastructure/Legacy/Devices/DeviceModels.cs",
+          "gitBlob": "138100bc5412feac9a3cef375a58b5409fce7743",
+          "bytes": 10010
+        },
+        {
+          "sha256": "f47f57dc2fc4daf733591a24ac11af3e043367f4cf2fe2f917c5904e42f45e5d",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.Infrastructure/Legacy/Transport/DiagReplyAdmission.cs",
+          "gitBlob": "35032a8fc51e8fed6460f7341469ae895d62fa8f",
+          "bytes": 4852
+        },
+        {
+          "sha256": "e5aae2383532267c90825bb9a8f3d5688dd7edab380e4ac2d8efe7b899ceec91",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.Infrastructure/Legacy/Transport/DirectDeviceTransport.cs",
+          "gitBlob": "86f3ede9dbed646ddeb061f70a9e74df9f4e5a6c",
+          "bytes": 21384
+        },
+        {
+          "sha256": "54f4c5361fbc1d741a37c0b84c5a5c5c6dbb2b14f07ced942dcecf65cd093835",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.Infrastructure/Legacy/Transport/MqttDeviceTransport.cs",
+          "gitBlob": "b35a0398466965d1a76a21563527652c98a25498",
+          "bytes": 116658
+        },
+        {
+          "sha256": "7b11c81754d351d2ff746fe0db988141a26c15f7a1c1e6ae9007e6d3741b5c75",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.Services/Device/DiagnosticService.cs",
+          "gitBlob": "5292df6d78ec4088dbec1168b134c62e396cf47e",
+          "bytes": 7321
+        },
+        {
+          "sha256": "62ee354dd83e19e0d1d612aa196b3bf961bc45cbfcf23e879a7fd35eab563174",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "src/GatewayDesktop.UI/ViewModels/DiagnosticViewModel.cs",
+          "gitBlob": "ea3759cd0590eee2214dcac20446c4d6bf1f1129",
+          "bytes": 13147
+        },
+        {
+          "sha256": "c497a2d60c634e86527539966a8e8e20a23a08518d9baa61a69c03c54623cf09",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "tests/GatewayDesktop.Tests/Services/DiagnosticReplyContractTests.cs",
+          "gitBlob": "a8f1fe45d9bd6fafcab4075a75071037ac77c21d",
+          "bytes": 8072
+        },
+        {
+          "sha256": "aba651c3d0e1bfff2bb778f81b8441b791d075f7cca831be440614edbe4c0e0c",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "tests/GatewayDesktop.Tests/Services/DiagnosticServiceRequestTests.cs",
+          "gitBlob": "ae1a1d981bb5d0c74186940f8573e57b178b5e54",
+          "bytes": 3305
+        },
+        {
+          "sha256": "a3e38a5ab9d9357d8382c249374e3f1c6efdefcc3e820815b49f488dac786943",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "tests/GatewayDesktop.Tests/Services/MqttBatchControlTransportTests.cs",
+          "gitBlob": "bf6be53ea60ca79c0d25b56e5246bf601988ed39",
+          "bytes": 32433
+        },
+        {
+          "sha256": "042ce5623bd457840546eabb7d756e067caa564a9eea3cbc60b1eb9d88cf4451",
+          "sourceCommit": "4488c0040626228a7cfa957b0448c093e125453f",
+          "path": "tests/GatewayDesktop.Tests/ViewModels/DiagnosticViewModelRequestSnapshotTests.cs",
+          "gitBlob": "59d99d1346ac751d604895f8cf42eb5bc759dfbc",
+          "bytes": 3358
+        }
+      ],
+      "memberCount": 11,
+      "diffSha256": "fa3e1b898a02684e9876006143f70cf4170df463f630d2396006be0bf0165466",
+      "before": "04f2a710e61722a3f3c9f2ea5d4630220cd59e8b",
+      "archive": "windows-source.zip",
+      "diff": "windows-diagnostic.diff",
+      "after": "4488c0040626228a7cfa957b0448c093e125453f",
+      "product": "windows",
+      "archiveSha256": "8a789d250f0501c6ab804592bfe5cc5e05cca14a3ad2cecc636a4a355cdfb4cd"
+    },
+    {
+      "members": [
+        {
+          "sha256": "165f094c57d8a126fe78d81c6aa6c52640737da8ef5e2cebe5d296c8011ed64d",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "docs/r10-diagnostic-request-binding.md",
+          "gitBlob": "0a67393e3121156bd1bd493c71757996f979b2f6",
+          "bytes": 1691
+        },
+        {
+          "sha256": "3e51bb0bf6d9484f396faaf31c241fc8003e4c988b2ddd28844df4334a2c4392",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "frontend/src/modules/tasks/TaskDetailView.vue",
+          "gitBlob": "9d344c6f2f8b1ccdd577f4be6c91ede6f54d4e08",
+          "bytes": 8623
+        },
+        {
+          "sha256": "4a5b071b1bef0b5d18993f03652e060ac0ab3525fa4db6ca1af60cfc0f684798",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "frontend/src/modules/tasks/types.ts",
+          "gitBlob": "15542148bcdb4985cbf978d3f21a0593026b1fa7",
+          "bytes": 2361
+        },
+        {
+          "sha256": "1fbad036253f1746f40d11a8ac47a356634a52aef5a724c75496267d77d3efb5",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/edge/EdgeMessageIngestService.java",
+          "gitBlob": "d92a49408df76426ff0bb76dcd1404bb26bbedfa",
+          "bytes": 47206
+        },
+        {
+          "sha256": "658a4e90558427472d513772d51869c3248e33aa9bcaad407a87ea2734b6a623",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/edge/EdgeMqttProperties.java",
+          "gitBlob": "406783b283e975cf5f84dafc96c0da3918d386f7",
+          "bytes": 2967
+        },
+        {
+          "sha256": "da85d4d8fde16b9c5a0868b54d82abbeca3453b494bf91710e1f21d8296aaed4",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/edge/EdgeRuntimeRepository.java",
+          "gitBlob": "b846e68c03723e9ae58d603d30141c64a4d726b4",
+          "bytes": 40964
+        },
+        {
+          "sha256": "4aa2aba7a22e170544bb364bb8b45e65d446814f4b91fd8a5a233e2183f30754",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/edge/NativeEdgeOperationsGateway.java",
+          "gitBlob": "85a4b1199ba242b7f24b8c7466acbea4b4820a81",
+          "bytes": 6940
+        },
+        {
+          "sha256": "2fdd515cff8eb271e5ea371de42135082212da5d54e62f7c5571873412cbb4fd",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransport.java",
+          "gitBlob": "e8f544ed59fc41343c90608cd6e3df16f54174e9",
+          "bytes": 16244
+        },
+        {
+          "sha256": "30ce6900a4ca7b0ec6796b8ca711a2f83b3aeb29d6a36a2d7f425a902f035b1e",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/task/DiagnosticResultSanitizer.java",
+          "gitBlob": "0c8a3df8008c60ab425ebe0f6dffa055aee68c60",
+          "bytes": 4885
+        },
+        {
+          "sha256": "93167c51abb3df0bb41b8c6e4c351b551ff8532a83aab591bb638c7db39d3df0",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/java/com/gatewayzk/platform/task/TaskWorker.java",
+          "gitBlob": "459b4877f99d8d8b2a65b31fa36b9c1d9f3fce9a",
+          "bytes": 8351
+        },
+        {
+          "sha256": "d582cfa62b288e01d8a61fa2eec7872f18475033e7c3d1528682172c02a41ded",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/resources/db/migration/V16__diagnostic_request_binding.sql",
+          "gitBlob": "f58cc82ea0a5190a878dac4272abb6d8645f4e23",
+          "bytes": 354
+        },
+        {
+          "sha256": "89cfdbf18812b82b71cb400aa8f312645a364960165378840c829a0bfe4e854b",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/main/resources/db/postgresql/V17__diagnostic_request_binding.sql",
+          "gitBlob": "0b78978ef8e167bb7f408be0ec0596c3d53468c9",
+          "bytes": 286
+        },
+        {
+          "sha256": "87958c458937620c7bdd77621923d6ccac1fc254ba2506966905b5f02493f465",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/test/java/com/gatewayzk/platform/edge/EdgeRuntimeApiIntegrationTest.java",
+          "gitBlob": "136583823b99e1f1971c9899dfe8262c32e71693",
+          "bytes": 96737
+        },
+        {
+          "sha256": "45275057237cd3d95ba254b81a5bb099bc4e5712c640a35e6b9583767e8d5c98",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/test/java/com/gatewayzk/platform/edge/PahoEdgeCommandTransportTest.java",
+          "gitBlob": "25eecdd768604b9a4ede8469bf3c58f22d53f313",
+          "bytes": 34501
+        },
+        {
+          "sha256": "ceef6727968d674927fce61431464c5e21e2aa19fc9753684de213cfa583eb0b",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/test/java/com/gatewayzk/platform/task/DiagnosticResultSanitizerTest.java",
+          "gitBlob": "89af13765c02fd1ee67b9e084fec7e3b94ba92d2",
+          "bytes": 2609
+        },
+        {
+          "sha256": "3214f66bd0583447fd740df2ab3bfe5d446edee2f436748caa45455526f8a5bf",
+          "sourceCommit": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+          "path": "src/test/java/com/gatewayzk/platform/task/TaskApiIntegrationTest.java",
+          "gitBlob": "4a7a7bf9673360356b57cf0a8df3521e1f3e26f0",
+          "bytes": 8791
+        }
+      ],
+      "memberCount": 16,
+      "diffSha256": "3edecffb94f7bd4f9015cf9a1a8c03acdc8693e5c1428deda82c7afa2c721f6f",
+      "before": "5453e17ce1794b29286043a37b033f3a1d4bcd84",
+      "archive": "platform-source.zip",
+      "diff": "platform-diagnostic.diff",
+      "after": "e4d86559be2854a5144c3524a3cf8e34655e0603",
+      "product": "platform",
+      "archiveSha256": "e56cfae2f5b8d428526bff4a00b41c7d41395c01bb029fc4aa8539389913fa8f"
+    }
+  ]
+}

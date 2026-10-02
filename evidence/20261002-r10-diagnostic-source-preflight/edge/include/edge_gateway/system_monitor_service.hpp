@@ -1,0 +1,243 @@
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "edge_gateway/interfaces.hpp"
+#include "edge_gateway/diagnostic_process.hpp"
+#include "edge_gateway/iec103_recording_transfer_service.hpp"
+#include "edge_gateway/models.hpp"
+#include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/scada_upper_computer_safety.hpp"
+
+namespace edge_gateway {
+
+// Safety helpers shared by the MQTT config channel and the direct maintenance API.
+namespace system_monitor_config_safety {
+
+constexpr const char* kRedactedSecret = "__REDACTED__";
+
+// Replaces non-empty JSON string values of secret keys (password, token, ...) with kRedactedSecret.
+std::string redactSecrets(const std::string& jsonText);
+// Replaces kRedactedSecret markers in `incoming` with the matching secret of `current`
+// (same key, same occurrence). Throws when a marker cannot be resolved.
+std::string restoreRedactedSecrets(const std::string& incoming, const std::string& current);
+// KY-EMS runtime files: only known asset/text extensions; JSON/XML content is checked.
+void validateKyEmsFile(const std::string& path, const std::string& content);
+// Remote config apply may never enable cameraService.allowCustomCommand or introduce/change
+// a cameras[].command compared with the app config currently on disk at `currentPath`.
+void rejectRemoteCameraCommandChange(const AppConfig& candidate, const std::string& currentPath);
+// Write via temp file + fsync + rename (+ directory fsync when `durable`).
+void writeFileAtomically(const std::string& path, const std::string& content, bool durable = true);
+// Keep only the newest `keep` "<path>.bak.<ts>" backups.
+void pruneBackups(const std::string& path, std::size_t keep);
+constexpr std::size_t kConfigBackupsToKeep = 10;
+
+}  // namespace system_monitor_config_safety
+
+enum class SustainedThresholdTransition {
+    None,
+    Triggered,
+    Recovered
+};
+
+class SustainedThresholdAlert {
+public:
+    SustainedThresholdTransition update(
+        double value,
+        double triggerThreshold,
+        double recoveryThreshold,
+        int triggerConsecutiveSamples,
+        int recoveryConsecutiveSamples
+    );
+
+    bool active() const;
+
+private:
+    bool initialized_ = false;
+    bool active_ = false;
+    int triggerCount_ = 0;
+    int recoveryCount_ = 0;
+};
+
+class SystemMonitorService {
+public:
+    SystemMonitorService(
+        SystemMonitorConfig monitorConfig,
+        MqttConfig mqttConfig,
+        std::shared_ptr<IMqttDriverPublisher> publisher,
+        std::string machineCode,
+        std::vector<std::string> configFiles = {},
+        PointStoreRouter* router = nullptr
+    );
+    ~SystemMonitorService();
+
+    SystemMonitorService(const SystemMonitorService&) = delete;
+    SystemMonitorService& operator=(const SystemMonitorService&) = delete;
+
+    void start();
+    void stop();
+    bool isRunning() const;
+    void runOnce(std::int64_t nowMs);
+
+private:
+    friend struct SystemMonitorDiagnosticTestAccess;
+    struct Sample {
+        struct CellularStatus {
+            bool enabled = false;
+            bool present = false;
+            bool registered = false;
+            bool connected = false;
+            bool simReady = false;
+            bool toolsAvailable = false;
+            std::string operatorName;
+            std::string accessTech;
+            std::string interfaceName;
+            std::string ipAddress;
+            std::string gateway;
+            std::string dns;
+            std::string simStatus;
+            std::string imei;
+            std::string imsi;
+            std::string iccid;
+            std::string modemDevice;
+            std::string lastError;
+            bool routeStateAvailable = false;
+            bool routeFailoverEnabled = false;
+            bool preferCellular = false;
+            bool usingCellular = false;
+            std::string routeMode;
+            std::string activeRouteInterface;
+            std::string selectedWiredInterface;
+            std::string routeLastResult;
+            std::string routeLastChecked;
+            double signalPercent = -1.0;
+            double rssiDbm = 0.0;
+            double rsrpDbm = 0.0;
+            double rsrqDb = 0.0;
+            double sinrDb = 0.0;
+            std::uint64_t rxBytes = 0;
+            std::uint64_t txBytes = 0;
+            double rxRateBps = 0.0;
+            double txRateBps = 0.0;
+            std::int64_t ts = 0;
+        };
+
+        double cpuUsage = 0.0;
+        double memUsage = 0.0;
+        double diskUsage = 0.0;
+        double load1 = 0.0;
+        int processCount = 0;
+        CellularStatus cellular;
+    };
+
+    struct MonitorLease {
+        std::string sessionId;
+        std::string meterCode;
+        int intervalMs = 5000;
+        std::int64_t expireAtMs = 0;
+    };
+
+    struct PendingChunkedConfigApply {
+        int chunkCount = 0;
+        std::size_t totalBytes = 0;
+        std::vector<std::string> chunks;
+        std::int64_t lastUpdateMs = 0;
+    };
+
+    struct DiagnosticRequest {
+        std::string cmdId;
+        std::string command;
+        std::string arg;
+        std::string operatorName;
+        std::int64_t requestTs = 0;
+        std::string reply;
+        std::chrono::steady_clock::time_point expiresAt{};
+    };
+
+    void loop();
+    void processIncomingMessages(std::int64_t nowMs);
+    void handleMonitorRequest(const std::string& payload, std::int64_t nowMs);
+    void handleDiagRequest(const std::string& payload, std::int64_t nowMs);
+    void pollDiagnostics(std::int64_t nowMs);
+    void completeDiagnostic(std::int64_t nowMs);
+    std::string diagnosticReply(const DiagnosticRequest& request, const DiagnosticProcessResult& result,
+                                const std::string& reason, std::int64_t nowMs) const;
+    void handleConfigPullRequest(const std::string& payload, std::int64_t nowMs);
+    void handleConfigApplyRequest(const std::string& payload, std::int64_t nowMs);
+    void handleConfigFileOperationRequest(const std::string& payload, std::int64_t nowMs, const std::string& operation);
+    Sample collectSample() const;
+    Sample::CellularStatus collectCellularStatus(std::int64_t nowMs) const;
+    void publishCellularPoints(const Sample::CellularStatus& cellular, std::int64_t nowMs);
+    void publishTelemetry(const Sample& sample, std::int64_t nowMs);
+    void evaluateAlerts(const Sample& sample, std::int64_t nowMs);
+    void publishAlert(
+        const std::string& metric,
+        double value,
+        double threshold,
+        bool active,
+        std::int64_t nowMs,
+        const std::string& message
+    );
+    void publishReply(const std::string& payload);
+    void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
+    void publishPointSnapshot(std::int64_t nowMs);
+    void writeRealtimeMeterLeases(std::int64_t nowMs) const;
+    bool hasActiveLease(std::int64_t nowMs) const;
+    bool activeLeaseRequiresAllPoints(std::int64_t nowMs) const;
+    std::vector<std::string> activeMeterCodes(std::int64_t nowMs) const;
+    int effectiveIntervalMs(std::int64_t nowMs) const;
+    bool isCommandAllowed(const std::string& command) const;
+    std::string buildDiagShellCommand(const std::string& command, const std::string& arg) const;
+    void publishConfigPullReply(const std::string& payload, const std::vector<int>& chunkIndexes = {}) const;
+    void publishConfigApplyReply(const std::string& payload) const;
+    void publishConfigFileOperationReply(const std::string& payload, const std::string& operation) const;
+    std::string acceptConfigApplyChunk(const std::string& payload, std::int64_t nowMs, bool* complete);
+    std::string buildConfigPullReply(
+        const std::string& requestId,
+        std::int64_t nowMs,
+        const std::string& scope
+    ) const;
+    std::string buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const;
+    std::string buildConfigFileOperationReply(
+        const std::string& payload,
+        std::int64_t nowMs,
+        const std::string& operation
+    ) const;
+
+    SystemMonitorConfig monitorConfig_;
+    MqttConfig mqttConfig_;
+    std::shared_ptr<IMqttDriverPublisher> publisher_;
+    std::string machineCode_;
+    std::vector<std::string> configFiles_;
+    PointStoreRouter* router_ = nullptr;
+    std::unique_ptr<ScadaUpperComputerSafetyMonitor> scadaSafetyMonitor_;
+    std::unique_ptr<Iec103RecordingTransferService> recordingTransferService_;
+    std::atomic<bool> running_{false};
+    std::mutex lifecycleMutex_;
+    std::thread thread_;
+    mutable std::map<std::string, MonitorLease> leases_;
+    std::map<std::string, PendingChunkedConfigApply> pendingConfigApplyChunks_;
+    DiagnosticProcess diagnosticProcess_;
+    std::map<std::string, DiagnosticRequest> diagnosticRequests_;
+    std::string currentDiagnosticId_;
+    std::int64_t lastTelemetryMs_ = 0;
+    std::int64_t lastPointSnapshotMs_ = 0;
+    std::map<std::string, std::int64_t> lastAlertPublishMs_;
+    std::map<std::string, bool> lastAlertActive_;
+    SustainedThresholdAlert cpuAlertState_;
+    std::uint64_t lastCpuTotal_ = 0;
+    std::uint64_t lastCpuIdle_ = 0;
+    bool cpuBaselineReady_ = false;
+    mutable std::int64_t lastCellularProbeMs_ = 0;
+    mutable Sample::CellularStatus lastCellularStatus_;
+};
+
+}  // namespace edge_gateway
