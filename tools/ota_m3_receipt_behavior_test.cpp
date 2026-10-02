@@ -7,6 +7,32 @@
 #include <atomic>
 #include <thread>
 
+extern "C" int __real_rename(const char*, const char*);
+extern "C" int __real_fsync(int);
+
+std::atomic<bool> armFinalSyncFault{false};
+std::atomic<bool> failNextDirectorySync{false};
+
+extern "C" int __wrap_rename(const char* source, const char* destination) {
+    const int result = __real_rename(source, destination);
+    if (result == 0 && armFinalSyncFault.load() &&
+        std::string(destination).find("ota_final_M3_PRODUCTION_JOB.txt") != std::string::npos) {
+        armFinalSyncFault.store(false);
+        failNextDirectorySync.store(true);
+    }
+    return result;
+}
+
+extern "C" int __wrap_fsync(int fd) {
+    struct stat info{};
+    if (failNextDirectorySync.load() && fstat(fd, &info) == 0 && S_ISDIR(info.st_mode)) {
+        failNextDirectorySync.store(false);
+        errno = EIO;
+        return -1;
+    }
+    return __real_fsync(fd);
+}
+
 namespace edge_gateway {
 
 void requireM3(bool condition, const char* message) {
@@ -192,7 +218,8 @@ void checkFinal(const std::string& staging, const OtaStatus& expected, bool prod
 }
 
 OtaStatus checkReconcile(const std::string& staging, const OtaStatus& expected,
-                         bool finalBeforeStatus = false, bool wrongLease = false) {
+                         bool finalBeforeStatus = false, bool wrongLease = false,
+                         bool failPendingAppend = false, bool failFinalSync = false) {
     PendingOtaJob job;
     job.jobId = expected.jobId;
     job.machineCode = expected.machineCode;
@@ -257,13 +284,81 @@ OtaStatus checkReconcile(const std::string& staging, const OtaStatus& expected,
             "ota-terminal-outbox-v1");
         replacePendingJournal(joinPath(staging, "ota_final_" + job.jobId + ".txt"),
             "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=completed\n");
+        OtaConfig nextConfig = config;
+        nextConfig.downloadDir = staging + "/next-download";
+        nextConfig.checksumRequired = false;
+        nextConfig.requireSignature = false;
+        OtaRequest next;
+        next.jobId = "M3_LATER_JOB";
+        next.version = "later";
+        next.artifactUrl = "https://example.invalid/private-fixture";
+        std::string reason;
+        requireM3(!OtaService(nextConfig).validateRequest(next, &reason) &&
+                  reason == "previous successful OTA requires finalization reconciliation",
+                  "visible but unconfirmed final marker admitted a later job");
     }
-    OtaService(config).reconcilePendingJobs();
+    const auto pendingLockPath = joinPath(staging, "ota_status_pending.log.lock");
+    if (failPendingAppend) std::filesystem::create_directory(pendingLockPath);
+    if (failFinalSync) armFinalSyncFault.store(true);
+    try {
+        OtaService(config).reconcilePendingJobs();
+        requireM3(!failPendingAppend && !failFinalSync, "finalization fault was not reached");
+    } catch (const SuccessfulFinalizationError&) {
+        requireM3(failPendingAppend || failFinalSync, "unexpected finalization error");
+    }
     if (wrongLease) {
         requireM3(!std::filesystem::exists(joinPath(staging, "ota_final_" + job.jobId + ".txt")) &&
                   OtaService(config).loadPendingStatuses().empty(),
                   "reconcile accepted a replaced lifecycle lease");
         return {};
+    }
+    if (failFinalSync) {
+        requireM3(!armFinalSyncFault.load() && !failNextDirectorySync.load() &&
+                  hasValidFinal(staging, job) && hasUnresolvedExecutionAudit(staging, job),
+                  "directory fsync fault did not preserve uncertain execution audit");
+        OtaConfig nextConfig = config;
+        nextConfig.downloadDir = staging + "/next-download";
+        nextConfig.checksumRequired = false;
+        nextConfig.requireSignature = false;
+        OtaRequest next;
+        next.jobId = "M3_LATER_JOB";
+        next.version = "later";
+        next.artifactUrl = "https://example.invalid/private-fixture";
+        std::string reason;
+        requireM3(!OtaService(nextConfig).validateRequest(next, &reason) &&
+                  reason == "previous successful OTA requires finalization reconciliation",
+                  "failed final-marker fsync admitted a later job");
+        OtaService(config).reconcilePendingJobs();
+    }
+    if (failPendingAppend) {
+        requireM3(hasValidFinal(staging, job) &&
+                  readPendingJournal(joinPath(staging, "ota_status_pending.log")).empty(),
+                  "pending append fault did not leave final-before-status window");
+        const auto audit = json::JsonParser(readPendingJournal(
+            joinPath(staging, "ota_reconcile_" + job.jobId + ".json")), 4, 32).parse();
+        requireM3(pendingField(audit, "reason") == "ota-terminal-outbox-v1" &&
+                  pendingField(audit, "finalState") == "delivery-pending",
+                  "append failure lost durable delivery intent");
+        OtaConfig nextConfig = config;
+        nextConfig.downloadDir = staging + "/next-download";
+        nextConfig.checksumRequired = false;
+        nextConfig.requireSignature = false;
+        OtaRequest next;
+        next.jobId = "M3_LATER_JOB";
+        next.version = "later";
+        next.artifactUrl = "https://example.invalid/private-fixture";
+        std::string admissionError;
+        requireM3(OtaService(nextConfig).validateRequest(next, &admissionError),
+                  "verified A final blocked later B admission");
+        replacePendingJournal(joinPath(staging, "ota_active_job.txt"),
+            "jobId=M3_LATER_JOB\ntoken=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\n");
+        replacePendingJournal(joinPath(staging, "applied_version.txt"), "later\n");
+        const auto beforeHistory = readPendingJournal(joinPath(staging, "upgrade_history.log"));
+        std::filesystem::remove(pendingLockPath);
+        OtaService(config).reconcilePendingJobs();
+        requireM3(readPendingJournal(joinPath(staging, "applied_version.txt")) == "later\n" &&
+                  readPendingJournal(joinPath(staging, "upgrade_history.log")) == beforeHistory,
+                  "historical A delivery changed B runtime version or history");
     }
     const auto final = readPendingJournal(joinPath(staging, "ota_final_" + job.jobId + ".txt"));
     requireM3(final == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=completed\n",
@@ -277,6 +372,13 @@ OtaStatus checkReconcile(const std::string& staging, const OtaStatus& expected,
               pending[0].productionTransaction == expected.productionTransaction &&
               pending[0].productionCandidateSha256 == expected.productionCandidateSha256 &&
               pending[0].productionHealth == "healthy", "reconcile did not append bound pending terminal");
+    requireM3(OtaService(config).loadFinalStatuses().size() == 1,
+              "verified final was hidden by local delivery backlog");
+    const auto healthPath = joinPath(staging, "health_" + job.jobId + ".txt");
+    replacePendingJournal(healthPath, "damaged\n");
+    requireM3(OtaService(config).loadFinalStatuses().empty(),
+              "damaged health evidence became a verified final");
+    replacePendingJournal(healthPath, health);
     checkSerializers(pending[0], true);
     const auto pendingBytes = readPendingJournal(joinPath(staging, "ota_status_pending.log"));
     OtaService(config).reconcilePendingJobs();
@@ -295,7 +397,7 @@ OtaStatus checkReconcile(const std::string& staging, const OtaStatus& expected,
     });
     std::thread replayer([&] {
         while (!start.load()) std::this_thread::yield();
-        try { OtaService(config).reconcilePendingJobs(); }
+        try { subscriber.reconcilePendingJobs(); }
         catch (...) { replayError = std::current_exception(); }
     });
     start.store(true);
@@ -355,6 +457,14 @@ void checkFailedReconcile(const std::string& staging, const OtaStatus& expected)
     OtaConfig config;
     config.stagingDir = staging;
     config.backupDir = staging + "/backup";
+    const auto pendingLockPath = joinPath(staging, "ota_status_pending.log.lock");
+    std::filesystem::create_directory(pendingLockPath);
+    rejectsM3([&] { OtaService(config).reconcilePendingJobs(); },
+              "safe failure pending append fault was not reached");
+    requireM3(hasValidFinal(staging, job) &&
+              needsFinalizationReconciliation(staging, job),
+              "safe failure append fault lost its replay intent");
+    std::filesystem::remove(pendingLockPath);
     OtaService(config).reconcilePendingJobs();
     const auto pending = OtaService(config).loadPendingStatuses();
     requireM3(pending.size() == 1 && pending[0].stage == "failed" &&
@@ -402,6 +512,68 @@ void checkSynchronousTailReplay(const std::string& staging, const OtaStatus& exp
     OtaService(config).reconcilePendingJobs();
     requireM3(readPendingJournal(joinPath(staging, "ota_status_pending.log")) == first,
               "sync-tail replay generated a distinct terminal record");
+}
+
+void checkLegacyExecute(const std::string& root) {
+    const auto staging = root + "/staging";
+    const auto downloads = root + "/downloads";
+    const auto backup = root + "/backup";
+    std::filesystem::create_directory(staging);
+    std::filesystem::create_directory(downloads);
+    std::filesystem::create_directory(backup);
+    const auto source = root + "/source.tar.gz";
+    const auto script = root + "/apply-ok.sh";
+    {
+        std::ofstream artifact(source, std::ios::binary | std::ios::trunc);
+        artifact << "private-test-payload";
+        std::ofstream apply(script, std::ios::binary | std::ios::trunc);
+        apply << "#!/bin/sh\n"
+              << "printf '{\"format\":\"ota-health-v1\",\"jobId\":\"%s\",\"version\":\"%s\","
+              << "\"token\":\"%s\",\"status\":\"healthy\",\"rollback\":\"none\","
+              << "\"ts\":\"1000\"}\\n' \"$3\" \"$2\" \"$6\" > \"$5/health_$3.txt\"\n"
+              << "exit 0\n";
+    }
+    std::filesystem::permissions(script, std::filesystem::perms::owner_exec,
+        std::filesystem::perm_options::add);
+    OtaConfig config;
+    config.enabled = true;
+    config.downloadDir = downloads;
+    config.stagingDir = staging;
+    config.backupDir = backup;
+    config.applyScript = script;
+    config.rollbackScript.clear();
+    config.checksumRequired = false;
+    config.requireSignature = false;
+    config.currentVersion = "legacy-1";
+    config.packageType = "tar.gz";
+    config.minFreeBytes = 0;
+    OtaRequest request;
+    request.jobId = "M3_LEGACY_EXECUTE";
+    request.version = "legacy-2";
+    request.artifactUrl = source;
+    OtaReply reply;
+    OtaStatus status;
+    OtaService(config).execute(request, "LOCAL_ONLY", currentTimeMs(), &reply, &status, nullptr);
+    const auto final = OtaService(config).loadFinalStatuses();
+    const auto pending = OtaService(config).loadPendingStatuses();
+    requireM3(reply.accepted && status.stage == "completed" &&
+              status.jobId == request.jobId && !status.occurrenceId.empty(),
+              "normal legacy execute misread delivery-only intent as execution failure");
+    requireM3(final.size() == 1 && final[0].stage == "completed" &&
+              std::any_of(pending.begin(), pending.end(), [&](const OtaStatus& event) {
+                  return event.jobId == request.jobId && event.occurrenceId == status.occurrenceId &&
+                      event.stage == "completed";
+              }),
+              "normal legacy execute did not preserve final and pending status");
+    const auto job = decodePendingJob(readPendingJournal(pendingJobPath(staging, request.jobId)));
+    const auto audit = json::JsonParser(readPendingJournal(
+        joinPath(staging, "ota_reconcile_" + request.jobId + ".json")), 4, 32).parse();
+    requireM3(readPendingJournal(joinPath(staging, "health_" + request.jobId + ".txt")).find(
+                  "\"token\":\"" + job.token + "\"") != std::string::npos &&
+              pendingField(audit, "reason") == "ota-terminal-outbox-v1" &&
+              pendingField(audit, "finalState") == "delivery-pending" &&
+              hasValidFinal(staging, job) && !hasUnresolvedExecutionAudit(staging, job),
+              "legacy execute did not exercise healthy delivery-only finalization");
 }
 
 void checkLegacyTsv(const std::string& staging) {
@@ -466,6 +638,9 @@ int main(int argc, char** argv) {
         const auto safeFailure = root + "/safe-failure";
         const auto syncTail = root + "/sync-tail";
         const auto wrongLease = root + "/wrong-lease";
+        const auto appendFault = root + "/append-fault";
+        const auto legacyExecute = root + "/legacy-execute";
+        const auto finalSyncFault = root + "/final-sync-fault";
         std::filesystem::create_directory(production);
         std::filesystem::create_directory(legacy);
         std::filesystem::create_directory(reconciled);
@@ -474,6 +649,9 @@ int main(int argc, char** argv) {
         std::filesystem::create_directory(safeFailure);
         std::filesystem::create_directory(syncTail);
         std::filesystem::create_directory(wrongLease);
+        std::filesystem::create_directory(appendFault);
+        std::filesystem::create_directory(legacyExecute);
+        std::filesystem::create_directory(finalSyncFault);
         edge_gateway::OtaStatus status;
         status.jobId = "M3_PRODUCTION_JOB";
         status.machineCode = "LOCAL_ONLY";
@@ -496,6 +674,9 @@ int main(int argc, char** argv) {
         edge_gateway::checkFailedReconcile(safeFailure, status);
         edge_gateway::checkSynchronousTailReplay(syncTail, status);
         edge_gateway::checkReconcile(wrongLease, status, false, true);
+        edge_gateway::checkReconcile(appendFault, status, false, false, true);
+        edge_gateway::checkLegacyExecute(legacyExecute);
+        edge_gateway::checkReconcile(finalSyncFault, status, false, false, false, true);
         status.jobId = "M3_LEGACY_JOB";
         status.appliedVersion.clear();
         status.appliedSha256.clear();
