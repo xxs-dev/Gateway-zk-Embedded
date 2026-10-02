@@ -2765,6 +2765,29 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     } catch (...) { /* the admitted job does not depend on event delivery */ }
 }
 
+std::string escapeDiagnosticOutputJson(const std::string& value) {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (const unsigned char ch : value) {
+        switch (ch) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (ch < 0x20) {
+                    out += "\\u00";
+                    out += hex[ch >> 4];
+                    out += hex[ch & 0x0f];
+                } else out += static_cast<char>(ch);
+                break;
+        }
+    }
+    return out;
+}
+
 std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& request,
         const DiagnosticProcessResult& result, const std::string& reason, std::int64_t nowMs) const {
     std::ostringstream reply;
@@ -2779,7 +2802,7 @@ std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& reque
           << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
           << ",\"truncated\":" << (result.truncated ? "true" : "false")
           << ",\"cleanupConfirmed\":" << (!result.cleanupFailed && !diagnosticProcess_.active() ? "true" : "false")
-          << ",\"stdout\":\"" << escapeJson(result.output)
+          << ",\"stdout\":\"" << escapeDiagnosticOutputJson(result.output)
           << "\",\"stderr\":\"\""
           << ",\"requestTs\":" << request.requestTs
           << ",\"ts\":" << nowMs

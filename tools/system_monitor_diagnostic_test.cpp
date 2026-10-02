@@ -1,4 +1,5 @@
 #include "edge_gateway/system_monitor_service.hpp"
+#include "edge_gateway/json_value.hpp"
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -85,7 +86,7 @@ struct Fixture {
         root = made; previousPath = getenv("PATH") ? getenv("PATH") : "";
         require(mkdir((root + "/bin").c_str(), 0700) == 0, "private bin directory");
         write("bin/top", "#!/bin/sh\necho run >> \"$DIAG_FIXTURE_DIR/runs\"\n"
-                         "case \"$DIAG_FIXTURE_MODE\" in stall) sleep 30;; failure) exit 1;; *) printf 'done\\n';; esac\n");
+                         "case \"$DIAG_FIXTURE_MODE\" in stall) sleep 30;; failure) exit 1;; control) printf '\\001\\b\\f\\033';; *) printf 'done\\n';; esac\n");
         require(chmod((root + "/bin/top").c_str(), 0700) == 0, "private top mode");
         setenv("PATH", (root + "/bin:" + previousPath).c_str(), 1);
         setenv("DIAG_FIXTURE_DIR", root.c_str(), 1);
@@ -201,6 +202,17 @@ void cases() {
         publisher->request("exit"); tick(service, 3002); waitReply(service, *publisher, 4);
         require(fixture.runs() == 3, "expired completion did not release same id");
         std::cout << "PASS normalized-exit/completed-replay/expiry\n";
+    }
+    setenv("DIAG_FIXTURE_MODE", "control", 1);
+    {
+        auto publisher = std::make_shared<Publisher>();
+        SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+        publisher->request("control"); tick(service, 3500); waitReply(service, *publisher, 1);
+        const auto parsed = json::JsonParser(publisher->replies.back(), 16, 64).parse();
+        const auto* output = parsed.find("stdout");
+        require(output && output->asString() == std::string("\001\b\f\033", 4),
+                "diagnostic control bytes did not survive strict JSON roundtrip");
+        std::cout << "PASS diagnostic-control-json-roundtrip\n";
     }
     setenv("DIAG_FIXTURE_MODE", "success", 1);
     {

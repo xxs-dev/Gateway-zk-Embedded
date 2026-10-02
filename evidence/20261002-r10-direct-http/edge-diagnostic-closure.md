@@ -20,3 +20,5 @@ Total Test time (real) = 14.78 sec (exit 0)
 The isolated owner case is local Linux fixture evidence only. It does not establish ARM kernel capability, the installed direct listener, a real Broker, or Windows/platform consumption. The earlier no-`cmdId` MQTT red light and link-map mixed-layout draft were not accepted as passing evidence. The production-equivalent contract target remains separate.
 
 Follow-up correlation fields: both admitted terminal and non-admitted conflict rejection include normalized `command`, `arg`, and `operator`. `attemptedCmdId` alone must never complete the original request. After this addition the production-linked direct contract, isolated owner test, and actual MQTT service diagnostic test passed together (3/3, 15.99 s, exit 0).
+
+The MQTT diagnostic stdout serializer now escapes every C0 control byte without changing other service JSON paths. A real service reply containing SOH, backspace, form feed, and ESC round-tripped through the repository's strict JSON parser; `system_monitor_diagnostic` passed in 1.24 s (exit 0). This is local serializer evidence, not a Broker or device run.
