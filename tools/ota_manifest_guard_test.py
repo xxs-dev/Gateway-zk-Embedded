@@ -139,6 +139,29 @@ class OtaManifestTest(unittest.TestCase):
         self.assertEqual(['restart mqtt-driver@mqtt-service.service'],
                          (self.root / 'systemctl.log').read_text().splitlines())
 
+    def test_exact_factory_stage_bin_target_only(self):
+        data = (REPO / 'deploy/factory-lifecycle-stage.py').read_bytes()
+        target = HOME / 'bin/factory-lifecycle-stage.py'
+        manifest = {'files': [{'path': 'bin/factory-lifecycle-stage.py',
+                    'target': str(target), 'sha256': hashlib.sha256(data).hexdigest()}]}
+        for unsafe in (HOME / 'bin/unapproved-helper.py', HOME / 'bin/subdir/factory-lifecycle-stage.py'):
+            with self.subTest(target=str(unsafe)):
+                manifest['files'][0]['target'] = str(unsafe)
+                self.assert_rejected(self.package({'manifest.json': json.dumps(manifest),
+                                        'bin/factory-lifecycle-stage.py': data}, 'rejected.tar.gz'))
+                self.assertFalse(unsafe.exists())
+        manifest['files'][0]['target'] = str(target)
+        manifest['files'][0]['sha256'] = '0' * 64
+        self.assert_rejected(self.package({'manifest.json': json.dumps(manifest),
+                                           'bin/factory-lifecycle-stage.py': data}, 'wrong-hash.tar.gz'))
+        self.assertFalse(target.exists())
+        manifest['files'][0]['sha256'] = hashlib.sha256(data).hexdigest()
+        result = self.run_apply(self.package({'manifest.json': json.dumps(manifest),
+                                              'bin/factory-lifecycle-stage.py': data}), job='FACTORY_STAGE_VALID')
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual(data, target.read_bytes())
+        self.assertEqual(0o755, target.stat().st_mode & 0o777)
+
     def test_scada_branch_delegates_without_program_files(self):
         # Only the external installer is stubbed; OTA routing/state handling is real.
         installer = HOME / 'bin/install-scada-project.sh'

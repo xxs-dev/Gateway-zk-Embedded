@@ -240,6 +240,17 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.approval.update(transaction='INSTALL_02', operation='install', previous=previous,
                              candidate=candidate, parentSha256=pointer['sha256'], legacy=None)
         return self.args()
+
+    def add_factory_stage_to_candidate(self):
+        name = 'factory-lifecycle-stage.py'
+        source = REPO / 'deploy' / name
+        live = self.home / 'bin' / name
+        if live.exists():
+            live.unlink()
+        self.previous['files'].pop('bin/' + name, None)
+        self.write(self.payload / 'bin' / name, source.read_bytes(), 0o755)
+        self.candidate['files']['bin/' + name] = self.g.production_pin(self.payload / 'bin' / name)
+
     def test_production_entry_exists_without_changing_legacy_actions(self):
         module = load()
         self.assertTrue(callable(getattr(module, 'production_adopt', None)),
@@ -258,6 +269,71 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse((self.runtime.root / 'pending.json').exists())
         self.assertEqual(self.path('/dev/shm/live_v11').stat().st_ino, self.original_inode)
         self.assertTrue((tx / 'health.json').exists())
+
+    def test_adopt_introduces_exact_factory_stage_from_legacy_inventory(self):
+        self.add_factory_stage_to_candidate()
+        self.assertNotIn('bin/factory-lifecycle-stage.py', self.previous['files'])
+        self.assertFalse((self.home / 'bin/factory-lifecycle-stage.py').exists())
+        self.adopt()
+        self.assertEqual(self.g.production_pin(self.home / 'bin/factory-lifecycle-stage.py'),
+                         self.candidate['files']['bin/factory-lifecycle-stage.py'])
+        self.assertEqual(self.g.production_context(self.home)['baselineId'], 'B0')
+
+    def test_failed_factory_stage_adoption_recovers_legacy_absence(self):
+        self.add_factory_stage_to_candidate()
+        self.fail_health = True
+        args = self.args()
+        with self.assertRaisesRegex(ValueError, 'endpoint health'):
+            with self.m.production_lock(): self.m.production_adopt(args)
+        self.assertTrue((self.home / 'bin/factory-lifecycle-stage.py').exists())
+        self.fail_health = False
+        transaction = self.runtime.root / 'transactions/ADOPT_01'
+        with self.m.production_lock():
+            self.assertEqual('RECOVERED', self.runtime.recover(transaction, args.approval_sha256))
+        self.assertFalse((self.home / 'bin/factory-lifecycle-stage.py').exists())
+        self.assertEqual(self.g.production_files(self.home), self.previous['files'])
+        self.assertEqual('RECOVERED', self.g.production_json(transaction / 'state.json')['phase'])
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+
+    def test_adoption_rejects_unapproved_or_unpinned_factory_stage_before_intent(self):
+        self.add_factory_stage_to_candidate()
+        self.write(self.payload / 'bin/unapproved-helper.py', b'unknown helper\n', 0o755)
+        self.candidate['files']['bin/unapproved-helper.py'] = self.g.production_pin(
+            self.payload / 'bin/unapproved-helper.py')
+        with self.assertRaisesRegex(ValueError, 'paired inventory expansion'):
+            self.adopt()
+        self.assertFalse(self.runtime.root.exists())
+        self.assertFalse(any(c[0] in ('stop', 'start', 'daemon-reload') for c in self.calls))
+        del self.candidate['files']['bin/unapproved-helper.py']
+        (self.payload / 'bin/unapproved-helper.py').unlink()
+        (self.payload / 'bin/factory-lifecycle-stage.py').write_bytes(b'changed after pin\n')
+        with self.assertRaisesRegex(ValueError, 'production payload pin mismatch'):
+            self.adopt()
+        self.assertFalse(self.runtime.root.exists())
+        self.assertFalse(any(c[0] in ('stop', 'start', 'daemon-reload') for c in self.calls))
+
+    def test_adoption_rejects_preexisting_factory_stage_without_replacing_it(self):
+        self.add_factory_stage_to_candidate()
+        live = self.home / 'bin/factory-lifecycle-stage.py'
+        self.write(live, b'foreign stage\n', 0o755)
+        with self.assertRaisesRegex(ValueError, 'unexpected introduced production helper'):
+            self.adopt()
+        self.assertEqual(live.read_bytes(), b'foreign stage\n')
+        self.assertFalse(self.runtime.root.exists())
+
+    def test_adoption_rejects_unsafe_factory_stage_type_or_mode(self):
+        self.add_factory_stage_to_candidate()
+        stage = self.payload / 'bin/factory-lifecycle-stage.py'
+        stage.chmod(0o777)
+        with self.assertRaisesRegex(ValueError, 'untrusted production file'):
+            self.adopt()
+        self.assertFalse(self.runtime.root.exists())
+        stage.unlink()
+        stage.symlink_to(REPO / 'deploy/factory-lifecycle-stage.py')
+        with self.assertRaisesRegex(ValueError, 'symlink production payload'):
+            self.adopt()
+        self.assertFalse(self.runtime.root.exists())
+        self.assertFalse(any(c[0] in ('stop', 'start', 'daemon-reload') for c in self.calls))
 
     def test_failed_health_recovers_code_gates_pointer_not_mutable_data(self):
         self.adopt()

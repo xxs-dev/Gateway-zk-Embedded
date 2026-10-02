@@ -69,7 +69,8 @@ PRODUCTION_UNIT = re.compile(r'(?:(?:modbus-rtu|dlt645-driver|dio-driver|can-dri
 PRODUCTION_READERS = {A_RTU_UNIT: 'bin/ModbusRtu', A_MQTT_UNIT: 'bin/MqttDriver',
                       MONITOR_UNIT: 'bin/SystemMonitor'}
 PRODUCTION_HELPERS = frozenset(('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
-                                'gateway-services.sh', 'ota-health-result.py', 'ota-rollback.sh'))
+                                'gateway-services.sh', 'ota-health-result.py', 'ota-rollback.sh',
+                                'factory-lifecycle-stage.py'))
 SYSTEMD_ROOTS = ('/etc/systemd/system', '/run/systemd/system', '/usr/local/lib/systemd/system',
                 '/usr/lib/systemd/system', '/lib/systemd/system', '/etc/systemd/system.control',
                 '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator',
