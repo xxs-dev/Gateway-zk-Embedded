@@ -19,7 +19,7 @@ Read/Glob/Grep-only reviewer. All 39 extracted regular files were checked
 against manifest member SHA-256 and member counts (12/11/16); no additional
 source file was copied into those trees. `request.txt` is a byte-for-byte copy
 of the coordinator's scoped CLI request, SHA-256
-`c098fd0a10447808ac5c89152bd6743b8cff3eaf08743aafb6b3ca7e4f980283`.
+`1b31cf27e8f8c578df1f4a22ae8ec497b730f766f958f6b520e39d631c6b2b36`.
 It is an instruction for a later explicitly authorized reviewer, not evidence
 that a review has run.
 
@@ -32,14 +32,15 @@ changes/evidence and platform raw Maven ZIP/XML are intentionally excluded.
 The platform evidence-only SHA correction `6ee978b` is provenance, not a
 source delta in this batch.
 
-Safe evidence excerpts (summaries, **not raw logs**):
+Evidence summaries (**not raw execution logs**):
 
 - Edge `evidence/20261002-r10-direct-http/edge-diagnostic-closure.md` records
   final local direct contract 13.44 s, owner 1.30 s and corrected MQTT binary
   exit 0. Its earlier 246-byte truncation fixture failure and zero-matched
   CTest are not passes. No AArch64 installed service or live Broker proof.
-- Windows `docs/r10-diagnostic-local-evidence.md` records 19 targeted local
-  tests with a fake socket Broker/mocked service, no packaged installation.
+- Windows `docs/r10-diagnostic-local-evidence.md` records 18 targeted local
+  tests plus one subsequently added queue-limit test in separate runs, with a
+  fake socket Broker/mocked service and no packaged installation.
 - Platform `evidence/r10-diagnostic-platform/focused-result.md` records the
   final 125 local tests and Vue typecheck after strict worker target checking
   was restored; H2/MockMvc/Paho mock, not PostgreSQL/live Broker proof. The

@@ -42,8 +42,10 @@ acceptance. Coordinator independently read raw outputs and checked source
 hashes; you have no execution or hash tool and must not claim to repeat those.
 Final platform run is 125 tests after strict worker target validation was
 restored; Windows 18 plus subsequently 1 are separate runs. Zero-matched CTest
-is not a pass. Read the provided provenance/limits and safe raw excerpts; do
-not claim to read originals excluded for authentication/session data.
+is not a pass. This pre-deployment bundle provides source and evidence
+summaries only, not raw execution logs. Assess source/test coverage, not
+independent execution acceptance. Do not claim to read originals excluded
+for authentication/session data; raw-evidence review remains a later gate.
 
 Return a complete standalone Chinese review: findings by severity with exact
 snapshot path/line, actual files read and evidence limitations, then source-only
