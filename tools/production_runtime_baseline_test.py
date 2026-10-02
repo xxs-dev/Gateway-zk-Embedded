@@ -535,9 +535,9 @@ class ProductionRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'required/optional SHM mismatch'):
             self.runtime.health(previous)
 
-    def v2_config_release(self, without_logic_parent=False, with_tls=False):
+    def v2_config_release(self, without_logic_parent=False, with_tls=False, adopt_first=True):
         _, previous = self.v2_code_only_release(with_old_logic=not without_logic_parent,
-                                                with_tls=with_tls)
+                                                with_tls=with_tls, adopt_first=adopt_first)
         staged = self.payload / 'config/runtime'
         for source in (self.home / 'config/runtime').rglob('*'):
             if source.is_file():

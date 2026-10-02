@@ -2841,6 +2841,19 @@ class ProductionRuntime:
         if not record.exists():
             write_new(record, regular(transaction / 'candidate.json').read_bytes(), 0o444)
         require(digest(record) == state['candidateSha256'], 'immutable production baseline conflicts')
+        if candidate['format'] == 'runtime-baseline-v2':
+            lineage = self.root / 'boot-lineage' / (state['candidateSha256'] + '.json')
+            if not lineage.parent.exists():
+                lineage.parent.mkdir(mode=0o700)
+                sync_dir(self.root)
+            require(lineage.parent.is_dir() and not lineage.parent.is_symlink() and
+                    stat.S_IMODE(lineage.parent.stat().st_mode) == 0o700,
+                    'production boot lineage directory changed')
+            row = {'transaction': state['transaction'], 'approvalSha256': state['approvalSha256'],
+                   'candidateSha256': state['candidateSha256'], 'previousSha256': state['previousSha256']}
+            if not lineage.exists() and not lineage.is_symlink():
+                publish_new(lineage, (json.dumps(row, sort_keys=True) + '\n').encode())
+            require(guard.production_json(lineage) == row, 'production boot lineage receipt changed')
         state['phase'] = 'PROMOTING'
         self.state(transaction, state)
         replace(self.root / 'current.json', (json.dumps({'baselineId': candidate['baselineId'],

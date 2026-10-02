@@ -46,6 +46,8 @@ class NativeBootTest(unittest.TestCase):
             self.adopted = (f.runtime.root / 'transactions/ADOPT_01', args)
         else:
             self.adopted = f.adopt()
+        if self._testMethodName.startswith('test_existing_boot_proof_'):
+            self.config_args, self.config_previous = f.v2_config_release(adopt_first=False)
         if self._testMethodName == 'test_v2_role_authority_newboot_proof_and_post_gate_health':
             f.v2_code_only_release(adopt_first=False)
         if self._testMethodName == 'test_no_handoff_runtime_newboot_promoted':
@@ -231,6 +233,48 @@ class NativeBootTest(unittest.TestCase):
                                   work['healthRecord'], work['healthSha256'])
         self.assertEqual(health['health']['format'], 'runtime-health-v2')
         self.assertEqual(health['health']['configSha256'], self.migration_candidate['configSha256'])
+
+    def test_existing_boot_proof_config_install_promotes(self):
+        self.boot()
+        f = self.f
+        proof_path = f.runtime.root / 'boots/NATIVE_BOOT_2.json'
+        proof_bytes = proof_path.read_bytes()
+        inode = f.path('/dev/shm/live_v11').stat().st_ino
+        with f.m.production_lock():
+            f.m.production_install(self.config_args)
+        self.assertEqual(proof_path.read_bytes(), proof_bytes)
+        self.assertEqual(f.path('/dev/shm/live_v11').stat().st_ino, inode)
+        self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
+        self.assertEqual((f.home / 'config/runtime/logic/new.json').read_bytes(), b'{"enabled":true}\n')
+        receipt = f.runtime.root / 'boot-lineage' / (f.m.digest(
+            f.runtime.root / 'transactions/V2_CONFIG/candidate.json') + '.json')
+        self.assertTrue(receipt.is_file())
+        row = f.g.production_json(receipt)
+        row['previousSha256'] = '0' * 64
+        f.write(receipt, json.dumps(row, sort_keys=True) + '\n', 0o600)
+        with self.assertRaisesRegex(ValueError, 'native boot authority lineage'):
+            f.g.production_context(f.home)
+
+    def test_existing_boot_proof_config_failed_health_recovers(self):
+        self.boot()
+        f = self.f
+        proof_path = f.runtime.root / 'boots/NATIVE_BOOT_2.json'
+        proof_bytes = proof_path.read_bytes()
+        inode = f.path('/dev/shm/live_v11').stat().st_ino
+        f.fail_health = True
+        with self.assertRaisesRegex(ValueError, 'endpoint health'):
+            with f.m.production_lock():
+                f.m.production_install(self.config_args)
+        self.assertTrue((f.home / 'config/runtime/logic/new.json').exists())
+        self.assertTrue((f.runtime.root / 'pending.json').exists())
+        f.fail_health = False
+        transaction = f.runtime.root / 'transactions/V2_CONFIG'
+        with f.m.production_lock():
+            self.assertEqual(f.runtime.recover(transaction, self.config_args.approval_sha256), 'RECOVERED')
+        self.assertEqual(proof_path.read_bytes(), proof_bytes)
+        self.assertEqual(f.path('/dev/shm/live_v11').stat().st_ino, inode)
+        self.assertEqual(f.g.production_context(f.home), self.config_previous)
+        self.assertFalse((f.home / 'config/runtime/logic/new.json').exists())
 
     def test_memory_insufficient_refuses_before_intent_or_native_call(self):
         f = self.f

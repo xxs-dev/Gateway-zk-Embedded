@@ -16,8 +16,10 @@ Python child log.
 The exact mock-only command was `cmd /d /c "python -m unittest -v
 tools.ota_manifest_guard_test.OtaFixtureIsolationTest >
 evidence\20261002-production-v2-checkpoint\review-fixes-ota-mock.raw.log 2>&1"`.
-Tool chunk `6955f8`: exit 0; raw log: 5 tests OK, 0.003s. It did not invoke
-`OtaManifestTest.setUp`, unshare, mount, or OTA scripts.
+Tool chunk `6955f8`: exit 0; raw log: 5 tests OK, 0.003s. The mocks call
+`OtaManifestTest.setUp` directly: rejected cases stop at its first guard, and
+the positive case stops at a stubbed `TemporaryDirectory`. They do not run
+unshare, mount, deletion, or OTA scripts.
 
 SHA256 of both pre/post nine-file input manifests is identical:
 `48af3a2510a8eb24bb3cbf3e179507a1a3fb599ccbab647937d42f0395fb47ab`.
