@@ -2125,13 +2125,7 @@ class ProductionRuntime:
         previous = approval['previous']['configSha256']
         candidate = approval['candidate']['configSha256']
         root = self.home / 'config/runtime'
-        # Approved writes may leave an empty first-level directory behind after
-        # deletion or recovery. These are fixed config locations, not a scan of
-        # arbitrary historical directories.
-        permitted_dirs = {'apps', 'devices', 'logic', 'tls', 'network'}
-        for relative in set(previous) | set(candidate):
-            parts = relative.split('/')
-            permitted_dirs.update('/'.join(parts[:index]) for index in range(1, len(parts)))
+        permitted_dirs = self.config_directories(previous, candidate)
         actual = {}
         owned = {}
         for row in changes:
@@ -2139,14 +2133,13 @@ class ProductionRuntime:
                 if row[side] is not None:
                     temp = self.copy_name(transaction, 'config/runtime/' + row['path'], phase)
                     owned[str(temp.relative_to(root)).replace('\\', '/')] = row[side]
-        require(root.is_dir() and not root.is_symlink(), 'production config root changed')
         for path in root.rglob('*'):
             require(not path.is_symlink() and (path.is_dir() or path.is_file()),
                     'unowned production config entry')
             if path.is_dir():
-                require(str(path.relative_to(root)).replace('\\', '/') in permitted_dirs and
-                        path.stat().st_uid == 0 and not path.stat().st_mode & 0o022,
+                require(str(path.relative_to(root)).replace('\\', '/') in permitted_dirs,
                         'unowned production config directory')
+                self.trusted_config_directory(path, 'unowned production config directory')
             if path.is_file():
                 relative = str(path.relative_to(root)).replace('\\', '/')
                 pin = guard.production_pin(path)
@@ -2166,18 +2159,37 @@ class ProductionRuntime:
                     (pin is not None or row['before'] is None or row['after'] is None),
                     'production config mixed state differs from approved old/new bytes')
 
+    def trusted_config_directory(self, path, message):
+        require(path.is_dir() and not path.is_symlink() and path.stat().st_uid == 0 and
+                not path.stat().st_mode & 0o022, message)
+
+    def config_directories(self, previous, candidate):
+        root = self.home / 'config/runtime'
+        self.trusted_config_directory(root, 'untrusted production config root')
+        # Approved writes may leave an empty first-level directory after
+        # deletion or recovery; arbitrary historical directories stay refused.
+        permitted = {'apps', 'devices', 'logic', 'tls', 'network'}
+        for relative in set(previous) | set(candidate):
+            parts = relative.split('/')
+            permitted.update('/'.join(parts[:index]) for index in range(1, len(parts)))
+        for path in root.rglob('*'):
+            require(not path.is_symlink() and (path.is_dir() or path.is_file()),
+                    'unowned production config entry')
+            if path.is_dir():
+                require(str(path.relative_to(root)).replace('\\', '/') in permitted,
+                        'unowned production config directory')
+                self.trusted_config_directory(path, 'unowned production config directory')
+        return permitted
+
     def config_parent(self, relative):
         root = self.home / 'config/runtime'
         parent = (root / relative).parent
-        require(parent.parent == root and root.is_dir() and not root.is_symlink(),
+        require(parent.parent == root,
                 'production config parent outside approved root')
-        require(root.stat().st_uid == 0 and not root.stat().st_mode & 0o022,
-                'untrusted production config root')
+        self.trusted_config_directory(root, 'untrusted production config root')
         if not parent.exists() and not parent.is_symlink():
             parent.mkdir(mode=0o755)
-        require(parent.is_dir() and not parent.is_symlink() and
-                parent.stat().st_uid == 0 and not parent.stat().st_mode & 0o022,
-                'production config parent changed')
+        self.trusted_config_directory(parent, 'production config parent changed')
         sync_dir(root)
         return parent
 
@@ -2421,6 +2433,8 @@ class ProductionRuntime:
                 'production approval/baseline version mix invalid')
         changes = self.config_changes(approval)
         guard.production_schema(candidate, self.home)
+        if version == 'runtime-provisioning-v2':
+            self.config_directories(previous['configSha256'], candidate['configSha256'])
         old_network = {path: pin for path, pin in previous['configSha256'].items()
                        if path.startswith('network/')}
         old_tls = {path: pin for path, pin in previous['configSha256'].items()

@@ -622,6 +622,34 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse((self.runtime.root / 'transactions/V2_CONFIG').exists())
         self.assertEqual(self.g.production_context(self.home), previous)
 
+    def assert_untrusted_config_directory_preintent(self, relative, mode=0o775):
+        args, previous = self.v2_config_release()
+        directory = self.home / 'config/runtime' / relative
+        directory.mkdir(exist_ok=True)
+        directory.chmod(mode)
+        before = (self.home / 'bin/SystemMonitor').read_bytes()
+        call_count = len(self.calls)
+        self.fail_health = True
+        with self.assertRaisesRegex(ValueError, 'unowned production config directory'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        self.assertFalse((self.runtime.root / 'transactions/V2_CONFIG').exists())
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertEqual((self.home / 'bin/SystemMonitor').read_bytes(), before)
+        self.assertEqual(directory.stat().st_mode & 0o777, mode)
+        self.assertFalse(any(call[0] == 'stop' for call in self.calls[call_count:]))
+        directory.chmod(0o755)
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+    def test_v2_unrelated_config_directory_rejected_before_intent(self):
+        self.assert_untrusted_config_directory_preintent('devices')
+
+    def test_v2_changed_config_parent_rejected_before_intent(self):
+        self.assert_untrusted_config_directory_preintent('apps')
+
+    def test_v2_unapproved_empty_config_directory_rejected_before_intent(self):
+        self.assert_untrusted_config_directory_preintent('unapproved', 0o755)
+
     def v2_app_only_after_empty_logic(self, transaction):
         previous = copy.deepcopy(self.g.production_context(self.home))
         self.assertTrue((self.home / 'config/runtime/logic').is_dir())
