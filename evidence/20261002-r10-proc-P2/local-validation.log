@@ -1,0 +1,23 @@
+2026-10-02, Windows LOCAL_ONLY, no connection or Linux probe execution.
+
+$ python -B evidence/20261002-r10-proc-P2/proc_readonly_test.py
+Final5tests PASS0.012s/0skip/exit0.
+test_actual_missing_file_preserves_errno ... ok
+test_actual_private_bytes_preserved ... ok
+test_actual_private_directory_bound ... ok
+test_fixed_inventory_has_no_mutation_call ... ok
+test_oversized_interface_refuses ... ok
+Earlier4-test draft PASS0.013s; same initial coverage, not independent extra cases.
+
+$ python -B evidence/20261002-r10-proc-P2/execute-proc-readonly.py --freeze
+exit0,manifest e78a0f7b57fbda00ae54230de773017dc0fc521eea3e8b10730a9ae74a4b0fa6
+
+$ python -B evidence/20261002-r10-proc-P2/execute-proc-readonly.py
+exit0,host192.168.22.23,connects=false,remoteWrites=0,signalsSent=0,namespaceCreated=false
+Preparation parses three fixed Python inputs and generated code asPython3.8 grammar;
+no authentication helper import or call on default route.
+
+Source-only rg(src/diagnostic_process.cpp),exit0:
+57: open('/proc/thread-self/children',O_RDONLY|O_CLOEXEC)
+114: open('/proc/thread-self/children',O_RDONLY|O_CLOEXEC)
+Not a product execution or compatibility regression result.

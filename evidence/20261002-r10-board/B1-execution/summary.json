@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-02",
+  "timezone": "Asia/Shanghai",
+  "runnerCommit": "f10b80a5751fab9acc936806729183f43b703653",
+  "manifestSha256": "432bed8c304fb2c53d8dac25ab9a5da0855979e9640a46bd412c960d29dfc890",
+  "host": "192.168.22.23",
+  "machineCode": "COMM202600999",
+  "root": "/tmp/gw-r10-68de70f-23-B1",
+  "invocations": 1,
+  "sessionId": null,
+  "commandChunkId": "457262",
+  "localInvocationWallSeconds": 4.3233235,
+  "localExitCode": 1,
+  "preflightExitCode": 0,
+  "remoteExitCode": 1,
+  "sshClosed": true,
+  "symbolRequirementsSatisfied": true,
+  "failureStage": "namespace ownership proof BEFORE GO",
+  "primaryError": "FileNotFoundError: /proc/550796/task/550796/children",
+  "cleanupError": "FileNotFoundError: /proc/550774/task/550774/children",
+  "namespaceClosureVerified": false,
+  "configuredTestInvocations": 6,
+  "actualTestInvocations": 0,
+  "productDiagnosticFailureObserved": false,
+  "businessBaselineChanges": [],
+  "all8InputHashesUnchanged": true,
+  "workRemoved": false,
+  "extraConnections": 0,
+  "archive": {
+    "path": "B1-execution/raw-evidence.zip",
+    "bytes": 32133,
+    "sha256": "dfe550bdd486ac8a438055f711b26179a2e2aca75d1deae5a7f8dc25f744fff2",
+    "membersVerifiedAgainstOriginalBytes": 3
+  },
+  "files": [
+    {"path": "board-23-B1-result.json", "bytes": 177955, "sha256": "911cb14129824dfb7772e62cc15dbac26bf69d0c26b20ccde5685a3dbb4f61fc"},
+    {"path": "B1-remote-result.json", "bytes": 77241, "sha256": "acf7d4d7d85a1e61563cb4b094e952ef701a3e0f5760e30044c38d0718d25d2f"},
+    {"path": "B1-remote-fixture.log", "bytes": 148, "sha256": "29c4192597df299d780569b8ab0baa0a44533e66bbf73d7a0106f82fc6adce3b"}
+  ]
+}

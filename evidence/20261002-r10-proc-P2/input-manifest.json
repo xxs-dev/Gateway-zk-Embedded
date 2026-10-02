@@ -1,0 +1,31 @@
+{
+  "b1ReceiptSha256": "acf7d4d7d85a1e61563cb4b094e952ef701a3e0f5760e30044c38d0718d25d2f",
+  "b1WrapperSha256": "911cb14129824dfb7772e62cc15dbac26bf69d0c26b20ccde5685a3dbb4f61fc",
+  "baselineGitSha256": "fee48c39ca46a3fc40cefed0782232183f582c397061ebac33979a117e52770a",
+  "connectSha256": "d8dfd569062fee7bbb022c6f4f49b93bdd4a0415a819d1c2e5bfcb16f2dc7ccf",
+  "executionAuthorized": false,
+  "files": {
+    "execute-proc-readonly.py": {
+      "bytes": 4825,
+      "sha256": "17814edf21d5dccf22e1b6866348647561e963e62f3799f8f6308e684a434073"
+    },
+    "proc-readonly.py": {
+      "bytes": 7390,
+      "sha256": "6b5c5d5f4d1a56ddea33ec5d16bd9f2ebf7c80ef359f85a476dfe0460ffa415b"
+    },
+    "proc_readonly_test.py": {
+      "bytes": 2198,
+      "sha256": "55c7f4894353f5ef98ec6bde1359808d93beff446de99490dfc8abb2f41c884f"
+    }
+  },
+  "host": "192.168.22.23",
+  "namespaceCreated": false,
+  "namespaces": [
+    "pid:[4026532696]",
+    "mnt:[4026532695]",
+    "net:[4026532698]"
+  ],
+  "probeSha256": "509a74fcf5658156773d1273b4e2222d5b8d687da57bc8cdaf0086a88765a221",
+  "remoteWrites": 0,
+  "signalsSent": 0
+}

@@ -1,0 +1,1935 @@
+{
+  "afterCleanup": {
+    "parentNamespace": {
+      "mountinfoRaw": "15 1 179:5 / / rw,relatime shared:1 - ext4 /dev/root rw\n16 15 0:14 / /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw\n17 15 0:15 / /proc rw,nosuid,nodev,noexec,relatime shared:6 - proc proc rw\n18 15 0:5 / /dev rw,nosuid shared:7 - devtmpfs devtmpfs rw,size=1991732k,nr_inodes=497933,mode=755\n19 18 0:16 / /dev/shm rw,nosuid,nodev shared:8 - tmpfs tmpfs rw\n20 18 0:17 / /dev/pts rw,nosuid,noexec,relatime shared:9 - devpts devpts rw,gid=5,mode=620,ptmxmode=000\n21 15 0:18 / /run rw,nosuid,nodev shared:10 - tmpfs tmpfs rw,size=398852k,mode=755\n22 21 0:19 / /run/lock rw,nosuid,nodev,noexec,relatime shared:11 - tmpfs tmpfs rw,size=5120k\n23 16 0:20 / /sys/fs/cgroup ro,nosuid,nodev,noexec shared:3 - tmpfs tmpfs ro,mode=755\n24 23 0:21 / /sys/fs/cgroup/unified rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 cgroup2 rw,nsdelegate\n25 23 0:22 / /sys/fs/cgroup/systemd rw,nosuid,nodev,noexec,relatime shared:5 - cgroup cgroup rw,xattr,name=systemd\n26 23 0:23 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev,noexec,relatime shared:12 - cgroup cgroup rw,cpu,cpuacct\n27 23 0:24 / /sys/fs/cgroup/devices rw,nosuid,nodev,noexec,relatime shared:13 - cgroup cgroup rw,devices\n28 23 0:25 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup cgroup rw,cpuset\n29 23 0:26 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:15 - cgroup cgroup rw,pids\n30 23 0:27 / /sys/fs/cgroup/freezer rw,nosuid,nodev,noexec,relatime shared:16 - cgroup cgroup rw,freezer\n31 23 0:28 / /sys/fs/cgroup/memory rw,nosuid,nodev,noexec,relatime shared:17 - cgroup cgroup rw,memory\n32 23 0:29 / /sys/fs/cgroup/blkio rw,nosuid,nodev,noexec,relatime shared:18 - cgroup cgroup rw,blkio\n33 18 0:11 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:19 - mqueue mqueue rw\n34 21 0:30 / /run/rpc_pipefs rw,relatime shared:20 - rpc_pipefs sunrpc rw\n35 16 0:6 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:21 - debugfs debugfs rw\n36 16 0:31 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:22 - fusectl fusectl rw\n37 16 0:12 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime shared:23 - configfs configfs rw\n256 15 179:6 / /data rw,relatime shared:146 - ext4 /dev/mmcblk0p6 rw\n563 21 0:34 / /run/user/1000 rw,nosuid,nodev,relatime shared:324 - tmpfs tmpfs rw,size=398852k,mode=700,uid=1000,gid=1000\n583 21 0:35 / /run/user/0 rw,nosuid,nodev,relatime shared:335 - tmpfs tmpfs rw,size=398852k,mode=700\n",
+      "mountinfoSha256": "f0d7de9e767621116037d5e3c402932893bffa69b29d067a58de3391a4ed09ca",
+      "namespace": "mnt:[4026531840]",
+      "parentNativeNames": {},
+      "readerNamespaces": {
+        "475164": "mnt:[4026531840]",
+        "475219": "mnt:[4026531840]",
+        "475276": "mnt:[4026531840]"
+      },
+      "shmIdentity": [
+        16,
+        1
+      ],
+      "shmInventory": [
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 18,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 14,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_before_sustained_s2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 15,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_before_sustained_s4"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 17,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_before_sustained_s5"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 13,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_before_r4"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 10,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_one"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 11,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_r2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 12,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_r3_diag_a1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 16,
+          "mode": 33152,
+          "name": "ems_sustained_20260924_s3"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 7,
+          "mode": 33152,
+          "name": "gateway_point_store"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 4,
+          "mode": 33152,
+          "name": "gateway_point_store_dio"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 20,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 27,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 34,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 41,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 48,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 55,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 62,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 69,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 5,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 21,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 28,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 35,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 42,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 49,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 56,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 63,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 70,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 8,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 9,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 22,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 29,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 36,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 43,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 50,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 57,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 64,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 71,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 6,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 23,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 30,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 37,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 44,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 51,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 58,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 65,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 72,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 2,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 24,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 31,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 38,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 45,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 52,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 59,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 66,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 73,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 3,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 25,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 32,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 39,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 46,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 53,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 60,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 67,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 74,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_c1001r2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 19,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 26,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 33,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 40,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 47,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 54,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 61,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 68,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_c1001r2"
+        }
+      ]
+    },
+    "rawCommands": [
+      {
+        "argv": [
+          "systemctl",
+          "show",
+          "modbus-rtu@device_modbusRTU_2_readonly.service",
+          "--property=MainPID,NRestarts,ActiveState,SubState"
+        ],
+        "exitCode": 0,
+        "stdout": "MainPID=475164\nNRestarts=0\nActiveState=active\nSubState=running\n"
+      },
+      {
+        "argv": [
+          "systemctl",
+          "show",
+          "mqtt-driver@mqtt-service.service",
+          "--property=MainPID,NRestarts,ActiveState,SubState"
+        ],
+        "exitCode": 0,
+        "stdout": "MainPID=475219\nNRestarts=0\nActiveState=active\nSubState=running\n"
+      },
+      {
+        "argv": [
+          "systemctl",
+          "show",
+          "system-monitor@monitor-service.service",
+          "--property=MainPID,NRestarts,ActiveState,SubState"
+        ],
+        "exitCode": 0,
+        "stdout": "MainPID=475276\nNRestarts=0\nActiveState=active\nSubState=running\n"
+      }
+    ],
+    "rawJson": "{\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2894110720, \"/tmp\": 2894110720, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2232520 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}\n",
+    "snapshot": {
+      "activeSha256": "3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e",
+      "approvalSha256": "2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983",
+      "architecture": "aarch64",
+      "bootId": "87ba3880-1293-4b45-8826-8386e8ffb40f",
+      "configSha256": {
+        "apps/camera-service.json": "c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8",
+        "apps/monitor-service.json": "add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865",
+        "apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+        "apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+        "apps/mqtt-service.json": "c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c",
+        "device_identity.json": "a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee",
+        "devices/device_modbusRTU_2_readonly.json": "dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b",
+        "edge-package-manifest.json": "9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771",
+        "qt-display.env": "c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc",
+        "tls/COMM202600999-client.key": "e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6",
+        "tls/COMM202600999-client.pem": "f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720",
+        "tls/ca.crt": "622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503"
+      },
+      "contentReadBytes": 4764089,
+      "freeBytes": {
+        "/dev/shm": 902348800,
+        "/opt": 2894110720,
+        "/tmp": 2894110720
+      },
+      "guardSha256": "bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1",
+      "machineCode": "COMM202600999",
+      "maintenanceTarget": [
+        {
+          "directory": true,
+          "mode": 493,
+          "path": "/opt",
+          "present": true,
+          "symlink": false,
+          "uid": 0
+        },
+        {
+          "directory": true,
+          "mode": 493,
+          "path": "/opt/gateway-suite-maintenance",
+          "present": true,
+          "symlink": false,
+          "uid": 0
+        },
+        {
+          "directory": true,
+          "mode": 365,
+          "path": "/opt/gateway-suite-maintenance/1f016eb",
+          "present": true,
+          "symlink": false,
+          "uid": 0
+        }
+      ],
+      "markerSha256": "6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f",
+      "memAvailable": [
+        "MemAvailable:    2232520 kB"
+      ],
+      "modules": {
+        "argparse": true,
+        "ctypes": true,
+        "fcntl": true,
+        "hashlib": true,
+        "importlib.util": true,
+        "json": true,
+        "pathlib": true,
+        "resource": true,
+        "struct": true,
+        "subprocess": true,
+        "tempfile": true,
+        "types": true,
+        "unittest.mock": true
+      },
+      "offlineLock": {
+        "dev": 18,
+        "inode": 120037,
+        "mode": 384,
+        "path": "/run/gateway-offline-runtime.lock",
+        "uid": 0
+      },
+      "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+      "readerShmMaps": {
+        "475164": [
+          "7fb6c0c000-7fb7afd000 rw-s 00000000 00:10 71                             /dev/shm/gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+        ],
+        "475219": [
+          "7f9bce1000-7f9cbd2000 rw-s 00000000 00:10 71                             /dev/shm/gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2",
+          "7f9cbd2000-7f9dac3000 rw-s 00000000 00:10 70                             /dev/shm/gateway_point_store_ems_virtual_v11_c1001r2",
+          "7f9dac3000-7f9e9b4000 rw-s 00000000 00:10 69                             /dev/shm/gateway_point_store_dio_v11_c1001r2",
+          "7f9e9b4000-7f9f8a5000 rw-s 00000000 00:10 74                             /dev/shm/gateway_point_store_ttySP2_v11_c1001r2",
+          "7f9f8a5000-7fa0796000 rw-s 00000000 00:10 73                             /dev/shm/gateway_point_store_ttySP1_v11_c1001r2"
+        ],
+        "475276": [
+          "7f83337000-7f84228000 rw-s 00000000 00:10 72                             /dev/shm/gateway_point_store_system_monitor_v11_c1001r2",
+          "7f84228000-7f85119000 rw-s 00000000 00:10 71                             /dev/shm/gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2",
+          "7f85119000-7f8600a000 rw-s 00000000 00:10 70                             /dev/shm/gateway_point_store_ems_virtual_v11_c1001r2",
+          "7f8600a000-7f86efb000 rw-s 00000000 00:10 69                             /dev/shm/gateway_point_store_dio_v11_c1001r2",
+          "7f86efb000-7f87dec000 rw-s 00000000 00:10 74                             /dev/shm/gateway_point_store_ttySP2_v11_c1001r2",
+          "7f87dec000-7f88cdd000 rw-s 00000000 00:10 73                             /dev/shm/gateway_point_store_ttySP1_v11_c1001r2"
+        ]
+      },
+      "readerStartTicks": {
+        "475164": "114604453",
+        "475219": "114604881",
+        "475276": "114605301"
+      },
+      "readers": [
+        {
+          "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+          "properties": {
+            "ActiveState": "active",
+            "MainPID": "475164",
+            "NRestarts": "0",
+            "SubState": "running"
+          },
+          "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0",
+          "unit": "modbus-rtu@device_modbusRTU_2_readonly.service"
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/MqttDriver",
+          "properties": {
+            "ActiveState": "active",
+            "MainPID": "475219",
+            "NRestarts": "0",
+            "SubState": "running"
+          },
+          "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6",
+          "unit": "mqtt-driver@mqtt-service.service"
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+          "properties": {
+            "ActiveState": "active",
+            "MainPID": "475276",
+            "NRestarts": "0",
+            "SubState": "running"
+          },
+          "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1",
+          "unit": "system-monitor@monitor-service.service"
+        }
+      ],
+      "remoteWrites": 0,
+      "runtimeProcesses": [
+        {
+          "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+          "pid": 475164
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/MqttDriver",
+          "pid": 475219
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+          "pid": 475276
+        }
+      ],
+      "segmentIdentities": [
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 7,
+          "mode": 384,
+          "name": "gateway_point_store",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 68,
+          "mode": 384,
+          "name": "gateway_point_store_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 4,
+          "mode": 384,
+          "name": "gateway_point_store_dio",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 69,
+          "mode": 384,
+          "name": "gateway_point_store_dio_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 5,
+          "mode": 384,
+          "name": "gateway_point_store_ems_virtual",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 70,
+          "mode": 384,
+          "name": "gateway_point_store_ems_virtual_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 9,
+          "mode": 384,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 71,
+          "mode": 384,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 6,
+          "mode": 384,
+          "name": "gateway_point_store_system_monitor",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 72,
+          "mode": 384,
+          "name": "gateway_point_store_system_monitor_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 2,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP1",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 73,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP1_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 3,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP2",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 74,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP2_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        }
+      ],
+      "segments": [
+        {
+          "source": "gateway_point_store",
+          "target": "gateway_point_store_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_dio",
+          "target": "gateway_point_store_dio_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_ems_virtual",
+          "target": "gateway_point_store_ems_virtual_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_gw002_readonly_rtu2_v2",
+          "target": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_system_monitor",
+          "target": "gateway_point_store_system_monitor_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_ttySP1",
+          "target": "gateway_point_store_ttySP1_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_ttySP2",
+          "target": "gateway_point_store_ttySP2_v11_c1001r2"
+        }
+      ],
+      "stateDir": "/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state",
+      "stateSha256": "e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46"
+    }
+  },
+  "allInputHashesUnchanged": true,
+  "argv": [
+    "/usr/bin/python3",
+    "-I",
+    "-B",
+    "/tmp/gw-r10-68de70f-23-B1/source/board-group.py",
+    "[\"/usr/bin/python3\", \"-I\", \"-B\", \"/tmp/gw-r10-68de70f-23-B1/source/namespace-child.py\", \"/tmp/gw-r10-68de70f-23-B1\", \"{\\\"pid\\\": \\\"pid:[4026531836]\\\", \\\"mnt\\\": \\\"mnt:[4026531840]\\\", \\\"net\\\": \\\"net:[4026531969]\\\", \\\"shmDev\\\": 16, \\\"runtimeMetadata\\\": [{\\\"path\\\": \\\"/lib/aarch64-linux-gnu/libc.so.6\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/libc-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 7218, \\\"mode\\\": 493, \\\"bytes\\\": 1450832}, {\\\"path\\\": \\\"/lib/aarch64-linux-gnu/libdl.so.2\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/libdl-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 7343, \\\"mode\\\": 420, \\\"bytes\\\": 14560}, {\\\"path\\\": \\\"/lib/aarch64-linux-gnu/libgcc_s.so.1\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/libgcc_s.so.1\\\", \\\"dev\\\": 45829, \\\"ino\\\": 7536, \\\"mode\\\": 420, \\\"bytes\\\": 80200}, {\\\"path\\\": \\\"/lib/aarch64-linux-gnu/libm.so.6\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/libm-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 7926, \\\"mode\\\": 420, \\\"bytes\\\": 633832}, {\\\"path\\\": \\\"/lib/aarch64-linux-gnu/libpthread.so.0\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/libpthread-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 8212, \\\"mode\\\": 493, \\\"bytes\\\": 164304}, {\\\"path\\\": \\\"/lib/aarch64-linux-gnu/librt.so.1\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/librt-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 8254, \\\"mode\\\": 420, \\\"bytes\\\": 31584}, {\\\"path\\\": \\\"/lib/aarch64-linux-gnu/libstdc++.so.6\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.28\\\", \\\"dev\\\": 45829, \\\"ino\\\": 8361, \\\"mode\\\": 420, \\\"bytes\\\": 1907976}, {\\\"path\\\": \\\"/lib/ld-linux-aarch64.so.1\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/ld-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 6922, \\\"mode\\\": 493, \\\"bytes\\\": 146432}, {\\\"path\\\": \\\"/usr/bin/python3\\\", \\\"realPath\\\": \\\"/usr/bin/python3.8\\\", \\\"dev\\\": 45829, \\\"ino\\\": 3438, \\\"mode\\\": 493, \\\"bytes\\\": 5226512}, {\\\"path\\\": \\\"/usr/bin/readelf\\\", \\\"realPath\\\": \\\"/usr/bin/aarch64-linux-gnu-readelf\\\", \\\"dev\\\": 45829, \\\"ino\\\": 1146903, \\\"mode\\\": 493, \\\"bytes\\\": 645728}, {\\\"path\\\": \\\"/lib/ld-linux-aarch64.so.1\\\", \\\"realPath\\\": \\\"/usr/lib/aarch64-linux-gnu/ld-2.31.so\\\", \\\"dev\\\": 45829, \\\"ino\\\": 6922, \\\"mode\\\": 493, \\\"bytes\\\": 146432}, {\\\"path\\\": \\\"/bin/sh\\\", \\\"realPath\\\": \\\"/usr/bin/dash\\\", \\\"dev\\\": 45829, \\\"ino\\\": 2793, \\\"mode\\\": 493, \\\"bytes\\\": 137728}, {\\\"path\\\": \\\"/bin/sleep\\\", \\\"realPath\\\": \\\"/usr/bin/sleep\\\", \\\"dev\\\": 45829, \\\"ino\\\": 3525, \\\"mode\\\": 493, \\\"bytes\\\": 30944}]}\"]",
+    "550774"
+  ],
+  "baselineChanges": [],
+  "before": {
+    "parentNamespace": {
+      "mountinfoRaw": "15 1 179:5 / / rw,relatime shared:1 - ext4 /dev/root rw\n16 15 0:14 / /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw\n17 15 0:15 / /proc rw,nosuid,nodev,noexec,relatime shared:6 - proc proc rw\n18 15 0:5 / /dev rw,nosuid shared:7 - devtmpfs devtmpfs rw,size=1991732k,nr_inodes=497933,mode=755\n19 18 0:16 / /dev/shm rw,nosuid,nodev shared:8 - tmpfs tmpfs rw\n20 18 0:17 / /dev/pts rw,nosuid,noexec,relatime shared:9 - devpts devpts rw,gid=5,mode=620,ptmxmode=000\n21 15 0:18 / /run rw,nosuid,nodev shared:10 - tmpfs tmpfs rw,size=398852k,mode=755\n22 21 0:19 / /run/lock rw,nosuid,nodev,noexec,relatime shared:11 - tmpfs tmpfs rw,size=5120k\n23 16 0:20 / /sys/fs/cgroup ro,nosuid,nodev,noexec shared:3 - tmpfs tmpfs ro,mode=755\n24 23 0:21 / /sys/fs/cgroup/unified rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 cgroup2 rw,nsdelegate\n25 23 0:22 / /sys/fs/cgroup/systemd rw,nosuid,nodev,noexec,relatime shared:5 - cgroup cgroup rw,xattr,name=systemd\n26 23 0:23 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev,noexec,relatime shared:12 - cgroup cgroup rw,cpu,cpuacct\n27 23 0:24 / /sys/fs/cgroup/devices rw,nosuid,nodev,noexec,relatime shared:13 - cgroup cgroup rw,devices\n28 23 0:25 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup cgroup rw,cpuset\n29 23 0:26 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:15 - cgroup cgroup rw,pids\n30 23 0:27 / /sys/fs/cgroup/freezer rw,nosuid,nodev,noexec,relatime shared:16 - cgroup cgroup rw,freezer\n31 23 0:28 / /sys/fs/cgroup/memory rw,nosuid,nodev,noexec,relatime shared:17 - cgroup cgroup rw,memory\n32 23 0:29 / /sys/fs/cgroup/blkio rw,nosuid,nodev,noexec,relatime shared:18 - cgroup cgroup rw,blkio\n33 18 0:11 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:19 - mqueue mqueue rw\n34 21 0:30 / /run/rpc_pipefs rw,relatime shared:20 - rpc_pipefs sunrpc rw\n35 16 0:6 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:21 - debugfs debugfs rw\n36 16 0:31 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:22 - fusectl fusectl rw\n37 16 0:12 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime shared:23 - configfs configfs rw\n256 15 179:6 / /data rw,relatime shared:146 - ext4 /dev/mmcblk0p6 rw\n563 21 0:34 / /run/user/1000 rw,nosuid,nodev,relatime shared:324 - tmpfs tmpfs rw,size=398852k,mode=700,uid=1000,gid=1000\n583 21 0:35 / /run/user/0 rw,nosuid,nodev,relatime shared:335 - tmpfs tmpfs rw,size=398852k,mode=700\n",
+      "mountinfoSha256": "f0d7de9e767621116037d5e3c402932893bffa69b29d067a58de3391a4ed09ca",
+      "namespace": "mnt:[4026531840]",
+      "parentNativeNames": {},
+      "readerNamespaces": {
+        "475164": "mnt:[4026531840]",
+        "475219": "mnt:[4026531840]",
+        "475276": "mnt:[4026531840]"
+      },
+      "shmIdentity": [
+        16,
+        1
+      ],
+      "shmInventory": [
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 18,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 14,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_before_sustained_s2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 15,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_before_sustained_s4"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 17,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_before_sustained_s5"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 13,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_before_r4"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 10,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_one"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 11,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_r2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 12,
+          "mode": 33152,
+          "name": "ems_shadow_20260924_pair_failed_r3_diag_a1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 16,
+          "mode": 33152,
+          "name": "ems_sustained_20260924_s3"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 7,
+          "mode": 33152,
+          "name": "gateway_point_store"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 4,
+          "mode": 33152,
+          "name": "gateway_point_store_dio"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 20,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 27,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 34,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 41,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 48,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 55,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 62,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 69,
+          "mode": 33152,
+          "name": "gateway_point_store_dio_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 5,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 21,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 28,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 35,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 42,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 49,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 56,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 63,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 70,
+          "mode": 33152,
+          "name": "gateway_point_store_ems_virtual_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 8,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 9,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 22,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 29,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 36,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 43,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 50,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 57,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 64,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 71,
+          "mode": 33152,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 6,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 23,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 30,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 37,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 44,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 51,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 58,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 65,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 72,
+          "mode": 33152,
+          "name": "gateway_point_store_system_monitor_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 2,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 24,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 31,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 38,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 45,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 52,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 59,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 66,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 73,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP1_v11_c1001r2"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "ino": 3,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 25,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 32,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 39,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 46,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 53,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 60,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 67,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 74,
+          "mode": 33152,
+          "name": "gateway_point_store_ttySP2_v11_c1001r2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 19,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0925p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 26,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0925p2"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 33,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0925p3"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 40,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0928p1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 47,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0928win01"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 54,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_a0928win02"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 61,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_c1001r1"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "ino": 68,
+          "mode": 33152,
+          "name": "gateway_point_store_v11_c1001r2"
+        }
+      ]
+    },
+    "rawCommands": [
+      {
+        "argv": [
+          "systemctl",
+          "show",
+          "modbus-rtu@device_modbusRTU_2_readonly.service",
+          "--property=MainPID,NRestarts,ActiveState,SubState"
+        ],
+        "exitCode": 0,
+        "stdout": "MainPID=475164\nNRestarts=0\nActiveState=active\nSubState=running\n"
+      },
+      {
+        "argv": [
+          "systemctl",
+          "show",
+          "mqtt-driver@mqtt-service.service",
+          "--property=MainPID,NRestarts,ActiveState,SubState"
+        ],
+        "exitCode": 0,
+        "stdout": "MainPID=475219\nNRestarts=0\nActiveState=active\nSubState=running\n"
+      },
+      {
+        "argv": [
+          "systemctl",
+          "show",
+          "system-monitor@monitor-service.service",
+          "--property=MainPID,NRestarts,ActiveState,SubState"
+        ],
+        "exitCode": 0,
+        "stdout": "MainPID=475276\nNRestarts=0\nActiveState=active\nSubState=running\n"
+      },
+      {
+        "argv": [
+          "uname",
+          "-p"
+        ],
+        "exitCode": 0,
+        "stdout": "aarch64\n"
+      }
+    ],
+    "rawJson": "{\"machineCode\": \"COMM202600999\", \"bootId\": \"87ba3880-1293-4b45-8826-8386e8ffb40f\", \"architecture\": \"aarch64\", \"python\": \"3.8.10 (default, Mar 18 2025, 20:04:55) \\n[GCC 9.4.0]\", \"modules\": {\"argparse\": true, \"ctypes\": true, \"fcntl\": true, \"hashlib\": true, \"importlib.util\": true, \"json\": true, \"pathlib\": true, \"resource\": true, \"struct\": true, \"subprocess\": true, \"tempfile\": true, \"types\": true, \"unittest.mock\": true}, \"stateDir\": \"/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state\", \"stateSha256\": \"e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46\", \"approvalSha256\": \"2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983\", \"activeSha256\": \"3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e\", \"guardSha256\": \"bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1\", \"configSha256\": {\"apps/camera-service.json\": \"c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8\", \"apps/monitor-service.json\": \"add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak\": \"d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075\", \"apps/mqtt-service.json\": \"c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c\", \"device_identity.json\": \"a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee\", \"devices/device_modbusRTU_2_readonly.json\": \"dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b\", \"edge-package-manifest.json\": \"9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771\", \"qt-display.env\": \"c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc\", \"tls/COMM202600999-client.key\": \"e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6\", \"tls/COMM202600999-client.pem\": \"f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720\", \"tls/ca.crt\": \"622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503\"}, \"markerSha256\": \"6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f\", \"readers\": [{\"unit\": \"modbus-rtu@device_modbusRTU_2_readonly.service\", \"properties\": {\"MainPID\": \"475164\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\", \"sha256\": \"4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0\"}, {\"unit\": \"mqtt-driver@mqtt-service.service\", \"properties\": {\"MainPID\": \"475219\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\", \"sha256\": \"38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6\"}, {\"unit\": \"system-monitor@monitor-service.service\", \"properties\": {\"MainPID\": \"475276\", \"NRestarts\": \"0\", \"ActiveState\": \"active\", \"SubState\": \"running\"}, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\", \"sha256\": \"976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1\"}], \"runtimeProcesses\": [{\"pid\": 475164, \"exe\": \"/opt/modbus-gateway/bin/ModbusRtu\"}, {\"pid\": 475219, \"exe\": \"/opt/modbus-gateway/bin/MqttDriver\"}, {\"pid\": 475276, \"exe\": \"/opt/modbus-gateway/bin/SystemMonitor\"}], \"segments\": [{\"source\": \"gateway_point_store\", \"target\": \"gateway_point_store_v11_c1001r2\"}, {\"source\": \"gateway_point_store_dio\", \"target\": \"gateway_point_store_dio_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ems_virtual\", \"target\": \"gateway_point_store_ems_virtual_v11_c1001r2\"}, {\"source\": \"gateway_point_store_gw002_readonly_rtu2_v2\", \"target\": \"gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2\"}, {\"source\": \"gateway_point_store_system_monitor\", \"target\": \"gateway_point_store_system_monitor_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP1\", \"target\": \"gateway_point_store_ttySP1_v11_c1001r2\"}, {\"source\": \"gateway_point_store_ttySP2\", \"target\": \"gateway_point_store_ttySP2_v11_c1001r2\"}], \"maintenanceTarget\": [{\"path\": \"/opt\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance\", \"present\": true, \"symlink\": false, \"mode\": 493, \"uid\": 0, \"directory\": true}, {\"path\": \"/opt/gateway-suite-maintenance/1f016eb\", \"present\": true, \"symlink\": false, \"mode\": 365, \"uid\": 0, \"directory\": true}], \"freeBytes\": {\"/opt\": 2894159872, \"/tmp\": 2894159872, \"/dev/shm\": 902348800}, \"memAvailable\": [\"MemAvailable:    2240124 kB\"], \"offlineLock\": {\"path\": \"/run/gateway-offline-runtime.lock\", \"dev\": 18, \"inode\": 120037, \"mode\": 384, \"uid\": 0}, \"remoteWrites\": 0, \"contentReadBytes\": 4764089}\n",
+    "snapshot": {
+      "activeSha256": "3aeb869fed0ec8da3c83f3111369726f5c728043ae68fbe91759ec1bdc57054e",
+      "approvalSha256": "2b800578ad7b8145554b9151ce74d95bf43a0ccf2533a948b5076902e27a9983",
+      "architecture": "aarch64",
+      "bootId": "87ba3880-1293-4b45-8826-8386e8ffb40f",
+      "configSha256": {
+        "apps/camera-service.json": "c4c61e0eee91bc88833a22bcb47cc7fff36c526e1afdfad54f519cc8ee22d0e8",
+        "apps/monitor-service.json": "add11713ae2d6f3ab23de9a36ed1030c71c3bf9a9da1ecf5f9b3f1e0dc711865",
+        "apps/monitor-service.json.pre-bind-gw-c06-bind-9b15ded8a75344fb89b7857fedcdac3a.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+        "apps/monitor-service.json.pre-bind-gw-c06-bind-ee3d8c27ebee483897ec1ac55974fc1e.bak": "d656616f209901c7c678ea298af7a8acd76455a2f20541df40672222cd440075",
+        "apps/mqtt-service.json": "c55ebbee0dbeb6b6912d7367dc54a6b3475cb388775810ebb246d649a862e52c",
+        "device_identity.json": "a1e12dcffc6d9f3bdaf978a2bc4d8d978afb27bb85533639abb4acc21f735eee",
+        "devices/device_modbusRTU_2_readonly.json": "dab511933516d749bf85ddd944a2f841d5da5af44afdd22c22b17a6721c14f3b",
+        "edge-package-manifest.json": "9b8fd0c7489f66b181de97bc4534d6d1760dee145a62f714ae61c252be20c771",
+        "qt-display.env": "c387afad62e32945f698517060cdddfbde608d153576455d7d68e92ee7979cfc",
+        "tls/COMM202600999-client.key": "e4686dc72c4a81cbab093a7c2049e1a220498d14e00d2afe1c17809869da7db6",
+        "tls/COMM202600999-client.pem": "f88977579970a805154f1a4a85f6eb7ec2bad1df8d1fe52f2267e228e6339720",
+        "tls/ca.crt": "622be4b6dac86d2acfad9012db4965de87b97ba505d5c9ee4e1e854197608503"
+      },
+      "contentReadBytes": 4764089,
+      "freeBytes": {
+        "/dev/shm": 902348800,
+        "/opt": 2894159872,
+        "/tmp": 2894159872
+      },
+      "guardSha256": "bb26477f8407b80673c201ce08e4b5e07943bec4c909f0325cb1e00943ddaaf1",
+      "machineCode": "COMM202600999",
+      "maintenanceTarget": [
+        {
+          "directory": true,
+          "mode": 493,
+          "path": "/opt",
+          "present": true,
+          "symlink": false,
+          "uid": 0
+        },
+        {
+          "directory": true,
+          "mode": 493,
+          "path": "/opt/gateway-suite-maintenance",
+          "present": true,
+          "symlink": false,
+          "uid": 0
+        },
+        {
+          "directory": true,
+          "mode": 365,
+          "path": "/opt/gateway-suite-maintenance/1f016eb",
+          "present": true,
+          "symlink": false,
+          "uid": 0
+        }
+      ],
+      "markerSha256": "6dea6b56de1fcb5bee039ea582cb8fa28804d5ca23f421a64d9df4d71937006f",
+      "memAvailable": [
+        "MemAvailable:    2240124 kB"
+      ],
+      "modules": {
+        "argparse": true,
+        "ctypes": true,
+        "fcntl": true,
+        "hashlib": true,
+        "importlib.util": true,
+        "json": true,
+        "pathlib": true,
+        "resource": true,
+        "struct": true,
+        "subprocess": true,
+        "tempfile": true,
+        "types": true,
+        "unittest.mock": true
+      },
+      "offlineLock": {
+        "dev": 18,
+        "inode": 120037,
+        "mode": 384,
+        "path": "/run/gateway-offline-runtime.lock",
+        "uid": 0
+      },
+      "python": "3.8.10 (default, Mar 18 2025, 20:04:55) \n[GCC 9.4.0]",
+      "readerShmMaps": {
+        "475164": [
+          "7fb6c0c000-7fb7afd000 rw-s 00000000 00:10 71                             /dev/shm/gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+        ],
+        "475219": [
+          "7f9bce1000-7f9cbd2000 rw-s 00000000 00:10 71                             /dev/shm/gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2",
+          "7f9cbd2000-7f9dac3000 rw-s 00000000 00:10 70                             /dev/shm/gateway_point_store_ems_virtual_v11_c1001r2",
+          "7f9dac3000-7f9e9b4000 rw-s 00000000 00:10 69                             /dev/shm/gateway_point_store_dio_v11_c1001r2",
+          "7f9e9b4000-7f9f8a5000 rw-s 00000000 00:10 74                             /dev/shm/gateway_point_store_ttySP2_v11_c1001r2",
+          "7f9f8a5000-7fa0796000 rw-s 00000000 00:10 73                             /dev/shm/gateway_point_store_ttySP1_v11_c1001r2"
+        ],
+        "475276": [
+          "7f83337000-7f84228000 rw-s 00000000 00:10 72                             /dev/shm/gateway_point_store_system_monitor_v11_c1001r2",
+          "7f84228000-7f85119000 rw-s 00000000 00:10 71                             /dev/shm/gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2",
+          "7f85119000-7f8600a000 rw-s 00000000 00:10 70                             /dev/shm/gateway_point_store_ems_virtual_v11_c1001r2",
+          "7f8600a000-7f86efb000 rw-s 00000000 00:10 69                             /dev/shm/gateway_point_store_dio_v11_c1001r2",
+          "7f86efb000-7f87dec000 rw-s 00000000 00:10 74                             /dev/shm/gateway_point_store_ttySP2_v11_c1001r2",
+          "7f87dec000-7f88cdd000 rw-s 00000000 00:10 73                             /dev/shm/gateway_point_store_ttySP1_v11_c1001r2"
+        ]
+      },
+      "readerStartTicks": {
+        "475164": "114604453",
+        "475219": "114604881",
+        "475276": "114605301"
+      },
+      "readers": [
+        {
+          "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+          "properties": {
+            "ActiveState": "active",
+            "MainPID": "475164",
+            "NRestarts": "0",
+            "SubState": "running"
+          },
+          "sha256": "4225f8811e56e54a9b57bc9b81ce10ad11cca9e444eb4a8539862765d09694d0",
+          "unit": "modbus-rtu@device_modbusRTU_2_readonly.service"
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/MqttDriver",
+          "properties": {
+            "ActiveState": "active",
+            "MainPID": "475219",
+            "NRestarts": "0",
+            "SubState": "running"
+          },
+          "sha256": "38e529193b51a2a5062be123a1d442b20ccef768bb2762bc2d36ae450e28b5d6",
+          "unit": "mqtt-driver@mqtt-service.service"
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+          "properties": {
+            "ActiveState": "active",
+            "MainPID": "475276",
+            "NRestarts": "0",
+            "SubState": "running"
+          },
+          "sha256": "976f04785faf3005f8b172b354eee75d06e769b2826b6d0186a0e722bfb1a0e1",
+          "unit": "system-monitor@monitor-service.service"
+        }
+      ],
+      "remoteWrites": 0,
+      "runtimeProcesses": [
+        {
+          "exe": "/opt/modbus-gateway/bin/ModbusRtu",
+          "pid": 475164
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/MqttDriver",
+          "pid": 475219
+        },
+        {
+          "exe": "/opt/modbus-gateway/bin/SystemMonitor",
+          "pid": 475276
+        }
+      ],
+      "segmentIdentities": [
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 7,
+          "mode": 384,
+          "name": "gateway_point_store",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 68,
+          "mode": 384,
+          "name": "gateway_point_store_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 4,
+          "mode": 384,
+          "name": "gateway_point_store_dio",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 69,
+          "mode": 384,
+          "name": "gateway_point_store_dio_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 5,
+          "mode": 384,
+          "name": "gateway_point_store_ems_virtual",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 70,
+          "mode": 384,
+          "name": "gateway_point_store_ems_virtual_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 9,
+          "mode": 384,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 71,
+          "mode": 384,
+          "name": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 6,
+          "mode": 384,
+          "name": "gateway_point_store_system_monitor",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 72,
+          "mode": 384,
+          "name": "gateway_point_store_system_monitor_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 2,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP1",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 73,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP1_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        },
+        {
+          "bytes": 15174272,
+          "dev": 16,
+          "header": "5453504d0a000000",
+          "ino": 3,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP2",
+          "present": true,
+          "role": "source"
+        },
+        {
+          "bytes": 15667032,
+          "dev": 16,
+          "header": "5453504d0b000000",
+          "ino": 74,
+          "mode": 384,
+          "name": "gateway_point_store_ttySP2_v11_c1001r2",
+          "present": true,
+          "role": "target"
+        }
+      ],
+      "segments": [
+        {
+          "source": "gateway_point_store",
+          "target": "gateway_point_store_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_dio",
+          "target": "gateway_point_store_dio_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_ems_virtual",
+          "target": "gateway_point_store_ems_virtual_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_gw002_readonly_rtu2_v2",
+          "target": "gateway_point_store_gw002_readonly_rtu2_v2_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_system_monitor",
+          "target": "gateway_point_store_system_monitor_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_ttySP1",
+          "target": "gateway_point_store_ttySP1_v11_c1001r2"
+        },
+        {
+          "source": "gateway_point_store_ttySP2",
+          "target": "gateway_point_store_ttySP2_v11_c1001r2"
+        }
+      ],
+      "stateDir": "/opt/gateway-suite-offline/GW-20260809-002/CORE-999-20261001-aab90fa-R2/state",
+      "stateSha256": "e72e63c199cb1f6591a8b94e634afec08d416909db164fe8bbaf7245b9158c46"
+    }
+  },
+  "cleanupError": "[Errno 2] No such file or directory: '/proc/550774/task/550774/children'",
+  "dependencies": {
+    "libraries": [
+      {
+        "dynsymSha256": "8464f49b76377f0e2438f24b807355ed6de9c1f237fb36303d2c531f83f55c7d",
+        "metadata": {
+          "bytes": 1450832,
+          "dev": 45829,
+          "ino": 7218,
+          "mode": 493,
+          "path": "/lib/aarch64-linux-gnu/libc.so.6",
+          "realPath": "/usr/lib/aarch64-linux-gnu/libc-2.31.so"
+        }
+      },
+      {
+        "dynsymSha256": "2733e1c481b439da5fc3e7b5a30d6f007627d289f32371548c3de8e90acaf259",
+        "metadata": {
+          "bytes": 14560,
+          "dev": 45829,
+          "ino": 7343,
+          "mode": 420,
+          "path": "/lib/aarch64-linux-gnu/libdl.so.2",
+          "realPath": "/usr/lib/aarch64-linux-gnu/libdl-2.31.so"
+        }
+      },
+      {
+        "dynsymSha256": "4fb16196baa0bc70f042aaabfbff992d0d49878a256d36e6ae9fed64e6328337",
+        "metadata": {
+          "bytes": 80200,
+          "dev": 45829,
+          "ino": 7536,
+          "mode": 420,
+          "path": "/lib/aarch64-linux-gnu/libgcc_s.so.1",
+          "realPath": "/usr/lib/aarch64-linux-gnu/libgcc_s.so.1"
+        }
+      },
+      {
+        "dynsymSha256": "91f8eb3549d3e19628a5883bbe0a53e2c954e5522a7f6346bc2ca1aacb667d8f",
+        "metadata": {
+          "bytes": 633832,
+          "dev": 45829,
+          "ino": 7926,
+          "mode": 420,
+          "path": "/lib/aarch64-linux-gnu/libm.so.6",
+          "realPath": "/usr/lib/aarch64-linux-gnu/libm-2.31.so"
+        }
+      },
+      {
+        "dynsymSha256": "f4c5012121ab1a08f2386c672f512aed6005dab718dd0dd6d8e9c2ac0bd704df",
+        "metadata": {
+          "bytes": 164304,
+          "dev": 45829,
+          "ino": 8212,
+          "mode": 493,
+          "path": "/lib/aarch64-linux-gnu/libpthread.so.0",
+          "realPath": "/usr/lib/aarch64-linux-gnu/libpthread-2.31.so"
+        }
+      },
+      {
+        "dynsymSha256": "fbb4a25069b4d57990003cf384b8d589def2ccb5d87f321861b4be3d4fea5cfd",
+        "metadata": {
+          "bytes": 31584,
+          "dev": 45829,
+          "ino": 8254,
+          "mode": 420,
+          "path": "/lib/aarch64-linux-gnu/librt.so.1",
+          "realPath": "/usr/lib/aarch64-linux-gnu/librt-2.31.so"
+        }
+      },
+      {
+        "dynsymSha256": "84b5815fa56016245fd30a402e4778aa11a8f01ac1661c9be2b302bb1b4e756f",
+        "metadata": {
+          "bytes": 1907976,
+          "dev": 45829,
+          "ino": 8361,
+          "mode": 420,
+          "path": "/lib/aarch64-linux-gnu/libstdc++.so.6",
+          "realPath": "/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.28"
+        }
+      },
+      {
+        "dynsymSha256": "a0c61e25b16b194e34502e00fec887e612387817d8fcded9da217e01577aa691",
+        "metadata": {
+          "bytes": 146432,
+          "dev": 45829,
+          "ino": 6922,
+          "mode": 493,
+          "path": "/lib/ld-linux-aarch64.so.1",
+          "realPath": "/usr/lib/aarch64-linux-gnu/ld-2.31.so"
+        }
+      }
+    ],
+    "loaderListings": [
+      {
+        "exitCode": 0,
+        "name": "diagnostic_process_test",
+        "stdout": "\tlinux-vdso.so.1 (0x0000007f8abbd000)\n\tlibpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000007f8ab49000)\n\tlibstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000007f8a964000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000007f8a8b9000)\n\tlibgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x0000007f8a895000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000007f8a722000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000007f8ab8d000)\n"
+      },
+      {
+        "exitCode": 0,
+        "name": "ownership-probe",
+        "stdout": "\tlinux-vdso.so.1 (0x0000007fa65a2000)\n\tlibstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000007fa637a000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000007fa62cf000)\n\tlibgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x0000007fa62ab000)\n\tlibpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000007fa627a000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000007fa6107000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000007fa6572000)\n"
+      },
+      {
+        "exitCode": 0,
+        "name": "system_monitor_diagnostic_test",
+        "stdout": "\tlinux-vdso.so.1 (0x0000007f8449b000)\n\tlibdl.so.2 => /lib/aarch64-linux-gnu/libdl.so.2 (0x0000007f84444000)\n\tlibpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000007f84413000)\n\tlibrt.so.1 => /lib/aarch64-linux-gnu/librt.so.1 (0x0000007f843fb000)\n\tlibstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000007f84216000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000007f8416b000)\n\tlibgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x0000007f84147000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000007f83fd4000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000007f8446b000)\n"
+      },
+      {
+        "exitCode": 0,
+        "name": "system_monitor_service_test",
+        "stdout": "\tlinux-vdso.so.1 (0x0000007f82722000)\n\tlibdl.so.2 => /lib/aarch64-linux-gnu/libdl.so.2 (0x0000007f826cb000)\n\tlibpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000007f8269a000)\n\tlibrt.so.1 => /lib/aarch64-linux-gnu/librt.so.1 (0x0000007f82682000)\n\tlibstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000007f8249d000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000007f823f2000)\n\tlibgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x0000007f823ce000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000007f8225b000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000007f826f2000)\n"
+      }
+    ],
+    "noDependencyInstall": true,
+    "symbolRequirementsSatisfied": true,
+    "testExecutableMainRun": false
+  },
+  "fixtureLogBytes": 148,
+  "fixtureLogSha256": "29c4192597df299d780569b8ab0baa0a44533e66bbf73d7a0106f82fc6adce3b",
+  "launcherPid": 550796,
+  "primaryError": {
+    "message": "[Errno 2] No such file or directory: '/proc/550796/task/550796/children'",
+    "traceback": "Traceback (most recent call last):\n  File \"board-run.py\", line 98, in run\n  File \"/usr/lib/python3.8/pathlib.py\", line 1236, in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors) as f:\n  File \"/usr/lib/python3.8/pathlib.py\", line 1222, in open\n    return io.open(self, mode, buffering, encoding, errors, newline,\n  File \"/usr/lib/python3.8/pathlib.py\", line 1078, in _opener\n    return self._accessor.open(self, flags, mode)\nFileNotFoundError: [Errno 2] No such file or directory: '/proc/550796/task/550796/children'\n",
+    "type": "FileNotFoundError"
+  },
+  "privateFixtureOnly": true,
+  "productCommit": "68de70fbc37cf3267116624a259a81510b2d74d3",
+  "realLifecycleCalled": false
+}
