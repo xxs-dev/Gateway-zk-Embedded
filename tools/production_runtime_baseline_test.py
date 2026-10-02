@@ -1,5 +1,6 @@
 """Production file lifecycle in private Linux directories; no real service/SHM."""
 import copy
+import contextlib
 import importlib.util
 import json
 import hashlib
@@ -1597,6 +1598,64 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse((owner.root / ('runtime-payload-' + owner.job) / 'payload').exists())
         self.assertFalse((self.runtime.root / 'pending.json').exists())
         self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+
+    def test_v2_signed_config_owner_rejection_finishes_original_job_unchanged(self):
+        for reason in ('release', 'capacity'):
+            with self.subTest(reason=reason):
+                child = ProductionRuntimeTest('test_production_entry_exists_without_changing_legacy_actions')
+                child.setUp()
+                try:
+                    owner, previous, _ = child.signed_config_owner_fixture(
+                        release_override='different-release' if reason == 'release' else None)
+                    entry = child.real_owner_entry(owner)
+                    before = child.m.tree_hashes(child.home / 'config/runtime')
+                    record = owner.read()
+                    record.update(phase='HANDOFF_PENDING', deadlineUptime=time.monotonic() + 5)
+                    owner.save(record)
+                    props = dict(MainPID=str(os.getpid()), InvocationID='a' * 32,
+                                 ControlGroup='/system.slice/' + owner.unit)
+                    low_space = (mock.patch.object(entry.os, 'statvfs', return_value=types.SimpleNamespace(
+                        f_bavail=1, f_frsize=4096)) if reason == 'capacity' else contextlib.nullcontext())
+                    with mock.patch.object(owner, 'properties', return_value=props), \
+                         mock.patch.object(owner, 'unit_process', return_value={'pid': os.getpid()}), \
+                         mock.patch.object(owner, 'command', return_value=None) as command, \
+                         mock.patch.dict(os.environ, INVOCATION_ID='a' * 32), low_space:
+                        owner.own(install=lambda protocol, state: entry.production_ota_owner(protocol, state))
+                        self.assertEqual(owner.read()['phase'], 'OWNER_BLOCKED')
+                        self.assertFalse(owner.read()['runtimeMayChange'])
+                        self.assertTrue((owner.root / 'runtime-unfinished' / (owner.job + '.json')).is_file())
+                        self.assertEqual((owner.root / 'ota_active_job.txt').read_text(),
+                                         'jobId=' + owner.job + '\ntoken=' + owner.token + '\n')
+                        self.assertEqual([item.job for item in owner.unfinished(owner.root)], [owner.job])
+                        if reason == 'capacity':
+                            command.side_effect = OSError('private stop outcome unknown')
+                            with self.assertRaisesRegex(OSError, 'stop outcome unknown'):
+                                owner.finish()
+                            self.assertEqual(owner.read()['phase'], 'CANCEL_REQUESTED')
+                            self.assertFalse((owner.root / ('health_' + owner.job + '.txt')).exists())
+                            self.assertTrue((owner.root / 'runtime-unfinished' /
+                                             (owner.job + '.json')).is_file())
+                            command.side_effect = None
+                        owner.finish()
+                        result = owner.read()
+                        self.assertEqual(result['phase'], 'CANCELLED')
+                        self.assertTrue(result['cancelProof']['noWriter'])
+                        health = owner.json_file(owner.root / ('health_' + owner.job + '.txt'))
+                        self.assertEqual((health['jobId'], health['token'], health['status'], health['rollback']),
+                                         (owner.job, owner.token, 'failed', 'unchanged'))
+                        self.assertFalse((owner.root / 'runtime-unfinished' / (owner.job + '.json')).exists())
+                        self.assertTrue((owner.root / 'runtime-retired' /
+                                         (owner.job + '-' + owner.token + '.json')).is_file())
+                        self.assertEqual([item.job for item in owner.unfinished(owner.root)], [owner.job])
+                        owner.finish()
+                        self.assertEqual(owner.json_file(owner.root / ('health_' + owner.job + '.txt')), health)
+                        with self.assertRaisesRegex(ValueError, 'cancelled or stale'):
+                            owner.own()
+                    self.assertEqual(child.g.production_context(child.home), previous)
+                    self.assertEqual(child.m.tree_hashes(child.home / 'config/runtime'), before)
+                    self.assertFalse((child.runtime.root / 'pending.json').exists())
+                finally:
+                    child.doCleanups()
 
     def test_v2_ota_owner_untrusted_config_directory_rejected_before_mutation_barrier(self):
         owner = self.owner_fixture(v2=True)
