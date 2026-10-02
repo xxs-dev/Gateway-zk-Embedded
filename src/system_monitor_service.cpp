@@ -2767,6 +2767,7 @@ std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& reque
           << ",\"exitCode\":" << result.exitCode
           << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
           << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
+          << ",\"truncated\":" << (result.truncated ? "true" : "false")
           << ",\"cleanupConfirmed\":" << (!result.cleanupFailed && !diagnosticProcess_.active() ? "true" : "false")
           << ",\"stdout\":\"" << escapeJson(result.output)
           << "\",\"stderr\":\"\""

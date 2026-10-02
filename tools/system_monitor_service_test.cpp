@@ -757,6 +757,7 @@ int main() {
     }
     require(!diagReply.empty(), "expected diag reply");
     require(diagReply.find("[truncated]") != std::string::npos, "expected bounded diag output");
+    require(diagReply.find("\"truncated\":true") != std::string::npos, "expected structured diag truncation");
     require(diagReply.size() < 2048, "diag reply should stay bounded");
 
     removeFileIfExists(small);

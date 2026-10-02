@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/diagnostic_process.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
@@ -66,6 +67,8 @@ constexpr std::size_t kMaxConfigSnapshotReplyBytes = 96 * 1024 * 1024;
 constexpr std::size_t kMaxConfigApplyFiles = 512;
 constexpr std::size_t kMaxBatchControlCommands = 128;
 constexpr std::size_t kMaxDiagOutputBytes = 64 * 1024;
+constexpr std::size_t kMaxDirectDiagReplies = 16;
+constexpr std::size_t kMaxDirectDiagReplyBytes = 8 * 1024 * 1024;
 constexpr std::size_t kMaxHttpRequestBytes = 96 * 1024 * 1024;
 
 void handleSignal(int) {
@@ -2022,7 +2025,7 @@ std::string systemStatusJson(const SystemMonitorDirectMaintenanceConfig& config)
     return out.str();
 }
 
-std::string executeDiagCommand(const std::string& command, const std::string& service, int tailLines, int* exitCode) {
+std::string directDiagShellCommand(const std::string& command, const std::string& service, int tailLines) {
     std::string shellCommand;
     if (command == "uptime") {
         shellCommand = "uptime 2>&1";
@@ -2052,35 +2055,148 @@ std::string executeDiagCommand(const std::string& command, const std::string& se
     } else {
         throw std::runtime_error("unsupported diag command");
     }
-    return runShellCommand(shellCommand, exitCode, kMaxDiagOutputBytes);
+    return shellCommand;
 }
 
-std::string diagResponseJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
-    if (!maintenancePasswordAccepted(config, body)) {
-        throw std::runtime_error("invalid maintenance password");
-    }
-    const auto command = jsonString(body, "command");
-    const auto cmdId = jsonString(body, "cmdId", "DIAG_" + std::to_string(nowMs()));
-    const auto machineCode = jsonString(body, "machineCode");
-    const auto operatorName = jsonString(body, "operator");
-    const auto service = jsonString(body, "service");
-    const auto tailLines = jsonInt(body, "tailLines", 100);
-    const auto requestTs = static_cast<std::int64_t>(jsonUint64(body, "requestTs", static_cast<std::uint64_t>(nowMs())));
-    int exitCode = 0;
-    const auto stdoutText = executeDiagCommand(command, service, tailLines, &exitCode);
+struct DirectDiagRecord {
+    std::string command;
+    std::string arg;
+    std::string operatorName;
+    std::string reply;
+    std::chrono::steady_clock::time_point expiresAt;
+};
+
+struct DirectDiagState {
+    std::mutex mutex;
+    edge_gateway::DiagnosticProcess process;
+    std::map<std::string, DirectDiagRecord> replies;
+    std::string identityPath;
+    std::string machineCode;
+};
+
+DirectDiagState& directDiagState() {
+    static DirectDiagState state;
+    return state;
+}
+
+void pollDirectDiagOwner() {
+    auto& state = directDiagState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (state.process.active()) state.process.poll();
+}
+
+std::string directDiagReplyJson(const std::string& cmdId, const std::string& machineCode,
+    const std::string& operatorName, const std::string& command, std::int64_t requestTs,
+    const edge_gateway::DiagnosticProcessResult& result, const std::string& reason, bool cleanupConfirmed) {
     std::ostringstream out;
     out << "{\"cmdId\":\"" << jsonEscape(cmdId)
         << "\",\"machineCode\":\"" << jsonEscape(machineCode)
         << "\",\"operator\":\"" << jsonEscape(operatorName)
         << "\",\"command\":\"" << jsonEscape(command)
-        << "\",\"success\":" << (exitCode == 0 ? "true" : "false")
-        << ",\"exitCode\":" << exitCode
-        << ",\"stdout\":\"" << jsonEscape(stdoutText)
+        << "\",\"success\":" << (result.exitCode == 0 && cleanupConfirmed ? "true" : "false")
+        << ",\"exitCode\":" << result.exitCode
+        << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
+        << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
+        << ",\"cleanupConfirmed\":" << (cleanupConfirmed ? "true" : "false")
+        << ",\"truncated\":" << (result.truncated ? "true" : "false")
+        << ",\"stdout\":\"" << jsonEscape(result.output)
         << "\",\"stderr\":\"\""
         << ",\"requestTs\":" << requestTs
-        << ",\"ts\":" << nowMs()
-        << "}";
+        << ",\"ts\":" << nowMs() << "}";
     return out.str();
+}
+
+struct DirectDiagResponse {
+    int status;
+    std::string body;
+};
+
+DirectDiagResponse diagResponseJson(const SystemMonitorDirectMaintenanceConfig& config, const std::string& body) {
+    if (!maintenancePasswordAccepted(config, body)) {
+        throw std::runtime_error("invalid maintenance password");
+    }
+    const auto command = jsonString(body, "command");
+    auto cmdId = jsonString(body, "cmdId");
+    if (cmdId.empty()) {
+        std::random_device random;
+        std::ostringstream generated;
+        generated << "DIAG_" << std::hex << std::setfill('0');
+        for (int part = 0; part < 4; ++part) generated << std::setw(8) << random();
+        cmdId = generated.str();
+    }
+    const auto requestedMachineCode = jsonString(body, "machineCode");
+    const auto operatorName = jsonString(body, "operator");
+    const auto service = jsonString(body, "service");
+    const auto tailLines = jsonInt(body, "tailLines", 100);
+    const auto requestTs = static_cast<std::int64_t>(jsonUint64(body, "requestTs", static_cast<std::uint64_t>(nowMs())));
+    if (cmdId.size() > 128 || command.size() > 64 || operatorName.size() > 128 || service.size() > 128)
+        throw std::runtime_error("diag request too large");
+    const auto machineCode = loadIdentity(config.identityConfigFile).machineCode;
+    if (machineCode.empty() || requestedMachineCode != machineCode)
+        throw std::runtime_error("machineCode mismatch");
+    const auto arg = command == "journal_tail" ? std::to_string(std::max(1, std::min(500, tailLines))) :
+        command == "systemctl_status" ? service : std::string();
+    auto& state = directDiagState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (state.identityPath.empty()) {
+        state.identityPath = config.identityConfigFile;
+        state.machineCode = machineCode;
+    } else if (state.identityPath != config.identityConfigFile || state.machineCode != machineCode) {
+        throw std::runtime_error("direct diagnostic identity changed");
+    }
+    const auto steadyNow = std::chrono::steady_clock::now();
+    for (auto it = state.replies.begin(); it != state.replies.end();) {
+        it = it->second.expiresAt <= steadyNow ? state.replies.erase(it) : std::next(it);
+    }
+    const auto existing = state.replies.find(cmdId);
+    if (existing != state.replies.end()) {
+        const auto& saved = existing->second;
+        if (saved.command == command && saved.arg == arg && saved.operatorName == operatorName)
+            return {200, saved.reply};
+        return {409, "{\"success\":false,\"reason\":\"cmdId_conflict\"}"};
+    }
+    const auto shellCommand = directDiagShellCommand(command, service, tailLines);
+    if (state.process.active()) state.process.poll();
+    if (state.process.active() || state.process.unavailable()) {
+        return {503, state.process.unavailable() ?
+            "{\"success\":false,\"reason\":\"cleanup_unknown\"}" :
+            "{\"success\":false,\"reason\":\"busy\"}"};
+    }
+    std::size_t replyBytes = 0;
+    for (const auto& entry : state.replies) replyBytes += entry.second.reply.size();
+    if (state.replies.size() >= kMaxDirectDiagReplies ||
+            replyBytes + 6 * kMaxDiagOutputBytes + 4096 > kMaxDirectDiagReplyBytes) {
+        return {429, "{\"success\":false,\"reason\":\"cache_full\"}"};
+    }
+    const bool started = state.process.start(shellCommand, kMaxDiagOutputBytes, 10000);
+    if (started) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(13);
+        while (!state.process.poll()) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                const bool cleaned = state.process.cancelAndWait();
+                auto result = state.process.result();
+                result.timedOut = true;
+                result.cleanupFailed = !cleaned;
+                result.exitCode = cleaned ? 124 : -1;
+                const auto reason = cleaned ? "timeout" : "cleanup_unknown";
+                const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, requestTs,
+                                                      result, reason, cleaned);
+                state.replies.emplace(cmdId, DirectDiagRecord{command, arg, operatorName, reply,
+                    std::chrono::steady_clock::now() + std::chrono::minutes(5)});
+                return {200, reply};
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    auto result = state.process.result();
+    if (state.process.active()) { result.cleanupFailed = true; result.exitCode = -1; }
+    const auto reason = result.cleanupFailed ? "cleanup_unknown" : result.cancelled ? "cancelled" :
+        result.timedOut ? "timeout" : result.signal ? "signal" : result.exitCode < 0 ? "launch_failed" : "exit";
+    const auto reply = directDiagReplyJson(cmdId, machineCode, operatorName, command, requestTs,
+                                          result, reason, !result.cleanupFailed && !state.process.active());
+    state.replies.emplace(cmdId, DirectDiagRecord{command, arg, operatorName, reply,
+        std::chrono::steady_clock::now() + std::chrono::minutes(5)});
+    return {200, reply};
 }
 
 void restartGatewayServicesLater() {
@@ -2831,7 +2947,10 @@ std::string handleRequest(
             return response(401, "Unauthorized", "{\"success\":false,\"message\":\"invalid maintenance password\"}");
         }
         try {
-            return response(200, "OK", diagResponseJson(config, body));
+            const auto result = diagResponseJson(config, body);
+            return response(result.status, result.status == 409 ? "Conflict" :
+                            result.status == 429 ? "Too Many Requests" :
+                            result.status == 503 ? "Service Unavailable" : "OK", result.body);
         } catch (const std::exception& ex) {
             return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
         }
@@ -3191,6 +3310,7 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
     }
 
     while (g_running) {
+        pollDirectDiagOwner();
         fd_set readSet;
         FD_ZERO(&readSet);
         int maxFd = -1;
