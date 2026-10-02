@@ -31,7 +31,13 @@ class NativeBootTest(unittest.TestCase):
         f.previous['files'] = f.g.production_files(f.home)
         f.candidate['files'] = f.g.production_files(f.payload)
         adoption_rollback = self._testMethodName == 'test_no_handoff_runtime_newboot_adoption_rollback'
-        if adoption_rollback:
+        migration_boot = self._testMethodName == 'test_v1_to_v2_migration_newboot_binds_candidate_config_roles'
+        if migration_boot:
+            args, self.migration_previous, self.migration_candidate = f.v1_to_v2_release()
+            with f.m.production_lock():
+                f.m.production_install(args)
+            self.adopted = None
+        elif adoption_rollback:
             args = f.args()
             f.fail_health = True
             with self.assertRaisesRegex(ValueError, 'endpoint health'):
@@ -207,6 +213,24 @@ class NativeBootTest(unittest.TestCase):
         self.assertEqual(health['health']['format'], 'runtime-health-v2')
         self.assertEqual(set(health['health']['roles']), set(self.baseline['allowedUnits']))
         self.assertEqual(health['health']['bootId'], 'NATIVE_BOOT_2')
+
+    def test_v1_to_v2_migration_newboot_binds_candidate_config_roles(self):
+        self.assertEqual(self.baseline, self.migration_candidate)
+        self.assertNotEqual(self.f.g.production_roles_sha(self.migration_previous),
+                            self.f.g.production_roles_sha(self.baseline))
+        self.boot()
+        f = self.f
+        proof = f.g.production_json(f.runtime.root / 'boots/NATIVE_BOOT_2.json')
+        self.assertEqual(proof['rolesSha256'], f.g.production_roles_sha(self.migration_candidate))
+        self.assertEqual(proof['sourceSha256'], f.m.digest(self.source))
+        self.assertEqual(proof['sourceRecord'], str(self.source.relative_to(f.runtime.root)))
+        self.assertFalse(f.live)
+        self.finish()
+        work = f.g.production_json(f.m.production_boot_work(f.runtime))
+        health = f.m.checked_json(f.m.production_boot_work(f.runtime).parent /
+                                  work['healthRecord'], work['healthSha256'])
+        self.assertEqual(health['health']['format'], 'runtime-health-v2')
+        self.assertEqual(health['health']['configSha256'], self.migration_candidate['configSha256'])
 
     def test_memory_insufficient_refuses_before_intent_or_native_call(self):
         f = self.f

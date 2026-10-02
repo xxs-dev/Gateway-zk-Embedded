@@ -313,6 +313,100 @@ class ProductionRuntimeTest(unittest.TestCase):
                          'candidate': candidate, 'legacy': None, 'configWriteSet': []}
         return self.args(), previous
 
+    def v1_to_v2_release(self):
+        for name in ('system-monitor@.service', 'gateway-services.service'):
+            self.write(self.path('/etc/systemd/system') / name, (REPO / 'deploy' / name).read_bytes())
+        self.previous['unitFiles'] = self.g.production_unit_files(self.units)
+        self.candidate['unitFiles'] = copy.deepcopy(self.previous['unitFiles'])
+        recovery_unit = str(self.path('/etc/systemd/system/gateway-ota-recover.service'))
+        self.candidate['unitFiles'][recovery_unit] = self.g.production_pin(
+            Path(self.m.__file__).with_name('gateway-ota-recover.service'))
+        for unit, path in self.candidate['gates'].items():
+            body = self.m.production_gate(self.home, unit)
+            self.candidate['unitFiles'][path] = dict(
+                sha256=hashlib.sha256(body).hexdigest(), mode=0o644, bytes=len(body))
+        self.adopt()
+        previous = copy.deepcopy(self.g.production_context(self.home))
+        staged = self.payload / 'config/runtime'
+        self.write(staged / 'device_identity.json',
+                   (self.home / 'config/runtime/device_identity.json').read_bytes())
+        identity = '/opt/modbus-gateway/config/runtime/device_identity.json'
+        self.write(staged / 'apps/mqtt-service.json',
+                   json.dumps({'identityConfigFile': identity}) + '\n')
+        self.write(staged / 'apps/monitor-service.json',
+                   json.dumps({'identityConfigFile': identity,
+                               'mqttDriver': {'sharedMemoryName': 'live_v11'},
+                               'systemMonitor': {'enabled': True}}) + '\n')
+        protected = {'machineCode': previous['machineCode'],
+                     'identitySha256': previous['configSha256']['device_identity.json'],
+                     'networkSha256': {}, 'tlsSha256': {},
+                     'otaPublicKeySha256': previous['trust']['publicKeySha256'],
+                     'monitorShmName': 'live_v11'}
+        parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        policy = {'__name__': 'private_v2_policy'}
+        exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        resolved = policy['resolve'](staged, self.path('/etc/systemd/system'), protected,
+                                     self.path('/etc/modbus-gateway/ota.pub'))
+        role_units = [role['unit'] for role in resolved['roles']]
+        self.assertEqual(set(role_units), set(self.allowed))
+        profile = {'format': 'board-simulator-profile-v1',
+                   'machineCode': previous['machineCode'], 'ramMiB': 2048,
+                   'capabilities': [], 'simulatorBindings': {},
+                   'allowedUnits': role_units, 'segmentNames': ['live_v11']}
+        raw = (json.dumps(profile, sort_keys=True) + '\n').encode()
+        profile_sha = hashlib.sha256(raw).hexdigest()
+        self.write(self.runtime.root / 'profiles' / (profile_sha + '.json'), raw, 0o600)
+        candidate = copy.deepcopy(previous)
+        candidate.update(format='runtime-baseline-v2', baselineId='V2_MIGRATED',
+                         generation=previous['generation'] + 1,
+                         parentSha256=self.g.production_json(self.runtime.root / 'current.json')['sha256'],
+                         release='v2-migration', files=self.g.production_files(self.payload),
+                         configSha256=self.m.tree_hashes(staged),
+                         allowedUnits=role_units,
+                         roleAuthority={'format': 'configured-role-authority-v2',
+                                        'profileSha256': profile_sha, 'resolved': resolved})
+        paths = sorted(path for path in set(previous['configSha256']) | set(candidate['configSha256'])
+                       if previous['configSha256'].get(path) != candidate['configSha256'].get(path))
+        changes = []
+        for path in paths:
+            before = self.g.production_pin(self.home / 'config/runtime' / path) if path in previous['configSha256'] else None
+            after = self.g.production_pin(staged / path) if path in candidate['configSha256'] else None
+            changes.append({'path': path, 'before': before, 'after': after})
+        self.approval = {'format': 'runtime-provisioning-v2', 'transaction': 'V1_TO_V2',
+                         'operation': 'install', 'expiresAtUnix': int(time.time()) + 600,
+                         'gatewayHome': str(self.home), 'machineCode': previous['machineCode'],
+                         'parentSha256': candidate['parentSha256'], 'previous': previous,
+                         'candidate': candidate, 'legacy': None, 'configWriteSet': changes}
+        return self.args(), previous, candidate
+
+    def test_v1_to_v2_formal_install_promotes_configured_authority(self):
+        args, previous, candidate = self.v1_to_v2_release()
+        self.assertEqual(previous['format'], 'runtime-baseline-v1')
+        self.assertEqual(len(self.approval['configWriteSet']), 2)
+        with self.m.production_lock():
+            self.m.production_install(args)
+        self.assertEqual(self.g.production_context(self.home), candidate)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), candidate['configSha256'])
+        health = self.g.production_json(self.runtime.root / 'transactions/V1_TO_V2/health.json')
+        self.assertEqual(health['format'], 'runtime-health-v2')
+        self.assertEqual(set(health['roles']), set(candidate['allowedUnits']))
+
+    def test_v1_to_v2_failed_start_restores_formal_v1_authority(self):
+        args, previous, _ = self.v1_to_v2_release()
+        old_config = self.m.tree_hashes(self.home / 'config/runtime')
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        tx = self.runtime.root / 'transactions/V1_TO_V2'
+        self.assertTrue((self.home / 'config/runtime/apps/mqtt-service.json').is_file())
+        self.fail_start = False
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), old_config)
+        self.assertFalse((self.home / 'config/runtime/apps/mqtt-service.json').exists())
+
     def test_v2_code_only_changed_parser_recovers_previous_pinned_bytes(self):
         args, previous = self.v2_code_only_release()
         old_parser = (self.home / 'bin/production_role_policy.py').read_bytes()
