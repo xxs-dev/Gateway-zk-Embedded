@@ -872,10 +872,48 @@ void checkPreparedFailureSupersession(const std::string& root) {
     replacePendingJournal(supersessionPath, "damaged\n");
     rejectsM3([&] { (void)hasValidatedStatusSupersession(staging, snapshot, old, job); },
               "unknown supersession parser was accepted");
+    subscriber.clearPendingStatuses();
+    const auto retained = readPendingJournal(joinPath(staging, "ota_status_pending.log"));
+    requireM3(retained == encodePendingStatus(old),
+              "damaged supersession did not retain only the unverified old terminal");
     replacePendingJournal(supersessionPath, supersession);
     requireM3(!hasValidatedStatusSupersession(staging, encodePendingStatus(old), old, job),
               "old failure was discarded without a bound replacement in the same snapshot");
-    subscriber.clearPendingStatuses();
+    OtaStatus foreign = old;
+    foreign.jobId = "M3_FOREIGN_JOB";
+    const auto foreignRow = encodePendingStatus(foreign);
+    requireM3(!hasValidatedStatusSupersession(staging, foreignRow, foreign, job, false),
+              "foreign job occurrence was accepted as supersession source");
+    replacePendingJournal(joinPath(staging, "ota_status_pending.log"), foreignRow);
+    OtaService(config).reconcilePendingJobs();
+    requireM3(readPendingJournal(joinPath(staging, "ota_status_pending.log")) == foreignRow,
+              "foreign job occurrence caused a bound terminal replay");
+    foreign.jobId = job.jobId;
+    foreign.machineCode = "OTHER_MACHINE";
+    requireM3(!hasValidatedStatusSupersession(staging, encodePendingStatus(foreign), foreign, job, false),
+              "foreign device occurrence was accepted as supersession source");
+    replacePendingJournal(joinPath(staging, "ota_status_pending.log"), retained);
+    OtaService(config).reconcilePendingJobs();
+    OtaService recovered(config);
+    const auto replayed = recovered.loadPendingStatuses();
+    requireM3(replayed.size() == 2 &&
+              std::any_of(replayed.begin(), replayed.end(), [&](const OtaStatus& event) {
+                  return event.jobId == job.jobId && event.occurrenceId == job.token && event.stage == "failed";
+              }), "recovery did not restore the bound replacement after its earlier clear");
+    OtaStatus late;
+    late.jobId = "M3_LATE_PROGRESS";
+    late.machineCode = "LOCAL_ONLY";
+    late.stage = "downloading";
+    late.ts = currentTimeMs();
+    OtaService writer(config);
+    OtaServiceTestAccess::append(writer, late);
+    recovered.clearPendingStatuses();
+    OtaService later(config);
+    const auto remaining = later.loadPendingStatuses();
+    requireM3(remaining.size() == 1 && remaining[0].jobId == late.jobId &&
+              remaining[0].occurrenceId == late.occurrenceId,
+              "supersession clear lost an append after the loaded snapshot");
+    later.clearPendingStatuses();
     requireM3(OtaService(config).loadPendingStatuses().empty(),
               "safe later terminal did not supersede the earlier failed occurrence");
 }

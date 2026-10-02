@@ -1481,9 +1481,11 @@ bool hasBoundSupersedingTerminal(const std::string& snapshot, const PendingOtaJo
 }
 
 bool hasValidatedStatusSupersession(const std::string& stagingDir, const std::string& snapshot,
-                                    const OtaStatus& status, const PendingOtaJob& job) {
-    if (status.stage != "failed" || status.occurrenceId == job.token ||
-        !hasBoundSupersedingTerminal(snapshot, job)) return false;
+                                    const OtaStatus& status, const PendingOtaJob& job,
+                                    bool requireBoundReplacement = true) {
+    if (status.jobId != job.jobId || status.machineCode != job.machineCode ||
+        status.stage != "failed" || status.occurrenceId == job.token ||
+        (requireBoundReplacement && !hasBoundSupersedingTerminal(snapshot, job))) return false;
     const auto path = statusSupersessionPath(stagingDir, job);
     if (strictlyAbsent(path) || fileSizeBytes(path) > 8192) return false;
 #ifndef _WIN32
@@ -1758,7 +1760,38 @@ void OtaService::reconcilePendingJobs() const {
             bool terminalIntent = false;
             reconciliationNeeded = needsFinalizationReconciliation(config_.stagingDir, job,
                 &synchronousEvidence, &terminalIntent, &deliveryPending);
-            if (hasValidFinal(config_.stagingDir, job) && !reconciliationNeeded) continue;
+            if (hasValidFinal(config_.stagingDir, job) && !reconciliationNeeded) {
+                if (!strictlyAbsent(statusSupersessionPath(config_.stagingDir, job))) {
+                    const auto snapshot = readPendingJournal(statusJournalPath());
+                    if (!hasBoundSupersedingTerminal(snapshot, job)) {
+                        std::istringstream rows(snapshot);
+                        std::string row;
+                        while (std::getline(rows, row)) {
+                            try {
+                                if (row.empty() || row.front() != '{') continue;
+                                const auto old = decodePendingStatus(row);
+                                if (!hasValidatedStatusSupersession(config_.stagingDir, snapshot,
+                                        old, job, false)) continue;
+                                const auto health = decodeHealthResult(readPendingJournal(joinPath(
+                                    config_.stagingDir, "health_" + job.jobId + ".txt")), job);
+                                OtaStatus replacement;
+                                replacement.jobId = job.jobId;
+                                replacement.machineCode = job.machineCode;
+                                replacement.stage = "failed";
+                                replacement.message = health.rollback == "unchanged"
+                                    ? "OTA rejected before runtime change" : "OTA failed; rollback " + health.rollback;
+                                replacement.ts = health.ts;
+                                replacement.occurrenceId = job.token;
+                                appendPendingStatus(replacement);
+                                break;
+                            } catch (const std::exception&) {
+                                // Leave an unknown old terminal intact for later verified replay.
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             if (deliveryPending) {
                 if (!hasValidFinal(config_.stagingDir, job)) continue;
 #ifndef _WIN32
