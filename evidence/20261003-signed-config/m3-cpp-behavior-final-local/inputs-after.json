@@ -1,0 +1,97 @@
+[
+  {
+    "path": "include/edge_gateway/builtin_mqtt_driver_publisher.hpp",
+    "sha256": "c5023b30cf15d842987d53c6349d3c4adf4ff4563aae4974dee4b1435fea8949",
+    "snapshotSha256": "c5023b30cf15d842987d53c6349d3c4adf4ff4563aae4974dee4b1435fea8949"
+  },
+  {
+    "path": "include/edge_gateway/cluster_write_authorization.hpp",
+    "sha256": "95fb6e27bad5dc35ed82025fb7d3920531b70059045c500193daf02b61552804",
+    "snapshotSha256": "95fb6e27bad5dc35ed82025fb7d3920531b70059045c500193daf02b61552804"
+  },
+  {
+    "path": "include/edge_gateway/compat.hpp",
+    "sha256": "12db2e5978fbb391f68a44ba7811f5f04c8f3bd9815b10655b65a5f85549e822",
+    "snapshotSha256": "12db2e5978fbb391f68a44ba7811f5f04c8f3bd9815b10655b65a5f85549e822"
+  },
+  {
+    "path": "include/edge_gateway/event_store_clock.hpp",
+    "sha256": "7733f505da9581cc93ded408214abc65f15444657e7c09408da7e863d1b29ea8",
+    "snapshotSha256": "7733f505da9581cc93ded408214abc65f15444657e7c09408da7e863d1b29ea8"
+  },
+  {
+    "path": "include/edge_gateway/event_store_stats.hpp",
+    "sha256": "5cc5764881dc47a15e4466e7d9e46d3721a2734fcc668f5e4b13b640601d51d9",
+    "snapshotSha256": "5cc5764881dc47a15e4466e7d9e46d3721a2734fcc668f5e4b13b640601d51d9"
+  },
+  {
+    "path": "include/edge_gateway/event_store.hpp",
+    "sha256": "cc10955599ffdb0360a1707e95c7b3efefdcc74349e6b6dfcf621b4fa0d69c77",
+    "snapshotSha256": "cc10955599ffdb0360a1707e95c7b3efefdcc74349e6b6dfcf621b4fa0d69c77"
+  },
+  {
+    "path": "include/edge_gateway/interfaces.hpp",
+    "sha256": "feb98d731a4bb64440f9cb2816a6f39c94aa41295a95bba5928d6efd1b5021ec",
+    "snapshotSha256": "feb98d731a4bb64440f9cb2816a6f39c94aa41295a95bba5928d6efd1b5021ec"
+  },
+  {
+    "path": "include/edge_gateway/json_value_writer.hpp",
+    "sha256": "4535cce2925e91a775d7855ed50781e62e7e1f2b0d3f72cd6c47a737d65d2e42",
+    "snapshotSha256": "4535cce2925e91a775d7855ed50781e62e7e1f2b0d3f72cd6c47a737d65d2e42"
+  },
+  {
+    "path": "include/edge_gateway/json_value.hpp",
+    "sha256": "b3cb4550756c680c903e1074f3fb6dc0fad57021c37a9f718d5b62c490531981",
+    "snapshotSha256": "b3cb4550756c680c903e1074f3fb6dc0fad57021c37a9f718d5b62c490531981"
+  },
+  {
+    "path": "include/edge_gateway/memory_point_store.hpp",
+    "sha256": "c1676da26f939e74be2ff1e8beaf0eae2f0c776ed540f90205e415f7f62f10c2",
+    "snapshotSha256": "c1676da26f939e74be2ff1e8beaf0eae2f0c776ed540f90205e415f7f62f10c2"
+  },
+  {
+    "path": "include/edge_gateway/models.hpp",
+    "sha256": "c4244c23ae24acbd3d6e361bc6b2df7c51340d441af2e5d99c9a45fc43133b8c",
+    "snapshotSha256": "c4244c23ae24acbd3d6e361bc6b2df7c51340d441af2e5d99c9a45fc43133b8c"
+  },
+  {
+    "path": "include/edge_gateway/mosquitto_mqtt_driver_publisher.hpp",
+    "sha256": "53ef208cc61d2c4b8fb16681ff078b500e0f7f7837666ce9672e258be2759184",
+    "snapshotSha256": "53ef208cc61d2c4b8fb16681ff078b500e0f7f7837666ce9672e258be2759184"
+  },
+  {
+    "path": "include/edge_gateway/mqtt_event_outbox.hpp",
+    "sha256": "57635c37941e33a91cadb029a6a9250038e37b68bdd1324747a2327433486928",
+    "snapshotSha256": "57635c37941e33a91cadb029a6a9250038e37b68bdd1324747a2327433486928"
+  },
+  {
+    "path": "include/edge_gateway/mqtt_realtime_ring_buffer.hpp",
+    "sha256": "53dee186c3c3bbc4340da0c6e6aee017e6dc0baa65c4877b1179534e7c81de5e",
+    "snapshotSha256": "53dee186c3c3bbc4340da0c6e6aee017e6dc0baa65c4877b1179534e7c81de5e"
+  },
+  {
+    "path": "include/edge_gateway/ota_service.hpp",
+    "sha256": "28e536f8eaae4f7a079b9c4a525e8c249edbe0834d41ba50034da9d53d19915e",
+    "snapshotSha256": "28e536f8eaae4f7a079b9c4a525e8c249edbe0834d41ba50034da9d53d19915e"
+  },
+  {
+    "path": "src/builtin_mqtt_driver_publisher.cpp",
+    "sha256": "076a54db96aec3a293f1706383c9e39e5eebb161c3050bbe709ece87c04c9ef4",
+    "snapshotSha256": "076a54db96aec3a293f1706383c9e39e5eebb161c3050bbe709ece87c04c9ef4"
+  },
+  {
+    "path": "src/mosquitto_mqtt_driver_publisher.cpp",
+    "sha256": "1534391ebdc356cd63ed25e2c401fa7d62a177df454e6dfe8593f27ca41d9670",
+    "snapshotSha256": "1534391ebdc356cd63ed25e2c401fa7d62a177df454e6dfe8593f27ca41d9670"
+  },
+  {
+    "path": "src/ota_service.cpp",
+    "sha256": "d18dcd6974146e94a44c5907e55ff40efa2f0d5c17ab26330e9d78f3e94653ec",
+    "snapshotSha256": "d18dcd6974146e94a44c5907e55ff40efa2f0d5c17ab26330e9d78f3e94653ec"
+  },
+  {
+    "path": "tools/ota_m3_receipt_behavior_test.cpp",
+    "sha256": "670325977ccac6b07b48eb5300e42f899773d0fdbf1dd8ff96bb26d7d7cafda0",
+    "snapshotSha256": "670325977ccac6b07b48eb5300e42f899773d0fdbf1dd8ff96bb26d7d7cafda0"
+  }
+]

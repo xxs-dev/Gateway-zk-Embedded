@@ -1422,6 +1422,8 @@ bool hasHandoffResolution(const std::string& stagingDir, const PendingOtaJob& jo
         if (proof->asObject().values.size() != 5 || tx.size() != 36 || tx.compare(0, 4, "OTA_") != 0 ||
             !std::all_of(tx.begin() + 4, tx.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }) ||
             tx != pendingField(record, "productionTransaction") ||
+            (job.packageType == "config" && health.status == "healthy" &&
+                health.productionTransaction != tx) ||
             !isSafeSha256(pendingField(*proof, "healthSha256")) ||
             pendingField(*proof, "healthRecord") != healthBytes ||
             pendingField(*proof, "status") != health.status || pendingField(*proof, "rollback") != health.rollback ||

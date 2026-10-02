@@ -2161,6 +2161,10 @@ bool parsePublishPacket(
 
 }  // namespace
 
+std::string encodeBuiltinOtaStatusJson(const OtaStatus& status) {
+    return encodeOtaStatusJson(status);
+}
+
 struct BuiltinMqttDriverPublisher::MqttConnectionHandle {
     explicit MqttConnectionHandle(MqttConnection connectionValue)
         : connection(std::move(connectionValue)) {
@@ -2331,7 +2335,7 @@ void BuiltinMqttDriverPublisher::publishOtaStatus(
         return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    publishEventJson("ota_status", topic, encodeOtaStatusJson(status), status.ts);
+    publishEventJson("ota_status", topic, encodeBuiltinOtaStatusJson(status), status.ts);
 }
 
 void BuiltinMqttDriverPublisher::publishJsonMessage(

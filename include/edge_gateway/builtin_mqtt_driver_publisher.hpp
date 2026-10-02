@@ -16,6 +16,8 @@
 
 namespace edge_gateway {
 
+std::string encodeBuiltinOtaStatusJson(const OtaStatus& status);
+
 enum class MqttPublisherMode {
     Bidirectional,
     TxOnly

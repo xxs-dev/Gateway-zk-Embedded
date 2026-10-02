@@ -377,6 +377,10 @@ void* loadSymbol(void* handle, const char* name) {
 
 }  // namespace
 
+std::string encodeMosquittoOtaStatusJson(const OtaStatus& status) {
+    return encodeOtaStatusJson(status);
+}
+
 struct MosquittoMqttDriverPublisher::Impl {
     void* libraryHandle = nullptr;
     mosquitto_lib_init_fn libInit = nullptr;
@@ -501,7 +505,7 @@ void MosquittoMqttDriverPublisher::publishOtaStatus(
     const std::string& topic,
     const OtaStatus& status
 ) {
-    publishJson(topic, encodeOtaStatusJson(status));
+    publishJson(topic, encodeMosquittoOtaStatusJson(status));
 }
 
 void MosquittoMqttDriverPublisher::publishJsonMessage(

@@ -10,6 +10,8 @@
 
 namespace edge_gateway {
 
+std::string encodeMosquittoOtaStatusJson(const OtaStatus& status);
+
 class MosquittoMqttDriverPublisher : public IMqttDriverPublisher {
 public:
     explicit MosquittoMqttDriverPublisher(MqttConfig config);
