@@ -1884,6 +1884,38 @@ void applyMmcliOutput(const std::string& output, CellularStatus* status) {
 
 namespace system_monitor_config_safety {
 
+bool requiresProductionConfigTransaction(const std::string& identityConfigFile) {
+    const std::string suffix = "/config/runtime/device_identity.json";
+    std::vector<std::string> homes;
+    if (identityConfigFile.size() > suffix.size() &&
+        identityConfigFile.compare(identityConfigFile.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        const auto home = identityConfigFile.substr(0, identityConfigFile.size() - suffix.size());
+        if (!home.empty() && home[0] == '/') homes.push_back(home);
+    }
+#ifndef _WIN32
+    char executable[4096];
+    const auto length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    if (length < 0 || length >= static_cast<ssize_t>(sizeof(executable) - 1)) {
+        return true;
+    }
+    executable[length] = '\0';
+    if (std::string(executable).compare(0, 24, "/opt/modbus-gateway/bin/") == 0 &&
+        std::find(homes.begin(), homes.end(), "/opt/modbus-gateway") == homes.end()) {
+        homes.emplace_back("/opt/modbus-gateway");
+    }
+#endif
+    for (const auto& home : homes) {
+        const auto root = home + "/data/runtime-production";
+        struct stat info {};
+#ifdef _WIN32
+        if (_stat(root.c_str(), &info) == 0 || errno != ENOENT) return true;
+#else
+        if (lstat(root.c_str(), &info) == 0 || errno != ENOENT) return true;
+#endif
+    }
+    return false;
+}
+
 namespace {
 
 bool isSecretJsonKey(std::string key) {
@@ -2907,6 +2939,8 @@ void SystemMonitorService::handleConfigPullRequest(const std::string& payload, s
 
 void SystemMonitorService::handleConfigApplyRequest(const std::string& payload, std::int64_t nowMs) {
     std::string requestId = extractJsonStringField(payload, "requestId");
+    bool dryRun = true;
+    FlatJsonReader(payload).tryGetBool("dryRun", &dryRun);
     if (requestId.empty()) {
         requestId = "CFG_APPLY_" + std::to_string(nowMs);
     }
@@ -2929,7 +2963,7 @@ void SystemMonitorService::handleConfigApplyRequest(const std::string& payload, 
         reply << "{\"requestId\":\"" << escapeJson(requestId)
               << "\",\"machineCode\":\"" << escapeJson(machineCode_)
               << "\",\"success\":false"
-              << ",\"dryRun\":true"
+              << ",\"dryRun\":" << (dryRun ? "true" : "false")
               << ",\"appliedFiles\":0"
               << ",\"changedFiles\":0"
               << ",\"message\":\"" << escapeJson(ex.what()) << "\""
@@ -2946,6 +2980,8 @@ void SystemMonitorService::handleConfigFileOperationRequest(
     const std::string& operation
 ) {
     std::string requestId = extractJsonStringField(payload, "requestId");
+    bool dryRun = true;
+    FlatJsonReader(payload).tryGetBool("dryRun", &dryRun);
     if (requestId.empty()) {
         requestId = "CFG_" + operation + "_" + std::to_string(nowMs);
     }
@@ -2963,7 +2999,7 @@ void SystemMonitorService::handleConfigFileOperationRequest(
         reply << "{\"requestId\":\"" << escapeJson(requestId)
               << "\",\"machineCode\":\"" << escapeJson(machineCode_)
               << "\",\"success\":false"
-              << ",\"dryRun\":true"
+              << ",\"dryRun\":" << (dryRun ? "true" : "false")
               << ",\"operation\":\"" << escapeJson(operation)
               << "\",\"path\":\"" << escapeJson(extractJsonStringField(payload, "path"))
               << "\",\"changed\":false"
@@ -3060,6 +3096,21 @@ std::string SystemMonitorService::buildConfigPullReply(
     return reply.str();
 }
 
+bool SystemMonitorService::requiresProductionConfigTransaction() const {
+    std::string identity = monitorConfig_.directMaintenance.identityConfigFile;
+    if (identity.empty()) {
+        const std::string suffix = "/config/runtime/device_identity.json";
+        for (const auto& path : configFiles_) {
+            if (path.size() >= suffix.size() &&
+                path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                identity = path;
+                break;
+            }
+        }
+    }
+    return system_monitor_config_safety::requiresProductionConfigTransaction(identity);
+}
+
 std::string SystemMonitorService::buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const {
     FlatJsonReader json(payload);
     std::string requestId;
@@ -3078,6 +3129,9 @@ std::string SystemMonitorService::buildConfigApplyReply(const std::string& paylo
     }
     if (requestId.empty()) {
         requestId = "CFG_APPLY_" + std::to_string(nowMs);
+    }
+    if (!dryRun && requiresProductionConfigTransaction()) {
+        throw std::runtime_error("production config mutation requires an approved provision transaction");
     }
 
     const auto files = parseConfigApplyFiles(payload);
@@ -3168,6 +3222,9 @@ std::string SystemMonitorService::buildConfigFileOperationReply(
     }
     if (requestId.empty()) {
         requestId = "CFG_" + operation + "_" + std::to_string(nowMs);
+    }
+    if (!dryRun && requiresProductionConfigTransaction()) {
+        throw std::runtime_error("production config mutation requires an approved provision transaction");
     }
     const auto allowedConfigFiles = collectConfigSnapshotFiles(configFiles_);
     if (!isAllowedConfigPath(allowedConfigFiles, path)) {

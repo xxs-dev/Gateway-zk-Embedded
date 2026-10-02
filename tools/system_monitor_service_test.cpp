@@ -300,7 +300,9 @@ int main() {
     );
     failingService.runOnce(1770000000000LL);
 
-    const std::string root = "/tmp/system-monitor-service-test";
+    char privateRoot[] = "/tmp/system-monitor-service-test-XXXXXX";
+    require(::mkdtemp(privateRoot) != nullptr, "private monitor test root creation failed");
+    const std::string root = privateRoot;
     ensureDir(root);
     const std::string small = root + "/small.json";
     const std::string medium = root + "/medium.json";
@@ -444,6 +446,41 @@ int main() {
     logicPublisher->incoming.push_back(logicApplyRequest);
     logicService.runOnce(1770000000600LL);
     require(readFile(runtimeGraph).find("updated-graph") != std::string::npos, "runtime logic graph should be writable through config apply");
+
+    ensureDir(root + "/data");
+    ensureDir(root + "/data/runtime-production");
+    const auto identityPath = runtimeRoot + "/device_identity.json";
+    writeFile(identityPath, "{\"machineCode\":\"GW_TEST\"}\n");
+    SystemMonitorConfig productionConfig;
+    productionConfig.directMaintenance.identityConfigFile = identityPath;
+    auto productionPublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService productionService(productionConfig, mqtt, productionPublisher, "GW_TEST",
+        std::vector<std::string>{runtimeAppConfig, identityPath});
+    const auto originalGraph = readFile(runtimeGraph);
+    MqttIncomingMessage blockedApply = logicApplyRequest;
+    blockedApply.payload = std::string("{\"requestId\":\"PRODUCTION_APPLY\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"files\":[{\"path\":\"") +
+        runtimeGraph + "\",\"encoding\":\"utf8\",\"content\":\"{\\\"graphCode\\\":\\\"unapproved\\\"}\"}]}";
+    productionPublisher->incoming.push_back(blockedApply);
+    productionService.runOnce(1770000000601LL);
+    require(configPullReplyPayload(*productionPublisher, mqtt.configApplyReplyTopic).find(
+                "production config mutation requires an approved provision transaction") != std::string::npos &&
+            configPullReplyPayload(*productionPublisher, mqtt.configApplyReplyTopic).find("\"dryRun\":false") != std::string::npos &&
+            readFile(runtimeGraph) == originalGraph, "production MQTT apply mutated live config before journal approval");
+    MqttIncomingMessage blockedDelete;
+    blockedDelete.type = MqttIncomingType::ConfigDeleteRequest;
+    blockedDelete.payload = std::string("{\"requestId\":\"PRODUCTION_DELETE\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"path\":\"") +
+        runtimeGraph + "\"}";
+    productionPublisher->incoming.push_back(blockedDelete);
+    productionService.runOnce(1770000000602LL);
+    require(configPullReplyPayload(*productionPublisher, mqtt.configDeleteReplyTopic).find(
+                "production config mutation requires an approved provision transaction") != std::string::npos &&
+            readFile(runtimeGraph) == originalGraph, "production MQTT delete mutated live config before journal approval");
+    blockedDelete.type = MqttIncomingType::ConfigRestoreRequest;
+    productionPublisher->incoming.push_back(blockedDelete);
+    productionService.runOnce(1770000000603LL);
+    require(configPullReplyPayload(*productionPublisher, mqtt.configRestoreReplyTopic).find(
+                "production config mutation requires an approved provision transaction") != std::string::npos &&
+            readFile(runtimeGraph) == originalGraph, "production MQTT restore mutated live config before journal approval");
 
     std::vector<std::string> chunkFiles;
     for (int i = 0; i < 4; ++i) {

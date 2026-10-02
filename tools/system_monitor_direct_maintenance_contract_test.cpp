@@ -2,11 +2,15 @@
 #include <cstdlib>
 #include <cerrno>
 #include <chrono>
+#include <algorithm>
+#include <dirent.h>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -283,6 +287,120 @@ void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMain
     require(::rmdir(bin.c_str()) == 0, "private diagnostic command cleanup");
 }
 
+void verifyProductionConfigGate(const edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig& base,
+        const std::string& passwordSha256) {
+    namespace dm = edge_gateway::system_monitor_direct_maintenance;
+    char privateRoot[] = "/tmp/direct-production-config-XXXXXX";
+    require(::mkdtemp(privateRoot) != nullptr, "private direct config root creation failed");
+    const std::string root = privateRoot;
+    const auto write = [](const std::string& path, const std::string& content) {
+        std::ofstream file(path);
+        require(file.is_open(), "private config file creation failed");
+        file << content;
+    };
+    const auto read = [](const std::string& path) {
+        std::ifstream file(path);
+        return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    };
+    const auto entries = [](const std::string& directory) {
+        DIR* dir = ::opendir(directory.c_str());
+        require(dir != nullptr, "private config inventory failed");
+        std::vector<std::string> names;
+        while (auto* entry = ::readdir(dir)) {
+            if (std::string(entry->d_name) != "." && entry->d_name != std::string(".."))
+                names.emplace_back(entry->d_name);
+        }
+        ::closedir(dir);
+        std::sort(names.begin(), names.end());
+        return names;
+    };
+    for (const auto& name : {"ordinary", "production"}) {
+        const auto home = root + "/" + name;
+        const auto runtime = home + "/config/runtime";
+        const auto apps = runtime + "/apps";
+        const auto devices = runtime + "/devices";
+        require(::mkdir(home.c_str(), 0700) == 0 && ::mkdir((home + "/config").c_str(), 0700) == 0 &&
+                ::mkdir(runtime.c_str(), 0700) == 0 && ::mkdir(apps.c_str(), 0700) == 0 &&
+                ::mkdir(devices.c_str(), 0700) == 0 && ::mkdir((home + "/data").c_str(), 0700) == 0,
+                "private direct runtime creation failed");
+        if (std::string(name) == "production")
+            require(::mkdir((home + "/data/runtime-production").c_str(), 0700) == 0,
+                    "private production journal marker creation failed");
+        const auto identity = runtime + "/device_identity.json";
+        const auto app = apps + "/monitor-service.json";
+        const auto device = devices + "/meter_1.json";
+        write(identity, "{\"machineCode\":\"GW_TEST\"}\n");
+        write(app, "{\"runtimeMode\":\"gateway\",\"identityConfigFile\":\"" + identity +
+            "\",\"deviceConfigFiles\":[\"" + device + "\"]}\n");
+        const std::string original = "{\"machineCode\":\"GW_TEST\",\"protocol\":{\"type\":\"modbus_tcp\"},\"meters\":[]}";
+        const std::string changed = "{\"machineCode\":\"GW_TEST\",\"deviceName\":\"changed\",\"protocol\":{\"type\":\"modbus_tcp\"},\"meters\":[]}";
+        write(device, original);
+        auto config = base;
+        config.identityConfigFile = identity;
+        config.appConfigFile = app;
+        config.otaAppConfigFile = app;
+        const auto send = [&](const std::string& route, const std::string& body) {
+            return dm::handleHttpRequest(config, "POST", route, "", "", body, "10.0.0.6");
+        };
+        const auto prefix = std::string("{\"passwordSha256\":\"") + passwordSha256 +
+            "\",\"requestId\":\"CFG_PRIVATE\",\"machineCode\":\"GW_TEST\",";
+        const auto apply = prefix + "\"dryRun\":false,\"files\":[{\"path\":\"" + device +
+            "\",\"encoding\":\"utf8\",\"content\":\"{\\\"machineCode\\\":\\\"GW_TEST\\\",\\\"deviceName\\\":\\\"changed\\\",\\\"protocol\\\":{\\\"type\\\":\\\"modbus_tcp\\\"},\\\"meters\\\":[]}\"}]}";
+        const auto operation = prefix + "\"dryRun\":false,\"path\":\"" + device + "\"}";
+        if (std::string(name) == "ordinary") {
+            const auto applied = send("/api/v1/config/apply", apply);
+            require(startsWith(applied, "HTTP/1.1 200") &&
+                    applied.find("\"success\":true") != std::string::npos && read(device) == changed,
+                    "ordinary direct apply did not write the valid device config");
+            const auto deleted = send("/api/v1/config/delete", operation);
+            require(startsWith(deleted, "HTTP/1.1 200") &&
+                    deleted.find("\"success\":true") != std::string::npos &&
+                    ::access(device.c_str(), F_OK) != 0 && entries(devices).size() == 2,
+                    "ordinary direct apply/delete did not create two recoverable backups");
+            const auto restored = send("/api/v1/config/restore", operation);
+            require(startsWith(restored, "HTTP/1.1 200") &&
+                    restored.find("\"success\":true") != std::string::npos && read(device) == changed,
+                    "ordinary direct restore did not recover the exact backed-up config");
+        } else {
+            const auto backup = device + ".bak.9999999999999";
+            write(backup, changed);
+            const auto before = entries(devices);
+            const auto appBefore = entries(apps);
+            const auto runtimeBefore = entries(runtime);
+            const auto identityBefore = read(identity);
+            const auto appContentBefore = read(app);
+            const auto backupBefore = read(backup);
+            for (const auto& operationRequest : {
+                    std::make_pair("/api/v1/config/apply", apply),
+                    std::make_pair("/api/v1/config/delete", operation),
+                    std::make_pair("/api/v1/config/restore", operation)}) {
+                const auto blocked = send(operationRequest.first, operationRequest.second);
+                require(startsWith(blocked, "HTTP/1.1 400") &&
+                        blocked.find("production config mutation requires an approved provision transaction") != std::string::npos &&
+                        read(device) == original && read(backup) == backupBefore &&
+                        read(identity) == identityBefore && read(app) == appContentBefore &&
+                        entries(devices) == before && entries(apps) == appBefore &&
+                        entries(runtime) == runtimeBefore,
+                        "production direct mutation changed a valid config or backup inventory");
+            }
+            auto dryRun = apply;
+            const auto flag = dryRun.find("\"dryRun\":false");
+            require(flag != std::string::npos, "private dry-run fixture invalid");
+            dryRun.replace(flag, std::string("\"dryRun\":false").size(), "\"dryRun\":true");
+            const auto checked = send("/api/v1/config/apply", dryRun);
+            require(startsWith(checked, "HTTP/1.1 200") &&
+                    checked.find("\"success\":true") != std::string::npos &&
+                    read(device) == original && read(backup) == backupBefore && entries(devices) == before,
+                    "production direct dry-run should validate without writing");
+            const auto snapshot = send("/api/v1/config/snapshot", prefix + "\"scope\":\"config\"}");
+            require(startsWith(snapshot, "HTTP/1.1 200") &&
+                    snapshot.find("\"success\":true") != std::string::npos &&
+                    snapshot.find(device) != std::string::npos,
+                    "production direct read-only snapshot was blocked");
+        }
+    }
+}
+
 void verifyMaintenanceCredential(bool ownerMode) {
     namespace dm = edge_gateway::system_monitor_direct_maintenance;
     const auto root = std::string("/tmp/direct-maintenance-contract-") + std::to_string(::getpid());
@@ -382,6 +500,7 @@ void verifyMaintenanceCredential(bool ownerMode) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     require(asyncFinished, "Direct signed request worker did not finish locally");
+    verifyProductionConfigGate(config, good);
     verifyDirectDiagnostics(config, good, root, ownerMode);
     std::remove(config.otaAppConfigFile.c_str());
     std::remove(config.identityConfigFile.c_str());

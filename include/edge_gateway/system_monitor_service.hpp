@@ -39,6 +39,9 @@ void writeFileAtomically(const std::string& path, const std::string& content, bo
 // Keep only the newest `keep` "<path>.bak.<ts>" backups.
 void pruneBackups(const std::string& path, std::size_t keep);
 constexpr std::size_t kConfigBackupsToKeep = 10;
+// Legacy direct/MQTT writes cannot mutate a journal-owned production runtime.
+// A future provision transaction must own the complete write set instead.
+bool requiresProductionConfigTransaction(const std::string& identityConfigFile);
 
 }  // namespace system_monitor_config_safety
 
@@ -208,6 +211,7 @@ private:
         const std::string& scope
     ) const;
     std::string buildConfigApplyReply(const std::string& payload, std::int64_t nowMs) const;
+    bool requiresProductionConfigTransaction() const;
     std::string buildConfigFileOperationReply(
         const std::string& payload,
         std::int64_t nowMs,

@@ -2230,6 +2230,9 @@ std::string configApplyJson(const SystemMonitorDirectMaintenanceConfig& config, 
     const auto requestedMachineCode = trim(jsonString(body, "machineCode"));
     const auto dryRun = jsonBool(body, "dryRun", true);
     const auto restartServices = jsonBool(body, "restartServices", false);
+    if (!dryRun && edge_gateway::system_monitor_config_safety::requiresProductionConfigTransaction(config.identityConfigFile)) {
+        throw std::runtime_error("production config mutation requires an approved provision transaction");
+    }
     const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
     const auto identity = loadIdentity(config.identityConfigFile);
     const auto machineCode = identity.machineCode.empty() ? appConfig.mqtt.clientId : identity.machineCode;
@@ -2238,7 +2241,6 @@ std::string configApplyJson(const SystemMonitorDirectMaintenanceConfig& config, 
         requestedMachineCode != machineCode) {
         throw std::runtime_error("machineCode mismatch");
     }
-
     const auto files = parseConfigApplyFiles(body);
     bool allSuccess = true;
     int changedFiles = 0;
@@ -2308,6 +2310,9 @@ std::string configFileOperationJson(const SystemMonitorDirectMaintenanceConfig& 
     const auto path = trim(jsonString(body, "path"));
     const auto dryRun = jsonBool(body, "dryRun", true);
     const auto restartServices = jsonBool(body, "restartServices", false);
+    if (!dryRun && edge_gateway::system_monitor_config_safety::requiresProductionConfigTransaction(config.identityConfigFile)) {
+        throw std::runtime_error("production config mutation requires an approved provision transaction");
+    }
     const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
     const auto identity = loadIdentity(config.identityConfigFile);
     const auto machineCode = identity.machineCode.empty() ? appConfig.mqtt.clientId : identity.machineCode;
