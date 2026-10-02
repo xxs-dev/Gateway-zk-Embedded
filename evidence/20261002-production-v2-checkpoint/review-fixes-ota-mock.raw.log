@@ -1,0 +1,10 @@
+test_direct_uninitialized_call_refuses_before_side_effects (tools.ota_manifest_guard_test.OtaFixtureIsolationTest.test_direct_uninitialized_call_refuses_before_side_effects) ... ok
+test_initialized_but_shared_mount_namespace_refuses (tools.ota_manifest_guard_test.OtaFixtureIsolationTest.test_initialized_but_shared_mount_namespace_refuses) ... ok
+test_private_namespace_and_tmpfs_reach_only_stubbed_fixture_boundary (tools.ota_manifest_guard_test.OtaFixtureIsolationTest.test_private_namespace_and_tmpfs_reach_only_stubbed_fixture_boundary) ... ok
+test_private_namespace_with_missing_or_non_tmpfs_mount_refuses (tools.ota_manifest_guard_test.OtaFixtureIsolationTest.test_private_namespace_with_missing_or_non_tmpfs_mount_refuses) ... ok
+test_private_namespace_with_nested_home_or_etc_mount_refuses (tools.ota_manifest_guard_test.OtaFixtureIsolationTest.test_private_namespace_with_nested_home_or_etc_mount_refuses) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.003s
+
+OK

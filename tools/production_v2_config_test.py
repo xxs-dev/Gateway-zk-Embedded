@@ -1,5 +1,6 @@
 """Private-file v2 config write-set and real guard-stage regressions."""
 
+import copy
 import hashlib
 import importlib.util
 import json
@@ -80,6 +81,24 @@ class ProductionV2ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unowned production config directory'):
             self.runtime.config_state(self.tx, self.approval)
 
+    def test_known_empty_directory_with_writable_permissions_is_not_approved(self):
+        known = self.config / 'logic'
+        known.mkdir()
+        known.chmod(0o777)
+        with self.assertRaisesRegex(ValueError, 'unowned production config directory'):
+            self.runtime.config_state(self.tx, self.approval)
+
+    def test_registered_temp_with_extra_permission_is_not_archived(self):
+        temporary = self.runtime.copy_name(self.tx, 'config/runtime/apps/current.json', 'install')
+        temporary.write_bytes(self.new_raw[:3])
+        temporary.chmod(0o744)
+        with self.assertRaisesRegex(ValueError, 'unowned production config staging bytes'):
+            self.runtime.config_state(self.tx, self.approval)
+        with self.assertRaisesRegex(ValueError, 'interrupted copy type/size/mode'):
+            self.runtime.archive_copies(self.tx, self.approval)
+        self.assertTrue(temporary.is_file())
+        self.assertEqual(temporary.stat().st_mode & 0o777, 0o744)
+
     def test_real_guard_preserves_identity_but_defers_full_tree_until_restore(self):
         self.write('apps/current.json', self.new_raw)
         temporary = self.runtime.copy_name(self.tx, 'config/runtime/apps/current.json', 'install')
@@ -116,6 +135,50 @@ class ProductionV2ConfigTest(unittest.TestCase):
         self.assertEqual(self.runtime.config_changes(approval), [])
         approval['format'] = 'runtime-provisioning-v1'
         self.assertEqual(self.runtime.config_changes(approval), [])
+
+    def test_config_write_set_rejects_path_order_presence_mode_and_size_drift(self):
+        def rejects(change, message):
+            approval = copy.deepcopy(self.approval)
+            change(approval)
+            with self.assertRaisesRegex(ValueError, message):
+                self.runtime.config_changes(approval)
+        for path in ('device_identity.json', 'logic/../escape.json',
+                     'logic/nested/escape.json'):
+            with self.subTest(path=path):
+                rejects(lambda a, value=path: a['configWriteSet'][0].update(path=value),
+                        'outside reviewed write set')
+        rejects(lambda a: a['configWriteSet'].append(copy.deepcopy(a['configWriteSet'][0])),
+                'duplicate production config path')
+        rejects(lambda a: a['configWriteSet'][0].update(before=None),
+                'production config presence mismatch')
+        rejects(lambda a: a['configWriteSet'][0]['after'].update(mode=0o666),
+                'production config pin invalid')
+        rejects(lambda a: a['configWriteSet'][0]['after'].update(bytes=5 * 1024 * 1024 + 1),
+                'production config pin invalid')
+
+        def add_second(approval):
+            approval['previous']['configSha256']['apps/second.json'] = 'a' * 64
+            approval['candidate']['configSha256']['apps/second.json'] = 'b' * 64
+            approval['configWriteSet'].insert(0, {
+                'path': 'apps/second.json',
+                'before': {'sha256': 'a' * 64, 'mode': 0o644, 'bytes': 1},
+                'after': {'sha256': 'b' * 64, 'mode': 0o644, 'bytes': 1}})
+        rejects(add_second, 'write set incomplete or unordered')
+
+        def over_total(approval):
+            approval['previous']['configSha256'] = {'device_identity.json':
+                approval['previous']['configSha256']['device_identity.json']}
+            approval['candidate']['configSha256'] = dict(approval['previous']['configSha256'])
+            approval['configWriteSet'] = []
+            for index in range(10):
+                path = 'logic/item_' + str(index) + '.json'
+                approval['previous']['configSha256'][path] = 'a' * 64
+                approval['candidate']['configSha256'][path] = 'b' * 64
+                approval['configWriteSet'].append({
+                    'path': path,
+                    'before': {'sha256': 'a' * 64, 'mode': 0o600, 'bytes': 5 * 1024 * 1024},
+                    'after': {'sha256': 'b' * 64, 'mode': 0o600, 'bytes': 5 * 1024 * 1024}})
+        rejects(over_total, 'write set exceeds bound')
 
 
 if __name__ == '__main__':

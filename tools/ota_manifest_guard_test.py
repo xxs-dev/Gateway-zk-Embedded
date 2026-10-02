@@ -37,12 +37,20 @@ def private_fixture_ready():
     current = os.readlink('/proc/self/ns/mnt')
     if current == ISOLATION_PARENT_NS or current == os.readlink('/proc/1/ns/mnt'):
         return False
+    required = ('/opt', '/run', '/etc')
     mounts = {}
     for line in Path('/proc/self/mountinfo').read_text().splitlines():
         row = line.split()
-        if '-' in row and row[4] in ('/opt', '/run'):
-            mounts[row[4]] = row[row.index('-') + 1]
-    return mounts == {'/opt': 'tmpfs', '/run': 'tmpfs'}
+        if len(row) < 7 or '-' not in row:
+            return False
+        point = row[4]
+        if any(point.startswith(root + '/') for root in required):
+            return False
+        if point in required:
+            if point in mounts:
+                return False
+            mounts[point] = row[row.index('-') + 1]
+    return mounts == {path: 'tmpfs' for path in required}
 
 
 class OtaSyntaxTest(unittest.TestCase):
@@ -86,7 +94,8 @@ class OtaFixtureIsolationTest(unittest.TestCase):
 
     def test_initialized_but_shared_mount_namespace_refuses(self):
         good_mounts = ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
-                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n')
+                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n'
+                       '3 0 0:3 / /etc rw - tmpfs tmpfs rw\n')
         for current, parent, pid1 in (('mnt:[11]', 'mnt:[22]', 'mnt:[11]'),
                                       ('mnt:[22]', 'mnt:[22]', 'mnt:[11]')):
             with self.subTest(current=current, parent=parent, pid1=pid1):
@@ -95,17 +104,32 @@ class OtaFixtureIsolationTest(unittest.TestCase):
     def test_private_namespace_with_missing_or_non_tmpfs_mount_refuses(self):
         for mounts in ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n',
                        '1 0 0:1 / /opt rw - ext4 disk rw\n'
-                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n',
+                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n'
+                       '3 0 0:3 / /etc rw - tmpfs tmpfs rw\n',
                        '1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
-                       '2 0 0:2 / /run rw - ext4 disk rw\n'):
+                       '2 0 0:2 / /run rw - ext4 disk rw\n'
+                       '3 0 0:3 / /etc rw - tmpfs tmpfs rw\n',
+                       '1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
+                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n'
+                       '3 0 0:3 / /etc rw - ext4 disk rw\n'):
             with self.subTest(mounts=mounts):
                 self.assert_isolation_refused('mnt:[22]', 'mnt:[11]', 'mnt:[11]', mounts)
+
+    def test_private_namespace_with_nested_home_or_etc_mount_refuses(self):
+        good = ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
+                '2 0 0:2 / /run rw - tmpfs tmpfs rw\n'
+                '3 0 0:3 / /etc rw - tmpfs tmpfs rw\n')
+        for nested in ('4 1 0:4 / /opt/modbus-gateway rw - ext4 disk rw\n',
+                       '4 3 0:4 / /etc/systemd rw - ext4 disk rw\n'):
+            with self.subTest(nested=nested):
+                self.assert_isolation_refused('mnt:[22]', 'mnt:[11]', 'mnt:[11]', good + nested)
 
     def test_private_namespace_and_tmpfs_reach_only_stubbed_fixture_boundary(self):
         class ReachedFixtureInitialization(Exception):
             pass
         mountinfo = ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
-                     '2 0 0:2 / /run rw - tmpfs tmpfs rw\n')
+                     '2 0 0:2 / /run rw - tmpfs tmpfs rw\n'
+                     '3 0 0:3 / /etc rw - tmpfs tmpfs rw\n')
         def namespace(path):
             return 'mnt:[11]' if path == '/proc/1/ns/mnt' else 'mnt:[22]'
         case = OtaManifestTest('test_missing_manifest_fails_closed')
@@ -125,7 +149,7 @@ class OtaFixtureIsolationTest(unittest.TestCase):
 class OtaManifestTest(unittest.TestCase):
     def setUp(self):
         if not private_fixture_ready():
-            raise RuntimeError('OTA fixture requires verified private mount namespace and tmpfs /opt,/run')
+            raise RuntimeError('OTA fixture requires verified private mount namespace and tmpfs /opt,/run,/etc')
         self.temp = tempfile.TemporaryDirectory(prefix='ota-manifest-test-')
         self.root = Path(self.temp.name)
         self.addCleanup(self.temp.cleanup)
@@ -386,7 +410,7 @@ def main():
             os.readlink('/proc/self/ns/mnt') == os.readlink('/proc/1/ns/mnt')):
         parser.error('private mount namespace required')
     subprocess.run(['mount', '--make-rprivate', '/'], check=True)
-    for path in ('/opt', '/run'):
+    for path in ('/opt', '/run', '/etc'):
         subprocess.run(['mount', '-t', 'tmpfs', '-o', 'mode=755', 'tmpfs', path], check=True)
     ISOLATION_PARENT_NS = args.parent_ns
     EVIDENCE = args.evidence.resolve()
@@ -394,14 +418,14 @@ def main():
     BASELINE = (args.baseline_apply or args.apply).resolve()
     CANDIDATE = args.candidate.resolve() if args.candidate else None
     if not private_fixture_ready():
-        parser.error('private /opt,/run tmpfs mounts required')
+        parser.error('private /opt,/run,/etc tmpfs mounts required')
     EVIDENCE.mkdir(parents=True, exist_ok=False)
     write(EVIDENCE / 'isolation.json', json.dumps({
         'parentMountNamespace': args.parent_ns,
         'mountNamespace': os.readlink('/proc/self/ns/mnt'),
         'mounts': [json.loads(subprocess.check_output(
             ['findmnt', '--json', '--target', path], universal_newlines=True))
-            for path in ('/opt', '/run')],
+            for path in ('/opt', '/run', '/etc')],
         'applySha256': hashlib.sha256(APPLY.read_bytes()).hexdigest(),
         'baselineApplySha256': hashlib.sha256(BASELINE.read_bytes()).hexdigest(),
         'testSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

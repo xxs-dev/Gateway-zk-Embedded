@@ -1,0 +1,9 @@
+875159f011ae0458d54799b66dae5ae284947a48f5703744e588d6b8ca855e56  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\offline-runtime-upgrade.py
+941b96692cf64f6e3a58ce97041ebc20d2f3f84c596e504bd73bcdb9adcb2acb  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\runtime-upgrade-guard.py
+5297e39aaa0b1921cf6c225fa2afbf14122a04e189bf5df92d4af3ef0975d049  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\production_role_policy.py
+946e192e53d54482d0758aac4260575a617f2495b43ad87b4dd1a2f3257465a2  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\system-monitor@.service
+eb6ca219d61ea2c832a1b2e08b1c2b7e7edbde9d3bd1285d040bd4306fb82705  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\gateway-services.service
+afa4383146bec9918f723bf36101c595dd6912e546a517c4fb45056bacb8583f  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\deploy\gateway-ota-recover.service
+48690ae1cbf20b71369239b05e3a298a36a97150b4e24f7730fb158ac282a5fa  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_runtime_baseline_test.py
+24a038fe2dc5707e3e3fc3dd7b0ad5a472b4396f628cc7ecfa599946e0104650  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\production_v2_config_test.py
+35f214a8f673d3bf39a71120b3bc746337be070258a2a4d2e9ff2f6e1ed85d8b  D:\workspace\GatewaySuite-workspaces\GW-20260809-002\edge\realese1.0\tools\ota_manifest_guard_test.py

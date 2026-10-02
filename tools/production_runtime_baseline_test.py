@@ -241,7 +241,7 @@ class ProductionRuntimeTest(unittest.TestCase):
                              candidate=candidate, parentSha256=pointer['sha256'], legacy=None)
         return self.args()
 
-    def v2_code_only_release(self, with_old_logic=True, adopt_first=True):
+    def v2_code_only_release(self, with_old_logic=True, adopt_first=True, with_tls=False):
         if adopt_first:
             self.adopt()
         previous = copy.deepcopy(self.g.production_context(self.home))
@@ -254,6 +254,8 @@ class ProductionRuntimeTest(unittest.TestCase):
                                'systemMonitor': {'enabled': True}}) + '\n')
         if with_old_logic:
             self.write(self.home / 'config/runtime/logic/retired.json', '{"enabled":false}\n')
+        if with_tls:
+            self.write(self.home / 'config/runtime/tls/ca.crt', b'PRIVATE FIXTURE CA V1\n', 0o600)
         for name in ('system-monitor@.service', 'gateway-services.service'):
             self.write(self.path('/etc/systemd/system') / name,
                        (REPO / 'deploy' / name).read_bytes())
@@ -265,7 +267,9 @@ class ProductionRuntimeTest(unittest.TestCase):
                         unitFiles=self.g.production_unit_files(self.units))
         protected = {'machineCode': previous['machineCode'],
                      'identitySha256': previous['configSha256']['device_identity.json'],
-                     'networkSha256': {}, 'tlsSha256': {},
+                     'networkSha256': {},
+                     'tlsSha256': ({'tls/ca.crt': previous['configSha256']['tls/ca.crt']}
+                                   if with_tls else {}),
                      'otaPublicKeySha256': previous['trust']['publicKeySha256'],
                      'monitorShmName': 'live_v11'}
         policy = {'__name__': 'private_v2_policy'}
@@ -313,13 +317,19 @@ class ProductionRuntimeTest(unittest.TestCase):
                          'candidate': candidate, 'legacy': None, 'configWriteSet': []}
         return self.args(), previous
 
-    def v1_to_v2_release(self, legacy_without_parser=False):
+    def v1_to_v2_release(self, legacy_without_parser=False, legacy_tls=False):
         parser_relative = 'bin/production_role_policy.py'
         if legacy_without_parser:
             (self.home / parser_relative).unlink()
             (self.payload / parser_relative).unlink()
             self.previous['files'].pop(parser_relative)
             self.candidate['files'].pop(parser_relative)
+        if legacy_tls:
+            old_tls = self.home / 'config/runtime/tls/ca.crt'
+            self.write(old_tls, b'PRIVATE FIXTURE LEGACY CA\n', 0o600)
+            old_pin = self.m.digest(old_tls)
+            self.previous['configSha256']['tls/ca.crt'] = old_pin
+            self.candidate['configSha256']['tls/ca.crt'] = old_pin
         for name in ('system-monitor@.service', 'gateway-services.service'):
             self.write(self.path('/etc/systemd/system') / name, (REPO / 'deploy' / name).read_bytes())
         self.previous['unitFiles'] = self.g.production_unit_files(self.units)
@@ -341,6 +351,9 @@ class ProductionRuntimeTest(unittest.TestCase):
         staged = self.payload / 'config/runtime'
         self.write(staged / 'device_identity.json',
                    (self.home / 'config/runtime/device_identity.json').read_bytes())
+        if legacy_tls:
+            self.write(staged / 'tls/ca.crt',
+                       (self.home / 'config/runtime/tls/ca.crt').read_bytes(), 0o600)
         identity = '/opt/modbus-gateway/config/runtime/device_identity.json'
         self.write(staged / 'apps/mqtt-service.json',
                    json.dumps({'identityConfigFile': identity}) + '\n')
@@ -350,7 +363,9 @@ class ProductionRuntimeTest(unittest.TestCase):
                                'systemMonitor': {'enabled': True}}) + '\n')
         protected = {'machineCode': previous['machineCode'],
                      'identitySha256': previous['configSha256']['device_identity.json'],
-                     'networkSha256': {}, 'tlsSha256': {},
+                     'networkSha256': {},
+                     'tlsSha256': ({'tls/ca.crt': previous['configSha256']['tls/ca.crt']}
+                                   if legacy_tls else {}),
                      'otaPublicKeySha256': previous['trust']['publicKeySha256'],
                      'monitorShmName': 'live_v11'}
         parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
@@ -388,6 +403,7 @@ class ProductionRuntimeTest(unittest.TestCase):
                          'gatewayHome': str(self.home), 'machineCode': previous['machineCode'],
                          'parentSha256': candidate['parentSha256'], 'previous': previous,
                          'candidate': candidate, 'legacy': None, 'configWriteSet': changes}
+        self.payload.chmod(0o700)
         return self.args(), previous, candidate
 
     def test_v1_to_v2_formal_install_promotes_configured_authority(self):
@@ -447,6 +463,43 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertEqual(self.g.production_files(self.home), previous['files'])
         self.assertEqual(self.g.production_context(self.home), previous)
 
+    def test_v1_to_v2_ordinary_approval_preserves_legacy_tls_pin(self):
+        _, previous, candidate = self.v1_to_v2_release(legacy_tls=True)
+        staged = self.payload / 'config/runtime'
+        tls = staged / 'tls/ca.crt'
+        self.write(tls, b'PRIVATE FIXTURE UNAUTHORIZED CA\n', 0o600)
+        candidate['configSha256'] = self.m.tree_hashes(staged)
+        protected = copy.deepcopy(candidate['roleAuthority']['resolved']['protected'])
+        protected['tlsSha256'] = {'tls/ca.crt': candidate['configSha256']['tls/ca.crt']}
+        policy = {'__name__': 'private_v2_policy'}
+        parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, self.path('/etc/systemd/system'), protected,
+            self.path('/etc/modbus-gateway/ota.pub'))
+        self.approval['configWriteSet'].append({
+            'path': 'tls/ca.crt',
+            'before': self.g.production_pin(self.home / 'config/runtime/tls/ca.crt'),
+            'after': self.g.production_pin(tls)})
+        with self.assertRaisesRegex(ValueError, 'cannot rotate network/TLS trust'):
+            with self.m.production_lock():
+                self.m.production_install(self.args())
+        self.assertFalse((self.runtime.root / 'transactions/V1_TO_V2').exists())
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+    def test_v2_envelope_rejects_adoption_and_v1_candidate_before_intent(self):
+        args, previous, _ = self.v1_to_v2_release()
+        with self.assertRaisesRegex(ValueError, 'invalid/expired production approval'):
+            with self.m.production_lock():
+                self.m.production_adopt(args)
+        self.assertFalse((self.runtime.root / 'transactions/V1_TO_V2').exists())
+        self.approval['candidate']['format'] = 'runtime-baseline-v1'
+        with self.assertRaisesRegex(ValueError, 'version mix invalid'):
+            with self.m.production_lock():
+                self.m.production_install(self.args())
+        self.assertFalse((self.runtime.root / 'transactions/V1_TO_V2').exists())
+        self.assertEqual(self.g.production_context(self.home), previous)
+
     def test_v2_code_only_changed_parser_recovers_previous_pinned_bytes(self):
         args, previous = self.v2_code_only_release()
         old_parser = (self.home / 'bin/production_role_policy.py').read_bytes()
@@ -482,8 +535,9 @@ class ProductionRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'required/optional SHM mismatch'):
             self.runtime.health(previous)
 
-    def v2_config_release(self, without_logic_parent=False):
-        _, previous = self.v2_code_only_release(with_old_logic=not without_logic_parent)
+    def v2_config_release(self, without_logic_parent=False, with_tls=False):
+        _, previous = self.v2_code_only_release(with_old_logic=not without_logic_parent,
+                                                with_tls=with_tls)
         staged = self.payload / 'config/runtime'
         for source in (self.home / 'config/runtime').rglob('*'):
             if source.is_file():
@@ -518,7 +572,181 @@ class ProductionRuntimeTest(unittest.TestCase):
                             'after': self.g.production_pin(new) if new.exists() else None})
         self.approval.update(transaction='V2_CONFIG', candidate=candidate,
                              configWriteSet=changes)
+        self.payload.chmod(0o700)
         return self.args(), previous
+
+    def assert_v2_tls_change_refused(self, with_tls):
+        _, previous = self.v2_config_release(with_tls=with_tls)
+        staged = self.payload / 'config/runtime'
+        tls = staged / 'tls/ca.crt'
+        self.write(tls, b'PRIVATE FIXTURE CA V2\n', 0o600)
+        candidate = self.approval['candidate']
+        candidate['configSha256'] = self.m.tree_hashes(staged)
+        protected = copy.deepcopy(previous['roleAuthority']['resolved']['protected'])
+        protected['tlsSha256'] = {'tls/ca.crt': candidate['configSha256']['tls/ca.crt']}
+        policy = {'__name__': 'private_v2_policy'}
+        parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, self.path('/etc/systemd/system'), protected,
+            self.path('/etc/modbus-gateway/ota.pub'))
+        self.approval['configWriteSet'].append({
+            'path': 'tls/ca.crt',
+            'before': self.g.production_pin(self.home / 'config/runtime/tls/ca.crt')
+                      if with_tls else None,
+            'after': self.g.production_pin(tls)})
+        args = self.args()
+        with self.assertRaisesRegex(ValueError, 'cannot rotate network/TLS trust'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        self.assertFalse((self.runtime.root / 'transactions/V2_CONFIG').exists())
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+    def test_v2_ordinary_approval_rejects_self_consistent_tls_addition(self):
+        self.assert_v2_tls_change_refused(with_tls=False)
+
+    def test_v2_ordinary_approval_rejects_self_consistent_tls_rotation(self):
+        self.assert_v2_tls_change_refused(with_tls=True)
+
+    def test_v2_config_payload_private_root_and_unchanged_tls_mode(self):
+        args, previous = self.v2_config_release(with_tls=True)
+        self.payload.chmod(0o755)
+        with self.assertRaisesRegex(ValueError, 'payload root must be private'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        self.payload.chmod(0o700)
+        (self.payload / 'config/runtime/tls/ca.crt').chmod(0o644)
+        with self.assertRaisesRegex(ValueError, 'unchanged production config payload metadata drift'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        self.assertFalse((self.runtime.root / 'transactions/V2_CONFIG').exists())
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+    def v2_app_only_after_empty_logic(self, transaction):
+        previous = copy.deepcopy(self.g.production_context(self.home))
+        self.assertTrue((self.home / 'config/runtime/logic').is_dir())
+        self.assertFalse(any((self.home / 'config/runtime/logic').iterdir()))
+        staged = self.payload / 'config/runtime'
+        stale = staged / 'logic/new.json'
+        if stale.exists():
+            stale.unlink()
+        live = self.home / 'config/runtime/apps/monitor-service.json'
+        value = json.loads(live.read_text())
+        app = staged / 'apps/monitor-service.json'
+        self.write(app, json.dumps(value, sort_keys=True, indent=2) + '\n')
+        self.assertNotEqual(app.read_bytes(), live.read_bytes())
+        candidate = copy.deepcopy(previous)
+        candidate.update(baselineId=transaction, generation=previous['generation'] + 1,
+                         parentSha256=self.g.production_json(self.runtime.root / 'current.json')['sha256'],
+                         release='v2-app-only', files=self.g.production_files(self.payload),
+                         configSha256=self.m.tree_hashes(staged))
+        policy = {'__name__': 'private_v2_policy'}
+        parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, self.path('/etc/systemd/system'),
+            previous['roleAuthority']['resolved']['protected'],
+            self.path('/etc/modbus-gateway/ota.pub'))
+        self.approval.update(transaction=transaction, previous=previous,
+                             parentSha256=candidate['parentSha256'], candidate=candidate,
+                             configWriteSet=[{'path': 'apps/monitor-service.json',
+                                              'before': self.g.production_pin(live),
+                                              'after': self.g.production_pin(app)}])
+        return self.args(), previous
+
+    def test_v2_empty_logic_after_completed_deletion_allows_next_app_recovery(self):
+        args, _ = self.v2_config_release()
+        staged = self.payload / 'config/runtime'
+        (staged / 'logic/new.json').unlink()
+        candidate = self.approval['candidate']
+        candidate['configSha256'] = self.m.tree_hashes(staged)
+        policy = {'__name__': 'private_v2_policy'}
+        parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, self.path('/etc/systemd/system'),
+            self.approval['previous']['roleAuthority']['resolved']['protected'],
+            self.path('/etc/modbus-gateway/ota.pub'))
+        self.approval['configWriteSet'] = [row for row in self.approval['configWriteSet']
+                                            if row['path'] != 'logic/new.json']
+        with self.m.production_lock():
+            self.m.production_install(self.args())
+        second, previous = self.v2_app_only_after_empty_logic('V2_AFTER_DELETE')
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock():
+                self.m.production_install(second)
+        self.fail_start = False
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(
+                self.runtime.root / 'transactions/V2_AFTER_DELETE',
+                second.approval_sha256), 'RECOVERED')
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+    def test_v2_empty_logic_after_failed_addition_allows_next_app_recovery(self):
+        args, _ = self.v2_config_release(without_logic_parent=True)
+        root = self.home / 'config/runtime'
+        sync = self.m.sync_dir
+        fired = []
+        def fail_new_parent(path):
+            if path == root and (root / 'logic').is_dir() and not fired:
+                fired.append(path)
+                raise OSError('injected after approved directory creation')
+            return sync(path)
+        with mock.patch.object(self.m, 'sync_dir', fail_new_parent):
+            with self.assertRaisesRegex(OSError, 'approved directory creation'):
+                with self.m.production_lock():
+                    self.m.production_install(args)
+        self.assertEqual(fired, [root])
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(
+                self.runtime.root / 'transactions/V2_CONFIG', args.approval_sha256), 'RECOVERED')
+        second, previous = self.v2_app_only_after_empty_logic('V2_AFTER_ABORT')
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock():
+                self.m.production_install(second)
+        self.fail_start = False
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(
+                self.runtime.root / 'transactions/V2_AFTER_ABORT',
+                second.approval_sha256), 'RECOVERED')
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+    def test_v2_strict_umask_interrupted_config_copy_recovers_owned_temp(self):
+        args, previous = self.v2_config_release()
+        temp = self.runtime.copy_name(
+            self.runtime.root / 'transactions/V2_CONFIG',
+            'config/runtime/apps/monitor-service.json', 'install')
+        original = os.fchmod
+        fired = []
+        def fail_before_mode(fd, mode):
+            if os.readlink('/proc/self/fd/' + str(fd)) == str(temp) and not fired:
+                fired.append(mode)
+                raise OSError('injected before config staging chmod')
+            return original(fd, mode)
+        saved_umask = os.umask(0o077)
+        try:
+            with mock.patch.object(self.m.os, 'fchmod', side_effect=fail_before_mode):
+                with self.assertRaisesRegex(OSError, 'config staging chmod'):
+                    with self.m.production_lock():
+                        self.m.production_install(args)
+        finally:
+            os.umask(saved_umask)
+        self.assertEqual(fired, [0o644])
+        self.assertEqual(temp.stat().st_mode & 0o777, 0o600)
+        tx = self.runtime.root / 'transactions/V2_CONFIG'
+        previous_files = sorted(previous['files'].items())
+        for index, (_, pin) in enumerate(previous_files):
+            self.assertEqual(self.g.production_pin(tx / 'files' / str(index)), pin)
+        for unit, path in previous['gates'].items():
+            self.assertEqual(self.g.production_pin(Path(path)),
+                             self.approval['candidate']['unitFiles'][path], unit)
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(
+                tx, args.approval_sha256), 'RECOVERED')
+        self.assertFalse(temp.exists())
+        self.assertEqual(self.g.production_context(self.home), previous)
 
     def test_v2_config_add_delete_replace_install_and_promotion(self):
         args, _ = self.v2_config_release()

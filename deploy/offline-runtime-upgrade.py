@@ -192,6 +192,7 @@ def write_new(path, data, mode=0o600):
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     with os.fdopen(fd, 'wb') as stream:
         stream.write(data)
+        os.fchmod(stream.fileno(), mode)
         stream.flush()
         os.fsync(stream.fileno())
     sync_dir(path.parent)
@@ -2024,6 +2025,11 @@ def production_copy(source, destination, pin, new=False, temporary=None):
     sync_dir(destination.parent)
 
 
+def owned_copy_fragment(actual, approved):
+    return (actual['bytes'] <= approved['bytes'] and
+            actual['mode'] & ~approved['mode'] == 0)
+
+
 def production_owner_proof():
     lock = regular(Path('/run/gateway-offline-runtime.lock')).stat()
     pid = str(os.getpid())
@@ -2119,7 +2125,10 @@ class ProductionRuntime:
         previous = approval['previous']['configSha256']
         candidate = approval['candidate']['configSha256']
         root = self.home / 'config/runtime'
-        permitted_dirs = set()
+        # Approved writes may leave an empty first-level directory behind after
+        # deletion or recovery. These are fixed config locations, not a scan of
+        # arbitrary historical directories.
+        permitted_dirs = {'apps', 'devices', 'logic', 'tls', 'network'}
         for relative in set(previous) | set(candidate):
             parts = relative.split('/')
             permitted_dirs.update('/'.join(parts[:index]) for index in range(1, len(parts)))
@@ -2135,14 +2144,14 @@ class ProductionRuntime:
             require(not path.is_symlink() and (path.is_dir() or path.is_file()),
                     'unowned production config entry')
             if path.is_dir():
-                require(str(path.relative_to(root)).replace('\\', '/') in permitted_dirs,
+                require(str(path.relative_to(root)).replace('\\', '/') in permitted_dirs and
+                        path.stat().st_uid == 0 and not path.stat().st_mode & 0o022,
                         'unowned production config directory')
             if path.is_file():
                 relative = str(path.relative_to(root)).replace('\\', '/')
                 pin = guard.production_pin(path)
                 if relative in owned:
-                    require(pin['mode'] == owned[relative]['mode'] and
-                            pin['bytes'] <= owned[relative]['bytes'],
+                    require(owned_copy_fragment(pin, owned[relative]),
                             'unowned production config staging bytes')
                 else:
                     actual[relative] = pin
@@ -2412,6 +2421,25 @@ class ProductionRuntime:
                 'production approval/baseline version mix invalid')
         changes = self.config_changes(approval)
         guard.production_schema(candidate, self.home)
+        old_network = {path: pin for path, pin in previous['configSha256'].items()
+                       if path.startswith('network/')}
+        old_tls = {path: pin for path, pin in previous['configSha256'].items()
+                   if path.startswith('tls/')}
+        if version == 'runtime-provisioning-v2':
+            protected = candidate['roleAuthority']['resolved'].get('protected')
+            require(isinstance(protected, dict) and
+                    {path: pin for path, pin in candidate['configSha256'].items()
+                     if path.startswith('network/')} == old_network and
+                    {path: pin for path, pin in candidate['configSha256'].items()
+                     if path.startswith('tls/')} == old_tls and
+                    protected.get('networkSha256') == old_network and
+                    protected.get('tlsSha256') == old_tls,
+                    'ordinary production approval cannot rotate network/TLS trust')
+            if previous['format'] == 'runtime-baseline-v2':
+                old_protected = previous['roleAuthority']['resolved']['protected']
+                require(old_protected['networkSha256'] == old_network and
+                        old_protected['tlsSha256'] == old_tls,
+                        'previous configured network/TLS authority drift')
         require(candidate['machineCode'] == approval['machineCode'] and
                 candidate['parentSha256'] == approval['parentSha256'], 'production candidate parent/identity mismatch')
         require(os.uname().machine == candidate['architecture'], 'production architecture mismatch')
@@ -2467,6 +2495,10 @@ class ProductionRuntime:
             require(digest(Path(__file__).with_name(name)) == pin['sha256'], 'production paired helper not staged: ' + name)
         payload = args.payload.absolute()
         require(not payload.is_symlink() and payload.is_dir(), 'production payload directory required')
+        if changes:
+            meta = payload.stat()
+            require(meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o700,
+                    'production config payload root must be private')
         require(not any(p.is_symlink() for p in payload.rglob('*')), 'symlink production payload')
         actual = {str(p.relative_to(payload)).replace('\\', '/') for p in payload.rglob('*') if not p.is_dir()}
         expected = set(candidate['files'])
@@ -2479,10 +2511,15 @@ class ProductionRuntime:
         if version == 'runtime-provisioning-v2':
             staged = payload / 'config/runtime' if changes else self.home / 'config/runtime'
             if changes:
+                changed_paths = {row['path'] for row in changes}
                 for path, pin in candidate['configSha256'].items():
                     source = staged / path
-                    require(guard.production_pin(source)['sha256'] == pin,
+                    source_pin = guard.production_pin(source)
+                    require(source_pin['sha256'] == pin,
                             'staged production config pin mismatch: ' + path)
+                    if path not in changed_paths:
+                        require(source_pin == guard.production_pin(self.home / 'config/runtime' / path),
+                                'unchanged production config payload metadata drift: ' + path)
                 for row in changes:
                     if row['after'] is not None:
                         require(guard.production_pin(staged / row['path']) == row['after'],
@@ -2578,7 +2615,7 @@ class ProductionRuntime:
             if not temp.exists() and not temp.is_symlink():
                 continue
             pin = guard.production_pin(temp)
-            require(pin['bytes'] <= owner['pin']['bytes'] and pin['mode'] == owner['pin']['mode'],
+            require(owned_copy_fragment(pin, owner['pin']),
                     'interrupted copy type/size/mode differs from owned intent')
             retained = transaction / 'interrupted-copies' / (str(index) + '-' + uuid.uuid4().hex)
             retained.parent.mkdir(mode=0o700, exist_ok=True)
