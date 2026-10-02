@@ -20,6 +20,19 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 
 
+class ProductionCandidateDigestTest(unittest.TestCase):
+    def test_python_sorted_json_bytes_match_platform_canonical_fixture(self):
+        candidate = json.loads((REPO / 'tools/fixtures/production-candidate-digest.json').read_text(encoding='utf-8'))
+        expected = ('{"a": true, "bounds": "\\u001f ~\\u007f\\u0080", '
+                    '"emoji": "\\ud83d\\ude00", "maxUnsigned": 18446744073709551615, '
+                    '"nil": null, "z": [1, {"min": -9223372036854775808, "n": 9223372036854775807, '
+                    '"q": "\\u4e2d\\u6587\\n\\"\\\\"}], "\\u4e2dkey": 2, "\\ud83d\\ude00key": 3}\n').encode('ascii')
+        encoded = (json.dumps(candidate, sort_keys=True) + '\n').encode()
+        self.assertEqual(encoded, expected)
+        self.assertEqual(hashlib.sha256(encoded).hexdigest(),
+                         'e06fa0f8261605103a4c2a72bc51675d4c40515806997ea96e5430b5841d8f37')
+
+
 def load():
     spec = importlib.util.spec_from_file_location('production_offline_test', REPO / 'deploy/offline-runtime-upgrade.py')
     module = importlib.util.module_from_spec(spec)
@@ -27,7 +40,8 @@ def load():
     return module
 
 
-@unittest.skipUnless(os.geteuid() == 0, 'root-owned private lifecycle fixture required')
+@unittest.skipUnless(getattr(os, 'geteuid', lambda: -1)() == 0,
+                     'root-owned private lifecycle fixture required')
 class ProductionRuntimeTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='production-runtime-')
@@ -242,7 +256,8 @@ class ProductionRuntimeTest(unittest.TestCase):
                              candidate=candidate, parentSha256=pointer['sha256'], legacy=None)
         return self.args()
 
-    def v2_code_only_release(self, with_old_logic=True, adopt_first=True, with_tls=False):
+    def v2_code_only_release(self, with_old_logic=True, adopt_first=True, with_tls=False,
+                             tls_bytes=b'PRIVATE FIXTURE CA V1\n'):
         if adopt_first:
             self.adopt()
         previous = copy.deepcopy(self.g.production_context(self.home))
@@ -256,7 +271,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         if with_old_logic:
             self.write(self.home / 'config/runtime/logic/retired.json', '{"enabled":false}\n')
         if with_tls:
-            self.write(self.home / 'config/runtime/tls/ca.crt', b'PRIVATE FIXTURE CA V1\n', 0o600)
+            self.write(self.home / 'config/runtime/tls/ca.crt', tls_bytes, 0o600)
         for name in ('system-monitor@.service', 'gateway-services.service'):
             self.write(self.path('/etc/systemd/system') / name,
                        (REPO / 'deploy' / name).read_bytes())
@@ -589,9 +604,11 @@ class ProductionRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'required/optional SHM mismatch'):
             self.runtime.health(previous)
 
-    def v2_config_release(self, without_logic_parent=False, with_tls=False, adopt_first=True):
+    def v2_config_release(self, without_logic_parent=False, with_tls=False, adopt_first=True,
+                          tls_bytes=b'PRIVATE FIXTURE CA V1\n'):
         _, previous = self.v2_code_only_release(with_old_logic=not without_logic_parent,
-                                                with_tls=with_tls, adopt_first=adopt_first)
+                                                with_tls=with_tls, adopt_first=adopt_first,
+                                                tls_bytes=tls_bytes)
         staged = self.payload / 'config/runtime'
         for source in (self.home / 'config/runtime').rglob('*'):
             if source.is_file():
@@ -1484,17 +1501,40 @@ class ProductionRuntimeTest(unittest.TestCase):
         entry.systemctl = self.systemctl
         return entry
 
-    def signed_config_owner_fixture(self, release_override=None):
-        self.v2_config_release()
+    def signed_config_owner_fixture(self, release_override=None, extra_sensitive=False,
+                                    delete_only=False, candidate_id=None):
+        self.v2_config_release(with_tls=True,
+                               tls_bytes=b'SYNTHETIC_PRIVATE_KEY_SENTINEL_DO_NOT_USE\n')
         previous = self.approval['previous']
         candidate = self.approval['candidate']
+        if candidate_id is not None:
+            candidate['baselineId'] = previous['baselineId'] if candidate_id == 'current' else candidate_id
+        staged = self.payload / 'config/runtime'
+        if delete_only:
+            live_app = self.home / 'config/runtime/apps/monitor-service.json'
+            self.write(staged / 'apps/monitor-service.json', live_app.read_bytes(),
+                       live_app.stat().st_mode & 0o777)
+            (staged / 'logic/new.json').unlink()
+            candidate['configSha256'] = self.m.tree_hashes(staged)
+            policy = {'__name__': 'private_v2_policy'}
+            parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+            exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+            candidate['roleAuthority']['resolved'] = policy['resolve'](
+                staged, self.path('/etc/systemd/system'),
+                previous['roleAuthority']['resolved']['protected'],
+                self.path('/etc/modbus-gateway/ota.pub'))
+            self.approval['configWriteSet'] = [row for row in self.approval['configWriteSet']
+                                               if row['path'] == 'logic/retired.json']
         for path in previous['files']:
             source = self.home / path
             self.write(self.payload / path, source.read_bytes(), source.stat().st_mode & 0o777)
         candidate['files'] = copy.deepcopy(previous['files'])
-        staged = self.payload / 'config/runtime'
         files = []
-        for relative, digest in sorted(candidate['configSha256'].items()):
+        for row in self.approval['configWriteSet']:
+            if row['after'] is None:
+                continue
+            relative = row['path']
+            digest = row['after']['sha256']
             source = staged / relative
             files.append({'path': 'config/runtime/' + relative,
                           'target': str(self.home / 'config/runtime' / relative),
@@ -1516,6 +1556,8 @@ class ProductionRuntimeTest(unittest.TestCase):
                 for item in files:
                     archive.add(staged / item['path'][len('config/runtime/'):],
                                 arcname=item['path'], recursive=False)
+                if extra_sensitive:
+                    archive.add(staged / 'tls/ca.crt', arcname='config/runtime/tls/ca.crt', recursive=False)
             return manifest['version'], 'config'
         owner = self.owner_fixture(prepared=True, real_entry=True, ota_binary=False,
                                    artifact_builder=artifact_builder)
@@ -1557,6 +1599,15 @@ class ProductionRuntimeTest(unittest.TestCase):
 
     def test_v2_signed_config_real_owner_add_delete_replace_and_finish(self):
         owner, previous, candidate = self.signed_config_owner_fixture()
+        fresh_record = self.runtime.root / 'baselines' / (candidate['baselineId'] + '.json')
+        self.assertFalse(fresh_record.exists())
+        with tarfile.open(self.root / 'release.tar.gz', 'r:gz') as archive:
+            members = archive.getmembers()
+            self.assertEqual({item.name for item in members},
+                             {'manifest.json', 'config/runtime/apps/monitor-service.json',
+                              'config/runtime/logic/new.json'})
+            self.assertNotIn(b'SYNTHETIC_PRIVATE_KEY_SENTINEL_DO_NOT_USE',
+                             b''.join(archive.extractfile(item).read() for item in members))
         entry = self.real_owner_entry(owner)
         before_program = (self.home / 'bin/SystemMonitor').read_bytes()
         with owner.lease():
@@ -1570,6 +1621,64 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertEqual(result['phase'], 'OWNER_FINISHED')
         self.assertTrue(result['runtimeMayChange'])
         self.assertEqual(result['completionProof']['status'], 'healthy')
+        self.assertTrue(fresh_record.is_file())
+        health = self.g.production_json(owner.root / ('health_' + owner.job + '.txt'))
+        transaction_id = 'OTA_' + hashlib.sha256((owner.job + owner.token).encode()).hexdigest()[:32]
+        state = self.g.production_json(self.runtime.root / 'transactions' / transaction_id / 'state.json')
+        self.assertEqual(health['productionTransaction'], transaction_id)
+        self.assertEqual(health['productionCandidateSha256'], state['candidateSha256'])
+        self.assertEqual(result['completionProof']['healthSha256'],
+                         self.m.digest(owner.root / ('health_' + owner.job + '.txt')))
+        with self.assertRaisesRegex(ValueError, 'original job/token changed'):
+            entry.production_ota_finish(owner, 'OTA_' + '0' * 32, 'healthy', 'none')
+        terminal_bytes = (owner.root / ('health_' + owner.job + '.txt')).read_bytes()
+        transaction_health = self.runtime.root / 'transactions' / transaction_id / 'health.json'
+        changed_health = self.g.production_json(transaction_health)
+        changed_health['status'] = 'failed'
+        self.write(transaction_health, json.dumps(changed_health, sort_keys=True) + '\n', 0o600)
+        with self.assertRaisesRegex(ValueError, 'candidate/health not committed'):
+            entry.production_ota_finish(owner, transaction_id, 'healthy', 'none')
+        self.assertEqual((owner.root / ('health_' + owner.job + '.txt')).read_bytes(), terminal_bytes)
+
+    def test_v2_signed_config_rejects_occupied_baseline_ids_before_intent(self):
+        for collision in ('current', 'historical', 'symlink'):
+            with self.subTest(collision=collision):
+                child = ProductionRuntimeTest('test_production_entry_exists_without_changing_legacy_actions')
+                child.setUp()
+                try:
+                    candidate_id = ('HISTORICAL_COLLISION' if collision == 'historical' else
+                                    'SYMLINK_COLLISION' if collision == 'symlink' else 'current')
+                    owner, previous, _ = child.signed_config_owner_fixture(
+                        candidate_id=candidate_id)
+                    occupied_id = previous['baselineId'] if collision == 'current' else candidate_id
+                    record = child.runtime.root / 'baselines' / (occupied_id + '.json')
+                    if collision == 'historical':
+                        child.write(record, json.dumps({**previous, 'baselineId': candidate_id}), 0o444)
+                    if collision == 'symlink':
+                        record.symlink_to(child.runtime.root / 'baselines/ABSENT.json')
+                    original_record = record.read_bytes() if collision != 'symlink' else None
+                    original_config = child.m.tree_hashes(child.home / 'config/runtime')
+                    calls = list(child.calls)
+                    entry = child.real_owner_entry(owner)
+                    with self.assertRaisesRegex(ValueError, 'candidate baseline ID already occupied'):
+                        with owner.lease():
+                            entry.production_ota_owner(owner, owner.read())
+                    if collision == 'symlink':
+                        self.assertTrue(record.is_symlink())
+                    else:
+                        self.assertEqual(record.read_bytes(), original_record)
+                    self.assertEqual(child.m.tree_hashes(child.home / 'config/runtime'), original_config)
+                    self.assertEqual(child.g.production_context(child.home), previous)
+                    for call in child.calls[len(calls):]:
+                        action = call[1] if call[0] == 'systemctl' and len(call) > 1 else call[0]
+                        self.assertNotIn(action, ('stop', 'start', 'daemon-reload'))
+                    self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+                    self.assertFalse(owner.read()['runtimeMayChange'])
+                    self.assertFalse((child.runtime.root / 'pending.json').exists())
+                    self.assertFalse((child.runtime.root / 'transactions' / ('OTA_' +
+                        hashlib.sha256((owner.job + owner.token).encode()).hexdigest()[:32])).exists())
+                finally:
+                    child.doCleanups()
 
     def test_v2_signed_config_rejects_candidate_release_before_payload_copy(self):
         owner, previous, _ = self.signed_config_owner_fixture(release_override='different-release')
@@ -1598,6 +1707,46 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse((owner.root / ('runtime-payload-' + owner.job) / 'payload').exists())
         self.assertFalse((self.runtime.root / 'pending.json').exists())
         self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+
+    def test_v2_signed_config_rejects_extra_unchanged_private_member(self):
+        owner, previous, _ = self.signed_config_owner_fixture(extra_sensitive=True)
+        entry = self.real_owner_entry(owner)
+        before = self.m.tree_hashes(self.home / 'config/runtime')
+        with self.assertRaisesRegex(ValueError, 'archive inventory mismatch'):
+            with owner.lease():
+                entry.production_ota_owner(owner, owner.read())
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), before)
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+
+    def test_v2_signed_config_delete_only_manifest_uses_private_live_payload(self):
+        owner, previous, candidate = self.signed_config_owner_fixture(delete_only=True)
+        with tarfile.open(self.root / 'release.tar.gz', 'r:gz') as archive:
+            self.assertEqual([item.name for item in archive.getmembers()], ['manifest.json'])
+            self.assertNotIn(b'SYNTHETIC_PRIVATE_KEY_SENTINEL_DO_NOT_USE',
+                             archive.extractfile('manifest.json').read())
+        entry = self.real_owner_entry(owner)
+        with owner.lease():
+            entry.production_ota_owner(owner, owner.read())
+        self.assertEqual(self.g.production_context(self.home), candidate)
+        self.assertFalse((self.home / 'config/runtime/logic/retired.json').exists())
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), candidate['configSha256'])
+        self.assertEqual(owner.read()['completionProof']['status'], 'healthy')
+
+    def test_legacy_ota_guard_rejects_production_v2_before_file_admission(self):
+        (self.home / 'data/runtime-upgrade-stop').unlink()
+        source = self.root / 'legacy-config.json'
+        self.write(source, b'{"enabled":true}\n')
+        manifest = self.root / 'legacy-manifest.json'
+        ordinary = {'files': [{'path': source.name,
+                               'target': str(self.home / 'config/runtime/apps/legacy.json')}]}
+        self.write(manifest, json.dumps(ordinary))
+        self.g.ota(manifest)
+        self.write(manifest, json.dumps({**ordinary, 'productionV2': {'candidate': {}}}))
+        with self.assertRaisesRegex(ValueError, 'productionV2 requires the signed production owner'):
+            self.g.ota(manifest)
+        self.assertFalse((self.home / 'config/runtime/apps/legacy.json').exists())
 
     def test_v2_signed_config_owner_rejection_finishes_original_job_unchanged(self):
         for reason in ('release', 'capacity'):

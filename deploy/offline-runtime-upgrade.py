@@ -2433,6 +2433,9 @@ class ProductionRuntime:
                 'production approval/baseline version mix invalid')
         changes = self.config_changes(approval)
         guard.production_schema(candidate, self.home)
+        candidate_record = self.root / 'baselines' / (candidate['baselineId'] + '.json')
+        require(not candidate_record.exists() and not candidate_record.is_symlink(),
+                'production candidate baseline ID already occupied')
         if version == 'runtime-provisioning-v2':
             self.config_directories(previous['configSha256'], candidate['configSha256'])
         old_network = {path: pin for path, pin in previous['configSha256'].items()
@@ -3487,8 +3490,9 @@ def stage_signed_config_ota(protocol, intent, runtime, baseline, pointer, archiv
     changes = runtime.config_changes(approval)
     require(changes and candidate['configSha256'] != baseline['configSha256'],
             'signed config artifact has no config delta')
+    after = {row['path']: row['after'] for row in changes if row['after'] is not None}
     files = manifest.get('files')
-    require(isinstance(files, list) and len(files) == len(candidate['configSha256']),
+    require(isinstance(files, list) and len(files) == len(after),
             'signed config file inventory incomplete')
     by_entry = {}
     for item in files:
@@ -3501,38 +3505,46 @@ def stage_signed_config_ota(protocol, intent, runtime, baseline, pointer, archiv
                 all(part not in ('', '.', '..') for part in name.split('/')),
                 'signed config file path invalid')
         relative = name[len('config/runtime/'):]
-        require(relative in candidate['configSha256'] and name not in by_entry and
+        require(relative in after and name not in by_entry and
                 item['target'] == str(runtime.home / name) and
                 item['sha256'] == candidate['configSha256'][relative] and
                 type(item['bytes']) is int and 0 <= item['bytes'] <= 5 * 1024 * 1024,
                 'signed config file pin/target mismatch')
         by_entry[name] = item
-    require(set(by_entry) == {'config/runtime/' + path for path in candidate['configSha256']} and
+    require(set(by_entry) == {'config/runtime/' + path for path in after} and
             {member.name for member in members} == {'manifest.json'} | set(by_entry),
             'signed config archive inventory mismatch')
     guard.production_schema(candidate, runtime.home)
+    guard.production_verify(runtime.home, baseline)
     program_bytes = sum(pin['bytes'] for pin in baseline['files'].values())
-    config_bytes = sum(item['bytes'] for item in by_entry.values())
+    unchanged = {}
+    for relative, sha in candidate['configSha256'].items():
+        if relative not in after:
+            live = runtime.home / 'config/runtime' / relative
+            pin = guard.production_pin(live)
+            require(pin['sha256'] == sha, 'unchanged signed config live pin changed')
+            unchanged[relative] = pin
+    config_bytes = sum(item['bytes'] for item in by_entry.values()) + sum(
+        pin['bytes'] for pin in unchanged.values())
     old_bytes = sum(row['before']['bytes'] for row in changes if row['before'] is not None)
     new_bytes = sum(row['after']['bytes'] for row in changes if row['after'] is not None)
     needed = 3 * program_bytes + config_bytes + old_bytes + new_bytes + 64 * 1024 * 1024
     capacity = os.statvfs(runtime.home)
     require(capacity.f_bavail * capacity.f_frsize >= needed,
             'insufficient signed config staging and recovery disk')
-    after = {row['path']: row['after'] for row in changes}
     payload = work / 'payload'
     payload.mkdir(mode=0o700)
-    guard.production_verify(runtime.home, baseline)
     for path, pin in baseline['files'].items():
         production_copy(runtime.home / path, payload / path, pin, new=True)
+    for relative, pin in unchanged.items():
+        production_copy(runtime.home / 'config/runtime' / relative,
+                        payload / 'config/runtime' / relative, pin, new=True)
     for member in members:
         if member.name == 'manifest.json':
             continue
         item = by_entry[member.name]
         relative = member.name[len('config/runtime/'):]
-        pin = after.get(relative)
-        if pin is None:
-            pin = guard.production_pin(runtime.home / member.name)
+        pin = after[relative]
         require(pin['sha256'] == item['sha256'] and pin['bytes'] == member.size == item['bytes'],
                 'signed config archive bytes differ from approved pin')
         destination = payload / member.name
@@ -3654,8 +3666,24 @@ def production_ota_owner(protocol, record):
 def production_ota_finish(protocol, transaction_id, status, rollback):
         intent = protocol.intent()
         runtime = ProductionRuntime(protocol.root.parent.parent)
+        expected_transaction = 'OTA_' + hashlib.sha256((protocol.job + protocol.token).encode()).hexdigest()[:32]
+        require(transaction_id == expected_transaction, 'production completion original job/token changed')
         decision = dict(format='ota-health-v1', jobId=protocol.job, token=protocol.token, version=intent['version'],
                         status=status, rollback=rollback, ts=str(int(time.time() * 1000)))
+        if status == 'healthy':
+            state = guard.production_json(runtime.root / 'transactions' / transaction_id / 'state.json')
+            pointer = guard.production_json(runtime.root / 'current.json')
+            health_path = runtime.root / 'transactions' / transaction_id / 'health.json'
+            health = guard.production_json(health_path)
+            require(state['phase'] == 'COMPLETED' and state['transaction'] == transaction_id and
+                    pointer['transaction'] == transaction_id and
+                    pointer['sha256'] == state['candidateSha256'] and
+                    pointer['healthSha256'] == digest(health_path) and
+                    health['status'] == 'healthy' and health['transaction'] == transaction_id and
+                    health['baselineSha256'] == state['candidateSha256'],
+                    'production completion candidate/health not committed')
+            decision.update(productionTransaction=transaction_id,
+                            productionCandidateSha256=state['candidateSha256'])
         health_path = protocol.root / ('health_' + protocol.job + '.txt')
         with protocol.lock('ota_state.lock', wait=2):
             if health_path.exists() or health_path.is_symlink():

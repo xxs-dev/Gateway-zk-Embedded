@@ -802,6 +802,14 @@ std::string encodeOtaStatusJson(const OtaStatus& status) {
     if (!status.occurrenceId.empty()) {
         out << ",\"occurrenceId\":\"" << escapeJson(status.occurrenceId) << "\"";
     }
+    if (!status.productionTransaction.empty()) {
+        out << ",\"appliedVersion\":\"" << escapeJson(status.appliedVersion) << "\""
+            << ",\"appliedSha256\":\"" << escapeJson(status.appliedSha256) << "\""
+            << ",\"productionTransaction\":\"" << escapeJson(status.productionTransaction) << "\""
+            << ",\"productionCandidateSha256\":\""
+            << escapeJson(status.productionCandidateSha256) << "\""
+            << ",\"productionHealth\":\"" << escapeJson(status.productionHealth) << "\"";
+    }
     out << "}";
     return out.str();
 }

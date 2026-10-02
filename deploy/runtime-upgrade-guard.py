@@ -1492,6 +1492,8 @@ def ota(manifest_path):
     manifest = json.loads(manifest_path.read_text())
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be an object")
+    if 'productionV2' in manifest:
+        raise ValueError('productionV2 requires the signed production owner and journal')
     compatibility(manifest)
     files = manifest.get('files')
     if not isinstance(files, list) or not files or any(not isinstance(item, dict) for item in files):

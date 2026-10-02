@@ -297,7 +297,12 @@ std::string encodePendingStatus(const OtaStatus& status) {
         ",\"totalBytes\":" + pendingJsonString(std::to_string(status.totalBytes)) +
         ",\"message\":" + pendingJsonString(status.message) +
         ",\"ts\":" + pendingJsonString(std::to_string(status.ts)) +
-        ",\"occurrenceId\":" + pendingJsonString(status.occurrenceId) + "}\n";
+        ",\"occurrenceId\":" + pendingJsonString(status.occurrenceId) +
+        ",\"appliedVersion\":" + pendingJsonString(status.appliedVersion) +
+        ",\"appliedSha256\":" + pendingJsonString(status.appliedSha256) +
+        ",\"productionTransaction\":" + pendingJsonString(status.productionTransaction) +
+        ",\"productionCandidateSha256\":" + pendingJsonString(status.productionCandidateSha256) +
+        ",\"productionHealth\":" + pendingJsonString(status.productionHealth) + "}\n";
 }
 
 std::string pendingField(const json::JsonValue& value, const char* name) {
@@ -330,6 +335,18 @@ OtaStatus decodePendingStatus(const std::string& line) {
     status.message = pendingField(value, "message");
     status.ts = pendingInteger<std::int64_t>(pendingField(value, "ts"));
     status.occurrenceId = pendingField(value, "occurrenceId");
+    for (const auto& field : {"appliedVersion", "appliedSha256", "productionTransaction",
+                              "productionCandidateSha256", "productionHealth"}) {
+        if (const auto* item = value.find(field)) {
+            if (!item->isString()) throw std::runtime_error("invalid OTA production receipt field");
+            const auto& text = item->asString();
+            if (std::string(field) == "appliedVersion") status.appliedVersion = text;
+            else if (std::string(field) == "appliedSha256") status.appliedSha256 = text;
+            else if (std::string(field) == "productionTransaction") status.productionTransaction = text;
+            else if (std::string(field) == "productionCandidateSha256") status.productionCandidateSha256 = text;
+            else status.productionHealth = text;
+        }
+    }
     if (status.occurrenceId.size() != 36) throw std::runtime_error("invalid OTA occurrence ID");
     for (std::size_t i = 0; i < status.occurrenceId.size(); ++i) {
         const char ch = status.occurrenceId[i];
@@ -1223,6 +1240,8 @@ struct OtaHealthResult {
     std::string status;
     std::string rollback;
     std::int64_t ts = 0;
+    std::string productionTransaction;
+    std::string productionCandidateSha256;
 };
 
 OtaHealthResult decodeHealthResult(const std::string& bytes, const PendingOtaJob& job) {
@@ -1238,6 +1257,16 @@ OtaHealthResult decodeHealthResult(const std::string& bytes, const PendingOtaJob
     result.status = pendingField(document, "status");
     result.rollback = pendingField(document, "rollback");
     result.ts = pendingInteger<std::int64_t>(pendingField(document, "ts"));
+    if (job.lifecycle == "systemd-handoff-v1" && job.packageType == "config" &&
+        result.status == "healthy") {
+        result.productionTransaction = pendingField(document, "productionTransaction");
+        result.productionCandidateSha256 = pendingField(document, "productionCandidateSha256");
+        if (result.productionTransaction.size() != 36 ||
+            result.productionTransaction.compare(0, 4, "OTA_") != 0 ||
+            !isSafeSha256(result.productionCandidateSha256) ||
+            result.productionCandidateSha256.size() != 64)
+            throw std::runtime_error("invalid production config completion binding");
+    }
     if (result.ts <= 0 ||
         !((result.status == "healthy" && result.rollback == "none") ||
           (result.status == "failed" &&
@@ -1245,6 +1274,17 @@ OtaHealthResult decodeHealthResult(const std::string& bytes, const PendingOtaJob
             result.rollback == "skipped" || result.rollback == "unchanged"))))
         throw std::runtime_error("invalid OTA health terminal result");
     return result;
+}
+
+void bindProductionCompletion(OtaStatus& status, const PendingOtaJob& job,
+                              const OtaHealthResult& health) {
+    if (job.lifecycle != "systemd-handoff-v1" || job.packageType != "config" ||
+        health.status != "healthy") return;
+    status.appliedVersion = job.version;
+    status.appliedSha256 = job.artifactSha256;
+    status.productionTransaction = health.productionTransaction;
+    status.productionCandidateSha256 = health.productionCandidateSha256;
+    status.productionHealth = health.status;
 }
 
 class SuccessfulFinalizationError : public std::runtime_error {
@@ -1558,6 +1598,7 @@ void OtaService::reconcilePendingJobs() const {
             "OTA failed; rollback " + health.rollback;
         terminal.ts = synchronousTail ? currentTimeMs() : health.ts;
         terminal.occurrenceId = job.token;
+        bindProductionCompletion(terminal, job, health);
         const auto historyPath = joinPath(config_.stagingDir, "upgrade_history.log");
         const auto recorded = [&](const std::string& result) {
             std::ifstream history(historyPath.c_str());
@@ -1632,6 +1673,7 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
                     health.rollback == "unchanged" ? "OTA rejected before runtime change" :
                     "OTA failed; rollback " + health.rollback;
                 status.ts = health.ts;
+                bindProductionCompletion(status, job, health);
             } else {
                 const auto final = readPendingJournal(joinPath(config_.stagingDir,
                     "ota_final_" + job.jobId + ".txt"));
@@ -2002,6 +2044,7 @@ void OtaService::execute(
                     if (completed != (health.status == "healthy"))
                         throw std::runtime_error("OTA final conflicts with health evidence");
                     ts = health.ts;
+                    bindProductionCompletion(*status, pending, health);
                 } else if (!completed) {
                     throw std::runtime_error("OTA failed final requires health evidence");
                 }

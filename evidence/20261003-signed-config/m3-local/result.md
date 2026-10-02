@@ -1,0 +1,7 @@
+# M3 edge local source check
+
+`run.json` records one Python candidate-byte fixture (PASS), Windows `g++ -fsyntax-only` for the OTA service and both MQTT serializers (exit 0), and hashes of their separate original streams. The streams are byte-exact members of `raw-streams.zip` (SHA-256 `ad38b94f60792292b34806fc665dbe26d09b02199458d602ef42ba89d81added`); all four member hashes matched `run.json`. The eight named working inputs in `inputs-before.json` and `inputs-after.json` matched; an exact local copy is retained in `input-snapshot/`. The cross-language candidate digest is `e06fa0f8261605103a4c2a72bc51675d4c40515806997ea96e5430b5841d8f37`.
+
+The production healthy record now checks the original job/token-derived transaction, completed state, candidate pointer and bound transaction health before emitting candidate proof. The Linux root private owner/install and actual MQTT publisher paths were not run on this Windows host. This is source/syntax/fixture evidence only, not an edge runtime or device pass. The earlier F2 report's final raw duration was 0.507s; its fixture replaced guard, Path, systemctl, owner predicates and statvfs as well as systemd identity/stop commands. The original historical report is preserved.
+
+No WSL `/opt`, device, remote host, Broker, true OTA runner, or final ARM build was touched. Existing H1/M1 edits are part of this source checkpoint and are not retroactively promoted to full runtime acceptance by this M3 check. The ordinary system-monitor restore edits are unrelated and remain outside this checkpoint.

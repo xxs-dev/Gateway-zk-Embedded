@@ -1,0 +1,34 @@
+[
+  {
+    "path": "deploy/offline-runtime-upgrade.py",
+    "sha256": "3fcc4f50a739298c143932c87d3c30921138dbadc9f91047bc3e41a3c86f1e24"
+  },
+  {
+    "path": "deploy/runtime-upgrade-guard.py",
+    "sha256": "ebf1b2b79bce3950e96d2e3fbc29a61a68d99aeca019e9b8158c5472723d7d7f"
+  },
+  {
+    "path": "include/edge_gateway/models.hpp",
+    "sha256": "c4244c23ae24acbd3d6e361bc6b2df7c51340d441af2e5d99c9a45fc43133b8c"
+  },
+  {
+    "path": "src/ota_service.cpp",
+    "sha256": "793f10d3cdbe65269b881d3ffcf27894c9f46a2a6392213580272141bc1eb790"
+  },
+  {
+    "path": "src/builtin_mqtt_driver_publisher.cpp",
+    "sha256": "d4b5d50ec6fdcb88a6da34bb7ae8b195ee99f804a3ed5256439aa1e945d9f978"
+  },
+  {
+    "path": "src/mosquitto_mqtt_driver_publisher.cpp",
+    "sha256": "432fd229be3c60c3a22853683ffae257c8ad0e8f3ea2a726b3d1cf666a182ba0"
+  },
+  {
+    "path": "tools/production_runtime_baseline_test.py",
+    "sha256": "66f5453d0a91e6a168a62efb4e96392f6d36e24b113b27f84466cad5381137cf"
+  },
+  {
+    "path": "tools/fixtures/production-candidate-digest.json",
+    "sha256": "740953d9a453a11ff7cad2b2dddc5e2bb45192ddadcd7f6f08e90157a3af4dc9"
+  }
+]

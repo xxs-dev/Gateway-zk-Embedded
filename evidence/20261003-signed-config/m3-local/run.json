@@ -1,0 +1,24 @@
+{
+  "pythonCommand": "python -m unittest tools.production_runtime_baseline_test.ProductionCandidateDigestTest.test_python_sorted_json_bytes_match_platform_canonical_fixture",
+  "pythonExit": 0,
+  "cppCommand": "g++ -std=c++17 -Iinclude -fsyntax-only src/ota_service.cpp src/builtin_mqtt_driver_publisher.cpp src/mosquitto_mqtt_driver_publisher.cpp",
+  "cppExit": 0,
+  "outputs": [
+    {
+      "name": "cpp.stderr.raw",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "cpp.stdout.raw",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "python.stderr.raw",
+      "sha256": "3cf9954ddcf4b68e3854b6eb2c29ca15ab187c8dc51c80627aa402562a82b481"
+    },
+    {
+      "name": "python.stdout.raw",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

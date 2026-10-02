@@ -385,6 +385,11 @@ struct OtaStatus {
     std::string message;
     std::int64_t ts = 0;
     std::string occurrenceId;
+    std::string appliedVersion;
+    std::string appliedSha256;
+    std::string productionTransaction;
+    std::string productionCandidateSha256;
+    std::string productionHealth;
 };
 
 enum class MqttIncomingType {
