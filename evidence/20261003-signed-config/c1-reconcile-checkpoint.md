@@ -1,0 +1,7 @@
+# C1 local C++ reconciliation checkpoint
+
+The private `/tmp` harness compiles the product `ota_service.cpp` and both product MQTT status encoders. It creates a systemd-handoff config job intent, active-job marker, lifecycle lock, and bound health bytes. The real `reconcilePendingJobs` refuses missing owner proof, then writes the original job's final marker, success history, and pending terminal only after a matching owner proof exists. A repeated call leaves the history and pending bytes unchanged. Both product encoders preserve the resulting production fields. An original six-field legacy TSV pending record replays without an invented occurrence ID or production proof.
+
+The first draft run failed because the old-record serializer assertion incorrectly required an occurrence ID. The raw failure is retained under `c1-reconcile-draft/`; `c1-reconcile-draft2/` is a local green draft. Final compile and run both exited 0; exact arguments and separate stream hashes are in `c1-reconcile-final-local/capture.json`. Nineteen actual named compile inputs were snapshotted and their before/after SHA-256 lists agree in `inputs-before.json` and `inputs-after.json`. Raw streams, executable, and input snapshots remain local and uncommitted.
+
+This is not an owner/systemd launch, Broker delivery, signed TAR, device run, or cross-language inbox acceptance test. The latter bridge and authenticated original-job query/recovery remain open. The harness never accesses host `/opt` and uses only its newly created private `/tmp/ota-m3-local-*` root.
