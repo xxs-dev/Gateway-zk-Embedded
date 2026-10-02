@@ -100,5 +100,22 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(entry.HOST, '192.168.22.23')
         self.assertEqual([x[1] for x in inner.COMMANDS[-3:]], [['fd'], ['parent-death'], ['supervisor-death']])
 
+    def test_launcher_owned_pid1_proof_without_children_interface(self):
+        host = dict(pid='pid:[1]', mnt='mnt:[2]', net='net:[3]')
+        proof = dict(pid='pid:[4]', mnt='mnt:[5]', net='net:[6]')
+        row = dict(initHostPid=111, launcherHostPid=110, namespaceProof=proof, pdeathSignal=9)
+        status = b'Name:\tpython3\nPPid:\t110\nNSpid:\t111\t1\n'
+        links = {name: proof[name] for name in proof}
+        with mock.patch.object(outer.Path, 'open', return_value=io.BytesIO(status)), \
+             mock.patch.object(outer.os, 'readlink', side_effect=lambda path: links[path.rsplit('/', 1)[1]]):
+            self.assertEqual(outer.checked_init(row, 110, host), dict(initHostPid=111, proof=proof))
+        for bad in (status.replace(b'PPid:\t110', b'PPid:\t109'),
+                    status.replace(b'NSpid:\t111\t1', b'NSpid:\t111\t2')):
+            with mock.patch.object(outer.Path, 'open', return_value=io.BytesIO(bad)), \
+                 mock.patch.object(outer.os, 'readlink', side_effect=lambda path: links[path.rsplit('/', 1)[1]]):
+                with self.assertRaises(AssertionError): outer.checked_init(row, 110, host)
+        self.assertNotIn('/children', (HERE/'board-run.py').read_text())
+        self.assertIn('except ChildProcessError:', (HERE/'board-run.py').read_text())
+
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -87,6 +87,9 @@ int main(int argc, char** argv) {
         DiagnosticProcess job; need(job.start("printf 'COMMAND=%s\\n' $$; sleep 30", 256), "supervisor death start");
         tickUntil(job, false); const auto command = commandPid(job);
         need(kill(job.supervisorForTest(), SIGKILL) == 0, "private supervisor signal"); tickUntil(job, true);
+        const auto cleanupDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (kill(command, 0) == 0 && std::chrono::steady_clock::now() < cleanupDeadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         const bool commandAlive = kill(command, 0) == 0;
         need(job.result().cleanupFailed && job.unavailable() && !job.start("exit 0", 256), "dead owner did not poison admission");
         // If orphaned, it is now our direct child, still unreaped. No PID reuse.

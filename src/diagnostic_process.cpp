@@ -9,15 +9,33 @@
 #ifndef _WIN32
 #include <cerrno>
 #include <climits>
+#include <cstddef>
+#include <cstdint>
 #include <csignal>
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/vfs.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+// The fixed AArch64 sysroot predates pidfd headers; syscall numbers are part
+// of the AArch64 Linux ABI. Runtime ENOSYS/EPERM still fails before exec.
+#if defined(EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS) && defined(EDGE_DIAG_SIMULATE_OLD_AARCH64_HEADERS)
+#undef SYS_pidfd_send_signal
+#undef SYS_pidfd_open
+#endif
+#if defined(__aarch64__)
+#ifndef SYS_pidfd_send_signal
+#define SYS_pidfd_send_signal 424
+#endif
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434
+#endif
+#endif
 #endif
 
 namespace edge_gateway {
@@ -51,11 +69,161 @@ void sendResult(const WireResult& result) {
     }
 }
 
+struct ProcEntry {
+    std::uint64_t inode;
+    std::int64_t offset;
+    unsigned short length;
+    unsigned char type;
+    char name[1];
+};
+
+bool parsePid(const char* name, std::size_t length, pid_t& pid) {
+    if (!length) return false;
+    int value = 0;
+    for (std::size_t i = 0; i < length; ++i) {
+        if (name[i] < '0' || name[i] > '9') return false;
+        const int digit = name[i] - '0';
+        if (value > (INT_MAX - digit) / 10) return false;
+        value = value * 10 + digit;
+    }
+    if (value <= 0) return false;
+    pid = value;
+    return true;
+}
+
+// Returns -1 on an unreadable/malformed stat, 0 if it disappeared, or its PPid.
+int procParent(pid_t pid) {
+    char path[32] = "/proc/";
+    char digits[12];
+    int count = 0;
+    for (int value = pid; value > 0; value /= 10) digits[count++] = static_cast<char>('0' + value % 10);
+    int at = 6;
+    while (count) path[at++] = digits[--count];
+    const char suffix[] = "/stat";
+    for (int i = 0; i < 6; ++i) path[at++] = suffix[i];
+    const int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return errno == ENOENT || errno == ESRCH ? 0 : -1;
+    char data[4096];
+    ssize_t size = 0;
+    bool ended = false;
+    while (size < static_cast<ssize_t>(sizeof(data))) {
+        const auto n = read(fd, data + size, sizeof(data) - static_cast<std::size_t>(size));
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) break;
+        if (n == 0) { ended = true; break; }
+        size += n;
+    }
+    if (!ended && size == static_cast<ssize_t>(sizeof(data))) {
+        char extra;
+        ssize_t tail;
+        do { tail = read(fd, &extra, 1); } while (tail < 0 && errno == EINTR);
+        ended = tail == 0;
+    }
+    close(fd);
+    if (!ended || size <= 0) return -1;
+    int openParen = 0;
+    while (openParen < size && data[openParen] != '(') ++openParen;
+    int closeParen = static_cast<int>(size) - 1;
+    while (closeParen > openParen && data[closeParen] != ')') --closeParen;
+    pid_t parsed = 0;
+    if (openParen < 2 || !parsePid(data, static_cast<std::size_t>(openParen - 1), parsed) ||
+            parsed != pid || closeParen <= openParen || closeParen + 4 >= size ||
+            data[closeParen + 1] != ' ' || data[closeParen + 3] != ' ') return -1;
+    int parent = 0;
+    bool found = false;
+    int i = closeParen + 4;
+    for (; i < size && data[i] >= '0' && data[i] <= '9'; ++i) {
+        const int digit = data[i] - '0';
+        if (parent > (INT_MAX - digit) / 10) return -1;
+        parent = parent * 10 + digit;
+        found = true;
+    }
+    return found && i < size && data[i] == ' ' ? parent : -1;
+}
+
+// The only signal targets are this subreaper's direct, unreaped children.
+// While unreaped, their numeric PIDs cannot be reused; pidfd adds a stable
+// kernel identity for the signal itself. Repeat until waitpid reports ECHILD.
+bool scanOwnedChildren(bool signalChildren) {
+#if !defined(SYS_getdents64) || !defined(SYS_pidfd_open) || !defined(SYS_pidfd_send_signal)
+    (void)signalChildren;
+    return false;
+#else
+    const int directory = open("/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if (directory < 0) return false;
+    struct statfs filesystem{};
+    if (syscall(SYS_fstatfs, directory, &filesystem) != 0 || filesystem.f_type != 0x9fa0) {
+        close(directory); return false;
+    }
+    alignas(8) char data[4096];
+    int examined = 0;
+    bool valid = true;
+    for (;;) {
+        const auto size = syscall(SYS_getdents64, directory, data, sizeof(data));
+        if (size < 0 && errno == EINTR) continue;
+        if (size < 0) { valid = false; break; }
+        if (size == 0) break;
+        for (long at = 0; at < size;) {
+            const auto* entry = reinterpret_cast<const ProcEntry*>(data + at);
+            if (size - at < static_cast<long>(offsetof(ProcEntry, name)) ||
+                    entry->length < offsetof(ProcEntry, name) + 2 || at + entry->length > size) {
+                valid = false; break;
+            }
+            std::size_t length = 0;
+            const auto limit = entry->length - offsetof(ProcEntry, name);
+            while (length < limit && entry->name[length]) ++length;
+            if (length == limit) { valid = false; break; }
+            pid_t pid = 0;
+            if (parsePid(entry->name, length, pid)) {
+                if (++examined > 4096) { valid = false; break; }
+                if (pid != getpid()) {
+                    const int parent = procParent(pid);
+                    if (parent < 0) { valid = false; break; }
+                    if (parent == getpid() && signalChildren) {
+                        const int identity = syscall(SYS_pidfd_open, pid, 0U);
+                        if (identity < 0) {
+                            if (errno != ESRCH && errno != ENOENT) { valid = false; break; }
+                        } else {
+                            if (syscall(SYS_pidfd_send_signal, identity, SIGKILL, nullptr, 0U) != 0 &&
+                                    errno != ESRCH) valid = false;
+                            close(identity);
+                            if (!valid) break;
+                        }
+                    }
+                }
+            }
+            at += entry->length;
+        }
+        if (!valid) break;
+    }
+    close(directory);
+    return valid;
+#endif
+}
+
+bool ownedChildrenReady(bool forceProcFallback) {
+    if (!forceProcFallback) {
+        const int children = open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
+        if (children >= 0) { close(children); return true; }
+        if (errno != ENOENT && errno != ENOTDIR) return false;
+    }
+#if !defined(SYS_pidfd_open) || !defined(SYS_pidfd_send_signal)
+    return false;
+#else
+    if (!scanOwnedChildren(false)) return false;
+    const int identity = syscall(SYS_pidfd_open, getpid(), 0U);
+    if (identity < 0) return false;
+    const bool supported = syscall(SYS_pidfd_send_signal, identity, 0, nullptr, 0U) == 0;
+    close(identity);
+    return supported;
+#endif
+}
+
 // Only direct, unreaped children of this private subreaper may be signalled.
 // This also collects a diagnostic descendant which changed process group/session.
-bool killOwnedChildren() {
-    const int fd = open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return false;
+bool killOwnedChildren(bool forceProcFallback) {
+    const int fd = forceProcFallback ? -1 : open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return forceProcFallback || errno == ENOENT || errno == ENOTDIR ? scanOwnedChildren(true) : false;
     char bytes[4096];
     ssize_t count = 0;
     bool ended = false;
@@ -87,8 +255,7 @@ bool killOwnedChildren() {
 
 // After fork: only syscall/libc async-signal-safe operations and stack storage;
 // never allocate, use C++ streams/mutexes, or call back into the multithreaded parent.
-void supervise(const char* command, int timeoutMs, long maxFd, pid_t owner,
-               bool testDelay, bool testShort, bool testDie) {
+bool preparePrivateReaper(long maxFd, bool forceProcFallback) {
     sigset_t empty;
     sigemptyset(&empty);
     sigprocmask(SIG_SETMASK, &empty, nullptr);
@@ -97,8 +264,6 @@ void supervise(const char* command, int timeoutMs, long maxFd, pid_t owner,
     signal(SIGINT, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
-    WireResult result{kWireMagic, -1, 0, 0, 0, 0};
-    const long long started = monotonicMs();
     bool closed = false;
 #ifdef SYS_close_range
     closed = syscall(SYS_close_range, 5U, ~0U, 0U) == 0;
@@ -107,22 +272,29 @@ void supervise(const char* command, int timeoutMs, long maxFd, pid_t owner,
     const int devnull = open("/dev/null", O_RDONLY);
     if (devnull < 0 || dup2(devnull, STDIN_FILENO) < 0 ||
             prctl(PR_SET_CHILD_SUBREAPER, 1) != 0) {
-        sendResult(result); _exit(127);
+        return false;
     }
     if (devnull > 4) close(devnull);
-    if (started < 0) { sendResult(result); _exit(127); }
-    const int childrenProof = open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
-    if (childrenProof < 0) { sendResult(result); _exit(127); }
-    close(childrenProof);
+    return ownedChildrenReady(forceProcFallback);
+}
+
+void superviseCommand(const char* command, int timeoutMs, long maxFd, pid_t owner,
+                      bool testDelay, bool testShort, bool testDie, bool forceProcFallback) {
+    WireResult result{kWireMagic, -1, 0, 0, 0, 0};
+    const long long started = monotonicMs();
+    if (!preparePrivateReaper(maxFd, forceProcFallback) || started < 0) { sendResult(result); _exit(127); }
 #ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
     if (testDie) _exit(1); // No command/descendant has been created.
 #else
     (void)testDelay; (void)testShort; (void)testDie;
 #endif
+    if (getppid() != owner) { sendResult(result); _exit(127); }
+    const pid_t guardian = getpid();
     const pid_t child = fork();
     if (child < 0) { sendResult(result); _exit(127); }
     if (child == 0) {
         close(3); close(4);
+        if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() != guardian) _exit(126);
         signal(SIGTERM, SIG_DFL); signal(SIGINT, SIG_DFL);
         signal(SIGHUP, SIG_DFL); signal(SIGPIPE, SIG_DFL);
         if (setpgid(0, 0) != 0) _exit(126);
@@ -166,7 +338,7 @@ void supervise(const char* command, int timeoutMs, long maxFd, pid_t owner,
         }
         if (!stopping) continue;
         // Reparented descendants are owned by this supervisor, not SystemMonitor.
-        if (!killOwnedChildren()) result.cleanupFailed = 1;
+        if (!killOwnedChildren(forceProcFallback)) result.cleanupFailed = 1;
         int status = 0;
         pid_t reaped;
         while ((reaped = waitpid(-1, &status, WNOHANG)) > 0) {
@@ -212,6 +384,98 @@ void supervise(const char* command, int timeoutMs, long maxFd, pid_t owner,
 #endif
     if (!sentFailure) sendResult(result);
     _exit(0);
+}
+
+void supervise(const char* command, int timeoutMs, long maxFd, pid_t owner,
+               bool testDelay, bool testShort, bool testDie,
+               bool forceProcFallback, bool pauseGuardianBeforeCommand) {
+    WireResult failure{kWireMagic, -1, 0, 0, 0, 1};
+    if (!preparePrivateReaper(maxFd, forceProcFallback) || getppid() != owner) {
+        sendResult(failure); _exit(127);
+    }
+    int statusPipe[2];
+    if (pipe2(statusPipe, O_CLOEXEC | O_NONBLOCK) != 0) {
+        sendResult(failure); _exit(127);
+    }
+    const pid_t privateOwner = getpid();
+    const pid_t guardian = fork();
+    if (guardian < 0) { sendResult(failure); _exit(127); }
+    if (guardian == 0) {
+        close(statusPipe[0]);
+        if (dup2(statusPipe[1], 3) < 0) _exit(127);
+        close(statusPipe[1]);
+#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
+        if (pauseGuardianBeforeCommand) {
+            const char ready[] = "PRESTART_READY=";
+            write(1, ready, sizeof(ready) - 1);
+            char digits[12];
+            int count = 0;
+            for (int value = getpid(); value > 0; value /= 10)
+                digits[count++] = static_cast<char>('0' + value % 10);
+            while (count) { const char digit = digits[--count]; write(1, &digit, 1); }
+            write(1, "\n", 1);
+            ::poll(nullptr, 0, 300);
+        }
+#else
+        (void)pauseGuardianBeforeCommand;
+#endif
+        superviseCommand(command, timeoutMs, maxFd, privateOwner, testDelay, testShort, testDie,
+                         forceProcFallback);
+    }
+    close(statusPipe[1]);
+    unsigned char wireBytes[sizeof(WireResult)]{};
+    std::size_t wireSize = 0;
+    bool sentFailure = false;
+    bool guardianOk = false;
+    for (;;) {
+        while (wireSize < sizeof(wireBytes)) {
+            const auto n = read(statusPipe[0], wireBytes + wireSize, sizeof(wireBytes) - wireSize);
+            if (n > 0) wireSize += static_cast<std::size_t>(n);
+            else if (n < 0 && errno == EINTR) continue;
+            else break;
+        }
+        WireResult early{};
+        if (wireSize == sizeof(early)) {
+            auto* target = reinterpret_cast<unsigned char*>(&early);
+            for (std::size_t i = 0; i < sizeof(early); ++i) target[i] = wireBytes[i];
+            if (early.magic == kWireMagic && early.cleanupFailed && !sentFailure) {
+                sendResult(early); sentFailure = true;
+            }
+        }
+        int status = 0;
+        const pid_t reaped = waitpid(guardian, &status, WNOHANG);
+        if (reaped == guardian) { guardianOk = WIFEXITED(status) && WEXITSTATUS(status) == 0; break; }
+        if (reaped < 0 && errno != EINTR) break;
+        ::poll(nullptr, 0, 10);
+    }
+    while (wireSize < sizeof(wireBytes)) {
+        const auto n = read(statusPipe[0], wireBytes + wireSize, sizeof(wireBytes) - wireSize);
+        if (n > 0) wireSize += static_cast<std::size_t>(n);
+        else if (n < 0 && errno == EINTR) continue;
+        else break;
+    }
+    close(statusPipe[0]);
+    WireResult worker{};
+    if (wireSize == sizeof(worker)) {
+        auto* target = reinterpret_cast<unsigned char*>(&worker);
+        for (std::size_t i = 0; i < sizeof(worker); ++i) target[i] = wireBytes[i];
+    }
+    bool complete = guardianOk && wireSize == sizeof(worker) && worker.magic == kWireMagic;
+    const long long stoppedAt = monotonicMs();
+    for (;;) {
+        if (!killOwnedChildren(forceProcFallback)) complete = false;
+        int status = 0;
+        pid_t reaped;
+        while ((reaped = waitpid(-1, &status, WNOHANG)) > 0) complete = false;
+        if (reaped < 0 && errno == ECHILD) break;
+        const auto now = monotonicMs();
+        if (!sentFailure && (now < 0 || stoppedAt < 0 || now - stoppedAt >= 2000)) {
+            sendResult(failure); sentFailure = true;
+        }
+        ::poll(nullptr, 0, 10);
+    }
+    if (!sentFailure) sendResult(complete ? worker : failure);
+    _exit(complete ? 0 : 1);
 }
 
 void closeDescriptor(int& fd) {
@@ -262,14 +526,18 @@ bool DiagnosticProcess::start(const std::string& command, std::size_t outputLimi
     const char* rawCommand = command.c_str();
     const pid_t owner = getpid();
     bool testDelay = false, testShort = false, testDie = false;
+    bool forceProcFallback = false, pauseGuardianBeforeCommand = false;
 #ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
     testDelay = delayCleanupFailure; testShort = shortStatus; testDie = dieBeforeCommand;
+    forceProcFallback = this->forceProcFallback;
+    pauseGuardianBeforeCommand = this->pauseGuardianBeforeCommand;
 #endif
     const pid_t supervisor = fork();
     if (supervisor < 0) { cleanup(); return false; }
     if (supervisor == 0) {
         if (dup2(safe[0], 1) < 0 || dup2(safe[1], 3) < 0 || dup2(safe[2], 4) < 0 || dup2(1, 2) < 0) _exit(127);
-        supervise(rawCommand, timeoutMs, maxFd, owner, testDelay, testShort, testDie);
+        supervise(rawCommand, timeoutMs, maxFd, owner, testDelay, testShort, testDie,
+                  forceProcFallback, pauseGuardianBeforeCommand);
     }
     pid_ = supervisor;
     outputFd_ = output[0]; output[0] = -1;

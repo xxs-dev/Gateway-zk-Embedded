@@ -49,6 +49,14 @@ pid_t descendant(const DiagnosticProcess& job) {
 void requireGone(pid_t pid) {
     require(kill(pid, 0) < 0 && errno == ESRCH, "owned descendant was not reaped");
 }
+void waitGone(pid_t pid) {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < until) {
+        if (kill(pid, 0) < 0 && errno == ESRCH) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    requireGone(pid);
+}
 void runCases(const std::string& self) {
     {
         DiagnosticProcess job;
@@ -131,11 +139,97 @@ void runCases(const std::string& self) {
     }
     for (bool orphan : {false, true}) {
         DiagnosticProcess job;
+        job.forceProcFallback = true;
         require(job.start(quoted(self) + (orphan ? " --orphan" : " --descendant"), 256, 200), "start descendant");
         finish(job);
         requireGone(descendant(job));
         require(!job.result().cleanupFailed && job.result().exitCode == (orphan ? 0 : 124), "descendant lifecycle");
         std::cout << "PASS " << (orphan ? "normal-exit-escaped-descendant" : "deadline-escaped-descendant") << "\n";
+    }
+    {
+        DiagnosticProcess job; job.forceProcFallback = true;
+        require(job.start("exit 0", 256), "start proc/pidfd fallback"); finish(job);
+        require(job.result().exitCode == 0 && !job.result().cleanupFailed && !job.active(),
+                "proc/pidfd fallback normal cleanup");
+        std::cout << "PASS proc-pidfd-fallback-normal\n";
+    }
+    {
+        DiagnosticProcess job; job.forceProcFallback = true;
+        require(job.start(quoted(self) + " --descendant", 256), "start supervisor-death descendant");
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        while (job.result().output.find("CHILD=") == std::string::npos &&
+                std::chrono::steady_clock::now() < until) {
+            job.poll(); std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto child = descendant(job);
+        require(kill(job.supervisorForTest(), SIGKILL) == 0, "kill actual outer supervisor");
+        finish(job); waitGone(child);
+        require(job.result().cleanupFailed && job.unavailable() && !job.start("exit 0", 256),
+                "outer-supervisor death reopened admission");
+        std::cout << "PASS outer-supervisor-death-escaped-descendant\n";
+    }
+    {
+        DiagnosticProcess job; job.forceProcFallback = true; job.pauseGuardianBeforeCommand = true;
+        require(job.start(quoted(self) + " --descendant", 256), "start guardian-death descendant");
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (job.result().output.find("CHILD=") == std::string::npos &&
+                std::chrono::steady_clock::now() < until) {
+            job.poll(); std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto child = descendant(job);
+        const auto at = job.result().output.find("PRESTART_READY=");
+        require(at != std::string::npos, "guardian identity missing");
+        const auto guardian = std::stoi(job.result().output.substr(at + 15));
+        require(guardian > 1 && kill(guardian, SIGKILL) == 0, "kill exact inner guardian");
+        finish(job); waitGone(child);
+        require(job.result().cleanupFailed && job.unavailable() && !job.start("exit 0", 256),
+                "inner-guardian death reopened admission");
+        std::cout << "PASS inner-guardian-death-escaped-descendant\n";
+    }
+    {
+        DiagnosticProcess job; job.forceProcFallback = true; job.pauseGuardianBeforeCommand = true;
+        require(prctl(PR_SET_CHILD_SUBREAPER, 1) == 0, "private test subreaper");
+        char marker[] = "/tmp/gw-diag-prestart-XXXXXX";
+        const int markerFd = mkstemp(marker);
+        require(markerFd >= 0, "private start marker"); close(markerFd);
+        require(unlink(marker) == 0, "remove empty marker before command");
+        require(job.start("printf STARTED > " + quoted(marker), 256), "start pre-command parent-death probe");
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        while (job.result().output.find("PRESTART_READY=") == std::string::npos &&
+                std::chrono::steady_clock::now() < until) {
+            job.poll(); std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto at = job.result().output.find("PRESTART_READY=");
+        require(at != std::string::npos && job.result().output.find('\n', at) != std::string::npos,
+                "guardian startup identity not observed");
+        const auto guardian = std::stoi(job.result().output.substr(at + 15));
+        require(guardian > 1, "invalid guardian identity");
+        const auto supervisor = job.supervisorForTest();
+        require(kill(supervisor, SIGKILL) == 0, "kill pre-command outer supervisor");
+        siginfo_t supervisorInfo{};
+        const auto supervisorDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        while (std::chrono::steady_clock::now() < supervisorDeadline) {
+            require(waitid(P_PID, supervisor, &supervisorInfo, WEXITED | WNOHANG | WNOWAIT) == 0,
+                    "observe exact unreaped supervisor");
+            if (supervisorInfo.si_pid == supervisor) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(supervisorInfo.si_pid == supervisor, "outer supervisor death unconfirmed");
+        int status = 0; bool guardianReaped = false;
+        const auto guardianDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < guardianDeadline) {
+            const auto got = waitpid(guardian, &status, WNOHANG);
+            require(got >= 0, "lost adopted guardian identity");
+            if (got == guardian) { guardianReaped = true; break; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        finish(job);
+        const bool commandStarted = access(marker, F_OK) == 0;
+        if (commandStarted) require(unlink(marker) == 0, "remove private start marker");
+        require(prctl(PR_SET_CHILD_SUBREAPER, 0) == 0, "restore private test subreaper");
+        require(guardianReaped && !commandStarted && job.result().cleanupFailed && job.unavailable(),
+                "pre-command reparenting launched command");
+        std::cout << "PASS pre-command-outer-death-no-launch\n";
     }
     {
         pid_t child = 0, owner = 0;

@@ -40,6 +40,22 @@ def accepted(result):
                  ('primaryError', 'cleanupError', 'postcheckError', 'receiptError')))
 
 
+def checked_init(row, launcher_pid, host):
+    pid = row['initHostPid']
+    proof = row['namespaceProof']
+    assert type(pid) is int and pid > 1 and row['launcherHostPid'] == launcher_pid
+    assert row['pdeathSignal'] == 9 and set(proof) == {'pid', 'mnt', 'net'}
+    with Path('/proc/%d/status' % pid).open('rb') as stream:
+        status = stream.read(4097)
+    assert len(status) <= 4096, 'private PID1 status bound'
+    fields = dict(line.split(b':', 1) for line in status.splitlines() if b':' in line)
+    assert fields[b'PPid'].split() == [str(launcher_pid).encode()]
+    assert fields[b'NSpid'].split() == [str(pid).encode(), b'1']
+    assert all(os.readlink('/proc/%d/ns/%s' % (pid, name)) == proof[name] != host[name]
+               for name in ('pid', 'mnt', 'net'))
+    return dict(initHostPid=pid, proof=proof)
+
+
 def run(root, manifest, baseline, expected, environment):
     root = Path(root); work = root/'work'; child = None; proof = None; identity = None
     result = dict(privateFixtureOnly=True, realLifecycleCalled=False, productCommit=manifest['productCommit'])
@@ -94,11 +110,7 @@ def run(root, manifest, baseline, expected, environment):
                     assert len(output) <= 262144, 'fixture output cap'
                     if not admitted and b'\n' in output:
                         row = json.loads(output.split(b'\n', 1)[0]); proof = row['namespaceProof']
-                        assert row['pdeathSignal'] == 9 and row['launcherHostPid'] == child.pid
-                        children = Path('/proc/%d/task/%d/children' % (child.pid, child.pid)).read_text().split()
-                        assert len(children) == 1
-                        assert all(os.readlink('/proc/'+children[0]+'/ns/'+n) == proof[n] != host[n] for n in ('pid', 'mnt', 'net'))
-                        result['ownedNamespace'] = dict(initHostPid=int(children[0]), proof=proof); save()
+                        result['ownedNamespace'] = checked_init(row, child.pid, host); save()
                         child.stdin.write(b'GO\n'); child.stdin.flush(); child.stdin.close(); admitted = True
                 if child.poll() is not None:
                     tail = child.stdout.read(262145-len(output)); output.extend(tail); log.write(tail)
@@ -116,19 +128,25 @@ def run(root, manifest, baseline, expected, environment):
                 if child.poll() is None: child.kill()  # Exact Popen owner, not global/PGID kill.
                 child.wait(timeout=5)
                 end = time.monotonic()+5
+                adopted = []
+                cleared = False
                 while time.monotonic() < end:
                     try:
                         pid, _ = os.waitpid(-1, os.WNOHANG)
-                        if pid == 0: time.sleep(0.01)
-                    except ChildProcessError: break
-                adopted = Path('/proc/%d/task/%d/children' % (os.getpid(), os.getpid())).read_text().split()
-                result['remainingAdoptedChildren'] = adopted
-                assert not adopted, 'pre-GO/adopted child cleanup unconfirmed'
+                        if pid > 0: adopted.append(pid)
+                        else: time.sleep(0.01)
+                    except ChildProcessError:
+                        cleared = True; break
+                result['reapedAdoptedChildren'] = adopted
+                result['remainingAdoptedChildren'] = [] if cleared else 'unconfirmed'
+                assert cleared, 'pre-GO/adopted child cleanup unconfirmed'
             remaining = []
             if proof:
-                processes = [p for p in Path('/proc').iterdir() if p.name.isdigit()]
-                assert len(processes) <= 32768
-                for p in processes:
+                scanned = 0
+                for p in Path('/proc').iterdir():
+                    if not p.name.isdigit(): continue
+                    scanned += 1
+                    assert scanned <= 32768, 'private namespace inventory bound'
                     try:
                         if os.readlink(str(p/'ns/pid')) == proof['pid']: remaining.append(int(p.name))
                     except (FileNotFoundError, ProcessLookupError): pass

@@ -39,6 +39,8 @@ public:
     bool shortStatus = false;
     bool dieBeforeCommand = false;
     bool holdOutputWriter = false;
+    bool forceProcFallback = false;
+    bool pauseGuardianBeforeCommand = false;
     int heldWriterForTest = -1;
     int supervisorForTest() const { return pid_; }
 #endif

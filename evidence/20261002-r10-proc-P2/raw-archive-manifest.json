@@ -1,0 +1,13 @@
+{
+  "archive": "P2-raw-evidence.zip",
+  "archiveBytes": 11332,
+  "archiveSha256": "71702079f5831ac7e99749a25ea6034c1cbdf2527984e1190e71b10ab211d915",
+  "entry": "P2-result.json",
+  "entryBytes": 101238,
+  "entrySha256": "1a590feb6a54b05622d311ea704a62a01d45b83426ca07b38df18179bb643c0b",
+  "gitBlobBytes": 100094,
+  "gitBlobSha256": "a836a63caae7eb0d0d1877f71de9d5bc85307945905ada9a30ae444247a7b0ff",
+  "difference": "Git CRLF-to-LF normalization only; JSON content equal per coordinator independent review",
+  "p2Invocations": 1,
+  "newDeviceActions": 0
+}
