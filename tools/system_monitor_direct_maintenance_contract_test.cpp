@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
+#include "edge_gateway/json_value.hpp"
 
 namespace {
 
@@ -246,6 +247,14 @@ void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMain
             signalled.find("\"signal\":0") != std::string::npos &&
             signalled.find("\"cleanupConfirmed\":true") != std::string::npos,
             "inner script signal must not masquerade as supervised-shell signal");
+    script("free", "printf '\\344\\270\\255\\377'\n");
+    const auto utf8 = send(prefix + "\"cmdId\":\"DIRECT_UTF8\",\"command\":\"free_m\"}");
+    const auto bodyAt = utf8.find("\r\n\r\n");
+    require(bodyAt != std::string::npos, "direct UTF-8 reply missing HTTP body");
+    const auto parsedUtf8 = edge_gateway::json::JsonParser(utf8.substr(bodyAt + 4), 16, 64).parse();
+    const auto* utf8Output = parsedUtf8.find("stdout");
+    require(utf8Output && utf8Output->asString() == std::string("\xe4\xb8\xad\xef\xbf\xbd", 6),
+            "direct diagnostic invalid UTF-8 did not become valid JSON");
     const auto truncated = send(prefix + "\"cmdId\":\"DIRECT_TRUNC\",\"command\":\"top_once\"}");
     require(truncated.find("\"truncated\":true") != std::string::npos &&
             truncated.find("[truncated]") != std::string::npos && truncated.size() < 500000,
@@ -261,7 +270,7 @@ void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMain
     const auto invalid = send(prefix + "\"cmdId\":\"DIRECT_INVALID\",\"command\":\"systemctl_status\",\"service\":\"bad;name.service\"}");
     require(startsWith(invalid, "HTTP/1.1 400"), "direct service argument whitelist changed");
     verifySerialHttpBudget(config, password, root, bin);
-    for (int i = 0; i < 11; ++i) {
+    for (int i = 0; i < 10; ++i) {
         const auto reply = send(prefix + "\"cmdId\":\"DIRECT_FILL_" + std::to_string(i) + "\",\"command\":\"uptime\"}");
         require(startsWith(reply, "HTTP/1.1 200"), "direct bounded replay cache fill failed");
     }

@@ -2,6 +2,7 @@
 
 #include "edge_gateway/json_value.hpp"
 #include "edge_gateway/json_value_writer.hpp"
+#include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/system_monitor_points.hpp"
 
 #include <algorithm>
@@ -2763,29 +2764,6 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
         publishStatusEvent("diag-request", nowMs, std::string(R"("cmdId":")") + escapeJson(cmdId) +
             R"(","command":")" + escapeJson(command) + R"(")");
     } catch (...) { /* the admitted job does not depend on event delivery */ }
-}
-
-std::string escapeDiagnosticOutputJson(const std::string& value) {
-    static constexpr char hex[] = "0123456789abcdef";
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (const unsigned char ch : value) {
-        switch (ch) {
-            case '\\': out += "\\\\"; break;
-            case '"': out += "\\\""; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (ch < 0x20) {
-                    out += "\\u00";
-                    out += hex[ch >> 4];
-                    out += hex[ch & 0x0f];
-                } else out += static_cast<char>(ch);
-                break;
-        }
-    }
-    return out;
 }
 
 std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& request,

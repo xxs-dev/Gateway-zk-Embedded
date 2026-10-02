@@ -26,6 +26,7 @@
 
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/diagnostic_process.hpp"
+#include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
@@ -2103,7 +2104,7 @@ std::string directDiagReplyJson(const std::string& cmdId, const std::string& mac
         << ",\"timedOut\":" << (result.timedOut ? "true" : "false")
         << ",\"cleanupConfirmed\":" << (cleanupConfirmed ? "true" : "false")
         << ",\"truncated\":" << (result.truncated ? "true" : "false")
-        << ",\"stdout\":\"" << jsonEscape(result.output)
+        << ",\"stdout\":\"" << edge_gateway::escapeDiagnosticOutputJson(result.output)
         << "\",\"stderr\":\"\""
         << ",\"requestTs\":" << requestTs
         << ",\"ts\":" << nowMs() << "}";
