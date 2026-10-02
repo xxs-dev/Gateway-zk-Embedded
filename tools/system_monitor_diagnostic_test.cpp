@@ -164,13 +164,19 @@ void cases() {
         publisher->request("other"); tick(service, 2002);
         require(publisher->replies.back().find("\"reason\":\"busy\"") != std::string::npos, "busy correlation");
         publisher->request("stall", "systemctl_status", ",\"service\":\"private.service\""); tick(service, 2003);
-        require(publisher->replies.back().find("cmdId_conflict") != std::string::npos, "strict same-id conflict");
+        require(publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
+                publisher->replies.back().find("\"attemptedCmdId\":\"stall\"") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos,
+                "in-flight conflict must not occupy the admitted terminal identity");
         publisher->request("invalid", "systemctl_status", ",\"service\":\"x; touch nope\""); tick(service, 2004);
         require(publisher->replies.back().find("invalid_command_argument") != std::string::npos, "argument rejected");
         publisher->request("forbidden", "arbitrary_command"); tick(service, 2005);
         require(publisher->replies.back().find("command_not_allowed") != std::string::npos, "whitelist rejected");
         service.stop();
-        require(publisher->replies.back().find("\"reason\":\"cancelled\"") != std::string::npos, "stop terminal result");
+        require(publisher->replies.back().find("\"reason\":\"cancelled\"") != std::string::npos &&
+                publisher->replies.back().find("\"replyKind\":\"terminal\"") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":\"stall\"") != std::string::npos,
+                "conflict-first must preserve the original terminal result");
         require(fixture.runs() == 1, "duplicate/rejected requests executed again");
         std::cout << "PASS actual-loop/monitor/safety/inflight/conflict/busy/whitelist/stop\n";
     }
@@ -181,10 +187,14 @@ void cases() {
         publisher->request("exit"); tick(service, 3000); waitReply(service, *publisher, 1);
         const auto terminal = publisher->replies.back();
         require(terminal.find("\"exitCode\":1") != std::string::npos, "exit1 was raw wait status");
+        publisher->request("exit", "systemctl_status", ",\"service\":\"private.service\""); tick(service, 3001);
+        require(publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos,
+                "terminal-first conflict must remain nonterminal");
         publisher->request("exit"); tick(service, 3001);
         require(publisher->replies.back() == terminal && fixture.runs() == 2, "completed idempotent replay");
         SystemMonitorDiagnosticTestAccess::expire(service, "exit");
-        publisher->request("exit"); tick(service, 3002); waitReply(service, *publisher, 3);
+        publisher->request("exit"); tick(service, 3002); waitReply(service, *publisher, 4);
         require(fixture.runs() == 3, "expired completion did not release same id");
         std::cout << "PASS normalized-exit/completed-replay/expiry\n";
     }

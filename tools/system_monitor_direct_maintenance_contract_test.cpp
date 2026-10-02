@@ -137,7 +137,7 @@ void verifySerialHttpBudget(const edge_gateway::SystemMonitorConfig::DirectMaint
 }
 
 void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig& config,
-                             const std::string& password, const std::string& root) {
+                             const std::string& password, const std::string& root, bool ownerMode) {
     namespace dm = edge_gateway::system_monitor_direct_maintenance;
     const auto bin = root + "-diag-bin";
     require(::mkdir(bin.c_str(), 0700) == 0, "private diagnostic command directory");
@@ -158,6 +158,69 @@ void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMain
     const auto send = [&](const std::string& payload) {
         return dm::handleHttpRequest(config, "POST", "/api/v1/diag/execute", "", "", payload, "10.0.0.7");
     };
+#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
+    if (ownerMode) {
+        dm::setDirectDiagFaultForTest(true, false);
+        const auto signalled = send(prefix + "\"cmdId\":\"DIRECT_LEADER_SIGNAL\",\"command\":\"free_m\"}");
+        require(startsWith(signalled, "HTTP/1.1 200") &&
+                signalled.find("\"reason\":\"signal\"") != std::string::npos &&
+                signalled.find("\"signal\":15") != std::string::npos &&
+                signalled.find("\"exitCode\":143") != std::string::npos &&
+                signalled.find("\"cleanupConfirmed\":true") != std::string::npos,
+                "owned command leader signal must be classified from wait status");
+        dm::setDirectDiagFaultForTest(false, true);
+        const auto unknown = send(prefix + "\"cmdId\":\"DIRECT_UNKNOWN\",\"command\":\"uptime\"}");
+        require(unknown.find("\"reason\":\"cleanup_unknown\"") != std::string::npos &&
+                unknown.find("\"cleanupConfirmed\":false") != std::string::npos &&
+                dm::directDiagOwnerActiveForTest() && dm::directDiagOwnerUnavailableForTest(),
+                "early unknown must retain a poisoned live owner");
+        const auto refused = send(prefix + "\"cmdId\":\"DIRECT_REFUSED\",\"command\":\"uptime\"}");
+        require(startsWith(refused, "HTTP/1.1 503") &&
+                refused.find("\"reason\":\"cleanup_unknown\"") != std::string::npos &&
+                refused.find("\"cmdId\":") == std::string::npos,
+                "uncertain owner must reject new admission without terminal cmdId");
+        const int portProbe = ::socket(AF_INET, SOCK_STREAM, 0);
+        require(portProbe >= 0, "owner loop private port allocation");
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = 0;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        require(::bind(portProbe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0,
+                "owner loop private port bind");
+        socklen_t addressSize = sizeof(address);
+        require(::getsockname(portProbe, reinterpret_cast<sockaddr*>(&address), &addressSize) == 0,
+                "owner loop private port query");
+        auto serverConfig = config;
+        serverConfig.enabled = true;
+        serverConfig.listenHosts = {"127.0.0.1"};
+        serverConfig.listenPort = ntohs(address.sin_port);
+        ::close(portProbe);
+        int serverExit = -1;
+        std::thread server([&] { serverExit = dm::runFromConfig(serverConfig); });
+        try {
+            const auto health = loopbackRequest(serverConfig.listenPort,
+                "GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+            require(startsWith(health, "HTTP/1.1 200"), "owner recovery server health");
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (dm::directDiagOwnerActiveForTest() && std::chrono::steady_clock::now() < until)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            require(!dm::directDiagOwnerActiveForTest() && dm::directDiagOwnerUnavailableForTest(),
+                    "server loop must reap retained owner without reopening admission");
+            require(startsWith(send(prefix + "\"cmdId\":\"DIRECT_STILL_REFUSED\",\"command\":\"uptime\"}"),
+                               "HTTP/1.1 503"), "poisoned admission reopened after owner reap");
+        } catch (...) { dm::requestStop(); server.join(); throw; }
+        dm::requestStop();
+        server.join();
+        require(serverExit == 0, "owner recovery server did not stop cleanly");
+        require(::setenv("PATH", priorPath.c_str(), 1) == 0, "restore owner fixture PATH");
+        for (const auto& name : {"uptime", "journalctl", "top", "free"}) std::remove((bin + "/" + name).c_str());
+        std::remove(counter.c_str());
+        require(::rmdir(bin.c_str()) == 0, "owner fixture cleanup");
+        return;
+    }
+#else
+    (void)ownerMode;
+#endif
     require(startsWith(send("{\"passwordSha256\":\"wrong\",\"machineCode\":\"GW_TEST\",\"cmdId\":\"UNAUTHORIZED\",\"command\":\"uptime\"}"),
                        "HTTP/1.1 401"), "direct diagnostic authentication changed");
     require(startsWith(send(std::string("{\"passwordSha256\":\"") + password +
@@ -210,7 +273,7 @@ void verifyDirectDiagnostics(const edge_gateway::SystemMonitorConfig::DirectMain
     require(::rmdir(bin.c_str()) == 0, "private diagnostic command cleanup");
 }
 
-void verifyMaintenanceCredential() {
+void verifyMaintenanceCredential(bool ownerMode) {
     namespace dm = edge_gateway::system_monitor_direct_maintenance;
     const auto root = std::string("/tmp/direct-maintenance-contract-") + std::to_string(::getpid());
     edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig config;
@@ -309,7 +372,7 @@ void verifyMaintenanceCredential() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     require(asyncFinished, "Direct signed request worker did not finish locally");
-    verifyDirectDiagnostics(config, good, root);
+    verifyDirectDiagnostics(config, good, root, ownerMode);
     std::remove(config.otaAppConfigFile.c_str());
     std::remove(config.identityConfigFile.c_str());
     std::remove(config.otaStatusFile.c_str());
@@ -323,7 +386,7 @@ void verifyMaintenanceCredential() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
         const auto json = edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson();
         require(json.find("\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]") != std::string::npos,
@@ -338,7 +401,7 @@ int main() {
                 "compiler contract capability is incorrect");
         require(json.find("\"executesEditorSource\":true") != std::string::npos,
                 "direct V2 execution capability is incorrect");
-        verifyMaintenanceCredential();
+        verifyMaintenanceCredential(argc == 2 && std::string(argv[1]) == "--owner");
         std::cout << "system_monitor_direct_maintenance_contract_test passed\n";
         return 0;
     } catch (const std::exception& ex) {

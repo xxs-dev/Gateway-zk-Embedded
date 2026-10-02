@@ -10,6 +10,11 @@ namespace system_monitor_direct_maintenance {
 std::string otaCapabilitiesJson();
 int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config);
 void requestStop();
+#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
+void setDirectDiagFaultForTest(bool signalLeader, bool delayCleanupFailure);
+bool directDiagOwnerActiveForTest();
+bool directDiagOwnerUnavailableForTest();
+#endif
 
 // Per-device maintenance credential. Clients keep sending passwordSha256 =
 // hex(SHA-256(password)); the device stores PBKDF2-HMAC-SHA256(passwordSha256, salt).

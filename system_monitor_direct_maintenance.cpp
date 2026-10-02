@@ -2072,6 +2072,9 @@ struct DirectDiagState {
     std::map<std::string, DirectDiagRecord> replies;
     std::string identityPath;
     std::string machineCode;
+#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
+    bool signalLeaderForTest = false;
+#endif
 };
 
 DirectDiagState& directDiagState() {
@@ -2155,7 +2158,13 @@ DirectDiagResponse diagResponseJson(const SystemMonitorDirectMaintenanceConfig& 
             return {200, saved.reply};
         return {409, "{\"success\":false,\"reason\":\"cmdId_conflict\"}"};
     }
-    const auto shellCommand = directDiagShellCommand(command, service, tailLines);
+    auto shellCommand = directDiagShellCommand(command, service, tailLines);
+#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
+    if (state.signalLeaderForTest) {
+        shellCommand += "; kill -TERM $$";
+        state.signalLeaderForTest = false;
+    }
+#endif
     if (state.process.active()) state.process.poll();
     if (state.process.active() || state.process.unavailable()) {
         return {503, state.process.unavailable() ?
@@ -3397,6 +3406,27 @@ int runServer(const SystemMonitorDirectMaintenanceConfig& config) {
 
 namespace edge_gateway {
 namespace system_monitor_direct_maintenance {
+
+#ifdef EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS
+void setDirectDiagFaultForTest(bool signalLeader, bool delayCleanupFailure) {
+    auto& state = directDiagState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    state.signalLeaderForTest = signalLeader;
+    state.process.delayCleanupFailure = delayCleanupFailure;
+}
+
+bool directDiagOwnerActiveForTest() {
+    auto& state = directDiagState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    return state.process.active();
+}
+
+bool directDiagOwnerUnavailableForTest() {
+    auto& state = directDiagState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    return state.process.unavailable();
+}
+#endif
 
 std::string otaCapabilitiesJson() {
     std::ostringstream payload;

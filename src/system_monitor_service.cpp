@@ -2725,7 +2725,13 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     const auto existing = diagnosticRequests_.find(cmdId);
     if (existing != diagnosticRequests_.end()) {
         const auto& saved = existing->second;
-        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) reject("cmdId_conflict");
+        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) {
+            std::ostringstream rejection;
+            rejection << "{\"replyKind\":\"admission_rejection\",\"attemptedCmdId\":\""
+                      << escapeJson(cmdId) << "\",\"machineCode\":\"" << escapeJson(machineCode_)
+                      << "\",\"reason\":\"cmdId_conflict\",\"ts\":" << nowMs << "}";
+            publisher_->publishJsonMessage(mqttConfig_.diagReplyTopic, rejection.str());
+        }
         else if (!saved.reply.empty()) publishReply(saved.reply);
         // Same in-flight logical request shares the eventual terminal reply.
         // Existing clients treat every diag reply as terminal; do not send a
@@ -2759,7 +2765,7 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
 std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& request,
         const DiagnosticProcessResult& result, const std::string& reason, std::int64_t nowMs) const {
     std::ostringstream reply;
-    reply << "{\"cmdId\":\"" << escapeJson(request.cmdId)
+    reply << "{\"replyKind\":\"terminal\",\"cmdId\":\"" << escapeJson(request.cmdId)
           << "\",\"machineCode\":\"" << escapeJson(machineCode_)
           << "\",\"operator\":\"" << escapeJson(request.operatorName)
           << "\",\"command\":\"" << escapeJson(request.command)

@@ -718,6 +718,18 @@ add_executable(
 )
 target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE edge_gateway)
 target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
+add_executable(
+    system_monitor_direct_maintenance_owner_test
+    tools/system_monitor_direct_maintenance_contract_test.cpp
+    system_monitor_direct_maintenance.cpp
+    src/system_monitor_service.cpp
+    src/diagnostic_process.cpp
+)
+target_compile_definitions(system_monitor_direct_maintenance_owner_test PRIVATE EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS)
+target_link_libraries(system_monitor_direct_maintenance_owner_test PRIVATE edge_gateway)
+target_compile_options(system_monitor_direct_maintenance_owner_test PRIVATE -fdiagnostics-color=never)
+target_link_options(system_monitor_direct_maintenance_owner_test PRIVATE
+    "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/system_monitor_direct_maintenance_owner.map")
 
 if(BUILD_TESTING)
     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
@@ -862,6 +874,7 @@ if(BUILD_TESTING)
     add_test(NAME grid_friendly_dispatch COMMAND grid_friendly_dispatch_test)
     add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
     add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
+    add_test(NAME system_monitor_direct_maintenance_owner COMMAND system_monitor_direct_maintenance_owner_test --owner)
     set_tests_properties(
         graph_ems_v2_loader
         graph_ems_voltage_quality
