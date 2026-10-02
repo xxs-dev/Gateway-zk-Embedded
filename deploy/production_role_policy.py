@@ -465,7 +465,8 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
         protocol_data = value.get('protocol')
         require(isinstance(protocol_data, dict) and isinstance(protocol_data.get('type'), str),
                 'device protocol missing')
-        protocol = protocol_data['type'].lower()
+        protocol = protocol_data['type']
+        require(protocol == protocol.lower(), 'noncanonical device protocol')
         require(protocol in DEVICE_FAMILIES, 'unknown device protocol: ' + protocol)
         enabled = value.get('enabled', True)
         require(type(enabled) is bool, 'nonboolean device enabled')
@@ -655,15 +656,17 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
             require(section.get('allowCustomCommand', False) is False,
                     'camera custom command is not qualified')
             require('camera-simulator' in caps and isinstance(cameras, list) and
-                    any(isinstance(item, dict) and item.get('enabled') is True for item in cameras) and
-                    all(isinstance(item, dict) and (item.get('enabled') is not True or
+                    all(isinstance(item, dict) and type(item.get('enabled', True)) is bool
+                        for item in cameras) and
+                    any(item.get('enabled', True) for item in cameras) and
+                    all(not item.get('enabled', True) or
                         item.get('sourceType') == 'test' and not item.get('source') and
                         isinstance(item.get('sourceAuth', {}), dict) and
-                        item.get('sourceAuth', {}).get('enabled') is False)
+                        item.get('sourceAuth', {}).get('enabled', False) is False
                         for item in cameras),
                     'camera requires reviewed simulator inputs')
             for item in cameras:
-                if item.get('enabled') is True:
+                if item.get('enabled', True):
                     require(not item.get('command'), 'camera custom command is not qualified')
                     required_bindings.add(_camera_receiver(item, section, bindings))
             camera_shm = _shm_single(section, 'sharedMemoryName', 'gateway_point_store')

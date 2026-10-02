@@ -128,6 +128,12 @@ class ProductionRolePolicyTest(unittest.TestCase):
         self.write('devices/meter_1.json', device)
         self.rejects('unknown device protocol')
 
+    def test_noncanonical_protocol_cannot_select_different_driver_transport(self):
+        device = self.read('devices/meter_1.json')
+        device['protocol']['type'] = 'MODBUS_TCP'
+        self.write('devices/meter_1.json', device)
+        self.rejects('noncanonical device protocol')
+
     def test_duplicate_and_unselected_inputs_rejected(self):
         mqtt = self.read('apps/mqtt-service.json')
         mqtt['deviceConfigFiles'].append(mqtt['deviceConfigFiles'][0])
@@ -391,6 +397,29 @@ class ProductionRolePolicyTest(unittest.TestCase):
         camera['cameraService']['media']['auth']['enabled'] = True
         self.write('apps/camera-service.json', camera)
         self.rejects('output authentication', capabilities=['camera-simulator'], simulator_bindings=binding)
+
+    def test_camera_omitted_enabled_is_active_and_must_be_reviewed(self):
+        self.write('apps/camera-service.json', {
+            'runtimeMode': 'standard', 'identityConfigFile': TARGET + 'device_identity.json',
+            'deviceConfigFiles': [], 'cameraService': {'enabled': True,
+                'cameras': [
+                    {'enabled': True, 'cameraCode': 'safe', 'sourceType': 'test',
+                     'source': '', 'stream': {'publishUrl': 'rtsp://127.0.0.1:8554/safe'}},
+                    {'cameraCode': 'implicit', 'sourceType': 'rtsp',
+                     'source': 'rtsp://outside.invalid/live',
+                     'stream': {'publishUrl': 'rtsp://outside.invalid/publish'}}]}})
+        binding = dict(self.bindings, **{'camera:safe': {
+            'kind': 'rtsp-receiver', 'endpoint': 'rtsp://127.0.0.1:8554/safe'}})
+        self.rejects('camera requires reviewed simulator inputs',
+                     capabilities=['camera-simulator'], simulator_bindings=binding)
+        camera = self.read('apps/camera-service.json')
+        camera['cameraService']['cameras'][1]['sourceType'] = 'test'
+        camera['cameraService']['cameras'][1]['source'] = ''
+        self.write('apps/camera-service.json', camera)
+        self.rejects('loopback RTSP', capabilities=['camera-simulator'], simulator_bindings=binding)
+        camera['cameraService']['cameras'][1]['stream']['publishUrl'] = 'rtsp://127.0.0.1:8554/implicit'
+        self.write('apps/camera-service.json', camera)
+        self.rejects('receiver binding missing', capabilities=['camera-simulator'], simulator_bindings=binding)
 
     def test_unmodified_factory_profile_cannot_silently_admit_hardware(self):
         factory = Path(self.temp.name) / 'factory'
