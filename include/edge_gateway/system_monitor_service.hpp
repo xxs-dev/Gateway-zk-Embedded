@@ -166,6 +166,8 @@ private:
     void processIncomingMessages(std::int64_t nowMs);
     void handleMonitorRequest(const std::string& payload, std::int64_t nowMs);
     void handleDiagRequest(const std::string& payload, std::int64_t nowMs);
+    std::int64_t diagnosticEffectiveNow(std::int64_t wallNowMs,
+        std::chrono::steady_clock::time_point steadyNow);
     void pollDiagnostics(std::int64_t nowMs);
     void completeDiagnostic(std::int64_t nowMs);
     std::string diagnosticReply(const DiagnosticRequest& request, const DiagnosticProcessResult& result,
@@ -228,6 +230,9 @@ private:
     DiagnosticProcess diagnosticProcess_;
     std::map<std::string, DiagnosticRequest> diagnosticRequests_;
     std::string currentDiagnosticId_;
+    std::int64_t diagnosticTimeFloorMs_ = 0;
+    std::chrono::steady_clock::time_point diagnosticTimeFloorAt_{};
+    bool diagnosticTimeAnchorSet_ = false;
     std::int64_t lastTelemetryMs_ = 0;
     std::int64_t lastPointSnapshotMs_ = 0;
     std::map<std::string, std::int64_t> lastAlertPublishMs_;

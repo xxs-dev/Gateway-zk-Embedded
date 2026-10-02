@@ -739,7 +739,7 @@ int main() {
     SystemMonitorService diagService(diagConfig, diagMqtt, diagPublisher, "GW_TEST");
     MqttIncomingMessage diagRequest;
     diagRequest.type = MqttIncomingType::DiagRequest;
-    diagRequest.payload = "{\"cmdId\":\"DIAG_1\",\"machineCode\":\"GW_TEST\",\"command\":\"top_once\"}";
+    diagRequest.payload = "{\"cmdId\":\"DIAG_1\",\"machineCode\":\"GW_TEST\",\"command\":\"top_once\",\"requestTs\":1770000002000}";
     diagPublisher->incoming.push_back(diagRequest);
     diagService.runOnce(1770000002000LL);
     // Diagnostic completion is asynchronous; the same service loop continues.

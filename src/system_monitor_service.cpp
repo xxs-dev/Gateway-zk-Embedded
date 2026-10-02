@@ -54,6 +54,8 @@ constexpr std::size_t kMaxPendingConfigApplyBytes = 64U * 1024U * 1024U;
 constexpr std::int64_t kPendingConfigApplyTtlMs = 120000;
 constexpr std::size_t kMaxDiagnosticReplies = 16;
 constexpr std::size_t kMaxDiagnosticReplyBytes = 8U * 1024U * 1024U;
+constexpr std::int64_t kDiagnosticRequestAgeMs = 300000;
+constexpr std::int64_t kDiagnosticFutureSkewMs = 300000;
 
 struct ConfigApplyFile {
     std::string path;
@@ -2673,35 +2675,77 @@ void SystemMonitorService::handleMonitorRequest(const std::string& payload, std:
     publishReply(reply.str());
 }
 
+std::int64_t SystemMonitorService::diagnosticEffectiveNow(std::int64_t wallNowMs,
+        std::chrono::steady_clock::time_point steadyNow) {
+    if (!diagnosticTimeAnchorSet_) {
+        diagnosticTimeAnchorSet_ = true;
+        diagnosticTimeFloorMs_ = wallNowMs;
+        diagnosticTimeFloorAt_ = steadyNow;
+        return wallNowMs;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        steadyNow - diagnosticTimeFloorAt_).count();
+    const auto projected = diagnosticTimeFloorMs_ + elapsed;
+    if (wallNowMs > projected) {
+        diagnosticTimeFloorMs_ = wallNowMs;
+        diagnosticTimeFloorAt_ = steadyNow;
+        return wallNowMs;
+    }
+    return projected;
+}
+
 void SystemMonitorService::handleDiagRequest(const std::string& payload, std::int64_t nowMs) {
     if (!monitorConfig_.diagEnabled) {
         throw std::runtime_error("diag disabled");
     }
     if (payload.size() > 8192) throw std::runtime_error("diag request too large");
-    FlatJsonReader json(payload);
+    const auto json = json::JsonParser(payload, 8, 64).parse();
+    if (!json.isObject()) throw std::runtime_error("diag request must be an object");
+    const std::set<std::string> allowed = {"cmdId", "machineCode", "operator", "command",
+                                           "service", "tailLines", "requestTs"};
+    std::set<std::string> seen;
+    for (const auto& field : json.asObject().values) {
+        if (!allowed.count(field.key) || !seen.insert(field.key).second)
+            throw std::runtime_error("unknown or duplicate diag request field");
+    }
+    const auto getString = [&](const char* key, std::string* out) {
+        const auto* value = json.find(key);
+        if (!value || value->isNull()) return;
+        if (!value->isString()) throw std::runtime_error(std::string("invalid diag string: ") + key);
+        *out = value->asString();
+    };
     std::string cmdId;
     std::string command;
     std::string machineCode;
     std::string operatorName;
     std::string service;
     int tailLines = 100;
-    std::int64_t requestTs = nowMs;
-    json.tryGetString("cmdId", &cmdId);
-    json.tryGetString("command", &command);
-    json.tryGetString("machineCode", &machineCode);
-    json.tryGetString("operator", &operatorName);
-    json.tryGetString("service", &service);
-    json.tryGetInt("tailLines", &tailLines);
-    json.tryGetInt64("requestTs", &requestTs);
+    getString("cmdId", &cmdId);
+    getString("command", &command);
+    getString("machineCode", &machineCode);
+    getString("operator", &operatorName);
+    getString("service", &service);
+    if (const auto* value = json.find("tailLines")) {
+        if (!value->isNumber() || !std::isfinite(value->asNumber()) ||
+            std::floor(value->asNumber()) != value->asNumber() ||
+            value->asNumber() < static_cast<double>(INT_MIN) ||
+            value->asNumber() > static_cast<double>(INT_MAX))
+            throw std::runtime_error("invalid diag tailLines");
+        tailLines = static_cast<int>(value->asNumber());
+    }
+    const auto* timestamp = json.find("requestTs");
+    if (!timestamp || !timestamp->isNumber() || !std::isfinite(timestamp->asNumber()) ||
+        std::floor(timestamp->asNumber()) != timestamp->asNumber() ||
+        timestamp->asNumber() <= 0 || timestamp->asNumber() > 9000000000000000.0)
+        throw std::runtime_error("diag requestTs missing or invalid");
+    const auto requestTs = static_cast<std::int64_t>(timestamp->asNumber());
     if (machineCode.empty()) {
         throw std::runtime_error("machineCode is required");
     }
     if (machineCode != machineCode_) {
         throw std::runtime_error("machineCode mismatch");
     }
-    if (cmdId.empty()) {
-        cmdId = "DIAG_" + std::to_string(nowMs);
-    }
+    if (cmdId.empty()) throw std::runtime_error("diag cmdId is required");
     if (cmdId.size() > 128 || command.size() > 64 ||
             operatorName.size() > 128 || service.size() > 128) throw std::runtime_error("diag request too large");
     std::string arg;
@@ -2713,41 +2757,53 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     DiagnosticRequest request;
     request.cmdId = cmdId; request.command = command; request.arg = arg;
     request.operatorName = operatorName; request.requestTs = requestTs;
-    const auto reject = [&](const std::string& reason) {
-        DiagnosticProcessResult result; result.output = reason;
-        result.cleanupFailed = reason == "cleanup_unknown";
-        publishReply(diagnosticReply(request, result, reason, nowMs));
-    };
     const auto steadyNow = std::chrono::steady_clock::now();
+    const auto effectiveNow = diagnosticEffectiveNow(nowMs, steadyNow);
     for (auto it = diagnosticRequests_.begin(); it != diagnosticRequests_.end();) {
         it = (!it->second.reply.empty() && it->first != currentDiagnosticId_ && it->second.expiresAt <= steadyNow)
             ? diagnosticRequests_.erase(it) : std::next(it);
     }
+    const auto publishRejection = [&](const std::string& reason) {
+        std::ostringstream rejection;
+        rejection << "{\"replyKind\":\"admission_rejection\",\"attemptedCmdId\":\""
+                  << escapeDiagnosticOutputJson(cmdId) << "\",\"machineCode\":\""
+                  << escapeDiagnosticOutputJson(machineCode_)
+                  << "\",\"command\":\"" << escapeDiagnosticOutputJson(command)
+                  << "\",\"arg\":\"" << escapeDiagnosticOutputJson(arg)
+                  << "\",\"operator\":\"" << escapeDiagnosticOutputJson(operatorName)
+                  << "\",\"requestTs\":" << requestTs
+                  << ",\"reason\":\"" << reason << "\",\"ts\":" << nowMs << "}";
+        publisher_->publishJsonMessage(mqttConfig_.diagReplyTopic, rejection.str());
+    };
+    const auto replay = [&](const DiagnosticRequest& saved) {
+        if (saved.command != command || saved.arg != arg ||
+            saved.operatorName != operatorName || saved.requestTs != requestTs)
+            publishRejection("cmdId_conflict");
+        else if (!saved.reply.empty()) publishReply(saved.reply);
+    };
     const auto existing = diagnosticRequests_.find(cmdId);
     if (existing != diagnosticRequests_.end()) {
-        const auto& saved = existing->second;
-        if (saved.command != command || saved.arg != arg || saved.operatorName != operatorName) {
-            std::ostringstream rejection;
-            rejection << "{\"replyKind\":\"admission_rejection\",\"attemptedCmdId\":\""
-                      << escapeJson(cmdId) << "\",\"machineCode\":\"" << escapeJson(machineCode_)
-                      << "\",\"command\":\"" << escapeJson(command)
-                      << "\",\"arg\":\"" << escapeJson(arg)
-                      << "\",\"operator\":\"" << escapeJson(operatorName)
-                      << "\",\"reason\":\"cmdId_conflict\",\"ts\":" << nowMs << "}";
-            publisher_->publishJsonMessage(mqttConfig_.diagReplyTopic, rejection.str());
-        }
-        else if (!saved.reply.empty()) publishReply(saved.reply);
+        replay(existing->second);
         // Same in-flight logical request shares the eventual terminal reply.
         // Existing clients treat every diag reply as terminal; do not send a
         // success=false "in_progress" reply which would falsely finish the task.
         return;
     }
+    if (requestTs >= effectiveNow + kDiagnosticFutureSkewMs ||
+        requestTs <= effectiveNow - kDiagnosticRequestAgeMs)
+        throw std::runtime_error("diag requestTs stale or from the future");
+    const auto reject = [&](const std::string& reason) {
+        // No execution was admitted and there is no durable idempotency record.
+        // A later delivery (including after restart) may still execute, so this
+        // is never a terminal outcome for the logical request.
+        publishRejection(reason);
+    };
     if (!isCommandAllowed(command)) { reject("command_not_allowed"); return; }
     std::string shellCommand;
     try { shellCommand = buildDiagShellCommand(command, arg); }
     catch (const std::exception&) { reject("invalid_command_argument"); return; }
-    if (diagnosticProcess_.active()) { reject("busy"); return; }
     if (diagnosticProcess_.unavailable()) { reject("cleanup_unknown"); return; }
+    if (diagnosticProcess_.active()) { reject("busy"); return; }
     std::size_t replyBytes = 0;
     for (const auto& entry : diagnosticRequests_) replyBytes += entry.second.reply.size();
     const auto outputLimit = std::max<std::size_t>(256, std::min<std::size_t>(1024 * 1024, monitorConfig_.maxDiagOutputBytes));
@@ -2769,11 +2825,11 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
 std::string SystemMonitorService::diagnosticReply(const DiagnosticRequest& request,
         const DiagnosticProcessResult& result, const std::string& reason, std::int64_t nowMs) const {
     std::ostringstream reply;
-    reply << "{\"replyKind\":\"terminal\",\"cmdId\":\"" << escapeJson(request.cmdId)
-          << "\",\"machineCode\":\"" << escapeJson(machineCode_)
-          << "\",\"operator\":\"" << escapeJson(request.operatorName)
-          << "\",\"command\":\"" << escapeJson(request.command)
-          << "\",\"arg\":\"" << escapeJson(request.arg)
+    reply << "{\"replyKind\":\"terminal\",\"cmdId\":\"" << escapeDiagnosticOutputJson(request.cmdId)
+          << "\",\"machineCode\":\"" << escapeDiagnosticOutputJson(machineCode_)
+          << "\",\"operator\":\"" << escapeDiagnosticOutputJson(request.operatorName)
+          << "\",\"command\":\"" << escapeDiagnosticOutputJson(request.command)
+          << "\",\"arg\":\"" << escapeDiagnosticOutputJson(request.arg)
           << "\",\"success\":" << (result.exitCode == 0 && !result.cleanupFailed ? "true" : "false")
           << ",\"exitCode\":" << result.exitCode
           << ",\"reason\":\"" << reason << "\",\"signal\":" << result.signal
@@ -2796,7 +2852,7 @@ void SystemMonitorService::completeDiagnostic(std::int64_t nowMs) {
     const auto reason = result.cleanupFailed ? "cleanup_unknown" : result.cancelled ? "cancelled" :
         result.timedOut ? "timeout" : result.signal ? "signal" : result.exitCode < 0 ? "launch_failed" : "exit";
     found->second.reply = diagnosticReply(found->second, result, reason, nowMs);
-    found->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::minutes(5);
+    found->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::minutes(10);
     try {
         publishReply(found->second.reply);
         publishStatusEvent("diag-replied", nowMs, std::string(R"("cmdId":")") + escapeJson(found->first) +

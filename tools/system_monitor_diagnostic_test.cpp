@@ -19,6 +19,14 @@ struct SystemMonitorDiagnosticTestAccess {
     static void expire(SystemMonitorService& service, const std::string& id) {
         service.diagnosticRequests_.at(id).expiresAt = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
     }
+    static std::chrono::steady_clock::time_point expiry(SystemMonitorService& service,
+            const std::string& id) {
+        return service.diagnosticRequests_.at(id).expiresAt;
+    }
+    static std::int64_t effectiveNow(SystemMonitorService& service, std::int64_t wall,
+            std::chrono::steady_clock::time_point steady) {
+        return service.diagnosticEffectiveNow(wall, steady);
+    }
 };
 }
 namespace {
@@ -68,9 +76,10 @@ public:
     std::vector<MqttIncomingMessage> pollIncoming(int) override {
         auto result = incoming; incoming.clear(); return result;
     }
-    void request(const std::string& id, const std::string& command = "top_once", const std::string& fields = "") {
+    void request(const std::string& id, const std::string& command = "top_once",
+                 const std::string& fields = "", std::int64_t requestTs = 1000) {
         MqttIncomingMessage message; message.type = MqttIncomingType::DiagRequest;
-        message.payload = "{\"cmdId\":\"" + id + "\",\"machineCode\":\"PRIVATE_DIAG\",\"command\":\"" + command + "\"" + fields + "}";
+        message.payload = "{\"cmdId\":\"" + id + "\",\"machineCode\":\"PRIVATE_DIAG\",\"command\":\"" + command + "\",\"requestTs\":" + std::to_string(requestTs) + fields + "}";
         incoming.push_back(message);
     }
     std::vector<MqttIncomingMessage> incoming;
@@ -163,7 +172,11 @@ void cases() {
         require(publisher->monitorReplies == 1 && publisher->safetyEvents > 0,
                 "independent monitor and safety processing did not advance");
         publisher->request("other"); tick(service, 2002);
-        require(publisher->replies.back().find("\"reason\":\"busy\"") != std::string::npos, "busy correlation");
+        require(publisher->replies.back().find("\"reason\":\"busy\"") != std::string::npos &&
+                publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos &&
+                publisher->replies.back().find("\"cleanupConfirmed\":") == std::string::npos,
+                "busy must not forge a terminal or inherit another owner's cleanup state");
         publisher->request("stall", "systemctl_status", ",\"service\":\"private.service\""); tick(service, 2003);
         require(publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
                 publisher->replies.back().find("\"attemptedCmdId\":\"stall\"") != std::string::npos &&
@@ -172,9 +185,15 @@ void cases() {
                 publisher->replies.back().find("\"cmdId\":") == std::string::npos,
                 "in-flight conflict must not occupy the admitted terminal identity");
         publisher->request("invalid", "systemctl_status", ",\"service\":\"x; touch nope\""); tick(service, 2004);
-        require(publisher->replies.back().find("invalid_command_argument") != std::string::npos, "argument rejected");
+        require(publisher->replies.back().find("invalid_command_argument") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos, "argument rejected without terminal");
         publisher->request("forbidden", "arbitrary_command"); tick(service, 2005);
-        require(publisher->replies.back().find("command_not_allowed") != std::string::npos, "whitelist rejected");
+        require(publisher->replies.back().find("command_not_allowed") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos, "whitelist rejected without terminal");
+        publisher->request("bounded_tail", "journal_tail", ",\"tailLines\":1000"); tick(service, 2006);
+        require(publisher->replies.back().find("\"arg\":\"500\"") != std::string::npos &&
+                publisher->replies.back().find("command_not_allowed") != std::string::npos,
+                "existing journal_tail clamp changed during strict parsing");
         service.stop();
         require(publisher->replies.back().find("\"reason\":\"cancelled\"") != std::string::npos &&
                 publisher->replies.back().find("\"replyKind\":\"terminal\"") != std::string::npos &&
@@ -233,6 +252,102 @@ void cases() {
     {
         auto publisher = std::make_shared<Publisher>();
         SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+        MqttIncomingMessage windows; windows.type = MqttIncomingType::DiagRequest;
+        windows.payload = R"({"cmdId":"windows_unicode","machineCode":"PRIVATE_DIAG","operator":"\u5F20\u4E09\uD83D\uDE00\u0027\u002B","command":"top_once","service":"","tailLines":100,"requestTs":7000})";
+        publisher->incoming.push_back(windows); tick(service, 7000); waitReply(service, *publisher, 1);
+        const auto parsed = json::JsonParser(publisher->replies.back(), 16, 64).parse();
+        require(parsed.find("operator") && parsed.find("operator")->asString() ==
+                std::string("\xe5\xbc\xa0\xe4\xb8\x89\xf0\x9f\x98\x80'+"),
+                "Windows JSON escaped Unicode operator did not roundtrip through real handler");
+        const int runs = fixture.runs();
+        for (const auto& malformed : {
+                R"({"cmdId":"bad","machineCode":"PRIVATE_DIAG","operator":"\uD800","command":"top_once","requestTs":7001})",
+                R"({"cmdId":"bad","machineCode":"PRIVATE_DIAG","operator":"x","command":"top_once","requestTs":7001,"requestTs":7001})",
+                R"({"cmdId":"bad","machineCode":"PRIVATE_DIAG","operator":1,"command":"top_once","requestTs":7001})"}) {
+            windows.payload = malformed; publisher->incoming.push_back(windows); tick(service, 7001);
+        }
+        require(fixture.runs() == runs && publisher->replies.size() == 1,
+                "malformed or ambiguous diagnostic identity reached execution");
+        std::cout << "PASS Windows-escaped-Unicode/strict-malformed-identity\n";
+    }
+    {
+        auto publisher = std::make_shared<Publisher>();
+        SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+        publisher->request("freshness"); tick(service, 7200); waitReply(service, *publisher, 1);
+        const int runs = fixture.runs();
+        publisher->request("freshness"); tick(service, 400000);
+        require(publisher->replies.size() == 2 && fixture.runs() == runs,
+                "cached terminal must replay before freshness rejection");
+        SystemMonitorDiagnosticTestAccess::expire(service, "freshness");
+        publisher->request("freshness"); tick(service, 400001);
+        require(fixture.runs() == runs && publisher->replies.size() == 2,
+                "expired command ID executed after request freshness window");
+        publisher->request("clock_floor", "top_once", "", 400002); tick(service, 400002);
+        waitReply(service, *publisher, 3);
+        const int floorRuns = fixture.runs();
+        publisher->request("clock_floor", "top_once", "", 400002); tick(service, 1000);
+        require(publisher->replies.size() == 4 && fixture.runs() == floorRuns,
+                "cached terminal did not replay after wall-clock rollback");
+        publisher->request("rollback_new"); tick(service, 1000);
+        require(publisher->replies.size() == 4 && fixture.runs() == floorRuns,
+                "wall-clock rollback admitted a stale new ID");
+        std::cout << "PASS cached-replay-before-age-gate/expired-ID/clock-rollback\n";
+    }
+    {
+        auto publisher = std::make_shared<Publisher>();
+        SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+        publisher->request("future_boundary", "top_once", "", 1299999);
+        tick(service, 1000000); waitReply(service, *publisher, 1);
+        const auto remaining = SystemMonitorDiagnosticTestAccess::expiry(service, "future_boundary") -
+            std::chrono::steady_clock::now();
+        require(remaining > std::chrono::minutes(10) - std::chrono::seconds(2) &&
+                remaining <= std::chrono::minutes(10),
+                "terminal retention must cover request age plus future skew");
+        SystemMonitorService clock(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+        const auto anchor = std::chrono::steady_clock::time_point{} + std::chrono::seconds(1);
+        require(SystemMonitorDiagnosticTestAccess::effectiveNow(clock, 1000000, anchor) == 1000000,
+                "clock anchor initialization");
+        for (int i = 1; i <= 1000; ++i) {
+            const auto effective = SystemMonitorDiagnosticTestAccess::effectiveNow(clock, 999000,
+                anchor + std::chrono::microseconds(i * 500));
+            require(effective == 1000000 + i / 2, "submillisecond duration was discarded");
+        }
+        const auto afterRetention = SystemMonitorDiagnosticTestAccess::effectiveNow(clock, 999000,
+            anchor + std::chrono::minutes(10));
+        require(afterRetention == 1600000 && 1299999 <= afterRetention - 300000,
+                "future-edge timestamp stayed fresh after ten-minute retention");
+        std::cout << "PASS future-boundary/ten-minute-retention/submillisecond-steady-floor\n";
+    }
+    {
+        auto publisher = std::make_shared<Publisher>();
+        setenv("DIAG_FIXTURE_MODE", "stall", 1);
+        {
+            SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+            publisher->request("held"); tick(service, 8000);
+            const auto launchedBy = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+            const int before = fixture.runs();
+            while (fixture.runs() == before && std::chrono::steady_clock::now() < launchedBy) {
+                tick(service, 8000); std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            publisher->request("restart_case"); tick(service, 8001);
+            require(publisher->replies.back().find("\"reason\":\"busy\"") != std::string::npos &&
+                    publisher->replies.back().find("\"cmdId\":") == std::string::npos,
+                    "pre-restart refusal must be nonterminal");
+            service.stop();
+        }
+        setenv("DIAG_FIXTURE_MODE", "success", 1);
+        const auto priorReplies = publisher->replies.size();
+        SystemMonitorService restarted(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
+        publisher->request("restart_case"); tick(restarted, 8002);
+        waitReply(restarted, *publisher, priorReplies + 1);
+        require(publisher->replies.back().find("\"cmdId\":\"restart_case\"") != std::string::npos &&
+                publisher->replies.back().find("\"replyKind\":\"terminal\"") != std::string::npos,
+                "restart delivery must not contradict an earlier terminal refusal");
+        std::cout << "PASS restart-window-refusal-is-unknown-until-terminal\n";
+    }
+    {
+        auto publisher = std::make_shared<Publisher>();
+        SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
         for (int i = 0; i < 16; ++i) {
             publisher->request("saved_" + std::to_string(i)); tick(service, 4000 + i);
             waitReply(service, *publisher, i + 1);
@@ -240,6 +355,8 @@ void cases() {
         const int runs = fixture.runs();
         publisher->request("overflow"); tick(service, 5000);
         require(publisher->replies.back().find("cache_full") != std::string::npos &&
+                publisher->replies.back().find("\"replyKind\":\"admission_rejection\"") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos &&
                 fixture.runs() == runs, "bounded cache evicted unexpired id or launched overflow");
         std::cout << "PASS bounded-cache-no-extra-execution\n";
     }
