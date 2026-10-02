@@ -703,6 +703,32 @@ class ProductionRuntimeTest(unittest.TestCase):
     def test_v2_unapproved_empty_config_directory_rejected_before_intent(self):
         self.assert_untrusted_config_directory_preintent('unapproved', 0o755)
 
+    def test_v2_code_only_trusted_config_directories_install(self):
+        args, previous = self.v2_code_only_release()
+        self.assertEqual(self.approval['configWriteSet'], [])
+        self.assertEqual(self.approval['candidate']['configSha256'], previous['configSha256'])
+        with self.m.production_lock():
+            transaction = self.m.production_install(args)
+        self.assertEqual(self.g.production_json(transaction / 'state.json')['phase'], 'COMPLETED')
+        self.assertEqual(self.g.production_context(self.home)['baselineId'], 'V2_NEXT')
+
+    def test_v2_code_only_untrusted_config_directory_rejected_before_intent(self):
+        args, previous = self.v2_code_only_release()
+        directory = self.home / 'config/runtime/devices'
+        directory.mkdir()
+        directory.chmod(0o775)
+        before = (self.home / 'bin/SystemMonitor').read_bytes()
+        call_count = len(self.calls)
+        with self.assertRaisesRegex(ValueError, 'unowned production config directory'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        self.assertFalse((self.runtime.root / 'transactions/V2_CODE_ONLY').exists())
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertEqual((self.home / 'bin/SystemMonitor').read_bytes(), before)
+        self.assertFalse(any(call[0] == 'stop' for call in self.calls[call_count:]))
+        directory.chmod(0o755)
+        self.assertEqual(self.g.production_context(self.home), previous)
+
     def v2_app_only_after_empty_logic(self, transaction):
         previous = copy.deepcopy(self.g.production_context(self.home))
         self.assertTrue((self.home / 'config/runtime/logic').is_dir())
@@ -835,6 +861,49 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertEqual(self.g.production_context(self.home)['baselineId'], 'V2_CONFIG')
         self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'),
                          self.approval['candidate']['configSha256'])
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+
+    def test_v2_deleted_logic_requires_new_approved_write_set_to_restore(self):
+        args, _ = self.v2_config_release()
+        retired = self.home / 'config/runtime/logic/retired.json'
+        old_bytes = retired.read_bytes()
+        with self.m.production_lock():
+            self.m.production_install(args)
+        self.assertFalse(retired.exists())
+        previous = copy.deepcopy(self.g.production_context(self.home))
+        pointer = self.g.production_json(self.runtime.root / 'current.json')
+        staged = self.payload / 'config/runtime'
+        self.write(staged / 'logic/retired.json', old_bytes)
+        candidate = copy.deepcopy(previous)
+        candidate.update(baselineId='V2_LOGIC_RESTORE',
+                         generation=previous['generation'] + 1,
+                         parentSha256=pointer['sha256'], release='v2-logic-restore',
+                         configSha256=self.m.tree_hashes(staged))
+        policy = {'__name__': 'private_v2_policy'}
+        parser = self.payload / 'bin/production_role_policy.py'
+        exec(compile(parser.read_bytes(), str(parser), 'exec'), policy)
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, self.path('/etc/systemd/system'),
+            previous['roleAuthority']['resolved']['protected'],
+            self.path('/etc/modbus-gateway/ota.pub'))
+        self.approval.update(transaction='V2_LOGIC_RESTORE', previous=previous,
+                             candidate=candidate, parentSha256=pointer['sha256'],
+                             configWriteSet=[])
+        missing_set = self.args()
+        with self.assertRaisesRegex(ValueError, 'write set incomplete'):
+            with self.m.production_lock():
+                self.m.production_install(missing_set)
+        self.assertFalse((self.runtime.root / 'transactions/V2_LOGIC_RESTORE').exists())
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.approval['configWriteSet'] = [{
+            'path': 'logic/retired.json', 'before': None,
+            'after': self.g.production_pin(staged / 'logic/retired.json')}]
+        approved = self.args()
+        with self.m.production_lock():
+            self.m.production_install(approved)
+        self.assertEqual(retired.read_bytes(), old_bytes)
+        self.assertEqual(self.g.production_context(self.home), candidate)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), candidate['configSha256'])
         self.assertFalse((self.runtime.root / 'pending.json').exists())
 
     def test_v2_config_mixed_state_restores_approved_old_write_set(self):
@@ -1339,8 +1408,11 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse(source.exists())
         self.assertFalse(self.path('/dev/shm/live_v11').exists())
 
-    def owner_fixture(self):
-        self.adopt()
+    def owner_fixture(self, v2=False):
+        if v2:
+            self.v2_code_only_release()
+        else:
+            self.adopt()
         self.home.joinpath('ota/staging').mkdir(parents=True)
         artifact = self.root / 'release.tar.gz'
         pointer = self.g.production_json(self.runtime.root / 'current.json')
@@ -1381,6 +1453,32 @@ class ProductionRuntimeTest(unittest.TestCase):
         # leases, parser, pinned-input checks and official resume run as written.
         self.patch(owner, 'production_entry', lambda r: self.m)
         return owner
+
+    def test_v2_ota_owner_untrusted_config_directory_rejected_before_mutation_barrier(self):
+        owner = self.owner_fixture(v2=True)
+        directory = self.home / 'config/runtime/devices'
+        directory.mkdir()
+        directory.chmod(0o775)
+        before = (self.home / 'bin/SystemMonitor').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'unowned production config directory'):
+            with owner.lease():
+                self.m.production_ota_owner(owner, owner.read())
+        self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+        self.assertFalse(owner.read()['runtimeMayChange'])
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertEqual((self.home / 'bin/SystemMonitor').read_bytes(), before)
+
+    def test_v2_ota_owner_trusted_config_directories_complete(self):
+        owner = self.owner_fixture(v2=True)
+        previous = self.g.production_context(self.home)
+        with owner.lease():
+            self.m.production_ota_owner(owner, owner.read())
+        record = owner.read()
+        self.assertEqual(record['phase'], 'OWNER_FINISHED')
+        self.assertEqual(record['completionProof']['status'], 'healthy')
+        current = self.g.production_context(self.home)
+        self.assertEqual(current['generation'], previous['generation'] + 1)
+        self.assertEqual(current['configSha256'], previous['configSha256'])
 
     def test_post_signature_owner_installs_changed_runtime_and_emits_durable_bound_health(self):
         owner = self.owner_fixture()
