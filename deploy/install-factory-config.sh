@@ -283,7 +283,7 @@ deploy_file() {
     install-factory-config.sh|factory-lifecycle-stage.py)
       [ -n "$SCRIPT_DIR" ] && pick_existing_file "$SCRIPT_DIR/$name"
       return ;;
-    offline-runtime-upgrade.py|runtime-upgrade-guard.py|ota-health-result.py)
+    offline-runtime-upgrade.py|runtime-upgrade-guard.py|ota-health-result.py|production_role_policy.py)
       [ -n "$LIFECYCLE_STAGE_DIR" ] && pick_existing_file "$LIFECYCLE_STAGE_DIR/$name"
       return ;;
     ota-apply.sh|ota-rollback.sh|gateway-services.sh|gateway-ota-recover.service)
@@ -951,6 +951,7 @@ fi
 # Validate the complete mandatory payload before stopping any running service.
 deploy_file "runtime-upgrade-guard.py" >/dev/null || { echo "runtime-upgrade-guard.py missing" >&2; exit 2; }
 deploy_file "offline-runtime-upgrade.py" >/dev/null || { echo "offline-runtime-upgrade.py missing" >&2; exit 2; }
+deploy_file "production_role_policy.py" >/dev/null || { echo "production_role_policy.py missing" >&2; exit 2; }
 # This keeps a malformed or stale package from turning a validation failure into
 # an avoidable field outage.
 for bin in $REQUIRED_BINS; do
@@ -1006,6 +1007,7 @@ install_required_deploy_file "ota-rollback.sh" "$GATEWAY_HOME/bin/ota-rollback.s
 install_required_deploy_file "ota-health-result.py" "$GATEWAY_HOME/bin/ota-health-result.py"
 install_required_deploy_file "runtime-upgrade-guard.py" "$GATEWAY_HOME/bin/runtime-upgrade-guard.py"
 install_required_deploy_file "offline-runtime-upgrade.py" "$GATEWAY_HOME/bin/offline-runtime-upgrade.py"
+install_required_deploy_file "production_role_policy.py" "$GATEWAY_HOME/bin/production_role_policy.py"
 install_required_deploy_file "install-scada-project.sh" "$GATEWAY_HOME/bin/install-scada-project.sh"
 install_deploy_file_if_exists "gateway-network-failover.sh" "$GATEWAY_HOME/bin/gateway-network-failover.sh"
 install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-cellular.sh"

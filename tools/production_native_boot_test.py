@@ -40,6 +40,8 @@ class NativeBootTest(unittest.TestCase):
             self.adopted = (f.runtime.root / 'transactions/ADOPT_01', args)
         else:
             self.adopted = f.adopt()
+        if self._testMethodName == 'test_v2_role_authority_newboot_proof_and_post_gate_health':
+            f.v2_code_only_release(adopt_first=False)
         if self._testMethodName == 'test_no_handoff_runtime_newboot_promoted':
             args = f.next_release()
             def crash(state): raise OSError('injected promoted runtime pending clear')
@@ -190,6 +192,21 @@ class NativeBootTest(unittest.TestCase):
         self.assertEqual(f.live, set(f.allowed))
         self.boot()
         self.assertEqual(len(self.native_calls), 1, 'same boot proof prevents a second constructor invocation')
+
+    def test_v2_role_authority_newboot_proof_and_post_gate_health(self):
+        self.boot()
+        f = self.f
+        proof = f.g.production_json(f.runtime.root / 'boots/NATIVE_BOOT_2.json')
+        self.assertEqual(proof['rolesSha256'], f.g.production_roles_sha(self.baseline))
+        self.assertEqual(proof['sourceSha256'], f.m.digest(self.source))
+        self.assertFalse(f.live, 'v2 oneshot must not synchronously start roles')
+        self.finish()
+        work = f.g.production_json(f.m.production_boot_work(f.runtime))
+        health = f.m.checked_json(f.m.production_boot_work(f.runtime).parent /
+                                  work['healthRecord'], work['healthSha256'])
+        self.assertEqual(health['health']['format'], 'runtime-health-v2')
+        self.assertEqual(set(health['health']['roles']), set(self.baseline['allowedUnits']))
+        self.assertEqual(health['health']['bootId'], 'NATIVE_BOOT_2')
 
     def test_memory_insufficient_refuses_before_intent_or_native_call(self):
         f = self.f

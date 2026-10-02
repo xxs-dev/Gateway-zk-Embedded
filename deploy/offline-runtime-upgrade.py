@@ -101,23 +101,34 @@ def migration_capacity_preflight(segments, checkpoint):
     require(shm_available >= added, 'insufficient /dev/shm space for new SHM11 targets')
 
 
-def activation_capacity_preflight(units, checkpoint):
+def activation_capacity_preflight(units, checkpoint, baseline=None):
     # Admission-policy floors, NOT measured RSS maxima or cgroup reservations.
     # The 20261001 short 999 sample was RTU/MQTT/Monitor ~17/32/40 MiB RSS:
     # 128 MiB each leaves private startup/queue headroom, not load qualification.
     # Qt gets a larger UI floor; its pinned Requires= bridge is budgeted too.
     # Launcher/watchdog are shell helpers. No new SHM pages or CLI heaps here:
     # existing v10/v11 allocations already reduce current MemAvailable.
-    mib = {MONITOR_UNIT: 128, guard.A_RTU_UNIT: 128, guard.A_MQTT_UNIT: 128,
-           A_QT_UNIT: 256, 'gateway-services.service': 32, 'gateway-health-watchdog.service': 32}
+    if baseline is not None and baseline['format'] == 'runtime-baseline-v2':
+        roles = baseline['roleAuthority']['resolved']['roles']
+        require(units == baseline['allowedUnits'] and [r['unit'] for r in roles] == units and
+                all(type(r['reserveMiB']) is int and 0 < r['reserveMiB'] <= 512 for r in roles),
+                'configured capacity role set differs from baseline')
+        mib = {role['unit']: role['reserveMiB'] for role in roles}
+        reserve_mib = baseline['roleAuthority']['resolved']['resourcePolicy']['systemReserveMiB']
+        require(type(reserve_mib) is int and 64 <= reserve_mib <= 512,
+                'configured system reserve invalid')
+    else:
+        mib = {MONITOR_UNIT: 128, guard.A_RTU_UNIT: 128, guard.A_MQTT_UNIT: 128,
+               A_QT_UNIT: 256, 'gateway-services.service': 32, 'gateway-health-watchdog.service': 32}
+        reserve_mib = 64
     require(isinstance(units, list) and units and len(set(units)) == len(units) and
             all(unit in mib for unit in units), 'activation memory policy requires known unique units')
     service_bytes = {unit: mib[unit] * 1024 * 1024 for unit in units}
-    if A_QT_UNIT in units:
+    if (baseline is None or baseline['format'] == 'runtime-baseline-v1') and A_QT_UNIT in units:
         service_bytes['qt-display-bridge.service'] = 64 * 1024 * 1024
     # Independent 64 MiB policy slack for Python, systemd and OS transients.
     # Large point sets/UI projects still require separate peak/load evidence.
-    reserve = 64 * 1024 * 1024
+    reserve = reserve_mib * 1024 * 1024
     required = sum(service_bytes.values()) + reserve
     available = mem_available_bytes()
     report = {
@@ -126,6 +137,20 @@ def activation_capacity_preflight(units, checkpoint):
     print('ACTIVATION_CAPACITY_PRECHECK: ' + json.dumps(report, sort_keys=True), flush=True)
     require(available >= required, 'insufficient MemAvailable for activation')
     return report
+
+
+def production_start_units(baseline):
+    if baseline['format'] == 'runtime-baseline-v2':
+        roles = baseline['roleAuthority']['resolved']['roles']
+        ordered = [role['unit'] for role in roles]
+        require(ordered == baseline['allowedUnits'] and
+                [role['startPhase'] for role in roles] == sorted(role['startPhase'] for role in roles),
+                'configured production start order changed')
+        return ordered
+    ordered = [u for u in baseline['allowedUnits'] if u in guard.PRODUCTION_READERS]
+    ordered += [u for u in ('gateway-services.service', 'gateway-health-watchdog.service')
+                if u in baseline['allowedUnits']]
+    return ordered
 
 
 def regular(path):
@@ -2046,20 +2071,146 @@ class ProductionRuntime:
     def state(self, transaction, value):
         save(transaction / 'state.json', value)
 
-    def prepare_boot(self, baseline, source_record, creator=None):
+    def config_changes(self, approval):
+        if approval['format'] == 'runtime-provisioning-v1':
+            return []
+        require(approval['format'] == 'runtime-provisioning-v2' and
+                isinstance(approval.get('configWriteSet'), list) and
+                len(approval['configWriteSet']) <= 512, 'invalid production config write set')
+        previous = approval['previous']['configSha256']
+        candidate = approval['candidate']['configSha256']
+        changes = approval['configWriteSet']
+        paths = []
+        total = 0
+        for row in changes:
+            require(isinstance(row, dict) and set(row) == {'path', 'before', 'after'},
+                    'invalid production config change')
+            path = row['path']
+            require(isinstance(path, str) and re.fullmatch(
+                r'(?:apps|devices|logic)/[A-Za-z0-9_-]+\.json|tls/[A-Za-z0-9_.-]+', path),
+                'production config path outside reviewed write set')
+            require(path not in paths, 'duplicate production config path')
+            paths.append(path)
+            for side, expected in (('before', previous.get(path)), ('after', candidate.get(path))):
+                pin = row[side]
+                require((pin is None) == (expected is None), 'production config presence mismatch')
+                if pin is None:
+                    continue
+                require(isinstance(pin, dict) and set(pin) == {'sha256', 'mode', 'bytes'} and
+                        pin['sha256'] == expected and type(pin['mode']) is int and
+                        pin['mode'] in (0o600, 0o640, 0o644) and type(pin['bytes']) is int and
+                        0 <= pin['bytes'] <= 5 * 1024 * 1024,
+                        'production config pin invalid')
+                total += pin['bytes']
+            require(row['before'] != row['after'], 'unchanged production config write')
+        require(paths == sorted(paths) and set(paths) ==
+                {path for path in set(previous) | set(candidate) if previous.get(path) != candidate.get(path)},
+                'production config write set incomplete or unordered')
+        require(total <= 48 * 1024 * 1024, 'production config write set exceeds bound')
+        return changes
+
+    def config_state(self, transaction, approval):
+        changes = self.config_changes(approval)
+        if not changes:
+            return
+        owners = guard.production_json(transaction / 'copy-owners.json')
+        require(owners == self.expected_copy_owners(transaction, approval),
+                'production staging ownership journal drift')
+        previous = approval['previous']['configSha256']
+        candidate = approval['candidate']['configSha256']
+        root = self.home / 'config/runtime'
+        permitted_dirs = set()
+        for relative in set(previous) | set(candidate):
+            parts = relative.split('/')
+            permitted_dirs.update('/'.join(parts[:index]) for index in range(1, len(parts)))
+        actual = {}
+        owned = {}
+        for row in changes:
+            for phase, side in (('install', 'after'), ('recover', 'before')):
+                if row[side] is not None:
+                    temp = self.copy_name(transaction, 'config/runtime/' + row['path'], phase)
+                    owned[str(temp.relative_to(root)).replace('\\', '/')] = row[side]
+        require(root.is_dir() and not root.is_symlink(), 'production config root changed')
+        for path in root.rglob('*'):
+            require(not path.is_symlink() and (path.is_dir() or path.is_file()),
+                    'unowned production config entry')
+            if path.is_dir():
+                require(str(path.relative_to(root)).replace('\\', '/') in permitted_dirs,
+                        'unowned production config directory')
+            if path.is_file():
+                relative = str(path.relative_to(root)).replace('\\', '/')
+                pin = guard.production_pin(path)
+                if relative in owned:
+                    require(pin['mode'] == owned[relative]['mode'] and
+                            pin['bytes'] <= owned[relative]['bytes'],
+                            'unowned production config staging bytes')
+                else:
+                    actual[relative] = pin
+        require(set(actual) <= set(previous) | set(candidate) and
+                set(previous) - {row['path'] for row in changes} <= set(actual) and
+                all(actual[path]['sha256'] == previous[path] for path in
+                    set(previous) - {row['path'] for row in changes}),
+                'unowned production config inventory')
+        for row in changes:
+            pin = actual.get(row['path'])
+            require(pin in (row['before'], row['after']) and
+                    (pin is not None or row['before'] is None or row['after'] is None),
+                    'production config mixed state differs from approved old/new bytes')
+
+    def config_parent(self, relative):
+        root = self.home / 'config/runtime'
+        parent = (root / relative).parent
+        require(parent.parent == root and root.is_dir() and not root.is_symlink(),
+                'production config parent outside approved root')
+        require(root.stat().st_uid == 0 and not root.stat().st_mode & 0o022,
+                'untrusted production config root')
+        if not parent.exists() and not parent.is_symlink():
+            parent.mkdir(mode=0o755)
+        require(parent.is_dir() and not parent.is_symlink() and
+                parent.stat().st_uid == 0 and not parent.stat().st_mode & 0o022,
+                'production config parent changed')
+        sync_dir(root)
+        return parent
+
+    def apply_config(self, transaction, approval, payload):
+        for row in self.config_changes(approval):
+            live = self.home / 'config/runtime' / row['path']
+            before, after = row['before'], row['after']
+            require(not live.is_symlink() and
+                    (guard.production_pin(live) if live.exists() else None) == before,
+                    'production config changed after backup')
+            if after is None:
+                live.unlink()
+                sync_dir(live.parent)
+            else:
+                self.config_parent(row['path'])
+                source = payload / 'config/runtime' / row['path']
+                require(guard.production_pin(source) == after, 'staged production config changed')
+                production_copy(source, live, after,
+                                temporary=self.copy_name(transaction, 'config/runtime/' + row['path'], 'install'))
+
+    def prepare_boot(self, baseline, source_record, creator=None, recovery=None):
         """Native-only creation of approved logical v11 roles under the offline lock."""
+        def verify(*, segments=True):
+            changes = self.config_changes(recovery[1]) if recovery is not None else []
+            if recovery is not None:
+                self.config_state(*recovery)
+            guard.production_verify(self.home, baseline, files=False, units=False,
+                                    segments=segments, config=not changes,
+                                    roles=recovery is None)
+
         boot = regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip()
         require(re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot), 'invalid native boot ID')
         if boot == baseline['bootId']:
-            guard.production_verify(self.home, baseline, files=False, units=False)
+            verify()
             return
         ready = self.root / 'boots' / (boot + '.json')
         if ready.exists() or ready.is_symlink():
-            guard.production_verify(self.home, baseline, files=False, units=False)
+            verify()
             return
         require(production_locked_owner({'ownerProof': production_owner_proof()}),
                 'native boot creation requires positive offline lock ownership')
-        guard.production_verify(self.home, baseline, files=False, units=False, segments=False)
+        verify(segments=False)
         names = [s['name'] for s in baseline['segments']]
         require(0 < len(names) <= 128, 'native boot role count exceeds bound')
         units_stopped([u for u in baseline['units'] if not u.endswith('@.service')])
@@ -2131,7 +2282,7 @@ class ProductionRuntime:
             # Existing pages already reduce MemAvailable/statvfs. Native creation
             # is serial; max(startup policy, 64 MiB native/Python slack), not the
             # migration CLI's two-v10/two-v11 heap. This is not a measured peak.
-            startup = activation_capacity_preflight(baseline['allowedUnits'], 'native-boot-startup-policy')
+            startup = activation_capacity_preflight(baseline['allowedUnits'], 'native-boot-startup-policy', baseline)
             required = added + max(startup['memRequiredBytes'], 64 * 1024 * 1024)
             available = mem_available_bytes()
             space = os.statvfs(shm)
@@ -2174,7 +2325,7 @@ class ProductionRuntime:
         publish_new(ready, (json.dumps(complete, sort_keys=True) + '\n').encode())
         intent['phase'] = 'READY'
         save(intent_path, intent)
-        guard.production_verify(self.home, baseline, files=False, units=False)
+        verify()
 
     def prepare_recovery_boot(self, transaction, approval_sha):
         approval = checked_json(transaction / 'approval.json', approval_sha)
@@ -2193,7 +2344,8 @@ class ProductionRuntime:
             paths = sorted(baseline['files'])
             require('bin/pointctl' in paths, 'native recovery creator missing')
             creator = transaction / 'files' / str(paths.index('bin/pointctl'))
-        self.prepare_boot(baseline, record, creator)
+        self.prepare_boot(baseline, record, creator,
+                          recovery=(transaction, approval) if which == 'previous' else None)
         if which == 'candidate':
             # A prior boot's failed health attempt may have refenced a promoted
             # release. Repair ONLY its approved gates before terminal reconcile.
@@ -2235,9 +2387,13 @@ class ProductionRuntime:
     def inputs(self, args, adoption):
         approval = checked_json(args.approval, args.approval_sha256)
         require(guard.production_json(args.approval) == approval, 'ambiguous production approval')
+        version = approval.get('format')
         required = {'format', 'transaction', 'expiresAtUnix', 'gatewayHome', 'machineCode', 'candidate',
                     'parentSha256', 'previous', 'legacy', 'operation'}
-        require(set(approval) == required and approval['format'] == 'runtime-provisioning-v1' and
+        if version == 'runtime-provisioning-v2':
+            required.add('configWriteSet')
+        require(set(approval) == required and version in ('runtime-provisioning-v1', 'runtime-provisioning-v2') and
+                (version == 'runtime-provisioning-v1' or not adoption) and
                 approval['operation'] == ('adopt' if adoption else 'install') and
                 approval['gatewayHome'] == str(self.home) and
                 re.fullmatch(r'[A-Za-z0-9_-]{1,63}', approval['transaction']) and
@@ -2248,6 +2404,13 @@ class ProductionRuntime:
                 not (self.root / 'pending.json').exists() and not (self.root / 'pending.json').is_symlink(),
                 'production transaction consumed or pending')
         candidate, previous = approval['candidate'], approval['previous']
+        require((version == 'runtime-provisioning-v1' and
+                previous.get('format') == candidate.get('format') == 'runtime-baseline-v1') or
+                (version == 'runtime-provisioning-v2' and
+                 previous.get('format') in ('runtime-baseline-v1', 'runtime-baseline-v2') and
+                 candidate.get('format') == 'runtime-baseline-v2'),
+                'production approval/baseline version mix invalid')
+        changes = self.config_changes(approval)
         guard.production_schema(candidate, self.home)
         require(candidate['machineCode'] == approval['machineCode'] and
                 candidate['parentSha256'] == approval['parentSha256'], 'production candidate parent/identity mismatch')
@@ -2264,14 +2427,17 @@ class ProductionRuntime:
             pointer = guard.production_json(self.root / 'current.json')
             require(current == previous and pointer['sha256'] == approval['parentSha256'] and
                     candidate['generation'] == current['generation'] + 1, 'production baseline parent mismatch')
-        # Provisioning config writes and authority/participant expansion are deliberately
-        # outside this first same-ABI slice. Inventory itself includes ALL participants.
-        for key in ('gatewayHome', 'machineCode', 'architecture', 'pointStoreAbi', 'pointStoreSize',
-                    'clusterProtocol', 'controlEnabled', 'configSha256', 'units', 'allowedUnits',
-                    'gates', 'segments', 'retiredSources', 'historical', 'bootId', 'trust', 'healthPolicy'):
+        preserved = ('gatewayHome', 'machineCode', 'architecture', 'pointStoreAbi', 'pointStoreSize',
+                     'clusterProtocol', 'controlEnabled', 'units', 'gates', 'segments',
+                     'retiredSources', 'historical', 'bootId', 'trust', 'healthPolicy')
+        if version == 'runtime-provisioning-v1':
+            preserved += ('configSha256', 'allowedUnits')
+        for key in preserved:
             require(candidate[key] == previous[key], 'same-ABI preservation mismatch: ' + key)
         introduced = set(candidate['files']) - set(previous['files'])
-        require((not introduced or adoption and introduced <= {'bin/' + n for n in guard.PRODUCTION_HELPERS}) and
+        allowed_introduced = ({'bin/' + n for n in guard.PRODUCTION_HELPERS} if adoption else
+                              {'bin/production_role_policy.py'} if version == 'runtime-provisioning-v2' else set())
+        require(introduced <= allowed_introduced and
                 set(previous['files']) <= set(candidate['files']) and
                 set(candidate['unitFiles']) == set(previous['unitFiles']), 'paired inventory expansion is not approved')
         for path in introduced:
@@ -2293,21 +2459,40 @@ class ProductionRuntime:
                 (guard.production_pin(Path(__file__).with_name(guard.PRODUCTION_RECOVERY_UNIT)) if adoption else previous['unitFiles'][boot_unit]),
                 'production baseline requires installed paired boot recovery')
         guard.production_verify(self.home, previous)
-        for name in ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'):
+        helpers = ['offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py']
+        if version == 'runtime-provisioning-v2':
+            helpers.append('production_role_policy.py')
+        for name in helpers:
             pin = candidate['files']['bin/' + name]
             require(digest(Path(__file__).with_name(name)) == pin['sha256'], 'production paired helper not staged: ' + name)
         payload = args.payload.absolute()
         require(not payload.is_symlink() and payload.is_dir(), 'production payload directory required')
         require(not any(p.is_symlink() for p in payload.rglob('*')), 'symlink production payload')
-        actual = {str(p.relative_to(payload)) for p in payload.rglob('*') if not p.is_dir()}
-        require(actual == set(candidate['files']), 'production payload inventory mismatch')
+        actual = {str(p.relative_to(payload)).replace('\\', '/') for p in payload.rglob('*') if not p.is_dir()}
+        expected = set(candidate['files'])
+        if changes:
+            expected.update('config/runtime/' + path for path in candidate['configSha256'])
+        require(actual == expected, 'production payload inventory mismatch')
         for path, pin in candidate['files'].items():
             require(guard.production_pin(payload / path) == pin, 'production payload pin mismatch: ' + path)
             guard.production_architecture(payload / path)
+        if version == 'runtime-provisioning-v2':
+            staged = payload / 'config/runtime' if changes else self.home / 'config/runtime'
+            if changes:
+                for path, pin in candidate['configSha256'].items():
+                    source = staged / path
+                    require(guard.production_pin(source)['sha256'] == pin,
+                            'staged production config pin mismatch: ' + path)
+                for row in changes:
+                    if row['after'] is not None:
+                        require(guard.production_pin(staged / row['path']) == row['after'],
+                                'staged production config metadata drift')
+            guard.production_roles(self.home, candidate, config_root=staged,
+                                   helper=payload / 'bin/production_role_policy.py')
         total = sum(pin['bytes'] for pin in previous['files'].values()) + sum(pin['bytes'] for pin in candidate['files'].values())
         require(total <= 512 * 1024 * 1024 and os.statvfs(self.home).f_bavail * os.statvfs(self.home).f_frsize >= total + 64 * 1024 * 1024,
                 'insufficient production backup/install disk')
-        activation_capacity_preflight(candidate['allowedUnits'], 'production-before-intent')
+        activation_capacity_preflight(candidate['allowedUnits'], 'production-before-intent', candidate)
         require(time.time() < approval['expiresAtUnix'], 'production install window expired')
         return approval, transaction
 
@@ -2325,6 +2510,14 @@ class ProductionRuntime:
             require(guard.production_pin(self.home / path) == pin, 'stopped production file drift')
             production_copy(self.home / path, transaction / 'files' / str(index), pin, new=True)
             require(digest(transaction / 'files' / str(index)) == pin['sha256'], 'production backup verification failed')
+        for index, row in enumerate(self.config_changes(approval)):
+            if row['before'] is None:
+                continue
+            source = self.home / 'config/runtime' / row['path']
+            require(guard.production_pin(source) == row['before'], 'stopped production config drift')
+            production_copy(source, transaction / 'config-backups' / str(index), row['before'], new=True)
+            require(guard.production_pin(transaction / 'config-backups' / str(index)) == row['before'],
+                    'production config backup verification failed')
         path = str(Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT)
         production_copy(Path(path), transaction / 'boot-unit', previous['unitFiles'][path], new=True)
         self.record(transaction / 'backups-complete.json', {'approvalSha256': digest(transaction / 'approval.json')})
@@ -2354,20 +2547,32 @@ class ProductionRuntime:
         return destination.with_name('.' + destination.name + '.production-' + transaction.name + '-' + phase)
 
     def copy_ownership(self, transaction, approval):
+        owners = self.expected_copy_owners(transaction, approval)
+        for name in owners:
+            temp = Path(name)
+            require(not temp.exists() and not temp.is_symlink(), 'production staging namespace occupied')
+        self.record(transaction / 'copy-owners.json', owners)
+
+    def expected_copy_owners(self, transaction, approval):
         owners = {}
         for phase, baseline in (('install', approval['candidate']), ('recover', approval['previous'])):
             for path, pin in baseline['files'].items():
                 temp = self.copy_name(transaction, path, phase)
-                require(not temp.exists() and not temp.is_symlink(), 'production staging namespace occupied')
                 owners[str(temp)] = {'path': path, 'phase': phase, 'pin': pin}
-        self.record(transaction / 'copy-owners.json', owners)
+        for row in self.config_changes(approval):
+            for phase, side in (('install', 'after'), ('recover', 'before')):
+                pin = row[side]
+                if pin is None:
+                    continue
+                path = 'config/runtime/' + row['path']
+                temp = self.copy_name(transaction, path, phase)
+                owners[str(temp)] = {'path': path, 'phase': phase, 'pin': pin}
+        return owners
 
     def archive_copies(self, transaction, approval):
         owners = guard.production_json(transaction / 'copy-owners.json')
-        expected = {str(self.copy_name(transaction, path, phase)): {'path': path, 'phase': phase, 'pin': pin}
-                    for phase, baseline in (('install', approval['candidate']), ('recover', approval['previous']))
-                    for path, pin in baseline['files'].items()}
-        require(owners == expected, 'production staging ownership journal drift')
+        require(owners == self.expected_copy_owners(transaction, approval),
+                'production staging ownership journal drift')
         for index, (name, owner) in enumerate(sorted(owners.items())):
             temp = Path(name)
             if not temp.exists() and not temp.is_symlink():
@@ -2413,6 +2618,7 @@ class ProductionRuntime:
                 require(guard.production_pin(args.payload / path) == pin, 'staged production file drift')
                 production_copy(args.payload / path, self.home / path, pin,
                                 temporary=self.copy_name(transaction, path, 'install'))
+            self.apply_config(transaction, approval, args.payload)
             boot_unit = Path('/etc/systemd/system') / guard.PRODUCTION_RECOVERY_UNIT
             if adoption:
                 replace(boot_unit, regular(Path(__file__).with_name(guard.PRODUCTION_RECOVERY_UNIT)).read_bytes(), 0o644)
@@ -2435,22 +2641,88 @@ class ProductionRuntime:
 
     def start(self, transaction, state, baseline, phase):
         guard.production_verify(self.home, baseline)
-        activation_capacity_preflight(baseline['allowedUnits'], 'production-before-start')
+        activation_capacity_preflight(baseline['allowedUnits'], 'production-before-start', baseline)
         state.update(phase=phase, startingBaselineSha256=(state['candidateSha256'] if phase == 'STARTING' else state['previousSha256']),
                      ownerProof=production_owner_proof())
         self.state(transaction, state)
         if getattr(self, 'boot_work', None) is not None:
             production_boot_begin_start(self, self.boot_work)
         # Readers first; launcher and watchdog may only see a complete provisional baseline.
-        ordered = [u for u in baseline['allowedUnits'] if u in guard.PRODUCTION_READERS]
-        ordered += [u for u in ('gateway-services.service', 'gateway-health-watchdog.service') if u in baseline['allowedUnits']]
+        ordered = production_start_units(baseline)
         for unit in ordered:
             guard.production_unit(self.home, unit)
             systemctl('start', unit)
             systemctl('is-active', '--quiet', unit)
 
     def health(self, baseline):
+        def sample_v2():
+            guard.production_verify(self.home, baseline)
+            segments = {s['name']: s for s in guard.production_segment_identities(self.home, baseline)}
+            roles = baseline['roleAuthority']['resolved']['roles']
+            observed = {}
+            expected = {}
+            for role in roles:
+                unit = role['unit']
+                require(guard.systemctl_value(unit, 'ActiveState') == 'active',
+                        'configured production role inactive: ' + unit)
+                pid = guard.systemctl_value(unit, 'MainPID')
+                if role['family'] == 'gateway-services':
+                    require(pid == '0', 'configured launcher must be completed oneshot')
+                    observed[unit] = {'state': 'active-exited'}
+                    continue
+                executable = role['executable']
+                require(role['kind'] == 'service' and not executable.startswith('/') and
+                        executable in baseline['files'] and not role.get('externalExecutables'),
+                        'configured role has no qualified executable/child health proof: ' + unit)
+                require(guard.systemctl_value(unit, 'SubState') == 'running' and
+                        pid.isdigit() and int(pid) > 1 and pid not in expected,
+                        'configured production role PID/state invalid: ' + unit)
+                proc = Path('/proc') / pid
+                actual_exe = self.home / executable
+                require(os.readlink(str(proc / 'exe')) == str(actual_exe) and
+                        guard.sha(proc / 'exe') == baseline['files'][executable]['sha256'],
+                        'configured production executable mismatch: ' + unit)
+                mapped = set()
+                for line in regular(proc / 'maps').read_text().splitlines():
+                    fields = line.split()
+                    if len(fields) < 6 or not fields[5].startswith('/dev/shm/'):
+                        continue
+                    require(not line.rstrip().endswith(' (deleted)'),
+                            'deleted configured production mapping')
+                    name = fields[5].split('/')[-1]
+                    segment = segments.get(name)
+                    require(segment is not None and name in role['shm']['names'] and
+                            int(fields[4]) == segment['ino'] and
+                            fields[3] == '%02x:%02x' % (os.major(segment['dev']), os.minor(segment['dev'])),
+                            'configured production SHM mapping mismatch: ' + unit)
+                    mapped.add(name)
+                require(set(role['shm']['required']) <= mapped and
+                        mapped <= set(role['shm']['names']),
+                        'configured production required/optional SHM mismatch: ' + unit)
+                observed[unit] = {'pid': pid, 'restarts': guard.systemctl_value(unit, 'NRestarts'),
+                                  'startTicks': regular(proc / 'stat').read_text().rsplit(')', 1)[1].split()[19],
+                                  'mappedSegments': sorted(mapped)}
+                expected[pid] = str(actual_exe)
+            for entry in Path('/proc').iterdir():
+                if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                    continue
+                try:
+                    exe = os.readlink(str(entry / 'exe'))
+                except FileNotFoundError:
+                    continue
+                if Path(exe[:-10] if exe.endswith(' (deleted)') else exe).name in guard.RUNTIME_BINARIES:
+                    require(expected.get(entry.name) == exe,
+                            'unapproved/duplicate configured production runtime process')
+            for unit in set(baseline['units']) - set(baseline['allowedUnits']):
+                if not unit.endswith('@.service'):
+                    require(guard.systemctl_value(unit, 'ActiveState') in ('inactive', 'failed') and
+                            guard.systemctl_value(unit, 'MainPID') == '0',
+                            'configured production excluded participant running')
+            return observed
+
         def sample():
+            if baseline['format'] == 'runtime-baseline-v2':
+                return sample_v2()
             guard.production_verify(self.home, baseline)
             segments = guard.production_segment_identities(self.home, baseline)
             readers = {}
@@ -2511,7 +2783,9 @@ class ProductionRuntime:
         time.sleep(baseline['healthPolicy']['stableSeconds'])
         after = sample()
         require(before == after, 'production PID/restarts/mapping stability failed')
-        return {'format': 'runtime-health-v1', 'readers': after,
+        return {'format': 'runtime-health-v2' if baseline['format'] == 'runtime-baseline-v2'
+                else 'runtime-health-v1',
+                'roles' if baseline['format'] == 'runtime-baseline-v2' else 'readers': after,
                 'bootId': regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip(),
                 'configSha256': baseline['configSha256']}
 
@@ -2588,7 +2862,9 @@ class ProductionRuntime:
         state['phase'] = 'RECOVERING_STOP'
         self.state(transaction, state)
         self.stop(previous)
-        guard.production_verify(self.home, previous, files=False, units=False)
+        self.config_state(transaction, approval)
+        guard.production_verify(self.home, previous, files=False, units=False,
+                                config=not self.config_changes(approval), roles=False)
         self.archive_copies(transaction, approval)
         actual = guard.production_files(self.home)
         require(set(approval['previous']['files']) <= set(actual) <= set(approval['candidate']['files']) and
@@ -2609,6 +2885,10 @@ class ProductionRuntime:
             guard.production_verify(self.home, previous, units=False)
         else:
             require(guard.production_json(complete) == {'approvalSha256': approval_sha}, 'production backup receipt changed')
+            for index, row in enumerate(self.config_changes(approval)):
+                if row['before'] is not None:
+                    require(guard.production_pin(transaction / 'config-backups' / str(index)) == row['before'],
+                            'production config recovery backup drift')
             for index, (path, old) in enumerate(sorted(previous['files'].items())):
                 backup = transaction / 'files' / str(index)
                 require(guard.production_pin(backup) == old and
@@ -2630,6 +2910,16 @@ class ProductionRuntime:
                 if live.exists():
                     live.unlink()
                     sync_dir(live.parent)
+            for index, row in enumerate(self.config_changes(approval)):
+                live = self.home / 'config/runtime' / row['path']
+                if row['before'] is None:
+                    if live.exists():
+                        live.unlink()
+                        sync_dir(live.parent)
+                else:
+                    self.config_parent(row['path'])
+                    production_copy(transaction / 'config-backups' / str(index), live, row['before'],
+                                    temporary=self.copy_name(transaction, 'config/runtime/' + row['path'], 'recover'))
             replace(boot_unit, regular(transaction / 'boot-unit').read_bytes(), previous['unitFiles'][str(boot_unit)]['mode'])
         if gates_complete.exists():
             for index, (unit, path) in enumerate(sorted(previous['gates'].items())):
@@ -2640,7 +2930,7 @@ class ProductionRuntime:
             self.verify_legacy(approval)
             # Preserve legacy authority, records and owned gates byte-for-byte.
             if start:
-                activation_capacity_preflight(previous['allowedUnits'], 'production-legacy-recovery-start')
+                activation_capacity_preflight(previous['allowedUnits'], 'production-legacy-recovery-start', previous)
                 if getattr(self, 'boot_work', None) is not None:
                     production_boot_begin_start(self, self.boot_work)
                 for unit in previous['allowedUnits']:
@@ -2862,10 +3152,9 @@ def production_boot_start_current(runtime, baseline, work_path):
     if work['phase'] == 'FAILED_STOPPED':
         production_boot_repair_gates(runtime, baseline)
     guard.production_verify(runtime.home, baseline)
-    activation_capacity_preflight(baseline['allowedUnits'], 'production-boot-before-start')
+    activation_capacity_preflight(baseline['allowedUnits'], 'production-boot-before-start', baseline)
     work = production_boot_begin_start(runtime, work_path)
-    ordered = [u for u in baseline['allowedUnits'] if u in guard.PRODUCTION_READERS]
-    ordered += [u for u in ('gateway-services.service', 'gateway-health-watchdog.service') if u in baseline['allowedUnits']]
+    ordered = production_start_units(baseline)
     try:
         for unit in ordered:
             guard.production_unit(runtime.home, unit)
@@ -3101,9 +3390,12 @@ def production_ota_owner(protocol, record):
                     output.flush(); os.fsync(output.fileno())
                     os.fchmod(output.fileno(), pin['mode'])
             sync_dir(work)
-        approval = dict(format='runtime-provisioning-v1', transaction=transaction_id, operation='install',
+        approval = dict(format='runtime-provisioning-v2' if baseline['format'] == 'runtime-baseline-v2'
+                        else 'runtime-provisioning-v1', transaction=transaction_id, operation='install',
                         expiresAtUnix=manifest['expiresAtUnix'], gatewayHome=str(home), machineCode=intent['machineCode'],
                         parentSha256=pointer['sha256'], previous=baseline, candidate=candidate, legacy=None)
+        if baseline['format'] == 'runtime-baseline-v2':
+            approval['configWriteSet'] = []
         path = work / 'approval.json'
         runtime.record(path, approval)
         args = argparse.Namespace(approval=path, approval_sha256=digest(path), payload=payload)

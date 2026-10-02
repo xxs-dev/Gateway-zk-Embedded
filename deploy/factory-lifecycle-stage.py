@@ -8,7 +8,8 @@ from pathlib import Path
 import stat
 import tempfile
 
-NAMES = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py')
+NAMES = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py',
+         'production_role_policy.py')
 POLICY = 'CORE_TEST_APPLY_ALLOWED'
 
 

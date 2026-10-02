@@ -18,7 +18,8 @@ import tempfile
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-TRIO = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py')
+PAIRED_RUNTIME = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
+                  'ota-health-result.py', 'production_role_policy.py')
 SHELL = os.environ.get('FACTORY_TEST_SH') or ('C:/Program Files/Git/usr/bin/sh.exe' if os.name == 'nt' else '/bin/sh')
 
 
@@ -53,7 +54,7 @@ class LifecycleInstall(unittest.TestCase):
                 for name in ('install-factory-config.sh', 'build-factory-package.sh'):
                     write(directory / 'deploy' / name, subprocess.check_output(
                         ['git', 'show', ref + ':deploy/' + name], cwd=REPO))
-            for name in TRIO:
+            for name in PAIRED_RUNTIME:
                 path = directory / 'deploy' / name
                 data = path.read_text() + '\n# fixture origin: ' + label + '\n'
                 if name == 'runtime-upgrade-guard.py':
@@ -71,6 +72,9 @@ class LifecycleInstall(unittest.TestCase):
         shim = self.commands / 'python3'
         write(shim, '#!/bin/sh\nexec ' + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"\n')
         shim.chmod(0o755)
+        systemctl = self.commands / 'systemctl'
+        write(systemctl, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$SYSTEMCTL_LOG"\n')
+        systemctl.chmod(0o755)
         self.env = os.environ.copy()
         self.env.update(PATH=str(self.commands) + os.pathsep + str(Path(SHELL).parent) + os.pathsep + self.env.get('PATH', ''),
                         GATEWAY_HOME=(self.root / 'home').as_posix(), SOURCE_ROOT=self.source.as_posix(),
@@ -80,6 +84,8 @@ class LifecycleInstall(unittest.TestCase):
                         TMPDIR=self.root.as_posix(), FACTORY_TMP_DIR=(self.root / 'extract').as_posix(),
                         OTA_PUBKEY_TARGET=(self.root / 'test.pub').as_posix(),
                         WATCHDOG_RUN_DIR=(self.root / 'watchdog').as_posix(), PYTHONDONTWRITEBYTECODE='1')
+        self.env['SYSTEMCTL_LOG'] = (self.root / 'systemctl.log').as_posix()
+        self.env['SYSTEMD_UNIT_DIR'] = (self.root / 'units').as_posix()
         if os.name == 'nt':
             # GNU tar otherwise interprets C:/... as a remote archive host.
             self.env['TAR_OPTIONS'] = '--force-local'
@@ -94,7 +100,7 @@ class LifecycleInstall(unittest.TestCase):
         return result, Path(env['GATEWAY_HOME'])
 
     def assert_installed(self, home, origin):
-        for name in TRIO[1:]:
+        for name in PAIRED_RUNTIME[1:]:
             self.assertEqual((home / 'bin' / name).read_bytes(), (origin / 'deploy' / name).read_bytes())
         tree = ast.parse((home / 'bin/offline-runtime-upgrade.py').read_text())
         assignments = [n for n in tree.body if isinstance(n, ast.Assign) and
@@ -127,7 +133,7 @@ class LifecycleInstall(unittest.TestCase):
         self.assert_installed(home, self.source)
         self.assertEqual(before, (self.source / 'deploy/offline-runtime-upgrade.py').read_bytes())
 
-    def test_external_installer_keeps_source_trio_paired(self):
+    def test_external_installer_keeps_source_runtime_helpers_paired(self):
         result, home = self.install(self.external / 'deploy/install-factory-config.sh', DEPLOY_DIR=(self.external / 'deploy').as_posix())
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assert_installed(home, self.source)
@@ -188,8 +194,8 @@ class LifecycleInstall(unittest.TestCase):
         self.assertIn('not an in-place runtime upgrade', result.stdout)
         self.assertEqual(before, inventory(second))
 
-    def test_each_missing_authoritative_trio_member_rejects_before_home_creation(self):
-        for name in TRIO:
+    def test_each_missing_authoritative_runtime_member_rejects_before_home_creation(self):
+        for name in PAIRED_RUNTIME:
             with self.subTest(name=name):
                 path = self.source / 'deploy' / name
                 original = path.read_bytes(); path.unlink()
@@ -200,6 +206,16 @@ class LifecycleInstall(unittest.TestCase):
                     self.assertFalse(home.exists(), result.stdout)
                 finally:
                     write(path, original)
+
+    def test_missing_authoritative_parser_rejects_before_service_stop(self):
+        (self.source / 'deploy/production_role_policy.py').unlink()
+        result, home = self.install(self.external / 'deploy/install-factory-config.sh',
+                                    DEPLOY_DIR=(self.external / 'deploy').as_posix(),
+                                    INSTALL_SYSTEMD='1', START_SERVICES='1')
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('production_role_policy.py', result.stdout)
+        self.assertFalse(home.exists(), result.stdout)
+        self.assertFalse((self.root / 'systemctl.log').exists(), result.stdout)
 
     def test_missing_installer_stage_helper_rejects_before_home_creation(self):
         (self.external / 'deploy/factory-lifecycle-stage.py').unlink()

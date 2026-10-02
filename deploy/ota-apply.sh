@@ -655,6 +655,7 @@ allowed_bin_targets = {
     "/opt/modbus-gateway/bin/ota-health-result.py",
     "/opt/modbus-gateway/bin/runtime-upgrade-guard.py",
     "/opt/modbus-gateway/bin/offline-runtime-upgrade.py",
+    "/opt/modbus-gateway/bin/production_role_policy.py",
     "/opt/modbus-gateway/bin/install-scada-project.sh",
 }
 

@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
@@ -22,6 +23,7 @@ EVIDENCE = None
 APPLY = None
 BASELINE = None
 CANDIDATE = None
+ISOLATION_PARENT_NS = None
 
 
 def write(path, content):
@@ -29,8 +31,101 @@ def write(path, content):
     path.write_bytes(content.encode() if isinstance(content, str) else content)
 
 
+def private_fixture_ready():
+    if APPLY is None or EVIDENCE is None or ISOLATION_PARENT_NS is None:
+        return False
+    current = os.readlink('/proc/self/ns/mnt')
+    if current == ISOLATION_PARENT_NS or current == os.readlink('/proc/1/ns/mnt'):
+        return False
+    mounts = {}
+    for line in Path('/proc/self/mountinfo').read_text().splitlines():
+        row = line.split()
+        if '-' in row and row[4] in ('/opt', '/run'):
+            mounts[row[4]] = row[row.index('-') + 1]
+    return mounts == {'/opt': 'tmpfs', '/run': 'tmpfs'}
+
+
+class OtaSyntaxTest(unittest.TestCase):
+    def test_target_python36_and_shell_syntax(self):
+        source_path = APPLY or REPO / 'deploy/ota-apply.sh'
+        source = source_path.read_text()
+        blocks = source.split("<<'PY'\n")[1:]
+        self.assertGreaterEqual(len(blocks), 2)
+        for block in blocks:
+            ast.parse(block.split('\nPY\n', 1)[0], feature_version=(3, 6))
+        subprocess.run(['sh', '-n', str(source_path)], check=True)
+
+
+class OtaFixtureIsolationTest(unittest.TestCase):
+    def assert_isolation_refused(self, current, parent, pid1, mountinfo):
+        def namespace(path):
+            return pid1 if path == '/proc/1/ns/mnt' else current
+        case = OtaManifestTest('test_missing_manifest_fails_closed')
+        with mock.patch.dict(globals(), {'APPLY': Path('/private/apply.sh'),
+                                        'EVIDENCE': Path('/private/evidence'),
+                                        'ISOLATION_PARENT_NS': parent}), \
+             mock.patch.object(os, 'readlink', side_effect=namespace), \
+             mock.patch.object(Path, 'read_text', return_value=mountinfo), \
+             mock.patch.object(tempfile, 'TemporaryDirectory',
+                               side_effect=AssertionError('fixture initialization reached')), \
+             mock.patch.object(shutil, 'rmtree',
+                               side_effect=AssertionError('host deletion reached')):
+            with self.assertRaisesRegex(RuntimeError, 'verified private mount namespace'):
+                case.setUp()
+
+    def test_direct_uninitialized_call_refuses_before_side_effects(self):
+        case = OtaManifestTest('test_missing_manifest_fails_closed')
+        with mock.patch.dict(globals(), {'APPLY': None, 'EVIDENCE': None,
+                                        'ISOLATION_PARENT_NS': None}), \
+             mock.patch.object(tempfile, 'TemporaryDirectory',
+                               side_effect=AssertionError('fixture initialization reached')), \
+             mock.patch.object(shutil, 'rmtree',
+                               side_effect=AssertionError('host deletion reached')):
+            with self.assertRaisesRegex(RuntimeError, 'verified private mount namespace'):
+                case.setUp()
+
+    def test_initialized_but_shared_mount_namespace_refuses(self):
+        good_mounts = ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
+                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n')
+        for current, parent, pid1 in (('mnt:[11]', 'mnt:[22]', 'mnt:[11]'),
+                                      ('mnt:[22]', 'mnt:[22]', 'mnt:[11]')):
+            with self.subTest(current=current, parent=parent, pid1=pid1):
+                self.assert_isolation_refused(current, parent, pid1, good_mounts)
+
+    def test_private_namespace_with_missing_or_non_tmpfs_mount_refuses(self):
+        for mounts in ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n',
+                       '1 0 0:1 / /opt rw - ext4 disk rw\n'
+                       '2 0 0:2 / /run rw - tmpfs tmpfs rw\n',
+                       '1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
+                       '2 0 0:2 / /run rw - ext4 disk rw\n'):
+            with self.subTest(mounts=mounts):
+                self.assert_isolation_refused('mnt:[22]', 'mnt:[11]', 'mnt:[11]', mounts)
+
+    def test_private_namespace_and_tmpfs_reach_only_stubbed_fixture_boundary(self):
+        class ReachedFixtureInitialization(Exception):
+            pass
+        mountinfo = ('1 0 0:1 / /opt rw - tmpfs tmpfs rw\n'
+                     '2 0 0:2 / /run rw - tmpfs tmpfs rw\n')
+        def namespace(path):
+            return 'mnt:[11]' if path == '/proc/1/ns/mnt' else 'mnt:[22]'
+        case = OtaManifestTest('test_missing_manifest_fails_closed')
+        with mock.patch.dict(globals(), {'APPLY': Path('/private/apply.sh'),
+                                        'EVIDENCE': Path('/private/evidence'),
+                                        'ISOLATION_PARENT_NS': 'mnt:[11]'}), \
+             mock.patch.object(os, 'readlink', side_effect=namespace), \
+             mock.patch.object(Path, 'read_text', return_value=mountinfo), \
+             mock.patch.object(tempfile, 'TemporaryDirectory',
+                               side_effect=ReachedFixtureInitialization), \
+             mock.patch.object(shutil, 'rmtree',
+                               side_effect=AssertionError('host deletion reached')):
+            with self.assertRaises(ReachedFixtureInitialization):
+                case.setUp()
+
+
 class OtaManifestTest(unittest.TestCase):
     def setUp(self):
+        if not private_fixture_ready():
+            raise RuntimeError('OTA fixture requires verified private mount namespace and tmpfs /opt,/run')
         self.temp = tempfile.TemporaryDirectory(prefix='ota-manifest-test-')
         self.root = Path(self.temp.name)
         self.addCleanup(self.temp.cleanup)
@@ -90,14 +185,6 @@ class OtaManifestTest(unittest.TestCase):
 
     def test_missing_manifest_fails_closed(self):
         self.assert_rejected(self.package({'bin/payload': b'not-an-ota-manifest'}))
-
-    def test_target_python36_and_shell_syntax(self):
-        source = APPLY.read_text()
-        blocks = source.split("<<'PY'\n")[1:]
-        self.assertGreaterEqual(len(blocks), 2)
-        for block in blocks:
-            ast.parse(block.split('\nPY\n', 1)[0], feature_version=(3, 6))
-        subprocess.run(['sh', '-n', str(APPLY)], check=True)
 
     def test_empty_files_fails_before_clean(self):
         self.assert_rejected(self.package({'manifest.json': json.dumps({
@@ -280,7 +367,7 @@ class OtaManifestTest(unittest.TestCase):
 
 
 def main():
-    global EVIDENCE, APPLY, BASELINE, CANDIDATE
+    global EVIDENCE, APPLY, BASELINE, CANDIDATE, ISOLATION_PARENT_NS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence', type=Path, required=True)
     parser.add_argument('--apply', type=Path, default=REPO / 'deploy/ota-apply.sh')
@@ -295,16 +382,20 @@ def main():
         return subprocess.call(['unshare', '--mount', '--ipc', '--fork', sys.executable,
                                 '-B', str(Path(__file__).resolve()), *sys.argv[1:],
                                 '--parent-ns', os.readlink('/proc/self/ns/mnt')])
-    if args.parent_ns == os.readlink('/proc/self/ns/mnt'):
+    if (args.parent_ns == os.readlink('/proc/self/ns/mnt') or
+            os.readlink('/proc/self/ns/mnt') == os.readlink('/proc/1/ns/mnt')):
         parser.error('private mount namespace required')
     subprocess.run(['mount', '--make-rprivate', '/'], check=True)
     for path in ('/opt', '/run'):
         subprocess.run(['mount', '-t', 'tmpfs', '-o', 'mode=755', 'tmpfs', path], check=True)
+    ISOLATION_PARENT_NS = args.parent_ns
     EVIDENCE = args.evidence.resolve()
-    EVIDENCE.mkdir(parents=True, exist_ok=False)
     APPLY = args.apply.resolve()
     BASELINE = (args.baseline_apply or args.apply).resolve()
     CANDIDATE = args.candidate.resolve() if args.candidate else None
+    if not private_fixture_ready():
+        parser.error('private /opt,/run tmpfs mounts required')
+    EVIDENCE.mkdir(parents=True, exist_ok=False)
     write(EVIDENCE / 'isolation.json', json.dumps({
         'parentMountNamespace': args.parent_ns,
         'mountNamespace': os.readlink('/proc/self/ns/mnt'),
@@ -315,8 +406,11 @@ def main():
         'baselineApplySha256': hashlib.sha256(BASELINE.read_bytes()).hexdigest(),
         'testSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     }, indent=2))
-    suite = (unittest.TestSuite(OtaManifestTest(name) for name in args.test) if args.test
-             else unittest.defaultTestLoader.loadTestsFromTestCase(OtaManifestTest))
+    suite = (unittest.TestSuite((OtaSyntaxTest(name) if name ==
+             'test_target_python36_and_shell_syntax' else OtaManifestTest(name))
+             for name in args.test) if args.test else unittest.TestSuite((
+             unittest.defaultTestLoader.loadTestsFromTestCase(OtaSyntaxTest),
+             unittest.defaultTestLoader.loadTestsFromTestCase(OtaManifestTest))))
     def snapshot():
         return {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in CANDIDATE.iterdir() if path.is_file()} if CANDIDATE else {}

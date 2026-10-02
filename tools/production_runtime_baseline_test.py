@@ -241,6 +241,297 @@ class ProductionRuntimeTest(unittest.TestCase):
                              candidate=candidate, parentSha256=pointer['sha256'], legacy=None)
         return self.args()
 
+    def v2_code_only_release(self, with_old_logic=True, adopt_first=True):
+        if adopt_first:
+            self.adopt()
+        previous = copy.deepcopy(self.g.production_context(self.home))
+        identity = '/opt/modbus-gateway/config/runtime/device_identity.json'
+        self.write(self.home / 'config/runtime/apps/mqtt-service.json',
+                   json.dumps({'identityConfigFile': identity}) + '\n')
+        self.write(self.home / 'config/runtime/apps/monitor-service.json',
+                   json.dumps({'identityConfigFile': identity,
+                               'mqttDriver': {'sharedMemoryName': 'live_v11'},
+                               'systemMonitor': {'enabled': True}}) + '\n')
+        if with_old_logic:
+            self.write(self.home / 'config/runtime/logic/retired.json', '{"enabled":false}\n')
+        for name in ('system-monitor@.service', 'gateway-services.service'):
+            self.write(self.path('/etc/systemd/system') / name,
+                       (REPO / 'deploy' / name).read_bytes())
+        parser = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        self.write(self.home / 'bin/production_role_policy.py', parser + b'\n# previous pinned revision\n', 0o755)
+        previous.update(format='runtime-baseline-v2', baselineId='V2_START',
+                        files=self.g.production_files(self.home),
+                        configSha256=self.m.tree_hashes(self.home / 'config/runtime'),
+                        unitFiles=self.g.production_unit_files(self.units))
+        protected = {'machineCode': previous['machineCode'],
+                     'identitySha256': previous['configSha256']['device_identity.json'],
+                     'networkSha256': {}, 'tlsSha256': {},
+                     'otaPublicKeySha256': previous['trust']['publicKeySha256'],
+                     'monitorShmName': 'live_v11'}
+        policy = {'__name__': 'private_v2_policy'}
+        exec(compile(parser, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        resolved = policy['resolve'](self.home / 'config/runtime',
+                    self.path('/etc/systemd/system'), protected,
+                    self.path('/etc/modbus-gateway/ota.pub'))
+        previous['allowedUnits'] = [role['unit'] for role in resolved['roles']]
+        profile = {'format': 'board-simulator-profile-v1',
+                   'machineCode': previous['machineCode'], 'ramMiB': 2048,
+                   'capabilities': [], 'simulatorBindings': {},
+                   'allowedUnits': previous['allowedUnits'],
+                   'segmentNames': ['live_v11']}
+        raw = (json.dumps(profile, sort_keys=True) + '\n').encode()
+        profile_sha = hashlib.sha256(raw).hexdigest()
+        self.write(self.runtime.root / 'profiles' / (profile_sha + '.json'), raw, 0o600)
+        previous['roleAuthority'] = {'format': 'configured-role-authority-v2',
+                                     'profileSha256': profile_sha, 'resolved': resolved}
+        record = self.runtime.root / 'baselines/V2_START.json'
+        self.write(record, json.dumps(previous, sort_keys=True) + '\n', 0o444)
+        record_sha = self.m.digest(record)
+        setup = self.runtime.root / 'transactions/V2_SETUP/health.json'
+        self.write(setup, json.dumps({'status': 'healthy', 'baselineSha256': record_sha}) + '\n', 0o600)
+        setup_approval = setup.parent / 'approval.json'
+        self.write(setup_approval, json.dumps({'format': 'runtime-provisioning-v2',
+                   'transaction': 'V2_SETUP', 'gatewayHome': str(self.home),
+                   'previous': previous, 'candidate': previous,
+                   'configWriteSet': []}) + '\n', 0o600)
+        self.write(setup.parent / 'state.json',
+                   json.dumps({'approvalSha256': self.m.digest(setup_approval),
+                               'phase': 'COMPLETED'}) + '\n', 0o600)
+        self.write(self.runtime.root / 'current.json', json.dumps({
+            'baselineId': 'V2_START', 'sha256': record_sha,
+            'healthSha256': self.m.digest(setup), 'transaction': 'V2_SETUP'}) + '\n', 0o600)
+        self.g.production_verify(self.home, previous)
+        self.write(self.payload / 'bin/SystemMonitor', self.elf(b'v2-code-only-release'), 0o755)
+        candidate = copy.deepcopy(previous)
+        candidate.update(baselineId='V2_NEXT', generation=previous['generation'] + 1,
+                         parentSha256=record_sha, release='v2-code-only',
+                         files=self.g.production_files(self.payload))
+        self.approval = {'format': 'runtime-provisioning-v2', 'transaction': 'V2_CODE_ONLY',
+                         'operation': 'install', 'expiresAtUnix': int(time.time()) + 600,
+                         'gatewayHome': str(self.home), 'machineCode': previous['machineCode'],
+                         'parentSha256': record_sha, 'previous': previous,
+                         'candidate': candidate, 'legacy': None, 'configWriteSet': []}
+        return self.args(), previous
+
+    def test_v2_code_only_changed_parser_recovers_previous_pinned_bytes(self):
+        args, previous = self.v2_code_only_release()
+        old_parser = (self.home / 'bin/production_role_policy.py').read_bytes()
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock(): self.m.production_install(args)
+        self.assertNotEqual((self.home / 'bin/production_role_policy.py').read_bytes(), old_parser)
+        self.fail_start = False
+        tx = self.runtime.root / 'transactions/V2_CODE_ONLY'
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertEqual((self.home / 'bin/production_role_policy.py').read_bytes(), old_parser)
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.assertEqual(self.g.production_files(self.home), previous['files'])
+
+    def test_v2_recovery_refuses_unapproved_third_parser_revision(self):
+        args, _ = self.v2_code_only_release()
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock(): self.m.production_install(args)
+        parser = self.home / 'bin/production_role_policy.py'
+        foreign = parser.read_bytes() + b'\n# foreign revision\n'
+        self.write(parser, foreign, 0o755)
+        self.fail_start = False
+        tx = self.runtime.root / 'transactions/V2_CODE_ONLY'
+        with self.assertRaisesRegex(ValueError, 'unowned production runtime file'):
+            with self.m.production_lock(): self.runtime.recover(tx, args.approval_sha256)
+        self.assertEqual(parser.read_bytes(), foreign)
+
+    def test_v2_health_refuses_missing_required_role_mapping(self):
+        _, previous = self.v2_code_only_release()
+        self.write(self.path('/proc') / self.pid / 'maps', b'')
+        with self.assertRaisesRegex(ValueError, 'required/optional SHM mismatch'):
+            self.runtime.health(previous)
+
+    def v2_config_release(self, without_logic_parent=False):
+        _, previous = self.v2_code_only_release(with_old_logic=not without_logic_parent)
+        staged = self.payload / 'config/runtime'
+        for source in (self.home / 'config/runtime').rglob('*'):
+            if source.is_file():
+                self.write(staged / source.relative_to(self.home / 'config/runtime'),
+                           source.read_bytes(), source.stat().st_mode & 0o777)
+        app = staged / 'apps/monitor-service.json'
+        value = json.loads(app.read_text())
+        value['runtimeMode'] = 'gateway'
+        self.write(app, json.dumps(value, sort_keys=True) + '\n')
+        self.write(staged / 'logic/new.json', '{"enabled":true}\n')
+        retired = staged / 'logic/retired.json'
+        if retired.exists():
+            retired.unlink()
+        candidate = self.approval['candidate']
+        candidate.update(baselineId='V2_CONFIG', release='v2-config',
+                         configSha256=self.m.tree_hashes(staged))
+        policy = {'__name__': 'private_v2_policy'}
+        source = (REPO / 'deploy/production_role_policy.py').read_bytes()
+        exec(compile(source, str(REPO / 'deploy/production_role_policy.py'), 'exec'), policy)
+        protected = previous['roleAuthority']['resolved']['protected']
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, self.path('/etc/systemd/system'), protected,
+            self.path('/etc/modbus-gateway/ota.pub'))
+        changes = []
+        relatives = ['apps/monitor-service.json', 'logic/new.json']
+        if not without_logic_parent:
+            relatives.append('logic/retired.json')
+        for relative in relatives:
+            old, new = self.home / 'config/runtime' / relative, staged / relative
+            changes.append({'path': relative,
+                            'before': self.g.production_pin(old) if old.exists() else None,
+                            'after': self.g.production_pin(new) if new.exists() else None})
+        self.approval.update(transaction='V2_CONFIG', candidate=candidate,
+                             configWriteSet=changes)
+        return self.args(), previous
+
+    def test_v2_config_add_delete_replace_install_and_promotion(self):
+        args, _ = self.v2_config_release()
+        with self.m.production_lock(): self.m.production_install(args)
+        self.assertEqual(self.g.production_context(self.home)['baselineId'], 'V2_CONFIG')
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'),
+                         self.approval['candidate']['configSha256'])
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+
+    def test_v2_config_mixed_state_restores_approved_old_write_set(self):
+        args, previous = self.v2_config_release()
+        old = {relative: (self.home / 'config/runtime' / relative).read_bytes()
+               for relative in previous['configSha256']}
+        copy = self.m.production_copy
+        fired = []
+        def fail_after_first_config(source, destination, pin, **kwargs):
+            result = copy(source, destination, pin, **kwargs)
+            if destination == self.home / 'config/runtime/apps/monitor-service.json' and not fired:
+                fired.append(destination)
+                raise OSError('injected config copy completion fault')
+            return result
+        with mock.patch.object(self.m, 'production_copy', fail_after_first_config):
+            with self.assertRaisesRegex(OSError, 'config copy completion fault'):
+                with self.m.production_lock(): self.m.production_install(args)
+        self.assertEqual(len(fired), 1)
+        tx = self.runtime.root / 'transactions/V2_CONFIG'
+        for phase, content in (('install', b'{"run'), ('recover', b'{"pre')):
+            temporary = self.runtime.copy_name(tx,
+                        'config/runtime/apps/monitor-service.json', phase)
+            self.write(temporary, content)
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertGreaterEqual(len(list((tx / 'interrupted-copies').iterdir())), 2)
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'),
+                         previous['configSha256'])
+        for relative, content in old.items():
+            self.assertEqual((self.home / 'config/runtime' / relative).read_bytes(), content)
+        self.assertFalse((self.home / 'config/runtime/logic/new.json').exists())
+
+    def test_v2_config_recovery_refuses_foreign_temp_before_restoring(self):
+        args, _ = self.v2_config_release()
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock(): self.m.production_install(args)
+        foreign = self.home / 'config/runtime/logic/.foreign.production-V2_CONFIG-install'
+        self.write(foreign, b'not an owned temporary file')
+        self.fail_start = False
+        parser = (self.home / 'bin/production_role_policy.py').read_bytes()
+        tx = self.runtime.root / 'transactions/V2_CONFIG'
+        with self.assertRaisesRegex(ValueError, 'unowned production config inventory'):
+            with self.m.production_lock(): self.runtime.recover(tx, args.approval_sha256)
+        self.assertEqual(foreign.read_bytes(), b'not an owned temporary file')
+        self.assertEqual((self.home / 'bin/production_role_policy.py').read_bytes(), parser)
+
+    def test_v2_config_completed_addition_then_fault_restores_absence(self):
+        args, previous = self.v2_config_release()
+        copy = self.m.production_copy
+        fired = []
+        def fail_after_add(source, destination, pin, **kwargs):
+            result = copy(source, destination, pin, **kwargs)
+            if destination == self.home / 'config/runtime/logic/new.json' and not fired:
+                fired.append(destination)
+                raise OSError('injected after approved addition')
+            return result
+        with mock.patch.object(self.m, 'production_copy', fail_after_add):
+            with self.assertRaisesRegex(OSError, 'after approved addition'):
+                with self.m.production_lock(): self.m.production_install(args)
+        self.assertEqual(len(fired), 1)
+        self.assertTrue((self.home / 'config/runtime/logic/new.json').is_file())
+        self.assertTrue((self.home / 'config/runtime/logic/retired.json').is_file())
+        tx = self.runtime.root / 'transactions/V2_CONFIG'
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), previous['configSha256'])
+        self.assertFalse((self.home / 'config/runtime/logic/new.json').exists())
+
+    def test_v2_config_completed_deletion_then_fault_restores_old_file(self):
+        args, previous = self.v2_config_release()
+        sync = self.m.sync_dir
+        retired = self.home / 'config/runtime/logic/retired.json'
+        old = retired.read_bytes()
+        fired = []
+        def fail_after_delete(path):
+            result = sync(path)
+            if path == retired.parent and not retired.exists() and not fired:
+                fired.append(path)
+                raise OSError('injected after approved deletion')
+            return result
+        with mock.patch.object(self.m, 'sync_dir', fail_after_delete):
+            with self.assertRaisesRegex(OSError, 'after approved deletion'):
+                with self.m.production_lock(): self.m.production_install(args)
+        self.assertEqual(len(fired), 1)
+        self.assertFalse(retired.exists())
+        self.assertTrue((retired.parent / 'new.json').is_file())
+        tx = self.runtime.root / 'transactions/V2_CONFIG'
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertEqual(retired.read_bytes(), old)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), previous['configSha256'])
+
+    def test_v2_new_config_parent_sync_failure_stays_pending_and_recovers(self):
+        args, previous = self.v2_config_release(without_logic_parent=True)
+        config_root = self.home / 'config/runtime'
+        self.assertFalse((config_root / 'logic').exists())
+        sync = self.m.sync_dir
+        fired = []
+        def fail_parent_binding(path):
+            if path == config_root and (config_root / 'logic').is_dir() and not fired:
+                fired.append(path)
+                raise OSError('injected config parent sync failure')
+            return sync(path)
+        with mock.patch.object(self.m, 'sync_dir', fail_parent_binding):
+            with self.assertRaisesRegex(OSError, 'config parent sync failure'):
+                with self.m.production_lock(): self.m.production_install(args)
+        self.assertEqual(len(fired), 1)
+        self.assertTrue((self.runtime.root / 'pending.json').is_file())
+        self.assertEqual(self.g.production_json(self.runtime.root / 'current.json')['baselineId'],
+                         'V2_START')
+        self.assertFalse((config_root / 'logic/new.json').exists())
+        with self.assertRaisesRegex(ValueError, 'unresolved production install'):
+            self.g.production_unit(self.home, 'gateway-services.service')
+        tx = self.runtime.root / 'transactions/V2_CONFIG'
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertEqual(self.m.tree_hashes(config_root), previous['configSha256'])
+        self.assertTrue((config_root / 'logic').is_dir())
+        self.approval['transaction'] = 'V2_CONFIG_RETRY'
+        self.approval['candidate']['baselineId'] = 'V2_CONFIG_RETRY'
+        retry = self.args()
+        sync, copy = self.m.sync_dir, self.m.production_copy
+        events = []
+        def observe_sync(path):
+            if path == config_root:
+                events.append('root-sync')
+            return sync(path)
+        def observe_copy(source, destination, pin, **kwargs):
+            if destination == config_root / 'logic/new.json':
+                self.assertTrue(events and events[-1] == 'root-sync')
+                events.append('logic-copy')
+            return copy(source, destination, pin, **kwargs)
+        with mock.patch.object(self.m, 'sync_dir', observe_sync), \
+             mock.patch.object(self.m, 'production_copy', observe_copy):
+            with self.m.production_lock(): self.m.production_install(retry)
+        self.assertIn('logic-copy', events)
+        self.assertEqual(self.g.production_context(self.home)['baselineId'], 'V2_CONFIG_RETRY')
+
     def add_factory_stage_to_candidate(self):
         name = 'factory-lifecycle-stage.py'
         source = REPO / 'deploy' / name

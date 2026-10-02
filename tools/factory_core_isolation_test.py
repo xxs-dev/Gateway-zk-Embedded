@@ -19,6 +19,7 @@ from factory_lifecycle_install_test import SHELL
 REPO = Path(__file__).resolve().parent.parent
 MESSAGE = 'core test apply is disabled in factory packages'
 FILES = ('build-factory-package.sh', 'factory-lifecycle-stage.py', 'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
+         'production_role_policy.py',
          'gateway-services.sh', 'ota-apply.sh', 'ota-rollback.sh', 'ota-health-result.py',
          'production-smoke-test.sh')
 BINS = ('SystemMonitor MqttDriver MqttForwarder pointctl ModbusRtu Dlt645Driver DioDriver '
@@ -94,6 +95,8 @@ class FactoryCoreIsolationTest(unittest.TestCase):
                 self.assertIs(False, ast.literal_eval(assignment.value))
                 self.assertEqual((REPO / 'deploy/runtime-upgrade-guard.py').read_bytes(),
                                  (package / 'deploy/runtime-upgrade-guard.py').read_bytes())
+                self.assertEqual((REPO / 'deploy/production_role_policy.py').read_bytes(),
+                                 (package / 'deploy/production_role_policy.py').read_bytes())
                 self.assertEqual((REPO / 'deploy/ota-health-result.py').read_bytes(),
                                  (package / 'deploy/ota-health-result.py').read_bytes())
                 if os.name == 'posix':

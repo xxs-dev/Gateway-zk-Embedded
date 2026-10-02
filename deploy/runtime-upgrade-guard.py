@@ -70,7 +70,7 @@ PRODUCTION_READERS = {A_RTU_UNIT: 'bin/ModbusRtu', A_MQTT_UNIT: 'bin/MqttDriver'
                       MONITOR_UNIT: 'bin/SystemMonitor'}
 PRODUCTION_HELPERS = frozenset(('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
                                 'gateway-services.sh', 'ota-health-result.py', 'ota-rollback.sh',
-                                'factory-lifecycle-stage.py'))
+                                'factory-lifecycle-stage.py', 'production_role_policy.py'))
 SYSTEMD_ROOTS = ('/etc/systemd/system', '/run/systemd/system', '/usr/local/lib/systemd/system',
                 '/usr/lib/systemd/system', '/lib/systemd/system', '/etc/systemd/system.control',
                 '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator',
@@ -168,7 +168,11 @@ def _production_schema(baseline, home):
                 'architecture', 'pointStoreAbi', 'pointStoreSize', 'clusterProtocol', 'controlEnabled',
                 'files', 'configSha256', 'units', 'allowedUnits', 'unitFiles', 'gates', 'segments',
                 'retiredSources', 'historical', 'bootId', 'release', 'trust', 'healthPolicy'}
-    if (not isinstance(baseline, dict) or set(baseline) != required or baseline['format'] != 'runtime-baseline-v1' or
+    version = baseline.get('format') if isinstance(baseline, dict) else None
+    if version == 'runtime-baseline-v2':
+        required |= {'roleAuthority'}
+    if (not isinstance(baseline, dict) or set(baseline) != required or
+            version not in ('runtime-baseline-v1', 'runtime-baseline-v2') or
             baseline['gatewayHome'] != str(home) or home != Path('/opt/modbus-gateway') or
             baseline['architecture'] != 'aarch64' or baseline['pointStoreAbi'] != 11 or
             baseline['pointStoreSize'] != POINT_STORE_SIZES[11] or baseline['clusterProtocol'] != 2 or
@@ -181,9 +185,24 @@ def _production_schema(baseline, home):
             not all(PRODUCTION_UNIT.fullmatch(u) for u in units) or
             not isinstance(allowed, list) or len(set(allowed)) != len(allowed) or
             'gateway-services.service' not in allowed or not set(allowed) <= set(units) or
-            not set(allowed) <= set(PRODUCTION_READERS) | {'gateway-services.service', 'gateway-health-watchdog.service'} or
-            not set(allowed) & set(PRODUCTION_READERS)):
+            version == 'runtime-baseline-v1' and (
+                not set(allowed) <= set(PRODUCTION_READERS) |
+                    {'gateway-services.service', 'gateway-health-watchdog.service'} or
+                not set(allowed) & set(PRODUCTION_READERS))):
         raise ValueError('production reader-only participant scope invalid')
+    if version == 'runtime-baseline-v2':
+        authority = baseline['roleAuthority']
+        if (not isinstance(authority, dict) or set(authority) != {'format', 'profileSha256', 'resolved'} or
+                authority['format'] != 'configured-role-authority-v2' or
+                not isinstance(authority['profileSha256'], str) or
+                not re.fullmatch('[0-9a-f]{64}', authority['profileSha256']) or
+                not isinstance(authority['resolved'], dict) or
+                authority['resolved'].get('format') != 'configured-role-policy-v2' or
+                authority['resolved'].get('configSha256') != baseline['configSha256'] or
+                not isinstance(authority['resolved'].get('roles'), list) or
+                [role.get('unit') for role in authority['resolved']['roles'] if isinstance(role, dict)] != allowed or
+                len(authority['resolved']['roles']) != len(allowed)):
+            raise ValueError('invalid configured production role authority')
     files = baseline['files']
     if (not isinstance(files, dict) or not {'bin/runtime-upgrade-guard.py', 'bin/gateway-services.sh'} <= set(files) or
             any(not isinstance(path, str) or not re.fullmatch(r'(?:bin|ky-ems)/[A-Za-z0-9_./-]+', path) or
@@ -251,6 +270,68 @@ def production_schema(baseline, home):
         raise ValueError('malformed production baseline field/type') from error
 
 
+def production_roles(home, baseline, config_root=None, helper=None):
+    if baseline['format'] != 'runtime-baseline-v2':
+        raise ValueError('configured role authority requires a v2 baseline')
+    authority = baseline['roleAuthority']
+    profile_sha = authority['profileSha256']
+    profile_path = home / 'data' / PRODUCTION_DIR / 'profiles' / (profile_sha + '.json')
+    if sha(exact_file(profile_path)) != profile_sha:
+        raise ValueError('reviewed board profile digest changed')
+    profile = production_json(profile_path)
+    if (not isinstance(profile, dict) or set(profile) != {'format', 'machineCode', 'ramMiB',
+            'capabilities', 'simulatorBindings', 'allowedUnits', 'segmentNames'} or
+            profile['format'] != 'board-simulator-profile-v1' or
+            profile['machineCode'] != baseline['machineCode'] or
+            profile['ramMiB'] not in (2048, 4096) or
+            not isinstance(profile['capabilities'], list) or
+            not isinstance(profile['simulatorBindings'], dict) or
+            profile['allowedUnits'] != baseline['allowedUnits'] or
+            profile['segmentNames'] != sorted(s['name'] for s in baseline['segments'])):
+        raise ValueError('reviewed board profile disagrees with baseline')
+    helper = helper if helper is not None else home / 'bin/production_role_policy.py'
+    pin = baseline['files'].get('bin/production_role_policy.py')
+    if pin is None or production_pin(helper) != pin or pin['bytes'] > 1024 * 1024:
+        raise ValueError('configured role parser is not paired with baseline')
+    source = exact_file(helper)
+    before = source.stat()
+    fd = os.open(str(source), os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as stream:
+        opened = os.fstat(stream.fileno())
+        raw = stream.read(pin['bytes'] + 1)
+        after = os.fstat(stream.fileno())
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    if (identity(before) != identity(opened) or identity(opened) != identity(after) or
+            identity(after) != identity(source.stat()) or len(raw) != pin['bytes'] or
+            hashlib.sha256(raw).hexdigest() != pin['sha256']):
+        raise ValueError('configured role parser changed while loading')
+    policy = {'__name__': 'production_role_policy', '__file__': str(source)}
+    exec(compile(raw, str(source), 'exec'), policy)
+    resolved = authority['resolved']
+    protected = resolved.get('protected') if isinstance(resolved, dict) else None
+    if (not isinstance(protected, dict) or protected.get('machineCode') != baseline['machineCode'] or
+            protected.get('identitySha256') != baseline['configSha256'].get('device_identity.json') or
+            protected.get('otaPublicKeySha256') != baseline['trust']['publicKeySha256']):
+        raise ValueError('configured role protected identity changed')
+    actual = policy['resolve'](config_root if config_root is not None else home / 'config/runtime',
+                            Path('/etc/systemd/system'), protected, Path('/etc/modbus-gateway/ota.pub'),
+                            simulator_bindings=profile['simulatorBindings'],
+                            capabilities=profile['capabilities'],
+                            watchdog='gateway-health-watchdog.service' in baseline['allowedUnits'])
+    if actual != resolved:
+        raise ValueError('configured role result differs from approved config/templates')
+    for role in actual['roles']:
+        unit = role['unit']
+        template = unit.split('@')[0] + '@.service' if '@' in unit else unit
+        template_path = str(Path('/etc/systemd/system') / template)
+        if (role['unit'] not in baseline['units'] or
+                any(path not in baseline['files'] for path in role['runtimeFiles']) or
+                not set(role['shm']['names']) <= {s['name'] for s in baseline['segments']} or
+                baseline['unitFiles'].get(template_path, {}).get('sha256') != role['templateSha256']):
+            raise ValueError('configured role runtime/unit/SHM inventory incomplete')
+    return actual['roles']
+
+
 def production_effective(baseline):
     for unit in baseline['units']:
         if unit.endswith('@.service'):
@@ -294,6 +375,9 @@ def production_roles_sha(baseline):
     roles = {k: baseline[k] for k in ('gatewayHome', 'machineCode', 'pointStoreAbi',
              'pointStoreSize', 'configSha256', 'retiredSources')}
     roles['names'] = sorted(s['name'] for s in baseline['segments'])
+    if baseline['format'] == 'runtime-baseline-v2':
+        roles['roleAuthority'] = baseline['roleAuthority']
+        roles['allowedUnits'] = baseline['allowedUnits']
     return hashlib.sha256((json.dumps(roles, sort_keys=True) + '\n').encode()).hexdigest()
 
 
@@ -346,24 +430,29 @@ def production_segment_identities(home, baseline):
     return record['segments']
 
 
-def production_verify(home, baseline, files=True, units=True, segments=True):
+def production_verify(home, baseline, files=True, units=True, segments=True, config=True, roles=True):
     production_schema(baseline, home)
     if production_pin(Path('/etc/modbus-gateway/ota.pub'))['sha256'] != baseline['trust']['publicKeySha256']:
         raise ValueError('production signature public-key fingerprint drift')
-    config = home / 'config/runtime'
-    actual = {}
-    names = set()
-    for p in config.rglob('*'):
-        if p.is_symlink():
-            raise ValueError('symlink production configuration')
-        if p.is_file():
-            actual[str(p.relative_to(config))] = sha(exact_file(p))
-            if p.suffix == '.json':
-                names.update(configured_names(production_json(p)))
-    if actual != baseline['configSha256'] or production_json(config / 'device_identity.json').get('machineCode') != baseline['machineCode']:
+    config_root = home / 'config/runtime'
+    if production_json(config_root / 'device_identity.json').get('machineCode') != baseline['machineCode']:
         raise ValueError('production configuration/identity drift')
-    if not names <= {s['name'] for s in baseline['segments']} or names & set(baseline['retiredSources']):
-        raise ValueError('production implicit/custom SHM coverage incomplete')
+    if config:
+        actual = {}
+        names = set()
+        for p in config_root.rglob('*'):
+            if p.is_symlink():
+                raise ValueError('symlink production configuration')
+            if p.is_file():
+                actual[str(p.relative_to(config_root))] = sha(exact_file(p))
+                if p.suffix == '.json':
+                    names.update(configured_names(production_json(p)))
+        if actual != baseline['configSha256']:
+            raise ValueError('production configuration/identity drift')
+        if not names <= {s['name'] for s in baseline['segments']} or names & set(baseline['retiredSources']):
+            raise ValueError('production implicit/custom SHM coverage incomplete')
+        if roles and baseline['format'] == 'runtime-baseline-v2':
+            production_roles(home, baseline)
     # Historical records remain immutable proof, never a second live authority.
     for path, pin in baseline['historical'].items():
         if production_pin(Path(path)) != pin:
@@ -1380,7 +1469,11 @@ def main():
         home = Path(sys.argv[2])
         if production_present(home):
             baseline = production_unit(home, 'gateway-services.service')
-            print('\n'.join(u for u in baseline['allowedUnits'] if u in PRODUCTION_READERS))
+            if baseline['format'] == 'runtime-baseline-v2':
+                print('\n'.join(role['unit'] for role in baseline['roleAuthority']['resolved']['roles']
+                                if role['kind'] == 'service'))
+            else:
+                print('\n'.join(u for u in baseline['allowedUnits'] if u in PRODUCTION_READERS))
             return
         _, _, _, readers, _ = active_context(Path(sys.argv[2]))
         print('\n'.join(readers))
