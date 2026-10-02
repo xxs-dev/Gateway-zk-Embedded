@@ -1,0 +1,64 @@
+2026-10-02 Windows LOCAL_ONLY. Captured command results, not remote results.
+
+$ python -B evidence/20261002-r10-linux/L2_runner_test.py
+test_arbitrary_git_command_refuses ... ok
+test_fixed_git_env_and_owner_drop_order ... ok
+test_owner_drift_refuses_before_command ... ok
+test_child_checks_parent_before_go_exec ... ok
+test_missing_go_never_executes ... ok
+test_parent_leaves_pid_unreaped_through_final_signal ... ok
+test_parent_lost_in_fork_setup_never_executes ... ok
+test_directory_sync_error_keeps_published_first_error ... ok
+test_failed_replace_preserves_previous_receipt ... ok
+test_first_error_saved_before_finally_error ... ok
+test_later_primary_does_not_replace_first ... ok
+test_save_failure_does_not_replace_first_error ... ok
+test_standard_v3_attributes_need_no_dev_inode ... ok
+test_symlink_owner_and_mode_drift_rejected ... ok
+Ran 14 tests in 0.038s
+OK
+exitCode=0
+
+$ python -B evidence/20261002-r10-linux/prepare-r10.py --freeze
+Session 79507 yielded while still running; final completion exitCode=0.
+sourceCommit=438507cdb191b5b91c77eca2e672b4e74e06bd1f
+sourceFiles=442
+sourceArchiveBytes=8140800
+sourceArchiveSha256=dd8bc90081b89cd52ff7fd7abd2e1633a2c646e2590279a9166a42dfb4d2080f
+manifestSha256=92ab58ad902f63e1742ddb7d133367b3e3435f011b7bc35a6c339aa453a4de06
+executionAuthorized=false
+
+$ python -B evidence/20261002-r10-linux/execute-r10.py
+First invocation started before freeze completed: exitCode=1.
+FileNotFoundError: input-manifest-L2.json
+Failure occurred before authentication import/connection; no remote action.
+
+$ python -B evidence/20261002-r10-linux/execute-r10.py
+After original freeze completed: session 61762 completed exitCode=0.
+stage=build-L2
+manifestSha256=92ab58ad902f63e1742ddb7d133367b3e3435f011b7bc35a6c339aa453a4de06
+buildRoot=/srv/build/gw-r10-68de70f-build-L2
+targets=diagnostic_process_test,system_monitor_diagnostic_test,system_monitor_service_test
+boardExecutionReady=false
+executionAuthorized=false
+connects=false
+remoteResultAvailable=false
+
+$ Python ast.parse(feature_version=(3,6)) on five L2 runner/helper files
+Python 3.6 grammar PASS: build-child.py, build-group.py, build-environment.py,
+execute-r10.py, prepare-r10.py; not interpreter/runtime proof
+exitCode=0
+
+$ git diff --check
+exitCode=0
+warning: .gitignore LF will be replaced by CRLF when Git touches it
+
+$ Staged Git blob/manifest identity check
+Initial PowerShell inline quoting failed locally with SyntaxError/exit1, before
+any identity checks or remote action; corrected stdin command exitCode=0.
+8/8 supplemental staged Git blob hashes match.
+Staged manifest SHA256=92ab58ad902f63e1742ddb7d133367b3e3435f011b7bc35a6c339aa453a4de06
+L2 test SHA256=0e0e3c7d6e0879c4e5b7eb11c432642805211063bcf70ba70bbc675678c4bde3
+
+$ git diff --cached --check
+exitCode=0

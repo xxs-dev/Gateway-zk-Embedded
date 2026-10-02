@@ -12,7 +12,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 PRODUCT_COMMIT = '68de70fbc37cf3267116624a259a81510b2d74d3'
 COMMIT = '438507cdb191b5b91c77eca2e672b4e74e06bd1f'
-BUILD_ROOT = '/srv/build/gw-r10-68de70f-build-L1'
+BUILD_ROOT = '/srv/build/gw-r10-68de70f-build-L2'
 BOARD_ROOT = '/tmp/gw-r10-68de70f-23-L1'
 COORD = Path('D:/workspace/GatewaySuite-workspaces/realese1.0/coordinator/docs/audits/evidence/20261001-device-acceptance')
 PINS = {'run_bounded_probe.py': 'd8dfd569062fee7bbb022c6f4f49b93bdd4a0415a819d1c2e5bfcb16f2dc7ccf',
@@ -20,7 +20,7 @@ PINS = {'run_bounded_probe.py': 'd8dfd569062fee7bbb022c6f4f49b93bdd4a0415a819d1c
 BASE_PATH = 'evidence/20261002-nativeboot-B2/execute-native-creator.py'
 BASE_SHA = 'fee48c39ca46a3fc40cefed0782232183f582c397061ebac33979a117e52770a'
 TARGETS = ['diagnostic_process_test', 'system_monitor_diagnostic_test', 'system_monitor_service_test']
-SCRIPTS = ['build-child.py', 'build-group.py', 'board-child.py', 'namespace-child.py', 'ownership-probe.cpp', 'execute-r10.py', 'prepare-r10.py']
+SCRIPTS = ['build-child.py', 'build-group.py', 'build-environment.py', 'board-child.py', 'namespace-child.py', 'ownership-probe.cpp', 'execute-r10.py', 'prepare-r10.py']
 
 
 def sha(data):
@@ -62,7 +62,7 @@ def prepare():
     for name in SCRIPTS:
         data = (HERE / name).read_bytes()
         if name.endswith('.py'):
-            ast.parse(data.decode(), feature_version=(3, 8))
+            ast.parse(data.decode(), feature_version=(3, 6))
         supplements[name] = dict(bytes=len(data), sha256=sha(data), mode=0o500)
     for name, digest in PINS.items():
         assert sha((COORD / name).read_bytes()) == digest
@@ -89,8 +89,10 @@ if __name__ == '__main__':
     archive, manifest = prepare()
     encoded = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
     if args.freeze:
-        with (HERE / 'source.tar').open('xb') as output: output.write(archive)
-        with (HERE / 'input-manifest.json').open('xb') as output: output.write(encoded)
+        if (HERE / 'source.tar').exists(): assert (HERE / 'source.tar').read_bytes() == archive
+        else:
+            with (HERE / 'source.tar').open('xb') as output: output.write(archive)
+        with (HERE / 'input-manifest-L2.json').open('xb') as output: output.write(encoded)
     print(json.dumps(dict(sourceCommit=COMMIT, sourceFiles=len(manifest['sourceFiles']),
                           sourceArchiveBytes=len(archive), sourceArchiveSha256=sha(archive),
                           manifestSha256=sha(encoded), executionAuthorized=False), indent=2))

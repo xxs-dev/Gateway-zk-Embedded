@@ -4,3 +4,6 @@ build-result.json
 board-result.json
 remote-*.log
 remote-build-result.json
+build-L2-result.json
+L2-artifacts/
+L2-remote-*
