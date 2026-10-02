@@ -2821,9 +2821,14 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
         // success=false "in_progress" reply which would falsely finish the task.
         return;
     }
-    if (requestTs >= effectiveNow + kDiagnosticFutureSkewMs ||
-        requestTs <= effectiveNow - kDiagnosticRequestAgeMs)
-        throw std::runtime_error("diag requestTs stale or from the future");
+    if (requestTs >= effectiveNow + kDiagnosticFutureSkewMs) {
+        publishRejection("request_ts_future");
+        return;
+    }
+    if (requestTs <= effectiveNow - kDiagnosticRequestAgeMs) {
+        publishRejection("request_ts_stale");
+        return;
+    }
     const auto reject = [&](const std::string& reason) {
         // No execution was admitted and there is no durable idempotency record.
         // A later delivery (including after restart) may still execute, so this
@@ -2849,8 +2854,8 @@ void SystemMonitorService::handleDiagRequest(const std::string& payload, std::in
     currentDiagnosticId_ = cmdId;
     if (!diagnosticProcess_.start(shellCommand, outputLimit)) completeDiagnostic(nowMs);
     try {
-        publishStatusEvent("diag-request", nowMs, std::string(R"("cmdId":")") + escapeJson(cmdId) +
-            R"(","command":")" + escapeJson(command) + R"(")");
+        publishStatusEvent("diag-request", nowMs, std::string(R"("cmdId":")") + escapeDiagnosticOutputJson(cmdId) +
+            R"(","command":")" + escapeDiagnosticOutputJson(command) + R"(")");
     } catch (...) { /* the admitted job does not depend on event delivery */ }
 }
 
@@ -2887,7 +2892,7 @@ void SystemMonitorService::completeDiagnostic(std::int64_t nowMs) {
     found->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::minutes(10);
     try {
         publishReply(found->second.reply);
-        publishStatusEvent("diag-replied", nowMs, std::string(R"("cmdId":")") + escapeJson(found->first) +
+        publishStatusEvent("diag-replied", nowMs, std::string(R"("cmdId":")") + escapeDiagnosticOutputJson(found->first) +
             R"(","exitCode":)" + std::to_string(result.exitCode) + R"(,"reason":")" + reason + R"(")");
     } catch (...) { /* retry replays cached terminal reply */ }
 }

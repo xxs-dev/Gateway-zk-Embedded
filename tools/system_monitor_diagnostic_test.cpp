@@ -70,6 +70,7 @@ public:
     void publishJsonMessage(const std::string& topic, const std::string& body) override {
         if (failOnce && topic == "diag/reply") { failOnce = false; throw std::runtime_error("private publish failure"); }
         if (topic == "diag/reply") replies.push_back(body);
+        if (topic == "status") statusEvents.push_back(body);
         if (topic == "monitor/reply") ++monitorReplies;
         if (body.find("scada-offline-safety") != std::string::npos) ++safetyEvents;
     }
@@ -84,6 +85,7 @@ public:
     }
     std::vector<MqttIncomingMessage> incoming;
     std::vector<std::string> replies;
+    std::vector<std::string> statusEvents;
     int safetyEvents = 0, monitorReplies = 0;
     bool failOnce = false;
 };
@@ -268,6 +270,21 @@ void cases() {
         }
         require(fixture.runs() == runs && publisher->replies.size() == 1,
                 "malformed or ambiguous diagnostic identity reached execution");
+        windows.payload = R"({"cmdId":"EVENT_\u0001","machineCode":"PRIVATE_DIAG","operator":"operator","command":"top_once","requestTs":7002})";
+        publisher->incoming.push_back(windows); tick(service, 7002); waitReply(service, *publisher, 2);
+        int matchedEvents = 0;
+        for (const auto& body : publisher->statusEvents) {
+            const auto event = json::JsonParser(body, 16, 64).parse();
+            const auto* id = event.find("cmdId");
+            if (id && id->asString() == std::string("EVENT_\x01", 7)) {
+                require(event.find("event") &&
+                        (event.find("event")->asString() == "diag-request" ||
+                         event.find("event")->asString() == "diag-replied"),
+                        "diagnostic control-character event changed identity");
+                ++matchedEvents;
+            }
+        }
+        require(matchedEvents == 2, "diagnostic request/replied events did not preserve valid JSON cmdId");
         std::cout << "PASS Windows-escaped-Unicode/strict-malformed-identity\n";
     }
     {
@@ -280,16 +297,19 @@ void cases() {
                 "cached terminal must replay before freshness rejection");
         SystemMonitorDiagnosticTestAccess::expire(service, "freshness");
         publisher->request("freshness"); tick(service, 400001);
-        require(fixture.runs() == runs && publisher->replies.size() == 2,
+        require(fixture.runs() == runs && publisher->replies.size() == 3 &&
+                publisher->replies.back().find("\"reason\":\"request_ts_stale\"") != std::string::npos &&
+                publisher->replies.back().find("\"cmdId\":") == std::string::npos,
                 "expired command ID executed after request freshness window");
         publisher->request("clock_floor", "top_once", "", 400002); tick(service, 400002);
-        waitReply(service, *publisher, 3);
+        waitReply(service, *publisher, 4);
         const int floorRuns = fixture.runs();
         publisher->request("clock_floor", "top_once", "", 400002); tick(service, 1000);
-        require(publisher->replies.size() == 4 && fixture.runs() == floorRuns,
+        require(publisher->replies.size() == 5 && fixture.runs() == floorRuns,
                 "cached terminal did not replay after wall-clock rollback");
         publisher->request("rollback_new"); tick(service, 1000);
-        require(publisher->replies.size() == 4 && fixture.runs() == floorRuns,
+        require(publisher->replies.size() == 6 && fixture.runs() == floorRuns &&
+                publisher->replies.back().find("\"reason\":\"request_ts_stale\"") != std::string::npos,
                 "wall-clock rollback admitted a stale new ID");
         std::cout << "PASS cached-replay-before-age-gate/expired-ID/clock-rollback\n";
     }
@@ -298,6 +318,15 @@ void cases() {
         SystemMonitorService service(fixture.config(), mqtt(), publisher, "PRIVATE_DIAG");
         publisher->request("future_boundary", "top_once", "", 1299999);
         tick(service, 1000000); waitReply(service, *publisher, 1);
+        auto futurePublisher = std::make_shared<Publisher>();
+        SystemMonitorService futureService(fixture.config(), mqtt(), futurePublisher, "PRIVATE_DIAG");
+        const int futureRuns = fixture.runs();
+        futurePublisher->request("future_rejected", "top_once", "", 1300000);
+        tick(futureService, 1000000);
+        require(fixture.runs() == futureRuns && futurePublisher->replies.size() == 1 &&
+                futurePublisher->replies.back().find("\"reason\":\"request_ts_future\"") != std::string::npos &&
+                futurePublisher->replies.back().find("\"cmdId\":") == std::string::npos,
+                "future-edge new ID must report nonterminal clock rejection");
         const auto remaining = SystemMonitorDiagnosticTestAccess::expiry(service, "future_boundary") -
             std::chrono::steady_clock::now();
         require(remaining > std::chrono::minutes(10) - std::chrono::seconds(2) &&
