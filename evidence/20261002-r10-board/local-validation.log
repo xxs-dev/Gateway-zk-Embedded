@@ -1,0 +1,42 @@
+2026-10-02, LOCAL_ONLY Windows. No remote, Linux or AArch64 execution.
+
+Initial board_runner_test.py:12 tests,11PASS/1ERROR,exit1,0.109s.
+Missing Windows model os.WNOHANG attribute in mocked sweep; no product invoked.
+Adapter added this modeled constant; first corrected run12PASS/0skip,exit0,0.108s.
+
+Final candidate checkpoint:
+$ python -B evidence/20261002-r10-board/board_runner_test.py
+test_atomic_failed_replace_keeps_original ... ok
+test_bad_file_or_shm_budget_rejected ... ok
+test_export_versions_not_undefined_or_hidden ... ok
+test_fixed_six_commands_no_automatic_24 ... ok
+test_loader_expected_shape ... ok
+test_loader_not_found_rejected ... ok
+test_primary_survives_secondary_error ... ok
+test_private_sweep_rescue_is_not_product_cleanup ... ok
+test_rescue_or_baseline_drift_cannot_pass ... ok
+test_service_files_and_three_native_segments_fit ... ok
+test_source_bound_service_budget_and_parent_hard_limit ... ok
+test_unknown_loader_listing_rejected ... ok
+Ran12 tests in0.117s
+OK,exit0,0skip
+
+$ python -B evidence/20261002-r10-board/execute-board.py --freeze
+exit0,manifest432bed8c304fb2c53d8dac25ab9a5da0855979e9640a46bd412c960d29dfc890
+Earlier draft manifests preserved separately; no draft executed remotely.
+
+$ python -B evidence/20261002-r10-board/execute-board.py
+exit0,remoteInputs8,cases6,executionAuthorized=false,connects=false
+root=/tmp/gw-r10-68de70f-23-B1,host=192.168.22.23
+
+$ Six Python files plus embedded remote bootstrap ast.parse(feature_version=(3,6))
+exit0,grammar PASS only
+
+Actual local pyelftools parsing of pinned L2 Git archive:
+4ELF64 LE AArch64,interpreter=/lib/ld-linux-aarch64.so.1
+strongSymbols:diagnostic72,monitor-diagnostic267,monitor-service261,ownership63
+Requires GLIBC2.17,GLIBCXX through3.4.22,CXXABI through1.3.9,GCC through4.2.0
+No target library availability or executable behavior claimed.
+Local attempt to obtain SharedStoreLayout DWARF size found no complete DIE;
+no DWARF size proof claimed. Size15667032B uses archived B2 native evidence plus
+unchanged layout/constructor Git blobs, not a Windows sizeof or guessed size.
