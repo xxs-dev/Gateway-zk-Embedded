@@ -1,0 +1,48 @@
+{
+  "compile": {
+    "exit": 0,
+    "file": "wsl.exe",
+    "arguments": [
+      "-u",
+      "root",
+      "--cd",
+      "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0",
+      "g++",
+      "-std=c++17",
+      "-O0",
+      "-g",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-Iinclude",
+      "-pthread",
+      "tools/ota_m3_receipt_behavior_test.cpp",
+      "src/builtin_mqtt_driver_publisher.cpp",
+      "src/mosquitto_mqtt_driver_publisher.cpp",
+      "-Wl,--gc-sections",
+      "-ldl",
+      "-o",
+      "/tmp/ota_m3_receipt_behavior_test_s1s4_final"
+    ]
+  },
+  "run": {
+    "exit": 0,
+    "file": "wsl.exe",
+    "arguments": [
+      "-u",
+      "root",
+      "--cd",
+      "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0",
+      "timeout",
+      "15s",
+      "/tmp/ota_m3_receipt_behavior_test_s1s4_final"
+    ]
+  },
+  "inputCount": 19,
+  "inputMatch": true,
+  "rawSha256": {
+    "buildStdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "buildStderr": "b280c454d6f559e56eb3f5ed39f3ba084b8d1744a3ff7fe016b21ff86dea1aca",
+    "runStdout": "3bc43522a134a28e6a1f6c6657bcce6352c4699cccb2a77fabf8dc8b8d6bdc84",
+    "runStderr": "b280c454d6f559e56eb3f5ed39f3ba084b8d1744a3ff7fe016b21ff86dea1aca"
+  }
+}

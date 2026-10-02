@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <functional>
+#include <atomic>
+#include <thread>
 
 namespace edge_gateway {
 
@@ -189,7 +191,8 @@ void checkFinal(const std::string& staging, const OtaStatus& expected, bool prod
     }
 }
 
-void checkReconcile(const std::string& staging, const OtaStatus& expected) {
+OtaStatus checkReconcile(const std::string& staging, const OtaStatus& expected,
+                         bool finalBeforeStatus = false, bool wrongLease = false) {
     PendingOtaJob job;
     job.jobId = expected.jobId;
     job.machineCode = expected.machineCode;
@@ -201,11 +204,11 @@ void checkReconcile(const std::string& staging, const OtaStatus& expected) {
     job.packageType = "config";
     job.artifactSha256 = expected.appliedSha256;
     job.artifactSize = 1;
-    job.leaseInode = 1;
     const auto health = "{\"format\":\"ota-health-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
         ",\"version\":" + pendingJsonString(job.version) +
         ",\"token\":" + pendingJsonString(job.token) +
-        ",\"status\":\"healthy\",\"rollback\":\"none\",\"ts\":\"1000\"" +
+        ",\"status\":\"healthy\",\"rollback\":\"none\",\"ts\":" +
+        pendingJsonString(std::to_string(expected.ts)) +
         ",\"productionTransaction\":" + pendingJsonString(expected.productionTransaction) +
         ",\"productionCandidateSha256\":" + pendingJsonString(expected.productionCandidateSha256) + "}\n";
     const auto proof = "{\"format\":\"ota-handoff-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
@@ -217,14 +220,28 @@ void checkReconcile(const std::string& staging, const OtaStatus& expected) {
         pendingJsonString(expected.productionTransaction) +
         ",\"healthSha256\":" + pendingJsonString(expected.appliedSha256) +
         ",\"healthRecord\":" + pendingJsonString(health) + "}}\n";
-    replacePendingJournal(pendingJobPath(staging, job.jobId), encodePendingJob(job));
     replacePendingJournal(joinPath(staging, "health_" + job.jobId + ".txt"), health);
     replacePendingJournal(joinPath(staging, "ota_active_job.txt"),
         "jobId=" + job.jobId + "\ntoken=" + job.token + "\n");
     const auto lockPath = joinPath(staging, "ota_job_" + job.jobId + ".lock");
     const int lockFd = open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
     requireM3(lockFd >= 0, "cannot create private job lease");
+    struct stat lockInfo{};
+    requireM3(fstat(lockFd, &lockInfo) == 0, "cannot pin private job lease");
+    job.leaseDev = lockInfo.st_dev;
+    job.leaseInode = lockInfo.st_ino;
     close(lockFd);
+    replacePendingJournal(pendingJobPath(staging, job.jobId), encodePendingJob(job));
+    if (wrongLease) {
+        std::filesystem::rename(lockPath, lockPath + ".old");
+        const int replacement = open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        requireM3(replacement >= 0, "cannot replace private job lease");
+        struct stat replacementInfo{};
+        requireM3(fstat(replacement, &replacementInfo) == 0 &&
+                  replacementInfo.st_ino != lockInfo.st_ino,
+                  "private lease replacement did not change inode");
+        close(replacement);
+    }
     OtaConfig config;
     config.stagingDir = staging;
     config.backupDir = staging + "/backup";
@@ -235,7 +252,19 @@ void checkReconcile(const std::string& staging, const OtaStatus& expected) {
               "reconcile wrote final without owner proof");
 
     replacePendingJournal(joinPath(staging, "ota_handoff_" + job.jobId + ".json"), proof);
+    if (finalBeforeStatus) {
+        persistFinalizationAudit(staging, job, false, "final-marker", "verified-health",
+            "ota-terminal-outbox-v1");
+        replacePendingJournal(joinPath(staging, "ota_final_" + job.jobId + ".txt"),
+            "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=completed\n");
+    }
     OtaService(config).reconcilePendingJobs();
+    if (wrongLease) {
+        requireM3(!std::filesystem::exists(joinPath(staging, "ota_final_" + job.jobId + ".txt")) &&
+                  OtaService(config).loadPendingStatuses().empty(),
+                  "reconcile accepted a replaced lifecycle lease");
+        return {};
+    }
     const auto final = readPendingJournal(joinPath(staging, "ota_final_" + job.jobId + ".txt"));
     requireM3(final == "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=completed\n",
               "reconcile did not persist the original-job final marker");
@@ -254,6 +283,125 @@ void checkReconcile(const std::string& staging, const OtaStatus& expected) {
     requireM3(readPendingJournal(joinPath(staging, "ota_status_pending.log")) == pendingBytes &&
               readPendingJournal(joinPath(staging, "upgrade_history.log")) == history,
               "repeated reconciliation changed completed journals");
+    OtaService subscriber(config);
+    requireM3(subscriber.loadPendingStatuses().size() == 1, "pending terminal was not available for publication");
+    std::atomic<bool> start{false};
+    std::exception_ptr clearError;
+    std::exception_ptr replayError;
+    std::thread clearer([&] {
+        while (!start.load()) std::this_thread::yield();
+        try { subscriber.clearPendingStatuses(); }
+        catch (...) { clearError = std::current_exception(); }
+    });
+    std::thread replayer([&] {
+        while (!start.load()) std::this_thread::yield();
+        try { OtaService(config).reconcilePendingJobs(); }
+        catch (...) { replayError = std::current_exception(); }
+    });
+    start.store(true);
+    clearer.join();
+    replayer.join();
+    if (clearError) std::rethrow_exception(clearError);
+    if (replayError) std::rethrow_exception(replayError);
+    requireM3(readPendingJournal(joinPath(staging, "ota_status_pending.log")).empty(),
+              "published terminal was not acknowledged");
+    OtaService(config).reconcilePendingJobs();
+    requireM3(readPendingJournal(joinPath(staging, "ota_status_pending.log")).empty() &&
+              OtaService(config).loadFinalStatuses().size() == 1,
+              "acknowledged terminal was reappended after recovery");
+    return pending[0];
+}
+
+void checkFailedReconcile(const std::string& staging, const OtaStatus& expected) {
+    PendingOtaJob job;
+    job.jobId = "M3_SAFE_FAILURE";
+    job.machineCode = expected.machineCode;
+    job.version = expected.appliedVersion;
+    job.artifactPath = staging + "/synthetic-artifact.tar.gz";
+    job.previousVersion = "old";
+    job.token = expected.occurrenceId;
+    job.lifecycle = "systemd-handoff-v1";
+    job.packageType = "config";
+    job.artifactSha256 = expected.appliedSha256;
+    job.artifactSize = 1;
+    const auto health = "{\"format\":\"ota-health-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
+        ",\"version\":" + pendingJsonString(job.version) +
+        ",\"token\":" + pendingJsonString(job.token) +
+        ",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"1000\"}\n";
+    const auto proof = "{\"format\":\"ota-handoff-v1\",\"jobId\":" + pendingJsonString(job.jobId) +
+        ",\"version\":" + pendingJsonString(job.version) +
+        ",\"token\":" + pendingJsonString(job.token) +
+        ",\"phase\":\"CANCELLED\",\"runtimeMayChange\":false,\"cancelProof\":{\"noWriter\":true," +
+        "\"unit\":" + pendingJsonString("ota-runtime-" + job.jobId + "-" + job.token + ".service") +
+        ",\"mainPid\":\"0\",\"job\":\"\"}}\n";
+    replacePendingJournal(pendingJobPath(staging, job.jobId), encodePendingJob(job));
+    replacePendingJournal(joinPath(staging, "health_" + job.jobId + ".txt"), health);
+    replacePendingJournal(joinPath(staging, "ota_handoff_" + job.jobId + ".json"), proof);
+    replacePendingJournal(joinPath(staging, "ota_active_job.txt"),
+        "jobId=" + job.jobId + "\ntoken=" + job.token + "\n");
+    const auto lockPath = joinPath(staging, "ota_job_" + job.jobId + ".lock");
+    const int lockFd = open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    requireM3(lockFd >= 0, "cannot create private failure lease");
+    struct stat lockInfo{};
+    requireM3(fstat(lockFd, &lockInfo) == 0, "cannot pin private failure lease");
+    job.leaseDev = lockInfo.st_dev;
+    job.leaseInode = lockInfo.st_ino;
+    close(lockFd);
+    replacePendingJournal(pendingJobPath(staging, job.jobId), encodePendingJob(job));
+    persistFinalizationAudit(staging, job, false, "final-marker", "verified-health",
+        "ota-terminal-outbox-v1");
+    replacePendingJournal(joinPath(staging, "ota_final_" + job.jobId + ".txt"),
+        "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=failed\n");
+    OtaConfig config;
+    config.stagingDir = staging;
+    config.backupDir = staging + "/backup";
+    OtaService(config).reconcilePendingJobs();
+    const auto pending = OtaService(config).loadPendingStatuses();
+    requireM3(pending.size() == 1 && pending[0].stage == "failed" &&
+              pending[0].jobId == job.jobId && pending[0].occurrenceId == job.token,
+              "safe failure final did not recover pending status");
+    OtaService subscriber(config);
+    requireM3(subscriber.loadPendingStatuses().size() == 1, "safe failure status unavailable");
+    subscriber.clearPendingStatuses();
+    OtaService(config).reconcilePendingJobs();
+    requireM3(OtaService(config).loadPendingStatuses().empty(),
+              "acknowledged safe failure was reappended");
+}
+
+void checkSynchronousTailReplay(const std::string& staging, const OtaStatus& expected) {
+    PendingOtaJob job;
+    job.jobId = "M3_SYNC_TAIL";
+    job.machineCode = expected.machineCode;
+    job.version = expected.appliedVersion;
+    job.artifactPath = staging + "/synthetic-artifact.tar.gz";
+    job.previousVersion = "old";
+    job.token = expected.occurrenceId;
+    job.lifecycle = "inherited-flock-v1";
+    replacePendingJournal(pendingJobPath(staging, job.jobId), encodePendingJob(job));
+    replacePendingJournal(joinPath(staging, "ota_active_job.txt"),
+        "jobId=" + job.jobId + "\ntoken=" + job.token + "\n");
+    const auto lockPath = joinPath(staging, "ota_job_" + job.jobId + ".lock");
+    const int lockFd = open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    requireM3(lockFd >= 0, "cannot create private sync-tail lease");
+    close(lockFd);
+    replacePendingJournal(joinPath(staging, "ota_reconcile_" + job.jobId + ".json"),
+        "{\"format\":\"ota-reconcile-v1\",\"reason\":\"successful-apply-finalization-error\","
+        "\"jobId\":" + pendingJsonString(job.jobId) +
+        ",\"token\":" + pendingJsonString(job.token) +
+        ",\"version\":" + pendingJsonString(job.version) +
+        ",\"finalState\":\"unknown\",\"phase\":\"version\","
+        "\"evidence\":\"apply-returned-success\",\"ts\":\"1000\"}\n");
+    OtaConfig config;
+    config.stagingDir = staging;
+    config.backupDir = staging + "/backup";
+    OtaService(config).reconcilePendingJobs();
+    const auto first = readPendingJournal(joinPath(staging, "ota_status_pending.log"));
+    const auto pending = OtaService(config).loadPendingStatuses();
+    requireM3(pending.size() == 1 && pending[0].ts == 1000 && pending[0].jobId == job.jobId,
+              "sync-tail did not reuse durable audit timestamp");
+    OtaService(config).reconcilePendingJobs();
+    requireM3(readPendingJournal(joinPath(staging, "ota_status_pending.log")) == first,
+              "sync-tail replay generated a distinct terminal record");
 }
 
 void checkLegacyTsv(const std::string& staging) {
@@ -271,8 +419,10 @@ void checkLegacyTsv(const std::string& staging) {
 
 }  // namespace edge_gateway
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc != 1 && (argc != 9 || std::string(argv[1]) != "--emit"))
+            throw std::runtime_error("invalid private fixture arguments");
         if (geteuid() != 0) throw std::runtime_error("private production journal test requires root owner");
         char pattern[] = "/tmp/ota-m3-local-XXXXXX";
         const char* created = mkdtemp(pattern);
@@ -280,14 +430,50 @@ int main() {
         const std::string root = created;
         edge_gateway::requireM3(root.rfind("/tmp/ota-m3-local-", 0) == 0,
                                 "test root escaped private /tmp prefix");
+        if (argc == 9) {
+            edge_gateway::OtaStatus status;
+            status.jobId = argv[2];
+            status.machineCode = argv[3];
+            status.appliedVersion = argv[4];
+            status.appliedSha256 = argv[5];
+            status.productionCandidateSha256 = argv[6];
+            status.occurrenceId = argv[7];
+            status.productionTransaction = argv[8];
+            status.productionHealth = "healthy";
+            status.ts = edge_gateway::currentTimeMs();
+            edge_gateway::requireM3(edge_gateway::isSafeOtaId(status.jobId) &&
+                    edge_gateway::isSafeOtaId(status.appliedVersion) &&
+                    edge_gateway::isSafeSha256(status.appliedSha256) &&
+                    status.appliedSha256.size() == 64 &&
+                    edge_gateway::isSafeSha256(status.productionCandidateSha256) &&
+                    status.productionCandidateSha256.size() == 64 &&
+                    status.occurrenceId.size() == 36 &&
+                    status.productionTransaction.size() == 36,
+                    "invalid private fixture identity");
+            const auto staging = root + "/reconciled";
+            std::filesystem::create_directory(staging);
+            const auto actual = edge_gateway::checkReconcile(staging, status);
+            const auto encoded = edge_gateway::encodeBuiltinOtaStatusJson(actual);
+            std::filesystem::remove_all(root);
+            std::cout << encoded << '\n';
+            return 0;
+        }
         const auto production = root + "/production";
         const auto legacy = root + "/legacy";
         const auto reconciled = root + "/reconciled";
         const auto oldTsv = root + "/old-tsv";
+        const auto crashFinal = root + "/crash-final";
+        const auto safeFailure = root + "/safe-failure";
+        const auto syncTail = root + "/sync-tail";
+        const auto wrongLease = root + "/wrong-lease";
         std::filesystem::create_directory(production);
         std::filesystem::create_directory(legacy);
         std::filesystem::create_directory(reconciled);
         std::filesystem::create_directory(oldTsv);
+        std::filesystem::create_directory(crashFinal);
+        std::filesystem::create_directory(safeFailure);
+        std::filesystem::create_directory(syncTail);
+        std::filesystem::create_directory(wrongLease);
         edge_gateway::OtaStatus status;
         status.jobId = "M3_PRODUCTION_JOB";
         status.machineCode = "LOCAL_ONLY";
@@ -306,6 +492,10 @@ int main() {
         edge_gateway::checkPending(production, status);
         edge_gateway::checkFinal(production, status, true);
         edge_gateway::checkReconcile(reconciled, status);
+        edge_gateway::checkReconcile(crashFinal, status, true);
+        edge_gateway::checkFailedReconcile(safeFailure, status);
+        edge_gateway::checkSynchronousTailReplay(syncTail, status);
+        edge_gateway::checkReconcile(wrongLease, status, false, true);
         status.jobId = "M3_LEGACY_JOB";
         status.appliedVersion.clear();
         status.appliedSha256.clear();

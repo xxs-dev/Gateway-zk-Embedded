@@ -1297,9 +1297,10 @@ public:
 };
 
 void persistFinalizationAudit(const std::string& stagingDir, const PendingOtaJob& job,
-                             bool finalCommitted, const char* phase, const char* evidence) {
+                             bool finalCommitted, const char* phase, const char* evidence,
+                             const char* reason = "successful-apply-finalization-error") {
     replacePendingJournal(joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json"),
-            "{\"format\":\"ota-reconcile-v1\",\"reason\":\"successful-apply-finalization-error\",\"jobId\":" +
+            "{\"format\":\"ota-reconcile-v1\",\"reason\":" + pendingJsonString(reason) + ",\"jobId\":" +
             pendingJsonString(job.jobId) + ",\"token\":" + pendingJsonString(job.token) +
             ",\"version\":" + pendingJsonString(job.version) +
             ",\"finalState\":" + pendingJsonString(finalCommitted ? "committed" : "unknown") +
@@ -1322,8 +1323,9 @@ void auditSuccessfulFinalization(const std::string& stagingDir, const PendingOta
 }
 
 bool needsFinalizationReconciliation(const std::string& stagingDir, const PendingOtaJob& job,
-                                    bool* synchronousTail = nullptr) {
+                                    bool* synchronousTail = nullptr, bool* terminalIntent = nullptr) {
     if (synchronousTail) *synchronousTail = false;
+    if (terminalIntent) *terminalIntent = false;
     const auto path = joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json");
     if (strictlyAbsent(path)) return false;
     if (fileSizeBytes(path) > 4096) throw std::runtime_error("invalid OTA reconciliation audit");
@@ -1345,8 +1347,9 @@ bool needsFinalizationReconciliation(const std::string& stagingDir, const Pendin
         }
         if (count != 1) throw std::runtime_error("ambiguous OTA reconciliation audit");
     }
+    const auto reason = pendingField(audit, "reason");
     if (pendingField(audit, "format") != "ota-reconcile-v1" ||
-        pendingField(audit, "reason") != "successful-apply-finalization-error" ||
+        (reason != "successful-apply-finalization-error" && reason != "ota-terminal-outbox-v1") ||
         pendingField(audit, "jobId") != job.jobId || pendingField(audit, "token") != job.token ||
         pendingField(audit, "version") != job.version ||
         pendingInteger<std::int64_t>(pendingField(audit, "ts")) <= 0)
@@ -1355,6 +1358,7 @@ bool needsFinalizationReconciliation(const std::string& stagingDir, const Pendin
     if (state != "committed" && state != "unknown")
         throw std::runtime_error("invalid OTA reconciliation audit state");
     const auto phase = pendingField(audit, "phase");
+    if (terminalIntent) *terminalIntent = reason == "ota-terminal-outbox-v1";
     if (synchronousTail)
         *synchronousTail = state == "unknown" &&
             pendingField(audit, "evidence") == "apply-returned-success" &&
@@ -1362,6 +1366,14 @@ bool needsFinalizationReconciliation(const std::string& stagingDir, const Pendin
     // A visible marker after rename does not undo a directory-fsync failure.
     return state != "committed";
 }
+
+std::int64_t finalizationAuditTimestamp(const std::string& stagingDir, const PendingOtaJob& job) {
+    const auto audit = json::JsonParser(readPendingJournal(
+        joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json")), 4, 32).parse();
+    return pendingInteger<std::int64_t>(pendingField(audit, "ts"));
+}
+
+bool hasHandoffResolution(const std::string& stagingDir, const PendingOtaJob& job);
 
 bool hasValidFinal(const std::string& stagingDir, const PendingOtaJob& job) {
     const auto path = joinPath(stagingDir, "ota_final_" + job.jobId + ".txt");
@@ -1376,6 +1388,29 @@ bool hasValidFinal(const std::string& stagingDir, const PendingOtaJob& job) {
     if (bytes != prefix + "completed\n" && bytes != prefix + "failed\n")
         throw std::runtime_error("OTA final marker does not match job intent");
     return true;
+}
+
+void acknowledgeTerminalIntents(const std::string& stagingDir, const std::string& snapshot) {
+    std::istringstream input(snapshot);
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty() || line.front() != '{') continue;
+        const auto status = decodePendingStatus(line);
+        if (status.stage != "completed" && status.stage != "failed") continue;
+        const auto intentPath = pendingJobPath(stagingDir, status.jobId);
+        if (strictlyAbsent(intentPath)) continue;
+        const auto job = decodePendingJob(readPendingJournal(intentPath));
+        if (job.token != status.occurrenceId || job.machineCode != status.machineCode) continue;
+        const auto auditPath = joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json");
+        if (strictlyAbsent(auditPath) || !needsFinalizationReconciliation(stagingDir, job) ||
+            !hasValidFinal(stagingDir, job) ||
+            (job.lifecycle == "systemd-handoff-v1" && !hasHandoffResolution(stagingDir, job))) continue;
+        if (readPendingJournal(joinPath(stagingDir, "ota_final_" + job.jobId + ".txt")) !=
+            "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + status.stage + "\n") continue;
+        const auto audit = json::JsonParser(readPendingJournal(auditPath), 4, 32).parse();
+        const auto reason = pendingField(audit, "reason");
+        persistFinalizationAudit(stagingDir, job, true, "status-ack", "published-status", reason.c_str());
+    }
 }
 
 bool isActiveJob(const std::string& stagingDir, const PendingOtaJob& job) {
@@ -1451,6 +1486,15 @@ std::string jobLifecyclePath(const std::string& stagingDir, const PendingOtaJob&
     return joinPath(stagingDir, "ota_job_" + job.jobId + ".lock");
 }
 
+bool matchesLifecycleLease(const PendingOtaJob& job, int fd) {
+    if (job.lifecycle != "systemd-handoff-v1") return true;
+    struct stat info{};
+    return fd >= 0 && job.leaseDev != 0 && job.leaseInode != 0 &&
+        fstat(fd, &info) == 0 && S_ISREG(info.st_mode) &&
+        static_cast<std::uint64_t>(info.st_dev) == job.leaseDev &&
+        static_cast<std::uint64_t>(info.st_ino) == job.leaseInode;
+}
+
 std::string readRecoveryEvidence(const std::string& path, std::size_t maximum) {
     struct stat info{};
     if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
@@ -1509,6 +1553,8 @@ void OtaService::ensureNoUnresolvedJob() const {
         if (!job.lifecycle.empty()) {
             lease.reset(new JobLifecycleLock(jobLifecyclePath(config_.stagingDir, job), false));
             if (lease->fd() < 0) throw std::runtime_error("previous OTA writer is still running");
+            if (!matchesLifecycleLease(job, lease->fd()))
+                throw std::runtime_error("previous OTA lifecycle lease identity changed");
         }
 #endif
         if (needsFinalizationReconciliation(config_.stagingDir, job))
@@ -1550,13 +1596,16 @@ void OtaService::reconcilePendingJobs() const {
                 !hasHandoffResolution(config_.stagingDir, job)) continue;
             if (path != pendingJobPath(config_.stagingDir, job.jobId)) continue;
             bool synchronousEvidence = false;
-            reconciliationNeeded = needsFinalizationReconciliation(config_.stagingDir, job, &synchronousEvidence);
+            bool terminalIntent = false;
+            reconciliationNeeded = needsFinalizationReconciliation(config_.stagingDir, job,
+                &synchronousEvidence, &terminalIntent);
             if (hasValidFinal(config_.stagingDir, job) && !reconciliationNeeded) continue;
             if (!isActiveJob(config_.stagingDir, job)) continue;
 #ifndef _WIN32
             if (!job.lifecycle.empty()) {
                 lease.reset(new JobLifecycleLock(jobLifecyclePath(config_.stagingDir, job), false));
                 if (lease->fd() < 0) continue;
+                if (!matchesLifecycleLease(job, lease->fd())) continue;
             }
 #endif
             const auto healthPath = joinPath(config_.stagingDir, "health_" + job.jobId + ".txt");
@@ -1579,7 +1628,7 @@ void OtaService::reconcilePendingJobs() const {
             if (!synchronousTail) {
                 if (fileSizeBytes(healthPath) == 0 || fileSizeBytes(healthPath) > 4096) continue;
                 health = decodeHealthResult(readPendingJournal(healthPath), job);
-                if (reconciliationNeeded && health.status != "healthy") continue;
+                if (reconciliationNeeded && health.status != "healthy" && !terminalIntent) continue;
             }
         } catch (const std::exception&) {
             // A missing, stale or partial result cannot authorize success.
@@ -1598,7 +1647,7 @@ void OtaService::reconcilePendingJobs() const {
             health.status == "healthy" ? "upgrade completed after health verification" :
             health.rollback == "unchanged" ? "OTA rejected before runtime change" :
             "OTA failed; rollback " + health.rollback;
-        terminal.ts = synchronousTail ? currentTimeMs() : health.ts;
+        terminal.ts = synchronousTail ? finalizationAuditTimestamp(config_.stagingDir, job) : health.ts;
         terminal.occurrenceId = job.token;
         bindProductionCompletion(terminal, job, health);
         const auto historyPath = joinPath(config_.stagingDir, "upgrade_history.log");
@@ -1626,16 +1675,15 @@ void OtaService::reconcilePendingJobs() const {
                     health.rollback == "succeeded" || health.rollback == "failed",
                     health.rollback == "succeeded", health.ts);
             }
+            if (!reconciliationNeeded) {
+                phase = "outbox-intent";
+                persistFinalizationAudit(config_.stagingDir, job, false, "final-marker",
+                    "verified-health", "ota-terminal-outbox-v1");
+            }
             phase = "final-marker";
             replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"),
                 "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + terminal.stage + "\n");
             finalCommitted = true;
-            if (reconciliationNeeded) {
-                phase = "audit-update";
-                persistFinalizationAudit(config_.stagingDir, job, true,
-                    synchronousTail ? "synchronous-tail-reconciled" : "health-reconciled",
-                    synchronousTail ? "apply-returned-success" : "verified-health");
-            }
             phase = "terminal-journal";
             appendPendingStatus(terminal);
         } catch (...) {
@@ -1693,13 +1741,15 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
 }
 
 void OtaService::clearPendingStatuses() const {
+    ensureDirectory(config_.stagingDir);
+    PendingJournalLock stateLock(joinPath(config_.stagingDir, "ota_state"));
     std::lock_guard<std::mutex> guard(pendingMutex_);
     if (pendingSnapshot_.empty()) return;
-    ensureDirectory(config_.stagingDir);
     PendingJournalLock lock(statusJournalPath());
     const auto bytes = readPendingJournal(statusJournalPath());
     if (bytes.compare(0, pendingSnapshot_.size(), pendingSnapshot_) != 0)
         throw std::runtime_error("OTA pending snapshot changed; reload before clearing");
+    acknowledgeTerminalIntents(config_.stagingDir, pendingSnapshot_);
     replacePendingJournal(statusJournalPath(), bytes.substr(pendingSnapshot_.size()));
     pendingSnapshot_.clear();
 }
@@ -1909,6 +1959,8 @@ void OtaService::execute(
                         if (!pending.lifecycle.empty()) {
                             failureLease.reset(new JobLifecycleLock(jobLifecyclePath(config_.stagingDir, pending), false));
                             if (failureLease->fd() < 0) throw std::runtime_error("OTA apply writer still alive");
+                            if (!matchesLifecycleLease(pending, failureLease->fd()))
+                                throw std::runtime_error("OTA lifecycle lease identity changed");
                         }
 #endif
                         const auto healthPath = joinPath(config_.stagingDir, "health_" + request.jobId + ".txt");
