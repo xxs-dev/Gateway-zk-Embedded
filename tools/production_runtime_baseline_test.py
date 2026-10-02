@@ -313,7 +313,13 @@ class ProductionRuntimeTest(unittest.TestCase):
                          'candidate': candidate, 'legacy': None, 'configWriteSet': []}
         return self.args(), previous
 
-    def v1_to_v2_release(self):
+    def v1_to_v2_release(self, legacy_without_parser=False):
+        parser_relative = 'bin/production_role_policy.py'
+        if legacy_without_parser:
+            (self.home / parser_relative).unlink()
+            (self.payload / parser_relative).unlink()
+            self.previous['files'].pop(parser_relative)
+            self.candidate['files'].pop(parser_relative)
         for name in ('system-monitor@.service', 'gateway-services.service'):
             self.write(self.path('/etc/systemd/system') / name, (REPO / 'deploy' / name).read_bytes())
         self.previous['unitFiles'] = self.g.production_unit_files(self.units)
@@ -327,6 +333,11 @@ class ProductionRuntimeTest(unittest.TestCase):
                 sha256=hashlib.sha256(body).hexdigest(), mode=0o644, bytes=len(body))
         self.adopt()
         previous = copy.deepcopy(self.g.production_context(self.home))
+        if legacy_without_parser:
+            self.assertNotIn(parser_relative, previous['files'])
+            self.assertFalse((self.home / parser_relative).exists())
+            self.write(self.payload / parser_relative,
+                       (REPO / 'deploy/production_role_policy.py').read_bytes(), 0o755)
         staged = self.payload / 'config/runtime'
         self.write(staged / 'device_identity.json',
                    (self.home / 'config/runtime/device_identity.json').read_bytes())
@@ -406,6 +417,35 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertEqual(self.g.production_context(self.home), previous)
         self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), old_config)
         self.assertFalse((self.home / 'config/runtime/apps/mqtt-service.json').exists())
+
+    def test_v1_to_v2_introduces_parser_missing_from_legacy_baseline(self):
+        args, previous, candidate = self.v1_to_v2_release(legacy_without_parser=True)
+        parser = self.home / 'bin/production_role_policy.py'
+        self.assertNotIn('bin/production_role_policy.py', previous['files'])
+        self.assertFalse(parser.exists())
+        with self.m.production_lock():
+            self.m.production_install(args)
+        self.assertEqual(self.g.production_context(self.home), candidate)
+        self.assertEqual(self.g.production_pin(parser),
+                         candidate['files']['bin/production_role_policy.py'])
+
+    def test_v1_to_v2_failed_start_removes_new_parser_on_recovery(self):
+        args, previous, candidate = self.v1_to_v2_release(legacy_without_parser=True)
+        parser = self.home / 'bin/production_role_policy.py'
+        self.assertNotIn('bin/production_role_policy.py', previous['files'])
+        self.fail_start = True
+        with self.assertRaisesRegex(ValueError, 'start failure'):
+            with self.m.production_lock():
+                self.m.production_install(args)
+        self.assertEqual(self.g.production_pin(parser),
+                         candidate['files']['bin/production_role_policy.py'])
+        self.fail_start = False
+        tx = self.runtime.root / 'transactions/V1_TO_V2'
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(tx, args.approval_sha256), 'RECOVERED')
+        self.assertFalse(parser.exists())
+        self.assertEqual(self.g.production_files(self.home), previous['files'])
+        self.assertEqual(self.g.production_context(self.home), previous)
 
     def test_v2_code_only_changed_parser_recovers_previous_pinned_bytes(self):
         args, previous = self.v2_code_only_release()
