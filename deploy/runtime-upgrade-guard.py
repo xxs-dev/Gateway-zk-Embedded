@@ -381,13 +381,14 @@ def production_roles_sha(baseline):
     return hashlib.sha256((json.dumps(roles, sort_keys=True) + '\n').encode()).hexdigest()
 
 
-def production_boot_lineage(home, baseline, original):
+def production_boot_lineage(home, baseline, original, proof_path, proof_boot):
     root = home / 'data' / PRODUCTION_DIR
     current = baseline
     seen = set()
-    for _ in range(129):
+    transaction_hint = None
+    for depth in range(129):
         if production_roles_sha(current) == production_roles_sha(original):
-            return
+            return depth
         if len(seen) == 128:
             break
         candidate_id = current['baselineId']
@@ -398,18 +399,44 @@ def production_boot_lineage(home, baseline, original):
         if candidate_sha in seen:
             break
         seen.add(candidate_sha)
-        receipt = root / 'boot-lineage' / (candidate_sha + '.json')
-        if receipt.exists() or receipt.is_symlink():
+        pending_path = root / 'pending.json'
+        pending = production_json(pending_path) if transaction_hint is None and (
+            pending_path.exists() or pending_path.is_symlink()) else None
+        provisional = False
+        if (isinstance(pending, dict) and set(pending) == {'transaction', 'approvalSha256'} and
+                isinstance(pending['transaction'], str) and
+                re.fullmatch(r'[A-Za-z0-9_-]{1,63}', pending['transaction'])):
+            pending_transaction = root / 'transactions' / pending['transaction']
+            pending_state = production_json(pending_transaction / 'state.json')
+            provisional = (pending_state.get('candidateSha256') == candidate_sha and
+                           pending_state.get('phase') in ('INSTALLING', 'STARTING'))
+        if provisional:
+            transaction_id = pending['transaction']
+        elif transaction_hint is not None:
+            transaction_id = transaction_hint
+        else:
+            pointer = production_json(root / 'current.json')
+            if pointer.get('sha256') != candidate_sha:
+                break
+            transaction_id = pointer.get('transaction')
+        if not isinstance(transaction_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', transaction_id):
+            break
+        transaction = root / 'transactions' / transaction_id
+        receipt = root / 'boot-lineage' / (candidate_sha + '-' + transaction_id + '.json')
+        legacy = root / 'boot-lineage' / (candidate_sha + '.json')
+        if not provisional and not receipt.exists() and not receipt.is_symlink():
+            receipt = legacy
+        if not provisional:
             link = production_json(receipt)
-            if (not isinstance(link, dict) or set(link) != {'transaction', 'approvalSha256',
-                    'candidateSha256', 'previousSha256'} or
+            base_keys = {'transaction', 'approvalSha256', 'candidateSha256', 'previousSha256'}
+            checkpoint_keys = base_keys | {'format', 'bootId', 'proofSha256', 'rolesSha256'}
+            checkpoint = isinstance(link, dict) and set(link) == checkpoint_keys
+            if (not isinstance(link, dict) or set(link) not in (base_keys, checkpoint_keys) or
                     link['candidateSha256'] != candidate_sha or
-                    not isinstance(link['transaction'], str) or
-                    not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', link['transaction']) or
+                    link['transaction'] != transaction_id or
                     not isinstance(link['approvalSha256'], str) or
                     not re.fullmatch(r'[0-9a-f]{64}', link['approvalSha256'])):
                 break
-            transaction = root / 'transactions' / link['transaction']
             state = production_json(transaction / 'state.json')
             if (state.get('transaction') != link['transaction'] or
                     state.get('approvalSha256') != link['approvalSha256'] or
@@ -428,13 +455,10 @@ def production_boot_lineage(home, baseline, original):
             if sha(exact_file(record)) != candidate_sha or production_json(record) != current:
                 break
         else:
-            pending = production_json(root / 'pending.json')
             if (not isinstance(pending, dict) or set(pending) != {'transaction', 'approvalSha256'} or
-                    not isinstance(pending['transaction'], str) or
-                    not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', pending['transaction'])):
+                    pending['transaction'] != transaction_id):
                 break
-            transaction = root / 'transactions' / pending['transaction']
-            state = production_json(transaction / 'state.json')
+            state = pending_state
             pointer = production_json(root / 'current.json')
             if (state.get('transaction') != pending['transaction'] or
                     state.get('phase') not in ('INSTALLING', 'STARTING') or
@@ -444,6 +468,7 @@ def production_boot_lineage(home, baseline, original):
                 break
             link = dict(pending, candidateSha256=candidate_sha,
                         previousSha256=state['previousSha256'])
+            checkpoint = False
         approval_path = transaction / 'approval.json'
         if sha(exact_file(approval_path)) != link['approvalSha256']:
             break
@@ -467,17 +492,36 @@ def production_boot_lineage(home, baseline, original):
                      'controlEnabled', 'units', 'gates', 'segments', 'retiredSources',
                      'historical', 'bootId', 'trust', 'healthPolicy'))):
             break
+        prior_pointer = production_json(transaction / 'previous-pointer.json')
+        if (not isinstance(prior_pointer, dict) or
+                set(prior_pointer) != {'baselineId', 'sha256', 'healthSha256', 'transaction'} or
+                prior_pointer['baselineId'] != previous['baselineId'] or
+                prior_pointer['sha256'] != link['previousSha256'] or
+                not isinstance(prior_pointer['transaction'], str) or
+                not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', prior_pointer['transaction'])):
+            break
+        if checkpoint:
+            if (link['format'] != 'runtime-boot-lineage-checkpoint-v1' or
+                    link['bootId'] != proof_boot or
+                    link['proofSha256'] != sha(exact_file(proof_path)) or
+                    link['rolesSha256'] != production_roles_sha(current)):
+                break
+            return depth + 1
         current = previous
+        transaction_hint = prior_pointer['transaction']
     raise ValueError('invalid native boot authority lineage')
 
 
-def production_boot_record(home, baseline, path, intent=False):
+def production_boot_record(home, baseline, path, intent=False, historical_boot=None):
     record = production_json(path)
+    boot = historical_boot if historical_boot is not None else Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    if not isinstance(boot, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot):
+        raise ValueError('invalid native boot ID')
     keys = {'format', 'bootId', 'rolesSha256', 'sourceRecord', 'sourceSha256', 'creatorPin', 'segments'}
     if intent:
         keys |= {'phase', 'inProgress'}
     if (not isinstance(record, dict) or set(record) != keys or record['format'] != 'runtime-native-boot-v1' or
-            record['bootId'] != Path('/proc/sys/kernel/random/boot_id').read_text().strip() or
+            record['bootId'] != boot or
             not isinstance(record['sourceRecord'], str) or
             not re.fullmatch(r'(?:baselines/[A-Za-z0-9_-]{1,63}\.json|transactions/[A-Za-z0-9_-]{1,63}/(?:previous|candidate)\.json)', record['sourceRecord']) or
             not isinstance(record['sourceSha256'], str) or not re.fullmatch('[0-9a-f]{64}', record['sourceSha256'])):
@@ -491,7 +535,7 @@ def production_boot_record(home, baseline, path, intent=False):
             baseline['segments'] != original['segments'] or baseline['bootId'] != original['bootId'] or
             original['files'].get('bin/pointctl') != record['creatorPin']):
         raise ValueError('native boot creator/role lineage drift')
-    production_boot_lineage(home, baseline, original)
+    production_boot_lineage(home, baseline, original, path, boot)
     allowed = {s['name'] for s in baseline['segments']}
     rows = record['segments']
     if (not isinstance(rows, list) or any(not isinstance(s, dict) or set(s) != {'name', 'dev', 'ino'} or
@@ -519,6 +563,18 @@ def production_segment_identities(home, baseline):
         raise ValueError('invalid native boot ID')
     record = production_boot_record(home, baseline, home / 'data' / PRODUCTION_DIR / 'boots' / (boot + '.json'))
     return record['segments']
+
+
+def production_boot_lineage_depth(home, baseline):
+    boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    if boot == baseline['bootId']:
+        return 0
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot):
+        raise ValueError('invalid native boot ID')
+    proof = home / 'data' / PRODUCTION_DIR / 'boots' / (boot + '.json')
+    record = production_boot_record(home, baseline, proof)
+    source = home / 'data' / PRODUCTION_DIR / record['sourceRecord']
+    return production_boot_lineage(home, baseline, production_json(source), proof, boot)
 
 
 def production_verify(home, baseline, files=True, units=True, segments=True, config=True, roles=True):

@@ -4,6 +4,7 @@ The substitute writes ONLY mapped private files. It does not validate the actual
 pointctl ELF, robust mutex initialization, target hardware or OS/systemd reboot.
 """
 import os
+import copy
 import contextlib
 import importlib.util
 import json
@@ -144,7 +145,8 @@ class NativeBootTest(unittest.TestCase):
         self.assertEqual(f.g.production_pin(creator), self.baseline['files']['bin/pointctl'])
         self.assertEqual(kwargs['env'], {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
         self.assertTrue(f.m.production_locked_owner({'ownerProof': f.m.production_owner_proof()}))
-        intent = f.g.production_json(f.runtime.root / 'boots/NATIVE_BOOT_2-intent.json')
+        boot = f.path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        intent = f.g.production_json(f.runtime.root / 'boots' / (boot + '-intent.json'))
         self.assertEqual(intent['inProgress'], 'live_v11')
         self.native_calls.append(command)
         path = f.path('/dev/shm/live_v11')
@@ -247,13 +249,17 @@ class NativeBootTest(unittest.TestCase):
         self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
         self.assertEqual((f.home / 'config/runtime/logic/new.json').read_bytes(), b'{"enabled":true}\n')
         receipt = f.runtime.root / 'boot-lineage' / (f.m.digest(
-            f.runtime.root / 'transactions/V2_CONFIG/candidate.json') + '.json')
+            f.runtime.root / 'transactions/V2_CONFIG/candidate.json') + '-V2_CONFIG.json')
         self.assertTrue(receipt.is_file())
         row = f.g.production_json(receipt)
-        row['previousSha256'] = '0' * 64
+        for field in ('previousSha256', 'proofSha256', 'rolesSha256'):
+            changed = dict(row)
+            changed[field] = '0' * 64
+            f.write(receipt, json.dumps(changed, sort_keys=True) + '\n', 0o600)
+            with self.assertRaisesRegex(ValueError, 'native boot authority lineage'):
+                f.g.production_context(f.home)
         f.write(receipt, json.dumps(row, sort_keys=True) + '\n', 0o600)
-        with self.assertRaisesRegex(ValueError, 'native boot authority lineage'):
-            f.g.production_context(f.home)
+        self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
 
     def test_existing_boot_proof_config_failed_health_recovers(self):
         self.boot()
@@ -275,6 +281,252 @@ class NativeBootTest(unittest.TestCase):
         self.assertEqual(f.path('/dev/shm/live_v11').stat().st_ino, inode)
         self.assertEqual(f.g.production_context(f.home), self.config_previous)
         self.assertFalse((f.home / 'config/runtime/logic/new.json').exists())
+
+    def test_existing_boot_proof_legacy_depth_limit_rejects_before_intent(self):
+        self.boot()
+        f = self.f
+        proof = (f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes()
+        call_count = len(f.calls)
+        with mock.patch.object(f.g, 'production_boot_lineage_depth', return_value=128):
+            with self.assertRaisesRegex(ValueError, 'lineage capacity exceeded before intent'):
+                with f.m.production_lock():
+                    f.m.production_install(self.config_args)
+        self.assertFalse((f.runtime.root / 'transactions/V2_CONFIG').exists())
+        self.assertFalse((f.runtime.root / 'pending.json').exists())
+        self.assertFalse(any(call[0] == 'stop' for call in f.calls[call_count:]))
+        self.assertEqual((f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes(), proof)
+
+    def test_existing_boot_proof_receipt_before_promoting_recovers(self):
+        self.boot()
+        f = self.f
+        proof = (f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes()
+        original_state = f.m.ProductionRuntime.state
+        reached = False
+        def fail_promoting(runtime, transaction, value):
+            nonlocal reached
+            if value['phase'] == 'PROMOTING':
+                reached = True
+                receipt = f.runtime.root / 'boot-lineage' / (
+                    f.m.digest(transaction / 'candidate.json') + '-V2_CONFIG.json')
+                self.assertTrue(receipt.is_file())
+                raise OSError('injected before PROMOTING state')
+            return original_state(runtime, transaction, value)
+        with mock.patch.object(f.m.ProductionRuntime, 'state', fail_promoting):
+            with self.assertRaisesRegex(OSError, 'before PROMOTING state'):
+                with f.m.production_lock():
+                    f.m.production_install(self.config_args)
+        self.assertTrue(reached)
+        self.assertEqual(f.g.production_json(f.runtime.root / 'current.json')['baselineId'], 'V2_START')
+        transaction = f.runtime.root / 'transactions/V2_CONFIG'
+        with f.m.production_lock():
+            self.assertEqual(f.runtime.recover(transaction, self.config_args.approval_sha256), 'RECOVERED')
+        self.assertEqual(f.g.production_context(f.home), self.config_previous)
+        self.assertEqual((f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes(), proof)
+        self.retry_same_candidate_after_orphan()
+
+    def retry_same_candidate_after_orphan(self):
+        f = self.f
+        candidate_sha = f.m.digest(f.runtime.root / 'transactions/V2_CONFIG/candidate.json')
+        old_receipt = f.runtime.root / 'boot-lineage' / (candidate_sha + '-V2_CONFIG.json')
+        old_bytes = old_receipt.read_bytes()
+        f.approval['transaction'] = 'V2_CONFIG_RETRY'
+        retry = f.args()
+        with f.m.production_lock():
+            f.m.production_install(retry)
+        new_receipt = f.runtime.root / 'boot-lineage' / (candidate_sha + '-V2_CONFIG_RETRY.json')
+        self.assertTrue(new_receipt.is_file())
+        self.assertEqual(old_receipt.read_bytes(), old_bytes)
+        self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
+
+    def assert_pointer_window(self, after_replace):
+        self.boot()
+        f = self.f
+        proof = (f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes()
+        original_replace = f.m.replace
+        reached = False
+        def fail_pointer(path, data, mode=0o600):
+            nonlocal reached
+            if path == f.runtime.root / 'current.json' and b'V2_CONFIG' in data:
+                reached = True
+                receipt = f.runtime.root / 'boot-lineage' / (
+                    f.m.digest(f.runtime.root / 'transactions/V2_CONFIG/candidate.json') + '-V2_CONFIG.json')
+                self.assertTrue(receipt.is_file())
+                if after_replace:
+                    original_replace(path, data, mode)
+                raise OSError('injected current pointer window')
+            return original_replace(path, data, mode)
+        with mock.patch.object(f.m, 'replace', fail_pointer):
+            with self.assertRaisesRegex(OSError, 'current pointer window'):
+                with f.m.production_lock():
+                    f.m.production_install(self.config_args)
+        self.assertTrue(reached)
+        transaction = f.runtime.root / 'transactions/V2_CONFIG'
+        self.assertEqual(f.g.production_json(f.runtime.root / 'current.json')['baselineId'],
+                         'V2_CONFIG' if after_replace else 'V2_START')
+        with f.m.production_lock():
+            result = f.runtime.recover(transaction, self.config_args.approval_sha256)
+        self.assertEqual(result, 'COMPLETED' if after_replace else 'RECOVERED')
+        self.assertEqual(f.g.production_context(f.home),
+                         f.approval['candidate'] if after_replace else self.config_previous)
+        self.assertEqual((f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes(), proof)
+        if not after_replace:
+            self.retry_same_candidate_after_orphan()
+
+    def test_existing_boot_proof_pointer_before_replace_recovers(self):
+        self.assert_pointer_window(False)
+
+    def test_existing_boot_proof_pointer_after_replace_completes(self):
+        self.assert_pointer_window(True)
+
+    def test_existing_boot_proof_promoted_pending_cross_boot_completes(self):
+        self.boot()
+        f = self.f
+        with mock.patch.object(f.m.ProductionRuntime, 'clear_pending',
+                               lambda runtime, state: (_ for _ in ()).throw(OSError('injected pending clear'))):
+            with self.assertRaisesRegex(OSError, 'pending clear'):
+                with f.m.production_lock():
+                    f.m.production_install(self.config_args)
+        transaction = f.runtime.root / 'transactions/V2_CONFIG'
+        self.assertEqual(f.g.production_json(transaction / 'state.json')['phase'], 'COMPLETED')
+        self.assertTrue((f.runtime.root / 'pending.json').is_file())
+        candidate_sha = f.m.digest(transaction / 'candidate.json')
+        receipt = f.runtime.root / 'boot-lineage' / (candidate_sha + '-V2_CONFIG.json')
+        old_receipt = receipt.read_bytes()
+        old_proof = (f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes()
+
+        f.write(f.path('/proc/sys/kernel/random/boot_id'), 'NATIVE_BOOT_3\n')
+        f.live.clear()
+        proc = f.path('/proc') / f.pid
+        if proc.exists():
+            shutil.rmtree(proc)
+        f.path('/dev/shm/live_v11').unlink()
+        self.baseline = f.approval['candidate']
+        self.boot()
+        self.finish()
+
+        self.assertEqual(f.g.production_json(transaction / 'state.json')['phase'], 'COMPLETED')
+        self.assertFalse((f.runtime.root / 'pending.json').exists())
+        self.assertEqual(receipt.read_bytes(), old_receipt)
+        self.assertEqual((f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes(), old_proof)
+        self.assertTrue((f.runtime.root / 'boots/NATIVE_BOOT_3.json').is_file())
+        self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
+        changed = f.g.production_json(receipt)
+        changed['rolesSha256'] = '0' * 64
+        f.write(receipt, json.dumps(changed, sort_keys=True) + '\n', 0o600)
+        with self.assertRaisesRegex(ValueError, 'production boot lineage receipt changed'):
+            with f.m.production_lock():
+                f.runtime.recover(transaction, self.config_args.approval_sha256)
+        f.write(receipt, old_receipt, 0o600)
+        with f.m.production_lock():
+            self.assertEqual(f.runtime.recover(transaction, self.config_args.approval_sha256), 'COMPLETED')
+        self.assertEqual(receipt.read_bytes(), old_receipt)
+
+    def test_existing_boot_proof_promoted_pending_unlink_sync_retry(self):
+        self.boot()
+        f = self.f
+        pending = f.runtime.root / 'pending.json'
+        original_sync = f.m.sync_dir
+        failed = False
+        def fail_after_unlink(path):
+            nonlocal failed
+            if path == f.runtime.root and not pending.exists() and not failed:
+                failed = True
+                raise OSError('injected pending unlink root sync')
+            return original_sync(path)
+        with mock.patch.object(f.m, 'sync_dir', fail_after_unlink):
+            with self.assertRaisesRegex(OSError, 'pending unlink root sync'):
+                with f.m.production_lock():
+                    f.m.production_install(self.config_args)
+        self.assertTrue(failed)
+        self.assertFalse(pending.exists())
+        transaction = f.runtime.root / 'transactions/V2_CONFIG'
+        self.assertEqual(f.g.production_json(transaction / 'state.json')['phase'], 'COMPLETED')
+        root_syncs = []
+        def record_sync(path):
+            if path == f.runtime.root:
+                root_syncs.append(path)
+            return original_sync(path)
+        with mock.patch.object(f.m, 'sync_dir', record_sync):
+            with f.m.production_lock():
+                self.assertEqual(f.runtime.recover(transaction, self.config_args.approval_sha256), 'COMPLETED')
+        self.assertTrue(root_syncs, 'official recovery must retry the root directory sync')
+        self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
+
+    def next_config_change(self, transaction, padding):
+        f = self.f
+        previous = copy.deepcopy(f.g.production_context(f.home))
+        staged = f.payload / 'config/runtime'
+        app = staged / 'apps/monitor-service.json'
+        value = json.loads(app.read_text())
+        f.write(app, json.dumps(value, sort_keys=True, indent=2) + ' ' * padding + '\n')
+        candidate = copy.deepcopy(previous)
+        candidate.update(baselineId=transaction, generation=previous['generation'] + 1,
+                         parentSha256=f.g.production_json(f.runtime.root / 'current.json')['sha256'],
+                         release=transaction, configSha256=f.m.tree_hashes(staged))
+        parser = Path(__file__).resolve().parents[1] / 'deploy/production_role_policy.py'
+        policy = {'__name__': 'private_v2_policy'}
+        exec(compile(parser.read_bytes(), str(parser), 'exec'), policy)
+        candidate['roleAuthority']['resolved'] = policy['resolve'](
+            staged, f.path('/etc/systemd/system'), previous['roleAuthority']['resolved']['protected'],
+            f.path('/etc/modbus-gateway/ota.pub'))
+        f.approval.update(transaction=transaction, previous=previous, candidate=candidate,
+                          parentSha256=candidate['parentSha256'],
+                          configWriteSet=[{'path': 'apps/monitor-service.json',
+                                           'before': f.g.production_pin(f.home / 'config/runtime/apps/monitor-service.json'),
+                                           'after': f.g.production_pin(app)}])
+        return f.args(), previous
+
+    def test_existing_boot_proof_second_config_failure_recovers(self):
+        self.boot()
+        f = self.f
+        with f.m.production_lock():
+            f.m.production_install(self.config_args)
+        original_proof = (f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes()
+        second, first = self.next_config_change('V2_CONFIG_2', 1)
+        f.fail_health = True
+        with self.assertRaisesRegex(ValueError, 'endpoint health'):
+            with f.m.production_lock():
+                f.m.production_install(second)
+        f.fail_health = False
+        transaction = f.runtime.root / 'transactions/V2_CONFIG_2'
+        with f.m.production_lock():
+            self.assertEqual(f.runtime.recover(transaction, second.approval_sha256), 'RECOVERED')
+        self.assertEqual(f.g.production_context(f.home), first)
+        self.assertEqual((f.runtime.root / 'boots/NATIVE_BOOT_2.json').read_bytes(), original_proof)
+
+    def test_existing_boot_proof_127_128_129_config_promotions(self):
+        self.boot()
+        f = self.f
+        proof_path = f.runtime.root / 'boots/NATIVE_BOOT_2.json'
+        proof = proof_path.read_bytes()
+        with f.m.production_lock():
+            f.m.production_install(self.config_args)
+        for edge in range(2, 130):
+            transaction = 'V2_STEP_%03d' % edge
+            args, previous = self.next_config_change(transaction, edge)
+            self.assertNotEqual(f.g.production_roles_sha(previous),
+                                f.g.production_roles_sha(f.approval['candidate']))
+            with f.m.production_lock():
+                f.m.production_install(args)
+            if edge in (127, 128, 129):
+                self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
+                candidate_sha = f.m.digest(f.runtime.root / 'transactions' / transaction / 'candidate.json')
+                receipt = f.runtime.root / 'boot-lineage' / (candidate_sha + '-' + transaction + '.json')
+                row = f.g.production_json(receipt)
+                self.assertEqual(row['format'], 'runtime-boot-lineage-checkpoint-v1')
+                self.assertEqual(row['proofSha256'], f.m.digest(proof_path))
+                self.assertEqual(proof_path.read_bytes(), proof)
+        failed, previous = self.next_config_change('V2_STEP_130_FAIL', 130)
+        f.fail_health = True
+        with self.assertRaisesRegex(ValueError, 'endpoint health'):
+            with f.m.production_lock():
+                f.m.production_install(failed)
+        f.fail_health = False
+        transaction = f.runtime.root / 'transactions/V2_STEP_130_FAIL'
+        with f.m.production_lock():
+            self.assertEqual(f.runtime.recover(transaction, failed.approval_sha256), 'RECOVERED')
+        self.assertEqual(f.g.production_context(f.home), previous)
+        self.assertEqual(proof_path.read_bytes(), proof)
 
     def test_memory_insufficient_refuses_before_intent_or_native_call(self):
         f = self.f

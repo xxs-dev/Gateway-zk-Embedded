@@ -1,0 +1,42 @@
+{
+  "command": "wsl.exe --cd /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0 --user root --exec python3 -B -m unittest -v tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_promoted_pending_cross_boot_completes tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_promoted_pending_unlink_sync_retry tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_receipt_before_promoting_recovers tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_pointer_before_replace_recovers tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_pointer_after_replace_completes tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_config_install_promotes tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_config_failed_health_recovers tools.production_native_boot_test.NativeBootTest.test_existing_boot_proof_legacy_depth_limit_rejects_before_intent tools.production_native_boot_test.NativeBootTest.test_v1_to_v2_migration_newboot_binds_candidate_config_roles",
+  "exitCode": 0,
+  "before": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "sha256": "bf4fe14375e6fc36be355427d79ff158ceb2ad4e2f1a7663b33664b1479f1b35"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "sha256": "2c330256122c5f7745dfd3f0202a80724c352cfed8a7863c9ce2a366052071ff"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "sha256": "d734f5358432b5b623a6213c3a4c1831c4db3430dfc17163c91ffd0d460ee071"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "sha256": "78a4fdf3d85b0db5d7cdcbdf79e6428041b08ec328860c3ae7b889d48d41bb9f"
+    }
+  ],
+  "after": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "sha256": "bf4fe14375e6fc36be355427d79ff158ceb2ad4e2f1a7663b33664b1479f1b35"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "sha256": "2c330256122c5f7745dfd3f0202a80724c352cfed8a7863c9ce2a366052071ff"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "sha256": "d734f5358432b5b623a6213c3a4c1831c4db3430dfc17163c91ffd0d460ee071"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "sha256": "78a4fdf3d85b0db5d7cdcbdf79e6428041b08ec328860c3ae7b889d48d41bb9f"
+    }
+  ],
+  "stdoutSha256": "31b714990c105cd302c312c7279662d37c5909c1af7ba868f6ad34fb6c9fa0b0",
+  "stderrSha256": "171df7831a4640b109efe0662e8ff3cd2af9697780a2254aa7e379ec3b21ff4f"
+}

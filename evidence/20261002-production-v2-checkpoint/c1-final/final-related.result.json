@@ -1,0 +1,42 @@
+{
+  "command": "wsl.exe --cd /mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/realese1.0 --user root --exec python3 -B -m unittest -v tools.production_runtime_baseline_test.ProductionRuntimeTest.test_v1_to_v2_formal_install_promotes_configured_authority tools.production_runtime_baseline_test.ProductionRuntimeTest.test_v2_lineage_parent_sync_failure_recovery_and_next_transaction tools.production_runtime_baseline_test.ProductionRuntimeTest.test_v2_code_only_changed_parser_recovers_previous_pinned_bytes tools.production_runtime_baseline_test.ProductionRuntimeTest.test_terminal_write_failure_reconciles_promoted_not_rollback",
+  "exitCode": 0,
+  "before": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "sha256": "bf4fe14375e6fc36be355427d79ff158ceb2ad4e2f1a7663b33664b1479f1b35"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "sha256": "2c330256122c5f7745dfd3f0202a80724c352cfed8a7863c9ce2a366052071ff"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "sha256": "d734f5358432b5b623a6213c3a4c1831c4db3430dfc17163c91ffd0d460ee071"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "sha256": "78a4fdf3d85b0db5d7cdcbdf79e6428041b08ec328860c3ae7b889d48d41bb9f"
+    }
+  ],
+  "after": [
+    {
+      "path": "deploy/offline-runtime-upgrade.py",
+      "sha256": "bf4fe14375e6fc36be355427d79ff158ceb2ad4e2f1a7663b33664b1479f1b35"
+    },
+    {
+      "path": "deploy/runtime-upgrade-guard.py",
+      "sha256": "2c330256122c5f7745dfd3f0202a80724c352cfed8a7863c9ce2a366052071ff"
+    },
+    {
+      "path": "tools/production_native_boot_test.py",
+      "sha256": "d734f5358432b5b623a6213c3a4c1831c4db3430dfc17163c91ffd0d460ee071"
+    },
+    {
+      "path": "tools/production_runtime_baseline_test.py",
+      "sha256": "78a4fdf3d85b0db5d7cdcbdf79e6428041b08ec328860c3ae7b889d48d41bb9f"
+    }
+  ],
+  "stdoutSha256": "336998b232ccb5d34c5187bbc118d9c643ea77e921abeb14d0e9704dcbdeca1a",
+  "stderrSha256": "052cb03b6dea84eb02a5f011c9b7811a1e1fe8fb0e76e613bf9b4c02c23cb90f"
+}

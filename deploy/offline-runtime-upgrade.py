@@ -2469,6 +2469,9 @@ class ProductionRuntime:
             pointer = guard.production_json(self.root / 'current.json')
             require(current == previous and pointer['sha256'] == approval['parentSha256'] and
                     candidate['generation'] == current['generation'] + 1, 'production baseline parent mismatch')
+            if version == 'runtime-provisioning-v2':
+                require(guard.production_boot_lineage_depth(self.home, previous) < 128,
+                        'native boot lineage capacity exceeded before intent')
         preserved = ('gatewayHome', 'machineCode', 'architecture', 'pointStoreAbi', 'pointStoreSize',
                      'clusterProtocol', 'controlEnabled', 'units', 'gates', 'segments',
                      'retiredSources', 'historical', 'bootId', 'trust', 'healthPolicy')
@@ -2856,15 +2859,24 @@ class ProductionRuntime:
             write_new(record, regular(transaction / 'candidate.json').read_bytes(), 0o444)
         require(digest(record) == state['candidateSha256'], 'immutable production baseline conflicts')
         if candidate['format'] == 'runtime-baseline-v2':
-            lineage = self.root / 'boot-lineage' / (state['candidateSha256'] + '.json')
+            boot = regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip()
+            proof = None
+            if boot != candidate['bootId']:
+                proof = self.root / 'boots' / (boot + '.json')
+                guard.production_boot_record(self.home, candidate, proof)
+            lineage = self.root / 'boot-lineage' / (
+                state['candidateSha256'] + '-' + state['transaction'] + '.json')
             if not lineage.parent.exists():
                 lineage.parent.mkdir(mode=0o700)
-                sync_dir(self.root)
             require(lineage.parent.is_dir() and not lineage.parent.is_symlink() and
                     stat.S_IMODE(lineage.parent.stat().st_mode) == 0o700,
                     'production boot lineage directory changed')
+            sync_dir(self.root)
             row = {'transaction': state['transaction'], 'approvalSha256': state['approvalSha256'],
                    'candidateSha256': state['candidateSha256'], 'previousSha256': state['previousSha256']}
+            if proof is not None:
+                row.update(format='runtime-boot-lineage-checkpoint-v1', bootId=boot,
+                           proofSha256=digest(proof), rolesSha256=guard.production_roles_sha(candidate))
             if not lineage.exists() and not lineage.is_symlink():
                 publish_new(lineage, (json.dumps(row, sort_keys=True) + '\n').encode())
             require(guard.production_json(lineage) == row, 'production boot lineage receipt changed')
@@ -2877,6 +2889,51 @@ class ProductionRuntime:
         state['phase'] = 'COMPLETED'
         self.state(transaction, state)
         self.clear_pending(state)
+
+    def finish_promoted(self, transaction, state, candidate):
+        require(state['phase'] in ('PROMOTING', 'COMPLETED'),
+                'production promoted transaction phase changed')
+        health_path = transaction / 'health.json'
+        health = guard.production_json(health_path)
+        require(health.get('status') == 'healthy' and
+                health.get('baselineSha256') == state['candidateSha256'],
+                'production promotion missing bound health')
+        record = self.root / 'baselines' / (candidate['baselineId'] + '.json')
+        require(digest(record) == state['candidateSha256'] and
+                guard.production_json(record) == candidate,
+                'immutable production baseline conflicts')
+        pointer = guard.production_json(self.root / 'current.json')
+        require(pointer == {'baselineId': candidate['baselineId'],
+                'sha256': state['candidateSha256'], 'healthSha256': digest(health_path),
+                'transaction': state['transaction']}, 'production promoted pointer changed')
+        require(guard.production_context(self.home) == candidate,
+                'production promoted live baseline changed')
+        if candidate['format'] == 'runtime-baseline-v2':
+            lineage = self.root / 'boot-lineage' / (
+                state['candidateSha256'] + '-' + state['transaction'] + '.json')
+            if not lineage.exists() and not lineage.is_symlink():
+                lineage = self.root / 'boot-lineage' / (state['candidateSha256'] + '.json')
+            row = guard.production_json(lineage)
+            base = {'transaction': state['transaction'], 'approvalSha256': state['approvalSha256'],
+                    'candidateSha256': state['candidateSha256'], 'previousSha256': state['previousSha256']}
+            require(all(row.get(key) == value for key, value in base.items()),
+                    'production boot lineage receipt changed')
+            if set(row) != set(base):
+                require(set(row) == set(base) | {'format', 'bootId', 'proofSha256', 'rolesSha256'} and
+                        row['format'] == 'runtime-boot-lineage-checkpoint-v1' and
+                        isinstance(row['bootId'], str) and NAME.fullmatch(row['bootId']) and
+                        row['rolesSha256'] == guard.production_roles_sha(candidate),
+                        'production boot lineage receipt changed')
+                proof = self.root / 'boots' / (row['bootId'] + '.json')
+                require(digest(proof) == row['proofSha256'],
+                        'production boot lineage proof changed')
+                guard.production_boot_record(self.home, candidate, proof,
+                                             historical_boot=row['bootId'])
+        if state['phase'] != 'COMPLETED':
+            state['phase'] = 'COMPLETED'
+            self.state(transaction, state)
+        self.clear_pending(state)
+        sync_dir(self.root)
 
     def clear_pending(self, state):
         path = self.root / 'pending.json'
@@ -2918,8 +2975,7 @@ class ProductionRuntime:
         require(guard.production_json(transaction / 'previous.json') == previous and
                 guard.production_json(transaction / 'candidate.json') == candidate, 'production recovery baseline mismatch')
         if self.promoted(transaction, state):
-            guard.production_context(self.home)
-            self.promote(transaction, state, candidate)
+            self.finish_promoted(transaction, state, candidate)
             return 'COMPLETED'
         require(state['phase'] not in ('COMPLETED', 'RECOVERED'), 'production terminal transaction is consumed')
         # Unresolved pending authority blocks every provisional gate during recovery.

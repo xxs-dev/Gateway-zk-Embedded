@@ -529,6 +529,59 @@ class ProductionRuntimeTest(unittest.TestCase):
             with self.m.production_lock(): self.runtime.recover(tx, args.approval_sha256)
         self.assertEqual(parser.read_bytes(), foreign)
 
+    def test_v2_lineage_parent_sync_failure_recovery_and_next_transaction(self):
+        args, previous = self.v2_code_only_release()
+        lineage = self.runtime.root / 'boot-lineage'
+        original_sync = self.m.sync_dir
+        failed = False
+        def fail_new_parent(path):
+            nonlocal failed
+            if path == self.runtime.root and lineage.is_dir() and not failed:
+                failed = True
+                raise OSError('injected lineage parent fsync failure')
+            return original_sync(path)
+        with mock.patch.object(self.m, 'sync_dir', fail_new_parent):
+            with self.assertRaisesRegex(OSError, 'lineage parent fsync failure'):
+                with self.m.production_lock():
+                    self.m.production_install(args)
+        self.assertTrue(failed)
+        self.assertTrue(lineage.is_dir())
+        self.assertFalse(any(lineage.iterdir()))
+        transaction = self.runtime.root / 'transactions/V2_CODE_ONLY'
+        with self.m.production_lock():
+            self.assertEqual(self.runtime.recover(transaction, args.approval_sha256), 'RECOVERED')
+        self.assertEqual(self.g.production_context(self.home), previous)
+
+        self.approval['transaction'] = 'V2_RETRY'
+        retry = self.args()
+        original_promote = self.m.ProductionRuntime.promote
+        original_publish = self.m.publish_new
+        in_promote = False
+        synced = False
+        published = False
+        def promote(runtime, *params):
+            nonlocal in_promote
+            in_promote = True
+            return original_promote(runtime, *params)
+        def sync_retained_parent(path):
+            nonlocal synced
+            if in_promote and path == self.runtime.root and lineage.is_dir():
+                synced = True
+            return original_sync(path)
+        def publish(path, data, mode=0o600):
+            nonlocal published
+            if path.parent == lineage:
+                self.assertTrue(synced, 'retained lineage parent must be synced before receipt')
+                published = True
+            return original_publish(path, data, mode)
+        with mock.patch.object(self.m.ProductionRuntime, 'promote', promote), \
+                mock.patch.object(self.m, 'sync_dir', sync_retained_parent), \
+                mock.patch.object(self.m, 'publish_new', publish):
+            with self.m.production_lock():
+                self.m.production_install(retry)
+        self.assertTrue(published)
+        self.assertEqual(self.g.production_context(self.home), self.approval['candidate'])
+
     def test_v2_health_refuses_missing_required_role_mapping(self):
         _, previous = self.v2_code_only_release()
         self.write(self.path('/proc') / self.pid / 'maps', b'')
