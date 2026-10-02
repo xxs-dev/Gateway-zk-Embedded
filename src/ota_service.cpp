@@ -1158,6 +1158,7 @@ struct PendingOtaJob {
     std::string previousVersion;
     std::string token;
     std::string lifecycle;
+    std::string packageType;
     std::string artifactSha256;
     std::uint64_t artifactSize = 0;
     std::uint64_t leaseDev = 0, leaseInode = 0;
@@ -1177,6 +1178,7 @@ std::string encodePendingJob(const PendingOtaJob& job) {
         (job.lifecycle.empty() ? "" : ",\"lifecycle\":" + pendingJsonString(job.lifecycle)) +
         (job.lifecycle != "systemd-handoff-v1" ? "" :
             ",\"artifactSha256\":" + pendingJsonString(job.artifactSha256) +
+            ",\"packageType\":" + pendingJsonString(job.packageType) +
             ",\"artifactSize\":" + pendingJsonString(std::to_string(job.artifactSize)) +
             ",\"leaseDev\":" + pendingJsonString(std::to_string(job.leaseDev)) +
             ",\"leaseInode\":" + pendingJsonString(std::to_string(job.leaseInode))) + "}\n";
@@ -1201,6 +1203,9 @@ PendingOtaJob decodePendingJob(const std::string& bytes) {
             throw std::runtime_error("unsupported OTA lifecycle protocol");
         if (job.lifecycle == "systemd-handoff-v1") {
             job.artifactSha256 = pendingField(document, "artifactSha256");
+            job.packageType = document.find("packageType") ? pendingField(document, "packageType") : "full";
+            if (job.packageType != "full" && job.packageType != "config")
+                throw std::runtime_error("unsupported runtime handoff package type");
             job.artifactSize = pendingInteger<std::uint64_t>(pendingField(document, "artifactSize"));
             job.leaseDev = pendingInteger<std::uint64_t>(pendingField(document, "leaseDev"));
             job.leaseInode = pendingInteger<std::uint64_t>(pendingField(document, "leaseInode"));
@@ -1688,9 +1693,9 @@ void OtaService::execute(
         rejectDuplicateRequest(request.jobId);
         if (!config_.enabled) throw std::runtime_error("ota is disabled");
         validateOtaRequestFields(request, config_);
-        if (runtimeHandoff && (request.packageType != "full" || !config_.requireSignature ||
+        if (runtimeHandoff && ((request.packageType != "full" && request.packageType != "config") || !config_.requireSignature ||
                               !config_.checksumRequired || request.size == 0))
-            throw std::runtime_error("runtime handoff requires a signed, sized full artifact");
+            throw std::runtime_error("runtime handoff requires a signed, sized full/config artifact");
 #ifdef _WIN32
         if (runtimeHandoff) throw std::runtime_error("runtime handoff requires Linux systemd");
 #endif
@@ -1765,6 +1770,7 @@ void OtaService::execute(
         pending.lifecycle = "inherited-flock-v1";
         if (runtimeHandoff) {
             pending.lifecycle = "systemd-handoff-v1";
+            pending.packageType = request.packageType;
             pending.artifactSha256 = toLower(request.sha256);
             pending.artifactSize = request.size;
             struct stat leaseInfo{};

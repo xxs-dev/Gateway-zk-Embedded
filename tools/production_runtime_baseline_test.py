@@ -1408,15 +1408,19 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse(source.exists())
         self.assertFalse(self.path('/dev/shm/live_v11').exists())
 
-    def owner_fixture(self, v2=False):
-        if v2:
+    def owner_fixture(self, v2=False, real_entry=False, ota_binary=True,
+                      prepared=False, artifact_builder=None):
+        if prepared:
+            pass
+        elif v2:
             self.v2_code_only_release()
         else:
             self.adopt()
         self.home.joinpath('ota/staging').mkdir(parents=True)
         artifact = self.root / 'release.tar.gz'
         pointer = self.g.production_json(self.runtime.root / 'current.json')
-        self.write(self.payload / 'bin/SystemMonitor', self.elf(b'OTA changed runtime'), 0o755)
+        if ota_binary:
+            self.write(self.payload / 'bin/SystemMonitor', self.elf(b'OTA changed runtime'), 0o755)
         manifest = dict(format='runtime-release-v1', version='1.1', packageType='full', fromAbi=11, toAbi=11,
                         clusterProtocol=2, architecture='aarch64', parents=[pointer['sha256']],
                         expiresAtUnix=int(time.time()) + 600, files=self.g.production_files(self.payload))
@@ -1426,6 +1430,7 @@ class ProductionRuntimeTest(unittest.TestCase):
             archive.addfile(info, io.BytesIO(raw))
             for relative in manifest['files']:
                 archive.add(self.payload / relative, arcname=relative, recursive=False)
+        version, package_type = artifact_builder(artifact) if artifact_builder else ('1.1', 'full')
         spec = importlib.util.spec_from_file_location('durable_production_health_test', REPO / 'deploy/ota-health-result.py')
         helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
         owner = helper.RuntimeHandoff(self.home / 'ota/staging', 'POST_SIGNATURE_LOCAL', '12345678-1234-4234-8234-123456789abc')
@@ -1433,26 +1438,165 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.write(lease_path, b'', 0o600)
         lease = lease_path.stat()
         intent = dict(format='ota-job-v1', lifecycle='systemd-handoff-v1', jobId=owner.job, token=owner.token,
-                      machineCode='FLEET_NODE_NOT_CORE', version='1.1', artifactPath=str(artifact), previousVersion='bootstrap',
+                      machineCode='FLEET_NODE_NOT_CORE', version=version, packageType=package_type,
+                      artifactPath=str(artifact), previousVersion='bootstrap',
                       artifactSize=str(artifact.stat().st_size), artifactSha256=self.m.digest(artifact),
                       leaseDev=str(lease.st_dev), leaseInode=str(lease.st_ino))
         self.write(owner.intent_path, json.dumps(intent) + '\n', 0o600)
         self.write(owner.root / 'ota_active_job.txt', 'jobId=' + owner.job + '\ntoken=' + owner.token + '\n', 0o600)
         stage = owner.root / ('runtime-entry-' + owner.job)
         pins = {}
-        for name in ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'):
-            self.write(stage / name, (REPO / 'deploy' / name).read_bytes(), 0o400)
+        names = owner.entry_names()
+        for name in names:
+            self.write(stage / name, (self.home / 'bin' / name).read_bytes(), 0o400)
             pins[name] = self.m.digest(stage / name)
         record = dict(format='ota-handoff-v1', phase='OWNER_OWNED', runtimeMayChange=False, jobId=owner.job,
-                      token=owner.token, unit=owner.unit, version='1.1', bootId=owner.boot(), entry=str(stage), pins=pins,
+                      token=owner.token, unit=owner.unit, version=version, bootId=owner.boot(), entry=str(stage), pins=pins,
+                      entrySchema='paired-v2' if len(names) == 4 else 'paired-v1',
                       intentSha256=self.m.digest(owner.intent_path), leaseIdentity=dict(dev=lease.st_dev, inode=lease.st_ino))
         owner.save(record)
         self.patch(owner, 'verify_owner', lambda *a, **k: dict(ActiveState='inactive', MainPID='0', Job=''))
         self.patch(owner, 'no_unit_tasks', lambda *a: None)
         # Only the namespace/systemd boundary is substituted; durable journals,
         # leases, parser, pinned-input checks and official resume run as written.
-        self.patch(owner, 'production_entry', lambda r: self.m)
+        if not real_entry:
+            self.patch(owner, 'production_entry', lambda r: self.m)
         return owner
+
+    def test_v2_owner_real_stage_has_paired_parser_for_admission(self):
+        owner = self.owner_fixture(v2=True, real_entry=True, ota_binary=False)
+        record = owner.read()
+        owner.verify_inputs(record)
+        entry = owner.production_entry(record)
+        entry.guard = self.g
+        entry.Path = self.m.Path
+        entry.systemctl = self.systemctl
+        self.assertTrue((Path(record['entry']) / 'production_role_policy.py').is_file())
+        approval, transaction = entry.ProductionRuntime(self.home).inputs(self.args(), adoption=False)
+        self.assertEqual(approval['format'], 'runtime-provisioning-v2')
+        self.assertEqual(transaction.name, 'V2_CODE_ONLY')
+
+    def real_owner_entry(self, owner):
+        entry = owner.production_entry(owner.read())
+        entry.guard = self.g
+        entry.Path = self.m.Path
+        entry.systemctl = self.systemctl
+        return entry
+
+    def signed_config_owner_fixture(self, release_override=None):
+        self.v2_config_release()
+        previous = self.approval['previous']
+        candidate = self.approval['candidate']
+        for path in previous['files']:
+            source = self.home / path
+            self.write(self.payload / path, source.read_bytes(), source.stat().st_mode & 0o777)
+        candidate['files'] = copy.deepcopy(previous['files'])
+        staged = self.payload / 'config/runtime'
+        files = []
+        for relative, digest in sorted(candidate['configSha256'].items()):
+            source = staged / relative
+            files.append({'path': 'config/runtime/' + relative,
+                          'target': str(self.home / 'config/runtime' / relative),
+                          'sha256': digest, 'bytes': source.stat().st_size,
+                          'encoding': 'utf8'})
+        template = {'previous': previous, 'candidate': candidate,
+                    'parentSha256': self.approval['parentSha256'],
+                    'configWriteSet': self.approval['configWriteSet'],
+                    'expiresAtUnix': self.approval['expiresAtUnix']}
+        manifest = {'kind': 'gateway-config-ota-normalized', 'packageType': 'config',
+                    'version': release_override or candidate['release'],
+                    'machineCode': previous['machineCode'],
+                    'productionV2': template, 'files': files}
+        def artifact_builder(artifact):
+            with tarfile.open(artifact, 'w:gz') as archive:
+                raw = json.dumps(manifest, sort_keys=True).encode()
+                info = tarfile.TarInfo('manifest.json'); info.size = len(raw)
+                archive.addfile(info, io.BytesIO(raw))
+                for item in files:
+                    archive.add(staged / item['path'][len('config/runtime/'):],
+                                arcname=item['path'], recursive=False)
+            return manifest['version'], 'config'
+        owner = self.owner_fixture(prepared=True, real_entry=True, ota_binary=False,
+                                   artifact_builder=artifact_builder)
+        return owner, previous, candidate
+
+    def test_v2_owner_real_stage_missing_or_changed_parser_rejected(self):
+        for change in ('missing', 'changed'):
+            with self.subTest(change=change):
+                child = ProductionRuntimeTest('test_production_entry_exists_without_changing_legacy_actions')
+                child.setUp()
+                try:
+                    owner = child.owner_fixture(v2=True, real_entry=True, ota_binary=False)
+                    parser = Path(owner.read()['entry']) / 'production_role_policy.py'
+                    if change == 'missing':
+                        parser.unlink()
+                    else:
+                        parser.chmod(0o600)
+                        parser.write_bytes(b'# changed parser\n')
+                    with self.assertRaisesRegex(ValueError, 'staged entry'):
+                        owner.verify_inputs(owner.read())
+                    self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+                    self.assertFalse((child.runtime.root / 'pending.json').exists())
+                finally:
+                    child.doCleanups()
+
+    def test_v2_full_owner_real_stage_installs_and_finishes(self):
+        owner = self.owner_fixture(v2=True, real_entry=True)
+        record = owner.read()
+        entry = self.real_owner_entry(owner)
+        before = (self.home / 'bin/SystemMonitor').read_bytes()
+        with owner.lease():
+            entry.production_ota_owner(owner, record)
+        self.assertNotEqual((self.home / 'bin/SystemMonitor').read_bytes(), before)
+        self.assertEqual(self.g.production_context(self.home)['release'], '1.1')
+        finished = owner.read()
+        self.assertEqual(finished['phase'], 'OWNER_FINISHED')
+        self.assertTrue(finished['runtimeMayChange'])
+        self.assertEqual(finished['completionProof']['status'], 'healthy')
+
+    def test_v2_signed_config_real_owner_add_delete_replace_and_finish(self):
+        owner, previous, candidate = self.signed_config_owner_fixture()
+        entry = self.real_owner_entry(owner)
+        before_program = (self.home / 'bin/SystemMonitor').read_bytes()
+        with owner.lease():
+            entry.production_ota_owner(owner, owner.read())
+        self.assertEqual(self.g.production_context(self.home), candidate)
+        self.assertEqual((self.home / 'bin/SystemMonitor').read_bytes(), before_program)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), candidate['configSha256'])
+        self.assertFalse((self.home / 'config/runtime/logic/retired.json').exists())
+        self.assertTrue((self.home / 'config/runtime/logic/new.json').is_file())
+        result = owner.read()
+        self.assertEqual(result['phase'], 'OWNER_FINISHED')
+        self.assertTrue(result['runtimeMayChange'])
+        self.assertEqual(result['completionProof']['status'], 'healthy')
+
+    def test_v2_signed_config_rejects_candidate_release_before_payload_copy(self):
+        owner, previous, _ = self.signed_config_owner_fixture(release_override='different-release')
+        entry = self.real_owner_entry(owner)
+        before = self.m.tree_hashes(self.home / 'config/runtime')
+        with self.assertRaisesRegex(ValueError, 'candidate program/target mismatch'):
+            with owner.lease():
+                entry.production_ota_owner(owner, owner.read())
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), before)
+        self.assertFalse((owner.root / ('runtime-payload-' + owner.job) / 'payload').exists())
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
+
+    def test_v2_signed_config_rejects_low_space_before_payload_copy(self):
+        owner, previous, _ = self.signed_config_owner_fixture()
+        entry = self.real_owner_entry(owner)
+        before = self.m.tree_hashes(self.home / 'config/runtime')
+        tiny = types.SimpleNamespace(f_bavail=1, f_frsize=4096)
+        with mock.patch.object(entry.os, 'statvfs', return_value=tiny):
+            with self.assertRaisesRegex(ValueError, 'insufficient signed config staging'):
+                with owner.lease():
+                    entry.production_ota_owner(owner, owner.read())
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.assertEqual(self.m.tree_hashes(self.home / 'config/runtime'), before)
+        self.assertFalse((owner.root / ('runtime-payload-' + owner.job) / 'payload').exists())
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertEqual(owner.read()['phase'], 'OWNER_OWNED')
 
     def test_v2_ota_owner_untrusted_config_directory_rejected_before_mutation_barrier(self):
         owner = self.owner_fixture(v2=True)

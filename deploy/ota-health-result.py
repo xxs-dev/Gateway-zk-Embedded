@@ -127,7 +127,7 @@ class RuntimeHandoff:
         finally:
             os.close(fd)
 
-    def json_file(self, path):
+    def json_file(self, path, limit=16384):
         def unique(pairs):
             result = {}
             for key, value in pairs:
@@ -135,7 +135,7 @@ class RuntimeHandoff:
                     raise ValueError('duplicate handoff JSON field')
                 result[key] = value
             return result
-        raw = self.file_bytes(path)
+        raw = self.file_bytes(path, limit)
         if not raw.endswith(b'\n'):
             raise ValueError('incomplete handoff record')
         return json.loads(raw, object_pairs_hook=unique)
@@ -151,6 +151,8 @@ class RuntimeHandoff:
                 not re.fullmatch(r'[0-9]{1,20}', value.get('leaseDev', '')) or
                 not re.fullmatch(r'[1-9][0-9]{0,19}', value.get('leaseInode', ''))):
             raise ValueError('runtime handoff intent mismatch')
+        if value.get('packageType', 'full') not in ('full', 'config'):
+            raise ValueError('runtime handoff package type mismatch')
         return value
 
     def artifact_hash(self, path, size):
@@ -184,6 +186,13 @@ class RuntimeHandoff:
             raise ValueError('runtime active job changed')
         stage = Path(record['entry'])
         names = {'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'}
+        schema = record.get('entrySchema')
+        if schema == 'paired-v2':
+            names.add('production_role_policy.py')
+        elif schema not in (None, 'paired-v1'):
+            raise ValueError('runtime staged entry schema invalid')
+        if intent.get('packageType', 'full') == 'config' and schema != 'paired-v2':
+            raise ValueError('signed config requires paired v2 staged entry')
         if (stage != self.root / ('runtime-entry-' + self.job) or stage.is_symlink() or
                 set(record['pins']) != names or {p.name for p in stage.iterdir()} != names):
             raise ValueError('runtime staged entry inventory changed')
@@ -621,6 +630,26 @@ class RuntimeHandoff:
             raise ValueError('runtime owner command/unit/cgroup mismatch')
         return owner
 
+    def entry_names(self):
+        root = self.root.parent.parent / 'data/runtime-production'
+        pointer = self.json_file(root / 'current.json')
+        identifier = pointer.get('baselineId')
+        expected = pointer.get('sha256')
+        if (not isinstance(identifier, str) or
+                not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', identifier) or
+                not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected)):
+            raise ValueError('runtime staged entry baseline pointer invalid')
+        raw = self.file_bytes(root / 'baselines' / (identifier + '.json'), 1024 * 1024)
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise ValueError('runtime staged entry baseline changed')
+        baseline = self.json_file(root / 'baselines' / (identifier + '.json'), 1024 * 1024)
+        if baseline.get('format') not in ('runtime-baseline-v1', 'runtime-baseline-v2'):
+            raise ValueError('runtime staged entry baseline format invalid')
+        names = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py')
+        if baseline['format'] == 'runtime-baseline-v2':
+            names += ('production_role_policy.py',)
+        return names
+
     def launch(self, entry, donor_fd):
         entry = Path(entry)
         expected = (self.root / ('ota_job_' + self.job + '.lock')).stat()
@@ -643,7 +672,8 @@ class RuntimeHandoff:
             stage = self.root / ('runtime-entry-' + self.job)
             stage.mkdir(mode=0o700)
             pins = {}
-            for name in ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'):
+            names = self.entry_names()
+            for name in names:
                 data = self.file_bytes(entry.with_name(name), 1024 * 1024)
                 path = stage / name
                 fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
@@ -655,6 +685,7 @@ class RuntimeHandoff:
             sync_dir(str(stage))
             record = dict(format='ota-handoff-v1', jobId=self.job, token=self.token,
                           version=intent['version'], unit=self.unit, bootId=self.boot(),
+                          entrySchema='paired-v2' if len(names) == 4 else 'paired-v1',
                           phase='HANDOFF_PENDING', runtimeMayChange=False, entry=str(stage), pins=pins,
                           intentSha256=hashlib.sha256(self.file_bytes(self.intent_path)).hexdigest(),
                           leaseIdentity=dict(dev=actual.st_dev, inode=actual.st_ino), cgroupMount=mounted,

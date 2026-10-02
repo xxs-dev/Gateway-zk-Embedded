@@ -2509,7 +2509,13 @@ class ProductionRuntime:
             helpers.append('production_role_policy.py')
         for name in helpers:
             pin = candidate['files']['bin/' + name]
-            require(digest(Path(__file__).with_name(name)) == pin['sha256'], 'production paired helper not staged: ' + name)
+            staged_sha = digest(Path(__file__).with_name(name))
+            allowed = {pin['sha256']}
+            if version == 'runtime-provisioning-v2':
+                old_pin = previous['files'].get('bin/' + name)
+                if old_pin is not None:
+                    allowed.add(old_pin['sha256'])
+            require(staged_sha in allowed, 'production paired helper not staged: ' + name)
         payload = args.payload.absolute()
         require(not payload.is_symlink() and payload.is_dir(), 'production payload directory required')
         if changes:
@@ -3447,6 +3453,107 @@ def production_boot_finish(args):
     save(path, work)
 
 
+def stage_signed_config_ota(protocol, intent, runtime, baseline, pointer, archive, members, work):
+    require(baseline['format'] == 'runtime-baseline-v2', 'signed config requires v2 production baseline')
+    metadata = [member for member in members if member.name == 'manifest.json']
+    require(len(metadata) == 1 and metadata[0].size <= 1024 * 1024,
+            'signed config manifest missing/oversized')
+    work.mkdir(mode=0o700)
+    write_new(work / 'manifest.json', archive.extractfile(metadata[0]).read())
+    manifest = guard.production_json(work / 'manifest.json')
+    template = manifest.get('productionV2')
+    require(manifest.get('kind') == 'gateway-config-ota-normalized' and
+            manifest.get('packageType') == intent.get('packageType') == 'config' and
+            manifest.get('version') == intent['version'] and
+            manifest.get('machineCode') == intent['machineCode'] and
+            isinstance(template, dict) and set(template) ==
+            {'previous', 'candidate', 'parentSha256', 'configWriteSet', 'expiresAtUnix'} and
+            template['previous'] == baseline and template['parentSha256'] == pointer['sha256'] and
+            type(template['expiresAtUnix']) is int and time.time() < template['expiresAtUnix'],
+            'signed config authority/base mismatch')
+    candidate = template['candidate']
+    require(isinstance(candidate, dict) and candidate.get('format') == 'runtime-baseline-v2' and
+            candidate.get('files') == baseline['files'] and
+            candidate.get('parentSha256') == pointer['sha256'] and
+            candidate.get('machineCode') == intent['machineCode'] and
+            candidate.get('release') == manifest['version'],
+            'signed config candidate program/target mismatch')
+    transaction_id = 'OTA_' + hashlib.sha256((protocol.job + protocol.token).encode()).hexdigest()[:32]
+    approval = dict(format='runtime-provisioning-v2', transaction=transaction_id,
+                    operation='install', expiresAtUnix=template['expiresAtUnix'],
+                    gatewayHome=str(runtime.home), machineCode=intent['machineCode'],
+                    parentSha256=pointer['sha256'], previous=baseline,
+                    candidate=candidate, legacy=None, configWriteSet=template['configWriteSet'])
+    changes = runtime.config_changes(approval)
+    require(changes and candidate['configSha256'] != baseline['configSha256'],
+            'signed config artifact has no config delta')
+    files = manifest.get('files')
+    require(isinstance(files, list) and len(files) == len(candidate['configSha256']),
+            'signed config file inventory incomplete')
+    by_entry = {}
+    for item in files:
+        require(isinstance(item, dict) and
+                {'path', 'target', 'sha256', 'bytes', 'encoding'} <= set(item) and
+                item['encoding'] == 'utf8', 'signed config file metadata invalid')
+        name = item['path']
+        require(isinstance(name, str) and name.startswith('config/runtime/') and
+                '\\' not in name and name.count('/') >= 2 and
+                all(part not in ('', '.', '..') for part in name.split('/')),
+                'signed config file path invalid')
+        relative = name[len('config/runtime/'):]
+        require(relative in candidate['configSha256'] and name not in by_entry and
+                item['target'] == str(runtime.home / name) and
+                item['sha256'] == candidate['configSha256'][relative] and
+                type(item['bytes']) is int and 0 <= item['bytes'] <= 5 * 1024 * 1024,
+                'signed config file pin/target mismatch')
+        by_entry[name] = item
+    require(set(by_entry) == {'config/runtime/' + path for path in candidate['configSha256']} and
+            {member.name for member in members} == {'manifest.json'} | set(by_entry),
+            'signed config archive inventory mismatch')
+    guard.production_schema(candidate, runtime.home)
+    program_bytes = sum(pin['bytes'] for pin in baseline['files'].values())
+    config_bytes = sum(item['bytes'] for item in by_entry.values())
+    old_bytes = sum(row['before']['bytes'] for row in changes if row['before'] is not None)
+    new_bytes = sum(row['after']['bytes'] for row in changes if row['after'] is not None)
+    needed = 3 * program_bytes + config_bytes + old_bytes + new_bytes + 64 * 1024 * 1024
+    capacity = os.statvfs(runtime.home)
+    require(capacity.f_bavail * capacity.f_frsize >= needed,
+            'insufficient signed config staging and recovery disk')
+    after = {row['path']: row['after'] for row in changes}
+    payload = work / 'payload'
+    payload.mkdir(mode=0o700)
+    guard.production_verify(runtime.home, baseline)
+    for path, pin in baseline['files'].items():
+        production_copy(runtime.home / path, payload / path, pin, new=True)
+    for member in members:
+        if member.name == 'manifest.json':
+            continue
+        item = by_entry[member.name]
+        relative = member.name[len('config/runtime/'):]
+        pin = after.get(relative)
+        if pin is None:
+            pin = guard.production_pin(runtime.home / member.name)
+        require(pin['sha256'] == item['sha256'] and pin['bytes'] == member.size == item['bytes'],
+                'signed config archive bytes differ from approved pin')
+        destination = payload / member.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(destination), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, pin['mode'])
+        with archive.extractfile(member) as source, os.fdopen(fd, 'wb') as output:
+            value, count = hashlib.sha256(), 0
+            for chunk in iter(lambda: source.read(65536), b''):
+                value.update(chunk); count += len(chunk); output.write(chunk)
+            require(count == pin['bytes'] and value.hexdigest() == pin['sha256'],
+                    'signed config archive digest mismatch')
+            output.flush(); os.fsync(output.fileno())
+            os.fchmod(output.fileno(), pin['mode'])
+    for directory in sorted((path for path in payload.rglob('*') if path.is_dir()),
+                            key=lambda path: len(path.parts), reverse=True):
+        sync_dir(directory)
+    sync_dir(payload)
+    sync_dir(work)
+    return approval, payload
+
+
 def production_ota_owner(protocol, record):
     """Consume a signed/checksummed artifact only after independent lease handoff.
 
@@ -3470,52 +3577,56 @@ def production_ota_owner(protocol, record):
             require(len(members) <= 512 and all(m.isfile() and not m.issym() and not m.islnk() and
                     m.size <= 128 * 1024 * 1024 for m in members) and
                     len({m.name for m in members}) == len(members), 'runtime release archive type/inventory invalid')
-            metadata = [m for m in members if m.name == 'runtime-manifest.json']
-            require(len(metadata) == 1 and metadata[0].size <= 1024 * 1024, 'runtime manifest missing/oversized')
-            # Use the same duplicate-field/ownership parser as persistent records.
-            raw = archive.extractfile(metadata[0]).read()
-            work.mkdir(mode=0o700)
-            write_new(work / 'runtime-manifest.json', raw)
-            manifest = guard.production_json(work / 'runtime-manifest.json')
-            require(set(manifest) == {'format', 'version', 'packageType', 'fromAbi', 'toAbi', 'clusterProtocol',
-                                     'architecture', 'parents', 'expiresAtUnix', 'files'} and
-                    manifest['format'] == 'runtime-release-v1' and manifest['version'] == intent['version'] and
-                    manifest['packageType'] == 'full' and manifest['fromAbi'] == manifest['toAbi'] == 11 and
-                    manifest['clusterProtocol'] == 2 and manifest['architecture'] == 'aarch64' and
-                    isinstance(manifest['parents'], list) and pointer['sha256'] in manifest['parents'] and
-                    type(manifest['expiresAtUnix']) is int and time.time() < manifest['expiresAtUnix'],
-                    'runtime release incompatible/expired')
-            candidate = copy.deepcopy(baseline)
-            transaction_id = 'OTA_' + hashlib.sha256((protocol.job + protocol.token).encode()).hexdigest()[:32]
-            candidate.update(baselineId=transaction_id, generation=baseline['generation'] + 1,
-                             parentSha256=pointer['sha256'], release=manifest['version'], files=manifest['files'])
-            guard.production_schema(candidate, home)
-            require(set(candidate['files']) == set(baseline['files']) and
-                    {m.name for m in members} == {'runtime-manifest.json'} | set(candidate['files']) and
-                    sum(m.size for m in members) <= 512 * 1024 * 1024, 'runtime package write set differs from baseline')
-            payload = work / 'payload'
-            for member in members:
-                if member.name == 'runtime-manifest.json':
-                    continue
-                pin = candidate['files'][member.name]
-                require(member.size == pin['bytes'], 'runtime member size mismatch')
-                dest = payload / member.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, pin['mode'])
-                with archive.extractfile(member) as source, os.fdopen(fd, 'wb') as output:
-                    value, count = hashlib.sha256(), 0
-                    for chunk in iter(lambda: source.read(65536), b''):
-                        value.update(chunk); count += len(chunk); output.write(chunk)
-                    require(count == pin['bytes'] and value.hexdigest() == pin['sha256'], 'runtime member hash mismatch')
-                    output.flush(); os.fsync(output.fileno())
-                    os.fchmod(output.fileno(), pin['mode'])
-            sync_dir(work)
-        approval = dict(format='runtime-provisioning-v2' if baseline['format'] == 'runtime-baseline-v2'
-                        else 'runtime-provisioning-v1', transaction=transaction_id, operation='install',
-                        expiresAtUnix=manifest['expiresAtUnix'], gatewayHome=str(home), machineCode=intent['machineCode'],
-                        parentSha256=pointer['sha256'], previous=baseline, candidate=candidate, legacy=None)
-        if baseline['format'] == 'runtime-baseline-v2':
-            approval['configWriteSet'] = []
+            if intent.get('packageType', 'full') == 'config':
+                approval, payload = stage_signed_config_ota(
+                    protocol, intent, runtime, baseline, pointer, archive, members, work)
+                transaction_id = approval['transaction']
+            else:
+                metadata = [m for m in members if m.name == 'runtime-manifest.json']
+                require(len(metadata) == 1 and metadata[0].size <= 1024 * 1024, 'runtime manifest missing/oversized')
+                raw = archive.extractfile(metadata[0]).read()
+                work.mkdir(mode=0o700)
+                write_new(work / 'runtime-manifest.json', raw)
+                manifest = guard.production_json(work / 'runtime-manifest.json')
+                require(set(manifest) == {'format', 'version', 'packageType', 'fromAbi', 'toAbi', 'clusterProtocol',
+                                         'architecture', 'parents', 'expiresAtUnix', 'files'} and
+                        manifest['format'] == 'runtime-release-v1' and manifest['version'] == intent['version'] and
+                        manifest['packageType'] == 'full' and manifest['fromAbi'] == manifest['toAbi'] == 11 and
+                        manifest['clusterProtocol'] == 2 and manifest['architecture'] == 'aarch64' and
+                        isinstance(manifest['parents'], list) and pointer['sha256'] in manifest['parents'] and
+                        type(manifest['expiresAtUnix']) is int and time.time() < manifest['expiresAtUnix'],
+                        'runtime release incompatible/expired')
+                candidate = copy.deepcopy(baseline)
+                transaction_id = 'OTA_' + hashlib.sha256((protocol.job + protocol.token).encode()).hexdigest()[:32]
+                candidate.update(baselineId=transaction_id, generation=baseline['generation'] + 1,
+                                 parentSha256=pointer['sha256'], release=manifest['version'], files=manifest['files'])
+                guard.production_schema(candidate, home)
+                require(set(candidate['files']) == set(baseline['files']) and
+                        {m.name for m in members} == {'runtime-manifest.json'} | set(candidate['files']) and
+                        sum(m.size for m in members) <= 512 * 1024 * 1024, 'runtime package write set differs from baseline')
+                payload = work / 'payload'
+                for member in members:
+                    if member.name == 'runtime-manifest.json':
+                        continue
+                    pin = candidate['files'][member.name]
+                    require(member.size == pin['bytes'], 'runtime member size mismatch')
+                    dest = payload / member.name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, pin['mode'])
+                    with archive.extractfile(member) as source, os.fdopen(fd, 'wb') as output:
+                        value, count = hashlib.sha256(), 0
+                        for chunk in iter(lambda: source.read(65536), b''):
+                            value.update(chunk); count += len(chunk); output.write(chunk)
+                        require(count == pin['bytes'] and value.hexdigest() == pin['sha256'], 'runtime member hash mismatch')
+                        output.flush(); os.fsync(output.fileno())
+                        os.fchmod(output.fileno(), pin['mode'])
+                sync_dir(work)
+                approval = dict(format='runtime-provisioning-v2' if baseline['format'] == 'runtime-baseline-v2'
+                                else 'runtime-provisioning-v1', transaction=transaction_id, operation='install',
+                                expiresAtUnix=manifest['expiresAtUnix'], gatewayHome=str(home), machineCode=intent['machineCode'],
+                                parentSha256=pointer['sha256'], previous=baseline, candidate=candidate, legacy=None)
+                if baseline['format'] == 'runtime-baseline-v2':
+                    approval['configWriteSet'] = []
         path = work / 'approval.json'
         runtime.record(path, approval)
         args = argparse.Namespace(approval=path, approval_sha256=digest(path), payload=payload)
