@@ -822,9 +822,12 @@ int main(int argc, char** argv) {
             const auto staging = root + "/reconciled";
             std::filesystem::create_directory(staging);
             const auto actual = edge_gateway::checkReconcile(staging, status);
-            const auto encoded = edge_gateway::encodeBuiltinOtaStatusJson(actual);
+            const auto builtin = edge_gateway::encodeBuiltinOtaStatusJson(actual);
+            const auto mosquitto = edge_gateway::encodeMosquittoOtaStatusJson(actual);
+            edge_gateway::checkEncoded(builtin, actual, true);
+            edge_gateway::checkEncoded(mosquitto, actual, true);
             std::filesystem::remove_all(root);
-            std::cout << encoded << '\n';
+            std::cout << builtin << '\n' << mosquitto << '\n';
             return 0;
         }
         const auto production = root + "/production";
