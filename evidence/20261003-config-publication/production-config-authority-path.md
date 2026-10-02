@@ -23,8 +23,10 @@ but current client publication does not supply that approval.
   is code-only OTA, not signed configuration publication. Removing only the
   package-type check would not create a safe config path.
 - Direct maintenance has a device credential, provisioning, lockout and
-  `sensitiveApiEnabled`. This authenticates local maintenance access but does
-  not establish `config:approve`/`config:publish` or authorize v2 pins. The
+  `sensitiveApiEnabled`. This authenticates local maintenance access; it is
+  not evidence of platform `config:approve`/`config:publish`. Whether those
+  device-local controls can independently authorize a bounded production
+  publication is a product permission decision still pending. The
   MQTT publisher classifies scoped topics; SystemMonitor receives payloads.
   A payload `machineCode` proves neither sender identity nor broker ACL.
 
@@ -65,18 +67,29 @@ but current client publication does not supply that approval.
    replay across process restart; retained delivery is rejected, not used as
    a retry mechanism. Observation timeout remains UNKNOWN until queried or
    officially reconciled, distinct from edge execution timeout/rollback.
-5. Windows should obtain/retain the platform task ID and immutable request
+5. Windows should obtain/retain the original task ID and immutable request
    metadata for audit, UI and export, then query task/deployment state.
-   Direct maintenance and ordinary config MQTT may submit to this authorized
-   path or present the same signed artifact; they must not promote their raw
-   JSON or device password to approval. The current direct/MQTT production
-   write refusal remains until those client and edge entry changes are tested.
+   Adapter A is the existing platform-approved, signed-artifact publication
+   path above and can proceed without deciding device-local authority.
+   Adapter B, only if separately authorized, would let an authenticated,
+   `sensitiveApiEnabled` device maintenance principal request a bounded
+   offline/direct publication. It must durably bind the principal and original
+   ID to exact old/new pins, enforce the immutable board/protected constraints
+   in the same `ProductionRuntime` journal, and provide asynchronous query and
+   recovery. Ordinary MQTT needs an independently verifiable publisher
+   identity/authorization; scoped topic and payload machine code are not
+   enough. Both adapters must retain normal MQTT/direct/SCADA publication as
+   a product goal. Today's production write refusal is interim until the
+   chosen adapter contracts and tests are implemented, not a final feature.
 
 ## Authorization and deployment decisions still required
 
-- Whether Windows users have the platform `config:publish` entitlement and
-  how direct/offline sites authenticate to that platform; the device password
-  alone is insufficient. No new self-approval or remote role is assumed.
+- Which adapter authorizes offline maintenance: platform review/signing for
+  all production writes, or a separately permitted local maintenance principal
+  confined to reviewed board capabilities and protected pins. Existing device
+  credentials do not imply the second policy automatically, and this proposal
+  grants no new remote write permission. Windows platform entitlements and
+  offline principal mapping remain to be decided without blocking adapter A.
 - Broker per-machine publisher/subscriber ACL, non-retained delivery and
   historical retained-message removal must be verified as infrastructure,
   not inferred from topic names. This proposal changes no Broker settings.

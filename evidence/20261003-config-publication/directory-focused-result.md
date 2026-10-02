@@ -70,7 +70,18 @@ This proves local code-only and private OTA-owner admission behavior only.
 Factory package directory metadata and any inventory-backed correction of
 already installed directories remain open; no implicit chmod/chown is allowed.
 The ordinary MQTT delete-then-restore regression remains red (exit 6), and
-formal v2 re-add is a separate passing CLI scenario, not an MQTT fix.
+formal v2 re-add is a separate passing CLI scenario, not an MQTT fix. That
+earlier real-entry selector was
+`test_v2_deleted_logic_requires_new_approved_write_set_to_restore`: exit 0,
+one passed in 0.354s, with its own pre/post input hashes in
+`formal-restore.result.json`. It ran before the four directory tests were
+added, so it is not represented as a run against the final test-file hash.
+Its three original files are byte-exact members of `formal-restore-raw.zip`
+(SHA256 `0bc258b860b293f6ab5517a211fce407bf777821cc94226bcbc3ad01dce06f4a`).
+ZIP member SHA256 values: result JSON
+`3eaa9c42969c5ea4d8bbf1b17f349387336c02fab862e78819f03d5e65526091`,
+stdout `1a16d3cf0152ac7ba7e8a1888f2f1576d2c2f5357a569464f6cd814a443b0405`,
+stderr `5c31f9497f06ee057e2daa08c430dc7cf5963396fba535d07a4d266b95375d68`.
 
 ## Checkpoint audit boundary
 
