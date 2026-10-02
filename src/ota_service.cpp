@@ -1101,6 +1101,11 @@ std::string OtaService::statusJournalPath() const {
     return joinPath(config_.stagingDir, "ota_status_pending.log");
 }
 
+class OtaTerminalBacklog : public std::runtime_error {
+public:
+    OtaTerminalBacklog() : std::runtime_error("OTA terminal backlog requires delivery resolution") {}
+};
+
 void OtaService::appendPendingStatus(OtaStatus& status) const {
     std::lock_guard<std::mutex> guard(pendingMutex_);
     ensureDirectory(config_.stagingDir);
@@ -1116,9 +1121,28 @@ void OtaService::appendPendingStatus(OtaStatus& status) const {
         throw std::runtime_error("OTA status exceeds pending journal limit");
     const auto existing = bytes.find(record);
     if (existing == std::string::npos || (existing != 0 && bytes[existing - 1] != '\n')) bytes += record;
-    if (config_.maxPendingStatusBytes && bytes.size() > config_.maxPendingStatusBytes) {
-        const auto start = bytes.find('\n', bytes.size() - config_.maxPendingStatusBytes - 1);
-        bytes.erase(0, start + 1);
+    const bool terminal = status.stage == "completed" || status.stage == "failed";
+    const auto limit = config_.maxPendingStatusBytes;
+    if (limit && bytes.size() > limit && terminal && bytes.size() <= limit + record.size()) {
+        replacePendingJournal(statusJournalPath(), bytes);
+        return;
+    }
+    if (limit && bytes.size() > limit) {
+        while (bytes.size() > config_.maxPendingStatusBytes) {
+            const auto end = bytes.find('\n');
+            if (end == std::string::npos) throw std::runtime_error("truncated OTA pending journal");
+            const auto line = bytes.substr(0, end);
+            if (!line.empty() && line.front() == '{') {
+                const auto old = decodePendingStatus(line);
+                if (old.stage == "completed" || old.stage == "failed")
+                    throw OtaTerminalBacklog();
+            } else {
+                const auto fields = splitTabLine(line);
+                if (fields.size() >= 3 && (fields[2] == "completed" || fields[2] == "failed"))
+                    throw OtaTerminalBacklog();
+            }
+            bytes.erase(0, end + 1);
+        }
     }
     replacePendingJournal(statusJournalPath(), bytes);
 }
@@ -1304,7 +1328,7 @@ public:
 void persistFinalizationAudit(const std::string& stagingDir, const PendingOtaJob& job,
                              bool finalCommitted, const char* phase, const char* evidence,
                              const char* reason = "successful-apply-finalization-error",
-                             bool deliveryPending = false) {
+                             bool deliveryPending = false, std::int64_t recordedTs = 0) {
     replacePendingJournal(joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json"),
             "{\"format\":\"ota-reconcile-v1\",\"reason\":" + pendingJsonString(reason) + ",\"jobId\":" +
             pendingJsonString(job.jobId) + ",\"token\":" + pendingJsonString(job.token) +
@@ -1312,7 +1336,7 @@ void persistFinalizationAudit(const std::string& stagingDir, const PendingOtaJob
             ",\"finalState\":" + pendingJsonString(deliveryPending ? "delivery-pending" :
                 finalCommitted ? "committed" : "unknown") +
             ",\"phase\":" + pendingJsonString(phase) + ",\"evidence\":" + pendingJsonString(evidence) +
-            ",\"ts\":\"" + std::to_string(currentTimeMs()) + "\"}\n");
+            ",\"ts\":\"" + std::to_string(recordedTs > 0 ? recordedTs : currentTimeMs()) + "\"}\n");
 }
 
 void auditSuccessfulFinalization(const std::string& stagingDir, const PendingOtaJob& job,
@@ -1372,9 +1396,10 @@ bool needsFinalizationReconciliation(const std::string& stagingDir, const Pendin
     if (terminalIntent) *terminalIntent = reason == "ota-terminal-outbox-v1";
     if (deliveryPending) *deliveryPending = state == "delivery-pending";
     if (synchronousTail)
-        *synchronousTail = state == "unknown" &&
-            pendingField(audit, "evidence") == "apply-returned-success" &&
-            (phase == "version" || phase == "history" || phase == "artifact-retention" || phase == "final-marker");
+        *synchronousTail = pendingField(audit, "evidence") == "apply-returned-success" &&
+            ((state == "unknown" && (phase == "version" || phase == "history" ||
+                phase == "artifact-retention" || phase == "final-marker")) ||
+             (state == "delivery-pending" && phase == "terminal-journal"));
     // A visible marker after rename does not undo a directory-fsync failure.
     return state != "committed";
 }
@@ -1412,27 +1437,53 @@ bool hasValidFinal(const std::string& stagingDir, const PendingOtaJob& job) {
     return true;
 }
 
-void acknowledgeTerminalIntents(const std::string& stagingDir, const std::string& snapshot) {
+std::string acknowledgeTerminalIntents(const std::string& stagingDir, const std::string& snapshot) {
     std::istringstream input(snapshot);
+    std::string retained;
     std::string line;
     while (std::getline(input, line)) {
         if (line.empty() || line.front() != '{') continue;
-        const auto status = decodePendingStatus(line);
-        if (status.stage != "completed" && status.stage != "failed") continue;
-        const auto intentPath = pendingJobPath(stagingDir, status.jobId);
-        if (strictlyAbsent(intentPath)) continue;
-        const auto job = decodePendingJob(readPendingJournal(intentPath));
-        if (job.token != status.occurrenceId || job.machineCode != status.machineCode) continue;
-        const auto auditPath = joinPath(stagingDir, "ota_reconcile_" + job.jobId + ".json");
-        if (strictlyAbsent(auditPath) || !needsFinalizationReconciliation(stagingDir, job) ||
-            !hasValidFinal(stagingDir, job) ||
-            (job.lifecycle == "systemd-handoff-v1" && !hasHandoffResolution(stagingDir, job))) continue;
-        if (readPendingJournal(joinPath(stagingDir, "ota_final_" + job.jobId + ".txt")) !=
-            "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + status.stage + "\n") continue;
-        const auto audit = json::JsonParser(readPendingJournal(auditPath), 4, 32).parse();
-        const auto reason = pendingField(audit, "reason");
-        persistFinalizationAudit(stagingDir, job, true, "delivery-cleared", "local-queue-cleared", reason.c_str());
+        bool keep = false;
+        try {
+            const auto status = decodePendingStatus(line);
+            if (status.stage != "completed" && status.stage != "failed") continue;
+            const auto auditPath = joinPath(stagingDir, "ota_reconcile_" + status.jobId + ".json");
+            if (strictlyAbsent(auditPath)) continue;
+            const auto intentPath = pendingJobPath(stagingDir, status.jobId);
+            if (strictlyAbsent(intentPath)) throw std::runtime_error("missing OTA terminal intent");
+            const auto job = decodePendingJob(readPendingJournal(intentPath));
+            if (job.token != status.occurrenceId || job.machineCode != status.machineCode)
+                throw std::runtime_error("OTA terminal identity changed");
+            const bool pending = needsFinalizationReconciliation(stagingDir, job);
+            if (!hasValidFinal(stagingDir, job) ||
+                (job.lifecycle == "systemd-handoff-v1" && !hasHandoffResolution(stagingDir, job)) ||
+                readPendingJournal(joinPath(stagingDir, "ota_final_" + job.jobId + ".txt")) !=
+                    "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + status.stage + "\n")
+                throw std::runtime_error("OTA terminal final evidence changed");
+            const auto audit = json::JsonParser(readPendingJournal(auditPath), 4, 32).parse();
+            const auto healthPath = joinPath(stagingDir, "health_" + job.jobId + ".txt");
+            if (!strictlyAbsent(healthPath)) {
+                const auto health = decodeHealthResult(readPendingJournal(healthPath), job);
+                if ((status.stage == "completed") != (health.status == "healthy"))
+                    throw std::runtime_error("OTA terminal health changed");
+            } else if (job.lifecycle == "systemd-handoff-v1" || status.stage != "completed" ||
+                       pendingField(audit, "evidence") != "apply-returned-success") {
+                throw std::runtime_error("OTA terminal health is missing");
+            }
+            if (pending) {
+                const auto reason = pendingField(audit, "reason");
+                const auto phase = pendingField(audit, "phase");
+                const auto evidence = pendingField(audit, "evidence");
+                const auto timestamp = pendingInteger<std::int64_t>(pendingField(audit, "ts"));
+                persistFinalizationAudit(stagingDir, job, true, phase.c_str(), evidence.c_str(),
+                    reason.c_str(), false, timestamp);
+            }
+        } catch (const std::exception&) {
+            keep = true;
+        }
+        if (keep) retained += line + '\n';
     }
+    return retained;
 }
 
 bool isActiveJob(const std::string& stagingDir, const PendingOtaJob& job) {
@@ -1651,6 +1702,8 @@ void OtaService::reconcilePendingJobs() const {
                 strictlyAbsent(joinPath(config_.stagingDir, "ota-in-progress"))) {
                 synchronousTail = true;
             }
+            if (synchronousEvidence && deliveryPending && strictlyAbsent(healthPath))
+                synchronousTail = true;
             if (lease && !reconciliationNeeded && strictlyAbsent(healthPath)) recordPreparedFailure(config_.stagingDir, job);
 #endif
             if (!synchronousTail) {
@@ -1683,7 +1736,11 @@ void OtaService::reconcilePendingJobs() const {
                 "ota_final_" + job.jobId + ".txt"));
             if (final != "jobId=" + job.jobId + "\ntoken=" + job.token +
                 "\nstatus=" + terminal.stage + "\n") continue;
-            appendPendingStatus(terminal);
+            try {
+                appendPendingStatus(terminal);
+            } catch (const OtaTerminalBacklog&) {
+                // The older terminal must be replayed before this durable intent can fit.
+            }
             continue;
         }
         const auto historyPath = joinPath(config_.stagingDir, "upgrade_history.log");
@@ -1722,12 +1779,11 @@ void OtaService::reconcilePendingJobs() const {
             replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + job.jobId + ".txt"),
                 "jobId=" + job.jobId + "\ntoken=" + job.token + "\nstatus=" + terminal.stage + "\n");
             finalCommitted = true;
-            if (!synchronousTail) {
-                phase = "delivery-intent";
-                persistFinalizationAudit(config_.stagingDir, job, false, "terminal-journal",
-                    "verified-health", "ota-terminal-outbox-v1", true);
-                outboxWritten = true;
-            }
+            phase = "delivery-intent";
+            persistFinalizationAudit(config_.stagingDir, job, false, "terminal-journal",
+                synchronousTail ? "apply-returned-success" : "verified-health",
+                "ota-terminal-outbox-v1", true, synchronousTail ? terminal.ts : 0);
+            outboxWritten = true;
             phase = "terminal-journal";
             appendPendingStatus(terminal);
         } catch (...) {
@@ -1776,6 +1832,10 @@ std::vector<OtaStatus> OtaService::loadFinalStatuses() const {
                 status.stage = "completed";
                 status.progress = 100;
                 status.message = "upgrade completed";
+                const auto auditPath = joinPath(config_.stagingDir,
+                    "ota_reconcile_" + job.jobId + ".json");
+                if (!strictlyAbsent(auditPath))
+                    status.ts = finalizationAuditTimestamp(config_.stagingDir, job);
             }
             statuses.push_back(std::move(status));
         } catch (const std::exception&) {
@@ -1794,8 +1854,8 @@ void OtaService::clearPendingStatuses() const {
     const auto bytes = readPendingJournal(statusJournalPath());
     if (bytes.compare(0, pendingSnapshot_.size(), pendingSnapshot_) != 0)
         throw std::runtime_error("OTA pending snapshot changed; reload before clearing");
-    acknowledgeTerminalIntents(config_.stagingDir, pendingSnapshot_);
-    replacePendingJournal(statusJournalPath(), bytes.substr(pendingSnapshot_.size()));
+    const auto retained = acknowledgeTerminalIntents(config_.stagingDir, pendingSnapshot_);
+    replacePendingJournal(statusJournalPath(), retained + bytes.substr(pendingSnapshot_.size()));
     pendingSnapshot_.clear();
 }
 
@@ -2118,6 +2178,7 @@ void OtaService::execute(
 #endif
     const PendingOtaJob own{request.jobId, machineCode, request.version, artifactPath, previousVersion, ownToken};
     bool finalCommitted = false;
+    bool outboxWritten = false;
     const char* phase = "health-reconciliation";
     try {
         reconcilePendingJobs();
@@ -2171,14 +2232,37 @@ void OtaService::execute(
             appendUpgradeRecord(request, artifactPath, previousVersion, currentTimeMs());
             phase = "artifact-retention";
             cleanupOldArtifacts(fileNameOf(artifactPath));
+            phase = "outbox-intent";
+            persistFinalizationAudit(config_.stagingDir, pending, false, "final-marker",
+                "apply-returned-success", "ota-terminal-outbox-v1");
+            outboxWritten = true;
             phase = "final-marker";
             replacePendingJournal(joinPath(config_.stagingDir, "ota_final_" + request.jobId + ".txt"),
                 "jobId=" + own.jobId + "\ntoken=" + own.token + "\nstatus=completed\n");
             finalCommitted = true;
+            const auto terminalTs = finalizationAuditTimestamp(config_.stagingDir, pending);
+            phase = "delivery-intent";
+            persistFinalizationAudit(config_.stagingDir, pending, false, "terminal-journal",
+                "apply-returned-success", "ota-terminal-outbox-v1", true, terminalTs);
             phase = "terminal-journal";
-            reportStage(status, "completed", 100, "upgrade completed", currentTimeMs(), publishStatus);
+            status->stage = "completed";
+            status->progress = 100;
+            status->downloadedBytes = 0;
+            status->totalBytes = 0;
+            status->message = "upgrade completed after synchronous finalization reconciliation";
+            status->ts = terminalTs;
+            status->occurrenceId = pending.token;
+            appendPendingStatus(*status);
+            if (publishStatus) {
+                try {
+                    publishStatus(*status);
+                } catch (...) {
+                    std::cerr << "ota terminal status publish failed; pending replay retained\n";
+                }
+            }
         } catch (...) {
-            auditSuccessfulFinalization(config_.stagingDir, own, finalCommitted, phase, "apply-returned-success");
+            if (!outboxWritten)
+                auditSuccessfulFinalization(config_.stagingDir, own, finalCommitted, phase, "apply-returned-success");
             throw SuccessfulFinalizationError(own);
         }
     } catch (const SuccessfulFinalizationError& ex) {
