@@ -56,6 +56,7 @@ add_library(edge_gateway
     src/memory_point_store.cpp
     src/mock_serial_port.cpp
     src/ota_service.cpp
+    src/ota_query_crypto.cpp
     src/builtin_mqtt_driver_publisher.cpp
     src/mqtt_event_outbox.cpp
     src/mqtt_event_stats.cpp
@@ -819,7 +820,7 @@ if(BUILD_TESTING)
         set_tests_properties(ota_checksum PROPERTIES TIMEOUT 15)
     endif()
     if(UNIX)
-        add_executable(ota_checksum_test tools/ota_checksum_test.cpp src/ota_service.cpp)
+        add_executable(ota_checksum_test tools/ota_checksum_test.cpp src/ota_service.cpp src/ota_query_crypto.cpp)
         target_include_directories(ota_checksum_test PRIVATE include)
         target_link_libraries(ota_checksum_test PRIVATE pthread)
         target_compile_options(ota_checksum_test PRIVATE -fdiagnostics-color=never)

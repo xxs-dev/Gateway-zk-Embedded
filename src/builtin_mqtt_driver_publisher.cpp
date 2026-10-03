@@ -2132,6 +2132,8 @@ bool parsePublishPacket(
         message->type = MqttIncomingType::CommandRequest;
     } else if (topic == scopedTopic(config.otaRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::OtaRequest;
+    } else if (topic == scopedTopic(config.otaQueryRequestTopic, config.topicMachineCode)) {
+        message->type = MqttIncomingType::OtaQueryRequest;
     } else if (topic == scopedTopic(config.realtimeRequestTopic, config.topicMachineCode)) {
         message->type = MqttIncomingType::RealtimeRequest;
     } else if (topic == scopedTopic(config.systemMonitorRequestTopic, config.topicMachineCode)) {
@@ -2547,6 +2549,7 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
     maintainTxConnection();
     if (config_.commandRequestTopic.empty() &&
         config_.otaRequestTopic.empty() &&
+        config_.otaQueryRequestTopic.empty() &&
         config_.realtimeRequestTopic.empty() &&
         config_.systemMonitorRequestTopic.empty() &&
         config_.diagRequestTopic.empty() &&
@@ -2883,6 +2886,7 @@ int BuiltinMqttDriverPublisher::qosForTopic(const std::string& scopedTopicValue)
     if (matches(config_.commandReplyTopic) ||
         matches(config_.otaReplyTopic) ||
         matches(config_.otaStatusTopic) ||
+        matches(config_.otaQueryReplyTopic) ||
         matches(config_.diagReplyTopic) ||
         matches(config_.configApplyReplyTopic) ||
         matches(config_.configDeleteReplyTopic) ||
@@ -3196,6 +3200,7 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
                 ? scopedTopic(config_.commandRequestTopic, config_.topicMachineCode)
                 : config_.commandRequestTopic,
             scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.otaQueryRequestTopic, config_.topicMachineCode),
             scopedTopic(config_.realtimeRequestTopic, config_.topicMachineCode),
             scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
             scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),

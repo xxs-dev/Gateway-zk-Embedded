@@ -1754,6 +1754,8 @@ void MqttDriverService::processIncomingMessages(std::int64_t nowMs, int timeoutM
                 handleCommandRequest(message.payload, nowMs, message.retained);
             } else if (message.type == MqttIncomingType::OtaRequest) {
                 handleOtaRequest(message.payload, nowMs);
+            } else if (message.type == MqttIncomingType::OtaQueryRequest && !message.retained) {
+                handleOtaQueryRequest(message.payload);
             } else if (message.type == MqttIncomingType::RealtimeRequest) {
                 handleRealtimeRequest(message.payload, nowMs);
             }
@@ -2454,6 +2456,59 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
     }
     reply.accepted = false;
     publisher_->publishOtaReply(mqttConfig_.otaReplyTopic, reply);
+}
+
+void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
+    if (!otaService_ || payload.size() > 8192 || mqttConfig_.topicMachineCode.empty()) return;
+    try {
+        const auto root = ota_request_json::parseRoot(payload);
+        if (root.asObject().values.size() != 10) return;
+        const auto decimal = [&](const char* name) -> std::uint64_t {
+            const auto text = ota_request_json::stringField(root, name);
+            if (text.empty() || text.size() > 19 || (text.size() > 1 && text.front() == '0') ||
+                !std::all_of(text.begin(), text.end(), [](char c) { return c >= '0' && c <= '9'; }))
+                throw std::invalid_argument("invalid OTA query decimal");
+            return std::stoull(text);
+        };
+        OtaQueryChallenge challenge;
+        challenge.jobId = ota_request_json::stringField(root, "jobId");
+        challenge.machineCode = ota_request_json::stringField(root, "machineCode");
+        challenge.nonce = ota_request_json::stringField(root, "nonce");
+        challenge.version = ota_request_json::stringField(root, "version");
+        challenge.artifactSha256 = ota_request_json::stringField(root, "artifactSha256");
+        challenge.artifactSize = decimal("artifactSize");
+        challenge.candidateSha256 = ota_request_json::stringField(root, "candidateSha256");
+        const auto issuedAtMs = decimal("issuedAtMs");
+        const auto expiresAtMs = decimal("expiresAtMs");
+        challenge.signature = ota_request_json::stringField(root, "signature");
+        if (challenge.artifactSize > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+            issuedAtMs > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+            expiresAtMs > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+            challenge.machineCode != mqttConfig_.topicMachineCode ||
+            machineCodes_.find(challenge.machineCode) == machineCodes_.end()) return;
+        challenge.issuedAtMs = static_cast<std::int64_t>(issuedAtMs);
+        challenge.expiresAtMs = static_cast<std::int64_t>(expiresAtMs);
+        const auto observation = otaService_->answerOriginalJobQuery(challenge, challenge.machineCode);
+        const auto field = [](const std::string& value) { return "\"" + escapeJson(value) + "\""; };
+        std::ostringstream encoded;
+        encoded << "{\"format\":\"edge-original-job-query-response-v1\",\"jobId\":" << field(observation.jobId)
+            << ",\"machineCode\":" << field(observation.machineCode)
+            << ",\"nonce\":" << field(observation.nonce)
+            << ",\"outcome\":" << field(observation.outcome)
+            << ",\"occurrenceId\":" << field(observation.occurrenceId)
+            << ",\"version\":" << field(observation.version)
+            << ",\"artifactSha256\":" << field(observation.artifactSha256)
+            << ",\"artifactSize\":" << field(std::to_string(observation.artifactSize))
+            << ",\"candidateSha256\":" << field(observation.candidateSha256)
+            << ",\"transaction\":" << field(observation.transaction)
+            << ",\"intentSha256\":" << field(observation.intentSha256)
+            << ",\"healthSha256\":" << field(observation.healthSha256)
+            << ",\"healthTs\":" << field(std::to_string(observation.healthTs))
+            << ",\"signature\":" << field(observation.signature) << '}';
+        publisher_->publishJsonMessage(mqttConfig_.otaQueryReplyTopic, encoded.str());
+    } catch (const std::exception&) {
+        // Authentication and evidence failures must not become OTA execution replies.
+    }
 }
 
 void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::int64_t nowMs) {

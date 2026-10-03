@@ -1535,6 +1535,8 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
     config.otaRequestTopic = requireString(object, "otaRequestTopic", config.otaRequestTopic);
     config.otaReplyTopic = requireString(object, "otaReplyTopic", config.otaReplyTopic);
     config.otaStatusTopic = requireString(object, "otaStatusTopic", config.otaStatusTopic);
+    config.otaQueryRequestTopic = requireString(object, "otaQueryRequestTopic", config.otaQueryRequestTopic);
+    config.otaQueryReplyTopic = requireString(object, "otaQueryReplyTopic", config.otaQueryReplyTopic);
     config.systemMonitorRequestTopic = requireString(object, "systemMonitorRequestTopic", config.systemMonitorRequestTopic);
     config.systemMonitorReplyTopic = requireString(object, "systemMonitorReplyTopic", config.systemMonitorReplyTopic);
     config.systemMonitorTelemetryTopic = requireString(object, "systemMonitorTelemetryTopic", config.systemMonitorTelemetryTopic);
@@ -2062,6 +2064,8 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "otaRequestTopic",
         "otaReplyTopic",
         "otaStatusTopic",
+        "otaQueryRequestTopic",
+        "otaQueryReplyTopic",
         "systemMonitorRequestTopic",
         "systemMonitorReplyTopic",
         "diagRequestTopic",
@@ -3184,6 +3188,7 @@ OtaConfig parseOtaConfig(const JsonValue* value) {
     config.checksumRequired = requireBool(object, "checksumRequired", config.checksumRequired);
     config.requireSignature = requireBool(object, "requireSignature", config.requireSignature);
     config.signaturePublicKeyPath = requireString(object, "signaturePublicKeyPath", config.signaturePublicKeyPath);
+    config.querySigningPrivateKeyPath = requireString(object, "querySigningPrivateKeyPath", config.querySigningPrivateKeyPath);
     config.allowInsecureHttp = requireBool(object, "allowInsecureHttp", config.allowInsecureHttp);
     config.autoReboot = requireBool(object, "autoReboot", config.autoReboot);
     config.retentionCount = requireInt(object, "retentionCount", config.retentionCount);
@@ -3936,6 +3941,8 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.mqtt.otaRequestTopic = "edge/ota/request";
     config.mqtt.otaReplyTopic = "edge/ota/reply";
     config.mqtt.otaStatusTopic = "edge/ota/status";
+    config.mqtt.otaQueryRequestTopic = "edge/ota/query/request";
+    config.mqtt.otaQueryReplyTopic = "edge/ota/query/reply";
     config.mqtt.systemMonitorRequestTopic = "edge/system/monitor/request";
     config.mqtt.systemMonitorReplyTopic = "edge/system/monitor/reply";
     config.mqtt.systemMonitorTelemetryTopic = "edge/system/monitor/telemetry";

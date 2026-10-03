@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/ota_query_protocol.hpp"
 
 namespace edge_gateway {
 
@@ -85,6 +86,8 @@ public:
     OtaOriginalJobEvidence readOriginalJob(const std::string& jobId,
                                           const std::string& expectedMachineCode,
                                           const std::string& expectedOccurrenceId) const;
+    OtaQueryObservation answerOriginalJobQuery(const OtaQueryChallenge& challenge,
+                                               const std::string& expectedMachineCode) const;
     OtaReadOnlyFinalStatuses loadFinalStatusesReadOnly(
         std::size_t displayReadBudget = 64 * 1024 * 1024) const;
     void clearPendingStatuses() const;

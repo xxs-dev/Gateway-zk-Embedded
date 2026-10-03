@@ -395,6 +395,7 @@ struct OtaStatus {
 enum class MqttIncomingType {
     CommandRequest,
     OtaRequest,
+    OtaQueryRequest,
     RealtimeRequest,
     SystemMonitorRequest,
     DiagRequest,
@@ -738,6 +739,8 @@ struct MqttConfig {
     std::string otaRequestTopic = "edge/ota/request";
     std::string otaReplyTopic = "edge/ota/reply";
     std::string otaStatusTopic = "edge/ota/status";
+    std::string otaQueryRequestTopic = "edge/ota/query/request";
+    std::string otaQueryReplyTopic = "edge/ota/query/reply";
     std::string systemMonitorRequestTopic = "edge/system/monitor/request";
     std::string systemMonitorReplyTopic = "edge/system/monitor/reply";
     std::string systemMonitorTelemetryTopic = "edge/system/monitor/telemetry";
@@ -1312,6 +1315,8 @@ struct OtaConfig {
     // the key whose public half is at signaturePublicKeyPath.
     bool requireSignature = true;
     std::string signaturePublicKeyPath = "/etc/modbus-gateway/ota.pub";
+    // Provisioned independently of the platform's OTA installation signing key.
+    std::string querySigningPrivateKeyPath;
     // Plain http:// artifact sources are refused unless explicitly allowed.
     bool allowInsecureHttp = false;
     bool autoReboot = true;

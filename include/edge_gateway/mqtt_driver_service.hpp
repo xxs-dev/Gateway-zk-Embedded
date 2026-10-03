@@ -125,6 +125,7 @@ private:
     bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs, bool durableControl);
     bool admitMailboxCommand(const std::string& meterCode, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
+    void handleOtaQueryRequest(const std::string& payload);
     void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
     void processRealtimeRequest(const std::string& payload, std::int64_t nowMs, bool& admitted);
     void startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs);

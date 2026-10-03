@@ -1,5 +1,6 @@
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/json_value.hpp"
+#include "edge_gateway/ota_query_crypto.hpp"
 #include "ota_query_sha256.hpp"
 
 #include <algorithm>
@@ -2518,6 +2519,51 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId,
     if (evidence.machineCode != expectedMachineCode ||
         evidence.occurrenceId != expectedOccurrenceId) return result;
     return evidence;
+}
+
+OtaQueryObservation OtaService::answerOriginalJobQuery(
+    const OtaQueryChallenge& challenge, const std::string& expectedMachineCode) const {
+    ota_query_protocol::validate(challenge);
+    if (!config_.requireSignature || config_.querySigningPrivateKeyPath.empty() ||
+        challenge.machineCode != expectedMachineCode ||
+        !ota_query_crypto::verifyChallenge(challenge, config_.signaturePublicKeyPath))
+        throw std::runtime_error("OTA query request not authenticated");
+    const auto now = currentTimeMs();
+    if (challenge.issuedAtMs > now + 30000 || challenge.expiresAtMs <= now)
+        throw std::runtime_error("OTA query request expired");
+
+    OtaQueryObservation result;
+    result.jobId = challenge.jobId;
+    result.machineCode = challenge.machineCode;
+    result.nonce = challenge.nonce;
+    const auto evidence = readOriginalJob(challenge.jobId);
+    result.outcome = "UNKNOWN";
+    const bool sameArtifact = evidence.machineCode == challenge.machineCode &&
+        evidence.version == challenge.version &&
+        evidence.artifactSha256 == challenge.artifactSha256 &&
+        evidence.artifactSize == challenge.artifactSize;
+    const bool committedProduction = evidence.outcome == "HEALTHY_APPLIED" ||
+        evidence.outcome == "FAILED_ROLLED_BACK";
+    const bool candidateBound = evidence.productionCandidateSha256 == challenge.candidateSha256 &&
+        evidence.productionTransaction == "OTA_" +
+            ota_query_detail::sha256Hex(challenge.jobId + evidence.occurrenceId).substr(0, 32);
+    if (sameArtifact && (evidence.outcome == "REJECTED_UNCHANGED" ||
+        (committedProduction && candidateBound))) {
+        result.outcome = evidence.outcome;
+        result.occurrenceId = evidence.occurrenceId;
+        result.version = evidence.version;
+        result.artifactSha256 = evidence.artifactSha256;
+        result.artifactSize = evidence.artifactSize;
+        result.intentSha256 = evidence.intentSha256;
+        result.healthSha256 = evidence.healthSha256;
+        result.healthTs = evidence.healthTs;
+        if (committedProduction) {
+            result.candidateSha256 = evidence.productionCandidateSha256;
+            result.transaction = evidence.productionTransaction;
+        }
+    }
+    result.signature = ota_query_crypto::signObservation(result, config_.querySigningPrivateKeyPath);
+    return result;
 }
 
 OtaReadOnlyFinalStatuses OtaService::loadFinalStatusesReadOnly(
