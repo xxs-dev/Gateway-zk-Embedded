@@ -23,7 +23,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -931,7 +930,8 @@ std::string otaStatusLine(const edge_gateway::OtaStatus& status) {
     return out.str();
 }
 
-using OtaDisplayKey = std::tuple<std::string, std::string, std::string>;
+// Progress occurrenceId identifies an event, not the execution. This key is display-only.
+using OtaDisplayKey = std::pair<std::string, std::string>;
 
 std::optional<OtaDisplayKey> otaDisplayKey(const std::string& line) {
     try {
@@ -939,17 +939,15 @@ std::optional<OtaDisplayKey> otaDisplayKey(const std::string& line) {
         if (!value.isObject()) return std::nullopt;
         std::map<std::string, std::string> fields;
         for (const auto& member : value.asObject().values) {
-            if (member.key != "jobId" && member.key != "machineCode" &&
-                member.key != "occurrenceId") continue;
+            if (member.key != "jobId" && member.key != "machineCode") continue;
             if (!member.value || !member.value->isString() ||
                 !fields.emplace(member.key, member.value->asString()).second)
                 return std::nullopt;
         }
-        if (fields.size() != 3 || fields.at("jobId").empty() || fields.at("jobId").size() > 128 ||
-            fields.at("machineCode").empty() || fields.at("machineCode").size() > 128 ||
-            fields.at("occurrenceId").size() != 36) return std::nullopt;
-        return OtaDisplayKey{fields.at("jobId"), fields.at("machineCode"),
-            fields.at("occurrenceId")};
+        if (fields.size() != 2 || fields.at("jobId").empty() || fields.at("jobId").size() > 128 ||
+            fields.at("machineCode").empty() || fields.at("machineCode").size() > 128)
+            return std::nullopt;
+        return OtaDisplayKey{fields.at("jobId"), fields.at("machineCode")};
     } catch (const std::exception&) { return std::nullopt; }
 }
 
@@ -2801,7 +2799,7 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
         truncated = truncated || listing.truncated;
         std::set<OtaDisplayKey> terminalIds;
         for (const auto& item : listing.terminalJobs)
-            terminalIds.emplace(item.jobId, item.machineCode, item.occurrenceId);
+            terminalIds.emplace(item.jobId, item.machineCode);
         lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const std::string& item) {
             const auto key = otaDisplayKey(item);
             return key && terminalIds.count(*key) != 0;

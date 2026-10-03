@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <sstream>
 #include <string>
@@ -873,6 +874,37 @@ void verifyDirectStatusPureRead() {
     const std::string root(created);
     require(root.rfind("/tmp/ota-m3-local-direct-", 0) == 0, "Direct fixture escaped /tmp");
     try {
+        const auto emissionRoot = root + "/emission";
+        require(mkdir(emissionRoot.c_str(), 0700) == 0, "cannot create private emission fixture");
+        auto emissionConfig = lifecycleConfig(emissionRoot);
+        writeFixtureFile(emissionRoot + "/source.tar.gz", "payload");
+        writeFixtureFile(emissionConfig.applyScript, "#!/bin/sh\nexit 4\n");
+        require(chmod(emissionConfig.applyScript.c_str(), 0700) == 0,
+            "cannot mark private emission script executable");
+        edge_gateway::OtaRequest emissionRequest;
+        emissionRequest.jobId = "EMISSION_JOB";
+        emissionRequest.version = "2.0.0";
+        emissionRequest.artifactUrl = emissionRoot + "/source.tar.gz";
+        edge_gateway::OtaReply emissionReply;
+        edge_gateway::OtaStatus emissionStatus;
+        std::vector<edge_gateway::OtaStatus> emitted;
+        try {
+            edge_gateway::OtaService(emissionConfig).execute(emissionRequest, "GW_TEST", 1000,
+                &emissionReply, &emissionStatus,
+                [&](const edge_gateway::OtaStatus& progress) { emitted.push_back(progress); });
+        } catch (const std::exception&) { }
+        const auto emissionIntent = edge_gateway::json::JsonParser(
+            readFile(emissionConfig.stagingDir + "/ota_job_EMISSION_JOB.json"), 4, 32).parse();
+        const auto executionToken = emissionIntent.find("token")->asString();
+        std::set<std::string> eventIds;
+        for (const auto& progress : emitted) {
+            if (progress.stage == "completed" || progress.stage == "failed") continue;
+            require(progress.jobId == emissionRequest.jobId && progress.machineCode == "GW_TEST" &&
+                progress.occurrenceId.size() == 36 && progress.occurrenceId != executionToken,
+                "real status callback reused execution token as an event ID");
+            eventIds.insert(progress.occurrenceId);
+        }
+        require(eventIds.size() >= 2, "real status callback did not produce distinct event IDs");
         const auto staging = root + "/staging";
         require(mkdir(staging.c_str(), 0700) == 0, "cannot create private Direct staging");
         const std::string token = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -892,8 +924,7 @@ void verifyDirectStatusPureRead() {
         direct.otaAppConfigFile = appConfig;
         direct.otaStatusFile = root + "/status.jsonl";
         writeFixtureFile(direct.otaStatusFile,
-            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" + token +
-            "\",\"stage\":\"applying\"}\n"
+            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n"
             "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" +
             newerToken + "\",\"stage\":\"downloading\"}\n");
         const auto snapshot = [&] {
@@ -966,8 +997,7 @@ void verifyDirectStatusPureRead() {
             oversizedSmall.size() < 64 * 1024 && snapshot() == before,
             "status-file oversize was confused with directory truncation or mutated state");
         writeFixtureFile(direct.otaStatusFile,
-            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" + token +
-            "\",\"stage\":\"applying\"}\n"
+            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n"
             "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" +
             newerToken + "\",\"stage\":\"downloading\"}\n");
         for (int i = 0; i < 110; ++i) {
@@ -986,15 +1016,20 @@ void verifyDirectStatusPureRead() {
                 "jobId=" + jobId + "\ntoken=" + token + "\nstatus=completed\n");
         }
         std::ostringstream progressLog;
-        progressLog << "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\""
-            << token << "\",\"stage\":\"applying\"}\n";
-        progressLog << "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\""
-            << "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-            << "\",\"stage\":\"verifying\",\"message\":\"foreign-occurrence\"}\n";
-        for (int i = 0; i < 105; ++i)
+        progressLog << "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n";
+        progressLog << "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\","
+            "\"stage\":\"verifying\",\"message\":\"old-no-occurrence\"}\n";
+        progressLog << "{\"jobId\":\"OTHER_JOB\",\"machineCode\":\"GW_TEST\","
+            "\"stage\":\"applying\",\"message\":\"other-job\"}\n";
+        progressLog << "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_OTHER\","
+            "\"stage\":\"applying\",\"message\":\"other-machine\"}\n";
+        for (int i = 0; i < 105; ++i) {
+            const auto digits = std::to_string(i);
+            const auto eventId = "bbbbbbbb-bbbb-4ccc-8ddd-" + std::string(12 - digits.size(), '0') + digits;
             progressLog << "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\""
-                << newerToken << "\",\"stage\":\"downloading\",\"message\":\"event-" << i
+                << eventId << "\",\"stage\":\"downloading\",\"message\":\"event-" << i
                 << "\",\"ts\":" << 3000 + i << "}\n";
+        }
         writeFixtureFile(direct.otaStatusFile, progressLog.str());
         const auto manyBefore = snapshot();
         const auto progressBefore = readFile(direct.otaStatusFile);
@@ -1007,10 +1042,12 @@ void verifyDirectStatusPureRead() {
             many.find("\"jobId\":\"JOB_1010\"") == std::string::npos &&
             many.find("\"jobId\":\"NEWER_JOB\"") != std::string::npos &&
             many.find("\"stage\":\"downloading\"") != std::string::npos &&
-            many.find("foreign-occurrence") != std::string::npos &&
+            many.find("other-job") != std::string::npos &&
+            many.find("other-machine") != std::string::npos &&
+            many.find("old-no-occurrence") == std::string::npos &&
             many.find("event-104") != std::string::npos &&
             many.find("event-103") == std::string::npos &&
-            many.find("\"stage\":\"applying\"") == std::string::npos &&
+            many.find("\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"") == std::string::npos &&
             snapshot() == manyBefore && readFile(direct.otaStatusFile) == progressBefore,
             "Direct did not preserve latest active progress and a bounded terminal page");
         for (int i = 0; i < 3800; ++i)
