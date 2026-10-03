@@ -1634,6 +1634,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         probe = os.environ.get('OTA_QUERY_OWNER_PROBE_BIN')
         if probe:
             staging = str(owner.root)
+            health_path = owner.root / ('health_' + owner.job + '.txt')
             def home_files():
                 return {str(path.relative_to(self.home)): self.m.digest(path)
                         for path in self.home.rglob('*') if path.is_file() and not path.is_symlink()}
@@ -1645,9 +1646,25 @@ class ProductionRuntimeTest(unittest.TestCase):
                                            stderr=subprocess.PIPE, text=True)
                 output, error = process.communicate(timeout=30)
                 self.assertEqual(process.returncode, 0, error)
+                if args[0] == '--reconcile-existing':
+                    marker = (owner.root / 'current_version.txt').read_text()
+                    self.assertIn('backupDir=' + str(self.home / 'ota/backup' / owner.job), marker)
+                    self.assertNotIn('backupDir=/opt/modbus-gateway/ota/backup', marker)
                 if args[0] == '--read-existing':
-                    self.assertEqual(output.strip().split(),
-                                     ['HEALTHY_APPLIED', transaction_id, state['candidateSha256']])
+                    self.assertEqual(json.loads(output), {
+                        'outcome': 'HEALTHY_APPLIED',
+                        'jobId': owner.job,
+                        'machineCode': intent['machineCode'],
+                        'occurrenceId': owner.token,
+                        'version': intent['version'],
+                        'artifactSha256': self.m.digest(self.root / 'release.tar.gz'),
+                        'artifactSize': (self.root / 'release.tar.gz').stat().st_size,
+                        'transaction': transaction_id,
+                        'candidateSha256': state['candidateSha256'],
+                        'intentSha256': self.m.digest(owner.intent_path),
+                        'healthSha256': self.m.digest(health_path),
+                        'healthTs': int(health['ts']),
+                    })
                     self.assertEqual(home_files(), before_read)
                     print('owner-native original-job proof:', output.strip())
             export = os.environ.get('OTA_QUERY_OWNER_EVIDENCE_DIR')

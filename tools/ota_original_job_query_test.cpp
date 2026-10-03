@@ -33,6 +33,24 @@ std::map<std::string, std::string> tree(const std::string& path) {
     return result;
 }
 
+edge_gateway::OtaConfig privateOwnerConfig(const std::string& staging) {
+    const std::filesystem::path stage(staging);
+    const auto home = stage.parent_path().parent_path();
+    require(stage.is_absolute() && stage.filename() == "staging" &&
+        stage.parent_path().filename() == "ota" &&
+        home.string().rfind("/tmp/production-runtime-", 0) == 0,
+        "owner probe escaped private fixture home");
+    edge_gateway::OtaConfig config;
+    config.stagingDir = staging;
+    config.downloadDir = (home / "ota/downloads").string();
+    config.backupDir = (home / "ota/backup").string();
+    config.applyScript = (home / "bin/offline-runtime-upgrade.py").string();
+    config.rollbackScript = (home / "bin/ota-rollback.sh").string();
+    config.signaturePublicKeyPath =
+        (home.parent_path().parent_path() / "etc/modbus-gateway/ota.pub").string();
+    return config;
+}
+
 void check(const std::string& root) {
     using namespace edge_gateway;
     const auto duplicate = json::JsonParser("{\"nested\":{\"value\":\"first\",\"value\":\"second\"}}", 4, 8).parse();
@@ -354,18 +372,14 @@ int main(int argc, char** argv) {
         if (geteuid() != 0) throw std::runtime_error("root-owned private fixture required");
         if (argc >= 2 && std::string(argv[1]) == "--reconcile-existing") {
             require(argc == 4, "reconcile-existing requires staging and job");
-            edge_gateway::OtaConfig config;
-            config.stagingDir = argv[2];
-            edge_gateway::OtaService service(config);
+            edge_gateway::OtaService service(privateOwnerConfig(argv[2]));
             service.reconcilePendingJobs();
             std::cout << "reconciled " << argv[3] << '\n';
             return 0;
         }
         if (argc >= 2 && std::string(argv[1]) == "--read-existing") {
             require(argc == 6, "read-existing requires staging, job, machine and token");
-            edge_gateway::OtaConfig config;
-            config.stagingDir = argv[2];
-            edge_gateway::OtaService service(config);
+            edge_gateway::OtaService service(privateOwnerConfig(argv[2]));
             const auto proof = service.readOriginalJob(argv[3], argv[4], argv[5]);
             require(proof.outcome == "HEALTHY_APPLIED" && proof.jobId == argv[3] &&
                 proof.machineCode == argv[4] && proof.occurrenceId == argv[5] &&
@@ -373,8 +387,18 @@ int main(int argc, char** argv) {
                 proof.productionCandidateSha256.size() == 64 &&
                 proof.intentSha256.size() == 64 && proof.healthSha256.size() == 64,
                 "owner result did not resolve into bound original-job proof");
-            std::cout << proof.outcome << ' ' << proof.productionTransaction << ' '
-                << proof.productionCandidateSha256 << '\n';
+            std::cout << "{\"outcome\":" << edge_gateway::pendingJsonString(proof.outcome)
+                << ",\"jobId\":" << edge_gateway::pendingJsonString(proof.jobId)
+                << ",\"machineCode\":" << edge_gateway::pendingJsonString(proof.machineCode)
+                << ",\"occurrenceId\":" << edge_gateway::pendingJsonString(proof.occurrenceId)
+                << ",\"version\":" << edge_gateway::pendingJsonString(proof.version)
+                << ",\"artifactSha256\":" << edge_gateway::pendingJsonString(proof.artifactSha256)
+                << ",\"artifactSize\":" << proof.artifactSize
+                << ",\"transaction\":" << edge_gateway::pendingJsonString(proof.productionTransaction)
+                << ",\"candidateSha256\":" << edge_gateway::pendingJsonString(proof.productionCandidateSha256)
+                << ",\"intentSha256\":" << edge_gateway::pendingJsonString(proof.intentSha256)
+                << ",\"healthSha256\":" << edge_gateway::pendingJsonString(proof.healthSha256)
+                << ",\"healthTs\":" << proof.healthTs << "}\n";
             return 0;
         }
         require(argc == 1, "unknown original-job query selector");
