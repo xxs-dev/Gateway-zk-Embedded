@@ -1629,6 +1629,27 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertEqual(health['productionCandidateSha256'], state['candidateSha256'])
         self.assertEqual(result['completionProof']['healthSha256'],
                          self.m.digest(owner.root / ('health_' + owner.job + '.txt')))
+        intent = self.g.production_json(owner.intent_path)
+        self.assertEqual(intent['artifactSha256'], self.m.digest(self.root / 'release.tar.gz'))
+        probe = os.environ.get('OTA_QUERY_OWNER_PROBE_BIN')
+        if probe:
+            staging = str(owner.root)
+            def home_files():
+                return {str(path.relative_to(self.home)): self.m.digest(path)
+                        for path in self.home.rglob('*') if path.is_file() and not path.is_symlink()}
+            for args in (('--reconcile-existing', staging, owner.job),
+                         ('--read-existing', staging, owner.job,
+                          previous['machineCode'], owner.token)):
+                before_read = home_files() if args[0] == '--read-existing' else None
+                process = subprocess.Popen([probe, *args], stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True)
+                output, error = process.communicate(timeout=30)
+                self.assertEqual(process.returncode, 0, error)
+                if args[0] == '--read-existing':
+                    self.assertEqual(output.strip().split(),
+                                     ['HEALTHY_APPLIED', transaction_id, state['candidateSha256']])
+                    self.assertEqual(home_files(), before_read)
+                    print('owner-native original-job proof:', output.strip())
         with self.assertRaisesRegex(ValueError, 'original job/token changed'):
             entry.production_ota_finish(owner, 'OTA_' + '0' * 32, 'healthy', 'none')
         terminal_bytes = (owner.root / ('health_' + owner.job + '.txt')).read_bytes()

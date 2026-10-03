@@ -349,9 +349,35 @@ void check(const std::string& root) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
         if (geteuid() != 0) throw std::runtime_error("root-owned private fixture required");
+        if (argc >= 2 && std::string(argv[1]) == "--reconcile-existing") {
+            require(argc == 4, "reconcile-existing requires staging and job");
+            edge_gateway::OtaConfig config;
+            config.stagingDir = argv[2];
+            edge_gateway::OtaService service(config);
+            service.reconcilePendingJobs();
+            std::cout << "reconciled " << argv[3] << '\n';
+            return 0;
+        }
+        if (argc >= 2 && std::string(argv[1]) == "--read-existing") {
+            require(argc == 6, "read-existing requires staging, job, machine and token");
+            edge_gateway::OtaConfig config;
+            config.stagingDir = argv[2];
+            edge_gateway::OtaService service(config);
+            const auto proof = service.readOriginalJob(argv[3], argv[4], argv[5]);
+            require(proof.outcome == "HEALTHY_APPLIED" && proof.jobId == argv[3] &&
+                proof.machineCode == argv[4] && proof.occurrenceId == argv[5] &&
+                proof.productionTransaction.rfind("OTA_", 0) == 0 &&
+                proof.productionCandidateSha256.size() == 64 &&
+                proof.intentSha256.size() == 64 && proof.healthSha256.size() == 64,
+                "owner result did not resolve into bound original-job proof");
+            std::cout << proof.outcome << ' ' << proof.productionTransaction << ' '
+                << proof.productionCandidateSha256 << '\n';
+            return 0;
+        }
+        require(argc == 1, "unknown original-job query selector");
         char pattern[] = "/tmp/ota-m3-local-query-XXXXXX";
         const char* created = mkdtemp(pattern);
         require(created != nullptr, "private root creation failed");
