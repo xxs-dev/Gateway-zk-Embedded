@@ -286,21 +286,9 @@ std::vector<std::uint8_t> buildPublishPacket(
 
 std::vector<std::uint8_t> buildSubscribePacket(
     const MqttConfig& config,
-    const std::string& commandTopic,
-    const std::string& otaTopic,
-    const std::string& realtimeRequestTopic,
-    const std::string& systemMonitorTopic,
-    const std::string& diagTopic,
-    const std::string& configPullTopic,
-    const std::string& configApplyTopic,
-    const std::string& configDeleteTopic,
-    const std::string& configRestoreTopic,
-    const std::string& recordingRequestTopic,
-    const std::string& recordingAckTopic,
+    const std::vector<std::pair<std::string, std::uint8_t>>& topics,
     std::uint16_t packetId
 ) {
-    const auto normalQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config.qos)));
-    const auto controlQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config.controlQos)));
     std::vector<std::uint8_t> variableHeader;
     variableHeader.push_back(static_cast<std::uint8_t>((packetId >> 8) & 0xFF));
     variableHeader.push_back(static_cast<std::uint8_t>(packetId & 0xFF));
@@ -309,49 +297,10 @@ std::vector<std::uint8_t> buildSubscribePacket(
     }
 
     std::vector<std::uint8_t> payload;
-    if (!commandTopic.empty()) {
-        appendString(payload, commandTopic);
-        payload.push_back(controlQos);
-    }
-    if (!otaTopic.empty()) {
-        appendString(payload, otaTopic);
-        payload.push_back(controlQos);
-    }
-    if (!realtimeRequestTopic.empty()) {
-        appendString(payload, realtimeRequestTopic);
-        payload.push_back(normalQos);
-    }
-    if (!systemMonitorTopic.empty()) {
-        appendString(payload, systemMonitorTopic);
-        payload.push_back(normalQos);
-    }
-    if (!diagTopic.empty()) {
-        appendString(payload, diagTopic);
-        payload.push_back(controlQos);
-    }
-    if (!configPullTopic.empty()) {
-        appendString(payload, configPullTopic);
-        payload.push_back(normalQos);
-    }
-    if (!configApplyTopic.empty()) {
-        appendString(payload, configApplyTopic);
-        payload.push_back(controlQos);
-    }
-    if (!configDeleteTopic.empty()) {
-        appendString(payload, configDeleteTopic);
-        payload.push_back(controlQos);
-    }
-    if (!configRestoreTopic.empty()) {
-        appendString(payload, configRestoreTopic);
-        payload.push_back(controlQos);
-    }
-    if (!recordingRequestTopic.empty()) {
-        appendString(payload, recordingRequestTopic);
-        payload.push_back(controlQos);
-    }
-    if (!recordingAckTopic.empty()) {
-        appendString(payload, recordingAckTopic);
-        payload.push_back(controlQos);
+    for (const auto& topic : topics) {
+        if (topic.first.empty()) continue;
+        appendString(payload, topic.first);
+        payload.push_back(topic.second);
     }
 
     std::vector<std::uint8_t> packet;
@@ -1787,7 +1736,7 @@ void validateSubAck(
     const std::vector<std::uint8_t>& packet,
     std::uint16_t expectedPacketId,
     bool mqtt5,
-    const std::vector<std::string>& topics,
+    const std::vector<std::pair<std::string, std::uint8_t>>& topics,
     const std::string& commandTopic
 ) {
     if (packet.empty() || (packet[0] & 0xF0) != kPacketSubAck) {
@@ -1827,8 +1776,10 @@ void validateSubAck(
     }
     std::vector<std::string> sent;
     for (const auto& topic : topics) {
-        if (!topic.empty()) sent.push_back(topic);
+        if (!topic.first.empty()) sent.push_back(topic.first);
     }
+    if (end - cursor != sent.size())
+        throw std::runtime_error("mqtt suback return code count mismatch");
     std::size_t rejected = 0;
     std::string rejectedTopics;
     const auto codes = end - cursor;
@@ -3227,34 +3178,31 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
         const auto subscribePacketId = nextPacketIdentifier();
         validateConnAck(config_, readPacket(connection, incomingPacketLimit(config_), deadline));
 
-        const std::vector<std::string> topics = {
-            config_.commandRequestTopicMachineScoped
+        const auto normalQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config_.qos)));
+        const auto controlQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config_.controlQos)));
+        const std::vector<std::pair<std::string, std::uint8_t>> topics = {
+            {config_.commandRequestTopicMachineScoped
                 ? scopedTopic(config_.commandRequestTopic, config_.topicMachineCode)
-                : config_.commandRequestTopic,
-            scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.otaQueryRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.realtimeRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.configApplyRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.configDeleteRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.configRestoreRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.recordingRequestTopic, config_.topicMachineCode),
-            scopedTopic(config_.recordingAckTopic, config_.topicMachineCode)
+                : config_.commandRequestTopic, controlQos},
+            {scopedTopic(config_.otaRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.otaQueryRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.realtimeRequestTopic, config_.topicMachineCode), normalQos},
+            {scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode), normalQos},
+            {scopedTopic(config_.diagRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode), normalQos},
+            {scopedTopic(config_.configApplyRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.configDeleteRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.configRestoreRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.recordingRequestTopic, config_.topicMachineCode), controlQos},
+            {scopedTopic(config_.recordingAckTopic, config_.topicMachineCode), controlQos}
         };
         sendAll(
             connection,
-            buildSubscribePacket(
-                config_,
-                topics[0], topics[1], topics[2], topics[3], topics[4], topics[5],
-                topics[6], topics[7], topics[8], topics[9], topics[10],
-                subscribePacketId
-            ),
+            buildSubscribePacket(config_, topics, subscribePacketId),
             deadline
         );
         validateSubAck(readPacket(connection, incomingPacketLimit(config_), deadline),
-            subscribePacketId, config_.protocolVersion == "mqtt5", topics, topics[0]);
+            subscribePacketId, config_.protocolVersion == "mqtt5", topics, topics[0].first);
     } catch (...) {
         recordConnectResult(rxBackoff_, false);
         throw;

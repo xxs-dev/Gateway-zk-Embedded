@@ -108,6 +108,22 @@ std::vector<std::uint8_t> readMqttPacket(int fd) {
     return packet;
 }
 
+std::size_t subscribeTopicCount(const std::vector<std::uint8_t>& packet) {
+    require(!packet.empty() && packet[0] == 0x82, "test broker expected SUBSCRIBE");
+    std::size_t cursor = 1;
+    while ((packet.at(cursor++) & 0x80) != 0) {}
+    cursor += 2;  // Packet identifier; existing scripted brokers use MQTT3.
+    std::size_t count = 0;
+    while (cursor < packet.size()) {
+        const auto length = std::size_t(packet.at(cursor) << 8 | packet.at(cursor + 1));
+        cursor += 2;
+        require(cursor + length < packet.size(), "test broker subscribe topic truncated");
+        cursor += length + 1;
+        ++count;
+    }
+    return count;
+}
+
 std::string packetTopic(const std::vector<std::uint8_t>& packet) {
     std::size_t cursor = 1;
     while (cursor < packet.size() && (packet[cursor++] & 0x80) != 0) {
@@ -986,10 +1002,13 @@ private:
     static void sendSubAck(int fd, const std::vector<std::uint8_t>& subscribe) {
         const auto body = bodyOffset(subscribe);
         require(body + 2 <= subscribe.size(), "reconnect broker subscribe id missing");
-        const std::uint8_t subAck[] = {
-            0x90, 0x03, subscribe[body], subscribe[body + 1], 0x01
-        };
-        send(fd, subAck, sizeof(subAck), 0);
+        std::vector<std::uint8_t> subAck{0x90};
+        const auto count = subscribeTopicCount(subscribe);
+        appendRemainingLength(subAck, 2 + count);
+        subAck.push_back(subscribe[body]);
+        subAck.push_back(subscribe[body + 1]);
+        subAck.insert(subAck.end(), count, 0x01);
+        send(fd, subAck.data(), subAck.size(), 0);
     }
 
     void run() {
@@ -1061,9 +1080,15 @@ void testSubscriberSubAckAndOversizedPublish() {
                 while ((subscribe[idOffset++] & 0x80) != 0) {}
                 // Scenario 0: command topic (first) denied. Scenario 1: only the
                 // optional OTA topic (second) denied, which must not stop ingress.
-                const std::uint8_t subAck[] = {0x90, 0x04, subscribe[idOffset], subscribe[idOffset + 1],
-                    static_cast<std::uint8_t>(scenario == 0 ? 0x80 : 0x01), 0x80};
-                send(fd, subAck, sizeof(subAck), 0);
+                const auto count = subscribeTopicCount(subscribe);
+                std::vector<std::uint8_t> subAck{0x90};
+                appendRemainingLength(subAck, 2 + count);
+                subAck.push_back(subscribe[idOffset]);
+                subAck.push_back(subscribe[idOffset + 1]);
+                for (std::size_t i = 0; i < count; ++i)
+                    subAck.push_back((scenario == 0 && i == 0) || (scenario == 1 && i == 1)
+                        ? 0x80 : 0x01);
+                send(fd, subAck.data(), subAck.size(), 0);
                 if (scenario == 1) {
                     const auto qos1 = [](std::vector<std::uint8_t> packet, std::uint16_t id) {
                         // Rebuild as QoS1 with a packet identifier after the topic.
@@ -1122,6 +1147,107 @@ void testSubscriberSubAckAndOversizedPublish() {
             require(acked.size() == 2 && acked[0] == 7 && acked[1] == 8,
                     "oversized and normal QoS1 publishes must both be acknowledged");
         }
+    }
+}
+
+void testSubscribeWireAndSubAckCount() {
+    for (int scenario = 0; scenario < 4; ++scenario) {
+        const bool mqtt5 = scenario == 1 || scenario == 3;
+        const bool shortAck = scenario == 2;
+        const bool extraAck = scenario == 3;
+        const int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+        require(listenFd >= 0, "subscribe wire socket failed");
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        require(bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0,
+            "subscribe wire bind failed");
+        socklen_t len = sizeof(addr);
+        require(getsockname(listenFd, reinterpret_cast<sockaddr*>(&addr), &len) == 0,
+            "subscribe wire port failed");
+        require(listen(listenFd, 1) == 0, "subscribe wire listen failed");
+        edge_gateway::MqttConfig config;
+        config.broker = "tcp://127.0.0.1:" + std::to_string(ntohs(addr.sin_port));
+        config.clientId = "GW_WIRE";
+        config.topicMachineCode = "GW_WIRE";
+        config.protocolVersion = mqtt5 ? "mqtt5" : "mqtt3";
+        config.qos = 1;
+        config.controlQos = 2;
+        config.offlineBufferEnabled = false;
+        config.connectTimeoutMs = 2000;
+        if (scenario == 1) {
+            config.diagRequestTopic.clear();
+            config.configDeleteRequestTopic.clear();
+        }
+        const auto scoped = [](const std::string& topic) {
+            return topic.empty() ? topic : topic + "/GW_WIRE";
+        };
+        const std::vector<std::pair<std::string, std::uint8_t>> expected = {
+            {scoped(config.commandRequestTopic), 2}, {scoped(config.otaRequestTopic), 2},
+            {scoped(config.otaQueryRequestTopic), 2}, {scoped(config.realtimeRequestTopic), 1},
+            {scoped(config.systemMonitorRequestTopic), 1}, {scoped(config.diagRequestTopic), 2},
+            {scoped(config.configPullRequestTopic), 1}, {scoped(config.configApplyRequestTopic), 2},
+            {scoped(config.configDeleteRequestTopic), 2}, {scoped(config.configRestoreRequestTopic), 2},
+            {scoped(config.recordingRequestTopic), 2}, {scoped(config.recordingAckTopic), 2}
+        };
+        std::vector<std::pair<std::string, std::uint8_t>> received;
+        std::exception_ptr brokerError;
+        std::thread broker([&] {
+            const int fd = accept(listenFd, nullptr, nullptr);
+            if (fd < 0) return;
+            try {
+                require((readMqttPacket(fd).at(0) & 0xf0) == 0x10,
+                    "subscribe wire missing CONNECT");
+                const std::vector<std::uint8_t> connAck = mqtt5
+                    ? std::vector<std::uint8_t>{0x20, 0x03, 0x00, 0x00, 0x00}
+                    : std::vector<std::uint8_t>{0x20, 0x02, 0x00, 0x00};
+                send(fd, connAck.data(), connAck.size(), 0);
+                const auto packet = readMqttPacket(fd);
+                require(packet.at(0) == 0x82, "subscribe wire missing SUBSCRIBE");
+                std::size_t cursor = 1;
+                while ((packet.at(cursor++) & 0x80) != 0) {}
+                const auto packetId = std::uint16_t(packet.at(cursor) << 8 | packet.at(cursor + 1));
+                cursor += 2;
+                if (mqtt5) require(packet.at(cursor++) == 0, "subscribe properties mismatch");
+                while (cursor < packet.size()) {
+                    const auto size = std::size_t(packet.at(cursor) << 8 | packet.at(cursor + 1));
+                    cursor += 2;
+                    require(cursor + size < packet.size(), "subscribe topic truncated");
+                    const std::string topic(packet.begin() + static_cast<std::ptrdiff_t>(cursor),
+                        packet.begin() + static_cast<std::ptrdiff_t>(cursor + size));
+                    cursor += size;
+                    received.emplace_back(topic, packet.at(cursor++));
+                }
+                const auto expectedCount = std::count_if(expected.begin(), expected.end(),
+                    [](const auto& item) { return !item.first.empty(); });
+                const auto replyCount = std::size_t(expectedCount) - (shortAck ? 1 : 0)
+                    + (extraAck ? 1 : 0);
+                std::vector<std::uint8_t> body{
+                    static_cast<std::uint8_t>(packetId >> 8), static_cast<std::uint8_t>(packetId & 0xff)};
+                if (mqtt5) body.push_back(0);
+                body.insert(body.end(), replyCount, 1);
+                std::vector<std::uint8_t> ack{0x90};
+                appendRemainingLength(ack, body.size());
+                ack.insert(ack.end(), body.begin(), body.end());
+                send(fd, ack.data(), ack.size(), 0);
+            } catch (...) { brokerError = std::current_exception(); }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            close(fd);
+        });
+        bool countRejected = false;
+        try {
+            edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+            publisher.pollIncoming(0);
+        } catch (const std::exception& ex) {
+            countRejected = std::string(ex.what()).find("suback") != std::string::npos;
+        }
+        broker.join();
+        close(listenFd);
+        if (brokerError) std::rethrow_exception(brokerError);
+        std::vector<std::pair<std::string, std::uint8_t>> nonempty;
+        for (const auto& item : expected) if (!item.first.empty()) nonempty.push_back(item);
+        require(received == nonempty, "SUBSCRIBE topic/QoS bytes differ from configured order");
+        require(countRejected == (shortAck || extraAck), "SUBACK count was not validated");
     }
 }
 
@@ -1792,7 +1918,18 @@ void testRealtimeLegacyEscapingAndTxOnlyIsolation() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--subscribe-wire") {
+#ifndef _WIN32
+        testSubscribeWireAndSubAckCount();
+        testSubscriberSubAckAndOversizedPublish();
+        testClosedTxConnectionReconnectsBeforeNextPublish();
+        return 0;
+#else
+        throw std::runtime_error("subscribe-wire selector requires POSIX sockets");
+#endif
+    }
+    require(argc == 1, "unknown builtin_mqtt_driver_publisher_test selector");
     using namespace edge_gateway;
 
     MqttConfig config;
@@ -1885,6 +2022,7 @@ int main() {
     testNonFinitePointValuesProduceValidJson();
     testClosedTxConnectionReconnectsBeforeNextPublish();
     testSubscriberSubAckAndOversizedPublish();
+    testSubscribeWireAndSubAckCount();
     testUnreachableBrokerHonorsConnectTimeout();
     testReliablePublishRejectsWrongPacketId();
     testReliablePublishRejectsMqtt5FailureReason();
