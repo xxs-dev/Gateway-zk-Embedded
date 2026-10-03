@@ -295,6 +295,48 @@ void check(const std::string& root) {
     require(exactPage.items.size() == 1 && exactPage.items.front().jobId == displayJob &&
         exactPage.truncated && exactPage.terminalJobs.size() == 1,
         "exact display budget dropped the last fully verified final");
+    const auto proofStaging = root + "/bounded-proof/ota/staging";
+    std::filesystem::create_directories(proofStaging);
+    PendingOtaJob rejectedJob = job;
+    rejectedJob.jobId = "BOUNDED_PROOF";
+    rejectedJob.packageType = "full";
+    const auto rejectedIntent = encodePendingJob(rejectedJob);
+    const auto rejectedHealth = "{\"format\":\"ota-health-v1\",\"jobId\":\"BOUNDED_PROOF\","
+        "\"version\":\"2.0.0\",\"token\":\"" + token +
+        "\",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"3000\"}\n";
+    const auto rejectedHandoff = "{\"format\":\"ota-handoff-v1\",\"jobId\":\"BOUNDED_PROOF\","
+        "\"version\":\"2.0.0\",\"token\":\"" + token +
+        "\",\"intentSha256\":\"" + ota_query_detail::sha256Hex(rejectedIntent) +
+        "\",\"phase\":\"CANCELLED\",\"runtimeMayChange\":false,\"cancelProof\":{\"noWriter\":true,"
+        "\"unit\":\"ota-runtime-BOUNDED_PROOF-" + token +
+        ".service\",\"mainPid\":\"0\",\"job\":\"\"}}\n";
+    const std::string rejectedFinal = "jobId=BOUNDED_PROOF\ntoken=" + token + "\nstatus=failed\n";
+    const std::string rejectedAudit = "{\"format\":\"ota-reconcile-v1\","
+        "\"reason\":\"ota-terminal-outbox-v1\",\"jobId\":\"BOUNDED_PROOF\","
+        "\"token\":\"" + token + "\",\"version\":\"2.0.0\","
+        "\"finalState\":\"delivery-pending\",\"phase\":\"terminal-journal\","
+        "\"evidence\":\"verified-health\",\"ts\":\"3000\"}\n";
+    put(proofStaging + "/ota_job_BOUNDED_PROOF.json", rejectedIntent);
+    put(proofStaging + "/health_BOUNDED_PROOF.txt", rejectedHealth);
+    put(proofStaging + "/ota_handoff_BOUNDED_PROOF.json", rejectedHandoff);
+    put(proofStaging + "/ota_final_BOUNDED_PROOF.txt", rejectedFinal);
+    put(proofStaging + "/ota_reconcile_BOUNDED_PROOF.json", rejectedAudit);
+    OtaConfig proofConfig;
+    proofConfig.stagingDir = proofStaging;
+    OtaService proofService(proofConfig);
+    require(proofService.readOriginalJob(rejectedJob.jobId).outcome == "REJECTED_UNCHANGED",
+        "bounded fixture did not reach verified handoff proof");
+    const auto proofBudget = 2 * (rejectedIntent.size() + rejectedHealth.size() +
+        rejectedHandoff.size() + rejectedFinal.size() + rejectedAudit.size());
+    const auto oneShort = proofService.loadFinalStatusesReadOnly(proofBudget - 1);
+    require(oneShort.items.empty() && oneShort.truncated,
+        "under-budget handoff proof unexpectedly resolved");
+    const auto exactProof = proofService.loadFinalStatusesReadOnly(proofBudget);
+    require(exactProof.items.size() == 1 && exactProof.items.front().jobId == rejectedJob.jobId &&
+        exactProof.items.front().stage == "failed" && exactProof.truncated &&
+        exactProof.terminalJobs.size() == 1 &&
+        exactProof.terminalJobs.front().occurrenceId == token,
+        "exact budget dropped a fully verified handoff proof");
     for (int i = 0; i < 4100; ++i)
         put(staging + "/noise_" + std::to_string(i), "x");
     require(service.readOriginalJob(jobId).outcome == "FAILED_ROLLED_BACK",
