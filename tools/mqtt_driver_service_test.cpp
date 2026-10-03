@@ -2834,7 +2834,8 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
                                    const std::string& platformPublicKey,
                                    const std::string& devicePrivateKey,
                                    const std::string& stagingDir,
-                                   const std::string& machineCode) {
+                                   const std::string& machineCode,
+                                   const std::string& outputPath = {}) {
     auto fixture = makeFixture("original_query_wire_bridge", 0);
     fixture.service.reset();
     fixture.deviceConfig.machineCode = machineCode;
@@ -2843,6 +2844,11 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
     ota.enabled = true;
     ota.requireSignature = true;
     ota.stagingDir = stagingDir;
+    const auto privateRoot = std::filesystem::path(stagingDir).parent_path();
+    ota.downloadDir = (privateRoot / "query-unused-downloads").string();
+    ota.backupDir = (privateRoot / "query-unused-backup").string();
+    ota.applyScript = (privateRoot / "query-unused-apply.sh").string();
+    ota.rollbackScript = (privateRoot / "query-unused-rollback.sh").string();
     ota.signaturePublicKeyPath = platformPublicKey;
     ota.querySigningPrivateKeyPath = devicePrivateKey;
     fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
@@ -2860,7 +2866,13 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
         if (fixture.publisher->jsonTopics[i] == fixture.mqttConfig.otaQueryReplyTopic)
             replies.push_back(fixture.publisher->statusPayloads[i]);
     require(replies.size() == 1, "original-query-wire expected one signed reply");
-    std::cout << replies.front() << '\n';
+    if (outputPath.empty()) {
+        std::cout << replies.front() << '\n';
+    } else {
+        std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
+        output.write(replies.front().data(), static_cast<std::streamsize>(replies.front().size()));
+        require(output.good(), "original query payload byte capture failed");
+    }
     cleanupFixture(fixture);
 }
 
@@ -2868,6 +2880,11 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
 
 int main(int argc, char** argv) {
     try {
+        if (argc >= 2 && std::string(argv[1]) == "--original-query-wire-bytes") {
+            require(argc == 8, "original-query-wire-bytes requires request, keys, staging, machine, output");
+            runOriginalJobQueryWireBridge(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+            return 0;
+        }
         if (argc >= 2 && std::string(argv[1]) == "--original-query-handler") {
             require(argc == 7, "original-query-handler requires signed and expired requests, public/private keys, staging");
             testOriginalJobQueryHandler(argv[2], argv[3], argv[4], argv[5], argv[6]);

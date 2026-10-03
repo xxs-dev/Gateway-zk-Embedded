@@ -1,5 +1,6 @@
 #define OTA_QUERY_FAULT_TEST
 #include "../src/ota_service.cpp"
+#include "edge_gateway/ota_request_json.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -370,6 +371,47 @@ void check(const std::string& root) {
 int main(int argc, char** argv) {
     try {
         if (geteuid() != 0) throw std::runtime_error("root-owned private fixture required");
+        if (argc >= 2 && std::string(argv[1]) == "--admit-owner-local") {
+            require(argc == 6, "admit-owner-local requires request, public key, artifact and staging");
+            auto config = privateOwnerConfig(argv[5]);
+            const auto home = std::filesystem::path(argv[5]).parent_path().parent_path();
+            config.enabled = true;
+            config.signaturePublicKeyPath = argv[3];
+            config.applyScript = (home / "local-admission/offline-runtime-upgrade.py").string();
+            config.minFreeBytes = 0;
+            config.downloadRetryCount = 1;
+            edge_gateway::OtaService service(config);
+            const auto root = edge_gateway::ota_request_json::parseRoot(get(argv[2]));
+            auto request = edge_gateway::ota_request_json::request(root);
+            require(request.machineCode == "FLEET_NODE_NOT_CORE" && request.packageType == "config",
+                "local admission target mismatch");
+            require(request.artifactUrl.rfind("https://", 0) == 0,
+                "platform installation input lost its HTTPS URL");
+            // Private transport substitute only; all signed descriptor fields are unchanged.
+            request.artifactUrl = argv[4];
+            edge_gateway::OtaReply reply;
+            edge_gateway::OtaStatus status;
+            try {
+                service.execute(request, request.machineCode, edge_gateway::currentTimeMs(),
+                    &reply, &status, [](const edge_gateway::OtaStatus&) {});
+            } catch (const std::exception& error) {
+                std::cerr << "native admission rejected stage=" << status.stage
+                          << " cause=" << error.what() << '\n';
+                throw;
+            }
+            if (status.stage != "applying")
+                std::cerr << "native admission rejected stage=" << status.stage
+                          << " cause=" << status.message << '\n';
+            require(status.stage == "applying", "signed native admission did not reach handoff gap");
+            const auto intent = get(config.stagingDir + "/ota_job_" + request.jobId + ".json");
+            const auto pending = edge_gateway::decodePendingJob(intent);
+            require(pending.jobId == request.jobId && pending.machineCode == request.machineCode &&
+                pending.lifecycle == "systemd-handoff-v1" && pending.artifactSha256 == request.sha256 &&
+                pending.artifactSize == request.size && pending.version == request.version,
+                "native admission lost signed artifact identity");
+            std::cout << intent;
+            return 0;
+        }
         if (argc >= 2 && std::string(argv[1]) == "--reconcile-existing") {
             require(argc == 4, "reconcile-existing requires staging and job");
             edge_gateway::OtaService service(privateOwnerConfig(argv[2]));

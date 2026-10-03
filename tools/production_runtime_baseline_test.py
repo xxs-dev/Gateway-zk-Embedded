@@ -1427,7 +1427,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.assertFalse(self.path('/dev/shm/live_v11').exists())
 
     def owner_fixture(self, v2=False, real_entry=False, ota_binary=True,
-                      prepared=False, artifact_builder=None):
+                      prepared=False, artifact_builder=None, admit=None):
         if prepared:
             pass
         elif v2:
@@ -1451,17 +1451,29 @@ class ProductionRuntimeTest(unittest.TestCase):
         version, package_type = artifact_builder(artifact) if artifact_builder else ('1.1', 'full')
         spec = importlib.util.spec_from_file_location('durable_production_health_test', REPO / 'deploy/ota-health-result.py')
         helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
-        owner = helper.RuntimeHandoff(self.home / 'ota/staging', 'POST_SIGNATURE_LOCAL', '12345678-1234-4234-8234-123456789abc')
+        admitted = admit(artifact, version, package_type) if admit else None
+        owner = helper.RuntimeHandoff(self.home / 'ota/staging',
+                                      admitted['jobId'] if admitted else 'POST_SIGNATURE_LOCAL',
+                                      admitted['token'] if admitted else '12345678-1234-4234-8234-123456789abc')
         lease_path = owner.root / ('ota_job_' + owner.job + '.lock')
-        self.write(lease_path, b'', 0o600)
+        if not admitted:
+            self.write(lease_path, b'', 0o600)
         lease = lease_path.stat()
         intent = dict(format='ota-job-v1', lifecycle='systemd-handoff-v1', jobId=owner.job, token=owner.token,
                       machineCode='FLEET_NODE_NOT_CORE', version=version, packageType=package_type,
                       artifactPath=str(artifact), previousVersion='bootstrap',
                       artifactSize=str(artifact.stat().st_size), artifactSha256=self.m.digest(artifact),
                       leaseDev=str(lease.st_dev), leaseInode=str(lease.st_ino))
-        self.write(owner.intent_path, json.dumps(intent) + '\n', 0o600)
-        self.write(owner.root / 'ota_active_job.txt', 'jobId=' + owner.job + '\ntoken=' + owner.token + '\n', 0o600)
+        if admitted:
+            # Native execute owns the immutable intent; never rewrite its bytes.
+            self.assertEqual(admitted, helper.RuntimeHandoff.intent(owner))
+            for field in ('format', 'lifecycle', 'machineCode', 'version', 'packageType',
+                          'artifactSize', 'artifactSha256', 'leaseDev', 'leaseInode'):
+                self.assertEqual(admitted[field], intent[field])
+            self.assertEqual(self.m.digest(Path(admitted['artifactPath'])), intent['artifactSha256'])
+        else:
+            self.write(owner.intent_path, json.dumps(intent) + '\n', 0o600)
+            self.write(owner.root / 'ota_active_job.txt', 'jobId=' + owner.job + '\ntoken=' + owner.token + '\n', 0o600)
         stage = owner.root / ('runtime-entry-' + owner.job)
         pins = {}
         names = owner.entry_names()
@@ -1502,7 +1514,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         return entry
 
     def signed_config_owner_fixture(self, release_override=None, extra_sensitive=False,
-                                    delete_only=False, candidate_id=None):
+                                    delete_only=False, candidate_id=None, admit=None):
         self.v2_config_release(with_tls=True,
                                tls_bytes=b'SYNTHETIC_PRIVATE_KEY_SENTINEL_DO_NOT_USE\n')
         previous = self.approval['previous']
@@ -1560,7 +1572,7 @@ class ProductionRuntimeTest(unittest.TestCase):
                     archive.add(staged / 'tls/ca.crt', arcname='config/runtime/tls/ca.crt', recursive=False)
             return manifest['version'], 'config'
         owner = self.owner_fixture(prepared=True, real_entry=True, ota_binary=False,
-                                   artifact_builder=artifact_builder)
+                                   artifact_builder=artifact_builder, admit=admit)
         return owner, previous, candidate
 
     def test_v2_owner_real_stage_missing_or_changed_parser_rejected(self):
