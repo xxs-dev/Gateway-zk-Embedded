@@ -126,6 +126,7 @@ private:
     bool admitMailboxCommand(const std::string& meterCode, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleOtaQueryRequest(const std::string& payload);
+    void reportOtaQueryDiagnostic(const char* reason);
     void handleRealtimeRequest(const std::string& payload, std::int64_t nowMs);
     void processRealtimeRequest(const std::string& payload, std::int64_t nowMs, bool& admitted);
     void startOtaJob(const OtaRequest& request, const std::string& machineCode, std::int64_t nowMs);
@@ -192,6 +193,10 @@ private:
     std::int64_t otaReplayFirstSuccessMs_ = 0;
     int otaReplayRetryDelayMs_ = 5000;
     int otaReplaySuccessRounds_ = 0;
+    std::int64_t otaQueryWindowStartedMs_ = 0;
+    std::size_t otaQueryAttemptsInWindow_ = 0;
+    std::int64_t lastOtaQueryDiagnosticMs_ = 0;
+    std::size_t suppressedOtaQueryDiagnostics_ = 0;
     std::int64_t lastSnapshotDeferredMs_ = 0;
     bool isolatedFullForwarderWasActive_ = false;
     std::int64_t isolatedFallbackWaitStartedMs_ = 0;

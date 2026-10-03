@@ -2527,16 +2527,18 @@ OtaQueryObservation OtaService::answerOriginalJobQuery(
     if (!config_.requireSignature || config_.querySigningPrivateKeyPath.empty() ||
         challenge.machineCode != expectedMachineCode ||
         !ota_query_crypto::verifyChallenge(challenge, config_.signaturePublicKeyPath))
-        throw std::runtime_error("OTA query request not authenticated");
+        throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
     const auto now = currentTimeMs();
     if (challenge.issuedAtMs > now + 30000 || challenge.expiresAtMs <= now)
-        throw std::runtime_error("OTA query request expired");
+        throw OtaQueryRejected(OtaQueryFailure::Expired);
 
     OtaQueryObservation result;
     result.jobId = challenge.jobId;
     result.machineCode = challenge.machineCode;
     result.nonce = challenge.nonce;
-    const auto evidence = readOriginalJob(challenge.jobId);
+    OtaOriginalJobEvidence evidence;
+    try { evidence = readOriginalJob(challenge.jobId); }
+    catch (const std::exception&) { throw OtaQueryRejected(OtaQueryFailure::EvidenceUnavailable); }
     result.outcome = "UNKNOWN";
     const bool sameArtifact = evidence.machineCode == challenge.machineCode &&
         evidence.version == challenge.version &&
@@ -2562,7 +2564,8 @@ OtaQueryObservation OtaService::answerOriginalJobQuery(
             result.transaction = evidence.productionTransaction;
         }
     }
-    result.signature = ota_query_crypto::signObservation(result, config_.querySigningPrivateKeyPath);
+    try { result.signature = ota_query_crypto::signObservation(result, config_.querySigningPrivateKeyPath); }
+    catch (const std::exception&) { throw OtaQueryRejected(OtaQueryFailure::SigningUnavailable); }
     return result;
 }
 

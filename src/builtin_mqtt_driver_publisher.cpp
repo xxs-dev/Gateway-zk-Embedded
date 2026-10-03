@@ -2189,6 +2189,38 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(
     : config_(std::move(config)),
       mode_(mode),
       eventOutboxOwnership_(eventOutboxOwnership), durableEventSubmit_(std::move(durableEventSubmit)) {
+    const auto& queryRequest = config_.otaQueryRequestTopic;
+    const auto& queryReply = config_.otaQueryReplyTopic;
+    if (queryRequest.empty() != queryReply.empty() ||
+        (!queryRequest.empty() && (queryRequest.back() == '/' || queryReply.back() == '/' ||
+            queryRequest.find_first_of("+#") != std::string::npos ||
+            queryReply.find_first_of("+#") != std::string::npos)))
+        throw std::invalid_argument("invalid OTA query topic configuration");
+    if (!queryRequest.empty()) {
+        const auto request = scopedTopic(queryRequest, config_.topicMachineCode);
+        const auto reply = scopedTopic(queryReply, config_.topicMachineCode);
+        const auto commandRequest = config_.commandRequestTopicMachineScoped
+            ? scopedTopic(config_.commandRequestTopic, config_.topicMachineCode)
+            : config_.commandRequestTopic;
+        const std::vector<std::string> occupied = {
+            commandRequest,
+            scopedTopic(config_.otaRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.otaReplyTopic, config_.topicMachineCode),
+            scopedTopic(config_.otaStatusTopic, config_.topicMachineCode),
+            scopedTopic(config_.realtimeRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.systemMonitorRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.diagRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.configPullRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.configApplyRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.configDeleteRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.configRestoreRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.recordingRequestTopic, config_.topicMachineCode),
+            scopedTopic(config_.recordingAckTopic, config_.topicMachineCode)
+        };
+        if (request == reply || std::any_of(occupied.begin(), occupied.end(),
+                [&](const std::string& topic) { return !topic.empty() && (request == topic || reply == topic); }))
+            throw std::invalid_argument("OTA query topic collides with another route");
+    }
     if (durableEventSubmit_ && eventOutboxOwnership_ != MqttEventOutboxOwnership::External)
         throw std::invalid_argument("IPC event submission cannot coexist with publisher-owned SQLite");
     if (mode_ == MqttPublisherMode::TxOnly) {

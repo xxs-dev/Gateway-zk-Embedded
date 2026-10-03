@@ -25,6 +25,7 @@
 #include "edge_gateway/process_file_lock.hpp"
 #include "edge_gateway/ota_request_json.hpp"
 #include "edge_gateway/ota_query_crypto.hpp"
+#include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 
 namespace {
 
@@ -2663,6 +2664,32 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
         std::unique_ptr<OtaService>(new OtaService(ota))));
     const auto request = readFile(requestPath);
     require(!request.empty(), "signed query request missing");
+    const auto rejectTopic = [&](MqttConfig config) {
+        config.offlineBufferEnabled = false;
+        bool rejected = false;
+        try { BuiltinMqttDriverPublisher publisher(config, MqttPublisherMode::TxOnly); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected, "colliding OTA query topic was accepted");
+    };
+    auto topics = fixture.mqttConfig;
+    topics.offlineBufferEnabled = false;
+    { BuiltinMqttDriverPublisher publisher(topics, MqttPublisherMode::TxOnly); }
+    topics.otaQueryRequestTopic = topics.otaRequestTopic;
+    rejectTopic(topics);
+    topics.otaQueryRequestTopic = topics.otaRequestTopic + "/GW_TEST";
+    rejectTopic(topics);
+    topics = fixture.mqttConfig;
+    topics.otaQueryReplyTopic = topics.otaStatusTopic;
+    rejectTopic(topics);
+    topics = fixture.mqttConfig;
+    topics.otaQueryRequestTopic = topics.realtimeRequestTopic;
+    rejectTopic(topics);
+    topics = fixture.mqttConfig;
+    topics.otaQueryRequestTopic = topics.commandRequestTopic;
+    rejectTopic(topics);
+    topics = fixture.mqttConfig;
+    topics.otaQueryRequestTopic += "/";
+    rejectTopic(topics);
     const auto challengeJson = ota_request_json::parseRoot(request);
     OtaQueryChallenge challenge;
     challenge.jobId = ota_request_json::stringField(challengeJson, "jobId");
@@ -2741,6 +2768,22 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     deliver(expiredRequest, false);
     collect();
     require(responses.size() == 1, "foreign/retained/expired query produced a response");
+    for (int i = 0; i < 12; ++i) {
+        MqttIncomingMessage message;
+        message.type = MqttIncomingType::OtaQueryRequest;
+        message.payload = request;
+        fixture.publisher->incoming.push_back(std::move(message));
+    }
+    fixture.service->runScanOnce(1000);
+    collect();
+    require(responses.size() <= 5 && responses.size() > 1,
+        "single poll did not bound signed query work");
+    const auto boundedResponses = responses.size();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    deliver(request, false);
+    collect();
+    require(responses.size() == boundedResponses + 1,
+        "same nonce was cached or query did not recover after rate window");
     require(snapshot() == baseline, "query handler changed original-job evidence or replay state");
     std::cout << accepted << '\n';
     cleanupFixture(fixture);

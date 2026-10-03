@@ -45,6 +45,11 @@ jq -nc --arg nonce "$nonce" --arg artifact "$artifact" --arg candidate "$candida
 "$binary" --original-query-handler "$root/challenge.json" "$root/expired.json" "$root/platform-public.pem" \
     "$root/device-private.pem" "$root/staging" >"$output/native-handler-response.json" \
     2>"$output/native-handler.stderr"
+grep -q 'mqtt OTA query rejected code=AUTH' "$output/native-handler.stderr"
+if grep -q "$nonce" "$output/native-handler.stderr"; then
+    echo 'query diagnostic leaked nonce' >&2
+    exit 1
+fi
 openssl pkey -pubin -in "$output/device-public.pem" -outform DER 2>"$output/device-der.stderr" \
     | sha256sum | cut -d' ' -f1 >"$output/device-public-der.sha256"
 sha256sum "$output/native-handler-response.json" "$output/device-public.pem" >"$output/public-output.sha256"

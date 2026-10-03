@@ -13,6 +13,16 @@
 namespace edge_gateway {
 
 enum class OtaRejectionReason { NotAdmitted, Duplicate };
+enum class OtaQueryFailure { Unauthenticated, Expired, EvidenceUnavailable, SigningUnavailable };
+
+class OtaQueryRejected : public std::runtime_error {
+public:
+    explicit OtaQueryRejected(OtaQueryFailure reason)
+        : std::runtime_error("original-job query rejected"), reason_(reason) {}
+    OtaQueryFailure reason() const { return reason_; }
+private:
+    OtaQueryFailure reason_;
+};
 
 struct OtaOriginalJobEvidence {
     std::string outcome = "UNKNOWN";

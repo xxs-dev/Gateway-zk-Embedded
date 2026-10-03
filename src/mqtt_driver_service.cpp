@@ -1748,14 +1748,17 @@ void MqttDriverService::processIncomingMessages(std::int64_t nowMs, int timeoutM
         subscribeUnavailable_ = false;
         publishStatusEvent("mqtt-subscribe-restored", nowMs, std::string());
     }
+    std::size_t queryAttemptsThisPoll = 0;
     for (const auto& message : messages) {
         try {
             if (message.type == MqttIncomingType::CommandRequest) {
                 handleCommandRequest(message.payload, nowMs, message.retained);
             } else if (message.type == MqttIncomingType::OtaRequest) {
                 handleOtaRequest(message.payload, nowMs);
-            } else if (message.type == MqttIncomingType::OtaQueryRequest && !message.retained) {
-                handleOtaQueryRequest(message.payload);
+            } else if (message.type == MqttIncomingType::OtaQueryRequest) {
+                if (message.retained) reportOtaQueryDiagnostic("RETAINED");
+                else if (++queryAttemptsThisPoll <= 4) handleOtaQueryRequest(message.payload);
+                else reportOtaQueryDiagnostic("POLL_LIMIT");
             } else if (message.type == MqttIncomingType::RealtimeRequest) {
                 handleRealtimeRequest(message.payload, nowMs);
             }
@@ -2459,10 +2462,23 @@ void MqttDriverService::handleOtaRequest(const std::string& payload, std::int64_
 }
 
 void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
-    if (!otaService_ || payload.size() > 8192 || mqttConfig_.topicMachineCode.empty()) return;
+    if (!otaService_ || mqttConfig_.topicMachineCode.empty()) return;
+    if (payload.size() > 8192) { reportOtaQueryDiagnostic("SIZE"); return; }
+    const auto nowMs = currentMonotonicTimeMs();
+    if (otaQueryWindowStartedMs_ == 0 || nowMs < otaQueryWindowStartedMs_ ||
+        nowMs - otaQueryWindowStartedMs_ >= 1000) {
+        otaQueryWindowStartedMs_ = nowMs;
+        otaQueryAttemptsInWindow_ = 0;
+    }
+    if (otaQueryAttemptsInWindow_ >= 8) { reportOtaQueryDiagnostic("RATE_LIMIT"); return; }
+    ++otaQueryAttemptsInWindow_;
+    const char* phase = "SCHEMA";
     try {
         const auto root = ota_request_json::parseRoot(payload);
-        if (root.asObject().values.size() != 10) return;
+        if (root.asObject().values.size() != 10) {
+            reportOtaQueryDiagnostic("SCHEMA");
+            return;
+        }
         const auto decimal = [&](const char* name) -> std::uint64_t {
             const auto text = ota_request_json::stringField(root, name);
             if (text.empty() || text.size() > 19 || (text.size() > 1 && text.front() == '0') ||
@@ -2485,9 +2501,13 @@ void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
             issuedAtMs > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
             expiresAtMs > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
             challenge.machineCode != mqttConfig_.topicMachineCode ||
-            machineCodes_.find(challenge.machineCode) == machineCodes_.end()) return;
+            machineCodes_.find(challenge.machineCode) == machineCodes_.end()) {
+            reportOtaQueryDiagnostic("TARGET");
+            return;
+        }
         challenge.issuedAtMs = static_cast<std::int64_t>(issuedAtMs);
         challenge.expiresAtMs = static_cast<std::int64_t>(expiresAtMs);
+        phase = "EVIDENCE";
         const auto observation = otaService_->answerOriginalJobQuery(challenge, challenge.machineCode);
         const auto field = [](const std::string& value) { return "\"" + escapeJson(value) + "\""; };
         std::ostringstream encoded;
@@ -2505,10 +2525,36 @@ void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
             << ",\"healthSha256\":" << field(observation.healthSha256)
             << ",\"healthTs\":" << field(std::to_string(observation.healthTs))
             << ",\"signature\":" << field(observation.signature) << '}';
+        phase = "PUBLISH";
         publisher_->publishJsonMessage(mqttConfig_.otaQueryReplyTopic, encoded.str());
+    } catch (const OtaQueryRejected& rejected) {
+        const char* reason = "EVIDENCE";
+        switch (rejected.reason()) {
+        case OtaQueryFailure::Unauthenticated: reason = "AUTH"; break;
+        case OtaQueryFailure::Expired: reason = "EXPIRED"; break;
+        case OtaQueryFailure::EvidenceUnavailable: reason = "EVIDENCE"; break;
+        case OtaQueryFailure::SigningUnavailable: reason = "SIGNING"; break;
+        }
+        reportOtaQueryDiagnostic(reason);
+    } catch (const std::invalid_argument&) {
+        reportOtaQueryDiagnostic("SCHEMA");
+    } catch (const std::out_of_range&) {
+        reportOtaQueryDiagnostic("SCHEMA");
     } catch (const std::exception&) {
-        // Authentication and evidence failures must not become OTA execution replies.
+        reportOtaQueryDiagnostic(phase);
     }
+}
+
+void MqttDriverService::reportOtaQueryDiagnostic(const char* reason) {
+    const auto nowMs = currentMonotonicTimeMs();
+    if (lastOtaQueryDiagnosticMs_ > 0 && nowMs - lastOtaQueryDiagnosticMs_ < 10000) {
+        ++suppressedOtaQueryDiagnostics_;
+        return;
+    }
+    std::cerr << "mqtt OTA query rejected code=" << reason
+              << " suppressed=" << suppressedOtaQueryDiagnostics_ << std::endl;
+    lastOtaQueryDiagnosticMs_ = nowMs;
+    suppressedOtaQueryDiagnostics_ = 0;
 }
 
 void MqttDriverService::handleRealtimeRequest(const std::string& payload, std::int64_t nowMs) {
