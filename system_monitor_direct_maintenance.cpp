@@ -2718,10 +2718,26 @@ std::string batchControlResponse(const SystemMonitorDirectMaintenanceConfig& con
 }
 
 std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
-    std::ifstream input(config.otaStatusFile);
+    std::ifstream input(config.otaStatusFile, std::ios::binary);
     std::vector<std::string> lines;
     std::string line;
-    while (std::getline(input, line)) {
+    bool reconciliationFailed = false;
+    std::string statusBytes;
+    char chunk[4096];
+    while (input) {
+        input.read(chunk, sizeof(chunk));
+        const auto count = input.gcount();
+        if (count <= 0) break;
+        if (statusBytes.size() + static_cast<std::size_t>(count) > 1024 * 1024) {
+            reconciliationFailed = true;
+            break;
+        }
+        statusBytes.append(chunk, static_cast<std::size_t>(count));
+    }
+    if (!reconciliationFailed && input.bad()) reconciliationFailed = true;
+    if (reconciliationFailed) statusBytes.clear();
+    std::istringstream statusInput(statusBytes);
+    while (std::getline(statusInput, line)) {
         line = trim(line);
         if (line.empty()) {
             continue;
@@ -2732,18 +2748,11 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
         }
     }
 
-    bool reconciliationFailed = false;
     std::vector<edge_gateway::OtaStatus> finals;
     try {
         const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
         edge_gateway::OtaService service(appConfig.ota);
-        try {
-            service.reconcilePendingJobs();
-        } catch (...) {
-            reconciliationFailed = true;
-        }
-        // A failed recovery must not hide other already-committed task results.
-        finals = service.loadFinalStatuses();
+        finals = service.loadFinalStatusesReadOnly();
     } catch (...) {
         reconciliationFailed = true;
     }

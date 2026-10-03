@@ -13,6 +13,21 @@ namespace edge_gateway {
 
 enum class OtaRejectionReason { NotAdmitted, Duplicate };
 
+struct OtaOriginalJobEvidence {
+    std::string outcome = "UNKNOWN";
+    std::string jobId;
+    std::string machineCode;
+    std::string occurrenceId;
+    std::string version;
+    std::string artifactSha256;
+    std::uint64_t artifactSize = 0;
+    std::string productionTransaction;
+    std::string productionCandidateSha256;
+    std::string intentSha256;
+    std::string healthSha256;
+    std::int64_t healthTs = 0;
+};
+
 class OtaRequestRejected : public std::runtime_error {
 public:
     OtaRequestRejected(OtaRejectionReason reason, const std::string& message)
@@ -51,6 +66,13 @@ public:
     std::vector<OtaStatus> loadPendingStatuses() const;
     void reconcilePendingJobs() const;
     std::vector<OtaStatus> loadFinalStatuses() const;
+    // Local evidence only. No transport authentication is implied by this result.
+    // This method never creates a file, takes an execution/journal lock, or repairs state.
+    OtaOriginalJobEvidence readOriginalJob(const std::string& jobId) const;
+    OtaOriginalJobEvidence readOriginalJob(const std::string& jobId,
+                                          const std::string& expectedMachineCode,
+                                          const std::string& expectedOccurrenceId) const;
+    std::vector<OtaStatus> loadFinalStatusesReadOnly() const;
     void clearPendingStatuses() const;
     void execute(
         const OtaRequest& request,

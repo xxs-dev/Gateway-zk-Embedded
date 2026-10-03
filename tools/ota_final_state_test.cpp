@@ -6,7 +6,9 @@
 #include "edge_gateway/memory_point_store.hpp"
 
 #include <fstream>
+#include <filesystem>
 #include <iostream>
+#include <map>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -863,11 +865,94 @@ void verifySynchronousRollback(bool succeed, bool wrongToken, bool pendingHelper
 }
 #endif
 
+#ifndef _WIN32
+void verifyDirectStatusPureRead() {
+    char pattern[] = "/tmp/ota-m3-local-direct-XXXXXX";
+    const char* created = mkdtemp(pattern);
+    require(created != nullptr, "cannot create private Direct query root");
+    const std::string root(created);
+    require(root.rfind("/tmp/ota-m3-local-direct-", 0) == 0, "Direct fixture escaped /tmp");
+    try {
+        const auto staging = root + "/staging";
+        require(mkdir(staging.c_str(), 0700) == 0, "cannot create private Direct staging");
+        const std::string token = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        writeFixtureFile(staging + "/ota_job_OLD_JOB.json",
+            "{\"format\":\"ota-job-v1\",\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\","
+            "\"version\":\"2.0.0\",\"artifactPath\":\"/private/fixture.tar.gz\","
+            "\"previousVersion\":\"1.0.0\",\"token\":\"" + token +
+            "\",\"lifecycle\":\"inherited-flock-v1\"}\n");
+        writeFixtureFile(staging + "/ota_final_OLD_JOB.txt",
+            "jobId=OLD_JOB\ntoken=" + token + "\nstatus=completed\n");
+        writeFixtureFile(staging + "/ota_active_job.txt",
+            "jobId=NEWER_JOB\ntoken=bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee\n");
+        const auto appConfig = root + "/app.json";
+        writeFixtureFile(appConfig, "{\"ota\":{\"stagingDir\":\"" + staging + "\"}}\n");
+        edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig direct;
+        direct.otaAppConfigFile = appConfig;
+        direct.otaStatusFile = root + "/status.jsonl";
+        writeFixtureFile(direct.otaStatusFile,
+            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n");
+        const auto snapshot = [&] {
+            std::map<std::string, std::string> files;
+            for (const auto& entry : std::filesystem::directory_iterator(staging)) {
+                require(entry.is_regular_file(), "unexpected Direct fixture object");
+                files.emplace(entry.path().filename().string(), readFile(entry.path().string()));
+            }
+            return files;
+        };
+        const auto before = snapshot();
+        const auto reply = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+        require(reply.find("HTTP/1.1 200") == 0 &&
+            reply.find("\"reconciliationFailed\":false") != std::string::npos &&
+            reply.find("\"jobId\":\"OLD_JOB\"") != std::string::npos &&
+            reply.find("\"stage\":\"completed\"") != std::string::npos &&
+            reply.find("\"stage\":\"applying\"") == std::string::npos,
+            "unauthenticated Direct GET lost bounded legacy final display");
+        require(snapshot() == before &&
+            !std::filesystem::exists(staging + "/ota_state.lock") &&
+            !std::filesystem::exists(staging + "/ota_status_pending.log.lock"),
+            "Direct GET changed journal or created recovery lock");
+        const auto auditPath = staging + "/ota_reconcile_OLD_JOB.json";
+        for (const auto& fields : std::vector<std::pair<std::string, std::string>>{
+                 {"wrong-format", "committed"}, {"ota-reconcile-v1", "invalid"},
+                 {"ota-reconcile-v1", "committed"}}) {
+            const auto timestamp = fields.first == "ota-reconcile-v1" && fields.second == "committed" ? "0" : "1000";
+            writeFixtureFile(auditPath,
+                "{\"format\":\"" + fields.first + "\",\"reason\":\"ota-terminal-outbox-v1\","
+                "\"jobId\":\"OLD_JOB\",\"token\":\"" + token +
+                "\",\"version\":\"2.0.0\",\"finalState\":\"" + fields.second +
+                "\",\"phase\":\"terminal-journal\",\"evidence\":\"apply-returned-success\",\"ts\":\"" +
+                timestamp + "\"}\n");
+            const auto invalidBefore = snapshot();
+            const auto invalid = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+                direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+            require(invalid.find("\"stage\":\"completed\"") == std::string::npos &&
+                invalid.find("\"stage\":\"applying\"") != std::string::npos &&
+                snapshot() == invalidBefore, "invalid Direct audit promoted final or mutated state");
+        }
+        require(std::remove(auditPath.c_str()) == 0, "cannot clear private audit fixture");
+        writeFixtureFile(direct.otaStatusFile, std::string(1024 * 1024 + 1, 'x'));
+        const auto oversized = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+        require(oversized.find("\"reconciliationFailed\":true") != std::string::npos &&
+            oversized.size() < 64 * 1024 && snapshot() == before,
+            "oversize Direct status was allocated into response or mutated state");
+        std::cout << "Direct unauthenticated status pure-read PASS\n";
+    } catch (...) { removeEventStoreTestTree(root); throw; }
+    removeEventStoreTestTree(root);
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
 #ifndef _WIN32
+        if (argc == 2 && std::string(argv[1]) == "--direct-pure-read") {
+            verifyDirectStatusPureRead();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--handoff-availability") {
             if (geteuid() != 0) {
                 std::cout << "SKIP: handoff availability requires root-owned private fixtures\n";
