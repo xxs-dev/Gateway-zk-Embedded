@@ -1650,6 +1650,29 @@ class ProductionRuntimeTest(unittest.TestCase):
                                      ['HEALTHY_APPLIED', transaction_id, state['candidateSha256']])
                     self.assertEqual(home_files(), before_read)
                     print('owner-native original-job proof:', output.strip())
+            export = os.environ.get('OTA_QUERY_OWNER_EVIDENCE_DIR')
+            if export:
+                destination = Path(export)
+                destination.mkdir(parents=True, exist_ok=True)
+                source_files = {
+                    'release.tar.gz': self.root / 'release.tar.gz',
+                    'intent.json': owner.intent_path,
+                    'handoff.json': owner.root / ('ota_handoff_' + owner.job + '.json'),
+                    'health.json': owner.root / ('health_' + owner.job + '.txt'),
+                    'final.txt': owner.root / ('ota_final_' + owner.job + '.txt'),
+                    'audit.json': owner.root / ('ota_reconcile_' + owner.job + '.json'),
+                    'transaction-approval.json': self.runtime.root / 'transactions' / transaction_id / 'approval.json',
+                    'transaction-candidate.json': self.runtime.root / 'transactions' / transaction_id / 'candidate.json',
+                    'transaction-state.json': self.runtime.root / 'transactions' / transaction_id / 'state.json',
+                    'transaction-health.json': self.runtime.root / 'transactions' / transaction_id / 'health.json',
+                }
+                manifest = {}
+                for name, source in source_files.items():
+                    self.assertTrue(source.is_file(), str(source))
+                    target = destination / name
+                    shutil.copyfile(source, target)
+                    manifest[name] = {'sha256': self.m.digest(target), 'bytes': target.stat().st_size}
+                self.write(destination / 'inputs.json', json.dumps(manifest, sort_keys=True) + '\n', 0o600)
         with self.assertRaisesRegex(ValueError, 'original job/token changed'):
             entry.production_ota_finish(owner, 'OTA_' + '0' * 32, 'healthy', 'none')
         terminal_bytes = (owner.root / ('health_' + owner.job + '.txt')).read_bytes()
