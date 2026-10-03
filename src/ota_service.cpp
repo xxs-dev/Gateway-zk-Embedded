@@ -2524,8 +2524,9 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId,
 OtaQueryObservation OtaService::answerOriginalJobQuery(
     const OtaQueryChallenge& challenge, const std::string& expectedMachineCode) const {
     ota_query_protocol::validate(challenge);
-    if (!config_.requireSignature || config_.querySigningPrivateKeyPath.empty() ||
-        challenge.machineCode != expectedMachineCode)
+    if (!config_.requireSignature || config_.querySigningPrivateKeyPath.empty())
+        throw OtaQueryRejected(OtaQueryFailure::KeyConfiguration);
+    if (challenge.machineCode != expectedMachineCode)
         throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
     try {
         if (!ota_query_crypto::verifyChallenge(challenge, config_.signaturePublicKeyPath))

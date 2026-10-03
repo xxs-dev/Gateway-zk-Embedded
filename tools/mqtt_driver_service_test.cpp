@@ -2712,6 +2712,23 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
         keyFailureClassified = rejected.reason() == OtaQueryFailure::KeyConfiguration;
     }
     require(keyFailureClassified, "missing pinned key was misclassified as authentication failure");
+    for (int missing = 0; missing < 2; ++missing) {
+        auto localConfig = ota;
+        if (missing == 0) localConfig.requireSignature = false;
+        else localConfig.querySigningPrivateKeyPath.clear();
+        bool configFailureClassified = false;
+        try { (void)OtaService(localConfig).answerOriginalJobQuery(challenge, "GW_TEST"); }
+        catch (const OtaQueryRejected& rejected) {
+            configFailureClassified = rejected.reason() == OtaQueryFailure::KeyConfiguration;
+        }
+        require(configFailureClassified, "missing local query policy was misclassified as authentication failure");
+    }
+    bool foreignTargetRejected = false;
+    try { (void)OtaService(ota).answerOriginalJobQuery(challenge, "GW_OTHER"); }
+    catch (const OtaQueryRejected& rejected) {
+        foreignTargetRejected = rejected.reason() == OtaQueryFailure::Unauthenticated;
+    }
+    require(foreignTargetRejected, "foreign query target was not rejected as unauthenticated");
     require(OtaService(ota).answerOriginalJobQuery(challenge, "GW_TEST").outcome == "UNKNOWN",
         "direct original-job query did not sign unknown evidence");
     require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
@@ -2800,6 +2817,15 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     collect();
     require(responses.size() == boundedResponses + 1,
         "missing pinned verification key produced an OTA query response");
+    auto missingSigningOta = ota;
+    missingSigningOta.querySigningPrivateKeyPath.clear();
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher, nullptr,
+        std::unique_ptr<OtaService>(new OtaService(missingSigningOta))));
+    deliver(request, false);
+    collect();
+    require(responses.size() == boundedResponses + 1,
+        "missing local query signing key produced an OTA query response");
     std::cout << accepted << '\n';
     cleanupFixture(fixture);
 }
