@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <filesystem>
 #include "edge_gateway/filesystem_compat.hpp"
 #include <functional>
 #include <iostream>
@@ -22,6 +23,8 @@
 #include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/process_file_lock.hpp"
+#include "edge_gateway/ota_request_json.hpp"
+#include "edge_gateway/ota_query_crypto.hpp"
 
 namespace {
 
@@ -2642,10 +2645,116 @@ void testIpcDriverStatsIdentityAndBackoff() {
     }
 }
 
+void testOriginalJobQueryHandler(const std::string& requestPath,
+                                 const std::string& expiredRequestPath,
+                                 const std::string& platformPublicKey,
+                                 const std::string& devicePrivateKey,
+                                 const std::string& stagingDir) {
+    auto fixture = makeFixture("original_query_handler", 0);
+    fixture.service.reset();
+    OtaConfig ota;
+    ota.enabled = true;
+    ota.requireSignature = true;
+    ota.stagingDir = stagingDir;
+    ota.signaturePublicKeyPath = platformPublicKey;
+    ota.querySigningPrivateKeyPath = devicePrivateKey;
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher, nullptr,
+        std::unique_ptr<OtaService>(new OtaService(ota))));
+    const auto request = readFile(requestPath);
+    require(!request.empty(), "signed query request missing");
+    const auto challengeJson = ota_request_json::parseRoot(request);
+    OtaQueryChallenge challenge;
+    challenge.jobId = ota_request_json::stringField(challengeJson, "jobId");
+    challenge.machineCode = ota_request_json::stringField(challengeJson, "machineCode");
+    challenge.nonce = ota_request_json::stringField(challengeJson, "nonce");
+    challenge.version = ota_request_json::stringField(challengeJson, "version");
+    challenge.artifactSha256 = ota_request_json::stringField(challengeJson, "artifactSha256");
+    challenge.artifactSize = std::stoull(ota_request_json::stringField(challengeJson, "artifactSize"));
+    challenge.candidateSha256 = ota_request_json::stringField(challengeJson, "candidateSha256");
+    challenge.issuedAtMs = std::stoll(ota_request_json::stringField(challengeJson, "issuedAtMs"));
+    challenge.expiresAtMs = std::stoll(ota_request_json::stringField(challengeJson, "expiresAtMs"));
+    challenge.signature = ota_request_json::stringField(challengeJson, "signature");
+    require(ota_query_crypto::verifyChallenge(challenge, platformPublicKey),
+        "platform challenge signature failed native verification");
+    require(OtaService(ota).answerOriginalJobQuery(challenge, "GW_TEST").outcome == "UNKNOWN",
+        "direct original-job query did not sign unknown evidence");
+    require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
+        "query staging must start empty");
+    fixture.service->runScanOnce(1000);
+    const auto snapshot = [&] {
+        std::vector<std::pair<std::string, std::string>> files;
+        for (const auto& item : std::filesystem::directory_iterator(stagingDir))
+            files.emplace_back(item.path().filename().string(), readFile(item.path().string()));
+        std::sort(files.begin(), files.end());
+        return files;
+    };
+    const auto baseline = snapshot();
+    const auto deliver = [&](const std::string& payload, bool retained) {
+        MqttIncomingMessage message;
+        message.type = MqttIncomingType::OtaQueryRequest;
+        message.topic = fixture.mqttConfig.otaQueryRequestTopic + "/GW_TEST";
+        message.payload = payload;
+        message.retained = retained;
+        fixture.publisher->incoming.push_back(std::move(message));
+        fixture.service->runScanOnce(1000);
+    };
+    deliver(request, false);
+    std::vector<std::string> responses;
+    const auto collect = [&] {
+        responses.clear();
+        for (std::size_t i = 0; i < fixture.publisher->jsonTopics.size(); ++i)
+            if (fixture.publisher->jsonTopics[i] == fixture.mqttConfig.otaQueryReplyTopic)
+                responses.push_back(fixture.publisher->statusPayloads[i]);
+    };
+    collect();
+    require(responses.size() == 1, "valid signed query produced no unique response");
+    const auto response = json::JsonParser(responses.front(), 4, 32).parse();
+    require(response.find("jobId")->asString() == "JOB_1" &&
+        response.find("machineCode")->asString() == "GW_TEST" &&
+        response.find("outcome")->asString() == "UNKNOWN" &&
+        !response.find("signature")->asString().empty(), "query response lost bound identity/signature");
+    const auto accepted = responses.front();
+    auto malformed = request;
+    const auto nonce = std::string(64, 'b');
+    const auto offset = malformed.find(nonce);
+    require(offset != std::string::npos, "query negative fixture missing nonce");
+    malformed.replace(offset, nonce.size(), std::string(64, 'd'));
+    deliver(malformed, false);
+    collect();
+    require(responses.size() == 1, "tampered signed query produced a response");
+    malformed = request;
+    const auto machineOffset = malformed.find("GW_TEST");
+    require(machineOffset != std::string::npos, "query negative fixture missing machine");
+    malformed.replace(machineOffset, 7, "GW_OTHER");
+    deliver(malformed, false);
+    deliver(request, true);
+    const auto expiredRequest = readFile(expiredRequestPath);
+    require(!expiredRequest.empty(), "signed expired query missing");
+    const auto expiredJson = ota_request_json::parseRoot(expiredRequest);
+    auto expiredChallenge = challenge;
+    expiredChallenge.issuedAtMs = std::stoll(ota_request_json::stringField(expiredJson, "issuedAtMs"));
+    expiredChallenge.expiresAtMs = std::stoll(ota_request_json::stringField(expiredJson, "expiresAtMs"));
+    expiredChallenge.signature = ota_request_json::stringField(expiredJson, "signature");
+    require(ota_query_crypto::verifyChallenge(expiredChallenge, platformPublicKey),
+        "expired query did not have a valid platform signature");
+    deliver(expiredRequest, false);
+    collect();
+    require(responses.size() == 1, "foreign/retained/expired query produced a response");
+    require(snapshot() == baseline, "query handler changed original-job evidence or replay state");
+    std::cout << accepted << '\n';
+    cleanupFixture(fixture);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
+        if (argc >= 2 && std::string(argv[1]) == "--original-query-handler") {
+            require(argc == 7, "original-query-handler requires signed and expired requests, public/private keys, staging");
+            testOriginalJobQueryHandler(argv[2], argv[3], argv[4], argv[5], argv[6]);
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--full-identity") {
             testFullIdentitySurvivesExpiredSlotRemoval();
             testFullMissingSelectionAndLegacyBoundary(false);
@@ -2674,6 +2783,7 @@ int main(int argc, char** argv) {
             testRealtimeTimingBoundariesDefaultsAndDeadlineOverflow();
             return 0;
         }
+        require(argc == 1, "unknown mqtt_driver_service_test selector or arguments");
         testIpcDriverBudgetsAndCadence();
         testIpcDriverDelegationDrainsBeforeUnlock();
         testIpcDriverShutdownDrainsOnWorker();
