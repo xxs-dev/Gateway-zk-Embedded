@@ -277,6 +277,24 @@ void check(const std::string& root) {
     put(handoffPath, failedHandoff);
     require(service.readOriginalJob(jobId).outcome == "FAILED_ROLLED_BACK",
         "repaired rollback proof did not resolve");
+    const auto displayStaging = root + "/display/ota/staging";
+    std::filesystem::create_directories(displayStaging);
+    const std::string displayJob = "DISPLAY_FINAL";
+    const std::string displayIntent = "{\"format\":\"ota-job-v1\",\"jobId\":\"" + displayJob +
+        "\",\"machineCode\":\"GW_QUERY\",\"version\":\"2.0.0\","
+        "\"artifactPath\":\"/private/fixture.tar.gz\",\"previousVersion\":\"1.0.0\","
+        "\"token\":\"" + token + "\",\"lifecycle\":\"inherited-flock-v1\"}\n";
+    const std::string displayFinal = "jobId=" + displayJob + "\ntoken=" + token +
+        "\nstatus=completed\n";
+    put(displayStaging + "/ota_job_" + displayJob + ".json", displayIntent);
+    put(displayStaging + "/ota_final_" + displayJob + ".txt", displayFinal);
+    OtaConfig displayConfig;
+    displayConfig.stagingDir = displayStaging;
+    const auto exactBudget = 3 * (displayIntent.size() + displayFinal.size());
+    const auto exactPage = OtaService(displayConfig).loadFinalStatusesReadOnly(exactBudget);
+    require(exactPage.items.size() == 1 && exactPage.items.front().jobId == displayJob &&
+        exactPage.truncated && exactPage.terminalJobs.size() == 1,
+        "exact display budget dropped the last fully verified final");
     for (int i = 0; i < 4100; ++i)
         put(staging + "/noise_" + std::to_string(i), "x");
     require(service.readOriginalJob(jobId).outcome == "FAILED_ROLLED_BACK",

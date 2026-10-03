@@ -16,11 +16,14 @@
 #include <random>
 #include <iomanip>
 #include <iterator>
+#include <list>
 #include <set>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -916,14 +919,38 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
 std::string otaStatusLine(const edge_gateway::OtaStatus& status) {
     std::ostringstream out;
     out << "{\"jobId\":\"" << jsonEscape(status.jobId)
-        << "\",\"machineCode\":\"" << jsonEscape(status.machineCode)
-        << "\",\"stage\":\"" << jsonEscape(status.stage)
+        << "\",\"machineCode\":\"" << jsonEscape(status.machineCode) << "\"";
+    if (!status.occurrenceId.empty())
+        out << ",\"occurrenceId\":\"" << jsonEscape(status.occurrenceId) << "\"";
+    out << ",\"stage\":\"" << jsonEscape(status.stage)
         << "\",\"progress\":" << status.progress
         << ",\"downloadedBytes\":" << status.downloadedBytes
         << ",\"totalBytes\":" << status.totalBytes
         << ",\"message\":\"" << jsonEscape(status.message)
         << "\",\"ts\":" << status.ts << "}";
     return out.str();
+}
+
+using OtaDisplayKey = std::tuple<std::string, std::string, std::string>;
+
+std::optional<OtaDisplayKey> otaDisplayKey(const std::string& line) {
+    try {
+        const auto value = edge_gateway::json::JsonParser(line, 4, 32).parse();
+        if (!value.isObject()) return std::nullopt;
+        std::map<std::string, std::string> fields;
+        for (const auto& member : value.asObject().values) {
+            if (member.key != "jobId" && member.key != "machineCode" &&
+                member.key != "occurrenceId") continue;
+            if (!member.value || !member.value->isString() ||
+                !fields.emplace(member.key, member.value->asString()).second)
+                return std::nullopt;
+        }
+        if (fields.size() != 3 || fields.at("jobId").empty() || fields.at("jobId").size() > 128 ||
+            fields.at("machineCode").empty() || fields.at("machineCode").size() > 128 ||
+            fields.at("occurrenceId").size() != 36) return std::nullopt;
+        return OtaDisplayKey{fields.at("jobId"), fields.at("machineCode"),
+            fields.at("occurrenceId")};
+    } catch (const std::exception&) { return std::nullopt; }
 }
 
 void appendOtaStatus(const SystemMonitorDirectMaintenanceConfig& config, const edge_gateway::OtaStatus& status) {
@@ -2738,17 +2765,32 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
     if (!reconciliationFailed && input.bad()) reconciliationFailed = true;
     if (reconciliationFailed) statusBytes.clear();
     std::istringstream statusInput(statusBytes);
+    struct DisplayLine {
+        std::string json;
+        std::optional<OtaDisplayKey> key;
+    };
+    std::list<DisplayLine> recent;
+    std::map<OtaDisplayKey, std::list<DisplayLine>::iterator> byIdentity;
     while (std::getline(statusInput, line)) {
         line = trim(line);
-        if (line.empty()) {
-            continue;
+        if (line.empty()) continue;
+        auto key = otaDisplayKey(line);
+        if (key) {
+            const auto old = byIdentity.find(*key);
+            if (old != byIdentity.end()) {
+                recent.erase(old->second);
+                byIdentity.erase(old);
+            }
         }
-        lines.push_back(line);
-        if (lines.size() > 100) {
-            lines.erase(lines.begin());
+        recent.push_back({line, key});
+        if (key) byIdentity[*key] = std::prev(recent.end());
+        if (recent.size() > 100) {
+            if (recent.front().key) byIdentity.erase(*recent.front().key);
+            recent.pop_front();
             truncated = true;
         }
     }
+    for (const auto& item : recent) lines.push_back(item.json);
 
     std::vector<edge_gateway::OtaStatus> finals;
     try {
@@ -2757,15 +2799,23 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
         auto listing = service.loadFinalStatusesReadOnly();
         finals = std::move(listing.items);
         truncated = truncated || listing.truncated;
-        const std::unordered_set<std::string> terminalIds(
-            listing.terminalJobIds.begin(), listing.terminalJobIds.end());
+        std::set<OtaDisplayKey> terminalIds;
+        for (const auto& item : listing.terminalJobs)
+            terminalIds.emplace(item.jobId, item.machineCode, item.occurrenceId);
         lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const std::string& item) {
-            return terminalIds.count(jsonString(item, "jobId")) != 0;
+            const auto key = otaDisplayKey(item);
+            return key && terminalIds.count(*key) != 0;
         }), lines.end());
     } catch (...) {
         reconciliationFailed = true;
     }
-    std::sort(finals.begin(), finals.end(), [](const auto& a, const auto& b) { return a.ts < b.ts; });
+    std::sort(finals.begin(), finals.end(), [](const auto& a, const auto& b) {
+        return a.ts != b.ts ? a.ts < b.ts : a.jobId < b.jobId;
+    });
+    if (!finals.empty() && lines.size() == 100) {
+        lines.erase(lines.begin());
+        truncated = true;
+    }
     const auto available = 100 - lines.size();
     const auto firstFinal = finals.size() > available ? finals.size() - available : 0;
     if (firstFinal != 0) truncated = true;

@@ -876,6 +876,7 @@ void verifyDirectStatusPureRead() {
         const auto staging = root + "/staging";
         require(mkdir(staging.c_str(), 0700) == 0, "cannot create private Direct staging");
         const std::string token = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        const std::string newerToken = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
         writeFixtureFile(staging + "/ota_job_OLD_JOB.json",
             "{\"format\":\"ota-job-v1\",\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\","
             "\"version\":\"2.0.0\",\"artifactPath\":\"/private/fixture.tar.gz\","
@@ -891,8 +892,10 @@ void verifyDirectStatusPureRead() {
         direct.otaAppConfigFile = appConfig;
         direct.otaStatusFile = root + "/status.jsonl";
         writeFixtureFile(direct.otaStatusFile,
-            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n"
-            "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"downloading\"}\n");
+            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" + token +
+            "\",\"stage\":\"applying\"}\n"
+            "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" +
+            newerToken + "\",\"stage\":\"downloading\"}\n");
         const auto snapshot = [&] {
             std::map<std::string, std::string> files;
             for (const auto& entry : std::filesystem::directory_iterator(staging)) {
@@ -955,6 +958,18 @@ void verifyDirectStatusPureRead() {
                 snapshot() == invalidBefore, "invalid Direct audit promoted final or mutated state");
         }
         require(std::remove(auditPath.c_str()) == 0, "cannot clear private audit fixture");
+        writeFixtureFile(direct.otaStatusFile, std::string(1024 * 1024 + 1, 'x'));
+        const auto oversizedSmall = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+        require(oversizedSmall.find("\"reconciliationFailed\":true") != std::string::npos &&
+            oversizedSmall.find("\"truncated\":false") != std::string::npos &&
+            oversizedSmall.size() < 64 * 1024 && snapshot() == before,
+            "status-file oversize was confused with directory truncation or mutated state");
+        writeFixtureFile(direct.otaStatusFile,
+            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" + token +
+            "\",\"stage\":\"applying\"}\n"
+            "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\"" +
+            newerToken + "\",\"stage\":\"downloading\"}\n");
         for (int i = 0; i < 110; ++i) {
             const auto jobId = "JOB_" + std::to_string(1000 + i);
             writeFixtureFile(staging + "/ota_job_" + jobId + ".json",
@@ -970,7 +985,19 @@ void verifyDirectStatusPureRead() {
             writeFixtureFile(staging + "/ota_final_" + jobId + ".txt",
                 "jobId=" + jobId + "\ntoken=" + token + "\nstatus=completed\n");
         }
+        std::ostringstream progressLog;
+        progressLog << "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\""
+            << token << "\",\"stage\":\"applying\"}\n";
+        progressLog << "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\""
+            << "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+            << "\",\"stage\":\"verifying\",\"message\":\"foreign-occurrence\"}\n";
+        for (int i = 0; i < 105; ++i)
+            progressLog << "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"occurrenceId\":\""
+                << newerToken << "\",\"stage\":\"downloading\",\"message\":\"event-" << i
+                << "\",\"ts\":" << 3000 + i << "}\n";
+        writeFixtureFile(direct.otaStatusFile, progressLog.str());
         const auto manyBefore = snapshot();
+        const auto progressBefore = readFile(direct.otaStatusFile);
         const auto many = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
             direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
         require(many.find("\"truncated\":true") != std::string::npos &&
@@ -980,8 +1007,12 @@ void verifyDirectStatusPureRead() {
             many.find("\"jobId\":\"JOB_1010\"") == std::string::npos &&
             many.find("\"jobId\":\"NEWER_JOB\"") != std::string::npos &&
             many.find("\"stage\":\"downloading\"") != std::string::npos &&
+            many.find("foreign-occurrence") != std::string::npos &&
+            many.find("event-104") != std::string::npos &&
+            many.find("event-103") == std::string::npos &&
             many.find("\"stage\":\"applying\"") == std::string::npos &&
-            snapshot() == manyBefore, "Direct did not bound or label terminal page");
+            snapshot() == manyBefore && readFile(direct.otaStatusFile) == progressBefore,
+            "Direct did not preserve latest active progress and a bounded terminal page");
         for (int i = 0; i < 3800; ++i)
             writeFixtureFile(staging + "/noise_" + std::to_string(i), "x");
         const auto crowdedBefore = snapshot();
@@ -991,15 +1022,10 @@ void verifyDirectStatusPureRead() {
             crowded.find("\"reconciliationFailed\":false") != std::string::npos &&
             crowded.find("\"jobId\":\"NEWER_JOB\"") != std::string::npos &&
             crowded.find("\"stage\":\"downloading\"") != std::string::npos &&
+            crowded.find("event-104") != std::string::npos &&
+            crowded.find("\"stage\":\"completed\"") != std::string::npos &&
             crowded.size() < 64 * 1024 && snapshot() == crowdedBefore,
             "crowded Direct listing discarded bounded evidence or changed journal");
-        writeFixtureFile(direct.otaStatusFile, std::string(1024 * 1024 + 1, 'x'));
-        const auto oversized = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
-            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
-        require(oversized.find("\"reconciliationFailed\":true") != std::string::npos &&
-            oversized.find("\"truncated\":true") != std::string::npos &&
-            oversized.size() < 64 * 1024 && snapshot() == crowdedBefore,
-            "oversize Direct status was allocated into response or mutated state");
         std::cout << "Direct unauthenticated status pure-read PASS\n";
     } catch (...) { removeEventStoreTestTree(root); throw; }
     removeEventStoreTestTree(root);

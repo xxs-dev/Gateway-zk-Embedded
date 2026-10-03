@@ -28,10 +28,16 @@ struct OtaOriginalJobEvidence {
     std::int64_t healthTs = 0;
 };
 
+struct OtaDisplayIdentity {
+    std::string jobId;
+    std::string machineCode;
+    std::string occurrenceId;
+};
+
 struct OtaReadOnlyFinalStatuses {
     std::vector<OtaStatus> items;
-    // At most one ID per inspected directory entry (4096); includes trimmed finals.
-    std::vector<std::string> terminalJobIds;
+    // At most one identity per inspected directory entry (4096); includes trimmed finals.
+    std::vector<OtaDisplayIdentity> terminalJobs;
     bool truncated = false;
 };
 
@@ -79,7 +85,8 @@ public:
     OtaOriginalJobEvidence readOriginalJob(const std::string& jobId,
                                           const std::string& expectedMachineCode,
                                           const std::string& expectedOccurrenceId) const;
-    OtaReadOnlyFinalStatuses loadFinalStatusesReadOnly() const;
+    OtaReadOnlyFinalStatuses loadFinalStatusesReadOnly(
+        std::size_t displayReadBudget = 64 * 1024 * 1024) const;
     void clearPendingStatuses() const;
     void execute(
         const OtaRequest& request,

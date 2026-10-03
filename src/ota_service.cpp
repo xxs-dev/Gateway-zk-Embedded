@@ -2520,18 +2520,18 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId,
     return evidence;
 }
 
-OtaReadOnlyFinalStatuses OtaService::loadFinalStatusesReadOnly() const {
+OtaReadOnlyFinalStatuses OtaService::loadFinalStatusesReadOnly(
+    std::size_t displayReadBudget) const {
     OtaReadOnlyFinalStatuses result;
 #ifndef _WIN32
     std::size_t inspected = 0;
-    std::size_t displayReadBudget = 64 * 1024 * 1024;
     DIR* directory = opendir(config_.stagingDir.c_str());
     if (!directory) {
         if (errno == ENOENT) return result;
         throw std::runtime_error("cannot open OTA query directory");
     }
     const auto addStatus = [&](OtaStatus status) {
-        result.terminalJobIds.push_back(status.jobId);
+        result.terminalJobs.push_back({status.jobId, status.machineCode, status.occurrenceId});
         result.items.push_back(std::move(status));
         if (result.items.size() <= 100) return;
         std::sort(result.items.begin(), result.items.end(), [](const auto& a, const auto& b) {
@@ -2554,7 +2554,6 @@ OtaReadOnlyFinalStatuses OtaService::loadFinalStatusesReadOnly() const {
                 name.compare(name.size() - 5, 5, ".json") != 0) continue;
             const auto jobId = name.substr(8, name.size() - 13);
             const auto proof = readOriginalJobBounded(jobId, &displayReadBudget);
-            if (displayReadBudget == 0) { result.truncated = true; break; }
             if (proof.outcome == "UNKNOWN") {
                 OtaStatus legacy;
                 if (legacyFinalForDisplay(config_.stagingDir, jobId, legacy, &displayReadBudget))
@@ -2580,6 +2579,7 @@ OtaReadOnlyFinalStatuses OtaService::loadFinalStatusesReadOnly() const {
                 status.productionHealth = "healthy";
             }
             addStatus(std::move(status));
+            if (displayReadBudget == 0) { result.truncated = true; break; }
         }
         closedir(directory);
     } catch (...) { closedir(directory); throw; }
