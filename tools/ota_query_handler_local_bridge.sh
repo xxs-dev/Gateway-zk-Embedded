@@ -46,6 +46,7 @@ jq -nc --arg nonce "$nonce" --arg artifact "$artifact" --arg candidate "$candida
     "$root/device-private.pem" "$root/staging" >"$output/native-handler-response.json" \
     2>"$output/native-handler.stderr"
 grep -q 'mqtt OTA query rejected code=AUTH' "$output/native-handler.stderr"
+grep -q 'mqtt OTA query rejected code=KEY_CONFIG' "$output/native-handler.stderr"
 if grep -q "$nonce" "$output/native-handler.stderr"; then
     echo 'query diagnostic leaked nonce' >&2
     exit 1

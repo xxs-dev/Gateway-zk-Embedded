@@ -13,7 +13,8 @@
 namespace edge_gateway {
 
 enum class OtaRejectionReason { NotAdmitted, Duplicate };
-enum class OtaQueryFailure { Unauthenticated, Expired, EvidenceUnavailable, SigningUnavailable };
+enum class OtaQueryFailure { Unauthenticated, Expired, EvidenceUnavailable, SigningUnavailable,
+    KeyConfiguration, CryptoLibrary, CryptoOperation };
 
 class OtaQueryRejected : public std::runtime_error {
 public:

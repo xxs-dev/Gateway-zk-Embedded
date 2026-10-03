@@ -2534,6 +2534,9 @@ void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
         case OtaQueryFailure::Expired: reason = "EXPIRED"; break;
         case OtaQueryFailure::EvidenceUnavailable: reason = "EVIDENCE"; break;
         case OtaQueryFailure::SigningUnavailable: reason = "SIGNING"; break;
+        case OtaQueryFailure::KeyConfiguration: reason = "KEY_CONFIG"; break;
+        case OtaQueryFailure::CryptoLibrary: reason = "CRYPTO_LIB"; break;
+        case OtaQueryFailure::CryptoOperation: reason = "CRYPTO_OP"; break;
         }
         reportOtaQueryDiagnostic(reason);
     } catch (const std::invalid_argument&) {

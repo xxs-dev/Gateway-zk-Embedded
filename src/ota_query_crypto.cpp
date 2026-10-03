@@ -40,13 +40,13 @@ struct Crypto {
 
     template <typename T> T symbol(const char* name) {
         auto* resolved = dlsym(library, name);
-        if (!resolved) throw std::runtime_error("OTA query crypto symbol unavailable");
+        if (!resolved) throw Error(Failure::Library);
         return reinterpret_cast<T>(resolved);
     }
 
     Crypto() {
         library = dlopen("libcrypto.so.3", RTLD_NOW | RTLD_LOCAL);
-        if (!library) throw std::runtime_error("OTA query requires verified libcrypto.so.3 ABI");
+        if (!library) throw Error(Failure::Library);
         try {
             bioNewMemory = symbol<decltype(bioNewMemory)>("BIO_new_mem_buf");
             bioFree = symbol<decltype(bioFree)>("BIO_free");
@@ -123,64 +123,71 @@ std::string readPinnedKey(const std::string& path, bool privateKey) {
 using CryptoObject = std::unique_ptr<void, void (*)(void*)>;
 
 CryptoObject loadKey(const std::string& path, bool privateKey) {
-    auto bytes = readPinnedKey(path, privateKey);
+    std::string bytes;
+    try { bytes = readPinnedKey(path, privateKey); }
+    catch (const std::exception&) { throw Error(Failure::Key); }
+    struct Wipe {
+        std::string& value;
+        ~Wipe() { std::fill(value.begin(), value.end(), '\0'); }
+    } wipe{bytes};
     auto& api = crypto();
     void* bio = api.bioNewMemory(bytes.data(), static_cast<int>(bytes.size()));
-    if (!bio) throw std::runtime_error("cannot parse OTA query key");
+    if (!bio) throw Error(Failure::Operation);
     void* key = privateKey ? api.readPrivateKey(bio, nullptr, rejectPassword, nullptr)
                            : api.readPublicKey(bio, nullptr, nullptr, nullptr);
     api.bioFree(bio);
-    std::fill(bytes.begin(), bytes.end(), '\0');
-    if (!key) throw std::runtime_error("invalid OTA query key");
+    if (!key) throw Error(Failure::Key);
     CryptoObject owned(key, api.keyFree);
     if (api.keyBaseId(key) != 6 || api.keyBits(key) < 2048)
-        throw std::runtime_error("OTA query requires RSA-2048 or stronger");
+        throw Error(Failure::Key);
     return owned;
 }
 
 std::vector<unsigned char> strictBase64(const std::string& value) {
     if (value.empty() || value.size() > 8192 || value.size() % 4 != 0 || value.size() > INT_MAX)
-        throw std::runtime_error("invalid OTA query signature encoding");
+        throw std::invalid_argument("invalid OTA query signature encoding");
     for (std::size_t i = 0; i < value.size(); ++i) {
         const char c = value[i];
         if (c == '=') {
-            if (i < value.size() - 2) throw std::runtime_error("invalid OTA query signature padding");
+            if (i < value.size() - 2) throw std::invalid_argument("invalid OTA query signature padding");
         } else if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
                      (c >= '0' && c <= '9') || c == '+' || c == '/')) {
-            throw std::runtime_error("invalid OTA query signature encoding");
+            throw std::invalid_argument("invalid OTA query signature encoding");
         }
     }
     std::vector<unsigned char> bytes(value.size() / 4 * 3);
     const int decoded = crypto().decodeBlock(bytes.data(),
         reinterpret_cast<const unsigned char*>(value.data()), static_cast<int>(value.size()));
-    if (decoded < 0) throw std::runtime_error("invalid OTA query signature encoding");
+    if (decoded < 0) throw std::invalid_argument("invalid OTA query signature encoding");
     const auto padding = (value.back() == '=') + (value[value.size() - 2] == '=');
-    if (decoded < padding) throw std::runtime_error("invalid OTA query signature padding");
+    if (decoded < padding) throw std::invalid_argument("invalid OTA query signature padding");
     bytes.resize(static_cast<std::size_t>(decoded - padding));
     std::vector<unsigned char> canonical((bytes.size() + 2) / 3 * 4 + 1);
     const int encoded = crypto().encodeBlock(canonical.data(), bytes.data(), static_cast<int>(bytes.size()));
     if (encoded != static_cast<int>(value.size()) ||
         std::string(reinterpret_cast<char*>(canonical.data()), encoded) != value)
-        throw std::runtime_error("noncanonical OTA query signature");
+        throw std::invalid_argument("noncanonical OTA query signature");
     return bytes;
 }
 
 }  // namespace
 
 bool verifyChallenge(const OtaQueryChallenge& challenge, const std::string& publicKeyPath) {
-    try {
-        const auto descriptor = ota_query_protocol::challengeDescriptor(challenge);
-        const auto signature = strictBase64(challenge.signature);
-        auto key = loadKey(publicKeyPath, false);
-        auto& api = crypto();
-        CryptoObject context(api.digestContextNew(), api.digestContextFree);
-        void* keyContext = nullptr;
-        if (!context || api.verifyInit(context.get(), &keyContext, api.sha256(), nullptr, key.get()) != 1 ||
-            !keyContext || api.setRsaPadding(keyContext, 1) != 1 ||
-            api.verifyUpdate(context.get(), descriptor.data(), descriptor.size()) != 1)
-            return false;
-        return api.verifyFinal(context.get(), signature.data(), signature.size()) == 1;
-    } catch (const std::exception&) { return false; }
+    const auto descriptor = ota_query_protocol::challengeDescriptor(challenge);
+    std::vector<unsigned char> signature;
+    try { signature = strictBase64(challenge.signature); }
+    catch (const std::invalid_argument&) { return false; }
+    auto key = loadKey(publicKeyPath, false);
+    auto& api = crypto();
+    CryptoObject context(api.digestContextNew(), api.digestContextFree);
+    void* keyContext = nullptr;
+    if (!context || api.verifyInit(context.get(), &keyContext, api.sha256(), nullptr, key.get()) != 1 ||
+        !keyContext || api.setRsaPadding(keyContext, 1) != 1 ||
+        api.verifyUpdate(context.get(), descriptor.data(), descriptor.size()) != 1)
+        throw Error(Failure::Operation);
+    const int result = api.verifyFinal(context.get(), signature.data(), signature.size());
+    if (result < 0) throw Error(Failure::Operation);
+    return result == 1;
 }
 
 std::string signObservation(const OtaQueryObservation& observation,

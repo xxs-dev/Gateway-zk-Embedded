@@ -2525,9 +2525,21 @@ OtaQueryObservation OtaService::answerOriginalJobQuery(
     const OtaQueryChallenge& challenge, const std::string& expectedMachineCode) const {
     ota_query_protocol::validate(challenge);
     if (!config_.requireSignature || config_.querySigningPrivateKeyPath.empty() ||
-        challenge.machineCode != expectedMachineCode ||
-        !ota_query_crypto::verifyChallenge(challenge, config_.signaturePublicKeyPath))
+        challenge.machineCode != expectedMachineCode)
         throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
+    try {
+        if (!ota_query_crypto::verifyChallenge(challenge, config_.signaturePublicKeyPath))
+            throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
+    } catch (const ota_query_crypto::Error& error) {
+        switch (error.failure()) {
+        case ota_query_crypto::Failure::Key:
+            throw OtaQueryRejected(OtaQueryFailure::KeyConfiguration);
+        case ota_query_crypto::Failure::Library:
+            throw OtaQueryRejected(OtaQueryFailure::CryptoLibrary);
+        case ota_query_crypto::Failure::Operation:
+            throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
+        }
+    }
     const auto now = currentTimeMs();
     if (challenge.issuedAtMs > now + 30000 || challenge.expiresAtMs <= now)
         throw OtaQueryRejected(OtaQueryFailure::Expired);

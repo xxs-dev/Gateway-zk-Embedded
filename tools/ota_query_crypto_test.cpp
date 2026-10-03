@@ -22,9 +22,23 @@ int main(int argc, char** argv) {
     const std::string publicLink = std::string(argv[1]) + ".link";
     if (symlink(argv[1], publicLink.c_str()) != 0)
         throw std::runtime_error("cannot create synthetic public-key symlink");
-    const bool linkedPublicAccepted = edge_gateway::ota_query_crypto::verifyChallenge(challenge, publicLink);
+    bool linkedPublicRejectedAsKey = false;
+    try { (void)edge_gateway::ota_query_crypto::verifyChallenge(challenge, publicLink); }
+    catch (const edge_gateway::ota_query_crypto::Error& error) {
+        linkedPublicRejectedAsKey = error.failure() == edge_gateway::ota_query_crypto::Failure::Key;
+    }
     unlink(publicLink.c_str());
-    if (linkedPublicAccepted) throw std::runtime_error("symlinked public key was accepted");
+    if (!linkedPublicRejectedAsKey) throw std::runtime_error("symlinked public key was not classified");
+    bool missingPublicRejectedAsKey = false;
+    try { (void)edge_gateway::ota_query_crypto::verifyChallenge(challenge, publicLink); }
+    catch (const edge_gateway::ota_query_crypto::Error& error) {
+        missingPublicRejectedAsKey = error.failure() == edge_gateway::ota_query_crypto::Failure::Key;
+    }
+    if (!missingPublicRejectedAsKey) throw std::runtime_error("missing public key was not classified");
+    auto malformedSignature = challenge;
+    malformedSignature.signature = "not-base64";
+    if (edge_gateway::ota_query_crypto::verifyChallenge(malformedSignature, argv[1]))
+        throw std::runtime_error("malformed signature was accepted");
     edge_gateway::OtaQueryObservation observation{"JOB_1", "GW_TEST", std::string(64, 'b'),
         "HEALTHY_APPLIED", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "2.0.0",
         std::string(64, 'a'), 13, std::string(64, 'c'), "OTA_" + std::string(32, 'd'),

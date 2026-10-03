@@ -2704,6 +2704,14 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     challenge.signature = ota_request_json::stringField(challengeJson, "signature");
     require(ota_query_crypto::verifyChallenge(challenge, platformPublicKey),
         "platform challenge signature failed native verification");
+    auto missingKeyOta = ota;
+    missingKeyOta.signaturePublicKeyPath = platformPublicKey + ".absent";
+    bool keyFailureClassified = false;
+    try { (void)OtaService(missingKeyOta).answerOriginalJobQuery(challenge, "GW_TEST"); }
+    catch (const OtaQueryRejected& rejected) {
+        keyFailureClassified = rejected.reason() == OtaQueryFailure::KeyConfiguration;
+    }
+    require(keyFailureClassified, "missing pinned key was misclassified as authentication failure");
     require(OtaService(ota).answerOriginalJobQuery(challenge, "GW_TEST").outcome == "UNKNOWN",
         "direct original-job query did not sign unknown evidence");
     require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
@@ -2785,6 +2793,13 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     require(responses.size() == boundedResponses + 1,
         "same nonce was cached or query did not recover after rate window");
     require(snapshot() == baseline, "query handler changed original-job evidence or replay state");
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher, nullptr,
+        std::unique_ptr<OtaService>(new OtaService(missingKeyOta))));
+    deliver(request, false);
+    collect();
+    require(responses.size() == boundedResponses + 1,
+        "missing pinned verification key produced an OTA query response");
     std::cout << accepted << '\n';
     cleanupFixture(fixture);
 }
