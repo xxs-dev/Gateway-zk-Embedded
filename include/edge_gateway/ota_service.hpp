@@ -28,6 +28,13 @@ struct OtaOriginalJobEvidence {
     std::int64_t healthTs = 0;
 };
 
+struct OtaReadOnlyFinalStatuses {
+    std::vector<OtaStatus> items;
+    // At most one ID per inspected directory entry (4096); includes trimmed finals.
+    std::vector<std::string> terminalJobIds;
+    bool truncated = false;
+};
+
 class OtaRequestRejected : public std::runtime_error {
 public:
     OtaRequestRejected(OtaRejectionReason reason, const std::string& message)
@@ -72,7 +79,7 @@ public:
     OtaOriginalJobEvidence readOriginalJob(const std::string& jobId,
                                           const std::string& expectedMachineCode,
                                           const std::string& expectedOccurrenceId) const;
-    std::vector<OtaStatus> loadFinalStatusesReadOnly() const;
+    OtaReadOnlyFinalStatuses loadFinalStatusesReadOnly() const;
     void clearPendingStatuses() const;
     void execute(
         const OtaRequest& request,
@@ -87,6 +94,8 @@ public:
     static std::string signatureDescriptor(const OtaRequest& request, const std::string& machineCode);
 
 private:
+    OtaOriginalJobEvidence readOriginalJobBounded(const std::string& jobId,
+                                                  std::size_t* displayReadBudget) const;
     friend struct OtaServiceTestAccess;
     friend struct OtaChecksumTestAccess;
     std::string resolveArtifactPath(const OtaRequest& request) const;

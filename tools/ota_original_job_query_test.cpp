@@ -35,6 +35,13 @@ std::map<std::string, std::string> tree(const std::string& path) {
 
 void check(const std::string& root) {
     using namespace edge_gateway;
+    const auto duplicate = json::JsonParser("{\"nested\":{\"value\":\"first\",\"value\":\"second\"}}", 4, 8).parse();
+    require(duplicate.find("nested")->find("value")->asString() == "first",
+        "duplicate fixture did not reach first-key parser behavior");
+    bool duplicateRejected = false;
+    try { requireUniqueQueryJson(duplicate); }
+    catch (const std::runtime_error&) { duplicateRejected = true; }
+    require(duplicateRejected, "nested duplicate query JSON passed uniqueness guard");
     require(ota_query_detail::sha256Hex("") ==
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" &&
         ota_query_detail::sha256Hex("abc") ==
@@ -134,6 +141,18 @@ void check(const std::string& root) {
     put(staging + "/ota_handoff_" + jobId + ".json", handoff);
     put(staging + "/ota_final_" + jobId + ".txt", final);
     put(staging + "/ota_reconcile_" + jobId + ".json", audit);
+    const int stagingFd = open(staging.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    require(stagingFd >= 0, "cannot open private query fixture directory");
+    std::size_t tinyDisplayBudget = 1;
+    std::size_t fileRemaining = 4096;
+    bool budgetRejected = false;
+    try {
+        (void)readOriginalEvidenceFile(stagingFd, "ota_job_" + jobId + ".json", 4096,
+            fileRemaining, &tinyDisplayBudget);
+    } catch (const std::runtime_error&) { budgetRejected = true; }
+    close(stagingFd);
+    require(budgetRejected && tinyDisplayBudget == 0,
+        "display query exceeded its shared evidence-byte budget");
     OtaConfig config;
     config.stagingDir = staging;
     OtaService service(config);
@@ -234,6 +253,34 @@ void check(const std::string& root) {
     put(txDir + "/previous-pointer.json", "{\"baselineId\":\"BASE_OLD\",\"sha256\":\"" +
         std::string(64, 'f') + "\"}\n");
     require(service.readOriginalJob(jobId).outcome == "UNKNOWN", "wrong prior pointer resolved rollback");
+    put(txDir + "/previous-pointer.json", "{\"baselineId\":\"BASE_OLD\",\"sha256\":" +
+        pendingJsonString(previousSha) + "}\n");
+    const std::string unresolvedHealth = "{\"format\":\"ota-health-v1\",\"jobId\":\"" + jobId +
+        "\",\"version\":\"2.0.0\",\"token\":\"" + token +
+        "\",\"status\":\"failed\",\"rollback\":\"failed\",\"ts\":\"2000\"}\n";
+    const std::string unresolvedHandoff = "{\"format\":\"ota-handoff-v1\",\"jobId\":\"" + jobId +
+        "\",\"version\":\"2.0.0\",\"token\":\"" + token +
+        "\",\"intentSha256\":\"" + intentSha + "\",\"gatewayHome\":" + pendingJsonString(home) +
+        ",\"productionApprovalSha256\":" + pendingJsonString(approvalSha) +
+        ",\"phase\":\"OWNER_FINISHED\",\"runtimeMayChange\":true,\"productionTransaction\":\"" + transaction +
+        "\",\"completionProof\":{\"status\":\"failed\",\"rollback\":\"failed\",\"transaction\":\"" + transaction +
+        "\",\"healthSha256\":" + pendingJsonString(ota_query_detail::sha256Hex(unresolvedHealth)) +
+        ",\"healthRecord\":" + pendingJsonString(unresolvedHealth) + "}}\n";
+    put(healthPath, unresolvedHealth);
+    put(handoffPath, unresolvedHandoff);
+    const auto unknown = service.readOriginalJob(jobId);
+    require(unknown.outcome == "UNKNOWN" && unknown.jobId == jobId &&
+        unknown.productionTransaction.empty() && unknown.productionCandidateSha256.empty() &&
+        unknown.healthSha256.empty() && unknown.machineCode.empty(),
+        "unresolved rollback leaked partial query proof");
+    put(healthPath, failedHealth);
+    put(handoffPath, failedHandoff);
+    require(service.readOriginalJob(jobId).outcome == "FAILED_ROLLED_BACK",
+        "repaired rollback proof did not resolve");
+    for (int i = 0; i < 4100; ++i)
+        put(staging + "/noise_" + std::to_string(i), "x");
+    require(service.readOriginalJob(jobId).outcome == "FAILED_ROLLED_BACK",
+        "unrelated directory entries blocked exact original-job query");
     require(!std::filesystem::exists(staging + "/ota_state.lock") &&
         !std::filesystem::exists(staging + "/ota_status_pending.log.lock") &&
         !std::filesystem::exists(staging + "/ota_job_" + jobId + ".lock"), "query created a lock");

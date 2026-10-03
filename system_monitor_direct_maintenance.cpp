@@ -2722,6 +2722,7 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
     std::vector<std::string> lines;
     std::string line;
     bool reconciliationFailed = false;
+    bool truncated = false;
     std::string statusBytes;
     char chunk[4096];
     while (input) {
@@ -2745,6 +2746,7 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
         lines.push_back(line);
         if (lines.size() > 100) {
             lines.erase(lines.begin());
+            truncated = true;
         }
     }
 
@@ -2752,21 +2754,29 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
     try {
         const auto appConfig = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
         edge_gateway::OtaService service(appConfig.ota);
-        finals = service.loadFinalStatusesReadOnly();
+        auto listing = service.loadFinalStatusesReadOnly();
+        finals = std::move(listing.items);
+        truncated = truncated || listing.truncated;
+        const std::unordered_set<std::string> terminalIds(
+            listing.terminalJobIds.begin(), listing.terminalJobIds.end());
+        lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const std::string& item) {
+            return terminalIds.count(jsonString(item, "jobId")) != 0;
+        }), lines.end());
     } catch (...) {
         reconciliationFailed = true;
     }
     std::sort(finals.begin(), finals.end(), [](const auto& a, const auto& b) { return a.ts < b.ts; });
-    for (const auto& status : finals) {
-        lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const std::string& item) {
-            return jsonString(item, "jobId") == status.jobId;
-        }), lines.end());
+    const auto available = 100 - lines.size();
+    const auto firstFinal = finals.size() > available ? finals.size() - available : 0;
+    if (firstFinal != 0) truncated = true;
+    for (std::size_t i = firstFinal; i < finals.size(); ++i) {
+        const auto& status = finals[i];
         lines.push_back(otaStatusLine(status));
-        if (lines.size() > 100) lines.erase(lines.begin());
     }
 
     std::ostringstream out;
-    out << "{\"ts\":" << nowMs() << ",\"reconciliationFailed\":"
+    out << "{\"ts\":" << nowMs() << ",\"truncated\":"
+        << (truncated ? "true" : "false") << ",\"reconciliationFailed\":"
         << (reconciliationFailed ? "true" : "false")
         << ",\"count\":" << lines.size() << ",\"items\":[";
     for (std::size_t i = 0; i < lines.size(); ++i) {

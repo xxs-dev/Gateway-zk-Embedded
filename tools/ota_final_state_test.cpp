@@ -891,7 +891,8 @@ void verifyDirectStatusPureRead() {
         direct.otaAppConfigFile = appConfig;
         direct.otaStatusFile = root + "/status.jsonl";
         writeFixtureFile(direct.otaStatusFile,
-            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n");
+            "{\"jobId\":\"OLD_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"applying\"}\n"
+            "{\"jobId\":\"NEWER_JOB\",\"machineCode\":\"GW_TEST\",\"stage\":\"downloading\"}\n");
         const auto snapshot = [&] {
             std::map<std::string, std::string> files;
             for (const auto& entry : std::filesystem::directory_iterator(staging)) {
@@ -909,10 +910,32 @@ void verifyDirectStatusPureRead() {
             reply.find("\"stage\":\"completed\"") != std::string::npos &&
             reply.find("\"stage\":\"applying\"") == std::string::npos,
             "unauthenticated Direct GET lost bounded legacy final display");
+        require(reply.find("\"jobId\":\"NEWER_JOB\"") != std::string::npos &&
+            reply.find("\"stage\":\"downloading\"") != std::string::npos,
+            "Direct GET discarded unrelated active progress");
         require(snapshot() == before &&
             !std::filesystem::exists(staging + "/ota_state.lock") &&
             !std::filesystem::exists(staging + "/ota_status_pending.log.lock"),
             "Direct GET changed journal or created recovery lock");
+        const auto oldHealth = staging + "/health_OLD_JOB.txt";
+        for (const auto& rollback : {"failed", "skipped"}) {
+            writeFixtureFile(oldHealth,
+                "{\"format\":\"ota-health-v1\",\"jobId\":\"OLD_JOB\",\"version\":\"2.0.0\","
+                "\"token\":\"" + token + "\",\"status\":\"failed\",\"rollback\":\"" +
+                rollback + "\",\"ts\":\"1000\"}\n");
+            writeFixtureFile(staging + "/ota_final_OLD_JOB.txt",
+                "jobId=OLD_JOB\ntoken=" + token + "\nstatus=failed\n");
+            const auto failureBefore = snapshot();
+            const auto failure = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+                direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+            require(failure.find("\"jobId\":\"OLD_JOB\"") != std::string::npos &&
+                failure.find("\"stage\":\"failed\"") != std::string::npos &&
+                failure.find("OTA failed; rollback " + std::string(rollback)) != std::string::npos &&
+                snapshot() == failureBefore, "Direct hid failed legacy rollback or changed evidence");
+        }
+        require(std::remove(oldHealth.c_str()) == 0, "cannot remove private health fixture");
+        writeFixtureFile(staging + "/ota_final_OLD_JOB.txt",
+            "jobId=OLD_JOB\ntoken=" + token + "\nstatus=completed\n");
         const auto auditPath = staging + "/ota_reconcile_OLD_JOB.json";
         for (const auto& fields : std::vector<std::pair<std::string, std::string>>{
                  {"wrong-format", "committed"}, {"ota-reconcile-v1", "invalid"},
@@ -932,11 +955,50 @@ void verifyDirectStatusPureRead() {
                 snapshot() == invalidBefore, "invalid Direct audit promoted final or mutated state");
         }
         require(std::remove(auditPath.c_str()) == 0, "cannot clear private audit fixture");
+        for (int i = 0; i < 110; ++i) {
+            const auto jobId = "JOB_" + std::to_string(1000 + i);
+            writeFixtureFile(staging + "/ota_job_" + jobId + ".json",
+                "{\"format\":\"ota-job-v1\",\"jobId\":\"" + jobId +
+                "\",\"machineCode\":\"GW_TEST\",\"version\":\"2.0.0\","
+                "\"artifactPath\":\"/private/fixture.tar.gz\",\"previousVersion\":\"1.0.0\","
+                "\"token\":\"" + token + "\",\"lifecycle\":\"inherited-flock-v1\"}\n");
+            writeFixtureFile(staging + "/health_" + jobId + ".txt",
+                "{\"format\":\"ota-health-v1\",\"jobId\":\"" + jobId +
+                "\",\"version\":\"2.0.0\",\"token\":\"" + token +
+                "\",\"status\":\"healthy\",\"rollback\":\"none\",\"ts\":\"" +
+                std::to_string(2000 + i) + "\"}\n");
+            writeFixtureFile(staging + "/ota_final_" + jobId + ".txt",
+                "jobId=" + jobId + "\ntoken=" + token + "\nstatus=completed\n");
+        }
+        const auto manyBefore = snapshot();
+        const auto many = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+        require(many.find("\"truncated\":true") != std::string::npos &&
+            many.find("\"reconciliationFailed\":false") != std::string::npos &&
+            many.find("\"count\":100") != std::string::npos &&
+            many.find("\"jobId\":\"JOB_1109\"") != std::string::npos &&
+            many.find("\"jobId\":\"JOB_1010\"") == std::string::npos &&
+            many.find("\"jobId\":\"NEWER_JOB\"") != std::string::npos &&
+            many.find("\"stage\":\"downloading\"") != std::string::npos &&
+            many.find("\"stage\":\"applying\"") == std::string::npos &&
+            snapshot() == manyBefore, "Direct did not bound or label terminal page");
+        for (int i = 0; i < 3800; ++i)
+            writeFixtureFile(staging + "/noise_" + std::to_string(i), "x");
+        const auto crowdedBefore = snapshot();
+        const auto crowded = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+            direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
+        require(crowded.find("\"truncated\":true") != std::string::npos &&
+            crowded.find("\"reconciliationFailed\":false") != std::string::npos &&
+            crowded.find("\"jobId\":\"NEWER_JOB\"") != std::string::npos &&
+            crowded.find("\"stage\":\"downloading\"") != std::string::npos &&
+            crowded.size() < 64 * 1024 && snapshot() == crowdedBefore,
+            "crowded Direct listing discarded bounded evidence or changed journal");
         writeFixtureFile(direct.otaStatusFile, std::string(1024 * 1024 + 1, 'x'));
         const auto oversized = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
             direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
         require(oversized.find("\"reconciliationFailed\":true") != std::string::npos &&
-            oversized.size() < 64 * 1024 && snapshot() == before,
+            oversized.find("\"truncated\":true") != std::string::npos &&
+            oversized.size() < 64 * 1024 && snapshot() == crowdedBefore,
             "oversize Direct status was allocated into response or mutated state");
         std::cout << "Direct unauthenticated status pure-read PASS\n";
     } catch (...) { removeEventStoreTestTree(root); throw; }

@@ -1981,10 +1981,10 @@ struct ReadOnlyEvidenceFile {
 };
 
 ReadOnlyEvidenceFile readOriginalEvidenceFile(int directoryFd, const std::string& name, std::size_t limit,
-                                             std::size_t& remaining) {
+                                             std::size_t& remaining, std::size_t* displayReadBudget = nullptr) {
     ReadOnlyEvidenceFile result;
 #ifdef _WIN32
-    (void)directoryFd; (void)name; (void)limit; (void)remaining;
+    (void)directoryFd; (void)name; (void)limit; (void)remaining; (void)displayReadBudget;
     return result;
 #else
     const int fd = openat(directoryFd, name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
@@ -1999,6 +1999,13 @@ ReadOnlyEvidenceFile readOriginalEvidenceFile(int directoryFd, const std::string
             static_cast<std::uint64_t>(before.st_size) > limit ||
             static_cast<std::uint64_t>(before.st_size) > remaining)
             throw std::runtime_error("invalid OTA query evidence metadata");
+        if (displayReadBudget) {
+            if (static_cast<std::uint64_t>(before.st_size) > *displayReadBudget) {
+                *displayReadBudget = 0;
+                throw std::runtime_error("OTA display read budget exhausted");
+            }
+            *displayReadBudget -= static_cast<std::size_t>(before.st_size);
+        }
         result.bytes.resize(static_cast<std::size_t>(before.st_size));
         std::size_t offset = 0;
         while (offset < result.bytes.size()) {
@@ -2035,7 +2042,8 @@ std::function<void()> queryAfterFirstSnapshot;
 #endif
 
 OriginalEvidenceSnapshot readOriginalEvidenceSnapshot(const std::string& stagingDir,
-                                                      const std::string& jobId) {
+                                                      const std::string& jobId,
+                                                      std::size_t* displayReadBudget = nullptr) {
 #ifndef _WIN32
     struct stat root{};
     const int directoryFd = open(stagingDir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
@@ -2060,7 +2068,7 @@ OriginalEvidenceSnapshot readOriginalEvidenceSnapshot(const std::string& staging
     try {
         for (const auto& item : names)
             snapshot.emplace(item.first, readOriginalEvidenceFile(directoryFd, item.first,
-                item.second, remaining));
+                item.second, remaining, displayReadBudget));
 #ifndef _WIN32
         struct stat after{};
         if (fstat(directoryFd, &after) != 0 || root.st_dev != after.st_dev ||
@@ -2217,7 +2225,8 @@ struct ProductionQueryEvidence {
 };
 
 ProductionQueryEvidence readProductionQueryEvidence(const std::string& home,
-    const std::string& transaction, const std::string& baselineId, bool healthy) {
+    const std::string& transaction, const std::string& baselineId, bool healthy,
+    std::size_t* displayReadBudget = nullptr) {
     const QueryDirectoryFd root(openTrustedQueryDirectory(home + "/data/runtime-production"));
     const QueryDirectoryFd transactions(openTrustedQueryChild(root.value, "transactions"));
     const QueryDirectoryFd tx(openTrustedQueryChild(transactions.value, transaction));
@@ -2229,7 +2238,8 @@ ProductionQueryEvidence readProductionQueryEvidence(const std::string& home,
     result.transactionDev = txInfo.st_dev; result.transactionInode = txInfo.st_ino;
     std::size_t remaining = 8 * 1024 * 1024;
     const auto exact = [&](int fd, const std::string& name) {
-        const auto file = readOriginalEvidenceFile(fd, name, 1024 * 1024, remaining);
+        const auto file = readOriginalEvidenceFile(fd, name, 1024 * 1024, remaining,
+            displayReadBudget);
         if (!file.present) throw std::runtime_error("missing production query evidence");
         return file.bytes;
     };
@@ -2259,7 +2269,8 @@ bool sameProductionQueryEvidence(const ProductionQueryEvidence& a, const Product
 }
 
 std::string productionCandidateForOriginalJob(const std::string& stagingDir,
-    const PendingOtaJob& job, const json::JsonValue& handoff, const OtaHealthResult& otaHealth) {
+    const PendingOtaJob& job, const json::JsonValue& handoff, const OtaHealthResult& otaHealth,
+    std::size_t* displayReadBudget) {
     const std::string suffix = "/ota/staging";
     if (stagingDir.size() <= suffix.size() ||
         stagingDir.compare(stagingDir.size() - suffix.size(), suffix.size(), suffix) != 0)
@@ -2275,13 +2286,14 @@ std::string productionCandidateForOriginalJob(const std::string& stagingDir,
     const QueryDirectoryFd tx(openTrustedQueryChild(transactions.value, transaction));
     std::size_t remaining = 1024 * 1024;
     const auto candidateFile = readOriginalEvidenceFile(tx.value, healthy ? "candidate.json" : "previous.json",
-        1024 * 1024, remaining);
+        1024 * 1024, remaining, displayReadBudget);
     if (!candidateFile.present) throw std::runtime_error("missing production baseline");
     const auto selected = json::JsonParser(candidateFile.bytes, 12, 4096).parse();
     requireUniqueQueryJson(selected);
     const auto baselineId = pendingField(selected, "baselineId");
     if (!isSafeOtaId(baselineId)) throw std::runtime_error("invalid production baseline ID");
-    const auto evidence = readProductionQueryEvidence(home, transaction, baselineId, healthy);
+    const auto evidence = readProductionQueryEvidence(home, transaction, baselineId, healthy,
+        displayReadBudget);
     const auto approval = json::JsonParser(evidence.approval, 12, 4096).parse();
     const auto candidate = json::JsonParser(evidence.candidate, 12, 4096).parse();
     const auto previous = json::JsonParser(evidence.previous, 12, 4096).parse();
@@ -2335,16 +2347,16 @@ std::string productionCandidateForOriginalJob(const std::string& stagingDir,
             throw std::runtime_error("production rollback receipt mismatch");
     }
     if (!sameProductionQueryEvidence(evidence,
-        readProductionQueryEvidence(home, transaction, baselineId, healthy)))
+        readProductionQueryEvidence(home, transaction, baselineId, healthy, displayReadBudget)))
         throw std::runtime_error("mixed production query generation");
     return candidateSha;
 }
 #endif
 
 bool legacyFinalForDisplay(const std::string& stagingDir, const std::string& jobId,
-                           OtaStatus& status) {
+                           OtaStatus& status, std::size_t* displayReadBudget) {
     try {
-        const auto snapshot = readOriginalEvidenceSnapshot(stagingDir, jobId);
+        const auto snapshot = readOriginalEvidenceSnapshot(stagingDir, jobId, displayReadBudget);
         const auto intent = snapshot.at("ota_job_" + jobId + ".json");
         const auto healthFile = snapshot.at("health_" + jobId + ".txt");
         const auto finalFile = snapshot.at("ota_final_" + jobId + ".txt");
@@ -2360,9 +2372,7 @@ bool legacyFinalForDisplay(const std::string& stagingDir, const std::string& job
         }
         const auto terminal = !healthFile.present || health.status == "healthy" ? "completed" : "failed";
         if (finalFile.bytes != "jobId=" + jobId + "\ntoken=" + job.token +
-            "\nstatus=" + terminal + "\n" ||
-            (healthFile.present && health.status == "failed" && health.rollback != "succeeded" &&
-             health.rollback != "unchanged")) return false;
+            "\nstatus=" + terminal + "\n") return false;
         const auto audit = snapshot.at("ota_reconcile_" + jobId + ".json");
         std::int64_t auditTs = 0;
         if (audit.present) {
@@ -2370,7 +2380,8 @@ bool legacyFinalForDisplay(const std::string& stagingDir, const std::string& job
             auditTs = validateQueryAudit(record, job);
             if (pendingField(record, "finalState") == "unknown") return false;
         }
-        if (!sameOriginalEvidence(snapshot, readOriginalEvidenceSnapshot(stagingDir, jobId))) return false;
+        if (!sameOriginalEvidence(snapshot,
+            readOriginalEvidenceSnapshot(stagingDir, jobId, displayReadBudget))) return false;
         status.jobId = jobId;
         status.machineCode = job.machineCode;
         status.occurrenceId = job.token;
@@ -2380,7 +2391,7 @@ bool legacyFinalForDisplay(const std::string& stagingDir, const std::string& job
         status.message = !healthFile.present ? "upgrade completed" :
             terminal == "completed" ? "upgrade completed after health verification" :
             health.rollback == "unchanged" ? "OTA rejected before runtime change" :
-            "OTA failed; rollback succeeded";
+            "OTA failed; rollback " + health.rollback;
         return true;
     } catch (const std::exception&) { return false; }
 }
@@ -2388,6 +2399,11 @@ bool legacyFinalForDisplay(const std::string& stagingDir, const std::string& job
 }  // namespace
 
 OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId) const {
+    return readOriginalJobBounded(jobId, nullptr);
+}
+
+OtaOriginalJobEvidence OtaService::readOriginalJobBounded(const std::string& jobId,
+    std::size_t* displayReadBudget) const {
     OtaOriginalJobEvidence result;
     result.jobId = jobId;
     if (!isSafeOtaId(jobId)) return result;
@@ -2395,7 +2411,8 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId) con
     return result;
 #else
     try {
-        const auto snapshot = readOriginalEvidenceSnapshot(config_.stagingDir, jobId);
+        const auto snapshot = readOriginalEvidenceSnapshot(config_.stagingDir, jobId,
+            displayReadBudget);
         const auto value = [&](const std::string& name) -> const std::string& {
             const auto& file = snapshot.at(name);
             if (!file.present || file.bytes.empty()) throw std::runtime_error("missing OTA query evidence");
@@ -2454,10 +2471,11 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId) con
                 result.outcome = "HEALTHY_APPLIED";
             else if (health.status == "failed" && health.rollback == "succeeded")
                 result.outcome = "FAILED_ROLLED_BACK";
-            result.productionTransaction = transaction;
-            if (result.outcome != "UNKNOWN")
+            if (result.outcome != "UNKNOWN") {
+                result.productionTransaction = transaction;
                 result.productionCandidateSha256 = productionCandidateForOriginalJob(
-                    config_.stagingDir, job, handoff, health);
+                    config_.stagingDir, job, handoff, health, displayReadBudget);
+            }
         } else if (phase == "CANCELLED" && !mayChange->asBool() &&
                    health.status == "failed" && health.rollback == "unchanged") {
             const auto* proof = handoff.find("cancelProof");
@@ -2472,7 +2490,8 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId) con
 #ifdef OTA_QUERY_FAULT_TEST
         if (queryAfterFirstSnapshot) queryAfterFirstSnapshot();
 #endif
-        if (!sameOriginalEvidence(snapshot, readOriginalEvidenceSnapshot(config_.stagingDir, jobId)))
+        if (!sameOriginalEvidence(snapshot, readOriginalEvidenceSnapshot(config_.stagingDir, jobId,
+            displayReadBudget)))
             throw std::runtime_error("mixed OTA query generation");
         result.machineCode = job.machineCode;
         result.occurrenceId = job.token;
@@ -2501,54 +2520,74 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId,
     return evidence;
 }
 
-std::vector<OtaStatus> OtaService::loadFinalStatusesReadOnly() const {
-    std::vector<OtaStatus> statuses;
+OtaReadOnlyFinalStatuses OtaService::loadFinalStatusesReadOnly() const {
+    OtaReadOnlyFinalStatuses result;
 #ifndef _WIN32
     std::size_t inspected = 0;
+    std::size_t displayReadBudget = 64 * 1024 * 1024;
     DIR* directory = opendir(config_.stagingDir.c_str());
     if (!directory) {
-        if (errno == ENOENT) return statuses;
+        if (errno == ENOENT) return result;
         throw std::runtime_error("cannot open OTA query directory");
     }
+    const auto addStatus = [&](OtaStatus status) {
+        result.terminalJobIds.push_back(status.jobId);
+        result.items.push_back(std::move(status));
+        if (result.items.size() <= 100) return;
+        std::sort(result.items.begin(), result.items.end(), [](const auto& a, const auto& b) {
+            return a.ts != b.ts ? a.ts < b.ts : a.jobId < b.jobId;
+        });
+        result.items.erase(result.items.begin());
+        result.truncated = true;
+    };
     try {
-        for (dirent* item = readdir(directory); item != nullptr; item = readdir(directory)) {
-        if (++inspected > 4096) throw std::runtime_error("OTA query directory exceeds limit");
-        const std::string name(item->d_name);
-        if (name.compare(0, 8, "ota_job_") != 0 || name.size() <= 13 ||
-            name.compare(name.size() - 5, 5, ".json") != 0) continue;
-        const auto jobId = name.substr(8, name.size() - 13);
-        const auto proof = readOriginalJob(jobId);
-        if (proof.outcome == "UNKNOWN") {
-            OtaStatus legacy;
-            if (legacyFinalForDisplay(config_.stagingDir, jobId, legacy))
-                statuses.push_back(std::move(legacy));
-            if (statuses.size() > 100) throw std::runtime_error("OTA query result exceeds limit");
-            continue;
-        }
-        OtaStatus status;
-        status.jobId = proof.jobId;
-        status.machineCode = proof.machineCode;
-        status.occurrenceId = proof.occurrenceId;
-        status.stage = proof.outcome == "HEALTHY_APPLIED" ? "completed" : "failed";
-        status.progress = status.stage == "completed" ? 100 : 0;
-        status.ts = proof.healthTs;
-        status.message = proof.outcome == "HEALTHY_APPLIED" ? "upgrade completed after health verification" :
-            proof.outcome == "FAILED_ROLLED_BACK" ? "OTA failed; rollback succeeded" :
-            "OTA rejected before runtime change";
-        if (status.stage == "completed" && !proof.productionCandidateSha256.empty()) {
-            status.appliedVersion = proof.version;
-            status.appliedSha256 = proof.artifactSha256;
-            status.productionTransaction = proof.productionTransaction;
-            status.productionCandidateSha256 = proof.productionCandidateSha256;
-            status.productionHealth = "healthy";
-        }
-        statuses.push_back(std::move(status));
-        if (statuses.size() > 100) throw std::runtime_error("OTA query result exceeds limit");
+        for (;;) {
+            errno = 0;
+            dirent* item = readdir(directory);
+            if (!item) {
+                if (errno != 0) throw std::runtime_error("cannot enumerate OTA query directory");
+                break;
+            }
+            if (++inspected > 4096) { result.truncated = true; break; }
+            const std::string name(item->d_name);
+            if (name.compare(0, 8, "ota_job_") != 0 || name.size() <= 13 ||
+                name.compare(name.size() - 5, 5, ".json") != 0) continue;
+            const auto jobId = name.substr(8, name.size() - 13);
+            const auto proof = readOriginalJobBounded(jobId, &displayReadBudget);
+            if (displayReadBudget == 0) { result.truncated = true; break; }
+            if (proof.outcome == "UNKNOWN") {
+                OtaStatus legacy;
+                if (legacyFinalForDisplay(config_.stagingDir, jobId, legacy, &displayReadBudget))
+                    addStatus(std::move(legacy));
+                if (displayReadBudget == 0) { result.truncated = true; break; }
+                continue;
+            }
+            OtaStatus status;
+            status.jobId = proof.jobId;
+            status.machineCode = proof.machineCode;
+            status.occurrenceId = proof.occurrenceId;
+            status.stage = proof.outcome == "HEALTHY_APPLIED" ? "completed" : "failed";
+            status.progress = status.stage == "completed" ? 100 : 0;
+            status.ts = proof.healthTs;
+            status.message = proof.outcome == "HEALTHY_APPLIED" ? "upgrade completed after health verification" :
+                proof.outcome == "FAILED_ROLLED_BACK" ? "OTA failed; rollback succeeded" :
+                "OTA rejected before runtime change";
+            if (status.stage == "completed" && !proof.productionCandidateSha256.empty()) {
+                status.appliedVersion = proof.version;
+                status.appliedSha256 = proof.artifactSha256;
+                status.productionTransaction = proof.productionTransaction;
+                status.productionCandidateSha256 = proof.productionCandidateSha256;
+                status.productionHealth = "healthy";
+            }
+            addStatus(std::move(status));
         }
         closedir(directory);
     } catch (...) { closedir(directory); throw; }
 #endif
-    return statuses;
+    std::sort(result.items.begin(), result.items.end(), [](const auto& a, const auto& b) {
+        return a.ts != b.ts ? a.ts < b.ts : a.jobId < b.jobId;
+    });
+    return result;
 }
 
 void OtaService::clearPendingStatuses() const {
