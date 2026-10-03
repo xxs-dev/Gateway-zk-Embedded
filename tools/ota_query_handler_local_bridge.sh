@@ -45,6 +45,10 @@ jq -nc --arg nonce "$nonce" --arg artifact "$artifact" --arg candidate "$candida
 "$binary" --original-query-handler "$root/challenge.json" "$root/expired.json" "$root/platform-public.pem" \
     "$root/device-private.pem" "$root/staging" >"$output/native-handler-response.json" \
     2>"$output/native-handler.stderr"
+"$binary" --original-query-wire "$root/challenge.json" "$root/platform-public.pem" \
+    "$root/device-private.pem" "$root/staging" GW_TEST >"$output/native-wire-response.json" \
+    2>"$output/native-wire.stderr"
+cmp "$output/native-handler-response.json" "$output/native-wire-response.json"
 grep -q 'mqtt OTA query rejected code=AUTH' "$output/native-handler.stderr"
 grep -q 'mqtt OTA query rejected code=KEY_CONFIG' "$output/native-handler.stderr"
 if grep -q "$nonce" "$output/native-handler.stderr"; then

@@ -2830,6 +2830,40 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     cleanupFixture(fixture);
 }
 
+void runOriginalJobQueryWireBridge(const std::string& requestPath,
+                                   const std::string& platformPublicKey,
+                                   const std::string& devicePrivateKey,
+                                   const std::string& stagingDir,
+                                   const std::string& machineCode) {
+    auto fixture = makeFixture("original_query_wire_bridge", 0);
+    fixture.service.reset();
+    fixture.deviceConfig.machineCode = machineCode;
+    fixture.mqttConfig.topicMachineCode = machineCode;
+    OtaConfig ota;
+    ota.enabled = true;
+    ota.requireSignature = true;
+    ota.stagingDir = stagingDir;
+    ota.signaturePublicKeyPath = platformPublicKey;
+    ota.querySigningPrivateKeyPath = devicePrivateKey;
+    fixture.service.reset(new MqttDriverService(fixture.mqttConfig, fixture.driverConfig,
+        {fixture.deviceConfig}, fixture.router, fixture.publisher, nullptr,
+        std::unique_ptr<OtaService>(new OtaService(ota))));
+    MqttIncomingMessage message;
+    message.type = MqttIncomingType::OtaQueryRequest;
+    message.topic = fixture.mqttConfig.otaQueryRequestTopic + "/" + machineCode;
+    message.payload = readFile(requestPath);
+    require(!message.payload.empty(), "original-query-wire request missing");
+    fixture.publisher->incoming.push_back(std::move(message));
+    fixture.service->runScanOnce(1000);
+    std::vector<std::string> replies;
+    for (std::size_t i = 0; i < fixture.publisher->jsonTopics.size(); ++i)
+        if (fixture.publisher->jsonTopics[i] == fixture.mqttConfig.otaQueryReplyTopic)
+            replies.push_back(fixture.publisher->statusPayloads[i]);
+    require(replies.size() == 1, "original-query-wire expected one signed reply");
+    std::cout << replies.front() << '\n';
+    cleanupFixture(fixture);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -2837,6 +2871,11 @@ int main(int argc, char** argv) {
         if (argc >= 2 && std::string(argv[1]) == "--original-query-handler") {
             require(argc == 7, "original-query-handler requires signed and expired requests, public/private keys, staging");
             testOriginalJobQueryHandler(argv[2], argv[3], argv[4], argv[5], argv[6]);
+            return 0;
+        }
+        if (argc >= 2 && std::string(argv[1]) == "--original-query-wire") {
+            require(argc == 7, "original-query-wire requires request, public/private keys, staging, machine");
+            runOriginalJobQueryWireBridge(argv[2], argv[3], argv[4], argv[5], argv[6]);
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--full-identity") {

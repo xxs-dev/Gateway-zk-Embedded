@@ -2540,6 +2540,7 @@ OtaQueryObservation OtaService::answerOriginalJobQuery(
         case ota_query_crypto::Failure::Operation:
             throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
         }
+        throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
     }
     const auto now = currentTimeMs();
     if (challenge.issuedAtMs > now + 30000 || challenge.expiresAtMs <= now)
