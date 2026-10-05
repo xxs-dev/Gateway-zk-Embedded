@@ -22,8 +22,15 @@ def unique(pairs):
 
 def sanitize(value):
     if isinstance(value, dict):
-        return {key: '' if key.lower() in CREDENTIALS else sanitize(item)
-                for key, item in value.items()}
+        result = {}
+        for key, item in value.items():
+            if key.lower() in CREDENTIALS:
+                if not isinstance(item, str):
+                    raise ValueError('credential field requires string')
+                result[key] = ''
+            else:
+                result[key] = sanitize(item)
+        return result
     if isinstance(value, list):
         return [sanitize(item) for item in value]
     return value
@@ -33,6 +40,10 @@ def stage(root):
     root = Path(root)
     if not root.is_dir() or any(p.is_symlink() for p in (root,) + tuple(root.parents)):
         raise ValueError('invalid staging directory')
+    # rglob does not traverse directory symlinks on all supported Python versions.
+    for parent, directories, _ in os.walk(str(root), followlinks=False):
+        if any((Path(parent) / name).is_symlink() for name in directories):
+            raise ValueError('symlinked staging directory')
     changed = 0
     for path in sorted(root.rglob('*.json')):
         if any(p.is_symlink() for p in path.parents if p != root.parent):
