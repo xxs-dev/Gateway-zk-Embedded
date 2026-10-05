@@ -34,6 +34,7 @@ cp "$ROOT_DIR/config/factory/runtime/apps/agc-avc-service.json" \
 cp "$ROOT_DIR/config/factory/runtime/devices/device_agc_avc_virtual.json" \
   "$ROOT/config/factory/runtime/devices/device_agc_avc_virtual.json"
 cp "$ROOT_DIR/deploy/agc-avc@.service" "$ROOT/deploy/agc-avc@.service"
+python3 "$SCRIPT_DIR/package-credential-stage.py" "$ROOT/config"
 
 cat > "$ROOT/agc-avc-runtime-manifest.json" <<'EOF'
 {

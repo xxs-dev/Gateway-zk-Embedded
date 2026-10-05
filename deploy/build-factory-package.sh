@@ -322,6 +322,9 @@ fi
 if [ -f "$ROOT_DIR/config/README.md" ]; then
   cp "$ROOT_DIR/config/README.md" "$TMP_DIR/gateway-factory-defaults/config/README.md"
 fi
+# Keep schema/security settings, but never distribute authentication values.
+# Commissioned credentials remain device/site inputs, not package defaults.
+python3 "$SCRIPT_DIR/package-credential-stage.py" "$TMP_DIR/gateway-factory-defaults/config"
 if [ -d "$ROOT_DIR/deploy" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/deploy"
   for file in "$ROOT_DIR/deploy"/*; do
