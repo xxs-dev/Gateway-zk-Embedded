@@ -18,7 +18,6 @@
 #include <iterator>
 #include <list>
 #include <set>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -933,22 +932,23 @@ std::string otaStatusLine(const edge_gateway::OtaStatus& status) {
 // Progress occurrenceId identifies an event, not the execution. This key is display-only.
 using OtaDisplayKey = std::pair<std::string, std::string>;
 
-std::optional<OtaDisplayKey> otaDisplayKey(const std::string& line) {
+bool otaDisplayKey(const std::string& line, OtaDisplayKey& key) {
     try {
         const auto value = edge_gateway::json::JsonParser(line, 4, 32).parse();
-        if (!value.isObject()) return std::nullopt;
+        if (!value.isObject()) return false;
         std::map<std::string, std::string> fields;
         for (const auto& member : value.asObject().values) {
             if (member.key != "jobId" && member.key != "machineCode") continue;
             if (!member.value || !member.value->isString() ||
                 !fields.emplace(member.key, member.value->asString()).second)
-                return std::nullopt;
+                return false;
         }
         if (fields.size() != 2 || fields.at("jobId").empty() || fields.at("jobId").size() > 128 ||
             fields.at("machineCode").empty() || fields.at("machineCode").size() > 128)
-            return std::nullopt;
-        return OtaDisplayKey{fields.at("jobId"), fields.at("machineCode")};
-    } catch (const std::exception&) { return std::nullopt; }
+            return false;
+        key = OtaDisplayKey{fields.at("jobId"), fields.at("machineCode")};
+        return true;
+    } catch (const std::exception&) { return false; }
 }
 
 void appendOtaStatus(const SystemMonitorDirectMaintenanceConfig& config, const edge_gateway::OtaStatus& status) {
@@ -2765,25 +2765,27 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
     std::istringstream statusInput(statusBytes);
     struct DisplayLine {
         std::string json;
-        std::optional<OtaDisplayKey> key;
+        OtaDisplayKey key;
+        bool hasKey;
     };
     std::list<DisplayLine> recent;
     std::map<OtaDisplayKey, std::list<DisplayLine>::iterator> byIdentity;
     while (std::getline(statusInput, line)) {
         line = trim(line);
         if (line.empty()) continue;
-        auto key = otaDisplayKey(line);
-        if (key) {
-            const auto old = byIdentity.find(*key);
+        OtaDisplayKey key;
+        const bool hasKey = otaDisplayKey(line, key);
+        if (hasKey) {
+            const auto old = byIdentity.find(key);
             if (old != byIdentity.end()) {
                 recent.erase(old->second);
                 byIdentity.erase(old);
             }
         }
-        recent.push_back({line, key});
-        if (key) byIdentity[*key] = std::prev(recent.end());
+        recent.push_back({line, key, hasKey});
+        if (hasKey) byIdentity[key] = std::prev(recent.end());
         if (recent.size() > 100) {
-            if (recent.front().key) byIdentity.erase(*recent.front().key);
+            if (recent.front().hasKey) byIdentity.erase(recent.front().key);
             recent.pop_front();
             truncated = true;
         }
@@ -2801,8 +2803,8 @@ std::string otaStatusJson(const SystemMonitorDirectMaintenanceConfig& config) {
         for (const auto& item : listing.terminalJobs)
             terminalIds.emplace(item.jobId, item.machineCode);
         lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const std::string& item) {
-            const auto key = otaDisplayKey(item);
-            return key && terminalIds.count(*key) != 0;
+            OtaDisplayKey key;
+            return otaDisplayKey(item, key) && terminalIds.count(key) != 0;
         }), lines.end());
     } catch (...) {
         reconciliationFailed = true;
