@@ -100,7 +100,7 @@ std::string readPinnedKey(const std::string& path, bool privateKey) {
     bytes.resize(static_cast<std::size_t>(before.st_size));
     std::size_t received = 0;
     while (received < bytes.size()) {
-        const auto count = read(fd, bytes.data() + received, bytes.size() - received);
+        const auto count = read(fd, &bytes[received], bytes.size() - received);
         if (count <= 0) { close(fd); throw std::runtime_error("short OTA query key read"); }
         received += static_cast<std::size_t>(count);
     }
