@@ -127,6 +127,10 @@ if [ "$INSTALL_SYSTEMD" = "0" ]; then
 fi
 
 [ "$RESET_SHM" = "0" ] || { echo "RESET_SHM is unsupported; preserve segments and use offline migration" >&2; exit 2; }
+# Check before extraction, lifecycle staging, target writes or service stops.
+# Existing restrictive/foreign/link public parents need an explicit migration;
+# never widen them as a side effect of installing a kiosk.
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" check-kiosk-parents --home "$GATEWAY_HOME"
 python3 "${SCRIPT_DIR:+$SCRIPT_DIR/runtime-upgrade-guard.py}" factory "$GATEWAY_HOME"
 
 cleanup_factory_extract() {
@@ -903,7 +907,8 @@ os.replace(tmp, path)
 PY
 }
 
-mkdir -p "$GATEWAY_HOME/bin" "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-kiosk-parents --home "$GATEWAY_HOME"
+mkdir -p "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
 
 BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
 ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl memory_point_store_migrate"
@@ -968,7 +973,7 @@ for bin in $REQUIRED_BINS; do
     required_binary_file "$bin" >/dev/null || { echo "required binary missing: $bin" >&2; exit 2; }
   fi
 done
-for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh factory-lifecycle-stage.py production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh; do
+for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh factory-lifecycle-stage.py production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh local-kiosk.py prepare-generic-runtime.py; do
   deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
 done
 
@@ -1014,8 +1019,10 @@ install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-c
 if [ "$INSTALL_SYSTEMD" = "1" ] && [ ! -f /etc/default/gateway-network-failover ]; then
   install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"
 fi
-install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
-install_deploy_file_if_exists "prepare-generic-runtime.py" "$GATEWAY_HOME/bin/prepare-generic-runtime.py"
+KIOSK_SCRIPT_SOURCE=$(deploy_file "local-kiosk.py") || { echo "local-kiosk.py missing" >&2; exit 2; }
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" install-kiosk-script \
+  --source "$KIOSK_SCRIPT_SOURCE" --home "$GATEWAY_HOME"
+install_required_deploy_file "prepare-generic-runtime.py" "$GATEWAY_HOME/bin/prepare-generic-runtime.py"
 install_deploy_file_if_exists "gateway-qt-run.sh" "$GATEWAY_HOME/bin/gateway-qt-run.sh"
 if [ "${INIT_LOCAL_QT_DISPLAY_ENABLED:-0}" = "1" ]; then
   python3 "$SOURCE_ROOT/deploy/prepare-generic-runtime.py" install-widgets \
@@ -1147,6 +1154,11 @@ apply_direct_maintenance_config \
   "$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE" \
   "$INIT_DIRECT_LISTEN_HOSTS_VALUE" \
   "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
+
+# Runtime relocation/settings are complete. No private app JSON is opened by
+# the nonroot kiosk; the public allowlist is installed before any service start.
+python3 "$GATEWAY_HOME/bin/prepare-generic-runtime.py" project-kiosk \
+  --home "$GATEWAY_HOME" --instance monitor-service
 
 echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"
 echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"

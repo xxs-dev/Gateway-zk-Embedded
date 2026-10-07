@@ -8,6 +8,10 @@ import subprocess
 import sys
 import time
 import urllib.request
+import math
+import re
+import stat
+from pathlib import Path
 
 os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
 os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
@@ -77,24 +81,106 @@ def normalize_kiosk_config(raw):
     return kiosk
 
 
-def load_local_display_settings(app_config_path):
-    host = "127.0.0.1"
-    port = 18080
-    page_code = "overview"
-    kiosk = dict(DEFAULT_KIOSK)
+def kiosk_public_path(app_config_path):
+    # The legacy argument identifies an instance; do not resolve/stat/open it.
+    path = Path(app_config_path)
+    if (not path.is_absolute() or ".." in path.parts or len(path.parts) < 6 or
+            path.parts[-4:-1] != ("config", "runtime", "apps") or
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.json", path.name) is None):
+        raise ValueError("KIOSK_UNMANAGED_ARGUMENT")
+    return path.parents[3] / "kiosk" / path.name
+
+
+def read_kiosk_public(path):
+    if os.name != "posix":
+        raise ValueError("KIOSK_POSIX_REQUIRED")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+    fd = os.open("/", flags | os.O_DIRECTORY)
     try:
-        with open(app_config_path, "r", encoding="utf-8") as fh:
-            root = json.load(fh)
-        local_display = root.get("localDisplay") or {}
-        # The kiosk always talks to the local loopback endpoint. bindHost may be
-        # 0.0.0.0 for LAN access, but the local process should still use 127.0.0.1.
-        port = int_value(local_display.get("port"), port)
-        kiosk = normalize_kiosk_config(local_display.get("kiosk") or {})
-        pages = local_display.get("pages") or []
-        if pages:
-            page_code = pages[0].get("pageCode") or page_code
-    except Exception as exc:
-        log("failed to load app config {}, using defaults: {}".format(app_config_path, exc))
+        for part in path.parts[1:-1]:
+            info = os.fstat(fd)
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
+                    info.st_mode & 0o022 or not info.st_mode & 0o001):
+                raise ValueError("KIOSK_PUBLIC_POLICY")
+            next_fd = os.open(part, flags | os.O_DIRECTORY, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o755:
+            raise ValueError("KIOSK_PUBLIC_POLICY")
+        next_fd = os.open(path.name, flags, dir_fd=fd)
+        os.close(fd)
+        fd = next_fd
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                stat.S_IMODE(info.st_mode) != 0o644 or info.st_nlink != 1):
+            raise ValueError("KIOSK_PUBLIC_POLICY")
+        chunks = []
+        count = 0
+        while True:
+            chunk = os.read(fd, 8193 - count)
+            count += len(chunk)
+            if count > 8192:
+                raise ValueError("KIOSK_PUBLIC_TOO_LARGE")
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+
+
+def parse_kiosk_public(raw):
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("KIOSK_PUBLIC_INVALID")
+            value[key] = item
+        return value
+
+    def nonfinite(value):
+        raise ValueError("KIOSK_PUBLIC_INVALID")
+
+    try:
+        root = json.loads(raw.decode("utf-8"), object_pairs_hook=unique, parse_constant=nonfinite)
+        if not isinstance(root, dict) or set(root) != {"localDisplay"}:
+            raise ValueError()
+        local = root["localDisplay"]
+        if not isinstance(local, dict) or set(local) != {"port", "kiosk", "pages"}:
+            raise ValueError()
+        port, kiosk, pages = local["port"], local["kiosk"], local["pages"]
+        if (type(port) is not int or not 1 <= port <= 65535 or
+                not isinstance(kiosk, dict) or set(kiosk) != set(DEFAULT_KIOSK) or
+                not isinstance(pages, list) or len(pages) != 1 or
+                not isinstance(pages[0], dict) or set(pages[0]) != {"pageCode"}):
+            raise ValueError()
+        for key, default in DEFAULT_KIOSK.items():
+            value = kiosk[key]
+            if type(default) is bool:
+                valid = type(value) is bool
+            elif type(default) is int:
+                valid = type(value) is int and 1 <= value <= 16384
+            elif key == "zoom":
+                valid = type(value) in (int, float) and 0.1 <= value <= 8 and math.isfinite(value)
+            else:
+                valid = isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{0,64}", value) is not None
+            if not valid:
+                raise ValueError()
+        page = pages[0]["pageCode"]
+        if not isinstance(page, str) or re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", page) is None:
+            raise ValueError()
+        return port, page, kiosk
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
+        raise ValueError("KIOSK_PUBLIC_INVALID") from None
+
+
+def load_local_display_settings(app_config_path):
+    path = kiosk_public_path(app_config_path)
+    try:
+        port, page_code, kiosk = parse_kiosk_public(read_kiosk_public(path))
+    except OSError:
+        raise ValueError("KIOSK_PUBLIC_UNAVAILABLE") from None
+    host = "127.0.0.1"
     page_url = "http://{}:{}/?pageCode={}".format(host, port, page_code)
     frame_url = "http://{}:{}/api/frame?pageCode={}".format(host, port, page_code)
     return page_url, frame_url, kiosk
@@ -517,7 +603,11 @@ def main():
     parser.add_argument("--zoom", type=float)
     args = parser.parse_args()
 
-    page_url, frame_url, kiosk = load_local_display_settings(args.app_config)
+    try:
+        page_url, frame_url, kiosk = load_local_display_settings(args.app_config)
+    except ValueError as error:
+        log(str(error))
+        return 2
     kiosk = apply_cli_overrides(kiosk, args)
     log("page url={}".format(page_url))
     log("kiosk width={} height={} fullscreen={} setDisplayMode={} output={} zoom={}".format(
@@ -546,4 +636,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

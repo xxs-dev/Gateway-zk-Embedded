@@ -13,6 +13,276 @@ import subprocess
 import tempfile
 import zipfile
 import zlib
+import stat
+import uuid
+from contextlib import contextmanager
+
+
+KIOSK_DEFAULTS = {
+    "width": 1280, "height": 720, "fullscreen": True, "setDisplayMode": True,
+    "enabled": True, "requireDisplayConnected": True, "requireEdid": True,
+    "displayOutput": "", "zoom": 1.0,
+}
+
+
+def kiosk_projection(root):
+    """Explicit public fields only; never include a private-config fingerprint."""
+    if not isinstance(root, dict) or not isinstance(root.get("localDisplay"), dict):
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    local = root["localDisplay"]
+    port = local.get("port", 18080)
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    raw = local.get("kiosk", {})
+    if not isinstance(raw, dict):
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    kiosk = {}
+    for key, default in KIOSK_DEFAULTS.items():
+        value = raw.get(key, default)
+        if type(default) is bool:
+            valid = type(value) is bool
+        elif type(default) is int:
+            valid = type(value) is int and 1 <= value <= 16384
+        elif key == "zoom":
+            valid = type(value) in (int, float) and 0.1 <= value <= 8 and math.isfinite(value)
+        else:
+            valid = isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{0,64}", value) is not None
+        if not valid:
+            raise ValueError("KIOSK_SETTINGS_INVALID")
+        kiosk[key] = value
+    pages = local.get("pages", [])
+    if not isinstance(pages, list):
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    page = "overview"
+    if pages:
+        if not isinstance(pages[0], dict):
+            raise ValueError("KIOSK_SETTINGS_INVALID")
+        page = pages[0].get("pageCode", "overview")
+    if not isinstance(page, str) or re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", page) is None:
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    return {"localDisplay": {"port": port, "kiosk": kiosk, "pages": [{"pageCode": page}]}}
+
+
+def kiosk_json(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate")
+            result[key] = value
+        return result
+
+    def nonfinite(value):
+        raise ValueError("nonfinite")
+
+    def finite_number(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("nonfinite")
+        return number
+
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique,
+                          parse_constant=nonfinite, parse_float=finite_number)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ValueError("KIOSK_JSON_INVALID") from None
+
+
+def kiosk_directory_policy(fd, public=False, ancestor=False):
+    info = os.fstat(fd)
+    mode = stat.S_IMODE(info.st_mode)
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or mode & 0o022 or
+            (public and mode != 0o755) or (ancestor and not mode & 0o001)):
+        raise ValueError("KIOSK_PARENT_POLICY")
+
+
+def kiosk_file_policy(fd):
+    info = os.fstat(fd)
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+            info.st_mode & 0o022 or info.st_nlink != 1):
+        raise ValueError("KIOSK_FILE_POLICY")
+    return info
+
+
+def kiosk_read(fd, limit):
+    kiosk_file_policy(fd)
+    chunks = []
+    count = 0
+    while True:
+        chunk = os.read(fd, min(65536, limit + 1 - count))
+        count += len(chunk)
+        if count > limit:
+            raise ValueError("KIOSK_INPUT_TOO_LARGE")
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def kiosk_instance(value):
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value) is None:
+        raise ValueError("KIOSK_INSTANCE_INVALID")
+    return value
+
+
+def kiosk_flags(directory=False):
+    return os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK | (os.O_DIRECTORY if directory else 0)
+
+
+@contextmanager
+def kiosk_home(home, allow_missing=False):
+    # Walk from root using held no-follow directory handles; never resolve links.
+    if os.name != "posix" or os.geteuid() != 0:
+        raise ValueError("KIOSK_ROOT_POSIX_REQUIRED")
+    path = Path(home)
+    if not path.is_absolute() or ".." in path.parts or len(path.parts) < 3:
+        raise ValueError("KIOSK_HOME_INVALID")
+    fd = os.open("/", kiosk_flags(True))
+    try:
+        kiosk_directory_policy(fd, ancestor=True)
+        parts = path.parts[1:]
+        for position, part in enumerate(parts):
+            try:
+                next_fd = os.open(part, kiosk_flags(True), dir_fd=fd)
+            except FileNotFoundError:
+                if allow_missing and position == len(parts) - 1:
+                    yield fd, part, None
+                    return
+                raise
+            try:
+                kiosk_directory_policy(next_fd, public=position == len(parts) - 1, ancestor=True)
+            except Exception:
+                os.close(next_fd)
+                raise
+            os.close(fd)
+            fd = next_fd
+        yield None, None, fd
+    finally:
+        os.close(fd)
+
+
+def kiosk_check_slot(directory, name):
+    try:
+        fd = os.open(name, kiosk_flags(), dir_fd=directory)
+    except FileNotFoundError:
+        return
+    try:
+        kiosk_file_policy(fd)
+    finally:
+        os.close(fd)
+
+
+def check_kiosk_parents(args):
+    with kiosk_home(args.home, allow_missing=True) as (_, __, home_fd):
+        if home_fd is None:
+            return
+        for name in ("bin", "kiosk"):
+            try:
+                fd = os.open(name, kiosk_flags(True), dir_fd=home_fd)
+            except FileNotFoundError:
+                continue
+            try:
+                kiosk_directory_policy(fd, public=True)
+                if name == "bin":
+                    kiosk_check_slot(fd, "local-kiosk.py")
+            finally:
+                os.close(fd)
+
+
+def kiosk_create_directory(parent, name):
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent)
+    except FileExistsError:
+        fd = os.open(name, kiosk_flags(True), dir_fd=parent)
+        try:
+            kiosk_directory_policy(fd, public=True)
+        finally:
+            os.close(fd)
+        return
+    fd = os.open(name, kiosk_flags(True), dir_fd=parent)
+    try:
+        kiosk_directory_policy(fd)
+        os.fchmod(fd, 0o755)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.fsync(parent)
+
+
+def prepare_kiosk_parents(args):
+    check_kiosk_parents(args)
+    with kiosk_home(args.home, allow_missing=True) as (parent, name, home_fd):
+        if home_fd is None:
+            kiosk_create_directory(parent, name)
+    with kiosk_home(args.home) as (_, __, home_fd):
+        for name in ("bin", "kiosk"):
+            kiosk_create_directory(home_fd, name)
+
+
+@contextmanager
+def kiosk_child_directory(parent, name):
+    fd = os.open(name, kiosk_flags(True), dir_fd=parent)
+    try:
+        kiosk_directory_policy(fd)
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def kiosk_publish(directory, name, raw, mode):
+    kiosk_check_slot(directory, name)
+    temporary = ".kiosk-" + uuid.uuid4().hex
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                 0o600, dir_fd=directory)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
+    finally:
+        try:
+            os.unlink(temporary, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+
+
+def project_kiosk(args):
+    instance = kiosk_instance(args.instance)
+    with kiosk_home(args.home) as (_, __, home_fd):
+        with kiosk_child_directory(home_fd, "config") as config:
+            with kiosk_child_directory(config, "runtime") as runtime:
+                with kiosk_child_directory(runtime, "apps") as apps:
+                    fd = os.open(instance + ".json", kiosk_flags(), dir_fd=apps)
+                    try:
+                        before = os.fstat(fd)
+                        raw = kiosk_read(fd, 1024 * 1024)
+                        after = os.fstat(fd)
+                        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                                after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                            raise ValueError("KIOSK_INPUT_CHANGED")
+                    finally:
+                        os.close(fd)
+        value = kiosk_projection(kiosk_json(raw))
+        public = (json.dumps(value, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
+        with kiosk_child_directory(home_fd, "kiosk") as output:
+            kiosk_directory_policy(output, public=True)
+            kiosk_publish(output, instance + ".json", public, 0o644)
+
+
+def install_kiosk_script(args):
+    # Source is the approved deploy member, not an arbitrary output path.
+    check_kiosk_parents(args)
+    fd = os.open(str(args.source), kiosk_flags())
+    try:
+        raw = kiosk_read(fd, 256 * 1024)
+    finally:
+        os.close(fd)
+    with kiosk_home(args.home) as (_, __, home_fd):
+        with kiosk_child_directory(home_fd, "bin") as output:
+            kiosk_directory_policy(output, public=True)
+            kiosk_publish(output, "local-kiosk.py", raw, 0o755)
 
 QT_WIDGET_RESOURCE = "config/generic-scada-widgets.json"
 
@@ -339,6 +609,13 @@ if __name__ == "__main__":
     widgets = commands.add_parser("install-widgets")
     widgets.add_argument("--package-root", required=True, type=Path)
     widgets.add_argument("--home", required=True, type=Path)
+    for command in ("check-kiosk-parents", "prepare-kiosk-parents", "project-kiosk", "install-kiosk-script"):
+        kiosk = commands.add_parser(command)
+        kiosk.add_argument("--home", required=True, type=Path)
+        if command == "project-kiosk":
+            kiosk.add_argument("--instance", required=True)
+        if command == "install-kiosk-script":
+            kiosk.add_argument("--source", required=True, type=Path)
     args = parser.parse_args()
     if args.command is None:
         parser.error("a command is required")
@@ -347,7 +624,18 @@ if __name__ == "__main__":
             preflight(args)
         elif args.command == "install-widgets":
             install_widgets(args)
+        elif args.command == "check-kiosk-parents":
+            check_kiosk_parents(args)
+        elif args.command == "prepare-kiosk-parents":
+            prepare_kiosk_parents(args)
+        elif args.command == "project-kiosk":
+            project_kiosk(args)
+        elif args.command == "install-kiosk-script":
+            install_kiosk_script(args)
         else:
             prepare(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+        if "kiosk" in args.command:
+            category = str(error) if isinstance(error, ValueError) and str(error).startswith("KIOSK_") else "KIOSK_IO_FAILURE"
+            parser.exit(2, category + "\n")
         parser.exit(2, str(error) + "\n")

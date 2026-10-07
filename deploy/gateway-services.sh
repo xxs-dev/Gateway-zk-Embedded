@@ -529,6 +529,20 @@ PY
 
 start_one_unit() {
   unit="$1"
+  case "$unit" in
+    local-kiosk@*.service)
+      kiosk_instance="${unit#local-kiosk@}"
+      kiosk_instance="${kiosk_instance%.service}"
+      # Enumeration is read-only. Refresh even for activated-list admissions,
+      # and never start with the previous projection after any refresh failure.
+      if ! timeout --signal=TERM --kill-after=2s 10s python3 \
+          "$BASE_DIR/bin/prepare-generic-runtime.py" project-kiosk \
+          --home "$BASE_DIR" --instance "$kiosk_instance"; then
+        echo "[gateway-services] kiosk projection failed; start withheld" >&2
+        return 1
+      fi
+      ;;
+  esac
   echo "[gateway-services] starting $unit"
   case "$unit" in
     ky-ems.service|local-kiosk@*.service)
