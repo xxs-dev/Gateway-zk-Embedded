@@ -1,0 +1,37 @@
+{
+  "_source": {
+    "path": "products/ems/mobile/2.0/scada/base-project/screens/Devices.json",
+    "sha256Lf": "0cba8505a418852ea4e0ca47bc786979d1618e71917efc7e3fbabf0a36b44084",
+    "projection": "product-widget-schema-without-site-bindings-v1"
+  },
+  "qtLabel": {
+    "widgetId": "generic", "type": "qtLabel", "title": "",
+    "geometry": {"x": 37.0, "y": 42.0, "width": 28.0, "height": 24.0},
+    "zIndex": 3, "visible": true, "styleClass": "",
+    "bindings": [], "stateRules": [], "action": null,
+    "properties": {
+      "qtText": "", "qtTextColor": "#17212B", "qtBackgroundColor": "transparent",
+      "qtFontSize": 18, "qtTextAlignment": "Left", "qtTransparent": true
+    }
+  },
+  "qtValue": {
+    "widgetId": "generic", "type": "qtValue", "title": "",
+    "geometry": {"x": 20.0, "y": 166.0, "width": 245.0, "height": 36.0},
+    "zIndex": 6, "visible": true, "styleClass": "",
+    "bindings": [], "stateRules": [], "action": null,
+    "properties": {
+      "qtText": "", "qtTextColor": "#17212B", "qtBackgroundColor": "transparent",
+      "qtFontSize": 18, "qtTextAlignment": "Left", "qtTransparent": true
+    }
+  },
+  "qtButton": {
+    "widgetId": "generic", "type": "qtButton", "title": "",
+    "geometry": {"x": 623.0, "y": 24.0, "width": 104.0, "height": 64.0},
+    "zIndex": 20, "visible": true, "styleClass": "",
+    "bindings": [], "stateRules": [], "action": null,
+    "properties": {
+      "qtText": "", "qtTextColor": "#17212B", "qtBackgroundColor": "transparent",
+      "qtFontSize": 18, "qtTextAlignment": "Left", "qtTransparent": true
+    }
+  }
+}

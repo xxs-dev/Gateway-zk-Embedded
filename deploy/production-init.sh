@@ -861,6 +861,7 @@ if [ -f "$PACKAGE_ROOT/generic-package.json" ]; then
     --manifest "${INIT_EDGE_PACKAGE_MANIFEST:-}" --selection "$INIT_WORK_DIR/generic-selection.json" \
     --machine "$INIT_MACHINE_CODE" --qt "$INIT_LOCAL_QT_DISPLAY" \
     --home "$GATEWAY_HOME" --start "$INIT_START_SERVICES")
+  export INIT_LOCAL_QT_DISPLAY_ENABLED
   if [ "${INIT_PACKAGE_PROFILE:-full}" = "project" ]; then
     INIT_EDGE_PACKAGE_MANIFEST="$INIT_WORK_DIR/generic-selection.json"
   fi

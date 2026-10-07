@@ -4,6 +4,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,64 @@ import subprocess
 import tempfile
 import zipfile
 import zlib
+
+QT_WIDGET_RESOURCE = "config/generic-scada-widgets.json"
+
+
+def qt_widgets(root, manifest):
+    path = root / QT_WIDGET_RESOURCE
+    expected = manifest.get("files", {}).get(QT_WIDGET_RESOURCE)
+    if not isinstance(expected, str) or not re.fullmatch("[0-9a-f]{64}", expected):
+        raise ValueError("QT_WIDGET_RESOURCE_UNBOUND")
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("QT_WIDGET_RESOURCE_MISSING")
+    with path.open("rb") as stream:
+        raw = stream.read(65537)
+    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != expected:
+        raise ValueError("QT_WIDGET_RESOURCE_MISMATCH")
+    resources = read(root / "edge-package-manifest.json").get("resources", {})
+    if resources.get(QT_WIDGET_RESOURCE) != {"sha256": expected, "sizeBytes": len(raw)}:
+        raise ValueError("QT_WIDGET_RESOURCE_MANIFEST_MISMATCH")
+    try:
+        def unique(pairs):
+            value = {}
+            for key, child in pairs:
+                if key in value:
+                    raise ValueError("duplicate widget field")
+                value[key] = child
+            return value
+        widgets = json.loads(raw, object_pairs_hook=unique)
+        for kind in ("qtLabel", "qtValue", "qtButton"):
+            widget = widgets[kind]
+            if widget["type"] != kind or widget["bindings"] != [] or widget["stateRules"] != [] or widget["action"] is not None:
+                raise ValueError("bound or incorrect prototype")
+            if not isinstance(widget["properties"], dict) or widget["visible"] is not True or type(widget["zIndex"]) is not int:
+                raise ValueError("invalid prototype schema")
+            geometry = widget["geometry"]
+            if any(type(geometry[key]) not in (int, float) or not math.isfinite(geometry[key]) for key in ("x", "y", "width", "height")):
+                raise ValueError("invalid prototype geometry")
+            if geometry["width"] <= 0 or geometry["height"] <= 0:
+                raise ValueError("invalid prototype dimensions")
+    except (ValueError, KeyError, TypeError) as error:
+        raise ValueError("QT_WIDGET_RESOURCE_INVALID") from error
+    return widgets, raw
+
+
+def install_widgets(args):
+    _, raw = qt_widgets(args.package_root, read(args.package_root / "generic-package.json"))
+    target = args.home / QT_WIDGET_RESOURCE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".qt-widgets-", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, str(target))
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def read(path):
@@ -108,6 +167,7 @@ def preflight(args):
     if qt and args.profile == "base":
         raise ValueError("base profile does not support --local-qt-display; use project or full")
     if qt:
+        qt_widgets(root, generic)
         for binary in ("KY-EMS", "QtDisplayBridge"):
             if binary not in available:
                 raise ValueError("local Qt dependency missing: " + binary)
@@ -276,12 +336,17 @@ if __name__ == "__main__":
     activate.add_argument("--machine", required=True)
     activate.add_argument("--qt", choices=("0", "1"), required=True)
     activate.add_argument("--qt-environment", default="")
+    widgets = commands.add_parser("install-widgets")
+    widgets.add_argument("--package-root", required=True, type=Path)
+    widgets.add_argument("--home", required=True, type=Path)
     args = parser.parse_args()
     if args.command is None:
         parser.error("a command is required")
     try:
         if args.command == "preflight":
             preflight(args)
+        elif args.command == "install-widgets":
+            install_widgets(args)
         else:
             prepare(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:

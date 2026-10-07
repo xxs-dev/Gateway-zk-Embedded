@@ -1017,7 +1017,12 @@ fi
 install_deploy_file_if_exists "local-kiosk.py" "$GATEWAY_HOME/bin/local-kiosk.py"
 install_deploy_file_if_exists "prepare-generic-runtime.py" "$GATEWAY_HOME/bin/prepare-generic-runtime.py"
 install_deploy_file_if_exists "gateway-qt-run.sh" "$GATEWAY_HOME/bin/gateway-qt-run.sh"
-install_file_if_exists "${SOURCE_ROOT:+$SOURCE_ROOT/config/generic-scada-widgets.json}" "$GATEWAY_HOME/config/generic-scada-widgets.json"
+if [ "${INIT_LOCAL_QT_DISPLAY_ENABLED:-0}" = "1" ]; then
+  python3 "$SOURCE_ROOT/deploy/prepare-generic-runtime.py" install-widgets \
+    --package-root "$SOURCE_ROOT" --home "$GATEWAY_HOME"
+else
+  install_file_if_exists "${SOURCE_ROOT:+$SOURCE_ROOT/config/generic-scada-widgets.json}" "$GATEWAY_HOME/config/generic-scada-widgets.json"
+fi
 chmod +x "$GATEWAY_HOME/bin/"*.sh 2>/dev/null || true
 chmod +x "$GATEWAY_HOME/bin/"* 2>/dev/null || true
 

@@ -201,6 +201,10 @@ for binary in packaged:
         "sha256": digest.hexdigest(),
     })
 
+widget_path = os.path.join(payload_root, "config/generic-scada-widgets.json")
+with open(widget_path, "rb") as fh:
+    widget_bytes = fh.read()
+
 manifest.update({
     "schemaVersion": "1.1",
     "packageVersion": component_version,
@@ -215,6 +219,12 @@ manifest.update({
         for binary in required
     ],
     "components": components,
+    "resources": {
+        "config/generic-scada-widgets.json": {
+            "sha256": hashlib.sha256(widget_bytes).hexdigest(),
+            "sizeBytes": len(widget_bytes),
+        }
+    },
 })
 tmp = output + ".tmp"
 with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
@@ -322,6 +332,7 @@ fi
 if [ -f "$ROOT_DIR/config/README.md" ]; then
   cp "$ROOT_DIR/config/README.md" "$TMP_DIR/gateway-factory-defaults/config/README.md"
 fi
+cp "$ROOT_DIR/config/generic-scada-widgets.json" "$TMP_DIR/gateway-factory-defaults/config/generic-scada-widgets.json"
 # Keep schema/security settings, but never distribute authentication values.
 # Commissioned credentials remain device/site inputs, not package defaults.
 python3 "$SCRIPT_DIR/package-credential-stage.py" "$TMP_DIR/gateway-factory-defaults/config"
