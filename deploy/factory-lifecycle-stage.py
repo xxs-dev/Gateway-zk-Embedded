@@ -3,10 +3,12 @@
 import argparse
 import ast
 import hashlib
+import io
 import os
 from pathlib import Path
 import stat
 import tempfile
+import tokenize
 
 NAMES = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py',
          'production_role_policy.py')
@@ -22,13 +24,26 @@ def disabled_entry(raw):
                       (isinstance(n, ast.alias) and (n.asname or n.name.split('.')[0]) == POLICY)]
     declarations = [n for n in tree.body if isinstance(n, ast.Assign) and len(n.targets) == 1 and
                     isinstance(n.targets[0], ast.Name) and n.targets[0].id == POLICY]
-    if (len(bindings) != 1 or other_bindings or len(declarations) != 1 or
-            not isinstance(declarations[0].value, ast.Constant) or type(declarations[0].value.value) is not bool):
+    value = declarations[0].value if len(declarations) == 1 else None
+    literal_bool = (isinstance(value, getattr(ast, 'Constant', ())) or
+                    isinstance(value, getattr(ast, 'NameConstant', ()))) and type(getattr(value, 'value', None)) is bool
+    if len(bindings) != 1 or other_bindings or len(declarations) != 1 or not literal_bool:
         raise ValueError('factory core policy assignment must be one literal bool with no other binding')
-    value = declarations[0].value
-    lines = raw.splitlines(keepends=True)
-    begin = sum(map(len, lines[:value.lineno - 1])) + value.col_offset
-    end = sum(map(len, lines[:value.end_lineno - 1])) + value.end_col_offset
+    # Python 3.6 has NameConstant and no AST end positions. Token columns are
+    # characters, whereas AST columns are UTF-8 bytes, even with a coding cookie.
+    encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+    lines = io.StringIO(raw.decode(encoding)).readlines()
+    expected = 'True' if value.value else 'False'
+    tokens = [token for token in tokenize.tokenize(io.BytesIO(raw).readline)
+              if token.type == tokenize.NAME and token.string == expected and token.start[0] == value.lineno
+              and len(lines[token.start[0] - 1][:token.start[1]].encode('utf-8')) == value.col_offset]
+    if len(tokens) != 1:
+        raise ValueError('factory core policy assignment literal token mismatch')
+    token = tokens[0]
+    begin = len((''.join(lines[:token.start[0] - 1]) + lines[token.start[0] - 1][:token.start[1]]).encode(encoding))
+    end = len((''.join(lines[:token.end[0] - 1]) + lines[token.end[0] - 1][:token.end[1]]).encode(encoding))
+    if raw[begin:end] != expected.encode('ascii'):
+        raise ValueError('factory core policy assignment literal byte mismatch')
     staged = raw[:begin] + b'False' + raw[end:]
     compile(staged, '<factory-core-disabled>', 'exec')
     return staged
