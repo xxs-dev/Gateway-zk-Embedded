@@ -30,7 +30,7 @@ def write(path, raw):
     path.write_bytes(raw.encode('utf-8') if isinstance(raw, str) else raw)
 
 
-DISPATCH = r'''import ast, importlib.util, json, os, pathlib, stat, sys
+DISPATCH = r'''import ast, hashlib, importlib.util, json, os, pathlib, stat, sys
 sys.stdout.reconfigure(newline='\n')
 args=sys.argv[1:]
 if args and args[0].endswith('runtime-upgrade-guard.py'):
@@ -79,12 +79,22 @@ if args and args[0].endswith('prepare-generic-runtime.py') and args[1] in (
     p.os=fs; p.Path=model.PurePosixPath
     sys.argv=[args[0]]+mapped
     with open(os.environ['HELPER_TRACE'],'a') as stream: stream.write(mapped[0]+'\n')
+    def tls_trace(phase):
+        trace=os.environ.get('TLS_CONFIG_TRACE')
+        if trace and mapped[0]=='prepare-tls-apps':
+            with open(trace,'a') as stream:
+                stream.write(json.dumps(dict(phase=phase, flags=mapped,
+                    apps={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in physical_apps.glob('*.json')},
+                    certExists=pathlib.Path(mapped[mapped.index('--cert-file')+1]).exists(),
+                    caExists=pathlib.Path(mapped[mapped.index('--ca-file')+1]).exists()))+'\n')
+    tls_trace('before')
     entry=ast.parse(pathlib.Path(args[0]).read_bytes()).body[-1]
     assert isinstance(entry,ast.If)
     exec(compile(ast.Module(body=entry.body,type_ignores=[]),'<actual-helper-cli>', 'exec'),p.__dict__)
     if mapped[0]=='prepare-tls-apps':
         for path in physical_apps.glob('*.json'):
             path.write_bytes(fs.entries['/source/apps/'+path.name]['data'])
+        tls_trace('after')
     if mapped[0]=='prepare-kiosk-parents':
         (home/'bin').mkdir(parents=True,exist_ok=True); (home/'kiosk').mkdir(exist_ok=True)
     if mapped[0]=='install-kiosk-script':
@@ -98,7 +108,32 @@ else:
     elif args and args[0]=='-':
         namespace={'__name__':'__main__'}
         sys.argv=['-']+args[1:]
-        exec(compile(sys.stdin.buffer.read(),'<actual-installer-inline-python>','exec'),namespace)
+        source=sys.stdin.buffer.read()
+        fixture=os.environ.get('TLS_ENROLLMENT_FIXTURE')
+        if fixture:
+            import io, ssl, urllib.error, urllib.request
+            from unittest.mock import patch
+            assert b'/api/config/tls/enrollment/sign' in source
+            assert fixture in ('success','http-error','post-drift')
+            def controlled_response(request, timeout, context):
+                assert request.full_url=='https://public.invalid/api/config/tls/enrollment/sign'
+                assert timeout==30 and context is not None
+                assert request.get_header('X-edge-tls-enrollment-token')=='SYNTHETIC_NO_AUTHORITY'
+                with open(os.environ['TLS_HTTP_TRACE'],'a') as stream: stream.write(fixture+'\n')
+                if fixture=='http-error':
+                    raise urllib.error.HTTPError(request.full_url,403,'SYNTHETIC_DENIAL',{},io.BytesIO(b'SYNTHETIC_DENIAL'))
+                if fixture=='post-drift':
+                    path=pathlib.Path(os.environ['FIXTURE_HOME'])/'config/runtime/apps/monitor-service.json'
+                    value=json.loads(path.read_bytes()); value['mqtt']['tls']['enabled']=False
+                    path.write_text(json.dumps(value),encoding='utf-8')
+                    with open(os.environ['TLS_DRIFT_TRACE'],'w') as stream:
+                        stream.write(hashlib.sha256(path.read_bytes()).hexdigest())
+                pem='-----BEGIN CERTIFICATE-----\nPUBLIC_STUB_NOT_A_CERTIFICATE\n-----END CERTIFICATE-----\n'
+                return io.BytesIO(json.dumps(dict(success=True,certificatePem=pem,caPem=pem)).encode())
+            with patch.object(ssl,'create_default_context',return_value=object()), patch.object(urllib.request,'urlopen',side_effect=controlled_response):
+                exec(compile(source,'<actual-enrollment-inline-python>','exec'),namespace)
+        else:
+            exec(compile(source,'<actual-installer-inline-python>','exec'),namespace)
     else:
         if args[0].endswith('prepare-generic-runtime.py') and args[1]=='prepare' and os.environ.get('WINDOWS_SCADA_PATH_ADAPTER')=='1':
             import subprocess
@@ -564,6 +599,123 @@ class InstallerPreflightTests(unittest.TestCase):
         for name in ('production-init.sh', 'install-factory-config.sh', 'gateway-tls-enroll.sh'):
             syntax = subprocess.run([SHELL, '-n', str(DEPLOY / name)], capture_output=True, timeout=10)
             self.assertEqual(0, syntax.returncode, syntax.stderr)
+
+
+class StandaloneTlsPublicationTests(unittest.TestCase):
+    def enrollment(self, mode, required=False, pre_drift=False, url='https://public.invalid', missing_ca=False):
+        temp = tempfile.TemporaryDirectory(prefix='tls-publication-local-')
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        home = root / 'home'
+        apps = home / 'config/runtime/apps'
+        tls = home / 'config/runtime/tls'
+        source = root / 'deploy'
+        for name in ('gateway-tls-enroll.sh', 'prepare-generic-runtime.py'):
+            write(source / name, (DEPLOY / name).read_bytes())
+        paths = [str(tls / name).replace('\\', '/') for name in ('ca.crt', 'SYNTHETIC-client.pem', 'SYNTHETIC-client.key')]
+        values = {'aaa.json': {'mqtt': {}, 'business': [1, 'retain']},
+                  'mqtt-service.json': {'mqtt': {'tls': {'sitePolicy': 'retain'}}},
+                  'monitor-service.json': support.app()}
+        values['monitor-service.json']['mqtt'] = {'tls': {'sitePolicy': 'retain'}}
+        for name, value in values.items():
+            raw = json.dumps(value).encode()
+            if required:
+                raw = support.helper().tls_app_bytes(raw, *paths, monitor=name == 'monitor-service.json')
+            write(apps / name, raw)
+        if pre_drift:
+            value = json.loads((apps / 'monitor-service.json').read_bytes())
+            value['mqtt']['tls']['enabled'] = False
+            write(apps / 'monitor-service.json', json.dumps(value))
+        def app_hashes():
+            return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(apps.glob('*.json'))}
+        before = app_hashes()
+        commands = root / 'commands'
+        write(root / 'dispatch.py', DISPATCH)
+        write(commands / 'python3', '#!/bin/sh\nexec "$PYTHON_EXE" -B "$DISPATCH" "$@"\n')
+        write(commands / 'openssl', '''#!/bin/sh
+printf '%s\\n' 'PUBLIC_STUB_NO_CRYPTO' >> "$TLS_OPENSSL_TRACE"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '-out' ]; then
+    case "$2" in "$TLS_FIXTURE_ROOT"/*) ;; *) exit 98 ;; esac
+    printf '%s\\n' 'PUBLIC_STUB_NOT_A_KEY_OR_CSR' > "$2"
+    exit 0
+  fi
+  shift
+done
+exit 97
+''')
+        write(commands / 'systemctl', '#!/bin/sh\nexit 99\n')
+        env = {name: os.environ[name] for name in ('SystemRoot', 'WINDIR') if name in os.environ}
+        env.update(PATH=str(commands) + os.pathsep + str(Path(SHELL).parent),
+                   PYTHON_EXE=sys.executable, DISPATCH=str(root / 'dispatch.py'),
+                   MODEL_SOURCE=str(REPO / 'tools/kiosk_public_settings_test.py'),
+                   FIXTURE_HOME=str(home), GATEWAY_HOME=home.as_posix(),
+                   HELPER_TRACE=str(root / 'helper.trace'), TLS_CONFIG_TRACE=str(root / 'config.trace'),
+                   TLS_ENROLLMENT_FIXTURE=mode, TLS_HTTP_TRACE=str(root / 'http.trace'),
+                   TLS_OPENSSL_TRACE=str(root / 'openssl.trace'), TLS_DRIFT_TRACE=str(root / 'drift.trace'),
+                   TLS_FIXTURE_ROOT=tls.as_posix(), PYTHONDONTWRITEBYTECODE='1')
+        args = [SHELL, str(source / 'gateway-tls-enroll.sh'), '--machine-code', 'SYNTHETIC',
+                '--platform-url', url, '--token', 'SYNTHETIC_NO_AUTHORITY', '--update-local-app']
+        if required:
+            args.append('--require-prepared-app')
+        if missing_ca:
+            args += ['--platform-ca', (root / 'missing-public-ca').as_posix()]
+        result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=20)
+        traces = [json.loads(line) for line in (root / 'config.trace').read_text().splitlines()]
+        print(json.dumps(dict(case=mode, required=required, preDrift=pre_drift, url=url, missingCa=missing_ca,
+                              actualExit=result.returncode, before=before, after=app_hashes(), trace=traces,
+                              stdout=result.stdout.decode(), stderr=result.stderr.decode(),
+                              opensslStub=(root / 'openssl.trace').read_text() if (root / 'openssl.trace').exists() else '',
+                              httpStub=(root / 'http.trace').read_text() if (root / 'http.trace').exists() else '',
+                              posixMetadataModelled=True, realCryptoOrNetwork=False)), flush=True)
+        return result, root, apps, tls, before, app_hashes(), traces, values, paths
+
+    def test_enrollment_failure_preserves_app_bytes(self):
+        cases = (('http-error', 'http://public.invalid', False, 2, 'refusing http://'),
+                 ('http-error', 'https://public.invalid', True, 2, 'platform CA file is not readable'),
+                 ('http-error', 'https://public.invalid', False, 1, 'platform sign request failed: HTTP 403: SYNTHETIC_DENIAL'))
+        for mode, url, missing, code, reason in cases:
+            with self.subTest(url=url, missingCa=missing):
+                result, root, apps, tls, before, after, trace, _, _ = self.enrollment(mode, url=url, missing_ca=missing)
+                self.assertEqual(code, result.returncode, result.stderr)
+                self.assertIn(reason, result.stderr.decode())
+                self.assertFalse((tls / 'SYNTHETIC-client.pem').exists())
+                self.assertEqual(before, after)
+                self.assertFalse((root / 'http.trace').exists()) if code == 2 else self.assertEqual('http-error\n', (root / 'http.trace').read_text())
+
+    def test_success_publishes_only_after_certificate_writes(self):
+        result, _, apps, tls, before, after, trace, original, paths = self.enrollment('success')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(['before', 'after', 'before', 'after'], [t['phase'] for t in trace])
+        self.assertIn('--check-only', trace[0]['flags'])
+        self.assertNotIn('--check-only', trace[2]['flags'])
+        self.assertEqual(before, trace[1]['apps'])
+        self.assertFalse(trace[0]['certExists'] or trace[0]['caExists'])
+        self.assertTrue(trace[2]['certExists'] and trace[2]['caExists'])
+        self.assertNotEqual(before, after)
+        for name, old in original.items():
+            expected = json.loads(json.dumps(old))
+            expected['mqtt'].setdefault('tls', {}).update(enabled=True, caFile=paths[0], certFile=paths[1], keyFile=paths[2], insecureSkipVerify=False)
+            self.assertEqual(expected, json.loads((apps / name).read_bytes()))
+        self.assertIn('PUBLIC_STUB_NOT_A_CERTIFICATE', (tls / 'SYNTHETIC-client.pem').read_text())
+
+    def test_required_pre_and_post_drift_reject_without_rewriting(self):
+        for pre in (True, False):
+            with self.subTest(preDrift=pre):
+                result, root, _, tls, before, after, trace, _, _ = self.enrollment('post-drift', required=True, pre_drift=pre)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertIn('TLS_APP_NOT_PREPARED', result.stderr.decode())
+                self.assertTrue(all('--require-prepared' in t['flags'] for t in trace))
+                if pre:
+                    self.assertEqual(before, after)
+                    self.assertFalse((root / 'openssl.trace').exists())
+                    self.assertFalse((root / 'http.trace').exists())
+                    self.assertFalse((tls / 'SYNTHETIC-client.pem').exists())
+                else:
+                    expected = dict(before, **{'monitor-service.json': (root / 'drift.trace').read_text()})
+                    self.assertEqual(expected, after)
+                    self.assertTrue(trace[-1]['certExists'] and trace[-1]['caExists'])
+                    self.assertEqual(before, trace[1]['apps'])
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

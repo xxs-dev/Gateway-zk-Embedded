@@ -570,6 +570,26 @@ class TlsAppContractTests(unittest.TestCase):
         module.os, module.Path = fs, PurePosixPath
         return module, fs, args
 
+    def test_check_only_retains_bytes_and_all_candidate_policies(self):
+        module, fs, args = self.fixture()
+        fs.add('/source/apps/aaa.json', stat.S_IFREG | 0o600, data=b'{"mqtt":{}}')
+        args.check_only = True
+        before = copy.deepcopy(fs.entries)
+        module.prepare_tls_apps(args)
+        self.assertEqual(before, fs.entries)
+        self.assertFalse(any(e[0] in ('create', 'replace', 'fchmod') for e in fs.events))
+        args.require_prepared = True
+        with self.assertRaisesRegex(ValueError, 'TLS_APP_NOT_PREPARED'):
+            module.prepare_tls_apps(args)
+        self.assertEqual(before, fs.entries)
+        args.require_prepared = False
+        fs.entries['/source/apps/monitor-service.json']['data'] = b'{"mqtt":{},"mqtt":{}}'
+        changed = copy.deepcopy(fs.entries)
+        with self.assertRaisesRegex(ValueError, 'KIOSK_JSON_INVALID'):
+            module.prepare_tls_apps(args)
+        self.assertEqual(changed, fs.entries)
+        self.assertFalse(fs.handles)
+
     def test_exact_limit_unicode_idempotence_and_all_fields(self):
         module = helper()
         value = app(); value['mqtt'] = {'tls': {'sitePolicy': [1, 'retain']}}

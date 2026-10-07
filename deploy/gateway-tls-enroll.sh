@@ -171,7 +171,7 @@ CA_KEY_FILE="$TLS_DIR/ca.key"
 
 update_tls_apps() {
   set -- "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-tls-apps \
-    --app-config "$APP_CONFIG" --ca-file "$CA_FILE" --cert-file "$CERT_FILE" --key-file "$KEY_FILE"
+    --app-config "$APP_CONFIG" --ca-file "$CA_FILE" --cert-file "$CERT_FILE" --key-file "$KEY_FILE" "$@"
   if [ "$REQUIRE_PREPARED_APP" -eq 1 ]; then
     set -- "$@" --require-prepared
   fi
@@ -179,7 +179,7 @@ update_tls_apps() {
 }
 
 if [ "$UPDATE_LOCAL_APP" -eq 1 ] && [ -n "$PLATFORM_URL" ] && [ -n "$ENROLLMENT_TOKEN" ]; then
-  update_tls_apps
+  update_tls_apps --check-only
 fi
 mkdir -p "$(dirname "$KEY_FILE")" "$(dirname "$CERT_FILE")" "$(dirname "$CA_FILE")"
 
