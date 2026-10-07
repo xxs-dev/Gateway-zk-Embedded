@@ -64,6 +64,7 @@ class LifecycleInstall(unittest.TestCase):
                     data = data.replace("Path('/proc')", 'Path(' + repr(str(self.root / 'empty-proc')) + ')')
                 write(path, data)
             write(directory / 'config/factory/runtime/device_identity.json', '{"machineCode":"PRIVATE_FACTORY"}\n')
+            write(directory / 'config/generic-scada-widgets.json', (REPO / 'config/generic-scada-widgets.json').read_bytes())
             for app in ('monitor-service', 'mqtt-service'):
                 write(directory / ('config/factory/runtime/apps/' + app + '.json'), '{"enabled":false}\n')
             for binary in ('SystemMonitor', 'MqttDriver', 'MqttForwarder', 'pointctl'):

@@ -36,6 +36,7 @@ cat > "$TMP_ROOT/manifest.json" <<'JSON'
 JSON
 
 cp -a "$ROOT_DIR/deploy" "$TMP_ROOT/source/deploy"
+cp "$ROOT_DIR/config/generic-scada-widgets.json" "$TMP_ROOT/source/config/generic-scada-widgets.json"
 (
   cd "$TMP_ROOT/source"
   EDGE_PACKAGE_BUILD_DIR="$TMP_ROOT/source/build-aarch64" \

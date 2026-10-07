@@ -205,6 +205,7 @@ exec /bin/cp "$@"
     def factory(self):
         source = self.root / "source"
         shutil.copytree(REPO / "deploy", source / "deploy")
+        write(source / "config/generic-scada-widgets.json", (REPO / "config/generic-scada-widgets.json").read_bytes())
         for binary in ("SystemMonitor", "MqttDriver", "MqttForwarder", "pointctl"):
             write(source / "build-aarch64" / binary, "fixture-not-executable\n")
         for app in ("monitor-service", "mqtt-service"):

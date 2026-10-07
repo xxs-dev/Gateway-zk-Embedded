@@ -18,7 +18,7 @@ from factory_lifecycle_install_test import SHELL
 
 REPO = Path(__file__).resolve().parent.parent
 MESSAGE = 'core test apply is disabled in factory packages'
-FILES = ('build-factory-package.sh', 'factory-lifecycle-stage.py', 'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
+FILES = ('build-factory-package.sh', 'package-credential-stage.py', 'factory-lifecycle-stage.py', 'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
          'production_role_policy.py',
          'gateway-services.sh', 'ota-apply.sh', 'ota-rollback.sh', 'ota-health-result.py',
          'production-smoke-test.sh')
@@ -48,6 +48,7 @@ class FactoryCoreIsolationTest(unittest.TestCase):
         for name in FILES:
             core.write(self.source / 'deploy' / name, (REPO / 'deploy' / name).read_bytes())
         core.write(self.source / 'config/factory/runtime/apps/monitor-service.json', '{}\n')
+        core.write(self.source / 'config/generic-scada-widgets.json', (REPO / 'config/generic-scada-widgets.json').read_bytes())
         for name in BINS:
             core.write(self.source / 'build-aarch64' / name, 'not executable: synthetic package payload\n')
         self.env = os.environ.copy()
