@@ -408,11 +408,13 @@ if [ -d "$COMPONENT_BUILD_DIR" ]; then
       exit 2
     fi
     cp "$COMPONENT_BUILD_DIR/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+    chmod 0755 "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
   done
   for bin in $OPTIONAL_BINS; do
     [ "$bin" = "KY-EMS" ] && continue
     if [ -f "$COMPONENT_BUILD_DIR/$bin" ]; then
       cp "$COMPONENT_BUILD_DIR/$bin" "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
+      chmod 0755 "$TMP_DIR/gateway-factory-defaults/build-aarch64/$bin"
       PACKAGED_BINS=$(printf '%s\n' $PACKAGED_BINS "$bin" | unique_words | tr '\n' ' ')
     fi
   done
@@ -424,6 +426,9 @@ fi
 if [ -d "$ROOT_DIR/ky-ems" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/ky-ems"
   cp -a "$ROOT_DIR/ky-ems"/. "$TMP_DIR/gateway-factory-defaults/ky-ems"/
+  if [ -f "$TMP_DIR/gateway-factory-defaults/ky-ems/KY-EMS" ]; then
+    chmod 0755 "$TMP_DIR/gateway-factory-defaults/ky-ems/KY-EMS"
+  fi
   case " $REQUIRED_BINS $OPTIONAL_BINS " in
     *" KY-EMS "*) PACKAGED_BINS=$(printf '%s\n' $PACKAGED_BINS KY-EMS | unique_words | tr '\n' ' ') ;;
   esac

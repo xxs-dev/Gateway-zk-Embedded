@@ -29,6 +29,7 @@ mkdir -p "$ROOT/build-aarch64" "$ROOT/config/factory/runtime/apps" \
   "$ROOT/config/factory/runtime/devices" "$ROOT/deploy"
 
 cp "$ROOT_DIR/build-aarch64/AgcAvcController" "$ROOT/build-aarch64/AgcAvcController"
+chmod 0755 "$ROOT/build-aarch64/AgcAvcController"
 cp "$ROOT_DIR/config/factory/runtime/apps/agc-avc-service.json" \
   "$ROOT/config/factory/runtime/apps/agc-avc-service.json"
 cp "$ROOT_DIR/config/factory/runtime/devices/device_agc_avc_virtual.json" \
