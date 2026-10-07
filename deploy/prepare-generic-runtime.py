@@ -18,6 +18,9 @@ import uuid
 from contextlib import contextmanager
 
 
+# Original monitor app shares SystemMonitor's apply/pull single-file contract.
+KIOSK_APP_MAX_BYTES = 5 * 1024 * 1024
+
 KIOSK_DEFAULTS = {
     "width": 1280, "height": 720, "fullscreen": True, "setDisplayMode": True,
     "enabled": True, "requireDisplayConnected": True, "requireEdid": True,
@@ -61,6 +64,33 @@ def kiosk_projection(root):
     if not isinstance(page, str) or re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", page) is None:
         raise ValueError("KIOSK_SETTINGS_INVALID")
     return {"localDisplay": {"port": port, "kiosk": kiosk, "pages": [{"pageCode": page}]}}
+
+
+def kiosk_selected(root):
+    """Configuration selection only, matching gateway-services; no hardware probe."""
+    def enabled(value, default):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    if not isinstance(root, dict):
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    local = root.get("localDisplay")
+    if local is None:
+        return False
+    if not isinstance(local, dict):
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    if not enabled(local.get("enabled"), False):
+        return False
+    renderer = str(local.get("renderer") or local.get("mode") or "webkit").strip().lower()
+    if renderer in ("nativeqt", "qt", "ky-ems", "kyems"):
+        return False
+    kiosk = local.get("kiosk") or {}
+    if not isinstance(kiosk, dict):
+        raise ValueError("KIOSK_SETTINGS_INVALID")
+    return enabled(kiosk.get("enabled"), True)
 
 
 def kiosk_json(raw):
@@ -116,6 +146,39 @@ def kiosk_read(fd, limit):
         if not chunk:
             return b"".join(chunks)
         chunks.append(chunk)
+
+
+def kiosk_read_source(source, limit, allow_missing=False):
+    if os.name != "posix" or os.geteuid() != 0:
+        raise ValueError("KIOSK_ROOT_POSIX_REQUIRED")
+    try:
+        fd = os.open(str(source), kiosk_flags())
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    try:
+        before = os.fstat(fd)
+        raw = kiosk_read(fd, limit)
+        after = os.fstat(fd)
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise ValueError("KIOSK_INPUT_CHANGED")
+        return raw
+    finally:
+        os.close(fd)
+
+
+def check_kiosk_source(args):
+    kiosk_read_source(args.source, 256 * 1024)
+
+
+def check_kiosk_app(args):
+    raw = kiosk_read_source(args.source, KIOSK_APP_MAX_BYTES, allow_missing=True)
+    if raw is not None:
+        root = kiosk_json(raw)
+        if kiosk_selected(root):
+            kiosk_projection(root)
 
 
 def kiosk_instance(value):
@@ -254,17 +317,25 @@ def project_kiosk(args):
         with kiosk_child_directory(home_fd, "config") as config:
             with kiosk_child_directory(config, "runtime") as runtime:
                 with kiosk_child_directory(runtime, "apps") as apps:
-                    fd = os.open(instance + ".json", kiosk_flags(), dir_fd=apps)
+                    try:
+                        fd = os.open(instance + ".json", kiosk_flags(), dir_fd=apps)
+                    except FileNotFoundError:
+                        if getattr(args, "if_selected", False):
+                            return
+                        raise
                     try:
                         before = os.fstat(fd)
-                        raw = kiosk_read(fd, 1024 * 1024)
+                        raw = kiosk_read(fd, KIOSK_APP_MAX_BYTES)
                         after = os.fstat(fd)
                         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                                 after.st_size, after.st_mtime_ns, after.st_ctime_ns):
                             raise ValueError("KIOSK_INPUT_CHANGED")
                     finally:
                         os.close(fd)
-        value = kiosk_projection(kiosk_json(raw))
+        root = kiosk_json(raw)
+        if getattr(args, "if_selected", False) and not kiosk_selected(root):
+            return
+        value = kiosk_projection(root)
         public = (json.dumps(value, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
         with kiosk_child_directory(home_fd, "kiosk") as output:
             kiosk_directory_policy(output, public=True)
@@ -274,11 +345,7 @@ def project_kiosk(args):
 def install_kiosk_script(args):
     # Source is the approved deploy member, not an arbitrary output path.
     check_kiosk_parents(args)
-    fd = os.open(str(args.source), kiosk_flags())
-    try:
-        raw = kiosk_read(fd, 256 * 1024)
-    finally:
-        os.close(fd)
+    raw = kiosk_read_source(args.source, 256 * 1024)
     with kiosk_home(args.home) as (_, __, home_fd):
         with kiosk_child_directory(home_fd, "bin") as output:
             kiosk_directory_policy(output, public=True)
@@ -614,8 +681,12 @@ if __name__ == "__main__":
         kiosk.add_argument("--home", required=True, type=Path)
         if command == "project-kiosk":
             kiosk.add_argument("--instance", required=True)
+            kiosk.add_argument("--if-selected", action="store_true")
         if command == "install-kiosk-script":
             kiosk.add_argument("--source", required=True, type=Path)
+    for command in ("check-kiosk-source", "check-kiosk-app"):
+        check_source = commands.add_parser(command)
+        check_source.add_argument("--source", required=True, type=Path)
     args = parser.parse_args()
     if args.command is None:
         parser.error("a command is required")
@@ -626,6 +697,10 @@ if __name__ == "__main__":
             install_widgets(args)
         elif args.command == "check-kiosk-parents":
             check_kiosk_parents(args)
+        elif args.command == "check-kiosk-source":
+            check_kiosk_source(args)
+        elif args.command == "check-kiosk-app":
+            check_kiosk_app(args)
         elif args.command == "prepare-kiosk-parents":
             prepare_kiosk_parents(args)
         elif args.command == "project-kiosk":

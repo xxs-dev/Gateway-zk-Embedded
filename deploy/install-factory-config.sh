@@ -907,6 +907,12 @@ os.replace(tmp, path)
 PY
 }
 
+# Source policy and selected display settings must fail before installed-tree
+# changes or service stops. Installation rechecks the opened source; no weakening.
+KIOSK_SCRIPT_SOURCE=$(deploy_file "local-kiosk.py") || { echo "local-kiosk.py missing" >&2; exit 2; }
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" check-kiosk-source --source "$KIOSK_SCRIPT_SOURCE"
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" check-kiosk-app \
+  --source "$FACTORY_DIR/runtime/apps/monitor-service.json"
 python3 "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-kiosk-parents --home "$GATEWAY_HOME"
 mkdir -p "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
 
@@ -1019,7 +1025,6 @@ install_deploy_file_if_exists "gateway-cellular.sh" "$GATEWAY_HOME/bin/gateway-c
 if [ "$INSTALL_SYSTEMD" = "1" ] && [ ! -f /etc/default/gateway-network-failover ]; then
   install_deploy_file_if_exists "gateway-network-failover.default" "/etc/default/gateway-network-failover"
 fi
-KIOSK_SCRIPT_SOURCE=$(deploy_file "local-kiosk.py") || { echo "local-kiosk.py missing" >&2; exit 2; }
 python3 "$SCRIPT_DIR/prepare-generic-runtime.py" install-kiosk-script \
   --source "$KIOSK_SCRIPT_SOURCE" --home "$GATEWAY_HOME"
 install_required_deploy_file "prepare-generic-runtime.py" "$GATEWAY_HOME/bin/prepare-generic-runtime.py"
@@ -1158,7 +1163,7 @@ apply_direct_maintenance_config \
 # Runtime relocation/settings are complete. No private app JSON is opened by
 # the nonroot kiosk; the public allowlist is installed before any service start.
 python3 "$GATEWAY_HOME/bin/prepare-generic-runtime.py" project-kiosk \
-  --home "$GATEWAY_HOME" --instance monitor-service
+  --home "$GATEWAY_HOME" --instance monitor-service --if-selected
 
 echo "initialized runtimeMode: $INIT_RUNTIME_MODE_VALUE"
 echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"

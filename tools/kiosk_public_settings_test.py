@@ -37,6 +37,17 @@ def app():
                                        {'pageCode': 'PRIVATE_NEXT'}]}}
 
 
+def sized_app(size):
+    value = app()
+    value['localDisplay']['enabled'] = True
+    value['engineeringOnly'] = ''
+    raw = json.dumps(value, separators=(',', ':')).encode('ascii')
+    value['engineeringOnly'] = 'x' * (size - len(raw))
+    raw = json.dumps(value, separators=(',', ':')).encode('ascii')
+    assert len(raw) == size
+    return raw
+
+
 def reader():
     # Actual loader functions, GTK class/imports excluded; no GUI execution claim.
     tree = ast.parse((DEPLOY / 'local-kiosk.py').read_text(encoding='utf-8'))
@@ -391,7 +402,7 @@ class FilesystemContractTests(unittest.TestCase):
                     self.assertEqual({}, fs.handles)
 
     def test_invalid_private_input_and_output_links_preserve_previous_projection(self):
-        for bad in [b'broken', b'{"localDisplay":{},"localDisplay":{}}', b'{"private":NaN}', b' ' * (1024 * 1024 + 1)]:
+        for bad in [b'broken', b'{"localDisplay":{},"localDisplay":{}}', b'{"private":NaN}', sized_app(5 * 1024 * 1024 + 1)]:
             with self.subTest(kind=bad[:32]):
                 module, fs, args = self.fixture()
                 module.prepare_kiosk_parents(args); self.private_app(fs, bad)
@@ -408,6 +419,74 @@ class FilesystemContractTests(unittest.TestCase):
             with self.assertRaises(OSError): module.project_kiosk(args)
             self.assertEqual(before, fs.entries)
             self.assertEqual({}, fs.handles)
+
+
+    def test_original_app_five_mib_both_paths_and_previous_public_preserved(self):
+        for size in (1024 * 1024 + 17, 5 * 1024 * 1024, 5 * 1024 * 1024 + 1):
+            with self.subTest(size=size):
+                raw = sized_app(size)
+                module, fs, args = self.fixture()
+                module.prepare_kiosk_parents(args); self.private_app(fs, raw)
+                args.source = PurePosixPath('/source/monitor-service.json')
+                fs.add(str(args.source), stat.S_IFREG | 0o600, data=raw)
+                output = '/opt/modbus-gateway/kiosk/monitor-service.json'
+                fs.add(output, stat.S_IFREG | 0o644, data=b'OLD_PUBLIC')
+                before = copy.deepcopy(fs.entries)
+                if size > 5 * 1024 * 1024:
+                    for action in (module.check_kiosk_app, module.project_kiosk):
+                        with self.assertRaisesRegex(ValueError, 'KIOSK_INPUT_TOO_LARGE'):
+                            action(args)
+                        self.assertEqual(before, fs.entries)
+                else:
+                    module.check_kiosk_app(args)
+                    self.assertEqual(before, fs.entries)
+                    module.project_kiosk(args)
+                    public = fs.entries[output]['data']
+                    self.assertEqual(module.kiosk_projection(json.loads(raw)), json.loads(public))
+                    self.assertLess(len(public), 8192)
+                    self.assertNotIn(b'engineeringOnly', public)
+                    self.assertNotIn(b'PRIVATE', public)
+                    self.assertEqual(before[str(args.source)], fs.entries[str(args.source)])
+                    private = '/opt/modbus-gateway/config/runtime/apps/monitor-service.json'
+                    self.assertEqual(before[private], fs.entries[private])
+                self.assertEqual({}, fs.handles)
+
+    def test_original_app_json_and_source_policies_not_weakened(self):
+        invalid = (b'broken', b'{"localDisplay":{},"localDisplay":{}}', b'{"private":NaN}')
+        cases = [(raw, 0, stat.S_IFREG | 0o600, 1, 'KIOSK_JSON_INVALID') for raw in invalid]
+        cases += [(sized_app(1024 * 1024 + 17), uid, mode, links, cause)
+                  for uid, mode, links, cause in (
+                      (1000, stat.S_IFREG | 0o600, 1, 'KIOSK_FILE_POLICY'),
+                      (0, stat.S_IFREG | 0o622, 1, 'KIOSK_FILE_POLICY'),
+                      (0, stat.S_IFREG | 0o600, 2, 'KIOSK_FILE_POLICY'),
+                      (0, stat.S_IFLNK | 0o777, 1, 'model nofollow'))]
+        for raw, uid, mode, links, cause in cases:
+            for action_name in ('check_kiosk_app', 'project_kiosk'):
+                with self.subTest(action=action_name, uid=uid, mode=mode, links=links, cause=cause):
+                    module, fs, args = self.fixture()
+                    module.prepare_kiosk_parents(args); self.private_app(fs, raw)
+                    args.source = PurePosixPath('/source/monitor-service.json')
+                    path = str(args.source) if action_name == 'check_kiosk_app' else '/opt/modbus-gateway/config/runtime/apps/monitor-service.json'
+                    fs.add(path, mode, uid=uid, data=raw, nlink=links)
+                    fs.add('/opt/modbus-gateway/kiosk/monitor-service.json', stat.S_IFREG | 0o644, data=b'OLD_PUBLIC')
+                    before = copy.deepcopy(fs.entries)
+                    with self.assertRaisesRegex((ValueError, OSError), cause):
+                        getattr(module, action_name)(args)
+                    self.assertEqual(before, fs.entries)
+                    self.assertEqual({}, fs.handles)
+
+    def test_script_and_nonroot_public_reader_limits_unchanged(self):
+        module, fs, args = self.fixture()
+        fs.add(str(args.source), stat.S_IFREG | 0o600, data=b'#' * (256 * 1024 + 1))
+        with self.assertRaisesRegex(ValueError, 'KIOSK_INPUT_TOO_LARGE'):
+            module.check_kiosk_source(args)
+        module.prepare_kiosk_parents(args)
+        fs.add('/opt/modbus-gateway/kiosk/monitor-service.json', stat.S_IFREG | 0o644, data=b' ' * 8193)
+        consumer = reader().read_kiosk_public
+        with mock.patch.dict(consumer.__globals__, {'os': fs, 'Path': PurePosixPath}):
+            with self.assertRaisesRegex(ValueError, 'KIOSK_PUBLIC_TOO_LARGE'):
+                consumer(PurePosixPath('/opt/modbus-gateway/kiosk/monitor-service.json'))
+        self.assertEqual({}, fs.handles)
 
 
 class InstallerTests(ServiceTests):
