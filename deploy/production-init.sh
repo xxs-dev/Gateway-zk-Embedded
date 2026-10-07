@@ -878,6 +878,23 @@ export PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
 export EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 export START_SERVICES=0
 export RESET_SHM="$INIT_RESET_SHM"
+export INIT_TLS_APP_PREPARE=0
+# Only the online enrollment branch updates apps. Pre-signed bundles and
+# root-CA/CSR-only requests retain their existing configuration semantics.
+if [ "$tls_requested" -eq 1 ] && truthy "$INIT_TLS_UPDATE_LOCAL_APP" && \
+   [ -n "${INIT_TLS_PLATFORM_URL:-}" ] && [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] && \
+   [ -z "$INIT_TLS_CA_SOURCE" ] && [ -z "$INIT_TLS_CERT_SOURCE" ] && [ -z "$INIT_TLS_KEY_SOURCE" ]; then
+  export INIT_TLS_APP_PREPARE=1
+  export INIT_TLS_FINAL_CA_FILE="$INIT_MQTT_CA_FILE"
+  export INIT_TLS_FINAL_CERT_FILE="$INIT_MQTT_CERT_FILE"
+  export INIT_TLS_FINAL_KEY_FILE="$INIT_MQTT_KEY_FILE"
+fi
+export INIT_GENERIC_PREPARE=0
+export INIT_GENERIC_QT_ENVIRONMENT=""
+if [ -f "$PACKAGE_ROOT/generic-package.json" ]; then
+  export INIT_GENERIC_PREPARE=1
+  export INIT_GENERIC_QT_ENVIRONMENT="$INIT_WORK_DIR/generic-qt-environment.json"
+fi
 
 set -- "$DEPLOY_DIR/install-factory-config.sh"
 if [ -n "${INIT_PACKAGE_PROFILE:-}" ]; then
@@ -887,12 +904,13 @@ if [ -n "${INIT_EDGE_PACKAGE_MANIFEST:-}" ]; then
   set -- "$@" --manifest "$INIT_EDGE_PACKAGE_MANIFEST"
 fi
 sh "$@"
-apply_runtime_mode "$INIT_RUNTIME_MODE"
-if [ -f "$PACKAGE_ROOT/generic-package.json" ]; then
-  mkdir -p "$GATEWAY_HOME/tmp"
-  python3 "$DEPLOY_DIR/prepare-generic-runtime.py" prepare --home "$GATEWAY_HOME" \
-    --machine "$INIT_MACHINE_CODE" --qt "$INIT_LOCAL_QT_DISPLAY_ENABLED" \
-    --qt-environment "$INIT_WORK_DIR/generic-qt-environment.json"
+# Runtime JSON (including generic/Qt preparation) was installed from the
+# validated private stage. Preserve the old non-EMS binary/unit cleanup only.
+if [ "$INIT_RUNTIME_MODE" != "ems" ]; then
+  rm -f "$GATEWAY_HOME/bin/EmsClusterCoordinator"
+  if [ "$INSTALL_SYSTEMD" = "1" ]; then
+    rm -f "$SYSTEMD_UNIT_DIR/ems-cluster@.service"
+  fi
 fi
 
 if [ "$tls_requested" -eq 1 ]; then
@@ -910,7 +928,8 @@ if [ "$tls_requested" -eq 1 ]; then
     fi
     require_file "$TLS_ENROLL_SCRIPT" "TLS enrollment script"
 
-    set -- --machine-code "$INIT_MACHINE_CODE"
+    set -- --machine-code "$INIT_MACHINE_CODE" \
+      --ca-file "$INIT_MQTT_CA_FILE" --cert-file "$INIT_MQTT_CERT_FILE" --key-file "$INIT_MQTT_KEY_FILE"
     if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
       set -- "$@" --generate-root-ca --ca-validity-days "$INIT_TLS_CA_VALIDITY_DAYS"
       if [ -n "${INIT_TLS_CA_SUBJECT:-}" ]; then
@@ -935,6 +954,9 @@ if [ "$tls_requested" -eq 1 ]; then
     fi
     if truthy "$INIT_TLS_UPDATE_LOCAL_APP"; then
       set -- "$@" --update-local-app
+      if [ "$INIT_TLS_APP_PREPARE" = "1" ]; then
+        set -- "$@" --require-prepared-app
+      fi
     fi
     if truthy "$INIT_TLS_FORCE_KEY"; then
       set -- "$@" --force-key

@@ -18,6 +18,8 @@ INIT_DIRECT_LISTEN_HOSTS="${INIT_DIRECT_LISTEN_HOSTS:-}"
 INIT_DIRECT_ALLOWED_CIDRS="${INIT_DIRECT_ALLOWED_CIDRS:-}"
 FACTORY_EXTRACT_DIR=""
 LIFECYCLE_STAGE_DIR=""
+RUNTIME_STAGE_DIR=""
+CONFIG_RUNTIME_DIR=""
 FACTORY_TMP_DIR="${FACTORY_TMP_DIR:-${TMPDIR:-$GATEWAY_HOME/tmp}}"
 WATCHDOG_RUN_DIR="${WATCHDOG_RUN_DIR:-/run/gateway-health-watchdog}"
 WATCHDOG_APPLYING_FILE="$WATCHDOG_RUN_DIR/applying"
@@ -142,6 +144,9 @@ cleanup_factory_extract() {
   fi
   if [ -n "$LIFECYCLE_STAGE_DIR" ] && [ -d "$LIFECYCLE_STAGE_DIR" ]; then
     rm -rf "$LIFECYCLE_STAGE_DIR"
+  fi
+  if [ -n "$RUNTIME_STAGE_DIR" ] && [ -d "$RUNTIME_STAGE_DIR" ]; then
+    rm -rf "$RUNTIME_STAGE_DIR"
   fi
 }
 
@@ -731,7 +736,7 @@ normalize_runtime_mode() {
 
 apply_runtime_mode() {
   runtime_mode=$(normalize_runtime_mode "$1")
-  runtime_dir="$GATEWAY_HOME/config/runtime"
+  runtime_dir="${CONFIG_RUNTIME_DIR:-$GATEWAY_HOME/config/runtime}"
   [ -d "$runtime_dir/apps" ] || return 0
   if ! command -v python3 >/dev/null 2>&1; then
     echo "python3 command not found, cannot apply runtime mode" >&2
@@ -827,12 +832,6 @@ if mode != "agc_avc":
             pass
 PY
 
-  if [ "$runtime_mode" != "agc_avc" ]; then
-    rm -f "$GATEWAY_HOME/bin/AgcAvcController"
-    if [ "$INSTALL_SYSTEMD" = "1" ]; then
-      rm -f "$SYSTEMD_UNIT_DIR/agc-avc@.service"
-    fi
-  fi
 }
 
 apply_runtime_identity_and_mqtt() {
@@ -846,8 +845,9 @@ apply_runtime_identity_and_mqtt() {
   mqtt_key_file="$8"
   mqtt_tls_insecure="$9"
 
-  set_json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" "$machine_code"
-  for app_file in "$GATEWAY_HOME"/config/runtime/apps/*.json; do
+  runtime_dir="${CONFIG_RUNTIME_DIR:-$GATEWAY_HOME/config/runtime}"
+  set_json_string_value "$runtime_dir/device_identity.json" "machineCode" "$machine_code"
+  for app_file in "$runtime_dir"/apps/*.json; do
     [ -f "$app_file" ] || continue
     set_main_mqtt_values "$app_file" \
       "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" \
@@ -860,7 +860,7 @@ apply_direct_maintenance_config() {
   enabled="$1"
   listen_hosts="$2"
   allowed_cidrs="$3"
-  direct_config="$GATEWAY_HOME/config/runtime/apps/monitor-service.json"
+  direct_config="${CONFIG_RUNTIME_DIR:-$GATEWAY_HOME/config/runtime}/apps/monitor-service.json"
   [ -f "$direct_config" ] || return 0
   if ! command -v python3 >/dev/null 2>&1; then
     echo "python3 command not found, cannot configure direct maintenance" >&2
@@ -913,9 +913,6 @@ KIOSK_SCRIPT_SOURCE=$(deploy_file "local-kiosk.py") || { echo "local-kiosk.py mi
 python3 "$SCRIPT_DIR/prepare-generic-runtime.py" check-kiosk-source --source "$KIOSK_SCRIPT_SOURCE"
 python3 "$SCRIPT_DIR/prepare-generic-runtime.py" check-kiosk-app \
   --source "$FACTORY_DIR/runtime/apps/monitor-service.json"
-python3 "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-kiosk-parents --home "$GATEWAY_HOME"
-mkdir -p "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
-
 BASE_BINS="SystemMonitor MqttDriver MqttForwarder pointctl"
 ALL_BINS="ModbusRtu Dlt645Driver DioDriver CanDriver IecDriver MqttDriver MqttForwarder EventEngine ComputeEngine EmsParityCheck EmsClusterCoordinator SystemMonitor pointctl memory_point_store_migrate"
 OPTIONAL_BINS="LocalDisplay QtDisplayBridge KY-EMS CameraService stress_runner"
@@ -982,6 +979,86 @@ done
 for required_deploy in gateway-services.sh gateway-health-watchdog.sh gateway-health-watchdog.service gateway-health-watchdog.default gateway-run.sh gateway-tls-enroll.sh install-factory-config.sh factory-lifecycle-stage.py production-smoke-test.sh ota-apply.sh ota-rollback.sh ota-health-result.py install-scada-project.sh local-kiosk.py prepare-generic-runtime.py; do
   deploy_file "$required_deploy" >/dev/null || { echo "required deploy file missing: $required_deploy" >&2; exit 2; }
 done
+
+# Resolve the same old/factory defaults before mutation, then transform a private
+# copy exactly once. Validate the bytes that will actually be installed, not just
+# the compact input; JSON formatting and maintenance paths can increase its size.
+EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
+EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
+EXISTING_MQTT_BROKER=$(json_mqtt_value "$EXISTING_MQTT_FILE" "broker" || true)
+EXISTING_MQTT_USERNAME=$(json_mqtt_value "$EXISTING_MQTT_FILE" "username" || true)
+EXISTING_MQTT_PASSWORD=$(json_mqtt_value "$EXISTING_MQTT_FILE" "password" || true)
+EXISTING_MQTT_TLS_ENABLED=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.enabled" || true)
+EXISTING_MQTT_CA_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.caFile" || true)
+EXISTING_MQTT_CERT_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.certFile" || true)
+EXISTING_MQTT_KEY_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.keyFile" || true)
+EXISTING_MQTT_TLS_INSECURE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.insecureSkipVerify" || true)
+FACTORY_MACHINE_CODE=$(json_string_value "$FACTORY_DIR/runtime/device_identity.json" "machineCode" || true)
+FACTORY_MQTT_FILE="$FACTORY_DIR/runtime/apps/mqtt-service.json"
+FACTORY_MQTT_BROKER=$(json_mqtt_value "$FACTORY_MQTT_FILE" "broker" || true)
+FACTORY_MQTT_USERNAME=$(json_mqtt_value "$FACTORY_MQTT_FILE" "username" || true)
+FACTORY_MQTT_PASSWORD=$(json_mqtt_value "$FACTORY_MQTT_FILE" "password" || true)
+FACTORY_MQTT_TLS_ENABLED=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.enabled" || true)
+FACTORY_MQTT_CA_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.caFile" || true)
+FACTORY_MQTT_CERT_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.certFile" || true)
+FACTORY_MQTT_KEY_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.keyFile" || true)
+FACTORY_MQTT_TLS_INSECURE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.insecureSkipVerify" || true)
+DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
+DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
+DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
+DEFAULT_MQTT_PASSWORD=$(first_nonempty "${INIT_MQTT_PASSWORD:-}" "$EXISTING_MQTT_PASSWORD" "$FACTORY_MQTT_PASSWORD")
+DEFAULT_MQTT_CA_FILE=$(first_nonempty "${INIT_MQTT_CA_FILE:-}" "$EXISTING_MQTT_CA_FILE" "$FACTORY_MQTT_CA_FILE")
+DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQTT_CERT_FILE" "$FACTORY_MQTT_CERT_FILE")
+DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
+DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
+DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+INIT_RUNTIME_MODE_VALUE="$INSTALL_RUNTIME_MODE"
+INIT_MACHINE_CODE_VALUE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
+INIT_MQTT_BROKER_VALUE=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
+INIT_MQTT_USERNAME_VALUE=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
+INIT_MQTT_PASSWORD_VALUE=$(prompt_value "MQTT password" "$DEFAULT_MQTT_PASSWORD" 1)
+if [ -z "${INIT_MQTT_TLS_ENABLED:-}" ]; then
+  if [ "$(broker_implies_tls "$INIT_MQTT_BROKER_VALUE")" = "true" ]; then
+    DEFAULT_MQTT_TLS_ENABLED="true"
+  else
+    DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "false")
+  fi
+fi
+INIT_MQTT_TLS_ENABLED_VALUE=$(prompt_bool "Enable MQTT TLS" "$DEFAULT_MQTT_TLS_ENABLED")
+INIT_MQTT_CA_FILE_VALUE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
+INIT_MQTT_CERT_FILE_VALUE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
+INIT_MQTT_KEY_FILE_VALUE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
+INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
+INIT_DIRECT_MAINTENANCE_ENABLED_VALUE=$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")
+INIT_DIRECT_LISTEN_HOSTS_VALUE=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
+INIT_DIRECT_ALLOWED_CIDRS_VALUE=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")
+RUNTIME_STAGE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/factory-runtime.XXXXXX")
+mkdir "$RUNTIME_STAGE_DIR/config"
+cp -a "$FACTORY_DIR/runtime" "$RUNTIME_STAGE_DIR/config/runtime"
+CONFIG_RUNTIME_DIR="$RUNTIME_STAGE_DIR/config/runtime"
+apply_runtime_identity_and_mqtt \
+  "$INIT_MACHINE_CODE_VALUE" "$INIT_MQTT_BROKER_VALUE" "$INIT_MQTT_USERNAME_VALUE" "$INIT_MQTT_PASSWORD_VALUE" \
+  "$INIT_MQTT_TLS_ENABLED_VALUE" "$INIT_MQTT_CA_FILE_VALUE" "$INIT_MQTT_CERT_FILE_VALUE" "$INIT_MQTT_KEY_FILE_VALUE" \
+  "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
+apply_runtime_mode "$INIT_RUNTIME_MODE_VALUE"
+apply_direct_maintenance_config \
+  "$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE" "$INIT_DIRECT_LISTEN_HOSTS_VALUE" "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
+if [ "${INIT_GENERIC_PREPARE:-0}" = "1" ]; then
+  python3 "$SCRIPT_DIR/prepare-generic-runtime.py" prepare --home "$RUNTIME_STAGE_DIR" \
+    --final-home "$GATEWAY_HOME" --machine "$INIT_MACHINE_CODE_VALUE" \
+    --qt "${INIT_LOCAL_QT_DISPLAY_ENABLED:-0}" --package-root "$SOURCE_ROOT" \
+    --deploy-dir "$SCRIPT_DIR" --qt-environment "${INIT_GENERIC_QT_ENVIRONMENT:-}"
+fi
+if [ "${INIT_TLS_APP_PREPARE:-0}" = "1" ]; then
+  python3 "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-tls-apps \
+    --app-config "$CONFIG_RUNTIME_DIR/apps/mqtt-service.json" \
+    --ca-file "$INIT_TLS_FINAL_CA_FILE" --cert-file "$INIT_TLS_FINAL_CERT_FILE" \
+    --key-file "$INIT_TLS_FINAL_KEY_FILE"
+fi
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" check-kiosk-app \
+  --source "$CONFIG_RUNTIME_DIR/apps/monitor-service.json"
+python3 "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-kiosk-parents --home "$GATEWAY_HOME"
+mkdir -p "$GATEWAY_HOME/config" "$GATEWAY_HOME/data" "$GATEWAY_HOME/ota" "$GATEWAY_HOME/run" "$BACKUP_DIR"
 
 if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   write_watchdog_applying_marker
@@ -1076,89 +1153,27 @@ if [ "$INSTALL_SYSTEMD" = "1" ]; then
   install_ota_public_key
 fi
 
-EXISTING_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
-EXISTING_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
-EXISTING_MQTT_BROKER=$(json_mqtt_value "$EXISTING_MQTT_FILE" "broker" || true)
-EXISTING_MQTT_USERNAME=$(json_mqtt_value "$EXISTING_MQTT_FILE" "username" || true)
-EXISTING_MQTT_PASSWORD=$(json_mqtt_value "$EXISTING_MQTT_FILE" "password" || true)
-EXISTING_MQTT_TLS_ENABLED=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.enabled" || true)
-EXISTING_MQTT_CA_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.caFile" || true)
-EXISTING_MQTT_CERT_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.certFile" || true)
-EXISTING_MQTT_KEY_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.keyFile" || true)
-EXISTING_MQTT_TLS_INSECURE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.insecureSkipVerify" || true)
-
 ts=$(date +%Y%m%d%H%M%S)
 if [ -d "$GATEWAY_HOME/config/runtime" ]; then
   mv "$GATEWAY_HOME/config/runtime" "$BACKUP_DIR/runtime-$ts"
   echo "backup old runtime config: $BACKUP_DIR/runtime-$ts"
 fi
 mkdir -p "$GATEWAY_HOME/config"
-cp -a "$FACTORY_DIR/runtime" "$GATEWAY_HOME/config/runtime"
+cp -a "$CONFIG_RUNTIME_DIR" "$GATEWAY_HOME/config/runtime"
+if [ -d "$RUNTIME_STAGE_DIR/scada" ]; then
+  mkdir -p "$GATEWAY_HOME/scada"
+  cp -a "$RUNTIME_STAGE_DIR/scada/." "$GATEWAY_HOME/scada/"
+fi
 if [ -n "$EDGE_PACKAGE_MANIFEST" ] && [ -f "$EDGE_PACKAGE_MANIFEST" ]; then
   install_file_if_exists "$EDGE_PACKAGE_MANIFEST" "$GATEWAY_HOME/config/runtime/edge-package-manifest.json"
 fi
 
-FACTORY_MACHINE_CODE=$(json_string_value "$GATEWAY_HOME/config/runtime/device_identity.json" "machineCode" || true)
-FACTORY_MQTT_FILE="$GATEWAY_HOME/config/runtime/apps/mqtt-service.json"
-FACTORY_MQTT_BROKER=$(json_mqtt_value "$FACTORY_MQTT_FILE" "broker" || true)
-FACTORY_MQTT_USERNAME=$(json_mqtt_value "$FACTORY_MQTT_FILE" "username" || true)
-FACTORY_MQTT_PASSWORD=$(json_mqtt_value "$FACTORY_MQTT_FILE" "password" || true)
-FACTORY_MQTT_TLS_ENABLED=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.enabled" || true)
-FACTORY_MQTT_CA_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.caFile" || true)
-FACTORY_MQTT_CERT_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.certFile" || true)
-FACTORY_MQTT_KEY_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.keyFile" || true)
-FACTORY_MQTT_TLS_INSECURE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.insecureSkipVerify" || true)
-
-DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
-DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
-DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
-DEFAULT_MQTT_PASSWORD=$(first_nonempty "${INIT_MQTT_PASSWORD:-}" "$EXISTING_MQTT_PASSWORD" "$FACTORY_MQTT_PASSWORD")
-DEFAULT_MQTT_CA_FILE=$(first_nonempty "${INIT_MQTT_CA_FILE:-}" "$EXISTING_MQTT_CA_FILE" "$FACTORY_MQTT_CA_FILE")
-DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQTT_CERT_FILE" "$FACTORY_MQTT_CERT_FILE")
-DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
-DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
-DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
-DEFAULT_DIRECT_MAINTENANCE_ENABLED=$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")
-DEFAULT_DIRECT_LISTEN_HOSTS=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
-DEFAULT_DIRECT_ALLOWED_CIDRS=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")
-DEFAULT_RUNTIME_MODE="$INSTALL_RUNTIME_MODE"
-
-INIT_RUNTIME_MODE_VALUE="$DEFAULT_RUNTIME_MODE"
-INIT_MACHINE_CODE_VALUE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
-INIT_MQTT_BROKER_VALUE=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
-INIT_MQTT_USERNAME_VALUE=$(prompt_value "MQTT username" "$DEFAULT_MQTT_USERNAME")
-INIT_MQTT_PASSWORD_VALUE=$(prompt_value "MQTT password" "$DEFAULT_MQTT_PASSWORD" 1)
-if [ -z "${INIT_MQTT_TLS_ENABLED:-}" ]; then
-  if [ "$(broker_implies_tls "$INIT_MQTT_BROKER_VALUE")" = "true" ]; then
-    DEFAULT_MQTT_TLS_ENABLED="true"
-  else
-    DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "false")
+if [ "$INIT_RUNTIME_MODE_VALUE" != "agc_avc" ]; then
+  rm -f "$GATEWAY_HOME/bin/AgcAvcController"
+  if [ "$INSTALL_SYSTEMD" = "1" ]; then
+    rm -f "$SYSTEMD_UNIT_DIR/agc-avc@.service"
   fi
 fi
-INIT_MQTT_TLS_ENABLED_VALUE=$(prompt_bool "Enable MQTT TLS" "$DEFAULT_MQTT_TLS_ENABLED")
-INIT_MQTT_CA_FILE_VALUE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
-INIT_MQTT_CERT_FILE_VALUE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
-INIT_MQTT_KEY_FILE_VALUE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
-INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
-INIT_DIRECT_MAINTENANCE_ENABLED_VALUE=$(normalize_bool "$DEFAULT_DIRECT_MAINTENANCE_ENABLED" "true")
-INIT_DIRECT_LISTEN_HOSTS_VALUE="$DEFAULT_DIRECT_LISTEN_HOSTS"
-INIT_DIRECT_ALLOWED_CIDRS_VALUE="$DEFAULT_DIRECT_ALLOWED_CIDRS"
-
-apply_runtime_identity_and_mqtt \
-  "$INIT_MACHINE_CODE_VALUE" \
-  "$INIT_MQTT_BROKER_VALUE" \
-  "$INIT_MQTT_USERNAME_VALUE" \
-  "$INIT_MQTT_PASSWORD_VALUE" \
-  "$INIT_MQTT_TLS_ENABLED_VALUE" \
-  "$INIT_MQTT_CA_FILE_VALUE" \
-  "$INIT_MQTT_CERT_FILE_VALUE" \
-  "$INIT_MQTT_KEY_FILE_VALUE" \
-  "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
-apply_runtime_mode "$INIT_RUNTIME_MODE_VALUE"
-apply_direct_maintenance_config \
-  "$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE" \
-  "$INIT_DIRECT_LISTEN_HOSTS_VALUE" \
-  "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
 # Runtime relocation/settings are complete. No private app JSON is opened by
 # the nonroot kiosk; the public allowlist is installed before any service start.

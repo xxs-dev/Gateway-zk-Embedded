@@ -15,7 +15,7 @@ import zipfile
 import zlib
 import stat
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 
 
 # Original monitor app shares SystemMonitor's apply/pull single-file contract.
@@ -351,6 +351,77 @@ def install_kiosk_script(args):
             kiosk_directory_policy(output, public=True)
             kiosk_publish(output, "local-kiosk.py", raw, 0o755)
 
+
+def tls_app_bytes(raw, ca_file, cert_file, key_file, monitor=False):
+    """The stage and enrollment provider must use exactly the same bytes."""
+    if monitor and len(raw) > KIOSK_APP_MAX_BYTES:
+        raise ValueError("KIOSK_INPUT_TOO_LARGE")
+    app = kiosk_json(raw)
+    if not isinstance(app, dict):
+        raise ValueError("TLS_APP_INVALID")
+    mqtt = app.get("mqtt")
+    if not isinstance(mqtt, dict):
+        return raw
+    tls = mqtt.setdefault("tls", {})
+    if not isinstance(tls, dict):
+        raise ValueError("TLS_APP_INVALID")
+    tls.update(enabled=True, caFile=ca_file, certFile=cert_file,
+               keyFile=key_file, insecureSkipVerify=False)
+    result = (json.dumps(app, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    if monitor and len(result) > KIOSK_APP_MAX_BYTES:
+        raise ValueError("KIOSK_INPUT_TOO_LARGE")
+    return result
+
+
+def tls_snapshot(fd):
+    info = kiosk_file_policy(fd)
+    return (getattr(info, "st_dev", None), getattr(info, "st_ino", None),
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_mode)
+
+
+def prepare_tls_apps(args):
+    if os.name != "posix" or os.geteuid() != 0:
+        raise ValueError("KIOSK_ROOT_POSIX_REQUIRED")
+    # Private stage directories may be 0700; unlike the public kiosk directory,
+    # they do not need world traversal. All app operations use held handles.
+    directory = os.open(str(args.app_config.parent), kiosk_flags(True))
+    try:
+        kiosk_directory_policy(directory)
+        names = sorted(set([args.app_config.name] +
+                           [name for name in os.listdir(directory) if name.endswith(".json")]))
+        with ExitStack() as held:
+            plans = []
+            for name in names:
+                try:
+                    fd = os.open(name, kiosk_flags(), dir_fd=directory)
+                except FileNotFoundError:
+                    continue
+                held.callback(os.close, fd)
+                before = tls_snapshot(fd)
+                raw = kiosk_read(fd, KIOSK_APP_MAX_BYTES if name == "monitor-service.json" else before[2])
+                result = tls_app_bytes(raw, args.ca_file, args.cert_file, args.key_file,
+                                       monitor=name == "monitor-service.json")
+                if before != tls_snapshot(fd):
+                    raise ValueError("KIOSK_INPUT_CHANGED")
+                if args.require_prepared and raw != result:
+                    raise ValueError("TLS_APP_NOT_PREPARED")
+                plans.append((name, fd, before, raw, result))
+            # Validate every candidate before publishing any file. A provider in
+            # production-init never rewrites: any drift is a failure, not a fixup.
+            for name, fd, before, raw, result in plans:
+                current = os.open(name, kiosk_flags(), dir_fd=directory)
+                try:
+                    if before != tls_snapshot(fd) or before != tls_snapshot(current):
+                        raise ValueError("KIOSK_INPUT_CHANGED")
+                finally:
+                    os.close(current)
+            if not args.require_prepared:
+                for name, fd, before, raw, result in plans:
+                    if raw != result:
+                        kiosk_publish(directory, name, result, stat.S_IMODE(before[5]))
+    finally:
+        os.close(directory)
+
 QT_WIDGET_RESOURCE = "config/generic-scada-widgets.json"
 
 
@@ -414,13 +485,13 @@ def read(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def write(path, value):
+def write(path, value, ensure_ascii=True):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".generic-", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as output:
-            json.dump(value, output, ensure_ascii=True, indent=2)
+            json.dump(value, output, ensure_ascii=ensure_ascii, indent=2)
             output.write("\n")
         os.replace(temporary, str(path))
     finally:
@@ -521,14 +592,18 @@ def preflight(args):
     print("1" if qt else "0")
 
 
-def relocate(value, home, machine):
+def relocate(value, home, machine, source_home="/opt/modbus-gateway"):
     if isinstance(value, dict):
-        return {key: (machine if key == "machineCode" else relocate(item, home, machine))
+        return {key: (machine if key == "machineCode" else relocate(item, home, machine, source_home))
                 for key, item in value.items()}
     if isinstance(value, list):
-        return [relocate(item, home, machine) for item in value]
-    if isinstance(value, str) and value.startswith("/opt/modbus-gateway/"):
-        return str(home) + value[len("/opt/modbus-gateway"):]
+        return [relocate(item, home, machine, source_home) for item in value]
+    source_prefixes = (str(source_home),)
+    if isinstance(source_home, Path):
+        source_prefixes += (source_home.as_posix(),)
+    for prefix in source_prefixes:
+        if isinstance(value, str) and value.startswith((prefix + "/", prefix + os.sep)):
+            return str(home) + value[len(prefix):]
     return value
 
 
@@ -579,10 +654,10 @@ def background_png():
             chunk(b"IDAT", zlib.compress(bytes((0, 244, 246, 248)))) + chunk(b"IEND", b""))
 
 
-def make_project(home, machine, output):
+def make_project(home, machine, output, resources=None):
     tags, routes = inventory(home, machine)
     # Reuse the product Qt widget schema, with no inherited site tags or controls.
-    prototypes = read(home / "config/generic-scada-widgets.json")
+    prototypes = read((resources or home) / "config/generic-scada-widgets.json")
     pages = max(1, (len(tags) + 15) // 16)
     documents = {
         "manifest.json": {"schemaVersion": "2.0", "projectId": "gateway-" + machine,
@@ -626,32 +701,46 @@ def make_project(home, machine, output):
             archive.writestr(name, data)
 
 
+def relocate_runtime(home, target, machine, source_home="/opt/modbus-gateway", monitor_ascii=True):
+    for path in (home / "config/runtime").rglob("*.json"):
+        write(path, relocate(read(path), target, machine, source_home),
+              ensure_ascii=monitor_ascii if path == home / "config/runtime/apps/monitor-service.json" else True)
+
+
 def prepare(args):
     home = args.home.resolve()
-    for path in (home / "config/runtime").rglob("*.json"):
-        write(path, relocate(read(path), home, args.machine))
-    if args.qt == "0":
-        return
-    environment = read(args.qt_environment) if args.qt_environment else qt_environment(home)
-    if not (home / "ky-ems/KY-EMS").is_file() or not (home / "bin/QtDisplayBridge").is_file():
-        raise ValueError("local Qt needs KY-EMS and QtDisplayBridge")
-    with tempfile.TemporaryDirectory(prefix="generic-scada-", dir=str(home / "tmp")) as directory:
-        package = Path(directory) / "runtime.kyscada"
-        make_project(home, args.machine, package)
-        subprocess.run(["sh", str(home / "bin/install-scada-project.sh"), "--package", str(package),
-                        "--machine-code", args.machine, "--app-config", str(home / "config/runtime/apps/monitor-service.json"),
-                        "--scada-root", str(home / "scada"), "--enable-native-display"], check=True)
-    path = home / "config/runtime/qt-display.env"
-    fd, temporary = tempfile.mkstemp(prefix=".qt-display-", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w") as stream:
-            for key in QT_KEYS:
-                if key in environment:
-                    stream.write(key + "=" + environment[key] + "\n")
-        os.replace(temporary, str(path))
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    final_home = args.final_home.resolve() if getattr(args, "final_home", None) else home
+    resources = args.package_root if getattr(args, "package_root", None) else home
+    deploy = args.deploy_dir if getattr(args, "deploy_dir", None) else home / "bin"
+    relocate_runtime(home, home, args.machine)
+    if args.qt == "1":
+        environment = read(args.qt_environment) if args.qt_environment else qt_environment(final_home)
+        bridge = resources / ("build-aarch64/QtDisplayBridge" if resources != home else "bin/QtDisplayBridge")
+        if not (resources / "ky-ems/KY-EMS").is_file() or not bridge.is_file():
+            raise ValueError("local Qt needs KY-EMS and QtDisplayBridge")
+        (home / "tmp").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="generic-scada-", dir=str(home / "tmp")) as directory:
+            package = Path(directory) / "runtime.kyscada"
+            make_project(home, args.machine, package, resources)
+            subprocess.run(["sh", str(deploy / "install-scada-project.sh"), "--package", str(package),
+                            "--machine-code", args.machine, "--app-config", str(home / "config/runtime/apps/monitor-service.json"),
+                            "--scada-root", str(home / "scada"), "--enable-native-display"], check=True)
+        path = home / "config/runtime/qt-display.env"
+        fd, temporary = tempfile.mkstemp(prefix=".qt-display-", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "w") as stream:
+                for key in QT_KEYS:
+                    if key in environment:
+                        stream.write(key + "=" + environment[key] + "\n")
+            os.replace(temporary, str(path))
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    if final_home != home:
+        # The private stage is physical storage, never a runtime reference.
+        relocate_runtime(home, final_home, args.machine, home, monitor_ascii=args.qt != "1")
+        for path in (home / "scada/backup").glob("monitor-service-*.json"):
+            write(path, relocate(read(path), final_home, args.machine, home))
 
 
 if __name__ == "__main__":
@@ -673,9 +762,18 @@ if __name__ == "__main__":
     activate.add_argument("--machine", required=True)
     activate.add_argument("--qt", choices=("0", "1"), required=True)
     activate.add_argument("--qt-environment", default="")
+    activate.add_argument("--final-home", type=Path)
+    activate.add_argument("--package-root", type=Path)
+    activate.add_argument("--deploy-dir", type=Path)
     widgets = commands.add_parser("install-widgets")
     widgets.add_argument("--package-root", required=True, type=Path)
     widgets.add_argument("--home", required=True, type=Path)
+    tls = commands.add_parser("prepare-tls-apps")
+    tls.add_argument("--app-config", required=True, type=Path)
+    tls.add_argument("--ca-file", required=True)
+    tls.add_argument("--cert-file", required=True)
+    tls.add_argument("--key-file", required=True)
+    tls.add_argument("--require-prepared", action="store_true")
     for command in ("check-kiosk-parents", "prepare-kiosk-parents", "project-kiosk", "install-kiosk-script"):
         kiosk = commands.add_parser(command)
         kiosk.add_argument("--home", required=True, type=Path)
@@ -695,6 +793,8 @@ if __name__ == "__main__":
             preflight(args)
         elif args.command == "install-widgets":
             install_widgets(args)
+        elif args.command == "prepare-tls-apps":
+            prepare_tls_apps(args)
         elif args.command == "check-kiosk-parents":
             check_kiosk_parents(args)
         elif args.command == "check-kiosk-source":

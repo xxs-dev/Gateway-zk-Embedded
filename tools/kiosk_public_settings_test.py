@@ -307,6 +307,11 @@ class PosixModel:
     def close(self, fd):
         del self.handles[fd]
 
+    def listdir(self, fd):
+        prefix = self.handles[fd]['path'].rstrip('/') + '/'
+        return [path[len(prefix):] for path in self.entries
+                if path.startswith(prefix) and '/' not in path[len(prefix):]]
+
     def mkdir(self, name, mode, dir_fd):
         path = self.absolute(name, dir_fd)
         if path in self.entries:
@@ -550,6 +555,92 @@ class CompatibilityTests(unittest.TestCase):
             if mutation == 'duplicate': raw = b'{"localDisplay":{},"localDisplay":{}}'
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 module.parse_kiosk_public(raw)
+
+
+class TlsAppContractTests(unittest.TestCase):
+    def fixture(self, raw=None):
+        module, fs = helper(), PosixModel()
+        fs.add('/source/apps', stat.S_IFDIR | 0o700)
+        value = app(); value['mqtt'] = {'tls': {'sitePolicy': [1, 'retain']}}
+        fs.add('/source/apps/monitor-service.json', stat.S_IFREG | 0o600,
+               data=raw if raw is not None else json.dumps(value).encode())
+        args = types.SimpleNamespace(app_config=PurePosixPath('/source/apps/mqtt-service.json'),
+                                     ca_file='/synthetic/ca.crt', cert_file='/synthetic/client.pem',
+                                     key_file='/synthetic/client.key', require_prepared=False)
+        module.os, module.Path = fs, PurePosixPath
+        return module, fs, args
+
+    def test_exact_limit_unicode_idempotence_and_all_fields(self):
+        module = helper()
+        value = app(); value['mqtt'] = {'tls': {'sitePolicy': [1, 'retain']}}
+        value['notes'] = '\u5b57' * 100
+        value['engineeringOnly'] = ''
+        paths = ('/synthetic/ca.crt', '/synthetic/client.pem', '/synthetic/client.key')
+        base = module.tls_app_bytes(json.dumps(value).encode(), *paths, monitor=True)
+        value['engineeringOnly'] = 'x' * (module.KIOSK_APP_MAX_BYTES - len(base))
+        encoded = module.tls_app_bytes(json.dumps(value, ensure_ascii=False).encode(), *paths, monitor=True)
+        self.assertEqual(module.KIOSK_APP_MAX_BYTES, len(encoded))
+        self.assertEqual(encoded, module.tls_app_bytes(encoded, *paths, monitor=True))
+        decoded = json.loads(encoded)
+        self.assertEqual(value['notes'], decoded['notes'])
+        self.assertEqual(value['localDisplay'], decoded['localDisplay'])
+        self.assertEqual([1, 'retain'], decoded['mqtt']['tls']['sitePolicy'])
+        # Still-valid input just below the source bound, but final +1 byte.
+        value['engineeringOnly'] += 'x'
+        with self.assertRaisesRegex(ValueError, 'KIOSK_INPUT_TOO_LARGE'):
+            module.tls_app_bytes(json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode(), *paths, monitor=True)
+
+    def test_all_candidates_checked_before_any_publish(self):
+        for kind in ('duplicate', 'nonfinite', 'owner', 'writable', 'hardlink', 'symlink', 'oversize', 'parent'):
+            with self.subTest(kind=kind):
+                raw = b'{"mqtt":{},"mqtt":{}}' if kind == 'duplicate' else b'{"mqtt":{},"value":NaN}' if kind == 'nonfinite' else None
+                module, fs, args = self.fixture(raw)
+                fs.add('/source/apps/aaa.json', stat.S_IFREG | 0o600, data=b'{"mqtt":{}}')
+                entry = fs.entries['/source/apps/monitor-service.json']
+                if kind == 'owner': entry['uid'] = 1000
+                if kind == 'writable': entry['mode'] |= 0o020
+                if kind == 'hardlink': entry['nlink'] = 2
+                if kind == 'symlink': entry['mode'] = stat.S_IFLNK | 0o777
+                if kind == 'oversize': entry['data'] = sized_app(module.KIOSK_APP_MAX_BYTES + 1)
+                if kind == 'parent': fs.entries['/source/apps']['mode'] |= 0o020
+                before = copy.deepcopy(fs.entries)
+                with self.assertRaises((ValueError, OSError)):
+                    module.prepare_tls_apps(args)
+                self.assertEqual(before, fs.entries)
+                self.assertFalse(fs.handles)
+
+    def test_prepared_provider_checks_without_rewriting_and_rejects_drift(self):
+        module, fs, args = self.fixture()
+        module.prepare_tls_apps(args)
+        before = copy.deepcopy(fs.entries)
+        fs.events.clear(); args.require_prepared = True
+        module.prepare_tls_apps(args)
+        self.assertEqual(before, fs.entries)
+        self.assertFalse(any(e[0] in ('create', 'replace', 'fchmod') for e in fs.events))
+        value = json.loads(fs.entries['/source/apps/monitor-service.json']['data'])
+        value['mqtt']['tls']['enabled'] = False
+        fs.entries['/source/apps/monitor-service.json']['data'] = json.dumps(value).encode()
+        changed = copy.deepcopy(fs.entries)
+        with self.assertRaisesRegex(ValueError, 'TLS_APP_NOT_PREPARED'):
+            module.prepare_tls_apps(args)
+        self.assertEqual(changed, fs.entries)
+        self.assertFalse(fs.handles)
+
+    def test_opened_source_change_rejected_before_publish(self):
+        module, fs, args = self.fixture()
+        read = fs.read
+        changed = [False]
+        def mutate(fd, size):
+            chunk = read(fd, size)
+            if chunk and not changed[0]:
+                fs.handles[fd]['entry']['data'] += b' '
+                changed[0] = True
+            return chunk
+        fs.read = mutate
+        with self.assertRaisesRegex(ValueError, 'KIOSK_INPUT_TOO_LARGE|KIOSK_INPUT_CHANGED'):
+            module.prepare_tls_apps(args)
+        self.assertFalse(any(e[0] in ('create', 'replace') for e in fs.events))
+        self.assertFalse(fs.handles)
 
 
 if __name__ == '__main__':
