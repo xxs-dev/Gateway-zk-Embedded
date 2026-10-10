@@ -512,6 +512,70 @@ def verify_files(root, files):
             raise ValueError("bundle hash mismatch: " + name)
 
 
+def read_source_manifest(path):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate bundle manifest field")
+            result[key] = value
+        return result
+    return json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique)
+
+
+def verify_agc_sources(root, generic, overlay):
+    def require(ok):
+        if not ok:
+            raise ValueError("AGC multi-origin source or content mismatch")
+
+    def commit(value):
+        return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
+
+    def valid_pin(value):
+        return (isinstance(value, dict) and set(value) == {"sha256", "sizeBytes"}
+                and isinstance(value.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", value["sha256"])
+                and type(value.get("sizeBytes")) is int and 0 < value["sizeBytes"] <= 256 * 1024 * 1024)
+
+    multi = any(key in item for item in (generic, overlay) for key in ("componentOrigins", "binarySourceCommits"))
+    if not multi:
+        binary = generic.get("binarySourceCommit")
+        if not commit(binary) or overlay.get("sourceCommit") != binary:
+            raise ValueError("AGC overlay source does not match generic programs")
+        return
+    expected_keys = {"binary", "sourceCommitBase", "sourceDirty", "sourceArchive", "sourceInputs", "originalPacket", "buildSeal"}
+    for item in (generic, overlay):
+        require("binarySourceCommit" in item and item["binarySourceCommit"] is None
+                and commit(item.get("assemblySourceCommit")) and type(item.get("assemblySourceDirty")) is bool
+                and item.get("sourceDirtyScope") == "ORIGINAL_BUILD_INPUTS_NOT_CURRENT_CHECKOUT")
+        origins = item.get("componentOrigins")
+        require(isinstance(origins, dict) and len(origins) == 20 and "bin/AgcAvcController" in origins)
+        source_commits = set()
+        for name, origin in origins.items():
+            require(re.fullmatch(r"(bin/[A-Za-z0-9_.-]+|ky-ems/KY-EMS)", name)
+                    and name not in ("bin/.", "bin/..") and isinstance(origin, dict) and set(origin) == expected_keys)
+            require(commit(origin.get("sourceCommitBase")) and type(origin.get("sourceDirty")) is bool)
+            for key in ("binary", "sourceArchive", "sourceInputs", "originalPacket", "buildSeal"):
+                require(valid_pin(origin.get(key)))
+            source_commits.add(origin["sourceCommitBase"])
+        declared = item.get("binarySourceCommits")
+        require(isinstance(declared, list) and all(commit(value) for value in declared)
+                and len(declared) == len(set(declared)) and set(declared) == source_commits)
+    for key in ("assemblySourceCommit", "assemblySourceDirty", "binarySourceCommits", "componentOrigins", "sourceDirtyScope"):
+        require(generic[key] == overlay[key])
+    origins = generic["componentOrigins"]
+    require(overlay.get("sourceCommitScope") == "AGC_COMPONENT_ORIGINAL_BUILD_BASE"
+            and overlay.get("sourceCommit") == origins["bin/AgcAvcController"]["sourceCommitBase"])
+    # A source declaration is not enough: each pin must name one actual paired file.
+    for name, origin in origins.items():
+        relative = "build-aarch64/" + name[4:] if name.startswith("bin/") else name
+        declarations = [item["files"][relative] for item in (generic, overlay) if relative in item["files"]]
+        binary = origin["binary"]
+        require(len(declarations) == 1 and declarations[0] == binary["sha256"])
+        path = root / relative
+        require(not path.is_symlink() and root.resolve() in path.resolve().parents
+                and path.is_file() and path.stat().st_size == binary["sizeBytes"] and sha(path) == binary["sha256"])
+
+
 QT_KEYS = ("DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "QT_QPA_PLATFORM", "QT_QPA_PLATFORM_PLUGIN_PATH")
 
 
@@ -539,7 +603,7 @@ def qt_environment(home):
 
 def preflight(args):
     root = args.package_root
-    generic = read(root / "generic-package.json")
+    generic = read_source_manifest(root / "generic-package.json")
     verify_files(root, generic["files"])
     # Windows uploads deploy files separately. They must match this exact bundle.
     for name, expected in generic["files"].items():
@@ -548,9 +612,8 @@ def preflight(args):
             if not path.is_file() or sha(path) != expected:
                 raise ValueError("paired deploy script mismatch: " + Path(name).name)
     if args.mode == "agc_avc":
-        overlay = read(root / "agc-avc-runtime-manifest.json")
-        if overlay.get("sourceCommit") != generic["binarySourceCommit"]:
-            raise ValueError("AGC overlay source does not match generic programs")
+        overlay = read_source_manifest(root / "agc-avc-runtime-manifest.json")
+        verify_agc_sources(root, generic, overlay)
         verify_files(root, overlay["files"])
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}", args.machine) or args.machine == "GW_FACTORY_001":
         raise ValueError("generic initialization requires an explicit non-placeholder machine code")
