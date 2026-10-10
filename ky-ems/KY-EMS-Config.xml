@@ -372,11 +372,17 @@
     <PcsMon>
         <DataBindings>
             <!-- ── PCS 运行状态 ── -->
-            <Bind widget="label_9" semanticRole="pcs.activePowerSetTotal" indexFallback="1313" decimals="1"/>   <!-- 手动有功设定值(kW) -->
-            <Bind widget="label_11" semanticRole="pcs.activePowerSetA" indexFallback="1318" decimals="1"/>   <!-- 有功设定 A相(kW) -->
-            <Bind widget="label_99" semanticRole="pcs.activePowerSetB" indexFallback="1319" decimals="1"/>   <!-- 有功设定 B相(kW) -->
-            <Bind widget="label_116" semanticRole="pcs.reactivePowerSetTotal" indexFallback="1314" decimals="1"/>   <!-- 手动无功设定值(kVar) -->
-            <Bind widget="label_12" semanticRole="pcs.reactivePowerSetA" indexFallback="1321" decimals="1"/>   <!-- 无功设定 A相(kVar) -->
+            <Bind widget="PcsActivePowerSetTotalRead" semanticRole="pcs.activePowerSetTotal" indexFallback="1313" decimals="1"/>   <!-- 手动有功设定值(kW) -->
+            <Bind widget="PcsBtnSetKwA" semanticRole="pcs.activePowerSetA" indexFallback="1318" decimals="1"/>   <!-- 有功设定 A相(kW) -->
+            <Bind widget="PcsBtnSetKwB" semanticRole="pcs.activePowerSetB" indexFallback="1319" decimals="1"/>   <!-- 有功设定 B相(kW) -->
+            <Bind widget="PcsReactivePowerSetTotalRead" semanticRole="pcs.reactivePowerSetTotal" indexFallback="1314" decimals="1"/>   <!-- 手动无功设定值(kVar) -->
+            <Bind widget="PcsBtnSetKvarA" semanticRole="pcs.reactivePowerSetA" indexFallback="1321" decimals="1"/>   <!-- 无功设定 A相(kVar) -->
+            <Bind widget="label_76" type="text" meterCode="T2216_modbusRTU_4_slave_1" pointCode="mb4_s1_1220" semanticRole="pcs.voltageA" indexFallback="1220" unit="V" decimals="1"/>
+            <Bind widget="label_78" type="text" meterCode="T2216_modbusRTU_4_slave_1" pointCode="mb4_s1_1221" semanticRole="pcs.voltageB" indexFallback="1221" unit="V" decimals="1"/>
+            <Bind widget="label_79" type="text" meterCode="T2216_modbusRTU_4_slave_1" pointCode="mb4_s1_1222" semanticRole="pcs.voltageC" indexFallback="1222" unit="V" decimals="1"/>
+            <Bind widget="label_80" type="text" meterCode="T2216_modbusRTU_4_slave_1" pointCode="mb4_s1_1223" semanticRole="pcs.currentA" indexFallback="1223" unit="A" decimals="1"/>
+            <Bind widget="label_82" type="text" meterCode="T2216_modbusRTU_4_slave_1" pointCode="mb4_s1_1224" semanticRole="pcs.currentB" indexFallback="1224" unit="A" decimals="1"/>
+            <Bind widget="label_83" type="text" meterCode="T2216_modbusRTU_4_slave_1" pointCode="mb4_s1_1225" semanticRole="pcs.currentC" indexFallback="1225" unit="A" decimals="1"/>
         </DataBindings>
     </PcsMon>
 
@@ -510,70 +516,70 @@
             <Bind widget="HydrRmvInterval" semanticRole="fire.hydrogenRemovalInterval" indexFallback="384" decimals="2"/>    <!-- 排氢间隔时间(小时) -->
             <Bind widget="HydrRmvWorkTime" semanticRole="fire.hydrogenRemovalDuration" indexFallback="385" decimals="0"/>       <!-- 排氢工作时间(分钟) -->
             <!-- 当前项目实际告警：0=正常，非零/1=触发，无有效数据=灰色。 -->
-            <Bind widget="label_125" type="text" pointCode="mb5_s3_153" indexFallback="153">
+            <Bind widget="label_125" type="text" meterCode="T2216_modbusRTU_5_slave_3" pointCode="mb5_s3_153" indexFallback="153">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="液冷机组故障：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="液冷机组故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s3_153" indexFallback="153" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="液冷机组故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s3_153" indexFallback="153" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="液冷机组故障：触发" color="#D64545" priority="20"><Condition meterCode="T2216_modbusRTU_5_slave_3" pointCode="mb5_s3_153" indexFallback="153" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="液冷机组故障：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_modbusRTU_5_slave_3" pointCode="mb5_s3_153" indexFallback="153" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_126" type="text" pointCode="mb5_s5_209" indexFallback="209">
+            <Bind widget="label_126" type="text" meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_209" indexFallback="209">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="除湿温湿度故障：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="除湿温湿度故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s5_209" indexFallback="209" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="除湿温湿度故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s5_209" indexFallback="209" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="除湿温湿度故障：触发" color="#D64545" priority="20"><Condition meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_209" indexFallback="209" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="除湿温湿度故障：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_209" indexFallback="209" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_127" type="text" pointCode="mb5_s5_210" indexFallback="210">
+            <Bind widget="label_127" type="text" meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_210" indexFallback="210">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="除湿 NTC 故障：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="除湿 NTC 故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s5_210" indexFallback="210" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="除湿 NTC 故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s5_210" indexFallback="210" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="除湿 NTC 故障：触发" color="#D64545" priority="20"><Condition meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_210" indexFallback="210" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="除湿 NTC 故障：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_210" indexFallback="210" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_128" type="text" pointCode="mb5_s5_211" indexFallback="211">
+            <Bind widget="label_128" type="text" meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_211" indexFallback="211">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="除湿制冷片故障：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="除湿制冷片故障：触发" color="#D64545" priority="20"><Condition pointCode="mb5_s5_211" indexFallback="211" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="除湿制冷片故障：正常" color="#2F9D78" priority="10"><Condition pointCode="mb5_s5_211" indexFallback="211" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="除湿制冷片故障：触发" color="#D64545" priority="20"><Condition meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_211" indexFallback="211" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="除湿制冷片故障：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_modbusRTU_5_slave_5" pointCode="mb5_s5_211" indexFallback="211" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_129" type="text" pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025">
+            <Bind widget="label_129" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防一级预警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防一级预警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防一级预警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防一级预警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防一级预警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level1_alarm" indexFallback="310025" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_130" type="text" pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026">
+            <Bind widget="label_130" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防二级报警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防二级报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防二级报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防二级报警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防二级报警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level2_alarm" indexFallback="310026" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_131" type="text" pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027">
+            <Bind widget="label_131" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防三级报警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防三级报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防三级报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防三级报警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防三级报警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_level3_alarm" indexFallback="310027" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_132" type="text" pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020">
+            <Bind widget="label_132" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防温度报警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防温度报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防温度报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防温度报警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防温度报警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_temperature_alarm" indexFallback="310020" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_133" type="text" pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021">
+            <Bind widget="label_133" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防烟雾报警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防烟雾报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防烟雾报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防烟雾报警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防烟雾报警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_smoke_alarm" indexFallback="310021" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_134" type="text" pointCode="can0_zh_addr043_co_alarm" indexFallback="310022">
+            <Bind widget="label_134" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_co_alarm" indexFallback="310022">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防 CO 报警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防 CO 报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_co_alarm" indexFallback="310022" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防 CO 报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_co_alarm" indexFallback="310022" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防 CO 报警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_co_alarm" indexFallback="310022" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防 CO 报警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_co_alarm" indexFallback="310022" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
-            <Bind widget="label_135" type="text" pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023">
+            <Bind widget="label_135" type="text" meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023">
                 <StateRules defaultCode="UNKNOWN" defaultLabel="消防 H2 报警：--" defaultColor="#71808A">
-                    <State code="TRIGGERED" label="消防 H2 报警：触发" color="#D64545" priority="20"><Condition pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023" operator="ne" value="0"/></State>
-                    <State code="NORMAL" label="消防 H2 报警：正常" color="#2F9D78" priority="10"><Condition pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023" operator="eq" value="0"/></State>
+                    <State code="TRIGGERED" label="消防 H2 报警：触发" color="#D64545" priority="20"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023" operator="ne" value="0"/></State>
+                    <State code="NORMAL" label="消防 H2 报警：正常" color="#2F9D78" priority="10"><Condition meterCode="T2216_CAN0_ZH_DET_043" pointCode="can0_zh_addr043_h2_alarm" indexFallback="310023" operator="eq" value="0"/></State>
                 </StateRules>
             </Bind>
         </DataBindings>

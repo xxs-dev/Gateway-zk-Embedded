@@ -2374,7 +2374,7 @@
       "unit": ""
     },
     {
-      "meterCode": "T2216_modbusRTU_3_slave_2",
+      "meterCode": "MTR20250600659",
       "pointCode": "mb3_s2_1454",
       "index": 1454,
       "name": "充放电指示",
