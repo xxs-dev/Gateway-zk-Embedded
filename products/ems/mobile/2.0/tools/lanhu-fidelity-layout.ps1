@@ -35,6 +35,7 @@ function Ref-Chrome($Widgets,$Id,$Active) {
     $nav=@(@{Id='Guide';T='引导';Target='Guide-Setup'},@{Id='Meters';T='仪表';Target='Meters-Overview'},@{Id='Topology';T='拓扑';Target='Topology'},@{Id='Trends';T='曲线';Target='Trends-Custom'},@{Id='Alarms';T='告警';Target='Info-Alarms'},@{Id='Monitor';T='监测';Target='Devices-Pcs'},@{Id='Control';T='控制';Target='Control-Pcs'},@{Id='Settings';T='设置';Target='Maintenance'})
     for($i=0;$i-lt8;$i++) {
         $n=$nav[$i];$y=42+$i*93
+        if($n.Id-eq'Monitor'){$n.Target='Devices-Emu'}
         $b=Ref-Button "lanhu-nav-$($n.Id)" '' $n.Target 12 $y 82 76 ($Active-eq$n.Id) 16
         $b.properties | Add-Member qtImageFile "assets/lanhu-assets/nav-$i-$(if($Active-eq$n.Id){'active'}else{'idle'}).png"
         $Widgets.Add($b)
@@ -353,7 +354,10 @@ function Get-LanhuScreens {
             '^Meters-Electrical-(.+)$|^Meters-Power-(.+)$' { $source=if($Matches[1]){$Matches[1]}else{$Matches[2]};Build-RefMeter $screen.screenId $source;break }
             '^Control-Pcs$' { Build-RefPcs;break }
             '^Strategy-Overview$' { Build-RefStrategy;break }
-            '^Devices-|^Info-Messages' { Build-RefBlank $screen.screenId 'Monitor';break }
+            '^Devices-Pcs$' { Build-MonitorPcs;break }
+            '^Devices-Bms$' { Build-MonitorBms;break }
+            '^Devices-Thermal$|^Devices-Fire$' { Build-MonitorThermal $screen.screenId;break }
+            '^Info-Messages$' { Build-MonitorNetwork $screen.screenId;break }
             '^Meters-Energy$' { Build-RefBlank $screen.screenId 'Meters';break }
             '^Control-Dido$|^Strategy-(Charge|Grid|Balance)$' { Build-RefBlank $screen.screenId 'Control';break }
             '^Maintenance$|^Vehicle-Control$' { Build-RefBlank $screen.screenId 'Settings';break }
@@ -362,4 +366,5 @@ function Get-LanhuScreens {
     }
     Build-RefTopology $true
     foreach($kind in @('Bms','Thermal','Mccb','Diesel')){Build-RefDeviceControl $kind}
+    Get-MonitorScreens
 }

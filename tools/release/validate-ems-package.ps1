@@ -77,7 +77,7 @@ try {
     $expectedScreenCount = if ($Product -eq "stationary") {
         15
     } elseif ($null -ne $manifest.PSObject.Properties["layoutProfile"] -and [string]$manifest.layoutProfile -eq "Lanhu") {
-        39
+        if ([string]$manifest.packageVersion -match '^2\.0\.(?<patch>[0-9]+)' -and [int]$Matches.patch -ge 12) { 56 } else { 39 }
     } elseif ([string]$manifest.packageVersion -match '^2\.0\.(?<patch>[0-9]+)' -and
         [int]$Matches.patch -ge 10) {
         34

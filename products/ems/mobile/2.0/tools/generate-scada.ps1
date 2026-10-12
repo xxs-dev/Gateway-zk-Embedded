@@ -6,7 +6,7 @@ param(
     [string]$OutputPackage,
     [string]$MachineCode = "COMM202600999",
     [string]$DisplayName = "凯源移动储能车",
-    [string]$PackageVersion = "2.0.11-lanhu",
+    [string]$PackageVersion = "2.0.12-lanhu",
     [ValidateSet("XMindV2", "Lanhu")]
     [string]$LayoutProfile = "Lanhu",
     [string]$NodeId = "edge-1",
@@ -2011,6 +2011,7 @@ function Build-CompactMaintenanceScreen {
 if ($LayoutProfile -eq "Lanhu") {
     . (Join-Path $PSScriptRoot "lanhu-layout.ps1")
     . (Join-Path $PSScriptRoot "lanhu-fidelity-layout.ps1")
+    . (Join-Path $PSScriptRoot "lanhu-monitor-layout.ps1")
 }
 
 $alarmSpecs = [System.Collections.Generic.List[object]]::new()

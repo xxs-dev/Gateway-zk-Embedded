@@ -17,6 +17,7 @@
 #include <QGraphicsPathItem>
 #include <QGraphicsScene>
 #include <QGraphicsProxyWidget>
+#include <QGraphicsRectItem>
 
 class ScadaSceneViewTestAccess {
 public:
@@ -34,6 +35,7 @@ class FixtureRuntime final : public ScadaSceneRuntimeSource {
 public:
     std::string node = "edge-1";
     std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> values;
+    std::unordered_map<std::uint32_t, std::string> devices;
     const std::string& nodeId() const override { return node; }
     edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
         ScadaSceneResolvedTag result;
@@ -42,6 +44,8 @@ public:
         result.tag.deviceId = "PCS";
         result.tag.displayName = "fixture alarm";
         result.mapping.index = static_cast<std::uint32_t>(std::stoul(tagId.substr(1)));
+        const auto device = devices.find(result.mapping.index);
+        if (device != devices.end()) result.tag.deviceId = device->second;
         result.mapping.writable = true;
         return result;
     }
@@ -169,6 +173,55 @@ int main(int argc, char** argv) {
         require(p.alarmTable->rowCount() == 4 && !p.alarmNext->isEnabled(), "last alarm page incorrect");
         p.alarmPageButtons[0]->click();
         require(p.alarmTable->item(0, 0)->text() == "1", "numbered alarm page navigation failed");
+
+        table.properties["qtAlarmPresentation"] = "summary";
+        table.properties["qtAlarmDeviceIdsJson"] = R"(["BMS"])";
+        runtime.devices[2] = "BMS";
+        runtime.values[2].ts = now;
+        screen.widgets = {table};
+        ScadaSceneView summary(screen, ".", alarms, {}, runtime, [](const std::string&) {});
+        summary.refresh(now);
+        const auto& s = ScadaSceneViewTestAccess::widgets(summary)[0];
+        require(s.alarms.size() == 1 && s.alarms[0].condition.index == 2, "summary leaks other device alarms");
+        require(s.alarmTable->columnCount() == 2 && s.alarmTable->rowCount() == 1, "summary layout incorrect");
+        require(s.alarmTable->item(0, 1)->text() == "--", "summary substitutes sample timestamp for occurrence");
+        runtime.put(2, 0);
+        summary.refresh(now);
+        require(s.alarmTable->item(0, 0)->text() == QString::fromUtf8("暂无活动告警"), "summary normal state incorrect");
+        runtime.put(2, 1, false, 0);
+        summary.refresh(now);
+        require(s.alarmTable->item(0, 0)->text().startsWith(QString::fromUtf8("数据不可用")), "summary bad quality shown healthy");
+        runtime.put(2, 1, true);
+        summary.refresh(now);
+        require(s.alarmTable->item(0, 0)->text().startsWith(QString::fromUtf8("数据不可用")), "summary stale data shown healthy");
+        for (const auto filter : {"[]", "broken", R"(["UNKNOWN"])"}) {
+            table.properties["qtAlarmDeviceIdsJson"] = filter;
+            screen.widgets = {table};
+            ScadaSceneView reserved(screen, ".", alarms, {}, runtime, [](const std::string&) {});
+            reserved.refresh(now);
+            const auto& r = ScadaSceneViewTestAccess::widgets(reserved)[0];
+            require(r.alarms.empty(), "empty or malformed alarm filter falls back to site");
+            require(r.alarmTable->item(0, 0)->text() == QString::fromUtf8("告警未配置"), "unconfigured device claims healthy");
+        }
+
+        auto state = widget("statusCard");
+        state.properties["qtBackgroundColor"] = "transparent";
+        state.properties["stateColorMode"] = "indicator";
+        state.properties["qtStateTextColor"] = "true";
+        state.properties["qtHideStatusLamp"] = "true";
+        state.properties["unavailableStateLabel"] = "--";
+        state.bindings = {{"edge-1", "t1", "value"}};
+        edge_gateway::ScadaStateRule stateRule;
+        stateRule.code = "running"; stateRule.label = "running"; stateRule.color = "#18C773"; stateRule.match = "all";
+        stateRule.conditions.push_back({"edge-1", "t1", "eq", "1"});
+        state.stateRules = {stateRule}; screen.widgets = {state}; runtime.put(1, 1);
+        ScadaSceneView stateView(screen, ".", {}, {}, runtime, [](const std::string&) {});
+        stateView.refresh(now);
+        const auto& stateWidget = ScadaSceneViewTestAccess::widgets(stateView)[0];
+        require(stateWidget.valueText->defaultTextColor() == QColor("#18C773"), "monitor state text ignores rule color");
+        require(stateWidget.panel->brush().color().alpha() == 0, "text state paints a badge background");
+        runtime.put(1, 2); stateView.refresh(now);
+        require(stateWidget.valueText->toPlainText() == "--", "unknown state enum claims running");
 
         chart.properties["qtTheme"] = "light";
         chart.properties["qtLegendAlignment"] = "Center";

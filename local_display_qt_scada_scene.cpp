@@ -421,7 +421,8 @@ void ScadaSceneView::buildScene() {
         const auto legacyQtProgress = isProgressType(widget.type) && legacyQtWidget;
         const auto alarmTable = widget.type == "alarmTable";
         const auto energyFlow = widget.type == "energyFlow";
-        const auto borderless = energyFlow || property(widget, "qtBorderless") == "true";
+        const auto borderless = energyFlow || property(widget, "qtBorderless") == "true" ||
+            (alarmTable && property(widget, "qtAlarmPresentation") == "summary");
         const auto configuredBackground = property(widget, "qtBackgroundColor");
         const auto inputNeedsNativeBackground = widget.type == "qtInput" &&
             (configuredBackground.empty() ||
@@ -471,6 +472,8 @@ void ScadaSceneView::buildScene() {
         runtimeWidget.textPixelSize = static_cast<int>(numericProperty(widget, "qtFontSize", 14));
         runtimeWidget.alarmActiveCount = property(widget, "alarmActiveCount") == "true";
         runtimeWidget.lanhuAlarmPresentation = property(widget, "qtAlarmPresentation") == "lanhu";
+        runtimeWidget.summaryAlarmPresentation = property(widget, "qtAlarmPresentation") == "summary";
+        runtimeWidget.stateTextColor = property(widget, "qtStateTextColor") == "true";
         runtimeWidget.action = widget.action;
         runtimeWidget.pauseGuardRequired = pauseGuardRequired;
         runtimeWidget.pauseGuardModeTag = pauseModeTag;
@@ -592,11 +595,17 @@ void ScadaSceneView::buildScene() {
 
         if (widget.type == "alarmTable" || runtimeWidget.alarmActiveCount) {
             const auto selectedAlarmId = property(widget, "alarmId");
+            const auto filterProperty = widget.properties.find("qtAlarmDeviceIdsJson");
+            const auto filtered = filterProperty != widget.properties.end();
+            QJsonArray deviceIds;
+            if (filtered) deviceIds = QJsonDocument::fromJson(QByteArray::fromStdString(filterProperty->second)).array();
             for (const auto& sourceAlarm : alarms_) {
                 if (sourceAlarm.nodeId != runtime_.nodeId()) continue;
                 if (!selectedAlarmId.empty() && sourceAlarm.alarmId != selectedAlarmId) continue;
                 const auto resolved = runtime_.resolveTag(sourceAlarm.tagId);
                 if (!resolved || resolved->mapping.index == 0) continue;
+                // Explicit empty or malformed filters select no devices, never the whole site.
+                if (filtered && !deviceIds.contains(QString::fromStdString(resolved->tag.deviceId))) continue;
                 RuntimeAlarm alarm;
                 alarm.label = resolved->tag.displayName.empty()
                     ? sourceAlarm.alarmId
@@ -643,6 +652,17 @@ void ScadaSceneView::buildScene() {
                     border:0; font-family:'Microsoft YaHei'; font-size:21px; selection-background-color:#E3F2FC; selection-color:#303438; }
                 QHeaderView::section { color:#626970; background:#F0F3F7; border:0; padding:10px; font-size:20px; }
             )CSS"));
+            if (runtimeWidget.summaryAlarmPresentation) {
+                table->setColumnCount(2);
+                table->horizontalHeader()->hide();
+                table->verticalHeader()->setDefaultSectionSize(48);
+                table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+                table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+                table->setColumnWidth(1, 50);
+                table->setWordWrap(false);
+                table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                table->setStyleSheet(QStringLiteral("QTableWidget{color:#303438;background:#FFFFFF;alternate-background-color:#F3F8FC;border:0;font-family:'Microsoft YaHei';font-size:16px;}QTableWidget::item{padding:8px;border-bottom:6px solid #FFFFFF;}"));
+            }
             if (runtimeWidget.lanhuAlarmPresentation) {
                 table->verticalHeader()->setDefaultSectionSize(51);
                 table->horizontalHeader()->setFixedHeight(42);
@@ -1176,6 +1196,8 @@ void ScadaSceneView::refresh(std::int64_t now) {
                         row = {QString::number(rows.size() + 1), QStringLiteral("--"), severity,
                             QString::fromStdString(alarm.device), QString::number(alarm.condition.index),
                             available ? QString::fromStdString(alarm.label) : QString::fromUtf8("数据不可用：") + QString::fromStdString(alarm.label), QStringLiteral("--")};
+                    } else if (widget.summaryAlarmPresentation) {
+                        row = {available ? QString::fromStdString(alarm.label) : QString::fromUtf8("数据不可用：") + QString::fromStdString(alarm.label), QStringLiteral("--")};
                     }
                     signature += row.join(QChar(0x1F)) + QChar(0x1E);
                     rows.push_back(std::move(row));
@@ -1211,13 +1233,20 @@ void ScadaSceneView::refresh(std::int64_t now) {
                             QStringLiteral("--"), QStringLiteral("--"), QStringLiteral("--")});
                         if (widget.lanhuAlarmPresentation) {
                             rows[0][5] = rows[0][3]; rows[0][3] = QStringLiteral("--");
+                        } else if (widget.summaryAlarmPresentation) {
+                            rows[0] = {rows[0][3], QStringLiteral("--")};
                         }
                     }
                     for (std::size_t r = 0; r < rows.size(); ++r) {
                         for (int c = 0; c < rows[r].size(); ++c) {
                             auto* item = new QTableWidgetItem(rows[r][c]);
                             item->setTextAlignment(Qt::AlignCenter);
-                            if (widget.lanhuAlarmPresentation && c == 2) item->setForeground(QColor(rows[r][5].startsWith(QString::fromUtf8("数据不可用")) ? "#8F969E" : "#F52D59"));
+                            if (widget.summaryAlarmPresentation) {
+                                item->setTextAlignment(c == 0 ? Qt::AlignLeft | Qt::AlignVCenter : Qt::AlignCenter);
+                                item->setToolTip(rows[r][c]);
+                                item->setForeground(QColor(c == 1 || rows[r][0].startsWith(QString::fromUtf8("数据不可用")) ? "#8F969E" : "#303438"));
+                                if (c == 0 && !widget.alarms.empty() && count > 0) item->setIcon(QIcon(QString::fromStdString(projectRoot_ + "/assets/lanhu-assets/monitor-alarm.png")));
+                            } else if (widget.lanhuAlarmPresentation && c == 2) item->setForeground(QColor(rows[r][5].startsWith(QString::fromUtf8("数据不可用")) ? "#8F969E" : "#F52D59"));
                             else if (!widget.lanhuAlarmPresentation && (c == 1 || c == 6)) item->setForeground(QColor(rows[r][6] == QString::fromUtf8("活动") ? "#F52D59" : "#8F969E"));
                             widget.alarmTable->setItem(static_cast<int>(r), c, item);
                         }
@@ -1605,6 +1634,7 @@ void ScadaSceneView::refreshState(
                 : widget.defaultLabel.empty() ? std::string("--") : widget.defaultLabel;
         widget.valueText->setDefaultTextColor(!allConditionsAvailable || matched == nullptr
             ? QColor("#AAB3BD")
+            : widget.stateTextColor ? colorOr(matched->color, "#303438")
             : widget.lightTheme ? colorOr(widget.textColor, "#303438") : QColor("#F3F8FA"));
         widget.valueText->setPlainText(!allConditionsAvailable && widget.unavailableStateLabel.empty()
             ? QString::fromUtf8("数据不可用")

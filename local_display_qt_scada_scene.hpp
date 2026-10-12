@@ -111,6 +111,8 @@ private:
         int textPixelSize = 14;
         bool alarmActiveCount = false;
         bool lanhuAlarmPresentation = false;
+        bool summaryAlarmPresentation = false;
+        bool stateTextColor = false;
         std::string defaultLabel;
         std::string defaultColor;
         std::string defaultImage;

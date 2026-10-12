@@ -9,6 +9,7 @@ from PIL import Image
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--references', type=Path, required=True)
+parser.add_argument('--monitor-references', type=Path)
 parser.add_argument('--screens', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
@@ -37,6 +38,23 @@ titles = {
     'Control-Mccb': '断路器控制', 'Control-Diesel': '柴油机控制',
     'Strategy-Overview': '策略控制',
 }
+if args.monitor_references:
+    prefix = '凯源移动储能车拓扑监控-监测-'
+    monitors = [
+        ('Monitor-Network', '网络监测.png', '网络监测'),
+        ('Monitor-Strategy', '策略监测.png', '策略监测'),
+        ('Devices-Emu', '设备监测.png', 'EMU 监测'),
+        ('Devices-Pcs', '设备监测-EMU.png', 'PCS 监测（原稿误标 EMU）'),
+        ('Devices-Bms', '设备监测-BMS.png', 'BMS 监测'),
+        ('Devices-Cells', '设备监测-1#电池簇.png', '电芯明细'),
+        ('Devices-Thermal', '设备监测-TMS.png', 'TMS 监测'),
+        ('Devices-Mccb', '设备监测MCCB.png', '断路器监测'),
+        ('Devices-Meters', '设备监测电表.png', '电表监测'),
+        ('Devices-Diesel', '设备监测发电机.png', '柴油机监测'),
+    ]
+    for screen, filename, title in monitors:
+        pairs.append((screen, args.monitor_references / (prefix + filename)))
+        titles[screen] = title
 sections = []
 evidence = []
 markdown = ['# EMS 2.0 蓝湖逐页对照', '',
@@ -47,7 +65,7 @@ for screen, filename in pairs:
     actual_path = args.screens / f'{screen}.png'
     with Image.open(ref_path) as reference, Image.open(actual_path) as actual:
         source_size = reference.size
-        if reference.size not in ((1440, 810), (1440, 811)) or actual.size != (1440, 810):
+        if reference.size not in ((1440, 810), (1440, 811), (1920, 1080), (1920, 1081)) or actual.size != (1440, 810):
             raise ValueError(f'{screen}: unexpected screenshot dimensions')
         reference = reference.convert('RGB').resize((1440, 810))
         reference.save(args.output / f'{screen}-reference.png')
