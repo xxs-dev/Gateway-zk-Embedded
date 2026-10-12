@@ -34,6 +34,17 @@ target_include_directories(KY-SCADA-Access-Test PRIVATE
 )
 target_link_libraries(KY-SCADA-Access-Test PRIVATE Qt6::Widgets)
 
+add_executable(KY-SCADA-Lanhu-Test
+    "${GATEWAY_ROOT}/tools/local_display_qt_lanhu_test.cpp"
+    "${GATEWAY_ROOT}/local_display_qt_scada_scene.cpp"
+    "${GATEWAY_ROOT}/local_display_qt_access_control.cpp"
+    "${GATEWAY_ROOT}/local_display_qt_pcs_power_control.cpp"
+    "${GATEWAY_ROOT}/local_display_qt_value_map.cpp"
+    "${GATEWAY_ROOT}/src/scada_project_loader.cpp"
+)
+target_include_directories(KY-SCADA-Lanhu-Test PRIVATE "${GATEWAY_ROOT}" "${GATEWAY_ROOT}/include")
+target_link_libraries(KY-SCADA-Lanhu-Test PRIVATE Qt6::Widgets)
+
 # Compile the edge adapter against the same interface without linking the full edge runtime.
 add_library(KY-SCADA-Edge-CompileCheck OBJECT EXCLUDE_FROM_ALL
     "${GATEWAY_ROOT}/local_display_qt_ems_main.cpp"

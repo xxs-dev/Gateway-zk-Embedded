@@ -11,6 +11,8 @@ $password = ConvertTo-SecureString "ems2-test-only" -AsPlainText -Force
 try {
     & (Join-Path $repoRoot "tools\release\build-ems-mobile.ps1") `
         -MachineCode COMM202600999 `
+        -LayoutProfile XMindV2 `
+        -PackageVersion "2.0.10-xmind-v2" `
         -LocalOperatorPassword $password `
         -SourceProjectDirectory (Join-Path $repoRoot "products\ems\mobile\2.0\scada\base-project") `
         -OutputDirectory $fixtureRoot `

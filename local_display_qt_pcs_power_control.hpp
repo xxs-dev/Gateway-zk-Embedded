@@ -44,7 +44,9 @@ public:
     PcsPhasePowerControl(
         PcsPhasePowerBindings bindings,
         ScadaSceneRuntimeSource& runtime,
-        QWidget* parent = nullptr
+        QWidget* parent = nullptr,
+        bool lanhuPresentation = false,
+        std::string assetRoot = ""
     );
 
     void refresh(std::int64_t nowMs);
@@ -68,6 +70,7 @@ private:
     };
 
     void buildUi();
+    void buildLanhuUi();
     void setMode(PcsPhasePowerMode mode);
     void updateDerivedInputs(PowerKind kind);
     void prepareWrite(PowerKind kind);
@@ -90,6 +93,7 @@ private:
 
     PcsPhasePowerBindings bindings_;
     ScadaSceneRuntimeSource& runtime_;
+    std::string assetRoot_;
     PcsPhasePowerMode mode_ = PcsPhasePowerMode::Total;
     QPushButton* totalModeButton_ = nullptr;
     QPushButton* phaseModeButton_ = nullptr;
@@ -108,4 +112,5 @@ private:
     PendingBatch pending_;
     bool activeInitialized_ = false;
     bool reactiveInitialized_ = false;
+    bool lanhuPresentation_ = false;
 };

@@ -9,6 +9,8 @@ param(
     [string]$RuntimeConfigDirectory,
     [string]$OutputDirectory,
     [string]$PackageVersion,
+    [ValidateSet("XMindV2", "Lanhu")]
+    [string]$LayoutProfile = "Lanhu",
     [string]$DisplayName = "Kaiyuan Mobile Energy Storage Vehicle",
     [string]$NodeId = "edge-1",
     [string]$LocalOperatorUsername = "operator",
@@ -44,6 +46,7 @@ $implementation = Join-Path $productRoot "tools\generate-scada.ps1"
     -MachineCode $MachineCode `
     -DisplayName $DisplayName `
     -PackageVersion $PackageVersion `
+    -LayoutProfile $LayoutProfile `
     -NodeId $NodeId `
     -LocalOperatorUsername $LocalOperatorUsername `
     -LocalOperatorPassword $LocalOperatorPassword `

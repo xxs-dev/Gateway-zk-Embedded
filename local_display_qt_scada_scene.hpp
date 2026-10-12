@@ -29,6 +29,9 @@ class QEvent;
 class QMouseEvent;
 class QObject;
 class QPushButton;
+class QLabel;
+class QSpinBox;
+class QTableWidget;
 class QResizeEvent;
 class QTimer;
 class QWheelEvent;
@@ -79,6 +82,7 @@ private:
 
     struct RuntimeAlarm {
         std::string label;
+        std::string device;
         std::string severity;
         RuntimeCondition condition;
     };
@@ -91,6 +95,7 @@ private:
         QGraphicsLineItem* legendSwatch = nullptr;
         QGraphicsTextItem* legendText = nullptr;
         bool visible = true;
+        bool secondaryAxis = false;
         std::int64_t lastSampleTs = 0;
         std::int64_t lastBucketTs = 0;
         std::deque<std::pair<std::int64_t, double>> samples;
@@ -98,6 +103,14 @@ private:
 
     struct RuntimeWidget {
         std::string type;
+        std::string clockFormat;
+        std::string textColor;
+        std::string unavailableStateLabel;
+        bool lightTheme = false;
+        bool autoFitText = false;
+        int textPixelSize = 14;
+        bool alarmActiveCount = false;
+        bool lanhuAlarmPresentation = false;
         std::string defaultLabel;
         std::string defaultColor;
         std::string defaultImage;
@@ -117,10 +130,18 @@ private:
         std::vector<RuntimeAlarm> alarms;
         QGraphicsRectItem* panel = nullptr;
         QGraphicsTextItem* valueText = nullptr;
+        QPushButton* toggleButton = nullptr;
+        QTableWidget* alarmTable = nullptr;
+        QLabel* alarmPageLabel = nullptr;
+        QPushButton* alarmPrevious = nullptr;
+        QPushButton* alarmNext = nullptr;
+        std::vector<QPushButton*> alarmPageButtons;
+        QSpinBox* alarmJump = nullptr;
         QGraphicsRectItem* progressFill = nullptr;
         std::vector<QGraphicsRectItem*> signalBars;
         QGraphicsEllipseItem* statusLamp = nullptr;
         QGraphicsPixmapItem* stateImage = nullptr;
+        QGraphicsPixmapItem* stateIcon = nullptr;
         QGraphicsLineItem* flowLine = nullptr;
         QGraphicsPathItem* flowArrow = nullptr;
         QGraphicsTextItem* flowValueText = nullptr;
@@ -128,6 +149,7 @@ private:
         PcsPhasePowerControl* pcsPowerControl = nullptr;
         std::vector<RuntimeTrendSeries> trendSeries;
         std::vector<QGraphicsTextItem*> chartYLabels;
+        std::vector<QGraphicsTextItem*> chartSecondaryYLabels;
         std::vector<QGraphicsTextItem*> chartXLabels;
         double progressX = 0.0;
         double progressY = 0.0;
@@ -138,6 +160,7 @@ private:
         bool stateLabelVisible = true;
         bool stateColorPanel = true;
         bool flowForwardWhenPositive = true;
+        bool flowSolidLine = false;
         bool flowValueGood = false;
         double flowValue = 0.0;
         double flowDeadband = 0.2;
@@ -165,6 +188,7 @@ private:
     };
 
     void buildScene();
+    void fitCanvas();
     void handleAction(const edge_gateway::ScadaWidgetAction& action,
                       const std::string& pauseModeTag = "",
                       const std::string& pauseAppliedTag = "",
@@ -261,6 +285,7 @@ private:
     std::string loadedRevision_;
     std::int64_t lastReloadCheckMs_ = 0;
     bool autoReload_ = false;
+    bool lanhuTheme_ = false;
     ScadaLocalAccessSession accessSession_;
     QPushButton* logoutButton_ = nullptr;
     std::string currentScreenId_;

@@ -24,6 +24,7 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QTimer>
+#include <QFile>
 
 namespace {
 
@@ -354,7 +355,7 @@ private:
 void printUsage(const char* executable) {
     std::cout << "usage: " << executable
               << " --project-dir <directory> --machine-code <code>"
-              << " [--screen-id <id>] [--fullscreen] [--refresh-ms 500] [--auto-reload] [--screenshot <png>]"
+              << " [--screen-id <id>] [--fullscreen] [--refresh-ms 500] [--auto-reload] [--screenshot <png>] [--preview-values <pointBatch.json>]"
               << "\nProtected screenshots read KY_SCADA_RENDER_USERNAME and KY_SCADA_RENDER_PASSWORD from the environment."
               << std::endl;
 }
@@ -368,6 +369,7 @@ int main(int argc, char* argv[]) {
     bool fullscreen = false;
     bool autoReload = false;
     std::string screenshotPath;
+    std::string previewValuesPath;
     std::string screenId;
 
     try {
@@ -383,6 +385,7 @@ int main(int argc, char* argv[]) {
             else if (argument == "--fullscreen") fullscreen = true;
             else if (argument == "--auto-reload") autoReload = true;
             else if (argument == "--screenshot") screenshotPath = requireValue(argument);
+            else if (argument == "--preview-values") previewValuesPath = requireValue(argument);
             else if (argument == "--screen-id") screenId = requireValue(argument);
             else if (argument == "--help" || argument == "-h") {
                 printUsage(argv[0]);
@@ -393,11 +396,22 @@ int main(int argc, char* argv[]) {
         }
         if (projectDirectory.empty()) throw std::runtime_error("--project-dir is required");
         if (machineCode.empty()) throw std::runtime_error("--machine-code is required");
+        if (!previewValuesPath.empty() && screenshotPath.empty()) throw std::runtime_error("--preview-values is only allowed with --screenshot");
 
         std::cerr << "renderer stage=application project=" << projectDirectory
                   << " machineCode=" << machineCode << std::endl;
         QApplication app(argc, argv);
         auto hub = std::make_shared<BridgeRuntimeHub>(machineCode);
+        if (!previewValuesPath.empty()) {
+            QFile fixture(QString::fromStdString(previewValuesPath));
+            if (!fixture.open(QIODevice::ReadOnly)) throw std::runtime_error("cannot open preview values");
+            QJsonParseError error;
+            const auto document = QJsonDocument::fromJson(fixture.readAll(), &error);
+            if (error.error != QJsonParseError::NoError || !document.isObject() || document.object().value("type").toString() != "pointBatch") {
+                throw std::runtime_error("preview values must be a pointBatch object");
+            }
+            hub->acceptInput(document.toJson(QJsonDocument::Compact).toStdString());
+        }
         std::cerr << "renderer stage=loading-project" << std::endl;
         ScadaRuntimeWindow window(
             projectDirectory,

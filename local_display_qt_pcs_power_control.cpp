@@ -13,9 +13,14 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFont>
+#include <QDir>
+#include <QIcon>
+#include <QPixmap>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QFrame>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
@@ -93,11 +98,14 @@ bool PcsPhasePowerBindings::complete() const {
 PcsPhasePowerControl::PcsPhasePowerControl(
     PcsPhasePowerBindings bindings,
     ScadaSceneRuntimeSource& runtime,
-    QWidget* parent
-) : QWidget(parent), bindings_(std::move(bindings)), runtime_(runtime) {
+    QWidget* parent,
+    bool lanhuPresentation,
+    std::string assetRoot
+) : QWidget(parent), bindings_(std::move(bindings)), runtime_(runtime), assetRoot_(std::move(assetRoot)), lanhuPresentation_(lanhuPresentation) {
     setObjectName(QStringLiteral("pcsPhasePowerControl"));
-    buildUi();
-    setMode(PcsPhasePowerMode::Total);
+    if (lanhuPresentation_) buildLanhuUi();
+    else buildUi();
+    setMode(lanhuPresentation_ ? PcsPhasePowerMode::Phase : PcsPhasePowerMode::Total);
 
     pollTimer_ = new QTimer(this);
     pollTimer_->setInterval(200);
@@ -272,6 +280,80 @@ void PcsPhasePowerControl::buildUi() {
         resultGrid->addWidget(resultLabels_[index], 0, static_cast<int>(index));
     }
     root->addLayout(resultGrid);
+}
+
+void PcsPhasePowerControl::buildLanhuUi() {
+    setAttribute(Qt::WA_TranslucentBackground);
+    totalModeButton_ = new QPushButton(this);
+    phaseModeButton_ = new QPushButton(this);
+    activeSubmitButton_ = new QPushButton(this);
+    reactiveSubmitButton_ = new QPushButton(this);
+    highPriorityCheckBox_ = new QCheckBox(this);
+    statusLabel_ = new QLabel(this);
+    for (auto*& label : resultLabels_) { label = new QLabel(this); label->hide(); }
+    for (auto* button : {totalModeButton_, phaseModeButton_, activeSubmitButton_, reactiveSubmitButton_}) button->hide();
+    highPriorityCheckBox_->hide(); statusLabel_->hide();
+    activeTotalInput_ = new QDoubleSpinBox(this);
+    reactiveTotalInput_ = new QDoubleSpinBox(this);
+    activeTotalInput_->hide(); reactiveTotalInput_->hide();
+    for (int col = 0; col < 2; ++col) {
+        const auto kind = col == 0 ? PowerKind::Active : PowerKind::Reactive;
+        const auto x = col * 618;
+        auto* frame = new QFrame(this);
+        frame->setGeometry(x, 0, 592, 226);
+        frame->setStyleSheet(QStringLiteral("QFrame{background:#FFFFFF;border:1px solid #E6E6E6;border-radius:8px;}"));
+        auto* heading = new QLabel(col == 0 ? QString::fromUtf8("有功功率控制") : QString::fromUtf8("无功功率控制"), this);
+        heading->setGeometry(x + 1, 1, 590, 43);
+        heading->setAlignment(Qt::AlignCenter);
+        heading->setStyleSheet(QStringLiteral("QLabel{background:#F7F7F7;color:#303438;border:0;font-size:18px;font-weight:700;}"));
+        auto& inputs = phaseInputs(kind);
+        auto& labels = col == 0 ? activeCurrentLabels_ : reactiveCurrentLabels_;
+        for (std::size_t row = 0; row < 3; ++row) {
+            const auto y = 62 + static_cast<int>(row) * 52;
+            inputs[row] = new QDoubleSpinBox(this);
+            inputs[row]->setDecimals(3); inputs[row]->setRange(-1000000000, 1000000000); inputs[row]->hide();
+            auto* icon = new QLabel(phaseName(row), this);
+            icon->setGeometry(x + 18, y + 5, 28, 30); icon->setAlignment(Qt::AlignCenter);
+            icon->setStyleSheet(QStringLiteral("QLabel{background:#EAF6FD;color:#129AF5;border:0;font-size:18px;}"));
+            const auto imageRoot = QDir(QString::fromStdString(assetRoot_));
+            const auto phaseFile = QStringLiteral("assets/lanhu-assets/phase-%1.png").arg(phaseName(row).toLower());
+            const QPixmap phaseImage(imageRoot.filePath(phaseFile));
+            if (!phaseImage.isNull()) icon->setPixmap(phaseImage);
+            auto* caption = new QLabel(QString::fromUtf8("%1相%2功率(%3)").arg(phaseName(row))
+                .arg(col == 0 ? QString::fromUtf8("有功") : QString::fromUtf8("无功"))
+                .arg(col == 0 ? QStringLiteral("kW") : QStringLiteral("kvar")), this);
+            caption->setGeometry(x + 58, y, 148, 38);
+            caption->setStyleSheet(QStringLiteral("QLabel{color:#777E85;background:transparent;border:0;font-size:14px;}"));
+            labels[row] = new QLabel(QStringLiteral("--"), this);
+            labels[row]->setGeometry(x + 206, y, 234, 38); labels[row]->setAlignment(Qt::AlignCenter);
+            labels[row]->setStyleSheet(QStringLiteral("QLabel{color:#303438;background:#FFFFFF;border:1px solid #E6E6E6;border-radius:7px;font-size:14px;}"));
+            auto* edit = new QPushButton(QString::fromUtf8("修改"), this);
+            edit->setGeometry(x + 480, y, 84, 36);
+            edit->setIcon(QIcon(imageRoot.filePath(QStringLiteral("assets/lanhu-assets/command-edit.png"))));
+            edit->setIconSize(QSize(15, 15));
+            edit->setStyleSheet(QStringLiteral("QPushButton{color:#2599D6;background:#F2FAFF;border:1px solid #89C3E0;border-radius:18px;font-size:14px;}"
+                "QPushButton:disabled{color:#9AA3AB;border-color:#DCE5EB;background:#F7F9FA;}"));
+            edit->setEnabled(ready());
+            QObject::connect(edit, &QPushButton::clicked, this, [this, kind, row]() {
+                if (pending_.active) return;
+                const auto now = currentTimeMs();
+                for (std::size_t i = 0; i < 3; ++i) {
+                    const auto current = runtime_.readTag(tagIds(kind)[i], now);
+                    if (!current || current->quality != 1 || current->stale || !std::isfinite(current->value)) {
+                        QMessageBox::warning(this, QString::fromUtf8("控制不可用"), QString::fromUtf8("三相反馈数据不可用。")); return;
+                    }
+                    phaseInputs(kind)[i]->setValue(current->value);
+                }
+                bool accepted = false;
+                const auto target = QInputDialog::getDouble(this, QString::fromUtf8("功率设定"),
+                    QStringLiteral("%1 (%2)").arg(phaseName(row)).arg(unit(kind)),
+                    phaseInputs(kind)[row]->value(), -1000000000, 1000000000, 3, &accepted);
+                if (!accepted) return;
+                phaseInputs(kind)[row]->setValue(target);
+                prepareWrite(kind);
+            });
+        }
+    }
 }
 
 void PcsPhasePowerControl::setMode(PcsPhasePowerMode mode) {
@@ -573,6 +655,12 @@ void PcsPhasePowerControl::finishPending(bool timedOut) {
     pending_.active = false;
     activeSubmitButton_->setEnabled(true);
     reactiveSubmitButton_->setEnabled(true);
+    if (lanhuPresentation_) {
+        QStringList details{statusLabel_->text()};
+        for (const auto* label : resultLabels_) details.push_back(label->text());
+        showPcsMessage(this, allSucceeded ? QMessageBox::Information : QMessageBox::Warning,
+            QString::fromUtf8("功率写入结果"), details.join(QStringLiteral("\n\n")));
+    }
 }
 
 void PcsPhasePowerControl::refresh(std::int64_t now) {
@@ -597,10 +685,12 @@ void PcsPhasePowerControl::refreshRow(
     for (std::size_t index = 0; index < tags.size(); ++index) {
         const auto current = tags[index].empty() ? edge_gateway::Optional<edge_gateway::StoredPointValue>(edge_gateway::NullOpt)
                                                 : runtime_.readTag(tags[index], now);
-        const auto good = current && current->quality == 1 && !current->stale;
+        const auto good = current && current->quality == 1 && !current->stale && std::isfinite(current->value);
         allGood = allGood && good;
         if (good) currentValues[index] = current->value;
-        currentLabels[index]->setText(QStringLiteral("%1相 %2: %3 %4")
+        currentLabels[index]->setText(lanhuPresentation_
+            ? (good ? displayNumber(current->value, 6) : QStringLiteral("--"))
+            : QStringLiteral("%1相 %2: %3 %4")
             .arg(phaseName(index))
             .arg(kind == PowerKind::Active ? QStringLiteral("P") : QStringLiteral("Q"))
             .arg(good ? displayNumber(current->value, 6) : QStringLiteral("--"))
