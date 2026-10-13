@@ -25,6 +25,10 @@ try {
         }
     }
     $strategy=$screens|Where-Object screenId -eq 'Strategy-Overview'
+    $topology=$screens|Where-Object screenId -eq 'Topology'
+    if(@($topology.widgets|Where-Object type -eq 'qtParallelTopology').Count-ne1){throw 'Dynamic vehicle topology is missing'}
+    if(@($topology.widgets|Where-Object widgetId -like 'topology-storage-*').Count){throw 'Fixed vehicle placeholders must not remain'}
+    if(@($topology.widgets|Where-Object type -eq 'qtParallelTopology'|ForEach-Object {$_.bindings}).Count){throw 'Dynamic peers must not borrow local telemetry'}
     if(@($strategy.widgets|Where-Object {$null-ne$_.action-and$_.action.type-eq'toggle'}).Count-ne1){throw 'Only confirmed reverse-power enable may be writable'}
     foreach($id in @('Control-Mccb','Control-Diesel')){
         if(@(($screens|Where-Object screenId -eq $id).widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count-ne0){throw 'Reserved device has fabricated writes'}

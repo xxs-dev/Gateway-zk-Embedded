@@ -31,17 +31,28 @@ REQUIREMENTS = [
     (19, 'Control-Diesel', '柴油机控制', '模式、停机、遥控快速停机、市电合分、发电合分、手自动。', '真实点表与命令枚举缺失，全部动作禁用。'),
     (22, 'Control-Thermal', 'TMS控制', '模式、液冷/除湿启停、温度阈值设置区域。', '未确认启停命令与阈值写接口，控件保留禁用，不把使能当运行反馈。'),
     (23, 'Control-Bms', 'BMS控制', '模式和复位/上电/下电位置。', '具名命令枚举未确认，禁止按按钮文案猜值。'),
-    (27, 'Topology', '并机拓扑：全连接', '六设备位置、配线、流向、功率、断路器、SOC和分相电量。', '仅本机已确认点位接入；从车和柴油机未知。示意线不等于真实连接状态或并机许可。'),
+    (27, 'Topology', '并机拓扑：全连接', '车辆按实际成员清单动态显示，不固定三台；1～3台保持蓝湖布局，超过3台每页3台。', '读取边端emsCluster.statusFile的members；按nodeId隔离数据，逐车显示新鲜且ready的SOC和三相P/Q。线路仅为布局示意，不表示带电或并机许可。'),
     (28, 'Guide-Setup', '引导：自检', '网络、安全、功能三列检查与汇总及阶段导航。', '当前仅已配置通信反馈可读；完整安全检查、汇总、手动检查接口未接入，不能显示正常汇总或执行部署。'),
     (29, 'Meters-Overview', '仪表', '五位置切换、三相表、摘要、总量和近两小时功率曲线。', '位置1-4使用实际表/PCS点，位置5缺完整设计留空；不复制示例数据。'),
     (30, 'Guide-Deploy', '引导：部署正常', '离网电压、相序、柴油机检查、阶段状态、完成部署。', '正常只是原稿状态样例；安全检查结果无接口时未知，完成部署禁用。'),
-    (31, 'Topology', '并机拓扑：1台未连接', '离线车辆卡片与设备图淡化，在线车辆保持正常显示。', '归入同一拓扑状态，不新增菜单。独立车辆成员关系/通信接口尚待接入，不能靠截图固定状态。'),
+    (31, 'Topology', '并机拓扑：1台未连接', '已知车辆掉线后保留，卡片和设备图淡化、相关连线虚化，实时值显示--。', '由成员online/compatible/duplicateIdentity判断；不把在线数量当车辆身份，不新增菜单。对照图为三车一台离线的模拟验证。'),
     (32, 'Guide-Deploy', '引导：部署异常', '异常项使用红色状态并保留重试/检查入口；不得显示可完成部署。', '同一部署页状态，不新增导航；完整异常判据与重试接口待接入，保持未知/禁用。'),
-    (34, 'Topology', '并机拓扑：3台未连接', '三个离线设备淡化，未连接线路不表现为带电/有流向。', '多车及柴油机通信未确认，状态组合验收待联调。当前截图为真实数据缺失状态，不是该场景实现证明。'),
-    (35, 'Topology', '并机拓扑：2台未连接', '两个离线车辆淡化，其余设备保持真实状态。', '同一拓扑页状态；逐车绑定和过期规则待多车接口确认，不复制本机遥测。'),
+    (34, 'Topology', '并机拓扑：3台未连接', '已知三车全离线时保留三车；有效空成员清单才显示暂无接入车辆。', '文件丢失、格式异常或超时保留已知清单并标为状态未知，清除实时值。对照图为模拟验证，现场联调待完成。'),
+    (35, 'Topology', '并机拓扑：2台未连接', '两个离线车辆淡化，其余车辆显示自身真实反馈。', '通信在线不代表遥测可用；capabilityFresh及ready均为true才显示功率/SOC。频率、功率因数、相电压、断路器仍无组网字段，不复制本机遥测。'),
 ]
 OLD_TO_NEW = {38:29,39:9,40:14,41:28,42:27,43:16,45:30,46:15,47:17,48:18,49:32,50:19,54:22,55:23,56:31,57:35,59:34}
 TITLES = {20:'控制分组标题',21:'告警分组标题',24:'设置分组标题',25:'监测分组标题',26:'登录分组标题',33:'仪表分组标题',36:'引导分组标题',37:'拓扑分组标题',44:'仪表分组标题重复',51:'控制分组标题重复',52:'告警分组标题重复',53:'引导分组标题重复',58:'设置分组标题重复',60:'拓扑分组标题重复'}
+
+TOPOLOGY_RULES = [
+    '新增需求：并机拓扑按实际接入移动储能成员生成，不固定三台，也不根据onlineMembers补造车辆。未接入不占位；已知离线成员保留到组网服务将其从清单移除。',
+    '车辆唯一键为nodeId，柜号仅用于显示；按nodeId稳定排序。支持0、1、2、3及更多车辆；超过3台每页最多3台，显示总数、在线数和分页按钮，减车时自动修正页码。分页只是同一站点分组，不表示车辆串联。',
+    '边端只读已配置emsCluster.statusFile，要求schemaVersion=2.0、本机machineCode与快照nodeId一致。快照有效期max(5000ms,3×statusIntervalMs)，超前超过1秒的时间戳无效；拒绝重复身份、畸形或超大文件。Windows桥接未提供该接口时保持未知。',
+    '快照缺失、损坏、过期或倒序时保留已知车辆但标为状态未知，遥测显示--；有效空清单才显示暂无接入车辆。冷启动无可用清单不生成本机或从车占位。',
+    '在线必须同时满足online、compatible且无duplicateIdentity；功率/SOC还要求capabilityFresh与ready。SOC使用本成员socPercent，总P/Q为本成员actual三相求和；不得将本机PCS/BMS值复制给从车。',
+    '组网未提供每车相电压、频率、功率因数及断路器状态，统一显示--。线路为拓扑示意，无虚构能流动画，不代表物理合闸、带电或并机许可；柴油机接口边界保持不变。',
+    '验收覆盖0→1→2→3→5、成员增减、分页末页、1/2/3车离线、过期、缺失/坏JSON、重复身份、逐车数据差异及56路由回归。以下图片均为本地Qt模拟数据验证，不是现场运行证据。',
+]
+TOPOLOGY_PICTURES = [('0-offline-0','0台'),('1-offline-0','1台'),('2-offline-0','2台'),('3-offline-0','3台'),('5-offline-0','5台第1页'),('5-page2','5台第2页'),('stale','组网数据不可用')]
 
 class DocumentLinks(HTMLParser):
     def __init__(self):
@@ -69,11 +80,12 @@ def main():
     current = {r[0]:r for r in REQUIREMENTS}
     assert len(inventory) == 60 and len(current) == 29
     assert set(current) | set(OLD_TO_NEW) | set(TITLES) == set(range(1, 61))
-    sections, evidence, md = [], [], ['# EMS 2.0 蓝湖更新需求与逐页核对', '', '基线 e753be3；目标 2.0.13-lanhu；保存日期 2026-10-12（America/Los_Angeles）。', '']
+    sections, evidence, md = [], [], ['# EMS 2.0 蓝湖更新需求与逐页核对', '', '动态拓扑基线 cfa3da6；目标 2.0.14-lanhu；保存日期 2026-10-12（America/Los_Angeles）。', '']
     intro = '''<h1>EMS 2.0 蓝湖更新需求与逐页核对</h1>
-<p>保存日期：2026-10-12（America/Los_Angeles）。基线：e753be3；本次：2.0.13-lanhu。</p>
+<p>保存日期：2026-10-12（America/Los_Angeles）。动态拓扑基线：cfa3da6；本次：2.0.14-lanhu。</p>
 <h2>1. 范围与结论</h2><p>已逐张读取蓝湖60张画板：29张当前页面/状态稿、17张旧对照稿、14张分组标题。29张并非29个新增功能；运行包保留56个路由。</p>
 <p>本次补齐新版登录与未登录拦截、全局登录态和退出/超时返回。其余23个主页面保留已实现布局并对照最新原稿；另外4张为拓扑离线和部署异常状态。状态接口缺失明确标为待接入，不能宣称这些运行场景已验收。</p>
+<p><a href="#dynamic-topology">新增：按实际接入车辆数显示并机拓扑</a>，包含数量变化、离线保留及分页规则和模拟验证截图。</p>
 <h2>2. 全局约束</h2><ul><li>只维护Gateway-zk；不改平台、Windows产品、EMS算法、SHM ABI或设备协议。</li>
 <li>1920×1080/1081设计统一映射到1440×810，保留最新分区、顺序、间距与图标。文案/单位按真实点表纠错。</li>
 <li>无值、坏质量、过期、非有限数据均不可显示为正常。缺接口显示--，控制预留禁用，不复制样例数值、时刻和成功状态。</li>
@@ -90,7 +102,9 @@ def main():
            '## 登录验收', '公共登录成功停留原页；受保护页先拦截再回到请求页。取消不放行；错误密码提示且清空；锁定和超时沿用原鉴权。退出或超时撤销权限。触摸键盘可切换账号/密码。记住密码禁用，不持久化凭据。', '']
     for board, route, name, requirement, boundary in REQUIREMENTS:
         ref = args.references / f'{board:02}.png'
-        actual = args.screens / f'{route}.png'
+        topology_fixture = {27: '3-offline-0', 31: '3-offline-1', 34: '3-offline-3', 35: '3-offline-2'}.get(board)
+        actual = args.screens / (f'Topology-{topology_fixture}.png' if topology_fixture else f'{route}.png')
+        actual_caption = '本机Qt · 模拟组网验证，非现场数据' if topology_fixture else '本机Qt · 当前配置/无现场数据'
         if not actual.is_file():
             raise FileNotFoundError(actual)
         ref_name, actual_name = f'board-{board:02}-reference.png', f'board-{board:02}-actual.png'
@@ -101,10 +115,25 @@ def main():
             Image.blend(scaled, rendered.convert('RGB'), 0.5).save(args.output / f'board-{board:02}-overlay.png')
         shutil.copyfile(actual, args.output / actual_name)
         evidence.append(dict(board=board, route=route, referenceSha256=hashlib.sha256(ref.read_bytes()).hexdigest(),
-                             actualSha256=hashlib.sha256(actual.read_bytes()).hexdigest(), status='本次新增' if board in (5,7) else '已有布局/接口边界见需求'))
-        sections.append(f'<section id="req-{board}"><h3>R{board:02} · {html.escape(name)}</h3><p><b>需求：</b>{html.escape(requirement)}</p><p><b>实现/接口边界：</b>{html.escape(boundary)}</p><p>路由：<code>{route}</code></p><div class="pair"><figure><figcaption>蓝湖原稿 · 画板{board:02}</figcaption><img loading="lazy" src="{ref_name}"></figure><figure><figcaption>本机Qt · 当前配置/无现场数据</figcaption><img loading="lazy" src="{actual_name}"></figure></div><details><summary>50%叠图</summary><img loading="lazy" src="board-{board:02}-overlay.png"></details></section>')
+                             actualSha256=hashlib.sha256(actual.read_bytes()).hexdigest(), synthetic=bool(topology_fixture),
+                             status='动态成员模拟验证/非现场数据' if topology_fixture else '本次新增' if board in (5,7) else '已有布局/接口边界见需求'))
+        sections.append(f'<section id="req-{board}"><h3>R{board:02} · {html.escape(name)}</h3><p><b>需求：</b>{html.escape(requirement)}</p><p><b>实现/接口边界：</b>{html.escape(boundary)}</p><p>路由：<code>{route}</code></p><div class="pair"><figure><figcaption>蓝湖原稿 · 画板{board:02}</figcaption><img loading="lazy" src="{ref_name}"></figure><figure><figcaption>{actual_caption}</figcaption><img loading="lazy" src="{actual_name}"></figure></div><details><summary>50%叠图</summary><img loading="lazy" src="board-{board:02}-overlay.png"></details></section>')
         md += [f'## R{board:02} {name}', f'路由：`{route}`。', f'需求：{requirement}', f'实现/接口边界：{boundary}',
-               f'![蓝湖原稿]({ref_name})', f'![本机Qt]({actual_name})', '']
+               f'![蓝湖原稿]({ref_name})', f'![{actual_caption}]({actual_name})', '']
+    topology_section = '<section id="dynamic-topology"><h2>新增：按接入车辆数动态显示并机拓扑</h2><ul>'
+    topology_section += ''.join(f'<li>{html.escape(rule)}</li>' for rule in TOPOLOGY_RULES) + '</ul>'
+    md += ['## 新增：动态并机拓扑', *TOPOLOGY_RULES, '']
+    topology_evidence = []
+    for suffix, title in TOPOLOGY_PICTURES:
+        filename = f'Topology-{suffix}.png'
+        shutil.copyfile(args.screens / filename, args.output / filename)
+        with Image.open(args.output / filename) as rendered:
+            assert rendered.size == (1440, 810), filename
+        topology_evidence.append(dict(file=filename, scenario=title, synthetic=True,
+                                      sha256=hashlib.sha256((args.output / filename).read_bytes()).hexdigest()))
+        topology_section += f'<figure><figcaption>{title} · 模拟验证</figcaption><img loading="lazy" src="{filename}"></figure>'
+        md += [f'![{title}（模拟验证）]({filename})', '']
+    sections.insert(0, topology_section + '</section>')
     rows, appendix = [], []
     for record in inventory:
         board = record['board']
@@ -122,21 +151,22 @@ def main():
 <li>95%为目标，当前未完成正式逐页评分，不能标记通过。未接入状态和控件另列，不用禁用状态掩盖缺失功能。</li>
 <li>Allwinner AArch64须在192.168.22.11同步并核对固定源码后构建；真机字体、触摸、缩放、启动/切页耗时、CPU/内存尚待验证。</li>
 <li>本轮仅本地预览测试，不推送、不合并、不部署、不执行设备控制。</li></ul>
-<h2>6. 待补接口</h2><p>独立从车成员关系及通信、柴油机点表、EMU主机资源、有线/GPS/IP、Pack分组、安全自检/部署、告警历史计数与发生/恢复时间、各厂家控制点和枚举、安全凭据存储。每项应补来源、类型、单位、缩放、刷新/过期、读写属性、枚举/范围及权限/回执测试。</p>
+<h2>6. 待补接口</h2><p>每车频率/相电压/功率因数/断路器及Windows桥接组网接口、柴油机点表、EMU主机资源、有线/GPS/IP、Pack分组、安全自检/部署、告警历史计数与发生/恢复时间、各厂家控制点和枚举、安全凭据存储。边端成员清单、在线状态和基础功率/SOC已接入既有组网快照，现场多车联调待验证。每项新接口应补来源、类型、单位、缩放、刷新/过期、读写属性、枚举/范围及权限/回执测试。</p>
 <h2>7. 全部60张画板索引</h2>'''
     md += ['## 验收与发布边界', '56路由和旧XMind34路由回归、原生鉴权/控件测试、包校验必须通过。视觉按分区坐标35%、字体间距20%、图标颜色20%、控件状态15%、交互10%逐页验收，已接入完整页目标>=95分。当前未完成正式评分，不宣称95%达标。',
            'Allwinner AArch64在192.168.22.11固定源码构建、真机字体/触摸/性能仍待验证。本轮不推送、不合并、不部署、不下发设备控制。', '',
-           '## 待补接口', '独立从车成员/通信、柴油机点表、EMU资源、有线/GPS/IP、Pack分组、安全检查/部署、告警历史/时间、厂家命令与枚举、安全凭据存储。需确认单位、缩放、质量与过期、范围和回执。', '']
+           '## 待补接口', '每车频率/相电压/功率因数/断路器及Windows桥接组网接口、柴油机点表、EMU资源、有线/GPS/IP、Pack分组、安全检查/部署、告警历史/时间、厂家命令与枚举、安全凭据存储。边端成员/在线/基础功率/SOC已接入既有快照，现场联调待验证。需确认单位、缩放、质量与过期、范围和回执。', '']
     css = 'body{margin:0;background:#fff;color:#303438;font:16px/1.7 "Microsoft YaHei",Arial,sans-serif}main{max-width:1500px;padding:28px;margin:auto}h1{font-size:28px}h2{font-size:23px;margin-top:36px;border-bottom:2px solid #129af5}h3{font-size:20px}section{padding:20px 0;border-bottom:1px solid #ccd6de}nav{display:flex;flex-wrap:wrap;gap:12px}a{color:#087abb}figure{margin:0;min-width:0}img{width:100%;height:auto;display:block}.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd6de;padding:8px;text-align:left}th{background:#eef4f8}details{margin:16px 0}summary{cursor:pointer}code{overflow-wrap:anywhere}p{overflow-wrap:anywhere}@media(max-width:900px){.pair{grid-template-columns:1fr}main{padding:16px}}@media print{section{break-before:page}.pair{grid-template-columns:1fr}details{display:none}nav{display:none}}'
     links = ''.join(f'<a href="#req-{r[0]}">R{r[0]:02} {r[2]}</a>' for r in REQUIREMENTS)
     page = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EMS 2.0 蓝湖更新需求文档</title><style>' + css + '</style><main>' + intro + '<nav>' + links + '</nav>' + ''.join(sections) + acceptance + '<table><thead><tr><th>编号</th><th>页面</th><th>处理结论</th><th>原始尺寸</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table>' + ''.join(appendix) + '</main></html>'
     (args.output / 'requirements.html').write_text(page, encoding='utf-8')
     (args.output / 'requirements.md').write_text('\n'.join(md), encoding='utf-8')
     (args.output / 'evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
+    (args.output / 'topology-evidence.json').write_text(json.dumps(topology_evidence, ensure_ascii=False, indent=2), encoding='utf-8')
     (args.output / 'inventory.json').write_text(json.dumps(inventory, ensure_ascii=False, indent=2), encoding='utf-8')
     links = DocumentLinks()
     links.feed(page)
-    assert len(links.images) == 147 and set(links.targets) <= links.ids
+    assert len(links.images) == 147 + len(TOPOLOGY_PICTURES) and set(links.targets) <= links.ids
     for name in links.images:
         with Image.open(args.output / name) as image:
             image.verify()

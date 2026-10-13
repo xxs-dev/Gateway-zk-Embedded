@@ -1,4 +1,5 @@
 #include "local_display_qt_scada_scene.hpp"
+#include "local_display_qt_parallel_topology.hpp"
 
 #include "edge_gateway/scada_project_loader.hpp"
 #include "local_display_qt_pcs_power_control.hpp"
@@ -262,6 +263,19 @@ void ScadaSceneView::buildScene() {
         const auto imageHasTextOverlay =
             (widget.type == "qtImage" || widget.type == "image") && !imageOverlayText.empty();
 
+        if (widget.type == "qtParallelTopology") {
+            auto* topology = new ParallelTopology(runtime_, projectRoot_);
+            topology->setFixedSize(qRound(geometry.width()), qRound(geometry.height()));
+            auto* proxy = scene_->addWidget(topology);
+            proxy->setAutoFillBackground(false);
+            proxy->setPos(geometry.topLeft());
+            proxy->setZValue(widget.zIndex);
+            RuntimeWidget runtimeWidget;
+            runtimeWidget.type = widget.type;
+            runtimeWidget.parallelTopology = topology;
+            runtimeWidgets_.push_back(std::move(runtimeWidget));
+            continue;
+        }
         if (widget.type == "pcsPhasePowerControl") {
             PcsPhasePowerBindings bindings;
             for (const auto& binding : widget.bindings) {
@@ -1124,6 +1138,9 @@ void ScadaSceneView::buildScene() {
 }
 
 void ScadaSceneView::refresh(std::int64_t now) {
+    for (auto& widget : runtimeWidgets_) {
+        if (widget.parallelTopology) widget.parallelTopology->refresh(now);
+    }
     std::vector<std::uint32_t> requestedIndexes = pauseGuardIndexes_;
     for (const auto& widget : runtimeWidgets_) {
         requestedIndexes.insert(requestedIndexes.end(), widget.indexes.begin(), widget.indexes.end());
@@ -1170,6 +1187,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
             widget.valueText->setPlainText(available ? QString::number(count) : QStringLiteral("--"));
             continue;
         }
+        if (widget.parallelTopology != nullptr) continue;
         if (widget.pcsPowerControl != nullptr) {
             widget.pcsPowerControl->refresh(now);
             continue;

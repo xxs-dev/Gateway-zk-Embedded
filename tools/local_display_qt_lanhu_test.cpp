@@ -1,5 +1,6 @@
 #include "local_display_qt_scada_scene.hpp"
 #include "local_display_qt_pcs_power_control.hpp"
+#include "local_display_qt_parallel_topology.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -43,6 +44,8 @@ void require(bool condition, const char* message) {
 class FixtureRuntime final : public ScadaSceneRuntimeSource {
 public:
     std::string node = "edge-1";
+    std::string cluster;
+    std::string clusterStatusJson() const override { return cluster; }
     std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> values;
     std::unordered_map<std::uint32_t, std::string> devices;
     const std::string& nodeId() const override { return node; }
@@ -99,6 +102,66 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     try {
         FixtureRuntime runtime;
+        auto clusterFixture = [](int count, int offline, qint64 ts) {
+            QJsonArray members;
+            for (int i = 0; i < count; ++i) {
+                members.append(QJsonObject{{"nodeId", QString("CAR-%1").arg(i + 1, 2, 10, QChar('0'))},
+                    {"cabinetNo", i + 1}, {"online", i >= offline}, {"compatible", true},
+                    {"duplicateIdentity", false}, {"capabilityFresh", true},
+                    {"capability", QJsonObject{{"ready", true}, {"socPercent", 50 + i},
+                        {"actual", QJsonArray{10 + i, 20 + i, 30 + i, 1, 2, 3}}}}});
+            }
+            return QJsonDocument(QJsonObject{{"schemaVersion", "2.0"}, {"ts", ts}, {"nodeId", "fixture"}, {"members", members}}).toJson().toStdString();
+        };
+        ParallelTopology topology(runtime, argc > 1 ? argv[1] : ".");
+        topology.setFixedSize(1230, 653);
+        topology.refresh(10000);
+        require(!topology.fresh() && topology.vehicleCount() == 0, "missing membership became an invented vehicle");
+        for (int count : {0, 1, 2, 3, 4, 5, 10}) {
+            runtime.cluster = clusterFixture(count, 0, 10000);
+            topology.refresh(10000);
+            require(topology.fresh() && topology.vehicleCount() == count, "vehicle count differs from membership");
+            require(topology.pageCount() == std::max(1, (count + 2) / 3), "wrong vehicle pagination");
+        }
+        topology.findChild<QPushButton*>("topologyNext")->click();
+        require(topology.page() == 1, "next page did not work");
+        runtime.cluster = clusterFixture(2, 0, 10001);
+        topology.refresh(10001);
+        require(topology.page() == 0 && topology.vehicleId(1) == "CAR-02", "shrink lost identity or page bounds");
+        require(topology.valueText(0, "p") == "60.0" && topology.valueText(1, "p") == "63.0", "peer data duplicated local data");
+        require(topology.valueText(1, "soc") == "51.0" && topology.valueText(1, "frequency") == "--", "invented peer telemetry");
+        runtime.cluster = clusterFixture(2, 1, 10002);
+        topology.refresh(10002);
+        require(topology.vehicleCount() == 2 && topology.valueText(0, "p") == "--", "offline vehicle removed or live values retained");
+        topology.refresh(16003);
+        require(!topology.fresh() && topology.vehicleCount() == 2 && topology.valueText(1, "p") == "--", "stale snapshot not invalidated");
+        runtime.cluster = "{";
+        topology.refresh(16004);
+        require(!topology.fresh() && topology.vehicleCount() == 2, "malformed snapshot erased membership");
+        runtime.cluster = clusterFixture(3, 0, 50000);
+        topology.refresh(16005);
+        require(!topology.fresh() && topology.vehicleCount() == 2, "future snapshot accepted");
+        auto duplicate = QJsonDocument::fromJson(QByteArray::fromStdString(clusterFixture(2, 0, 16006))).object();
+        auto members = duplicate["members"].toArray(); members[1] = members[0]; duplicate["members"] = members;
+        runtime.cluster = QJsonDocument(duplicate).toJson().toStdString(); topology.refresh(16006);
+        require(!topology.fresh() && topology.vehicleCount() == 2, "duplicate node identity accepted");
+        runtime.cluster = clusterFixture(0, 0, 16007); topology.refresh(16007);
+        require(topology.fresh() && topology.vehicleCount() == 0, "valid zero membership not cleared");
+        for (const QString& field : {QString("capabilityFresh"), QString("compatible"), QString("duplicateIdentity")}) {
+            auto object = QJsonDocument::fromJson(QByteArray::fromStdString(clusterFixture(1, 0, 16008))).object();
+            auto list = object["members"].toArray(); auto member = list[0].toObject();
+            member[field] = field == "duplicateIdentity"; list[0] = member; object["members"] = list;
+            runtime.cluster = QJsonDocument(object).toJson().toStdString(); topology.refresh(16008);
+            require(topology.valueText(0, "soc") == "--" && topology.valueText(0, "p") == "--", "invalid peer quality accepted");
+        }
+        auto notReady = QJsonDocument::fromJson(QByteArray::fromStdString(clusterFixture(1, 0, 16009))).object();
+        auto readyList = notReady["members"].toArray(); auto readyMember = readyList[0].toObject();
+        auto capability = readyMember["capability"].toObject(); capability["ready"] = false;
+        readyMember["capability"] = capability; readyList[0] = readyMember; notReady["members"] = readyList;
+        runtime.cluster = QJsonDocument(notReady).toJson().toStdString(); topology.refresh(16009);
+        require(topology.valueText(0, "soc") == "--", "not-ready capability became zero telemetry");
+        runtime.cluster = clusterFixture(3, 0, 15000); topology.refresh(16009);
+        require(!topology.fresh() && topology.vehicleCount() == 1, "out-of-order snapshot replaced newer roster");
         edge_gateway::ScadaScreen screen;
         auto clock = widget("qtLabel");
         clock.properties["qtClockFormat"] = "yyyy-MM-dd HH:mm:ss";
@@ -271,6 +334,32 @@ int main(int argc, char** argv) {
                 return std::make_unique<FixtureRuntime>();
             });
             ScadaSceneViewTestAccess::stopTimer(window);
+            const auto& project = window.project();
+            const auto topologyScreen = std::find_if(project.screens.begin(), project.screens.end(), [](const auto& s) { return s.screenId == "Topology"; });
+            require(topologyScreen != project.screens.end(), "topology route missing");
+            FixtureRuntime topologyRuntime;
+            ScadaSceneView topologyView(*topologyScreen, argv[1], project.alarms, project.trends, topologyRuntime, [](const std::string&) {});
+            topologyView.setWindowFlag(Qt::FramelessWindowHint);
+            topologyView.resize(1440, 810); topologyView.show(); app.processEvents();
+            for (const auto& scenario : std::vector<std::pair<int, int>>{{0,0},{1,0},{2,0},{3,0},{3,1},{3,2},{3,3},{5,0}}) {
+                const auto now = QDateTime::currentMSecsSinceEpoch();
+                topologyRuntime.cluster = clusterFixture(scenario.first, scenario.second, now);
+                topologyView.refresh(now); app.processEvents();
+                if (argc > 2) {
+                    QDir().mkpath(argv[2]);
+                    const auto path = QString::fromLocal8Bit(argv[2]) + QString("/Topology-%1-offline-%2.png").arg(scenario.first).arg(scenario.second);
+                    require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(path), "topology screenshot failed");
+                }
+            }
+            for (auto& item : ScadaSceneViewTestAccess::widgets(topologyView)) if (item.parallelTopology) {
+                item.parallelTopology->findChild<QPushButton*>("topologyNext")->click();
+                require(item.parallelTopology->page() == 1, "scene pagination failed");
+            }
+            app.processEvents();
+            if (argc > 2) require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Topology-5-page2.png"), "page2 screenshot failed");
+            topologyRuntime.cluster.clear(); topologyView.refresh(QDateTime::currentMSecsSinceEpoch()); app.processEvents();
+            if (argc > 2) require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Topology-stale.png"), "stale screenshot failed");
+            topologyView.close();
             window.setWindowFlag(Qt::FramelessWindowHint);
             window.resize(1440, 810); window.show(); app.processEvents();
             window.showScreen("Control-Pcs"); app.processEvents();

@@ -329,13 +329,9 @@ function Build-RefTopology($Single=$false) {
     if($Single){return New-RefScreen $id $w}
     Ref-TopologyCard $w 'topology-transformer' '变压器 - 防逆流表' 'Output' 'meter.png' 120 141
     Ref-TopologyCard $w 'topology-grid' '并网点' 'Input' 'meter.png' 540 141
-    Ref-TopologyCard $w 'topology-storage-1' '1#储能车' 'Pcs' 'storage.png' 954 141 $true
     Ref-TopologyCard $w 'topology-diesel' '柴油发电机' $null 'diesel.png' 120 497
-    if(-not$Single){Ref-TopologyCard $w 'topology-storage-3' '3#储能车' $null 'storage-idle.png' 540 497 $true $true;Ref-TopologyCard $w 'topology-storage-2' '2#储能车' $null 'storage-idle.png' 954 497 $true $true}
-    foreach($flow in @((New-EnergyFlow 'topology-flow-grid' 1039 'positive' 412 176 220 52),(New-EnergyFlow 'topology-flow-pcs' 1230 'negative' 816 176 240 52))){$flow.properties.flowColor='#A2BED6';$flow.properties.flowIdleColor='#A2BED6';$flow.properties|Add-Member qtTextColor '#2599D6';$flow.properties|Add-Member flowSolidLine 'true';$flow.properties|Add-Member qtHideFlowValue 'true';$w.Add($flow)}
-    $w.Add((New-Widget 'topology-side-link' 'qtPath' '' 1254 204 96 364 1 @() @() $null ([ordered]@{qtStrokeColor='#A2BED6';qtStrokeWidth=3;qtPathPointsJson='[[0,0],[78,0],[94,16],[94,260],[78,276],[-694,276],[-704,286],[-704,350],[-714,362],[-866,362]]'})))
-    $w.Add((Ref-Text 'topology-side-power-label' '输出功率' 1353 387 84 32 14 '#777E85'))
-    Ref-Value $w 'topology-side-power' $null 1350 416 86 32 'kW' 18
+    foreach($flow in @((New-EnergyFlow 'topology-flow-grid' 1039 'positive' 412 176 220 52))){$flow.properties.flowColor='#A2BED6';$flow.properties.flowIdleColor='#A2BED6';$flow.properties|Add-Member qtTextColor '#2599D6';$flow.properties|Add-Member flowSolidLine 'true';$flow.properties|Add-Member qtHideFlowValue 'true';$w.Add($flow)}
+    $w.Add((New-Widget 'topology-vehicles' 'qtParallelTopology' '' 120 141 1230 653 4 @() @() $null ([ordered]@{qtBackgroundColor='transparent'})))
     return New-RefScreen $id $w
 }
 function Build-RefBlank($Id,$Section) {

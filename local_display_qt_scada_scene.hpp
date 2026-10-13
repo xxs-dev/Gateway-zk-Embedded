@@ -36,6 +36,7 @@ class QResizeEvent;
 class QTimer;
 class QWheelEvent;
 class PcsPhasePowerControl;
+class ParallelTopology;
 class ScadaSceneViewTestAccess;
 
 class ScadaSceneView final : public QGraphicsView {
@@ -149,6 +150,7 @@ private:
         QGraphicsTextItem* flowValueText = nullptr;
         std::vector<QGraphicsEllipseItem*> flowParticles;
         PcsPhasePowerControl* pcsPowerControl = nullptr;
+        ParallelTopology* parallelTopology = nullptr;
         std::vector<RuntimeTrendSeries> trendSeries;
         std::vector<QGraphicsTextItem*> chartYLabels;
         std::vector<QGraphicsTextItem*> chartSecondaryYLabels;

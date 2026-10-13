@@ -25,6 +25,9 @@
 #include <QColor>
 #include <QDateTime>
 #include <QFrame>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QGuiApplication>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -282,11 +285,27 @@ public:
         std::string machineCode,
         edge_gateway::PointStoreRouter& router,
         std::string priorityControlLeaseFile,
-        int priorityControlLeaseTtlMs
+        int priorityControlLeaseTtlMs,
+        edge_gateway::EmsClusterConfig clusterConfig
     ) : router_(router),
-        runtime_(project, std::move(machineCode), router),
+        runtime_(project, machineCode, router),
         priorityControlLease_(std::move(priorityControlLeaseFile), "local-display-scada"),
-        priorityControlLeaseTtlMs_(std::max(1000, priorityControlLeaseTtlMs)) {}
+        priorityControlLeaseTtlMs_(std::max(1000, priorityControlLeaseTtlMs)),
+        clusterConfig_(std::move(clusterConfig)), clusterNodeId_(std::move(machineCode)) {}
+
+    std::string clusterStatusJson() const override {
+        if (!clusterConfig_.enabled) return {};
+        QFile file(QString::fromStdString(clusterConfig_.statusFile));
+        if (!file.open(QIODevice::ReadOnly) || file.size() > 1024 * 1024) return {};
+        const auto bytes = file.read(1024 * 1024 + 1);
+        if (bytes.size() > 1024 * 1024 || QJsonDocument::fromJson(bytes).object().value("nodeId").toString() !=
+            QString::fromStdString(clusterNodeId_)) return {};
+        return bytes.toStdString();
+    }
+
+    std::int64_t clusterStatusTtlMs() const override {
+        return std::max<std::int64_t>(5000, 3LL * clusterConfig_.statusIntervalMs);
+    }
 
     const std::string& nodeId() const override {
         return runtime_.resolver().nodeId();
@@ -390,6 +409,8 @@ private:
     edge_gateway::ScadaRuntimeMap runtime_;
     edge_gateway::PriorityControlLease priorityControlLease_;
     int priorityControlLeaseTtlMs_ = 30000;
+    edge_gateway::EmsClusterConfig clusterConfig_;
+    std::string clusterNodeId_;
 };
 
 class EmsQtWindow : public QWidget {
@@ -883,7 +904,8 @@ int main(int argc, char* argv[]) {
                             machineCode,
                             router,
                             appConfig.mqttDriver.priorityControlLeaseFile,
-                            appConfig.mqttDriver.priorityControlLeaseTtlMs
+                            appConfig.mqttDriver.priorityControlLeaseTtlMs,
+                            appConfig.emsCluster
                         )
                     );
                 }
