@@ -18,12 +18,21 @@
 #include <QGraphicsScene>
 #include <QGraphicsProxyWidget>
 #include <QGraphicsRectItem>
+#include <QStackedWidget>
+#include <QTimer>
+#include <QDialog>
+#include <QDir>
 
 class ScadaSceneViewTestAccess {
 public:
     static const auto& widgets(const ScadaSceneView& view) { return view.runtimeWidgets_; }
     static auto& widgets(ScadaSceneView& view) { return view.runtimeWidgets_; }
     static void render(ScadaSceneView& view) { for (auto& widget : view.runtimeWidgets_) view.renderTrend(widget); }
+    static bool gated(const ScadaRuntimeWindow& window) { return window.showingAccessGate_; }
+    static int stackCount(const ScadaRuntimeWindow& window) { return window.stack_->count(); }
+    static int screenIndex(const ScadaRuntimeWindow& window, const std::string& id) { return window.screenIndexes_.at(id); }
+    static void expire(ScadaRuntimeWindow& window) { window.enforceAccessExpiry(std::numeric_limits<std::int64_t>::max()); }
+    static void stopTimer(ScadaRuntimeWindow& window) { window.timer_->stop(); }
 };
 
 namespace {
@@ -38,6 +47,7 @@ public:
     std::unordered_map<std::uint32_t, std::string> devices;
     const std::string& nodeId() const override { return node; }
     edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
+        if (tagId.size() < 2 || tagId[0] != 't' || tagId[1] < '0' || tagId[1] > '9') return edge_gateway::NullOpt;
         ScadaSceneResolvedTag result;
         result.tag.tagId = tagId;
         result.tag.nodeId = node;
@@ -256,6 +266,44 @@ int main(int argc, char** argv) {
         pcs.properties["qtPresentation"] = "lanhu"; screen.widgets = {pcs};
         ScadaSceneView lanhuPcs(screen, ".", {}, {}, runtime, [](const std::string&) {});
         require(ScadaSceneViewTestAccess::widgets(lanhuPcs)[0].pcsPowerControl->findChildren<QLabel*>().size() > 10, "Lanhu PCS native rows missing");
+        if (argc > 1) {
+            ScadaRuntimeWindow window(argv[1], 500, false, [](const edge_gateway::ScadaProject&) {
+                return std::make_unique<FixtureRuntime>();
+            });
+            ScadaSceneViewTestAccess::stopTimer(window);
+            window.setWindowFlag(Qt::FramelessWindowHint);
+            window.resize(1440, 810); window.show(); app.processEvents();
+            window.showScreen("Control-Pcs"); app.processEvents();
+            require(ScadaSceneViewTestAccess::gated(window), "unauthenticated control has no gate");
+            require(ScadaSceneViewTestAccess::screenIndex(window, "Control-Pcs") < 0, "protected controls instantiated before authentication");
+            auto count = ScadaSceneViewTestAccess::stackCount(window);
+            ScadaSceneViewTestAccess::expire(window);
+            require(ScadaSceneViewTestAccess::stackCount(window) == count, "unauthenticated gate rebuilt on every refresh");
+            if (argc > 2) {
+                QDir().mkpath(argv[2]);
+                require(window.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Control-LoggedOut.png"), "gate screenshot failed");
+            }
+            QTimer::singleShot(0, []() { qobject_cast<QDialog*>(QApplication::activeModalWidget())->reject(); });
+            window.showScreen("__local_login__");
+            require(ScadaSceneViewTestAccess::gated(window), "cancel exposed protected content");
+            std::string message;
+            require(window.authenticateLocalAccess("operator", "lanhu-preview-only", &message), "preview credentials failed");
+            window.showScreen("Control-Pcs");
+            require(!ScadaSceneViewTestAccess::gated(window), "authenticated control stayed gated");
+            require(ScadaSceneViewTestAccess::screenIndex(window, "Control-Pcs") >= 0, "authenticated screen not built");
+            ScadaSceneViewTestAccess::expire(window);
+            require(ScadaSceneViewTestAccess::gated(window), "expired session did not return to gate");
+            require(ScadaSceneViewTestAccess::screenIndex(window, "Control-Pcs") < 0, "expired controls remain built");
+            require(window.authenticateLocalAccess("operator", "lanhu-preview-only", &message), "second login failed");
+            window.showScreen("Meters-Overview");
+            auto* header = window.findChild<QPushButton*>("scadaLogoutButton");
+            require(header && header->isVisible() && header->text() == QString::fromUtf8("退出"), "public screen loses logged-in state");
+            header->click();
+            window.showScreen("Strategy-Overview");
+            require(ScadaSceneViewTestAccess::gated(window), "logout did not revoke strategy access");
+            window.showScreen("Guide-Setup");
+            require(ScadaSceneViewTestAccess::gated(window), "guide authentication regressed");
+        }
         std::cout << "local_display_qt_lanhu_test passed\n";
         return 0;
     } catch (const std::exception& ex) {

@@ -24,6 +24,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QDateTime>
+#include <QDialog>
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
@@ -2173,7 +2174,10 @@ ScadaRuntimeWindow::ScadaRuntimeWindow(
     )CSS");
     logoutButton_->setProperty("legacyStyle", logoutButton_->styleSheet());
     logoutButton_->hide();
-    QObject::connect(logoutButton_, &QPushButton::clicked, this, [this]() { logoutLocalUser(); });
+    QObject::connect(logoutButton_, &QPushButton::clicked, this, [this]() {
+        if (accessSession_.authenticated(nowMs())) logoutLocalUser();
+        else requestLocalLogin();
+    });
     qApp->installEventFilter(this);
 
     reloadProject(true);
@@ -2237,6 +2241,8 @@ void ScadaRuntimeWindow::rebuildScreens() {
     }
     views_.clear();
     screenIndexes_.clear();
+    accessGateIndexes_.clear();
+    showingAccessGate_ = false;
     for (const auto& screen : project_.screens) {
         screenIndexes_[screen.screenId] = -1;
     }
@@ -2281,12 +2287,33 @@ bool ScadaRuntimeWindow::authenticateLocalAccess(
 }
 
 void ScadaRuntimeWindow::showScreen(const std::string& screenId) {
+    if (screenId == "__local_login__") { requestLocalLogin(); return; }
     auto item = screenIndexes_.find(screenId);
     if (item != screenIndexes_.end()) {
         const auto timestamp = nowMs();
         if (!accessSession_.authorizedForScreen(screenId, timestamp)) {
+            if (lanhuTheme_) {
+                auto gate = accessGateIndexes_.find(screenId);
+                if (gate == accessGateIndexes_.end()) {
+                    const auto screen = std::find_if(project_.screens.begin(), project_.screens.end(),
+                        [&](const auto& value) { return value.screenId == screenId; });
+                    if (screen == project_.screens.end()) return;
+                    auto* view = new ScadaSceneView(makeLanhuAccessGate(*screen), project_.rootDirectory,
+                        project_.alarms, project_.trends, *runtime_,
+                        [this](const std::string& target) { showScreen(target); }, stack_);
+                    views_.push_back(view);
+                    gate = accessGateIndexes_.emplace(screenId, stack_->addWidget(view)).first;
+                }
+                stack_->setCurrentIndex(gate->second);
+                currentScreenId_ = screenId;
+                showingAccessGate_ = true;
+                updateAccessUi();
+                refreshCurrent();
+                return;
+            }
             if (!requestScadaLocalLogin(this, accessSession_, timestamp)) return;
         }
+        showingAccessGate_ = false;
         accessSession_.touch(timestamp);
         auto index = item->second;
         if (index < 0) {
@@ -2321,22 +2348,24 @@ void ScadaRuntimeWindow::refreshAll(std::int64_t now) {
 }
 
 void ScadaRuntimeWindow::enforceAccessExpiry(std::int64_t timestamp) {
-    if (!accessSession_.requiresAuthentication(currentScreenId_) ||
-        accessSession_.authenticated(timestamp)) {
+    if (showingAccessGate_ || accessSession_.authenticated(timestamp)) {
         return;
     }
+    if (lanhuTheme_ ? accessSession_.username().empty() : !accessSession_.requiresAuthentication(currentScreenId_)) return;
     accessSession_.logout();
+    const auto target = currentScreenId_;
     rebuildScreens();
+    if (lanhuTheme_) showScreen(target);
 }
 
 void ScadaRuntimeWindow::updateAccessUi() {
     if (logoutButton_ == nullptr) return;
-    const auto visible = accessSession_.requiresAuthentication(currentScreenId_) &&
-        accessSession_.authenticated(nowMs());
+    const auto authenticated = accessSession_.authenticated(nowMs());
+    const auto visible = lanhuTheme_ || (accessSession_.requiresAuthentication(currentScreenId_) && authenticated);
     logoutButton_->setVisible(visible);
     if (visible) {
         logoutButton_->setText(
-            lanhuTheme_ ? QString::fromUtf8("退出") : QString::fromUtf8("%1 · 退出").arg(QString::fromStdString(accessSession_.username()))
+            lanhuTheme_ ? (authenticated ? QString::fromUtf8("退出") : QString::fromUtf8("登  录")) : QString::fromUtf8("%1 · 退出").arg(QString::fromStdString(accessSession_.username()))
         );
         logoutButton_->setToolTip(QString::fromStdString(accessSession_.username()));
         logoutButton_->raise();
@@ -2345,7 +2374,20 @@ void ScadaRuntimeWindow::updateAccessUi() {
 
 void ScadaRuntimeWindow::logoutLocalUser() {
     accessSession_.logout();
+    const auto target = currentScreenId_;
     rebuildScreens();
+    if (lanhuTheme_) showScreen(target);
+}
+
+void ScadaRuntimeWindow::requestLocalLogin() {
+    if (accessSession_.authenticated(nowMs())) return;
+    if (lanhuTheme_) {
+        std::unique_ptr<QDialog> dialog(createLanhuLocalLogin(this, accessSession_,
+            project_.rootDirectory + "/assets/lanhu-assets"));
+        if (dialog->exec() != QDialog::Accepted) return;
+    } else if (!requestScadaLocalLogin(this, accessSession_, nowMs())) return;
+    const auto target = currentScreenId_;
+    showScreen(target);
 }
 
 bool ScadaRuntimeWindow::eventFilter(QObject* watched, QEvent* event) {

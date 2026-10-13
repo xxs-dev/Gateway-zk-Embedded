@@ -276,6 +276,7 @@ private:
     void enforceAccessExpiry(std::int64_t nowMs);
     void updateAccessUi();
     void logoutLocalUser();
+    void requestLocalLogin();
     std::string projectRevision() const;
 
     QStackedWidget* stack_ = nullptr;
@@ -288,9 +289,11 @@ private:
     std::int64_t lastReloadCheckMs_ = 0;
     bool autoReload_ = false;
     bool lanhuTheme_ = false;
+    bool showingAccessGate_ = false;
     ScadaLocalAccessSession accessSession_;
     QPushButton* logoutButton_ = nullptr;
     std::string currentScreenId_;
     std::vector<ScadaSceneView*> views_;
     std::unordered_map<std::string, int> screenIndexes_;
+    std::unordered_map<std::string, int> accessGateIndexes_;
 };

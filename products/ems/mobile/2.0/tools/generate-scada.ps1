@@ -6,7 +6,7 @@ param(
     [string]$OutputPackage,
     [string]$MachineCode = "COMM202600999",
     [string]$DisplayName = "凯源移动储能车",
-    [string]$PackageVersion = "2.0.12-lanhu",
+    [string]$PackageVersion = "2.0.13-lanhu",
     [ValidateSet("XMindV2", "Lanhu")]
     [string]$LayoutProfile = "Lanhu",
     [string]$NodeId = "edge-1",

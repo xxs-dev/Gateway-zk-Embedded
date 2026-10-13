@@ -10,6 +10,9 @@ try {
     & (Join-Path $root 'products\ems\mobile\2.0\tools\generate-scada.ps1') -SourceProjectDirectory (Join-Path $root 'products\ems\mobile\2.0\scada\base-project') -OutputProjectDirectory (Join-Path $output 'project') -OutputPackage (Join-Path $output 'lanhu.kyscada') -MachineCode COMM202600999 -LocalOperatorPassword $password
     $screens=@(Get-ChildItem (Join-Path $output 'project\screens') -Filter '*.json' | ForEach-Object {Get-Content $_.FullName -Raw|ConvertFrom-Json})
     if($screens.Count-ne56){throw 'Lanhu screen count changed'}
+    foreach($asset in @('login-background.png','login-logo.png','login-user.png','login-password.png')){
+        if(-not(Test-Path (Join-Path $output "project/assets/lanhu-assets/$asset"))){throw "Missing login asset: $asset"}
+    }
     $map=@{}; Get-Content (Join-Path $output 'project\runtime-map.json') -Raw|ConvertFrom-Json|ForEach-Object {$map[$_.tagId]=$_}
     foreach($screen in $screens){
         if($screen.width-ne1440-or$screen.height-ne810){throw "Invalid canvas: $($screen.screenId)"}
