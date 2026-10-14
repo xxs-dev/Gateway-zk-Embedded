@@ -14,7 +14,9 @@ namespace edge_gateway {
 
 enum class MemoryStoreOpenMode {
     CreateOrOpen,
-    OpenExisting
+    OpenExisting,
+    // Create exactly one new object; never attach or follow a replacement.
+    CreateExclusive
 };
 
 // True when a queued write is older than maxAgeMs (by acceptedAt, else ts) or stamped more

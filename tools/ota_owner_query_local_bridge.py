@@ -51,6 +51,7 @@ def main():
     parser.add_argument('--probe', required=True)
     parser.add_argument('--wire', required=True)
     parser.add_argument('--exchange', type=Path, required=True)
+    parser.add_argument('--full', action='store_true')
     args = parser.parse_args()
     if os.geteuid() != 0:
         raise RuntimeError('root-owned private fixture required')
@@ -120,12 +121,15 @@ def main():
         def admit(artifact, version, package_type):
             import tarfile
             with tarfile.open(artifact, 'r:gz') as archive:
-                manifest = json.load(archive.extractfile('manifest.json'))
+                manifest = json.load(archive.extractfile('runtime-manifest.json' if args.full else 'manifest.json'))
+            target = fixture.g.production_context(fixture.home)['machineCode'] if args.full else manifest['machineCode']
             metadata = dict(version=version, packageType=package_type,
-                            machineCode=manifest['machineCode'], artifactSha256=fixture.m.digest(artifact),
-                            artifactSize=artifact.stat().st_size, manifest=manifest,
-                            candidateSha256=hashlib.sha256((json.dumps(
-                                manifest['productionV2']['candidate'], sort_keys=True) + '\n').encode()).hexdigest())
+                            machineCode=target, artifactSha256=fixture.m.digest(artifact),
+                            artifactSize=artifact.stat().st_size, manifest=manifest)
+            if not args.full:
+                metadata['candidateSha256'] = hashlib.sha256((json.dumps(
+                    manifest['productionV2']['candidate'], sort_keys=True) + '\n').encode()).hexdigest()
+            fixture.assertEqual(package_type, 'full' if args.full else 'config')
             shutil.copyfile(artifact, exchange / 'release.tar.gz')
             (exchange / 'ready.json').write_text(json.dumps(metadata, sort_keys=True) + '\n')
             print('READY', file=protocol_output, flush=True)
@@ -148,12 +152,13 @@ def main():
             negative_path.write_text(json.dumps(negative))
             staging = fixture.home / 'ota/staging'
             before = fixture.m.tree_hashes(fixture.home / 'config/runtime')
-            _, error = run('admission-negative', [args.probe, '--admit-owner-local', str(negative_path),
+            admission = '--admit-full-owner-local' if args.full else '--admit-owner-local'
+            _, error = run('admission-negative', [args.probe, admission, str(negative_path),
                 str(platform_key), str(artifact), str(staging)], expected=1)
             fixture.assertIn(b'native admission rejected stage=failed cause=ota signature verification failed', error)
             fixture.assertFalse((staging / 'ota_job_INVALID_SIGNATURE_LOCAL.json').exists())
             fixture.assertEqual(before, fixture.m.tree_hashes(fixture.home / 'config/runtime'))
-            run('admission', [args.probe, '--admit-owner-local', str(exchange / 'install.json'),
+            run('admission', [args.probe, admission, str(exchange / 'install.json'),
                 str(platform_key), str(artifact), str(staging)])
             intent = json.loads((staging / ('ota_job_' + request['jobId'] + '.json')).read_bytes())
             fixture.assertEqual(intent['jobId'], request['jobId'])
@@ -161,16 +166,26 @@ def main():
             shutil.copyfile(staging / ('ota_job_' + request['jobId'] + '.json'), exchange / 'intent.json')
             return intent
 
-        owner, previous, candidate = fixture.signed_config_owner_fixture(admit=admit)
+        if args.full:
+            # Existing full fixture creates a runtime-release-v1 TAR; no owner proof is invented.
+            owner = fixture.owner_fixture(v2=True, real_entry=True, admit=admit)
+            previous = fixture.g.production_context(fixture.home)
+            candidate = None
+        else:
+            owner, previous, candidate = fixture.signed_config_owner_fixture(admit=admit)
         intent_before = owner.intent_path.read_bytes()
         entry = fixture.real_owner_entry(owner)
         with owner.lease():
             entry.production_ota_owner(owner, owner.read())
         fixture.assertEqual(owner.read()['phase'], 'OWNER_FINISHED')
-        fixture.assertEqual(fixture.g.production_context(fixture.home), candidate)
+        if args.full:
+            candidate = fixture.g.production_context(fixture.home)
+            fixture.assertEqual(candidate['release'], '1.1')
+        else:
+            fixture.assertEqual(fixture.g.production_context(fixture.home), candidate)
         fixture.assertEqual(owner.intent_path.read_bytes(), intent_before)
         run('reconcile', [args.probe, '--reconcile-existing', str(owner.root), owner.job])
-        raw_proof, _ = run('read-proof', [args.probe, '--read-existing', str(owner.root),
+        raw_proof, _ = run('read-proof', [args.probe, '--read-full-existing' if args.full else '--read-existing', str(owner.root),
             owner.job, previous['machineCode'], owner.token])
         proof = json.loads(raw_proof)
         health_path = owner.root / ('health_' + owner.job + '.txt')
@@ -179,17 +194,24 @@ def main():
         transaction = 'OTA_' + hashlib.sha256((owner.job + owner.token).encode()).hexdigest()[:32]
         state_dir = fixture.runtime.root / 'transactions' / transaction
         state = json.loads((state_dir / 'state.json').read_bytes())
-        fixture.assertEqual(proof, dict(outcome='HEALTHY_APPLIED', jobId=owner.job,
+        expected_proof = dict(outcome='HEALTHY_APPLIED', jobId=owner.job,
             machineCode=intent['machineCode'], occurrenceId=owner.token, version=intent['version'],
             artifactSha256=fixture.m.digest(fixture.root / 'release.tar.gz'), artifactSize=int(intent['artifactSize']),
             transaction=transaction, candidateSha256=state['candidateSha256'],
             intentSha256=fixture.m.digest(owner.intent_path), healthSha256=fixture.m.digest(health_path),
-            healthTs=int(health['ts'])))
+            healthTs=int(health['ts']))
+        if args.full:
+            parent_sha = fixture.m.digest(state_dir / 'previous.json')
+            fixture.assertEqual(state['previousSha256'], parent_sha)
+            fixture.assertEqual(candidate['parentSha256'], parent_sha)
+            fixture.assertEqual(json.loads((state_dir / 'approval.json').read_bytes())['parentSha256'], parent_sha)
+            expected_proof.update(packageType='full', parentSha256=parent_sha)
+        fixture.assertEqual(proof, expected_proof)
         for name, path in {'health.json': health_path, 'handoff.json': owner.path,
                            'final.txt': owner.root / ('ota_final_' + owner.job + '.txt'),
                            'audit.json': owner.root / ('ota_reconcile_' + owner.job + '.json'),
                            **{'transaction-' + name: state_dir / name for name in
-                              ('approval.json', 'candidate.json', 'state.json', 'health.json')}}.items():
+                              ('approval.json', 'candidate.json', 'previous.json', 'state.json', 'health.json')}}.items():
             shutil.copyfile(path, exchange / name)
         print('INSTALLED', file=protocol_output, flush=True)
         command('QUERY')

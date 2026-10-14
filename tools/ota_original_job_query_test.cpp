@@ -8,6 +8,27 @@
 #include <map>
 #include <stdexcept>
 
+#ifdef OTA_FULL_QUERY_CLOCK_TEST
+#if !defined(__linux__) || !defined(__GNUC__)
+#error OTA_FULL_QUERY_CLOCK_TEST requires the Linux GNU system_clock link wrapper
+#endif
+#include <optional>
+#include "../src/ota_query_crypto.cpp"
+
+namespace {
+std::int64_t fullQueryClockMs = 0;
+std::uint64_t fullQueryClockCalls = 0;
+}
+
+// This dedicated binary freezes wall time only; its supervisor uses monotonic time.
+extern "C" std::chrono::system_clock::time_point fullQuerySystemNow()
+    asm("__wrap__ZNSt6chrono3_V212system_clock3nowEv");
+extern "C" std::chrono::system_clock::time_point fullQuerySystemNow() {
+    ++fullQueryClockCalls;
+    return std::chrono::system_clock::time_point(std::chrono::milliseconds(fullQueryClockMs));
+}
+#endif
+
 namespace {
 
 void require(bool ok, const char* message) {
@@ -52,6 +73,83 @@ edge_gateway::OtaConfig privateOwnerConfig(const std::string& staging) {
     return config;
 }
 
+#ifdef OTA_FULL_QUERY_CLOCK_TEST
+void checkFullQueryClocks(const std::string& requestPath, const std::string& platformPublicKey,
+                         const std::string& devicePrivateKey, const std::string& devicePublicKey,
+                         const std::string& staging) {
+    using namespace edge_gateway;
+    const auto challenge = ota_full_query_protocol::parseChallenge(get(requestPath));
+    require(challenge.jobId == "JOB_1" && challenge.machineCode == "GW_TEST" &&
+        challenge.nonce == std::string(64, 'b') && challenge.packageType == "full" &&
+        challenge.version == "2.0.0" && challenge.artifactSha256 == std::string(64, 'a') &&
+        challenge.artifactSize == 13 && challenge.issuedAtMs == 1700000000000LL &&
+        challenge.expiresAtMs == 1700000060000LL && challenge.signature != "AA==",
+        "clock input must be an actually signed Java request-normal field set");
+    auto config = privateOwnerConfig(staging);
+    config.requireSignature = true;
+    config.signaturePublicKeyPath = platformPublicKey;
+    config.querySigningPrivateKeyPath = devicePrivateKey;
+    struct stat directory{};
+    require(lstat(staging.c_str(), &directory) == 0 && S_ISDIR(directory.st_mode) &&
+        directory.st_uid == 0 && (directory.st_mode & 0022) == 0,
+        "clock fixture requires a trusted root-owned private staging directory");
+    const auto before = tree(staging);
+    require(before.empty(), "clock fixture staging must be empty");
+    OtaService service(config);
+    struct Case { const char* name; std::int64_t receivedAt; bool accepted; };
+    const Case cases[] = {
+        {"clock-future-skew-exact-30000", 1699999970000LL, true},
+        {"clock-future-skew-30001", 1699999969999LL, false},
+        {"clock-expiry-minus-one", 1700000059999LL, true},
+        {"clock-at-expiry", 1700000060000LL, false},
+        {"clock-negative-received", -1, false},
+    };
+    for (const auto& item : cases) {
+        require(ota_query_crypto::verifyChallenge(challenge, platformPublicKey),
+            "clock case never reached a valid production-verified signature");
+        fullQueryClockMs = item.receivedAt;
+        require(currentTimeMs() == item.receivedAt, "clock link wrapper did not bind");
+        const auto callsBefore = fullQueryClockCalls;
+        std::optional<OtaFullQueryObservation> response;
+        bool expired = false;
+        try { response = service.answerOriginalJobQuery(challenge, challenge.machineCode); }
+        catch (const OtaQueryRejected& error) {
+            require(error.reason() == OtaQueryFailure::Expired,
+                "clock case rejected for a non-time reason");
+            expired = true;
+        }
+        require(fullQueryClockCalls > callsBefore, "production answer did not consult wrapped time");
+        require(tree(staging) == before, "clock query changed staging evidence or created a lock");
+        if (item.accepted) {
+            require(response.has_value() && !expired, "valid clock boundary did not answer");
+            const auto& value = *response;
+            require(value.outcome == "UNKNOWN" && value.jobId == challenge.jobId &&
+                value.machineCode == challenge.machineCode && value.nonce == challenge.nonce &&
+                value.packageType == "full" && value.version == challenge.version &&
+                value.artifactSha256 == challenge.artifactSha256 && value.artifactSize == challenge.artifactSize &&
+                value.occurrenceId.empty() && value.candidateSha256.empty() && value.transaction.empty() &&
+                value.parentSha256.empty() && value.intentSha256.empty() && value.healthSha256.empty() &&
+                value.healthTs == 0 && !value.signature.empty() && value.signature != "AA==",
+                "clock UNKNOWN lost original fields or invented resolved proof");
+            const auto descriptor = ota_full_query_protocol::observationDescriptor(value);
+            // Compile the unmodified crypto source into this test-only translation unit.
+            require(ota_query_crypto::verifyDescriptor(descriptor, value.signature, devicePublicKey),
+                "clock response did not verify with the actual device test public key");
+            std::cout << "{\"case\":" << pendingJsonString(item.name)
+                << ",\"receivedAtMs\":" << pendingJsonString(std::to_string(item.receivedAt))
+                << ",\"signatureVerified\":true,\"responseVerified\":true,\"response\":"
+                << ota_full_query_protocol::encodeObservation(value) << "}\n";
+        } else {
+            require(expired && !response.has_value(), "invalid clock boundary produced a response");
+            std::cout << "{\"case\":" << pendingJsonString(item.name)
+                << ",\"receivedAtMs\":" << pendingJsonString(std::to_string(item.receivedAt))
+                << ",\"signatureVerified\":true,\"rejection\":\"EXPIRED\",\"response\":null}\n";
+        }
+    }
+    std::cout << "full-query production clock boundaries 5 PASS\n";
+}
+#endif
+
 void check(const std::string& root) {
     using namespace edge_gateway;
     const auto duplicate = json::JsonParser("{\"nested\":{\"value\":\"first\",\"value\":\"second\"}}", 4, 8).parse();
@@ -92,11 +190,11 @@ void check(const std::string& root) {
     std::filesystem::create_directories(production + "/boot-lineage");
     std::filesystem::create_directories(production + "/baselines");
     const std::string previous = "{\"baselineId\":\"BASE_OLD\",\"format\":\"runtime-baseline-v2\",\"machineCode\":\"GW_QUERY\",\"release\":\"1.0.0\"}\n";
-    const std::string candidateRecord = "{\"baselineId\":\"BASE_NEW\",\"format\":\"runtime-baseline-v2\",\"machineCode\":\"GW_QUERY\",\"release\":\"2.0.0\"}\n";
-    const std::string candidate = ota_query_detail::sha256Hex(candidateRecord);
-    require(candidate == "a8da8b59d749be398f88422e90afd8eee499f878b90d12b4ed8c2f8fc6c7dd76",
-        "Python candidate digest mismatch");
     const std::string previousSha = ota_query_detail::sha256Hex(previous);
+    const std::string candidateRecord = "{\"baselineId\":\"BASE_NEW\",\"format\":\"runtime-baseline-v2\",\"machineCode\":\"GW_QUERY\",\"release\":\"2.0.0\",\"parentSha256\":" + pendingJsonString(previousSha) + "}\n";
+    const std::string candidate = ota_query_detail::sha256Hex(candidateRecord);
+    require(candidate == "89258c1a2980b9e5a29cecbddd0289639214f00c262591e9d1dfd1331bced206",
+        "Python parent-bound candidate digest mismatch");
     const std::string approval = "{\"format\":\"runtime-provisioning-v2\",\"transaction\":" +
         pendingJsonString(transaction) + ",\"gatewayHome\":" + pendingJsonString(home) +
         ",\"machineCode\":\"GW_QUERY\",\"parentSha256\":" + pendingJsonString(previousSha) +
@@ -141,8 +239,9 @@ void check(const std::string& root) {
         "\",\"version\":\"2.0.0\",\"token\":\"" + token +
         "\",\"status\":\"healthy\",\"rollback\":\"none\",\"ts\":\"1000\",\"productionTransaction\":\"" +
         transaction + "\",\"productionCandidateSha256\":\"" + candidate + "\"}\n";
-    const std::string healthSha = "4a8e7d2af3732e33bd04b614ec31ca3ea344c9255b80c1993947417691d0fc27";
-    require(ota_query_detail::sha256Hex(health) == healthSha, "Python health digest mismatch");
+    const std::string healthSha = ota_query_detail::sha256Hex(health);
+    require(healthSha == "ba169a0e93044ab61b4ddb9a82b92010ecf99b35d3c4e351d3f87ff636b9b51c",
+        "Python parent-bound health digest mismatch");
     const auto handoff = "{\"format\":\"ota-handoff-v1\",\"jobId\":\"" + jobId +
         "\",\"version\":\"2.0.0\",\"token\":\"" + token +
         "\",\"intentSha256\":\"" + intentSha +
@@ -179,6 +278,7 @@ void check(const std::string& root) {
     auto outcome = service.readOriginalJob(jobId);
     require(outcome.outcome == "HEALTHY_APPLIED" && outcome.jobId == jobId &&
         outcome.machineCode == machine && outcome.occurrenceId == token &&
+        outcome.packageType == "config" && outcome.productionParentSha256 == previousSha &&
         outcome.productionTransaction == transaction && outcome.productionCandidateSha256 == candidate,
         "original healthy result not bound");
     require(tree(staging) == original, "query mutated journal or created a lock");
@@ -191,6 +291,103 @@ void check(const std::string& root) {
     const auto handoffPath = staging + "/ota_handoff_" + jobId + ".json";
     const auto auditPath = staging + "/ota_reconcile_" + jobId + ".json";
     const auto statePath = txDir + "/state.json";
+    const auto candidatePath = txDir + "/candidate.json";
+    const auto coherentParentCases = [&](bool healthy, const std::string& otaHealth,
+                                         const std::string& ownedHandoff, const std::string& installState) {
+        const auto replaceBound = [&](std::string bytes, const std::string& from, const std::string& to) {
+            const auto at = bytes.find(from);
+            require(at != std::string::npos && bytes.find(from, at + from.size()) == std::string::npos,
+                "coherent fixture replacement must bind exactly once");
+            bytes.replace(at, from.size(), to);
+            return bytes;
+        };
+        // Rebind every digest/embedded record; only the selected parent relationship is invalid.
+        const auto writeVariant = [&](const std::string& candidateParent, const std::string& approvalParent) {
+            const auto parentAt = candidateRecord.find(",\"parentSha256\"");
+            require(parentAt != std::string::npos, "coherent candidate template lost parent");
+            const auto nextCandidate = candidateRecord.substr(0, parentAt) +
+                (candidateParent.empty() ? "}\n" : ",\"parentSha256\":" + pendingJsonString(candidateParent) + "}\n");
+            const auto nextCandidateSha = ota_query_detail::sha256Hex(nextCandidate);
+            const auto nextApproval = "{\"format\":\"runtime-provisioning-v2\",\"transaction\":" +
+                pendingJsonString(transaction) + ",\"gatewayHome\":" + pendingJsonString(home) +
+                ",\"machineCode\":\"GW_QUERY\"" +
+                (approvalParent.empty() ? "" : ",\"parentSha256\":" + pendingJsonString(approvalParent)) +
+                ",\"previous\":" + previous.substr(0, previous.size() - 1) +
+                ",\"candidate\":" + nextCandidate.substr(0, nextCandidate.size() - 1) + "}\n";
+            const auto nextApprovalSha = ota_query_detail::sha256Hex(nextApproval);
+            const auto nextState = replaceBound(replaceBound(installState, approvalSha, nextApprovalSha),
+                candidate, nextCandidateSha);
+            const auto nextHealth = healthy ? replaceBound(otaHealth, candidate, nextCandidateSha) : otaHealth;
+            auto nextHandoff = replaceBound(ownedHandoff, approvalSha, nextApprovalSha);
+            nextHandoff = replaceBound(nextHandoff, ota_query_detail::sha256Hex(otaHealth),
+                ota_query_detail::sha256Hex(nextHealth));
+            nextHandoff = replaceBound(nextHandoff, pendingJsonString(otaHealth), pendingJsonString(nextHealth));
+            const auto nextLineage = replaceBound(replaceBound(lineage, approvalSha, nextApprovalSha),
+                candidate, nextCandidateSha);
+            const auto parsedApproval = json::JsonParser(nextApproval, 12, 4096).parse();
+            const auto parsedState = json::JsonParser(nextState, 6, 128).parse();
+            const auto parsedHandoff = json::JsonParser(nextHandoff, 12, 4096).parse();
+            require(sameQueryJson(*parsedApproval.find("candidate"), json::JsonParser(nextCandidate).parse()) &&
+                sameQueryJson(*parsedApproval.find("previous"), json::JsonParser(previous).parse()) &&
+                pendingField(parsedState, "candidateSha256") == nextCandidateSha &&
+                pendingField(parsedState, "previousSha256") == previousSha &&
+                pendingField(parsedState, "approvalSha256") == nextApprovalSha &&
+                pendingField(parsedHandoff, "productionApprovalSha256") == nextApprovalSha &&
+                pendingField(*parsedHandoff.find("completionProof"), "healthSha256") ==
+                    ota_query_detail::sha256Hex(nextHealth) &&
+                pendingField(*parsedHandoff.find("completionProof"), "healthRecord") == nextHealth,
+                "parent fixture lost an unrelated digest/JSON binding");
+            put(candidatePath, nextCandidate);
+            put(txDir + "/approval.json", nextApproval);
+            put(statePath, nextState);
+            put(txDir + "/health.json", replaceBound(productionHealth, candidate, nextCandidateSha));
+            put(production + "/boot-lineage/" + nextCandidateSha + "-" + transaction + ".json", nextLineage);
+            put(production + "/baselines/BASE_NEW.json", nextCandidate);
+            put(staging + "/health_" + jobId + ".txt", nextHealth);
+            put(handoffPath, nextHandoff);
+            return nextCandidateSha;
+        };
+        const auto expected = healthy ? "HEALTHY_APPLIED" : "FAILED_ROLLED_BACK";
+        for (const bool changeCandidate : {true, false}) {
+            for (const auto& parent : {std::string(), std::string(64, 'f')}) {
+                writeVariant(previousSha, previousSha);
+                const auto valid = service.readOriginalJob(jobId);
+                require(valid.outcome == expected && valid.productionCandidateSha256 == candidate &&
+                    valid.productionParentSha256 == previousSha && valid.machineCode == machine &&
+                    valid.occurrenceId == token && valid.intentSha256 == intentSha &&
+                    valid.healthSha256 == ota_query_detail::sha256Hex(otaHealth),
+                    "coherent parent positive baseline did not resolve");
+                const auto changedSha = writeVariant(changeCandidate ? parent : previousSha,
+                    changeCandidate ? previousSha : parent);
+                const auto beforeQuery = tree(staging);
+                const auto proof = service.readOriginalJob(jobId);
+                const auto name = std::string(healthy ? "healthy-" : "rollback-") +
+                    (changeCandidate ? "candidate-" : "approval-") + (parent.empty() ? "missing" : "wrong");
+                std::cout << "coherent-parent case=" << name << " baseline=" << expected
+                    << " actual=" << proof.outcome << " candidateSha256=" << changedSha << std::endl;
+                require(proof.outcome == "UNKNOWN", "coherent parent negative resolved trusted evidence");
+                require(proof.jobId == jobId && proof.machineCode.empty() && proof.occurrenceId.empty() &&
+                    proof.packageType.empty() && proof.version.empty() && proof.artifactSha256.empty() &&
+                    proof.artifactSize == 0 && proof.productionTransaction.empty() &&
+                    proof.productionCandidateSha256.empty() && proof.productionParentSha256.empty() &&
+                    proof.intentSha256.empty() && proof.healthSha256.empty() && proof.healthTs == 0,
+                    "coherent parent rejection leaked partial trusted proof");
+                require(tree(staging) == beforeQuery, "coherent parent query mutated staging");
+                writeVariant(previousSha, previousSha);
+                if (changedSha != candidate)
+                    std::filesystem::remove(production + "/boot-lineage/" + changedSha + "-" + transaction + ".json");
+            }
+        }
+        require(service.readOriginalJob(jobId).outcome == expected, "parent fixture did not restore baseline");
+    };
+    coherentParentCases(true, health, handoff, state);
+    for (const auto& parent : {std::string(), std::string(64, 'f')}) {
+        const auto broken = candidateRecord.substr(0, candidateRecord.find(",\"parentSha256\"")) +
+            (parent.empty() ? "}\n" : ",\"parentSha256\":" + pendingJsonString(parent) + "}\n");
+        put(candidatePath, broken);
+        require(service.readOriginalJob(jobId).outcome == "UNKNOWN", "missing/wrong candidate parent resolved healthy");
+    }
+    put(candidatePath, candidateRecord);
     put(handoffPath, handoff.substr(0, handoff.size() - 2) + ",\"phase\":\"CANCELLED\"}\n");
     require(service.readOriginalJob(jobId).outcome == "UNKNOWN", "duplicate handoff phase resolved");
     put(handoffPath, handoff);
@@ -267,13 +464,18 @@ void check(const std::string& root) {
     put(handoffPath, failedHandoff);
     put(staging + "/ota_final_" + jobId + ".txt", "jobId=" + jobId + "\ntoken=" + token + "\nstatus=failed\n");
     outcome = service.readOriginalJob(jobId);
-    require(outcome.outcome == "FAILED_ROLLED_BACK" && outcome.productionCandidateSha256 == candidate,
+    require(outcome.outcome == "FAILED_ROLLED_BACK" && outcome.productionCandidateSha256 == candidate &&
+        outcome.productionParentSha256 == previousSha,
         "original rollback lost admitted candidate");
+    coherentParentCases(false, failedHealth, failedHandoff, recovered);
     put(txDir + "/previous-pointer.json", "{\"baselineId\":\"BASE_OLD\",\"sha256\":\"" +
         std::string(64, 'f') + "\"}\n");
     require(service.readOriginalJob(jobId).outcome == "UNKNOWN", "wrong prior pointer resolved rollback");
     put(txDir + "/previous-pointer.json", "{\"baselineId\":\"BASE_OLD\",\"sha256\":" +
         pendingJsonString(previousSha) + "}\n");
+    put(candidatePath, candidateRecord.substr(0, candidateRecord.find(",\"parentSha256\"")) + "}\n");
+    require(service.readOriginalJob(jobId).outcome == "UNKNOWN", "missing candidate parent resolved rollback");
+    put(candidatePath, candidateRecord);
     const std::string unresolvedHealth = "{\"format\":\"ota-health-v1\",\"jobId\":\"" + jobId +
         "\",\"version\":\"2.0.0\",\"token\":\"" + token +
         "\",\"status\":\"failed\",\"rollback\":\"failed\",\"ts\":\"2000\"}\n";
@@ -371,7 +573,17 @@ void check(const std::string& root) {
 int main(int argc, char** argv) {
     try {
         if (geteuid() != 0) throw std::runtime_error("root-owned private fixture required");
-        if (argc >= 2 && std::string(argv[1]) == "--admit-owner-local") {
+#ifdef OTA_FULL_QUERY_CLOCK_TEST
+        require(argc == 7 && std::string(argv[1]) == "--full-query-clock-vectors",
+            "dedicated clock binary requires request, platform public, device private/public and staging");
+        checkFullQueryClocks(argv[2], argv[3], argv[4], argv[5], argv[6]);
+        return 0;
+#else
+        if (argc >= 2 && std::string(argv[1]) == "--full-query-clock-vectors")
+            throw std::runtime_error("clock selector requires OTA_FULL_QUERY_CLOCK_TEST and GNU link wrapper");
+#endif
+        if (argc >= 2 && (std::string(argv[1]) == "--admit-owner-local" || std::string(argv[1]) == "--admit-full-owner-local")) {
+            const bool full = std::string(argv[1]) == "--admit-full-owner-local";
             require(argc == 6, "admit-owner-local requires request, public key, artifact and staging");
             auto config = privateOwnerConfig(argv[5]);
             const auto home = std::filesystem::path(argv[5]).parent_path().parent_path();
@@ -383,7 +595,7 @@ int main(int argc, char** argv) {
             edge_gateway::OtaService service(config);
             const auto root = edge_gateway::ota_request_json::parseRoot(get(argv[2]));
             auto request = edge_gateway::ota_request_json::request(root);
-            require(request.machineCode == "FLEET_NODE_NOT_CORE" && request.packageType == "config",
+            require(request.machineCode == "FLEET_NODE_NOT_CORE" && request.packageType == (full ? "full" : "config"),
                 "local admission target mismatch");
             require(request.artifactUrl.rfind("https://", 0) == 0,
                 "platform installation input lost its HTTPS URL");
@@ -419,7 +631,8 @@ int main(int argc, char** argv) {
             std::cout << "reconciled " << argv[3] << '\n';
             return 0;
         }
-        if (argc >= 2 && std::string(argv[1]) == "--read-existing") {
+        if (argc >= 2 && (std::string(argv[1]) == "--read-existing" || std::string(argv[1]) == "--read-full-existing")) {
+            const bool full = std::string(argv[1]) == "--read-full-existing";
             require(argc == 6, "read-existing requires staging, job, machine and token");
             edge_gateway::OtaService service(privateOwnerConfig(argv[2]));
             const auto proof = service.readOriginalJob(argv[3], argv[4], argv[5]);
@@ -429,6 +642,9 @@ int main(int argc, char** argv) {
                 proof.productionCandidateSha256.size() == 64 &&
                 proof.intentSha256.size() == 64 && proof.healthSha256.size() == 64,
                 "owner result did not resolve into bound original-job proof");
+            require(!full || (proof.packageType == "full" &&
+                edge_gateway::ota_query_protocol::digest(proof.productionParentSha256)),
+                "full owner result did not bind package type/parent");
             std::cout << "{\"outcome\":" << edge_gateway::pendingJsonString(proof.outcome)
                 << ",\"jobId\":" << edge_gateway::pendingJsonString(proof.jobId)
                 << ",\"machineCode\":" << edge_gateway::pendingJsonString(proof.machineCode)
@@ -438,6 +654,7 @@ int main(int argc, char** argv) {
                 << ",\"artifactSize\":" << proof.artifactSize
                 << ",\"transaction\":" << edge_gateway::pendingJsonString(proof.productionTransaction)
                 << ",\"candidateSha256\":" << edge_gateway::pendingJsonString(proof.productionCandidateSha256)
+                << (full ? ",\"packageType\":\"full\",\"parentSha256\":" + edge_gateway::pendingJsonString(proof.productionParentSha256) : "")
                 << ",\"intentSha256\":" << edge_gateway::pendingJsonString(proof.intentSha256)
                 << ",\"healthSha256\":" << edge_gateway::pendingJsonString(proof.healthSha256)
                 << ",\"healthTs\":" << proof.healthTs << "}\n";

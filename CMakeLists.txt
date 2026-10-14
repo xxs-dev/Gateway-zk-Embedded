@@ -224,6 +224,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Explicit opt-in target for the isolated shadow acceptance, never a product install.
     add_executable(ems_shadow_live_helper EXCLUDE_FROM_ALL tools/ems_shadow_live_helper.cpp)
     target_link_libraries(ems_shadow_live_helper PRIVATE edge_gateway pthread rt)
+    add_executable(display_private_point_fixture EXCLUDE_FROM_ALL tools/display_private_point_fixture.cpp)
+    target_link_libraries(display_private_point_fixture PRIVATE edge_gateway pthread rt)
+    add_executable(display_private_point_fixture_test EXCLUDE_FROM_ALL tools/display_private_point_fixture_test.cpp)
+    target_link_libraries(display_private_point_fixture_test PRIVATE edge_gateway pthread rt)
     add_executable(memory_point_store_migrate
         tools/memory_point_store_migrate.cpp src/memory_point_store_migration.cpp)
     target_link_libraries(memory_point_store_migrate PRIVATE pthread rt)

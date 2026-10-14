@@ -2269,7 +2269,11 @@ bool sameProductionQueryEvidence(const ProductionQueryEvidence& a, const Product
         a.transactionDev == b.transactionDev && a.transactionInode == b.transactionInode;
 }
 
-std::string productionCandidateForOriginalJob(const std::string& stagingDir,
+struct ProductionQueryIdentity {
+    std::string candidateSha256, parentSha256;
+};
+
+ProductionQueryIdentity productionCandidateForOriginalJob(const std::string& stagingDir,
     const PendingOtaJob& job, const json::JsonValue& handoff, const OtaHealthResult& otaHealth,
     std::size_t* displayReadBudget) {
     const std::string suffix = "/ota/staging";
@@ -2314,6 +2318,8 @@ std::string productionCandidateForOriginalJob(const std::string& stagingDir,
         pendingField(approval, "machineCode") != job.machineCode ||
         pendingField(candidate, "machineCode") != job.machineCode ||
         pendingField(candidate, "release") != job.version ||
+        pendingField(candidate, "parentSha256") != previousSha ||
+        pendingField(approval, "parentSha256") != previousSha ||
         !approval.find("candidate") || !approval.find("previous") ||
         !sameQueryJson(*approval.find("candidate"), candidate) ||
         !sameQueryJson(*approval.find("previous"), previous) ||
@@ -2350,7 +2356,7 @@ std::string productionCandidateForOriginalJob(const std::string& stagingDir,
     if (!sameProductionQueryEvidence(evidence,
         readProductionQueryEvidence(home, transaction, baselineId, healthy, displayReadBudget)))
         throw std::runtime_error("mixed production query generation");
-    return candidateSha;
+    return {candidateSha, previousSha};
 }
 #endif
 
@@ -2395,6 +2401,33 @@ bool legacyFinalForDisplay(const std::string& stagingDir, const std::string& job
             "OTA failed; rollback " + health.rollback;
         return true;
     } catch (const std::exception&) { return false; }
+}
+
+template <typename Challenge>
+void authenticateOriginalQuery(const Challenge& challenge, const OtaConfig& config,
+                               const std::string& expectedMachineCode) {
+    if (!config.requireSignature || config.querySigningPrivateKeyPath.empty())
+        throw OtaQueryRejected(OtaQueryFailure::KeyConfiguration);
+    if (challenge.machineCode != expectedMachineCode)
+        throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
+    try {
+        if (!ota_query_crypto::verifyChallenge(challenge, config.signaturePublicKeyPath))
+            throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
+    } catch (const ota_query_crypto::Error& error) {
+        switch (error.failure()) {
+        case ota_query_crypto::Failure::Key:
+            throw OtaQueryRejected(OtaQueryFailure::KeyConfiguration);
+        case ota_query_crypto::Failure::Library:
+            throw OtaQueryRejected(OtaQueryFailure::CryptoLibrary);
+        case ota_query_crypto::Failure::Operation:
+            throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
+        }
+        throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
+    }
+    const auto now = currentTimeMs();
+    if (now < 0 || (challenge.issuedAtMs > now && challenge.issuedAtMs - now > 30000) ||
+        challenge.expiresAtMs <= now)
+        throw OtaQueryRejected(OtaQueryFailure::Expired);
 }
 
 }  // namespace
@@ -2474,8 +2507,10 @@ OtaOriginalJobEvidence OtaService::readOriginalJobBounded(const std::string& job
                 result.outcome = "FAILED_ROLLED_BACK";
             if (result.outcome != "UNKNOWN") {
                 result.productionTransaction = transaction;
-                result.productionCandidateSha256 = productionCandidateForOriginalJob(
+                const auto production = productionCandidateForOriginalJob(
                     config_.stagingDir, job, handoff, health, displayReadBudget);
+                result.productionCandidateSha256 = production.candidateSha256;
+                result.productionParentSha256 = production.parentSha256;
             }
         } else if (phase == "CANCELLED" && !mayChange->asBool() &&
                    health.status == "failed" && health.rollback == "unchanged") {
@@ -2495,6 +2530,7 @@ OtaOriginalJobEvidence OtaService::readOriginalJobBounded(const std::string& job
             displayReadBudget)))
             throw std::runtime_error("mixed OTA query generation");
         result.machineCode = job.machineCode;
+        result.packageType = job.packageType;
         result.occurrenceId = job.token;
         result.version = job.version;
         result.artifactSha256 = job.artifactSha256;
@@ -2524,27 +2560,7 @@ OtaOriginalJobEvidence OtaService::readOriginalJob(const std::string& jobId,
 OtaQueryObservation OtaService::answerOriginalJobQuery(
     const OtaQueryChallenge& challenge, const std::string& expectedMachineCode) const {
     ota_query_protocol::validate(challenge);
-    if (!config_.requireSignature || config_.querySigningPrivateKeyPath.empty())
-        throw OtaQueryRejected(OtaQueryFailure::KeyConfiguration);
-    if (challenge.machineCode != expectedMachineCode)
-        throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
-    try {
-        if (!ota_query_crypto::verifyChallenge(challenge, config_.signaturePublicKeyPath))
-            throw OtaQueryRejected(OtaQueryFailure::Unauthenticated);
-    } catch (const ota_query_crypto::Error& error) {
-        switch (error.failure()) {
-        case ota_query_crypto::Failure::Key:
-            throw OtaQueryRejected(OtaQueryFailure::KeyConfiguration);
-        case ota_query_crypto::Failure::Library:
-            throw OtaQueryRejected(OtaQueryFailure::CryptoLibrary);
-        case ota_query_crypto::Failure::Operation:
-            throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
-        }
-        throw OtaQueryRejected(OtaQueryFailure::CryptoOperation);
-    }
-    const auto now = currentTimeMs();
-    if (challenge.issuedAtMs > now + 30000 || challenge.expiresAtMs <= now)
-        throw OtaQueryRejected(OtaQueryFailure::Expired);
+    authenticateOriginalQuery(challenge, config_, expectedMachineCode);
 
     OtaQueryObservation result;
     result.jobId = challenge.jobId;
@@ -2575,6 +2591,45 @@ OtaQueryObservation OtaService::answerOriginalJobQuery(
         result.healthTs = evidence.healthTs;
         if (committedProduction) {
             result.candidateSha256 = evidence.productionCandidateSha256;
+            result.transaction = evidence.productionTransaction;
+        }
+    }
+    try { result.signature = ota_query_crypto::signObservation(result, config_.querySigningPrivateKeyPath); }
+    catch (const std::exception&) { throw OtaQueryRejected(OtaQueryFailure::SigningUnavailable); }
+    return result;
+}
+
+OtaFullQueryObservation OtaService::answerOriginalJobQuery(
+    const OtaFullQueryChallenge& challenge, const std::string& expectedMachineCode) const {
+    ota_full_query_protocol::validate(challenge);
+    authenticateOriginalQuery(challenge, config_, expectedMachineCode);
+    OtaFullQueryObservation result;
+    result.jobId = challenge.jobId;
+    result.machineCode = challenge.machineCode;
+    result.nonce = challenge.nonce;
+    result.packageType = challenge.packageType;
+    result.version = challenge.version;
+    result.artifactSha256 = challenge.artifactSha256;
+    result.artifactSize = challenge.artifactSize;
+    result.outcome = "UNKNOWN";
+    const auto evidence = readOriginalJob(challenge.jobId);
+    const bool sameArtifact = evidence.jobId == challenge.jobId && evidence.machineCode == challenge.machineCode &&
+        evidence.packageType == "full" && evidence.version == challenge.version &&
+        evidence.artifactSha256 == challenge.artifactSha256 && evidence.artifactSize == challenge.artifactSize;
+    const bool committed = evidence.outcome == "HEALTHY_APPLIED" || evidence.outcome == "FAILED_ROLLED_BACK";
+    const bool productionBound = committed && ota_query_protocol::occurrence(evidence.occurrenceId) &&
+        ota_query_protocol::digest(evidence.productionCandidateSha256) &&
+        ota_query_protocol::digest(evidence.productionParentSha256) &&
+        evidence.productionTransaction == ota_full_query_protocol::transaction(challenge.jobId, evidence.occurrenceId);
+    if (sameArtifact && (evidence.outcome == "REJECTED_UNCHANGED" || productionBound)) {
+        result.outcome = evidence.outcome;
+        result.occurrenceId = evidence.occurrenceId;
+        result.intentSha256 = evidence.intentSha256;
+        result.healthSha256 = evidence.healthSha256;
+        result.healthTs = evidence.healthTs;
+        if (committed) {
+            result.candidateSha256 = evidence.productionCandidateSha256;
+            result.parentSha256 = evidence.productionParentSha256;
             result.transaction = evidence.productionTransaction;
         }
     }

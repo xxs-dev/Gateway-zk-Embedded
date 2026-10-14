@@ -15,6 +15,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -891,6 +892,10 @@ MemoryPointStore::MemoryPointStore(
     if (!isCompatibleSharedStoreVersion(createVersion)) {
         throw std::invalid_argument("shared memory runtime requires ABI 11; offline migration to a new segment is required");
     }
+    if (openMode == MemoryStoreOpenMode::CreateExclusive &&
+        (segmentName.empty() || segmentName.find('\0') != std::string::npos)) {
+        throw std::invalid_argument("exclusive shared memory requires an explicit non-NUL name");
+    }
 #ifdef _WIN32
     mappingHandle_ = openMode == MemoryStoreOpenMode::OpenExisting
         ? OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, segmentName_.c_str())
@@ -907,6 +912,11 @@ MemoryPointStore::MemoryPointStore(
     if (mappingHandle_ == nullptr) {
         throw std::runtime_error("shared memory open failed: " + segmentName_);
     }
+    if (openMode == MemoryStoreOpenMode::CreateExclusive && !createdMapping) {
+        CloseHandle(static_cast<HANDLE>(mappingHandle_));
+        mappingHandle_ = nullptr;
+        throw std::system_error(std::make_error_code(std::errc::file_exists), "exclusive shared memory create failed");
+    }
 
     sharedView_ = MapViewOfFile(static_cast<HANDLE>(mappingHandle_), FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedStoreLayout));
     if (sharedView_ == nullptr) {
@@ -919,12 +929,22 @@ MemoryPointStore::MemoryPointStore(
     mutexHandle_ = openMode == MemoryStoreOpenMode::OpenExisting
         ? OpenMutexA(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, mutexName.c_str())
         : CreateMutexA(nullptr, FALSE, mutexName.c_str());
+    const bool existingMutex = GetLastError() == ERROR_ALREADY_EXISTS;
     if (mutexHandle_ == nullptr) {
         UnmapViewOfFile(sharedView_);
         CloseHandle(static_cast<HANDLE>(mappingHandle_));
         sharedView_ = nullptr;
         mappingHandle_ = nullptr;
         throw std::runtime_error("CreateMutexA failed");
+    }
+    if (openMode == MemoryStoreOpenMode::CreateExclusive && existingMutex) {
+        UnmapViewOfFile(sharedView_);
+        CloseHandle(static_cast<HANDLE>(mutexHandle_));
+        CloseHandle(static_cast<HANDLE>(mappingHandle_));
+        sharedView_ = nullptr;
+        mutexHandle_ = nullptr;
+        mappingHandle_ = nullptr;
+        throw std::system_error(std::make_error_code(std::errc::file_exists), "exclusive shared memory mutex create failed");
     }
 
     try {
@@ -957,9 +977,14 @@ MemoryPointStore::MemoryPointStore(
         throw;
     }
 #else
-    const int flags = openMode == MemoryStoreOpenMode::OpenExisting ? O_RDWR : O_CREAT | O_RDWR;
+    const int flags = openMode == MemoryStoreOpenMode::OpenExisting ? O_RDWR :
+        openMode == MemoryStoreOpenMode::CreateExclusive ? O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW | O_CLOEXEC :
+        O_CREAT | O_RDWR;
     const int fd = shm_open(segmentName_.c_str(), flags, 0600);
     if (fd < 0) {
+        if (openMode == MemoryStoreOpenMode::CreateExclusive) {
+            throw std::system_error(errno, std::generic_category(), "exclusive shared memory create failed: " + segmentName_);
+        }
         throw std::runtime_error("shared memory open failed: " + segmentName_ + ": " + std::strerror(errno));
     }
     mappingHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(fd) + 1);
@@ -1148,9 +1173,10 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
     }
 
     const int existingFd = static_cast<int>(reinterpret_cast<std::intptr_t>(mappingHandle_) - 1);
-    const int currentFd = shm_open(segmentName_.c_str(), O_RDWR, 0600);
+    const int currentFd = shm_open(segmentName_.c_str(), openMode_ == MemoryStoreOpenMode::CreateExclusive
+        ? O_RDWR | O_NOFOLLOW | O_CLOEXEC : O_RDWR, 0600);
     if (currentFd < 0) {
-        if (openMode_ == MemoryStoreOpenMode::OpenExisting) {
+        if (openMode_ == MemoryStoreOpenMode::OpenExisting || openMode_ == MemoryStoreOpenMode::CreateExclusive) {
             throw std::runtime_error(
                 "required shared memory store disappeared: " + segmentName_ + ": " + std::strerror(errno)
             );
@@ -1164,7 +1190,7 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
     std::memset(&currentStat, 0, sizeof(currentStat));
     if (fstat(existingFd, &existingStat) != 0 || fstat(currentFd, &currentStat) != 0) {
         close(currentFd);
-        if (openMode_ == MemoryStoreOpenMode::OpenExisting) {
+        if (openMode_ == MemoryStoreOpenMode::OpenExisting || openMode_ == MemoryStoreOpenMode::CreateExclusive) {
             throw std::runtime_error("fstat failed while refreshing required shared memory mapping");
         }
         return;
@@ -1174,9 +1200,19 @@ void MemoryPointStore::refreshCurrentMappingLocked() const {
         existingStat.st_dev == currentStat.st_dev &&
         existingStat.st_ino == currentStat.st_ino &&
         existingStat.st_size == currentStat.st_size;
+    if (openMode_ == MemoryStoreOpenMode::CreateExclusive &&
+        (existingStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout)) ||
+         currentStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout)))) {
+        close(currentFd);
+        throw std::runtime_error("exclusive shared memory layout size changed: " + segmentName_);
+    }
     if (sameObject) {
         close(currentFd);
         return;
+    }
+    if (openMode_ == MemoryStoreOpenMode::CreateExclusive) {
+        close(currentFd);
+        throw std::runtime_error("exclusive shared memory identity or size changed: " + segmentName_);
     }
 
     if (currentStat.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
@@ -1224,6 +1260,15 @@ void MemoryPointStore::releaseOwnerClaims() {
     if (sharedView_ == nullptr) {
         return;
     }
+    if (openMode_ == MemoryStoreOpenMode::CreateExclusive) {
+        struct stat identity{};
+        if (mappingHandle_ == nullptr ||
+            fstat(static_cast<int>(reinterpret_cast<std::intptr_t>(mappingHandle_) - 1), &identity) != 0 ||
+            identity.st_size != static_cast<off_t>(sizeof(SharedStoreLayout))) {
+            // A shortened owned object cannot safely expose its mapped claim registry.
+            return;
+        }
+    }
 
     auto* layout = layoutFrom(sharedView_);
     try {
@@ -1269,6 +1314,9 @@ void MemoryPointStore::registerPoints(
 
 void MemoryPointStore::registerDevicePoints(const std::vector<DeviceConfig>& configs) {
     WriteLock lock(mutex_);
+    if (openMode_ == MemoryStoreOpenMode::CreateExclusive) {
+        refreshCurrentMappingLocked();
+    }
 
     struct PendingRegistration {
         std::string key;
@@ -1473,6 +1521,9 @@ Optional<ClusterAuthoritySnapshot> MemoryPointStore::clusterAuthority() const {
 
 void MemoryPointStore::putLatest(const PointValue& value) {
     WriteLock lock(mutex_);
+    if (openMode_ == MemoryStoreOpenMode::CreateExclusive) {
+        refreshCurrentMappingLocked();
+    }
     const auto key = buildKey(value.machineCode, value.meterCode, value.pointCode);
     keyToIndex_[key] = value.index;
     bindings_[value.index] = PointBinding{value.index, value.machineCode, value.meterCode, value.pointCode};

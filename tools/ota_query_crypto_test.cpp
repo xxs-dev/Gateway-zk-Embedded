@@ -7,6 +7,29 @@
 #include <unistd.h>
 
 int main(int argc, char** argv) {
+    if (argc >= 2 && std::string(argv[1]) == "--full") {
+        if (argc != 5) throw std::runtime_error("full bridge requires platform public, device private, full request signature");
+        edge_gateway::OtaFullQueryChallenge full{"QUERY_JOB", "GW_QUERY", std::string(64, 'b'), "full",
+            "2.0.0", std::string(64, 'a'), 13, 1700000000000, 1700000060000, ""};
+        std::ifstream input(argv[4]); input >> full.signature;
+        if (!edge_gateway::ota_query_crypto::verifyChallenge(full, argv[2]))
+            throw std::runtime_error("signed full platform challenge was rejected");
+        auto changed = full; changed.nonce = std::string(64, 'd');
+        if (edge_gateway::ota_query_crypto::verifyChallenge(changed, argv[2]))
+            throw std::runtime_error("tampered full challenge was accepted");
+        edge_gateway::OtaQueryChallenge old{full.jobId, full.machineCode, full.nonce, full.version,
+            full.artifactSha256, full.artifactSize, std::string(64, 'c'), full.issuedAtMs, full.expiresAtMs, full.signature};
+        if (edge_gateway::ota_query_crypto::verifyChallenge(old, argv[2]))
+            throw std::runtime_error("full signature was accepted in old query domain");
+        edge_gateway::OtaFullQueryObservation reply;
+        reply.jobId = full.jobId; reply.machineCode = full.machineCode; reply.nonce = full.nonce;
+        reply.packageType = full.packageType; reply.version = full.version;
+        reply.artifactSha256 = full.artifactSha256; reply.artifactSize = full.artifactSize;
+        reply.outcome = "UNKNOWN";
+        reply.signature = edge_gateway::ota_query_crypto::signObservation(reply, argv[3]);
+        std::cout << edge_gateway::ota_full_query_protocol::encodeObservation(reply) << '\n';
+        return 0;
+    }
     if (argc != 4) throw std::runtime_error("expected platform public, device private, request signature");
     edge_gateway::OtaQueryChallenge challenge{"JOB_1", "GW_TEST", std::string(64, 'b'),
         "2.0.0", std::string(64, 'a'), 13, std::string(64, 'c'),

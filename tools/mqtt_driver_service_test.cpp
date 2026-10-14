@@ -2866,6 +2866,22 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
         if (fixture.publisher->jsonTopics[i] == fixture.mqttConfig.otaQueryReplyTopic)
             replies.push_back(fixture.publisher->statusPayloads[i]);
     require(replies.size() == 1, "original-query-wire expected one signed reply");
+    const auto request = readFile(requestPath);
+    const auto requestJson = ota_request_json::parseRoot(request);
+    if (ota_request_json::stringField(requestJson, "format") == ota_full_query_protocol::requestFormat) {
+        const auto challenge = ota_full_query_protocol::parseChallenge(request);
+        const auto response = ota_request_json::parseRoot(replies.front());
+        require(response.asObject().values.size() == 17 &&
+            ota_request_json::stringField(response, "format") == ota_full_query_protocol::responseFormat &&
+            ota_request_json::stringField(response, "packageType") == "full" &&
+            ota_request_json::stringField(response, "jobId") == challenge.jobId &&
+            ota_request_json::stringField(response, "machineCode") == challenge.machineCode &&
+            ota_request_json::stringField(response, "nonce") == challenge.nonce &&
+            ota_request_json::stringField(response, "version") == challenge.version &&
+            ota_request_json::stringField(response, "artifactSha256") == challenge.artifactSha256 &&
+            ota_request_json::stringField(response, "artifactSize") == std::to_string(challenge.artifactSize),
+            "full wire response lost original query identity/type/artifact");
+    }
     if (outputPath.empty()) {
         std::cout << replies.front() << '\n';
     } else {
@@ -2876,10 +2892,52 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
     cleanupFixture(fixture);
 }
 
+void testFullOriginalJobQueryHandler(const std::string& requestPath, const std::string& expiredPath,
+                                    const std::string& publicKey, const std::string& privateKey,
+                                    const std::string& stagingDir) {
+    const auto full = ota_full_query_protocol::parseChallenge(readFile(requestPath));
+    require(ota_query_crypto::verifyChallenge(full, publicKey), "full request failed signature verification");
+    OtaQueryChallenge old{full.jobId, full.machineCode, full.nonce, full.version, full.artifactSha256,
+        full.artifactSize, std::string(64, 'c'), full.issuedAtMs, full.expiresAtMs, full.signature};
+    require(!ota_query_crypto::verifyChallenge(old, publicKey), "full request signature crossed old query domain");
+    OtaConfig ota;
+    ota.requireSignature = true; ota.stagingDir = stagingDir;
+    const auto root = std::filesystem::path(stagingDir).parent_path();
+    ota.downloadDir = (root / "unused-download").string(); ota.backupDir = (root / "unused-backup").string();
+    ota.applyScript = (root / "unused-apply").string(); ota.rollbackScript = (root / "unused-rollback").string();
+    ota.signaturePublicKeyPath = publicKey; ota.querySigningPrivateKeyPath = privateKey;
+    require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
+        "full handler negative fixture must have empty staging");
+    const auto answer = OtaService(ota).answerOriginalJobQuery(full, full.machineCode);
+    require(answer.outcome == "UNKNOWN" && answer.packageType == "full" && answer.version == full.version &&
+        answer.artifactSha256 == full.artifactSha256 && answer.artifactSize == full.artifactSize &&
+        answer.occurrenceId.empty() && answer.candidateSha256.empty() && answer.parentSha256.empty(),
+        "full UNKNOWN lost requested artifact or invented owner facts");
+    auto changed = full; changed.nonce[0] = changed.nonce[0] == 'a' ? 'b' : 'a';
+    bool rejected = false;
+    try { (void)OtaService(ota).answerOriginalJobQuery(changed, full.machineCode); }
+    catch (const OtaQueryRejected& error) { rejected = error.reason() == OtaQueryFailure::Unauthenticated; }
+    require(rejected, "schema-valid tampered full signature was not rejected as AUTH");
+    const auto expired = ota_full_query_protocol::parseChallenge(readFile(expiredPath));
+    require(ota_query_crypto::verifyChallenge(expired, publicKey), "expired full fixture signature invalid");
+    rejected = false;
+    try { (void)OtaService(ota).answerOriginalJobQuery(expired, expired.machineCode); }
+    catch (const OtaQueryRejected& error) { rejected = error.reason() == OtaQueryFailure::Expired; }
+    require(rejected, "valid signed expired full challenge did not fail EXPIRED");
+    require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
+        "full query wrote evidence or a lock");
+    runOriginalJobQueryWireBridge(requestPath, publicKey, privateKey, stagingDir, full.machineCode);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
+        if (argc >= 2 && std::string(argv[1]) == "--full-query-handler") {
+            require(argc == 7, "full-query-handler requires signed/expired full requests, keys, empty staging");
+            testFullOriginalJobQueryHandler(argv[2], argv[3], argv[4], argv[5], argv[6]);
+            return 0;
+        }
         if (argc >= 2 && std::string(argv[1]) == "--original-query-wire-bytes") {
             require(argc == 8, "original-query-wire-bytes requires request, keys, staging, machine, output");
             runOriginalJobQueryWireBridge(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);

@@ -2475,6 +2475,20 @@ void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
     const char* phase = "SCHEMA";
     try {
         const auto root = ota_request_json::parseRoot(payload);
+        if (ota_request_json::stringField(root, "format") == ota_full_query_protocol::requestFormat) {
+            const auto challenge = ota_full_query_protocol::parseChallenge(payload);
+            if (challenge.machineCode != mqttConfig_.topicMachineCode ||
+                machineCodes_.find(challenge.machineCode) == machineCodes_.end()) {
+                reportOtaQueryDiagnostic("TARGET");
+                return;
+            }
+            phase = "EVIDENCE";
+            const auto observation = otaService_->answerOriginalJobQuery(challenge, challenge.machineCode);
+            const auto encoded = ota_full_query_protocol::encodeObservation(observation);
+            phase = "PUBLISH";
+            publisher_->publishJsonMessage(mqttConfig_.otaQueryReplyTopic, encoded);
+            return;
+        }
         if (root.asObject().values.size() != 10) {
             reportOtaQueryDiagnostic("SCHEMA");
             return;

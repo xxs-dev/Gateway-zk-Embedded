@@ -170,12 +170,10 @@ std::vector<unsigned char> strictBase64(const std::string& value) {
     return bytes;
 }
 
-}  // namespace
-
-bool verifyChallenge(const OtaQueryChallenge& challenge, const std::string& publicKeyPath) {
-    const auto descriptor = ota_query_protocol::challengeDescriptor(challenge);
+bool verifyDescriptor(const std::string& descriptor, const std::string& encodedSignature,
+                      const std::string& publicKeyPath) {
     std::vector<unsigned char> signature;
-    try { signature = strictBase64(challenge.signature); }
+    try { signature = strictBase64(encodedSignature); }
     catch (const std::invalid_argument&) { return false; }
     auto key = loadKey(publicKeyPath, false);
     auto& api = crypto();
@@ -190,9 +188,7 @@ bool verifyChallenge(const OtaQueryChallenge& challenge, const std::string& publ
     return result == 1;
 }
 
-std::string signObservation(const OtaQueryObservation& observation,
-                            const std::string& privateKeyPath) {
-    const auto descriptor = ota_query_protocol::observationDescriptor(observation);
+std::string signDescriptor(const std::string& descriptor, const std::string& privateKeyPath) {
     auto key = loadKey(privateKeyPath, true);
     auto& api = crypto();
     CryptoObject context(api.digestContextNew(), api.digestContextFree);
@@ -214,11 +210,33 @@ std::string signObservation(const OtaQueryObservation& observation,
     return {reinterpret_cast<char*>(encoded.data()), static_cast<std::size_t>(length)};
 }
 
+}  // namespace
+
+bool verifyChallenge(const OtaQueryChallenge& challenge, const std::string& publicKeyPath) {
+    return verifyDescriptor(ota_query_protocol::challengeDescriptor(challenge), challenge.signature, publicKeyPath);
+}
+
+std::string signObservation(const OtaQueryObservation& observation, const std::string& privateKeyPath) {
+    return signDescriptor(ota_query_protocol::observationDescriptor(observation), privateKeyPath);
+}
+
+bool verifyChallenge(const OtaFullQueryChallenge& challenge, const std::string& publicKeyPath) {
+    return verifyDescriptor(ota_full_query_protocol::challengeDescriptor(challenge), challenge.signature, publicKeyPath);
+}
+
+std::string signObservation(const OtaFullQueryObservation& observation, const std::string& privateKeyPath) {
+    return signDescriptor(ota_full_query_protocol::observationDescriptor(observation), privateKeyPath);
+}
+
 }  // namespace edge_gateway::ota_query_crypto
 #else
 namespace edge_gateway::ota_query_crypto {
 bool verifyChallenge(const OtaQueryChallenge&, const std::string&) { return false; }
+bool verifyChallenge(const OtaFullQueryChallenge&, const std::string&) { return false; }
 std::string signObservation(const OtaQueryObservation&, const std::string&) {
+    throw std::runtime_error("OTA query signing is not available on Windows edge");
+}
+std::string signObservation(const OtaFullQueryObservation&, const std::string&) {
     throw std::runtime_error("OTA query signing is not available on Windows edge");
 }
 }  // namespace edge_gateway::ota_query_crypto

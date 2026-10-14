@@ -447,6 +447,21 @@ int main() {
     logicService.runOnce(1770000000600LL);
     require(readFile(runtimeGraph).find("updated-graph") != std::string::npos, "runtime logic graph should be writable through config apply");
 
+    const auto updatedGraph = readFile(runtimeGraph);
+    MqttIncomingMessage logicOperation;
+    logicOperation.type = MqttIncomingType::ConfigDeleteRequest;
+    logicOperation.payload = std::string("{\"requestId\":\"LOGIC_DELETE\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"path\":\"") +
+        runtimeGraph + "\"}";
+    logicPublisher->incoming.push_back(logicOperation);
+    logicService.runOnce(1770000000601LL);
+    require(configPullReplyPayload(*logicPublisher, mqtt.configDeleteReplyTopic).find("\"success\":true") != std::string::npos &&
+            ::access(runtimeGraph.c_str(), F_OK) != 0, "ordinary MQTT logic delete did not remove the graph");
+    logicOperation.type = MqttIncomingType::ConfigRestoreRequest;
+    logicPublisher->incoming.push_back(logicOperation);
+    logicService.runOnce(1770000000602LL);
+    require(configPullReplyPayload(*logicPublisher, mqtt.configRestoreReplyTopic).find("\"success\":true") != std::string::npos &&
+            readFile(runtimeGraph) == updatedGraph, "ordinary MQTT logic restore did not recover the backed-up graph");
+
     ensureDir(root + "/data");
     ensureDir(root + "/data/runtime-production");
     const auto identityPath = runtimeRoot + "/device_identity.json";

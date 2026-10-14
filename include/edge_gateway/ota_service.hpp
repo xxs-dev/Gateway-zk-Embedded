@@ -30,11 +30,13 @@ struct OtaOriginalJobEvidence {
     std::string jobId;
     std::string machineCode;
     std::string occurrenceId;
+    std::string packageType;
     std::string version;
     std::string artifactSha256;
     std::uint64_t artifactSize = 0;
     std::string productionTransaction;
     std::string productionCandidateSha256;
+    std::string productionParentSha256;
     std::string intentSha256;
     std::string healthSha256;
     std::int64_t healthTs = 0;
@@ -99,6 +101,8 @@ public:
                                           const std::string& expectedOccurrenceId) const;
     OtaQueryObservation answerOriginalJobQuery(const OtaQueryChallenge& challenge,
                                                const std::string& expectedMachineCode) const;
+    OtaFullQueryObservation answerOriginalJobQuery(const OtaFullQueryChallenge& challenge,
+                                                   const std::string& expectedMachineCode) const;
     OtaReadOnlyFinalStatuses loadFinalStatusesReadOnly(
         std::size_t displayReadBudget = 64 * 1024 * 1024) const;
     void clearPendingStatuses() const;
