@@ -72,7 +72,8 @@ class BootHealthPublicationTest(unittest.TestCase):
                       activation_capacity_preflight=lambda *args: None,
                       replace=lambda path, raw, mode: path.write_bytes(raw),
                       units_stopped=lambda units: require(not running[0], 'participant still running'),
-                      no_processes=lambda *args: require(not running[0], 'runtime still running'), no_mappings=lambda *args, **kw: None)
+                      no_processes=lambda *args: require(not running[0], 'runtime still running'),
+                      production_no_mappings=lambda *args: require(not running[0], 'runtime mappings still live'))
             exec(compile(ast.Module(body=functions, type_ignores=[]), str(SOURCE), 'exec'), ns)
             runtime = Runtime()
             with self.assertRaisesRegex(OSError, 'directory fsync'):
