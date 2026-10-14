@@ -87,10 +87,11 @@ void testModbusRtu() {
     require(client.readHoldingRegisters(2, 1, 1).size() == 1U,
             "Modbus RTU client did not recover after fault removal");
 
+    // The client can receive the response before the simulator increments its counter.
+    simulator.stop();
     const auto stats = simulator.stats();
     require(stats.requests >= 5U && stats.responses >= 5U,
             "Modbus RTU simulator statistics were not updated");
-    simulator.stop();
     std::remove(stateFile.c_str());
 }
 
@@ -143,10 +144,10 @@ void testDlt645() {
     require(!client.readData("2", point.read.dlt645Di).empty(),
             "DL/T 645 client did not recover after fault removal");
 
+    simulator.stop();
     const auto stats = simulator.stats();
     require(stats.requests >= 5U && stats.responses >= 5U,
             "DL/T 645 simulator statistics were not updated");
-    simulator.stop();
     std::remove(stateFile.c_str());
 }
 #endif
