@@ -162,6 +162,30 @@ def regular(path):
     return path
 
 
+def tmpfs_mount(path):
+    require(path.is_absolute() and path.resolve() == path, 'canonical tmpfs path required')
+    proc = Path('/proc') / str(os.getpid())
+    fd = os.open(str(path), os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        fields = dict(line.split(':', 1) for line in regular(proc / 'fdinfo' / str(fd)).read_text().splitlines())
+        mount_id = fields.get('mnt_id', '').strip()
+        require(re.fullmatch(r'[1-9][0-9]*', mount_id), 'kernel tmpfs mount identity unavailable')
+        rows = [line.split() for line in regular(proc / 'mountinfo').read_text().splitlines()]
+        visible = [row for row in rows if row and row[0] == mount_id]
+        meta = os.fstat(fd)
+        # Hidden overmount layers share the path, not the opened mount ID.
+        require(len(visible) == 1 and len(visible[0]) > 8, 'exact tmpfs mount required')
+        row = visible[0]
+        mount_path = re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), row[4])
+        require(mount_path == str(path) and row[2] == '%d:%d' % (os.major(meta.st_dev), os.minor(meta.st_dev)) and
+                '-' in row and row.index('-') + 1 < len(row) and row[row.index('-') + 1] == 'tmpfs',
+                'exact tmpfs mount required')
+        current = path.stat()
+        require((current.st_dev, current.st_ino) == (meta.st_dev, meta.st_ino), 'tmpfs mount changed while checking')
+    finally:
+        os.close(fd)
+
+
 def digest(path):
     result = hashlib.sha256()
     with regular(path).open('rb') as stream:
@@ -2240,10 +2264,7 @@ class ProductionRuntime:
         shm = Path('/dev/shm')
         require(shm.is_dir() and not shm.is_symlink() and shm.resolve() == shm and shm.stat().st_uid == 0,
                 'native boot tmpfs directory is not trusted')
-        mounts = [line.split() for line in regular(Path('/proc/self/mountinfo')).read_text().splitlines()]
-        require(sum(1 for row in mounts if len(row) > 8 and row[4] == '/dev/shm' and
-                    '-' in row and row[row.index('-') + 1] == 'tmpfs') == 1,
-                'native boot requires exact /dev/shm tmpfs mount')
+        tmpfs_mount(shm)
         source = guard.production_json(source_record)
         require(source == baseline, 'native boot source differs from approved baseline')
         relative = str(source_record.relative_to(self.root))

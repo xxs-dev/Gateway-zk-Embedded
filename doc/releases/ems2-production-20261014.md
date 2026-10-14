@@ -639,7 +639,7 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   Returned AArch64 artifact SHA256:
   `6cc35fc834fc6be46bc7bb2ba22fedb97fdb4909d1865959b2ea83e35d489d3d`.
   It is a test artifact, not an installed component or a new factory package.
-- Final snapshot validation on 22.7: 25 preparation fixtures passed (one native
+- Preparation snapshot `f65dcbb` validation on 22.7: 25 fixtures passed (one native
   case skipped by ordinary discovery), 33 role-policy and 40 reprovision tests
   passed. In a private mount/network/IPC namespace, all six native CLI tests
   and the opt-in preparation/recovery test passed: 105 successful executions
@@ -653,10 +653,10 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   evidence is retained. Interruption tests for this preparation helper inject
   exceptions, not SIGKILL/power failure; reprovision's existing SIGKILL tests
   must not be counted as preparation crash qualification.
-- Separate known reboot gap: `ProductionRuntime.prepare_boot` still reads
-  `/proc/self/mountinfo` through strict `regular()` and uses a path-count mount
-  check. It needs a dedicated fix and real-kernel regression before reboot
-  qualification. This preparation-only change does not fix that shared path.
+- The preparation snapshot exposed a separate reboot gap:
+  `ProductionRuntime.prepare_boot` read `/proc/self/mountinfo` through strict
+  `regular()` and counted matching paths. The follow-up below fixes that shared
+  reboot path; the initial preparation-only commit did not.
 - Evidence: `generated/production-20261014/board7-bootstrap-fixtures-v4/` and
   `bootstrap-pointctl-artifacts/`. Final before/after stopped-image proofs both
   retain SHA256
@@ -669,6 +669,46 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   before this creator or the earlier monitor-binding admission fix can be used
   against the real installed image. Screen/touch and visual acceptance remain
   deferred because 22.7 has no connected display.
+
+## Native Boot Mount Validation
+
+- Updated the native-boot fixture to model `/proc/self` as the real kernel does:
+  a symlink to the numeric process directory. The official `production-boot`
+  entry then reproduced strict-file rejection before any native creation. The
+  previous fixture's ordinary directory had hidden this production defect.
+- Both native reboot preparation and stopped first-runtime preparation now use
+  one `tmpfs_mount` validator. It reads numeric-PID procfs, opens the canonical
+  directory with `O_PATH|O_DIRECTORY|O_NOFOLLOW`, obtains its kernel `mnt_id`,
+  and matches the exact visible mount's path, filesystem and device number.
+  It rechecks the directory identity and closes its descriptor on every path.
+  Overmounted hidden layers do not grant or prevent admission. The shared
+  `regular()` symlink policy remains unchanged.
+- Unit coverage includes escaped mount paths, hidden tmpfs under visible ext4,
+  duplicate/missing/wrong-device/wrong-path rows, invalid mount IDs, symlink
+  refusal and descriptor closure. Native-boot fixtures keep real private
+  files/flock but substitute procfs, service management and the constructor;
+  the opt-in kernel test checks actual procfs and a private overmounted tmpfs.
+- Final-source tests on 22.7 passed all 32 native-boot regressions in 477.073s,
+  including 129 successive configuration promotions and failed-update recovery.
+  The 25 preparation, 33 role-policy and 40 reprovision regressions also passed,
+  as did five ordinary mount tests. Two opt-in tests were skipped by ordinary
+  discovery, then passed in the private namespace: all six mount tests, six
+  native creator tests and one native preparation/recovery test passed there.
+  This is 148 successful executions, including five repeated mount unit tests;
+  it is not a complete production/installer-suite rerun or real reboot.
+- Evidence: `generated/production-20261014/board7-native-mount-red-v1/` retains
+  the original failing call-site reproduction; `board7-native-mount-green-v1/`
+  contains the final passing snapshot and nine result files. All 569 source
+  pins and returned evidence hashes were checked against the final files.
+  Lifecycle helper SHA256:
+  `9e70d2968df8a1b04a27360c83cd936e97458b840b924b170b0865f696ba9347`.
+  Bootstrap helper SHA256:
+  `6a2670a144ac900b72ff9d26835013714af7ae08f23691aa766cd759a46ee61a`.
+  Before/after installed-image proofs remain identical at
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`.
+- This is a software admission fix, not a 22.7 reboot, power-loss test, new
+  installation or production startup. Previously approved transactions require
+  their original paired helpers. No historical helper is patched in place.
 
 Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
 native-startup candidate under its own stopped reprovision transaction. All

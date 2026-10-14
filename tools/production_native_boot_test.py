@@ -79,7 +79,19 @@ class NativeBootTest(unittest.TestCase):
         for name in ('retired_v10', 'live_v11'): f.path('/dev/shm', name).unlink()
         shutil.rmtree(f.path('/run')); f.path('/run').mkdir(mode=0o755)
         f.write(f.path('/proc/sys/kernel/random/boot_id'), 'NATIVE_BOOT_2\n')
-        f.write(f.path('/proc/self/mountinfo'), '1 0 0:1 / /dev/shm rw - tmpfs shm rw\n')
+        self.mountinfo = f.path('/proc') / str(os.getpid()) / 'mountinfo'
+        shm = f.path('/dev/shm')
+        device = shm.stat().st_dev
+        self.mount_row = '1 0 %d:%d / %s rw - {kind} shm rw\n' % (os.major(device), os.minor(device), shm)
+        f.write(self.mountinfo, self.mount_row.format(kind='tmpfs'))
+        f.path('/proc/self').symlink_to(str(os.getpid()), target_is_directory=True)
+        original_open = os.open
+        def opened(path, flags, *args, **kwargs):
+            fd = original_open(path, flags, *args, **kwargs)
+            if str(path) == str(shm) and flags & os.O_PATH:
+                f.write(f.path('/proc') / str(os.getpid()) / 'fdinfo' / str(fd), 'mnt_id:\t1\n')
+            return fd
+        f.patch(f.m.os, 'open', opened)
         self.native_calls = []
         self.prepare_calls = []
         self.failure = None
@@ -599,10 +611,10 @@ class NativeBootTest(unittest.TestCase):
 
     def test_not_tmpfs_or_held_lock_refuses_before_native_call(self):
         f = self.f
-        f.write(f.path('/proc/self/mountinfo'), '1 0 0:1 / /dev/shm rw - ext4 disk rw\n')
+        f.write(self.mountinfo, self.mount_row.format(kind='ext4'))
         with self.assertRaisesRegex(ValueError, 'tmpfs'): self.boot()
         self.assert_unadmitted()
-        f.write(f.path('/proc/self/mountinfo'), '1 0 0:1 / /dev/shm rw - tmpfs shm rw\n')
+        f.write(self.mountinfo, self.mount_row.format(kind='tmpfs'))
         with f.m.production_lock():
             with self.assertRaises(BlockingIOError): self.boot()
         self.assert_unadmitted()

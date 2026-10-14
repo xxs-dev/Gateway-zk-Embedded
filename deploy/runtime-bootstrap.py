@@ -197,14 +197,7 @@ def retained(approval):
 
 
 def capacity(approval, count):
-    mounts = [line.split() for line in
-              lifecycle.regular(Path('/proc') / str(os.getpid()) / 'mountinfo').read_text().splitlines()]
-    # Overmounted paths can have multiple rows; only the opened directory's
-    # mount ID identifies the tmpfs whose free space we are about to use.
-    mount_id = str(reprovision.mount_id(SHM))
-    require(sum(1 for row in mounts if len(row) > 8 and row[0] == mount_id and row[4] == str(SHM) and
-                '-' in row and row[row.index('-') + 1] == 'tmpfs') == 1,
-            'bootstrap requires exact SHM tmpfs mount')
+    lifecycle.tmpfs_mount(SHM)
     page = os.sysconf('SC_PAGE_SIZE')
     size = ((guard.POINT_STORE_SIZES[11] + page - 1) // page) * page
     available = os.statvfs(SHM)

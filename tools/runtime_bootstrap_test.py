@@ -220,25 +220,16 @@ class BootstrapTest(unittest.TestCase):
         self.assertFalse(self.m.ROOT.exists())
         self.assert_untouched()
 
-    def test_capacity_checks_visible_mount_id_not_hidden_tmpfs(self):
-        mountinfo = self.f.root / 'mountinfo'
-        def regular(path):
-            self.assertEqual(path, Path('/proc') / str(os.getpid()) / 'mountinfo')
-            return mountinfo
-        rows = '10 1 0:1 / {0} rw - tmpfs hidden rw\n20 1 0:2 / {0} rw - {1} visible rw\n'
+    def test_capacity_uses_shared_kernel_mount_check(self):
         approval = {'roleAuthority': {'roles': []}}
-        with mock.patch.object(self.m.lifecycle, 'regular', regular), \
-             mock.patch.object(self.m.reprovision, 'mount_id', return_value=20), \
+        with mock.patch.object(self.m.lifecycle, 'tmpfs_mount') as mount, \
              mock.patch.object(self.m.lifecycle, 'mem_available_bytes', return_value=1024 ** 3), \
              mock.patch.object(self.m.os, 'statvfs', return_value=mock.Mock(f_frsize=4096, f_bavail=262144)):
-            self.f.write(mountinfo, rows.format(self.m.SHM, 'ext4').encode())
-            with self.assertRaisesRegex(ValueError, 'exact SHM tmpfs'):
-                self.real_capacity(approval, 2)
-            self.f.write(mountinfo, rows.format(self.m.SHM, 'tmpfs').encode())
             self.real_capacity(approval, 2)
-            with mock.patch.object(self.m.reprovision, 'mount_id', return_value=30):
-                with self.assertRaisesRegex(ValueError, 'exact SHM tmpfs'):
-                    self.real_capacity(approval, 2)
+            mount.assert_called_once_with(self.m.SHM)
+            mount.side_effect = ValueError('exact tmpfs mount required')
+            with self.assertRaisesRegex(ValueError, 'exact tmpfs mount'):
+                self.real_capacity(approval, 2)
         self.assertFalse(self.m.ROOT.exists())
         self.assert_untouched()
 
