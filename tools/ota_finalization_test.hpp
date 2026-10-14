@@ -106,8 +106,14 @@ void verifySuccessfulFinalization(const std::string& mode) {
             require(audit.find("jobId")->asString() == "FINAL_JOB" &&
                 audit.find("token")->asString() == own.find("token")->asString() &&
                 audit.find("version")->asString() == "2.0.0", "audit must bind immutable own identity");
-            require(audit.find("finalState")->asString() == (committed ? "committed" : "unknown"),
+            const auto expectedState = mode == "journal" || mode == "health-journal" ? "delivery-pending" :
+                (committed ? "committed" : "unknown");
+            require(audit.find("finalState")->asString() == expectedState,
                 "audit must distinguish committed terminal from unknown finalization");
+            if (std::string(expectedState) == "delivery-pending")
+                require(audit.find("reason")->asString() == "ota-terminal-outbox-v1" &&
+                        audit.find("phase")->asString() == "terminal-journal",
+                        "delivery failure must retain its durable terminal outbox intent");
             require(auditBytes.find("secret.invalid") == std::string::npos && auditBytes.find(root) == std::string::npos,
                 "audit must exclude artifact paths and exception secrets");
         }

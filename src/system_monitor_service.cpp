@@ -1403,7 +1403,16 @@ std::string latestBackupPathFor(const std::string& path) {
     std::string bestName;
     while (auto* entry = readdir(handle)) {
         const std::string name = entry->d_name;
-        if (startsWith(name, prefix) && (bestName.empty() || name > bestName)) {
+        if (!startsWith(name, prefix) || name.size() == prefix.size() ||
+            !std::all_of(name.begin() + prefix.size(), name.end(), [](char ch) { return ch >= '0' && ch <= '9'; })) continue;
+        const auto candidate = dir == "." ? name : dir + "/" + name;
+        struct stat info {};
+#ifndef _WIN32
+        if (lstat(candidate.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_nlink != 1) continue;
+#else
+        if (stat(candidate.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) continue;
+#endif
+        if (bestName.empty() || name > bestName) {
             bestName = name;
         }
     }
@@ -1412,6 +1421,25 @@ std::string latestBackupPathFor(const std::string& path) {
         return std::string();
     }
     return dir == "." ? bestName : dir + "/" + bestName;
+}
+
+bool isRestorableDeletedLogicPath(const std::vector<std::string>& configFiles, const std::string& path) {
+#ifndef _WIN32
+    if (path.empty() || path.front() != '/' || path.find("..") != std::string::npos ||
+        !isRuntimeLogicSnapshotFile(path)) return false;
+    struct stat info {};
+    if (lstat(path.c_str(), &info) == 0 || errno != ENOENT) return false;
+    const auto parent = dirName(path);
+    char resolved[PATH_MAX] {};
+    if (realpath(parent.c_str(), resolved) == nullptr || parent != resolved) return false;
+    for (const auto& root : logicRootsFromConfigFiles(configFiles)) {
+        if (isPathInsideDirectory(path, root) && !latestBackupPathFor(path).empty()) return true;
+    }
+#else
+    (void)configFiles;
+    (void)path;
+#endif
+    return false;
 }
 
 void restartGatewayServicesLater() {
@@ -3232,7 +3260,8 @@ std::string SystemMonitorService::buildConfigFileOperationReply(
         throw std::runtime_error("production config mutation requires an approved provision transaction");
     }
     const auto allowedConfigFiles = collectConfigSnapshotFiles(configFiles_);
-    if (!isAllowedConfigPath(allowedConfigFiles, path)) {
+    if (!isAllowedConfigPath(allowedConfigFiles, path) &&
+        !(operation == "restore" && isRestorableDeletedLogicPath(configFiles_, path))) {
         throw std::runtime_error("path is not allowed");
     }
 

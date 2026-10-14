@@ -462,6 +462,28 @@ int main() {
     require(configPullReplyPayload(*logicPublisher, mqtt.configRestoreReplyTopic).find("\"success\":true") != std::string::npos &&
             readFile(runtimeGraph) == updatedGraph, "ordinary MQTT logic restore did not recover the backed-up graph");
 
+    const auto untrustedLogic = root + "/outside/config/runtime/logic";
+    ensureDir(root + "/outside"); ensureDir(root + "/outside/config");
+    ensureDir(root + "/outside/config/runtime"); ensureDir(untrustedLogic);
+    writeFile(untrustedLogic + "/outside.json.bak.9999999999999", updatedGraph);
+    const auto logicRoot = runtimeRoot + "/logic";
+    require(symlink(untrustedLogic.c_str(), (logicRoot + "/redirect").c_str()) == 0, "create restore parent symlink");
+    require(symlink((untrustedLogic + "/outside.json.bak.9999999999999").c_str(),
+                    (logicRoot + "/linked.json.bak.9999999999999").c_str()) == 0, "create restore backup symlink");
+    for (const auto& denied : {logicRoot + "/missing.json", untrustedLogic + "/outside.json",
+                             logicRoot + "/redirect/outside.json", logicRoot + "/linked.json",
+                             logicRoot + "/../logic/linked.json"}) {
+        logicOperation.payload = std::string("{\"requestId\":\"DENIED_RESTORE\",\"machineCode\":\"GW_TEST\",\"dryRun\":false,\"path\":\"") + denied + "\"}";
+        logicPublisher->incoming.push_back(logicOperation);
+        logicService.runOnce(1770000000603LL);
+        require(configPullReplyPayload(*logicPublisher, mqtt.configRestoreReplyTopic).find("\"success\":false") != std::string::npos &&
+                ::access(denied.c_str(), F_OK) != 0, "restore escaped authorized regular backup scope");
+    }
+    require(readFile(runtimeGraph) == updatedGraph, "denied restore changed the valid graph");
+    require(unlink((logicRoot + "/redirect").c_str()) == 0 &&
+            unlink((logicRoot + "/linked.json.bak.9999999999999").c_str()) == 0,
+            "remove private restore symlinks");
+
     ensureDir(root + "/data");
     ensureDir(root + "/data/runtime-production");
     const auto identityPath = runtimeRoot + "/device_identity.json";
