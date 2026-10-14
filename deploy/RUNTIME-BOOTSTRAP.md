@@ -206,3 +206,33 @@ flock and real guard/lifecycle code. The manager, endpoint health and native ABI
 constructor are substituted. Its SIGKILL cases test process interruption, not
 power loss or storage durability. Simulated boot-ID/SHM changes are not an OS
 reboot, hardware qualification, physical-output test or visual acceptance.
+
+## Isolated Native CLI Test
+
+`tools/runtime_bootstrap_cli_test.py` is an opt-in AArch64 integration fixture.
+It runs the unmodified installer, reprovision, preparation, activation and
+ordinary upgrade/recovery command lines with factory-packaged pointctl,
+SystemMonitor and offscreen Qt. Process identity, executable hashes, kernel
+flock, native store construction/mappings and HTTP health are real. Only the
+service manager is a test double; this is not canonical systemd acceptance.
+
+The caller provides a new root-owned 0700 `/srv/gateway-bootstrap-cli-<id>`
+directory containing `factory.tar.gz`, its paired `tools.tar.gz`,
+`ems2.kyscada` and an `inputs.json` SHA256 map, including `entry.py`. Run the
+entry with `--root` only inside a bounded transient systemd sandbox: read-only
+host filesystem except this directory, private devices, NoNewPrivileges,
+restricted socket families and only SYS_ADMIN/SYS_CHROOT/NET_ADMIN/SETPCAP
+setup capabilities. The entry creates private mount/network/IPC/PID namespaces
+and a chroot, then drops all setup capabilities before any installation or
+native execution. It refuses nonzero capabilities, missing seccomp, exposed
+manager sockets, host devices or non-loopback network routes.
+
+The fixture uses separate stores for failed and healthy first activation,
+checks wrong approval hashes, stopped recovery and post-commit recovery, then
+exercises a configuration promotion and a deliberately unreachable health
+endpoint followed by rollback. Focused regressions run against the actual
+factory-staged helpers, whose CORE test admission remains disabled. The private
+installation and evidence are retained. Its generated signing key belongs only
+to this chroot and must never become the device's production OTA trust. Inspect
+before/after canonical installation proofs as well as the fixture result;
+passing this fixture does not accept reboot, power loss, a screen or field I/O.

@@ -781,6 +781,85 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   Approved production OTA public key and HTTPS origins are still outstanding;
   fixture trust has not been installed as production trust.
 
+## First Runtime Factory And Native CLI
+
+- Built clean source `dfb8108f1ca96e6e79508096ed33fdcb6c2ea9ac` on 22.11 in
+  `/srv/build/gateway-first-runtime-dfb8108-20261014`, using the actual Allwinner
+  Linaro 6.3.1 toolchain. The shared source checkout was not changed. The edge
+  binaries, native Qt and matching access/Lanhu tests completed successfully.
+- Returned factory package `gateway-ems2-bootstrap-dfb8108.tar.gz` SHA256:
+  `f75589c6f663cda39c8bc472556ac078242c74e8412d2daccec73d9bb4d4e6e8`.
+  All 18 AArch64 components, resource hashes/sizes, archive root ownership and
+  non-writable-to-others modes were verified. Native Qt SHA256 is
+  `bff01f6c61a681659112b71e296e1cc0f73fd7a79b2af97e5d2905db6df71929`.
+- Returned paired tools package `gateway-bootstrap-tools-dfb8108.tar.gz`
+  SHA256: `bb9bf473f05ee0eab2012e52fa03d36362358de5da928d56e16396ebe26db9bf`.
+  All 367 file pins and the four factory-paired helpers were checked. The
+  factory-staged lifecycle helper has CORE test admission disabled and SHA256
+  `1c63b18cf87a4903fbfc5db4d0365e5595644930e4a3a3d85ac27182305a72f6`;
+  this intentionally differs from its raw source hash. Artifacts and manifests
+  are in `generated/production-20261014/artifacts-dfb8108/`.
+- Added the opt-in `tools/runtime_bootstrap_cli_test.py`. It installs the exact
+  factory and EMS 2.0 project, verifies all 18 components/dependencies, then
+  executes unmodified stopped reprovision, preparation and activation helpers.
+  Private mount/network/IPC/PID namespaces, chroot/procfs/devices, zero runtime
+  capabilities, NoNewPrivileges, seccomp and denied raw/CAN sockets separate it
+  from the host installation and physical interfaces. Fixture signature trust
+  exists only inside the private chroot, never as host production trust.
+- The service manager is a test double. Native pointctl creation, Monitor and
+  Qt execution, guard/flock/owner checks, process/executable identity, native
+  SHM mappings and the HTTP health endpoint are real. This does not qualify
+  canonical systemd startup, automatic restart, OS reboot or power loss.
+- V1-V4 retained failures were test-environment defects: prohibited mknod,
+  older setpriv capability-list syntax, missing chroot alternatives symlinks
+  and omitted monitor-instance registration. The fixture was corrected without
+  changing production admission or installed device files.
+- V5 passed both first-activation paths in 663.263s: wrong approval hash
+  refusal; real native start followed by the deliberately unreachable health
+  endpoint; restoration of stopped original directories and repeat recovery;
+  then fresh stores, healthy generation-one promotion and post-commit recovery.
+  The failure assertion requires the specific endpoint error and all intended
+  starts, not just a nonzero command exit. All 29 returned evidence-file hashes
+  were checked. Evidence: `board7-bootstrap-cli-dfb8108-v5/` under the generated
+  production directory. Later fixture extensions are not covered by this run.
+- Final V6 passed in 1469.828s. It repeats both activation paths and adds an
+  ordinary configuration promotion to generation two, followed by a changed
+  Monitor listen port that causes the original health URL to fail. Explicit
+  recovery restores the previous configuration/baseline and real native
+  process health. Successful promotion recovery does not roll it back. This
+  tests configuration updates with unchanged binaries/ABI, not a binary upgrade
+  or a production systemd transaction. All 41 returned files and the exact
+  executed test source were hash-checked; source SHA256 is
+  `540c52f53a7cea9eda7e60e0ca4892d9d5d86225accb6e3fbfbbab24d15491ed`.
+- V6 also ran the packaged/staged helpers' regressions: 21 activation tests in
+  117.610s, 25 preparation tests in 42.079s, 33 role-policy tests in 1.794s and
+  17 monitor-binding tests in 0.127s. That is 96 passes plus one opt-in native
+  preparation test skipped by discovery. The actual native constructor was
+  exercised independently by this run's CLI cases; the skipped unit case is
+  not counted as passed. This is not the full production/installer suite.
+  Evidence: `board7-bootstrap-cli-dfb8108-v6/`. V1-V6 input script snapshots
+  are retained with their exact input-manifest hashes.
+- The matching AArch64 access and Lanhu tests passed on 22.7 against the
+  installed 2.0.14-lanhu project. Eleven synthetic topology/login screenshots
+  and three logs/isolation records were returned and hash-checked in
+  `board7-native-qt-dfb8108/`. These are not field values or physical-screen
+  acceptance. No UI-source change was needed in this step.
+- The initial access-test invocation omitted its optional asset directory,
+  producing an empty-logo pixmap warning. The `assets-v2` rerun passes the
+  installed login assets explicitly: both tests passed again in 16.234s with
+  no null-pixmap warning. All four login asset hashes match the pinned project
+  package. Thirteen screenshots and three log/isolation files were returned;
+  login images at 1440x810 and 800x600 were visually inspected. Evidence:
+  `board7-native-qt-dfb8108-assets-v2/`. The consolidated checked result is
+  `artifacts-dfb8108/verification-summary.json`.
+- The V5/V6 and final Qt before/after canonical installation proof remains
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`:
+  installed components, original/previous images, loaded STOP/fences and host
+  SHM metadata are unchanged, with no remaining business process. The new
+  factory candidate has not replaced the installed `3e0c45b` image. 22.6 was
+  untouched and no physical-control output occurred. Approved production OTA
+  trust remains outstanding.
+
 Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
 native-startup candidate under its own stopped reprovision transaction. All
 canonical gateway/EMS business services remain stopped; the installed UI is
