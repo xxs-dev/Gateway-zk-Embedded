@@ -43,6 +43,23 @@ public:
     std::vector<edge_gateway::MqttIncomingMessage> incoming;
 };
 
+int countDirectStatus(const std::string& bytes, const std::string& jobId, const std::string& stage) {
+    std::istringstream rows(bytes);
+    std::string row;
+    int count = 0;
+    while (std::getline(rows, row)) {
+        try {
+            const auto value = edge_gateway::ota_request_json::parseRoot(row);
+            if (edge_gateway::ota_request_json::stringField(value, "jobId") == jobId &&
+                edge_gateway::ota_request_json::stringField(value, "machineCode") == "GW_TEST" &&
+                edge_gateway::ota_request_json::stringField(value, "stage") == stage) ++count;
+        } catch (const std::exception&) {
+            // The asynchronous worker may still be writing the last JSONL row.
+        }
+    }
+    return count;
+}
+
 void verifyOtaRootParsing() {
     using namespace edge_gateway::ota_request_json;
     const auto root = parseRoot("{\"nested\":{\"jobId\":\"FAKE\",\"machineCode\":\"WRONG\"},"
@@ -211,7 +228,7 @@ void verifyOtaDuplicateIngress(bool directFirst, bool invalidDuplicate, bool pub
         if (lateDirectRefusal) {
             // The fake downloader is gated; no network requests are made.
             writeFixtureFile(root + "/download-release", "release\n");
-            for (int i = 0; i < 500 && readFile(direct.otaStatusFile).find("\"stage\":\"failed\"") == std::string::npos; ++i)
+            for (int i = 0; i < 500 && countDirectStatus(readFile(direct.otaStatusFile), "LATE_DIRECT", "failed") == 0; ++i)
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         const auto intent = readFile(config.stagingDir + "/ota_job_SHARED.json");
@@ -226,7 +243,7 @@ void verifyOtaDuplicateIngress(bool directFirst, bool invalidDuplicate, bool pub
         sendMqtt(payload("DIFFERENT_BUSY", false));
         const auto directStatuses = readFile(direct.otaStatusFile);
         const bool rejectedOnly = publisher->negativeReplies("SHARED") == 0 && publisher->failedStatuses("SHARED") == 0 &&
-            (lateDirectRefusal ? (directStatuses.find("\"jobId\":\"LATE_DIRECT\",\"machineCode\":\"GW_TEST\",\"stage\":\"failed\"") != std::string::npos &&
+            (lateDirectRefusal ? (countDirectStatus(directStatuses, "LATE_DIRECT", "failed") == 1 &&
                                   countStage(edge_gateway::OtaService(config).loadPendingStatuses(), "LATE_DIRECT", "failed") == 1 &&
                                   readFile(config.stagingDir + "/ota_job_LATE_DIRECT.json").empty()) :
                                  directStatuses.find("\"stage\":\"failed\"") == std::string::npos) &&
