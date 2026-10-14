@@ -4,7 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include "edge_gateway/filesystem_compat.hpp"
 #include <functional>
 #include <iostream>
@@ -2731,12 +2731,12 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     require(foreignTargetRejected, "foreign query target was not rejected as unauthenticated");
     require(OtaService(ota).answerOriginalJobQuery(challenge, "GW_TEST").outcome == "UNKNOWN",
         "direct original-job query did not sign unknown evidence");
-    require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
+    require(edge_gateway::filesystem::directory_iterator(stagingDir) == edge_gateway::filesystem::directory_iterator(),
         "query staging must start empty");
     fixture.service->runScanOnce(1000);
     const auto snapshot = [&] {
         std::vector<std::pair<std::string, std::string>> files;
-        for (const auto& item : std::filesystem::directory_iterator(stagingDir))
+        for (const auto& item : edge_gateway::filesystem::directory_iterator(stagingDir))
             files.emplace_back(item.path().filename().string(), readFile(item.path().string()));
         std::sort(files.begin(), files.end());
         return files;
@@ -2844,7 +2844,7 @@ void runOriginalJobQueryWireBridge(const std::string& requestPath,
     ota.enabled = true;
     ota.requireSignature = true;
     ota.stagingDir = stagingDir;
-    const auto privateRoot = std::filesystem::path(stagingDir).parent_path();
+    const auto privateRoot = edge_gateway::filesystem::path(stagingDir).parent_path();
     ota.downloadDir = (privateRoot / "query-unused-downloads").string();
     ota.backupDir = (privateRoot / "query-unused-backup").string();
     ota.applyScript = (privateRoot / "query-unused-apply.sh").string();
@@ -2902,11 +2902,11 @@ void testFullOriginalJobQueryHandler(const std::string& requestPath, const std::
     require(!ota_query_crypto::verifyChallenge(old, publicKey), "full request signature crossed old query domain");
     OtaConfig ota;
     ota.requireSignature = true; ota.stagingDir = stagingDir;
-    const auto root = std::filesystem::path(stagingDir).parent_path();
+    const auto root = edge_gateway::filesystem::path(stagingDir).parent_path();
     ota.downloadDir = (root / "unused-download").string(); ota.backupDir = (root / "unused-backup").string();
     ota.applyScript = (root / "unused-apply").string(); ota.rollbackScript = (root / "unused-rollback").string();
     ota.signaturePublicKeyPath = publicKey; ota.querySigningPrivateKeyPath = privateKey;
-    require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
+    require(edge_gateway::filesystem::directory_iterator(stagingDir) == edge_gateway::filesystem::directory_iterator(),
         "full handler negative fixture must have empty staging");
     const auto answer = OtaService(ota).answerOriginalJobQuery(full, full.machineCode);
     require(answer.outcome == "UNKNOWN" && answer.packageType == "full" && answer.version == full.version &&
@@ -2924,7 +2924,7 @@ void testFullOriginalJobQueryHandler(const std::string& requestPath, const std::
     try { (void)OtaService(ota).answerOriginalJobQuery(expired, expired.machineCode); }
     catch (const OtaQueryRejected& error) { rejected = error.reason() == OtaQueryFailure::Expired; }
     require(rejected, "valid signed expired full challenge did not fail EXPIRED");
-    require(std::filesystem::directory_iterator(stagingDir) == std::filesystem::directory_iterator(),
+    require(edge_gateway::filesystem::directory_iterator(stagingDir) == edge_gateway::filesystem::directory_iterator(),
         "full query wrote evidence or a lock");
     runOriginalJobQueryWireBridge(requestPath, publicKey, privateKey, stagingDir, full.machineCode);
 }

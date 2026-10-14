@@ -10,7 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cmath>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
@@ -762,7 +762,7 @@ void testPowerControlFingerprintCannotBeOmittedAfterReservation() {
 void testPowerControlReceiptFailureStillExpiresLease() {
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto path = (
-        std::filesystem::temp_directory_path() /
+        edge_gateway::filesystem::temp_directory_path() /
         ("agc_avc_power_ownership_receipt_failure_" + std::to_string(nonce) + ".json")
     ).string();
     const auto tempPath = path + ".tmp";
@@ -776,7 +776,7 @@ void testPowerControlReceiptFailureStillExpiresLease() {
     // Occupying the atomic-write temporary path forces receipt persistence to fail
     // without damaging the previously committed ownership document.
     require(
-        std::filesystem::create_directory(tempPath),
+        edge_gateway::filesystem::create_directory(tempPath),
         "failed to install ownership receipt write-failure fixture"
     );
     require(
@@ -806,7 +806,7 @@ void testPowerControlReceiptFailureStillExpiresLease() {
         "expired third-party generation must not remain executable"
     );
 
-    std::filesystem::remove(tempPath);
+    edge_gateway::filesystem::remove(tempPath);
     std::remove(path.c_str());
     std::remove((path + ".lock").c_str());
 }

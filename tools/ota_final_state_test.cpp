@@ -6,7 +6,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 
 #include <fstream>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <iostream>
 #include <map>
 #include <chrono>
@@ -929,8 +929,8 @@ void verifyDirectStatusPureRead() {
             newerToken + "\",\"stage\":\"downloading\"}\n");
         const auto snapshot = [&] {
             std::map<std::string, std::string> files;
-            for (const auto& entry : std::filesystem::directory_iterator(staging)) {
-                require(entry.is_regular_file(), "unexpected Direct fixture object");
+            for (const auto& entry : edge_gateway::filesystem::directory_iterator(staging)) {
+                require(edge_gateway::filesystem::is_regular_file(entry.path()), "unexpected Direct fixture object");
                 files.emplace(entry.path().filename().string(), readFile(entry.path().string()));
             }
             return files;
@@ -948,8 +948,8 @@ void verifyDirectStatusPureRead() {
             reply.find("\"stage\":\"downloading\"") != std::string::npos,
             "Direct GET discarded unrelated active progress");
         require(snapshot() == before &&
-            !std::filesystem::exists(staging + "/ota_state.lock") &&
-            !std::filesystem::exists(staging + "/ota_status_pending.log.lock"),
+            !edge_gateway::filesystem::exists(staging + "/ota_state.lock") &&
+            !edge_gateway::filesystem::exists(staging + "/ota_status_pending.log.lock"),
             "Direct GET changed journal or created recovery lock");
         const auto oldHealth = staging + "/health_OLD_JOB.txt";
         for (const auto& rollback : {"failed", "skipped"}) {
