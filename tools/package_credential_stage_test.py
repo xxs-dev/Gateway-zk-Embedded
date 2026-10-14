@@ -54,6 +54,9 @@ class PackageCredentialTest(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(self.config), encoding='utf-8')
             self.paths.append(path)
+        widgets = self.source / 'config/generic-scada-widgets.json'
+        shutil.copyfile(SOURCE / 'config/generic-scada-widgets.json', widgets)
+        self.paths.append(widgets)
 
     def build(self, kind):
         out = self.root / (kind + '.tar.gz')
@@ -71,6 +74,10 @@ class PackageCredentialTest(unittest.TestCase):
         with tarfile.open(out) as archive:
             count = 0
             for member in archive:
+                if member.name == 'gateway-factory-defaults/config/generic-scada-widgets.json':
+                    self.assertEqual((SOURCE / 'config/generic-scada-widgets.json').read_bytes(),
+                                     archive.extractfile(member).read())
+                    continue
                 if member.isfile() and member.name.startswith('gateway-factory-defaults/config/') and member.name.endswith('.json'):
                     data = json.loads(archive.extractfile(member).read())
                     self.assertEqual(cleared(self.config), data,
