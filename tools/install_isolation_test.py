@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline installer regression: root + private Linux mount/IPC namespaces only."""
+"""Offline installer regression: root + private Linux mount/PID/IPC namespaces only."""
 import argparse
 import hashlib
 import io
@@ -991,7 +991,7 @@ exec /bin/cp "$@"
     def test_offline_scada_readonly_native_monitor_value(self):
         home, approval, release = self.scada_readonly_fixture()
         target = next(s['target'] for s in approval['segments'] if s['source'] == 'gateway_point_store_system_monitor')
-        binary = EVIDENCE / 'scada_runtime_test'
+        binary = Path(os.environ.get('GATEWAY_TEST_SCADA_BINARY', EVIDENCE / 'scada_runtime_test'))
         self.assertTrue(binary.is_file(), 'explicit native fixture build required; no mock fallback')
         command = [str(binary), '--readonly-monitor', str(release)]
         result = subprocess.run(command, env={**self.env, 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME': target},
@@ -3194,7 +3194,7 @@ if __name__ == "__main__":
         selection = [item for name in options.test or [] for item in ("--test", name)]
         with tempfile.TemporaryDirectory(prefix="gateway-install-private-", dir=options.persistent_root) as backing:
             Path(backing).chmod(0o755)
-            sys.exit(subprocess.call(["unshare", "--mount", "--net", "--ipc", "--fork", sys.executable, str(Path(__file__).resolve()),
+            sys.exit(subprocess.call(["unshare", "--mount", "--net", "--ipc", "--pid", "--mount-proc", "--fork", sys.executable, str(Path(__file__).resolve()),
                                       "--evidence", str(EVIDENCE), "--parent-mount-ns", os.readlink("/proc/self/ns/mnt"),
                                       "--private-backing", backing, *selection]))
     if options.parent_mount_ns == os.readlink("/proc/self/ns/mnt"):
